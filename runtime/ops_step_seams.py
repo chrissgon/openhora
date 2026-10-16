@@ -21,6 +21,10 @@ module builds those services, once, for the process that runs the task (runtime/
                    resolves to) and `dry_run(doc, attachments)`: the provider's `send --dry-run` for a document and the bytes of its
                    attachments (what it would send: its headers, its envelope, its text, each attachment's name, size and hash). It reads no
                    credential, opens no connection, sends nothing and has no way to: the one flag it adds to the provider's verb is that dry run
+  publisher        PublisherReader: `provider`, `check` and `preview` for a platform (PUBLISH-EFFECT): the implementation of the class
+                   publisher:<platform> the project resolves to, the provider's `--check`, and the post as the publishing skill's own script builds it
+                   with the provider's dry run of it (what it would send, and what its ledger holds under the key). It reads no credential of its
+                   own, publishes nothing and has no way to: the one flag it adds to the provider's `publish` is that dry run
   render           function(format, data) -> {"output", "tool_versions"}: the exporter (class exporter:document), called through the
                    resolver with the minimum environment; it makes a file from a text, on this machine, and changes nothing else
 
@@ -44,12 +48,15 @@ import effects  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
 import project_config  # noqa: E402
+import publish_document  # noqa: E402
+import publish_payload  # noqa: E402
 import send_document  # noqa: E402
 import sources  # noqa: E402
 
 READ_VERBS = ("read", "stat", "table-read", "rows-state")      # the only verbs of the documents provider a step kind can reach
 OUTBOX_CLASS = "sender:email"
 OUTBOX_TIMEOUT = 120
+PUBLISHER_TIMEOUT = 120
 EXPORTER_CLASS = "exporter:document"
 EXPORTER_TIMEOUT = 300
 OUTPUT_MAX = 8 * 1024 * 1024       # the exporter's own cap (providers/exporter/container.py OUTPUT_CAP)
@@ -159,6 +166,65 @@ class OutboxReader:
             shutil.rmtree(folder, ignore_errors=True)
 
 
+class PublisherReader:
+    """The project's publisher for one platform, for a dry run only: the post as the publishing skill's script builds it and what the provider would
+    send for it, nothing published and no credential read by this class. A failure is a StepServiceError whose code is a closed word."""
+
+    def __init__(self, cfg: dict, root: str):
+        self._cfg, self._root = cfg, root
+
+    def _resolver(self):
+        return project_config.resolver(self._root)
+
+    def provider(self, platform: str) -> str:
+        """The implementation of the class publisher:<platform> that this project and this machine resolve to."""
+        resolve = self._resolver()
+        try:
+            return resolve.resolve(publish_payload.publisher_class(platform), root=self._root)["implementation"]
+        except (resolve.UnknownClass, resolve.Unresolved) as e:
+            raise StepServiceError("not_configured", str(e)) from None
+        except effects.EffectError as e:
+            raise StepServiceError("refused", e.reason) from None
+
+    def _call(self, platform: str, verb, args: list) -> dict:
+        resolve = self._resolver()
+        try:
+            return resolve.call(publish_payload.publisher_class(platform), verb, args, root=self._root, timeout=PUBLISHER_TIMEOUT,
+                                env=publish_payload.environment(resolve, platform))
+        except resolve.ProviderCallError as e:
+            raise StepServiceError({"not-configured": "not_configured", "usage": "refused"}.get(e.kind, "provider_failed"), e.reason) from None
+
+    def check(self, platform: str) -> dict:
+        """The provider's `--check` for the platform (the provider reads its own token): its answer when it is ready and the token is not past its
+        expiry, else StepServiceError not_configured."""
+        ready = self._call(platform, None, ["--check", "--platform", platform])
+        if publish_payload.token_problem(ready):
+            raise StepServiceError("not_configured", publish_payload.token_problem(ready))
+        return ready
+
+    def preview(self, content: str, platform: str) -> dict:
+        """{"post": {key, at, text, comment, image}, "dry_run": the provider's dry run without the ledger's lines, "recorded": what the ledger holds
+        under the key ("published", "pending", None for nothing, or "unreported" when the provider does not say)}. The files the script wrote are
+        handed to the provider where they are, in their private folder, which is removed when this returns."""
+        try:
+            built = publish_payload.build(self._root, self._cfg["project"], content, platform, work_dir=self._cfg["data_dir"])
+        except publish_payload.PayloadError as e:
+            raise StepServiceError("payload_refused", e.reason) from None
+        except effects.EffectError as e:
+            raise StepServiceError("refused", e.reason) from None
+        try:
+            paths = built.paths
+            args = publish_document.provider_args(platform, built.key, paths["text"], paths["comment"], paths["image"])
+            answer = self._call(platform, "publish", args + ["--dry-run"])
+            try:
+                shown = publish_document.stable_dry_run(answer, (built.folder,))
+            except effects.EffectError as e:
+                raise StepServiceError("provider_failed", e.reason) from None
+            return {"post": built.data(), "dry_run": shown, "recorded": answer.get("existing_status", "unreported")}
+        finally:
+            built.cleanup()
+
+
 class EffectFiles:
     """The effect documents of a write-back, by task and cycle, in the runtime's data folder (0700 at every level, files 0600)."""
 
@@ -236,7 +302,7 @@ def services(ctx: dict) -> dict:
     """The services of the Context for the task a process runs: `ctx` is the operations layer's context (ops_core.context)."""
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
-            "outbox": OutboxReader(cfg, root), "render": renderer(root)}
+            "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root)}
 
 
 if __name__ == "__main__":
