@@ -1,0 +1,54 @@
+{
+  "flow": "fix-bug",
+  "title": "Fix a bug, to its pull request",
+  "tasks": [
+    {
+      "key": "root-cause",
+      "skill": "eng-root-cause",
+      "title": "Find and prove the cause",
+      "text": "find the cause of the bug this request reports and prove it before anything changes. The report must say what was seen, what was expected and where; when one is missing, write nothing and ask for it with an example. Write the Root cause section of the plan, docs/engineering/plans/<task>.md (a short kebab-case name from the request), with a reproduction in the repository, what a fix must preserve and its reach (shared code, a public interface, another repository). Change no source. A cause that is not confirmed goes to the person, never to a fix.",
+      "depends_on": [],
+      "milestone": true
+    },
+    {
+      "key": "tests",
+      "skill": "eng-unit-tests",
+      "title": "The failing tests",
+      "text": "the root cause is done (the Root cause section of the plan docs/engineering/plans/<task>.md). Write the tests that fail today for the reason the plan names and pass when the fix is right, plus the tests of what a fix must preserve, in the project's own runner. The source under test stays untouched. Record them in the Failing tests section of the plan. When the code at the cause lives in another repository than the one the bug was reported in, write nothing there before the person says yes: name the repository and what will be written, and stop.",
+      "depends_on": [
+        "root-cause"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "implement",
+      "skill": "eng-implement",
+      "title": "Fix the bug",
+      "text": "the failing tests are written (the Failing tests section of the plan docs/engineering/plans/<task>.md). Make them pass and keep everything the plan says a fix must preserve; change no test. Run the plan's check first and quote the failing line, make the smallest change that passes it, run the project's fast checks and quote the passing lines. Add the Change section to the plan. When the plan's reach shows shared code, a public interface, or more than one reasonable fix, stop before changing code and tell the person that an impact analysis or a comparison of options comes first. Propose the commit and do not make it.",
+      "depends_on": [
+        "tests"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "review",
+      "skill": "eng-code-review",
+      "title": "Review the fix",
+      "text": "the fix is done (docs/engineering/plans/<task>.md). Review the change on the current branch against the plan's root cause, its failing tests and what a fix must preserve: run the project's checks, and write the review, docs/engineering/reviews/<change>.md, with only findings a developer can act on. Fix nothing in this task.",
+      "depends_on": [
+        "implement"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "pull-request",
+      "skill": "ops-pull-request",
+      "title": "Prepare the pull request",
+      "text": "the fix is on the current branch, reviewed. Prepare its pull request into the base branch, one for each repository with changes, and stop at the confirmation gate: show the payload and ask. Push nothing yourself.",
+      "depends_on": [
+        "review"
+      ],
+      "milestone": true
+    }
+  ]
+}

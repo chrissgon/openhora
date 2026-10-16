@@ -7,3 +7,7 @@ design-system
 design-brief
 design-execute
 design-handoff
+# The product skill that cuts a specification and its design into tasks (flows/new-project.json). Its tickets in an issue tracker
+# are a separate request: the kind of effect its gate names is chosen by the provider class the skill requires, and the runtime
+# has none for an issue tracker, so a task of it stops at its gate and opens a review.
+product-backlog
