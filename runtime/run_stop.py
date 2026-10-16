@@ -53,16 +53,17 @@ NAMES = re.compile(r"wb-eval-(?:run|keys|held)-[0-9a-f]{16}(?![0-9a-f])")   # a 
 
 
 def processes() -> list:
-    """[(pid, ppid, pgid, command)] of every process, from `ps` (the one seam a test replaces); [] when it cannot be asked."""
+    """[(pid, ppid, pgid, command, start)] of every process, from `ps` (the one seam a test replaces); start is the five words of its start
+    time joined by "_", as ops_core._process_start gives them; [] when it cannot be asked."""
     try:
-        done = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,ppid=,pgid=,command="], capture_output=True, text=True, timeout=20, check=False)
+        done = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,ppid=,pgid=,lstart=,command="], capture_output=True, text=True, timeout=20, check=False)
     except (OSError, subprocess.SubprocessError):
         return []
     rows = []
     for line in done.stdout.splitlines():
-        parts = line.split(None, 3)
-        if len(parts) >= 3 and all(p.isdigit() for p in parts[:3]):
-            rows.append((int(parts[0]), int(parts[1]), int(parts[2]), parts[3] if len(parts) > 3 else ""))
+        parts = line.split(None, 8)
+        if len(parts) >= 8 and all(p.isdigit() for p in parts[:3]):
+            rows.append((int(parts[0]), int(parts[1]), int(parts[2]), parts[8] if len(parts) > 8 else "", "_".join(parts[3:8])))
     return rows
 
 
@@ -72,7 +73,7 @@ def snapshot(owner_pid: int, rows=None) -> dict:
     characters (orphans.run_of_name); the harness's shared objects carry a 12-character tag and match none."""
     rows = processes() if rows is None else rows
     below, commands = {}, {}
-    for pid, ppid, _pgid, command in rows:
+    for pid, ppid, _pgid, command, *_ in rows:
         below.setdefault(ppid, []).append(pid)
         commands[pid] = command
     seen, queue = set(), [owner_pid]
@@ -99,46 +100,81 @@ def held(cfg: dict, task_id: int) -> bool:
     return False
 
 
+COMMAND = re.compile(r"cli\.py\s+(?:run-task|run-step|run-next)\b")   # what a holder of a task lock runs
+
+
+def unverified(cfg: dict, task_id: int, owner, rows):
+    """Why the process a task lock's text names cannot be shown to be that lock's holder, or None when it can. The text can be stale (the
+    holder died, and a holder that only probes the lock, as the recovery does, writes none), and a pid is reused: so the process of that pid
+    must have the start time the text recorded, and its command line must be a run-task, run-step or run-next of this project (a relative
+    --project is taken as this one: the start time has already named the process). rows is the listing of processes()."""
+    pid = owner[0]
+    row = next((r for r in rows if r[0] == pid), None)
+    if row is None:
+        return f"process {pid}, named in the lock text, is not there"
+    recorded = core._lock_start(cfg, task_id)
+    if recorded is None:
+        return f"the lock text records no start time of process {pid} (an older holder, or one that could not be asked)"
+    if row[4] != recorded:
+        return f"process {pid} started at {row[4]}, not at {recorded} as the lock text says: it is another process"
+    if not COMMAND.search(row[3]):
+        return f"process {pid} is not a run-task, run-step or run-next"
+    rest = row[3].split("--project", 1)[1].lstrip(" =") if "--project" in row[3] else ""
+    if rest.startswith(("/", "~")) and not any(rest.startswith(p) for p in (cfg["project"], os.path.realpath(cfg["project"]))):
+        return f"process {pid} works on another project"
+    return None
+
+
 def stop_tasks(cfg: dict, task_ids, *, tool=None, rows=None, grace: float | None = None, poll: float = 0.05) -> dict:
-    """End the runs of these tasks, together. Returns {task id: {"state", "owner", "runs", "removed", "problem"}}: state is
+    """End the runs of these tasks, together. Returns {task id: {"state", "owner", "runs", "removed", "problem", "why"}}: state is
     `free` (nobody held the lock: nothing was signalled), `ended` (the holder exited after TERM), `killed` (it needed KILL) or
-    `stopping` (the lock is still held after the grace, e.g. the holder is this process, which is never signalled); owner is
-    (pid, pgid) as the holder wrote it or None; runs are the lab run ids the process tree named before TERM; removed lists what
-    the container tool removed for them. tool is the container tool (default: the lab facade's); rows is the process listing."""
+    `stopping` (the lock is still held after the grace, e.g. the holder is this process, which is never signalled, or the process
+    the lock text names is not shown to be the holder: `why` says so, and nothing was signalled); owner is (pid, pgid) as the holder wrote
+    it or None; runs are the lab run ids the process tree named before TERM, and removed what the container tool removed for them, both
+    only for a holder that was signalled. tool is the container tool (default: the lab facade's); rows is the process listing."""
     grace = STOP_GRACE if grace is None else grace   # read when called, so that a test can shorten it
     ids = sorted({int(t) for t in task_ids})
-    out = {t: {"state": "free", "owner": None, "runs": [], "removed": [], "problem": None} for t in ids}
+    out = {t: {"state": "free", "owner": None, "runs": [], "removed": [], "problem": None, "why": None} for t in ids}
     live = [t for t in ids if held(cfg, t)]
     if not live:
         return out
-    owners = {t: core._lock_owner(cfg, t) for t in live}
     listing = processes() if rows is None else rows
-    for t in live:   # the tree is read before TERM: afterwards its processes are reparented and can no longer be told apart
-        if owners[t] is not None:
-            out[t]["owner"] = owners[t]
-            out[t]["runs"] = snapshot(owners[t][0], listing)["runs"]
-    termed = {t: owners[t] for t in live if owners[t] is not None and ops_runs._signal_owner(owners[t], signal.SIGTERM)}
+    termed = {}
+    for t in live:
+        owner = core._lock_owner(cfg, t)
+        out[t]["owner"] = owner
+        if owner is None:
+            out[t]["why"] = "the lock text names no holder"
+            continue
+        out[t]["why"] = unverified(cfg, t, owner, listing)
+        if out[t]["why"] is None:   # the tree is read before TERM: afterwards its processes are reparented and can no longer be told apart
+            out[t]["runs"] = snapshot(owner[0], listing)["runs"]
+            if ops_runs._signal_owner(owner, signal.SIGTERM):
+                termed[t] = owner
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline and any(held(cfg, t) for t in live):
         time.sleep(poll)
+    fresh = None
     for t in live:
         if not held(cfg, t):
             out[t]["state"] = "ended"
             continue
         out[t]["state"] = "stopping"
         if t in termed and core._lock_owner(cfg, t) == termed[t]:   # read again just before: only the process that got TERM
-            ops_runs._signal_owner(termed[t], signal.SIGKILL)
-            end = time.monotonic() + 5.0
-            while time.monotonic() < end and held(cfg, t):
-                time.sleep(poll)
-            out[t]["state"] = "stopping" if held(cfg, t) else "killed"
-    named = sorted({r for t in live for r in out[t]["runs"]})
-    if named:
+            fresh = processes() if fresh is None else fresh
+            if unverified(cfg, t, termed[t], fresh) is None:
+                ops_runs._signal_owner(termed[t], signal.SIGKILL)
+                end = time.monotonic() + 5.0
+                while time.monotonic() < end and held(cfg, t):
+                    time.sleep(poll)
+                out[t]["state"] = "stopping" if held(cfg, t) else "killed"
+    named = sorted({r for t in termed for r in out[t]["runs"]})
+    if named:   # nothing is asked of the container tool for a holder that was not signalled
         if tool is None:
             import lab
             tool = lab.container_tool
         cleaned = orphans.remove_runs(tool, named)
-        for t in live:
+        for t in termed:
             mine = set(out[t]["runs"])
             out[t]["removed"] = [r for r in cleaned["removed"] if r["run"] in mine]
             out[t]["problem"] = cleaned["problem"]
@@ -146,7 +182,7 @@ def stop_tasks(cfg: dict, task_ids, *, tool=None, rows=None, grace: float | None
 
 
 @contextlib.contextmanager
-def watch(ctx: dict, request_id: int, *, poll: float = STOP_POLL, stop=None):
+def watch(ctx: dict, request_id: int, *, poll: float = STOP_POLL, stop=None, join_wait: float | None = None):
     """Around the lab call of a router run in this process: a thread reads the request's stop request every `poll` seconds
     (the first read is at once) and, when it is set, ends the lab's runs of this process (`stop`, default lab.stop_runs), again
     every STOP_AGAIN seconds while the call has not returned. The router's call fails then, and its finish reads the stop request
@@ -185,7 +221,10 @@ def watch(ctx: dict, request_id: int, *, poll: float = STOP_POLL, stop=None):
         yield
     finally:
         done.set()
-        thread.join(timeout=poll + 10.0)
+        thread.join(timeout=poll + 10.0 if join_wait is None else join_wait)
+        if thread.is_alive():   # it may still end the lab's runs after the router's session is over: the flag it would leave is put back
+            import lab
+            lab.LAB.STOPPING.clear()
 
 
 if __name__ == "__main__":

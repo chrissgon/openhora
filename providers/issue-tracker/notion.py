@@ -197,14 +197,16 @@ def board_config(config_file) -> dict:
 
 
 def native_config(raw, fields: dict):
-    """task_board.native_status, checked as far as the file alone allows: None when absent (off), else {"property", "options"}.
+    """task_board.native_status, checked as far as the file alone allows: None when absent (off), else {"property", "options", "groups"}.
     The property is a status property of the base other than the one that holds the runtime's nine states (fields.state); that
-    it is a status property and that each option is in its group needs the base (--check, native_options)."""
+    it is a status property and that each option is in its group needs the base (--check, native_options). groups (optional) maps the
+    names the base gives its three groups, when they are not the reference's English ones, to to_do, in_progress and complete."""
     if raw is None:
         return None
-    if not isinstance(raw, dict) or set(raw) - {"property", "options"}:
+    if not isinstance(raw, dict) or set(raw) - {"property", "options", "groups"}:
         raise ProviderError("task_board.native_status is {\"property\": <a status property>, \"options\": {to_do, in_progress, "
-                            "complete: <option name>}} (options optional)", EXIT_USAGE)
+                            "complete: <option name>}, \"groups\": {<the base's group name>: to_do | in_progress | complete}} (options and "
+                            "groups optional)", EXIT_USAGE)
     name = raw.get("property")
     if not isinstance(name, str) or not name.strip():
         raise ProviderError("task_board.native_status.property names a status property of the base", EXIT_USAGE)
@@ -217,11 +219,27 @@ def native_config(raw, fields: dict):
         raise ProviderError(f"task_board.native_status.options maps {', '.join(NATIVE_GROUPS)} to option names", EXIT_USAGE)
     if len(set(options.values())) != len(options):
         raise ProviderError("task_board.native_status.options gives two groups the same option", EXIT_USAGE)
-    return {"property": name, "options": dict(options)}
+    groups = raw.get("groups") or {}
+    if not isinstance(groups, dict) or not all(isinstance(k, str) and k.strip() and v in NATIVE_GROUPS for k, v in groups.items()):
+        raise ProviderError(f"task_board.native_status.groups maps the base's group names to {', '.join(NATIVE_GROUPS)}", EXIT_USAGE)
+    if len(set(groups.values())) != len(groups):
+        raise ProviderError("task_board.native_status.groups gives two group names the same meaning", EXIT_USAGE)
+    return {"property": name, "options": dict(options), "groups": dict(groups)}
 
 
 def squash(text) -> str:
     return re.sub(r"[^a-z0-9]", "", str(text).lower())
+
+
+def native_or_skip(schema: dict, cfg: dict):
+    """native_options for a write of the runtime's own state: a native status that does not fit the base (the property renamed, a group
+    or an option gone) must not fail that write, so the options are None, with one line on stderr, and the state is written alone.
+    `--check` still exits 3 for it."""
+    try:
+        return native_options(schema, cfg["native"])
+    except ProviderError as exc:
+        print(f"warning: the native status of the board is skipped and the state is written alone: {exc}", file=sys.stderr)
+        return None
 
 
 def native_options(schema: dict, native: dict) -> dict:
@@ -240,8 +258,12 @@ def native_options(schema: dict, native: dict) -> dict:
         if isinstance(g, dict):
             groups[g.get("name")] = [names[i] for i in g.get("option_ids") or [] if i in names]
     chosen = {}
+    named = {key: name_ for name_, key in native["groups"].items()}   # the base's own name for a group, when the configuration gives one
     for key, label in NATIVE_GROUPS.items():
-        got = next((v for k, v in groups.items() if squash(k) == squash(label)), None)
+        # a name the configuration gives is matched as it is written; the reference's English names, ignoring case and punctuation
+        same = (lambda k, given=named[key]: k == given) if key in named else (lambda k, given=label: squash(k) == squash(given))
+        label = named.get(key, label)
+        got = next((v for k, v in groups.items() if same(k)), None)
         if got is None:
             raise ProviderError(f"the status property {name!r} has no group {label!r}; its groups are: "
                                 f"{', '.join(one_line(g, 40) for g in groups) or 'none'}", EXIT_NOT_CONFIGURED)
@@ -753,7 +775,7 @@ def cmd_upsert(args: dict) -> int:
             state_kind = schema_check(schema, cfg)
         except ProviderError as exc:
             raise not_given(exc, "the base") from None
-        native = native_options(schema, cfg["native"]) if cfg["native"] else None
+        native = native_or_skip(schema, cfg) if cfg["native"] else None
         if ledger_claim(cfg["base"], key):  # another run claimed it meanwhile
             raise ProviderError(pending_message(key, ledger_entry(cfg["base"], key) or {}))
         body = {"parent": {"type": "data_source_id", "data_source_id": cfg["base"]},
@@ -783,9 +805,10 @@ def cmd_upsert(args: dict) -> int:
         native = None
         if cfg["native"] and "state" in item and read_state(page, cfg) != item["state"]:   # the base is read only for a state change
             try:
-                native = native_options(service.call("retrieve_base", cfg["base"]), cfg["native"])
+                schema = service.call("retrieve_base", cfg["base"])
             except ProviderError as exc:
                 raise not_given(exc, "the base") from None
+            native = native_or_skip(schema, cfg)
         changes = properties_for(item, cfg, kind if kind in ("status", "select") else "status", page, native)
         if changes:
             service.call("update_page", ident, body={"properties": changes})

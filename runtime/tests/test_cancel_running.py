@@ -41,11 +41,13 @@ HOLDER = r'''
 import fcntl, os, signal, subprocess, sys, time
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)
 fcntl.flock(fd, fcntl.LOCK_EX)
-os.ftruncate(fd, 0)
-os.write(fd, ("%d %d\n" % (os.getpid(), os.getpgrp())).encode())
+if sys.argv[2] != "silent":     # a holder that only probes the lock, as the recovery does, writes no text
+    start = "_".join(subprocess.run(["ps", "-o", "lstart=", "-p", str(os.getpid())], capture_output=True, text=True).stdout.split())
+    os.ftruncate(fd, 0)
+    os.write(fd, ("%d %d %s\n" % (os.getpid(), os.getpgrp(), start)).encode())
 if sys.argv[2] == "ignore":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
-for name in sys.argv[3:]:
+for name in sys.argv[7:]:
     subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)", "--name", name])
 print("ready", flush=True)
 time.sleep(120)
@@ -130,7 +132,8 @@ def holder(real, task_id, mode="obey", names=()):
     """A child that holds the task's lock as a run-task does, leads its own group, and (names) has a child whose command line names
     objects of the lab. Returns the process once it said it is ready."""
     path = os.path.join(ops_core._locks_dir(real["cfg"]), f"task-{task_id}.lock")
-    proc = subprocess.Popen([sys.executable, "-c", HOLDER, path, mode, *names], stdout=subprocess.PIPE, text=True, start_new_session=True)
+    command = ["cli.py", "run-task", "--project", real["path"]]   # what a real holder's command line says
+    proc = subprocess.Popen([sys.executable, "-c", HOLDER, path, mode, *command, *names], stdout=subprocess.PIPE, text=True, start_new_session=True)
     real["children"].append(proc)
     assert proc.stdout.readline().strip() == "ready"
     return proc
@@ -246,10 +249,52 @@ def test_a_holder_this_process_cannot_signal_is_reported_stopping_and_its_rows_a
         out = ops.cancel(real["path"], rid)
     finally:
         os.close(fd)
-    assert out["stopped"] == [{"task": ids["a"], "run": run, "state": "stopping"}]
+    assert [(a["task"], a["run"], a["state"]) for a in out["stopped"]] == [(ids["a"], run, "stopping")]
     assert real["store"].task_run_get(real["conn"], run)["status"] == "running"
     assert real["store"].task_get(real["conn"], rid)["state"] == "planned"        # the request keeps its stop request until the run ends
     assert ops.cancel(real["path"], rid)["already"] is True
+
+
+def test_a_stale_lock_text_cannot_get_an_unrelated_process_signalled_even_when_another_process_holds_the_lock(real):
+    """The recovery holds a task lock without writing its text, so a dead holder's text stays; its pid may be an innocent process's."""
+    rid, ids = make_request(real, 1)
+    running(real, ids["a"])
+    innocent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)", "cli.py", "run-task", "--project", real["path"]], start_new_session=True)
+    real["children"].append(innocent)
+    path = os.path.join(ops_core._locks_dir(real["cfg"]), f"task-{ids['a']}.lock")
+    with open(path, "w", encoding="ascii") as f:   # the text a dead holder left, naming a process that now has the pid, but another start time
+        f.write(f"{innocent.pid} {innocent.pid} Mon_Jan_01_00:00:00_2001\n")
+    prober = holder(real, ids["a"], "silent")
+    fake = FakeDocker(containers=[f"wb-eval-run-{RUN}"])
+    out = ops.cancel(real["path"], rid)
+    time.sleep(0.2)
+    assert innocent.poll() is None and alive(innocent.pid) and prober.poll() is None, "nothing was signalled"
+    [answer] = out["stopped"]
+    assert answer["state"] == "stopping" and "it is another process" in answer["why"], answer
+    assert real["docker"].calls == [] and fake.calls == [], "the container tool was not asked: nothing was signalled"
+    assert real["store"].task_get(real["conn"], ids["a"])["state"] == "running"
+    # a text with no start time (an older holder) cannot be verified either, even for a command line that is right
+    with open(path, "w", encoding="ascii") as f:
+        f.write(f"{innocent.pid} {innocent.pid}\n")
+    assert "records no start time" in ops.cancel(real["path"], rid)["stopped"][0]["why"] and alive(innocent.pid)
+    # a process that is not a run of this checkout is refused even with the right start time
+    start = ops_core._process_start(innocent.pid)
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True)
+    real["children"].append(other)
+    with open(path, "w", encoding="ascii") as f:
+        f.write(f"{other.pid} {other.pid} {ops_core._process_start(other.pid)}\n")
+    assert "not a run-task, run-step or run-next" in ops.cancel(real["path"], rid)["stopped"][0]["why"] and alive(other.pid) and start
+
+
+def test_the_task_lock_text_carries_the_start_time_of_its_holder_and_the_owner_reads_two_or_three_words(real):
+    with ops_core._task_lock(real["cfg"], 9):
+        words = open(os.path.join(ops_core._locks_dir(real["cfg"]), "task-9.lock"), encoding="ascii").read().split()
+        assert [int(words[0]), int(words[1])] == [os.getpid(), os.getpgrp()] and words[2] == ops_core._process_start(os.getpid())
+        assert ops_core._lock_owner(real["cfg"], 9) == (os.getpid(), os.getpgrp()) and ops_core._lock_start(real["cfg"], 9) == words[2]
+    assert ops_core._lock_owner(real["cfg"], 9) is None and ops_core._lock_start(real["cfg"], 9) is None
+    path = os.path.join(ops_core._locks_dir(real["cfg"]), "task-9.lock")
+    open(path, "w").write("1234 1234\n")
+    assert ops_core._lock_owner(real["cfg"], 9) == (1234, 1234) and ops_core._lock_start(real["cfg"], 9) is None
 
 
 # --- stop-task --------------------------------------------------------------------------------------------------------------
@@ -364,7 +409,7 @@ def test_the_board_cancels_through_the_same_operation_and_stops_a_running_task(r
     assert real["store"].task_get(real["conn"], rid)["state"] == "cancelled"
 
 
-def test_messaging_can_cancel_and_stop_with_the_default_policy_and_the_mcp_mode_cannot(real):
+def test_messaging_cancels_and_stops_only_when_the_group_brakes_is_granted_and_the_mcp_mode_never(real):
     rid, ids = make_request(real)
     running(real, ids["a"])
     child = holder(real, ids["a"])
@@ -372,7 +417,12 @@ def test_messaging_can_cancel_and_stop_with_the_default_policy_and_the_mcp_mode_
     assert "stop-task is done in the terminal or on the page" in mcp_reply
     assert "cancel is done in the terminal or on the page" in ops.say(real["path"], f"/cancel {rid}", channel="mcp")["reply"]
     assert child.poll() is None
-    assert operations.permitted("stop-task", "messaging", None) and operations.permitted("cancel", "messaging", None)
+    assert not operations.permitted("stop-task", "messaging", None) and not operations.permitted("cancel", "messaging", None)   # closed by default
+    assert "not enabled for this channel" in ops.say(real["path"], f"/stop-task {ids['a']}", channel="messaging")["reply"] and child.poll() is None
+    raw = json.loads(open(real["path"] + "/docs/workbench/runtime.json").read())
+    raw["channels"] = {"messaging": ["read", "talk", "answer", "routine-brakes", "brakes"]}      # the person grants the group, and accepts the file
+    open(real["path"] + "/docs/workbench/runtime.json", "w").write(json.dumps(raw))
+    ops.accept_config(real["path"], ops.project_config.load(real["path"])["sha256"])
     stopped = json.loads(ops.say(real["path"], f"/stop-task {ids['a']}", channel="messaging")["reply"])
     assert stopped["stopped"][0]["state"] == "cancelled"
     until(lambda: child.poll() is not None)
@@ -407,3 +457,42 @@ def test_watch_ends_the_labs_runs_when_the_stop_request_is_set_and_never_before(
         store.request_stop(real["conn"], rid, by="user")
         until(lambda: calls)
     assert len(calls) >= 1
+
+
+def test_a_step_that_was_stopped_writes_nothing_into_the_project(real):
+    """R18: a step task's own atomic write is checked against the stop request, like a skill run's return."""
+    steps, ops_steps = st.load("steps"), st.load("ops_steps")
+    store, conn = real["store"], real["conn"]
+    made = store.step_task_add(conn, key="write-a", title="Write", text="Write a file.", step="ingest", footprint=["docs/out.md"])
+    store.task_claim(conn, made["task"])
+    store.step_task_move(conn, made["task"], state="running")
+    context = ops_steps._context(real["ctx"], store.task_get(conn, made["task"]))
+    assert steps.write_file(context, "docs/out.md", b"first")["bytes"] == 5            # nothing asked to stop: the write is made
+    store.task_stop(conn, made["task"], by="user")
+    with pytest.raises(ops_steps.Stopped):
+        steps.write_file(context, "docs/out.md", b"second")
+    assert open(os.path.join(real["path"], "docs", "out.md"), "rb").read() == b"first", "the stopped step wrote nothing more"
+
+
+def test_a_cancel_of_a_task_id_is_refused_before_any_lock_file_is_made(real):
+    rid, ids = make_request(real, 1)
+    folder = ops_core._locks_dir(real["cfg"])
+    before = sorted(os.listdir(folder))
+    with pytest.raises(ops.OpsError, match="is not a request: cancel the request it belongs to"):
+        ops.cancel(real["path"], ids["a"])
+    assert sorted(os.listdir(folder)) == before, "no effect lock file was made for a task's id"
+
+
+def test_a_watcher_that_outlives_the_router_puts_back_the_flag_it_left_in_the_lab(real):
+    release = threading.Event()
+    store = real["store"]
+    store.request_stop(real["conn"], make_request(real, 1)[0], by="user")
+    rid = store.tasks_list(real["conn"])[0]["id"]
+    flagged = []
+    labmod = st.load("lab")
+    labmod.LAB.STOPPING.set()          # what a late lab.stop_runs() leaves behind
+    with run_stop.watch(real["ctx"], rid, poll=0.02, stop=lambda: release.wait(5), join_wait=0.05):
+        time.sleep(0.2)                # the watcher has called stop and is stuck in it
+    flagged.append(labmod.LAB.STOPPING.is_set())
+    release.set()
+    assert flagged == [False], "the join timed out and the lab's stopping flag was put back"

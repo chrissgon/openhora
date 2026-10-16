@@ -74,7 +74,7 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
     assert operations.GROUPS["approve-effects"] == {"operations": ("approve",), "kind": "effect"}
     assert "reject-cancel-retry" not in operations.GROUPS and operations.GROUPS["reject-cancel"]["operations"] == ("reject", "cancel")
     assert operations.GROUPS["retry"]["operations"] == ("retry",)
-    assert operations.DEFAULT_POLICY == {"messaging": ("read", "talk", "answer", "routine-brakes", "brakes")}
+    assert operations.DEFAULT_POLICY == {"messaging": ("read", "talk", "answer", "routine-brakes")}
     assert ops.EFFECT_CHANNELS is operations.EFFECT_CHANNELS == ("terminal", "page")
 
 
@@ -108,7 +108,7 @@ def test_defaults_page_and_mcp_keep_their_ceiling_and_messaging_stays_closed():
     for kind in ("plan", "acceptance", "effect"):
         assert operations.permitted("approve", "page", None, kind) and operations.permitted("approve", "page", {"mcp": ["read"]}, kind)
     assert not operations.permitted("approve", "mcp", None, "plan")
-    assert operations.policy_groups("messaging", None) == ("read", "talk", "answer", "routine-brakes", "brakes") and operations.policy_groups("page", None) is None
+    assert operations.policy_groups("messaging", None) == ("read", "talk", "answer", "routine-brakes") and operations.policy_groups("page", None) is None
 
 
 def test_refusal_is_a_pure_sentence_and_the_terminal_and_the_conversation_are_never_refused():
@@ -145,7 +145,7 @@ def test_the_brakes_are_for_the_page_alone_and_do_not_leak_to_messaging_or_mcp()
     assert operations.BRAKES == ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")
     assert operations.permitted("cancel", "page", {"page": ["read"]}) and operations.permitted("set-mode", "page", {"page": ["read"]})
     assert not operations.permitted("cancel", "messaging", {"messaging": ["read"]})   # a written policy that leaves the group out narrows it
-    assert operations.permitted("cancel", "messaging", None) and operations.permitted("stop-task", "messaging", None)   # R18: the default holds the brakes
+    assert not operations.permitted("cancel", "messaging", None) and not operations.permitted("stop-task", "messaging", None)   # R18: every channel is restrictive by default, `brakes` is a grant
     assert operations.permitted("cancel", "messaging", {"messaging": ["reject-cancel"]})
     assert operations.permitted("cancel", "messaging", {"messaging": ["brakes"]}) and not operations.permitted("stop-task", "messaging", {"messaging": ["reject-cancel"]})
     assert not operations.permitted("cancel", "mcp", None) and not operations.permitted("set-mode", "mcp", None)
@@ -475,9 +475,9 @@ def test_get_projects_carries_the_pages_permissions_per_project_and_null_when_no
 
 
 def test_messaging_keeps_its_closed_default_and_the_split_groups_turn_reject_cancel_and_retry_on_separately():
-    for name in ("reject", "retry", "release", "approve"):
+    for name in ("reject", "cancel", "stop-task", "retry", "release", "approve"):
         assert not operations.permitted(name, "messaging", None)
-    assert operations.permitted("cancel", "messaging", None)   # R18: cancel and stop-task are the group `brakes`, in the default
+    assert not operations.permitted("stop-task", "messaging", None) and operations.permitted("stop-task", "messaging", {"messaging": ["brakes"]})   # R18: a grant, not a default
     assert operations.permitted("reject", "messaging", {"messaging": ["reject-cancel"]}) and operations.permitted("cancel", "messaging", {"messaging": ["reject-cancel"]})
     assert not operations.permitted("retry", "messaging", {"messaging": ["reject-cancel"]})
     assert operations.permitted("retry", "messaging", {"messaging": ["retry"]}) and not operations.permitted("cancel", "messaging", {"messaging": ["retry"]})

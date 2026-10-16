@@ -29,8 +29,7 @@ Operations of stage 1 of the platform plan:
   answer(project, pending_id, text)   answer a pending decision: the task runs again with the answer
   release(project, pending_id)     release a delivery: the task is done, and what depended on it becomes ready
   retry(project, task_id)          make a failed or blocked task ready again
-  cancel(project, request_id)      cancel a request and what is open under it, at any moment, even while a task runs; stop_task(project, task_id)
-                                   stops one running task (it is blocked, `retry` resumes it): runtime/ops_cancel.py
+  cancel, stop_task                cancel a request, or stop one running task (it is blocked, `retry` resumes it), at any moment: ops_cancel.py
   status(project)                  requests, tasks, pending decisions
   proof(project[, skill])          the model each skill in use would run on when nothing chooses one, and its band on every model
                                    (runtime/proof.py); no model is called
@@ -202,7 +201,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, never bound at import)
-import ops_cancel  # noqa: E402  (cancel and stop-task at any moment; a run asks it whether it was stopped)
+import ops_cancel  # noqa: E402  (cancel and stop-task at any moment; a run asks it whether it was stopped; re-exported below)
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
 import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; this file re-exports `run_task`, `dispatch` and `reap`)
 import ops_say  # noqa: E402  (the conversation and its queue; this file re-exports `say` at its end)
@@ -231,7 +230,6 @@ import parallel  # noqa: E402
 import path_rule  # noqa: E402
 import plan  # noqa: E402
 import progress as progress_calc  # noqa: E402  (the operation `progress` would hide the module: part 0, F.1, rule 5)
-import run_stop  # noqa: E402  (the router's run asks the stop request beside its lab call)
 import proof as proof_rules  # noqa: E402  (the operation `proof` would hide the module: part 0, F.1, rule 5)
 import project_config  # noqa: E402
 import router  # noqa: E402
@@ -1180,17 +1178,6 @@ def go_ahead(project: str, task_id: int, drop_after: bool = False) -> dict:
     return ops_waits.go_ahead(core.context(project), task_id, drop_after)
 
 
-def cancel(project: str, request_id: int, channel: str | None = None) -> dict:
-    """Cancel a request, its tasks that are not done and their open pending decisions, at any moment: a run in progress is ended and returns
-    nothing (limit L41; runtime/ops_cancel.py). Returns {"request", "cancelled", "stopped", "pending", "already"}."""
-    return ops_cancel.cancel(core.context(project), request_id, channel=channel)
-
-
-def stop_task(project: str, task_id: int, channel: str | None = None) -> dict:
-    """Stop one running task: its run ends cancelled and the task blocked, for `retry` (runtime/ops_cancel.py)."""
-    return ops_cancel.stop_task(core.context(project), task_id, channel=channel)
-
-
 def proof(project: str, skill: str | None = None) -> dict:
     """The model each skill would run on now when nothing chooses one (the project's default_model, else `auto`), by its proof,
     with the two checks and the band of the skill on every model: {"skills": {name: proof.route(...) with "key", "billing" and
@@ -1762,7 +1749,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
         # every container of the process when it closes): the whole session is held under one guard. Task runs are
         # processes of their own and never take it.
-        with core._LAB_GUARD, lab.session(), _key_in_environment(routing, keys), run_stop.watch(ctx, request["id"]):
+        with core._LAB_GUARD, lab.session(), _key_in_environment(routing, keys), ops_cancel.watch(ctx, request["id"]):
             result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
                                    max_cost=budget)
     except lab.LabError as e:
@@ -2151,7 +2138,7 @@ def sync(project: str, dry_run: bool = False, take: str | None = None, path: str
         if board.enabled(ctx["cfg"]):
             try:
                 pulled = ({"pulled": [], "created": [], "edited": [], "refused": [], "gone": [], "comments": 0,
-                           "left_out_final": len(board.left_out(ctx))} if dry_run else ops_waits.settled(ctx, board.pull(ctx)))
+                           "left_out_final": len(board.left_out(ctx))} if dry_run else ops_waits.settled(ctx, board.pull(ctx, defer=True)))
                 out["board"] = {**pulled, **board.push(ctx, dry_run=dry_run)}
             except board.BoardError as e:
                 raise core.OpsError(f"the task board: {e}", 3 if e.kind == "not configured" else 1) from None
@@ -2161,7 +2148,7 @@ def sync(project: str, dry_run: bool = False, take: str | None = None, path: str
             pulled = _documents(ctx, documents.pull, ctx, dry_run=dry_run)
             pushed = _documents(ctx, lambda: documents.push(ctx, documents.mirrored_paths(ctx), dry_run=dry_run))
             out["documents"] = documents.merged(pulled, pushed)
-    return out
+    return ops_cancel.after_sync(ctx, out)   # the cancels a person made on the board, now that the write lock is let go
 
 
 def _documents(ctx: dict, function, *args, **kwargs):
@@ -2756,6 +2743,7 @@ from ops_config import accept_config, give_consent, set_mode, set_model  # noqa:
 from ops_sources import source_add, source_describe, source_drive, source_import, source_refresh, sources_catalog  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
+from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)
 # The workflows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401

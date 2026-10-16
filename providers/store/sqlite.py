@@ -1856,7 +1856,7 @@ def step_task_add(conn: sqlite3.Connection, *, key: str, title: str, text: str, 
                 raise StoreError(f"request {request_id} is {request['state']}: a step task is added to a planned or a done request")
             if request["stop_requested_at"]:
                 raise StoreError(f"request {request_id} is being cancelled: a step task is not added to it")
-            known ={r["key"]: r["id"] for r in conn.execute("SELECT id, key FROM tasks WHERE parent_id = ? ORDER BY id",
+            known = {r["key"]: r["id"] for r in conn.execute("SELECT id, key FROM tasks WHERE parent_id = ? ORDER BY id",
                                                                (request_id,)).fetchall() if r["key"] is not None}
             if key in known:
                 raise StoreError(f"request {request_id} already has a task {key!r}")
@@ -2071,6 +2071,8 @@ def request_stop(conn: sqlite3.Connection, request_id: int, *, by: str) -> dict:
         if root["parent_id"] is not None:
             raise StoreError(f"task {request_id} is not a request: cancel the request it belongs to")
         if root["state"] in TASK_FINAL_STATES:
+            if root["state"] == "done" and _running_runs(conn, request_id):   # a delivery routed again: the run is not a stop's to end
+                raise StoreError(f"a task of request {request_id} is running: wait for its run to end")
             return {"request": request_id, "cancelled": [], "pending": [], "running": [], "router_run": None,
                     "already": root["state"] == "cancelled"}
         already = root["stop_requested_at"] is not None
@@ -2142,9 +2144,10 @@ def _settle_stopped_task(conn: sqlite3.Connection, task_id: int, stop: dict, now
 
 
 def task_stopped(conn: sqlite3.Connection, task_id: int, *, usage: dict | None = None) -> dict:
-    """End a stopped task whose holder is gone (the caller holds its lock, as for task_fail_orphans): each run row of it still
-    `running` ends `cancelled` (usage maps a run id to what it reported: tokens, cost_usd, run_dir), and the task ends as the
-    stop says. A task with no stop request, or not `running`, is left alone. Returns {"task", "state", "runs": [ids]}."""
+    """End a stopped task whose holder is gone: each run row of it still `running` ends `cancelled` (usage maps a run id to what it
+    reported: tokens, cost_usd, run_dir), and the task ends as the stop says. The caller does not hold the task's lock (the canceller
+    only found it free, or the holder exited after TERM): a task claimed again meanwhile is not possible, because a task with a stop
+    request is not claimed (task_claim). A task with no stop request, or not `running`, is left alone. Returns {"task", "state", "runs": [ids]}."""
     now = iso(utcnow())
     with write(conn):
         stop = stop_of(conn, task_id)

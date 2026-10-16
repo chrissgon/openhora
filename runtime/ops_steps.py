@@ -115,6 +115,8 @@ def _context(ctx: dict, task: dict) -> steps.Context:
     def alive():
         if _stored_state(ctx, task_id) == "cancelled":
             raise steps.Cancelled()
+        if store.stop_of(ctx["conn"], task_id) is not None:   # a stop or a cancel is under way (R18): the step writes nothing more, and ends through Stopped
+            raise Stopped()
 
     def decisions():
         return [{"id": d["id"], "status": d["status"], "resolution": d.get("resolution"), "answer": d.get("answer"),

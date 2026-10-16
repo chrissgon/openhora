@@ -141,7 +141,7 @@ cancel    cancels a request, its tasks that are not done and their open pending 
           with nothing stopped, until the effect ends.
 stop-task stops one running task the same way (--task <id>): its run is cancelled, the task is blocked with a note, and
           retry resumes it (a step task at its step); the request and its other tasks go on.
-status   requests, tasks (each with its title and area agent) and pending decisions (each with its task's "agent" and
+status    requests, tasks (each with its title and area agent) and pending decisions (each with its task's "agent" and
           "actions", the words it may be resolved with), from the store's records; for each request and task, whether it is
           on the task board and how many comments saved from there are open; each mirrored document, its status
           and its note.

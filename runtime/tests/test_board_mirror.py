@@ -348,3 +348,30 @@ def test_status_says_nothing_of_a_board_when_none_is_configured(tree):
     path.write_text(json.dumps(cfg), encoding="utf-8")
     accept(project)
     assert ops.status(project)["board"] is None
+
+
+def test_a_request_cancelled_on_the_board_while_a_task_runs_is_cancelled_after_the_sync_let_the_write_lock_go(tree, monkeypatch):
+    """R18: a stop may take a minute; `sync` holds the write lock while it pulls, so it makes the cancel after it let the lock go."""
+    run_stop = st.load("run_stop")
+    ids = planned(tree)
+    ops.sync(project_of(tree))
+    s, conn = store(tree)
+    assert s.task_claim(conn, ids["market"])["task"]["state"] == "running"
+    run = s.task_run_start(conn, ids["market"], skill="demo-asks", model="m", adapter="h")["run_id"]
+    edit_item(tree, ids["request"], "State: planned", "State: cancelled")
+    held = []
+    real_stop = run_stop.stop_tasks
+
+    def watched(cfg, task_ids, **kwargs):
+        fd = ops_core._try_lock(cfg, "write.lock")    # taken from another descriptor: it fails while the sync holds the lock
+        held.append(fd is None)
+        if fd is not None:
+            import os
+            os.close(fd)
+        return real_stop(cfg, task_ids, **kwargs)
+    monkeypatch.setattr(run_stop, "stop_tasks", watched)
+    out = ops.sync(project_of(tree))["board"]
+    assert held == [False], "the stop sequence ran with the write lock let go"
+    assert out["refused"] == [] and "cancel_later" not in out
+    assert s.task_run_get(conn, run)["status"] == "cancelled" and task(tree, ids["request"])["state"] == "cancelled"
+    assert "State: cancelled" in item_file(tree, ids["request"]).read_text(encoding="utf-8"), "the board is written again with the cancelled state"

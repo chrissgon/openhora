@@ -121,19 +121,22 @@ def _end(ctx: dict, first: dict) -> list:
                 core._stored(ctx, store.task_stopped, task_id, usage=_usages(ctx, [task_id]))
             row = core._stored(ctx, store.task_get, task_id)
             ended = row["state"] != "running"
-            answers.append({"task": task_id, "run": item["run"], "state": "cancelled" if ended else "stopping"})
+            answers.append({"task": task_id, "run": item["run"], "state": "cancelled" if ended else "stopping",
+                            **({"why": found[task_id]["why"]} if not ended and found[task_id]["why"] else {})})
     if first.get("router_run") is not None:
         state = _finish_router(ctx, first["router_run"])
         answers.append({"run": first["router_run"], "state": "stopping" if state == "stopping" else "cancelled"})
     return answers
 
 
-def cancel(ctx: dict, request_id: int, *, by: str = "user", channel=None) -> dict:
+def cancel_request(ctx: dict, request_id: int, *, by: str = "user", channel=None) -> dict:
     """Cancel a request at any moment (the sequence in the module's text). Returns {"request", "cancelled": [the ids of the
     tasks and the request cancelled], "stopped": [{"task" and/or "run", "state": "cancelled" | "stopping"}], "pending": [the
     pending decisions cancelled], "already"}; "stopping" is a run that did not end within the waits: the request keeps its stop
     request, and its owner (or the next recovery) finishes it."""
     cfg, store, who = ctx["cfg"], ctx["store"], _who(by, channel)
+    if core._stored(ctx, store.task_get, request_id)["parent_id"] is not None:   # asked before any lock is taken: a task's id makes no lock file
+        raise core.OpsError(f"task {request_id} is not a request: cancel the request it belongs to", 1)
     with contextlib.ExitStack() as stack:
         _hold_effect_lock(stack, cfg, request_id)
         before = _cancelled_pending(ctx, request_id)
@@ -150,7 +153,7 @@ def cancel(ctx: dict, request_id: int, *, by: str = "user", channel=None) -> dic
                                    "already": first["already"]})
 
 
-def stop_task(ctx: dict, task_id: int, *, by: str = "user", channel=None) -> dict:
+def stop_one(ctx: dict, task_id: int, *, by: str = "user", channel=None) -> dict:
     """Stop one running task at any moment: its run ends `cancelled` and the task `blocked` with the note "stopped by <who>:
     retry it or cancel the request", so that `retry` resumes it (a step task at its step) and its dependents stay planned. The
     other tasks of the request follow the request. Returns the shape of cancel for the task's request, "cancelled" and "pending"
@@ -169,6 +172,46 @@ def stop_task(ctx: dict, task_id: int, *, by: str = "user", channel=None) -> dic
         stopped = _end(ctx, {"running": running})
     return ops_waits.settled(ctx, {"request": request_id, "task": task_id, "cancelled": [], "stopped": stopped,
                                    "pending": [], "already": first["already"]})
+
+
+def cancel(project: str, request_id: int, channel: str | None = None) -> dict:
+    """The operation `cancel`: cancel a request, its tasks that are not done and their open pending decisions, at any moment; a run in
+    progress is ended and returns nothing (limit L41). Returns {"request", "cancelled", "stopped", "pending", "already"}."""
+    return cancel_request(core.context(project), request_id, channel=channel)
+
+
+def stop_task(project: str, task_id: int, channel: str | None = None) -> dict:
+    """The operation `stop-task`: stop one running task; its run ends cancelled and the task blocked, for `retry`."""
+    return stop_one(core.context(project), task_id, channel=channel)
+
+
+def watch(ctx: dict, request_id: int):
+    """The router's watcher around its lab call (run_stop.watch), reached from ops.py through this module."""
+    return run_stop.watch(ctx, request_id)
+
+
+def after_sync(ctx: dict, out: dict) -> dict:
+    """What `sync` does after it let the write lock go: the requests a person cancelled on the board (board.pull with defer, "cancel_later")
+    are cancelled now, each as anywhere else, and the board is written again so that the cancelled state reaches it. A cancel that is refused
+    (an effect of the request executes) is listed under the board's "refused". Returns out."""
+    shown = out.get("board")
+    later = shown.pop("cancel_later", []) if isinstance(shown, dict) else []
+    if not later:
+        return out
+    board = importlib.import_module("board")
+    for request_id in later:
+        try:
+            cancel_request(ctx, request_id, by="board", channel="board")
+        except core.OpsError as e:
+            shown["refused"].append({"task": request_id, "state": "cancelled", "reason": str(e)})
+    try:
+        with core._write_lock(ctx["cfg"]):
+            again = board.push(ctx)
+        shown["pushed"] = sorted({*shown["pushed"], *again["pushed"]})
+        shown["failed"] += again["failed"]
+    except board.BoardError as e:
+        shown["failed"].append({"task": later[0], "reason": str(e)})
+    return out
 
 
 def stop_requested(ctx: dict, task_id: int) -> bool:

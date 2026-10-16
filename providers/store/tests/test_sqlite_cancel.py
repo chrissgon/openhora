@@ -226,3 +226,16 @@ def test_a_request_being_cancelled_takes_no_task_and_no_retry(conn):
     store.request_stop(conn, rid, by="user")
     with pytest.raises(store.StoreError, match="being cancelled"):
         store.tasks_add(conn, rid, [{"key": "d", "skill": "demo-d", "title": "D", "text": "do d."}])
+
+
+def test_a_done_request_whose_delivery_is_routed_again_is_refused_as_running_and_a_cancelled_one_says_already(conn):
+    rid, ids = request(conn, tasks=[TASKS[0]])
+    run = start(conn, ids["a"])
+    store.task_run_finish(conn, run, status="ok", ending="done", task_state="waiting", pending=review())
+    pending = store.pending_list(conn, "open")[0]["id"]
+    store.pending_resolve(conn, pending, resolution="released", by="user")
+    assert store.task_get(conn, rid)["state"] == "done"
+    store.route_run_start(conn, rid, skill="router", model="m", adapter="h", reroute=True)
+    with pytest.raises(store.StoreError, match="is running: wait for its run to end"):
+        store.request_stop(conn, rid, by="user")
+    assert store.task_get(conn, rid)["stop_requested_at"] is None

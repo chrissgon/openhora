@@ -366,8 +366,8 @@ GROUPS = {
     "approve-effects": {"operations": ("approve",), "kind": "effect"},
     "go-ahead": {"operations": ("go-ahead",), "kind": None},
     "reject-cancel": {"operations": ("reject", "cancel"), "kind": None},
-    "brakes": {"operations": ("cancel", "stop-task"), "kind": None},   # R18: end what runs; `cancel` is also in reject-cancel, so a written policy stays valid
-    "retry":{"operations": ("retry",), "kind": None},
+    "brakes": {"operations": ("cancel", "stop-task"), "kind": None},   # R18: end what runs, a grant for messaging (in no default); `cancel` is also in reject-cancel, so a written policy stays valid
+    "retry": {"operations": ("retry",), "kind": None},
     "set-mode": {"operations": ("set-mode", "set-model"), "kind": None},
     "consent": {"operations": ("give-consent",), "kind": None},   # the page's consent for an autonomous agent (D38): a group of its own, so granting set-mode never grants it
     "dispatch": {"operations": ("dispatch",), "kind": None},
@@ -385,7 +385,7 @@ GROUPS = {
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
 # line to the planning agent and an answer is turned on explicitly.
-DEFAULT_POLICY = {"messaging": ("read", "talk", "answer", "routine-brakes", "brakes")}
+DEFAULT_POLICY = {"messaging": ("read", "talk", "answer", "routine-brakes")}
 NEVER_NARROWED = ("terminal",)
 POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's configuration narrows; `chat` (local access, equal to the terminal) and `terminal` never are
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`

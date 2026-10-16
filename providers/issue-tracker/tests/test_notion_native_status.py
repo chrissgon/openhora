@@ -124,12 +124,14 @@ def test_a_property_that_is_not_a_status_property_is_refused_by_check_with_exit_
     assert code == 3 and "no status property 'Progress'" in said
 
 
-def test_an_option_that_is_not_in_its_group_is_refused_with_exit_3_naming_the_group(tmp_path):
+def test_an_option_that_is_not_in_its_group_fails_check_with_exit_3_and_does_not_fail_the_state_write(tmp_path):
     board = board_with(tmp_path, config={"property": "Progress", "options": {"complete": "Not started"}})
     code, _, said = board.run("--check")
     assert code == 3 and "'Not started'" in said and "'Complete'" in said and "Done" in said
-    made_code, _, said = board.upsert({"title": "Voice", "state": "done"}, key="k1")
-    assert made_code == 3 and board.rows() == 0   # nothing is created on a configuration the base cannot take
+    made_code, made, said = board.upsert({"title": "Voice", "state": "done"}, key="k1")
+    assert made_code == 0 and board.rows() == 1, "the runtime's own state is written whatever the native status is"
+    assert said.count("warning: the native status of the board is skipped") == 1 and "'Not started'" in said
+    assert progress(board, made["id"]) is None and board.fake.pages[made["id"]]["properties"]["Status"]["status"]["name"] == "done"
 
 
 def test_a_base_whose_groups_cannot_be_found_is_refused_by_check_naming_what_it_found(tmp_path):
@@ -139,14 +141,16 @@ def test_a_base_whose_groups_cannot_be_found_is_refused_by_check_naming_what_it_
     assert code == 3 and "no group 'To-do'" in said and "A fazer" in said and "Em curso" in said
 
 
-def test_an_option_a_person_deleted_meanwhile_is_refused_with_exit_3_and_the_row_keeps_its_option(tmp_path):
+def test_an_option_a_person_deleted_meanwhile_skips_the_native_status_and_still_writes_the_state(tmp_path):
     board = board_with(tmp_path, config={"property": "Progress", "options": {"complete": "Done"}})
     made = board.upsert({"title": "Voice", "state": "ready"}, key="k1")[1]
     status = board.fake.bases[board.harness.base]["properties"]["Progress"]["status"]
     status["options"] = [o for o in status["options"] if o["name"] != "Done"]    # the person deleted the option meanwhile
     status["groups"][2]["option_ids"] = []
     code, _, said = board.upsert({"state": "done"}, key="k2", ident=made["id"])
-    assert code == 3 and progress(board, made["id"])["name"] == "Not started"
+    assert code == 0 and progress(board, made["id"])["name"] == "Not started", "the native status is left as it was"
+    assert board.fake.pages[made["id"]]["properties"]["Status"]["status"]["name"] == "done" and "skipped" in said
+    assert board.run("--check")[0] == 3
 
 
 def test_the_stand_in_refuses_a_status_option_the_property_does_not_list_with_400(tmp_path):
@@ -157,3 +161,47 @@ def test_the_stand_in_refuses_a_status_option_the_property_does_not_list_with_40
     assert getattr(refused.value, "status", None) == 400
     board.fake.create_page(parent, {"Progress": {"status": {"name": "Done"}}})   # an option it lists is taken
     board.fake.create_page(parent, {"Status": {"status": {"name": "any word"}}})  # the runtime's own property lists none: any word
+
+
+def test_a_property_renamed_since_does_not_fail_the_states_write_and_check_exits_3(tmp_path):
+    board = board_with(tmp_path, config={"property": "Progress"})
+    made = board.upsert({"title": "Voice", "state": "ready"}, key="k1")[1]
+    props = board.fake.bases[board.harness.base]["properties"]
+    props["Avancement"] = props.pop("Progress")            # a person renamed the property
+    for state in ("running", "done"):                      # an update, then a creation
+        code, _, said = board.upsert({"state": state}, key="k-" + state, ident=made["id"])
+        assert code == 0 and said.count("warning: the native status") == 1
+        assert board.fake.pages[made["id"]]["properties"]["Status"]["status"]["name"] == state
+    code, _, said = board.upsert({"title": "Another", "state": "ready"}, key="k2")
+    assert code == 0 and "no status property 'Progress'" in said and board.rows() == 2
+    code, _, said = board.run("--check")
+    assert code == 3 and "no status property 'Progress'" in said
+
+
+PT = [("A fazer", ["Novo"]), ("Em curso", ["Fazendo"]), ("Concluido", ["Feito", "Entregue"])]
+
+
+def test_a_base_whose_groups_have_other_names_is_mapped_by_the_configuration(tmp_path):
+    config = {"property": "Progress", "groups": {"A fazer": "to_do", "Em curso": "in_progress", "Concluido": "complete"}, "options": {"complete": "Entregue"}}
+    board = board_with(tmp_path, groups=PT, config=config)
+    code, out, _ = board.run("--check")
+    assert code == 0 and out["native_status"] == {"to_do": "Novo", "in_progress": "Fazendo", "complete": "Entregue"}
+    made = board.upsert({"title": "Voice", "state": "ready"}, key="k1")[1]
+    assert progress(board, made["id"])["name"] == "Novo"
+    board.upsert({"state": "done"}, key="k2", ident=made["id"])
+    assert progress(board, made["id"])["name"] == "Entregue"
+    # a mapped name that the base lacks is exit 3 and names the groups found
+    wrong = board_with(tmp_path / "w", groups=PT, config={"property": "Progress", "groups": {"Pendente": "to_do"}}) if (tmp_path / "w").mkdir() is None else None
+    code, _, said = wrong.run("--check")
+    assert code == 3 and "no group 'Pendente'" in said and "A fazer" in said
+
+
+def test_the_unmapped_groups_of_a_non_english_base_still_exit_3_and_a_bad_group_mapping_is_exit_2(tmp_path):
+    board = board_with(tmp_path, groups=PT, config={"property": "Progress", "groups": {"A fazer": "to_do"}})
+    code, _, said = board.run("--check")
+    assert code == 3 and "no group 'In progress'" in said          # only one of the three is mapped: the rest is looked for by the reference's names
+    for groups in ({"A fazer": "later"}, {"": "to_do"}, {"A fazer": "to_do", "Novo": "to_do"}, ["A fazer"]):
+        folder = tmp_path / ("g" + str(abs(hash(json.dumps(groups)))))
+        folder.mkdir()
+        code, out, said = board_with(folder, groups=PT, config={"property": "Progress", "groups": groups}).run("list")
+        assert code == 2 and "native_status" in said, groups

@@ -15,7 +15,7 @@
       "price": {
         "source": "https://prices.example/models",
         "accessed": "2026-10-01",
-        "age_days": 15,
+        "age_days": 14,
         "stale": false
       }
     },
@@ -33,7 +33,7 @@
       "price": {
         "source": "https://prices.example/models",
         "accessed": "2026-10-01",
-        "age_days": 15,
+        "age_days": 14,
         "stale": false
       }
     },
@@ -51,7 +51,7 @@
       "price": {
         "source": "https://prices.example/models",
         "accessed": "2026-10-01",
-        "age_days": 15,
+        "age_days": 14,
         "stale": false
       }
     },
@@ -69,7 +69,7 @@
       "price": {
         "source": "https://prices.example/models",
         "accessed": "2026-10-01",
-        "age_days": 15,
+        "age_days": 14,
         "stale": false
       }
     }
