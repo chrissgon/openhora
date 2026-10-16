@@ -91,3 +91,23 @@ def test_the_code_change_flow_is_valid_and_its_last_task_is_a_milestone():
     gate = manifest.load(str(REPO), "ops-pull-request")["gate"]
     assert gate == {"effect": "create", "payload_file": "<tmp>/payload.md"}
     assert manifest.load(str(REPO), "eng-implement")["gate"] is None
+
+
+def test_a_writer_that_depends_on_the_reader_is_not_a_missing_dependency():
+    # A row of inputs that lists alternatives (a task, a plan, a review finding) names a path the reader's own later task writes;
+    # that task runs after the reader, so the reader cannot be reading it (the engineering flows with implement then review).
+    skills = {"reader": {"inputs": ["docs/a.md", "docs/b.md"], "outputs": [],
+                         "skill_md": "## Inputs\n\n| Artifact | Required | If missing |\n|---|---|---|\n| `docs/a.md`, or `docs/b.md` | yes | Stop |\n"},
+              "writer": {"inputs": [], "outputs": ["docs/b.md"], "skill_md": ""},
+              "other": {"inputs": [], "outputs": ["docs/a.md"], "skill_md": ""}}
+
+    def flow(*tasks):
+        return {"flow": "demo", "tasks": [{"key": k, "skill": s, "depends_on": d} for k, s, d in tasks]}
+
+    after = flow(("reader", "reader", []), ("writer", "writer", ["reader"]))
+    assert flow_files.dependency_problems(after, skills) == []
+    before = flow(("reader", "reader", []), ("writer", "writer", []))
+    assert len(flow_files.dependency_problems(before, skills)) == 1    # parallel, not downstream: still a miss
+    both = flow(("reader", "reader", []), ("other", "other", []), ("writer", "writer", ["reader"]))
+    assert flow_files.dependency_problems(both, skills) == [
+        'task reader reads docs/a.md, which task other writes: add "other" to its depends_on']

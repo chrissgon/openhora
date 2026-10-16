@@ -326,7 +326,9 @@ def _artifact(path: str) -> str:
 def dependency_problems(flow: dict, skills: dict) -> list:
     """Each task T that requires (required_inputs) a path P which the skill of another task U of the same flow
     owns (lists in its outputs) must reach U through depends_on. `skills` maps a skill name to {"inputs",
-    "outputs", "skill_md"}. One text per miss; a task whose skill is not in `skills` (a step task has none) is skipped."""
+    "outputs", "skill_md"}. One text per miss; a task whose skill is not in `skills` (a step task has none) is skipped.
+    A writer that depends on T itself is not a miss: it runs after T, so T cannot be reading what it writes (a row of
+    inputs that lists alternatives, such as a task, a plan or a review finding, names all of them)."""
     tasks = [t for t in flow.get("tasks", []) if isinstance(t, dict) and isinstance(t.get("key"), str)]
     by_key = {t["key"]: t for t in tasks}
 
@@ -348,7 +350,7 @@ def dependency_problems(flow: dict, skills: dict) -> list:
         reached = reachable(t["key"])
         for path in required_inputs(info.get("skill_md", ""), info.get("inputs", [])):
             for u in tasks:
-                if u is t or u["key"] in reached:
+                if u is t or u["key"] in reached or t["key"] in reachable(u["key"]):   # a task downstream of t cannot feed t: the row lists alternatives
                     continue
                 owned = (skills.get(u.get("skill")) or {}).get("outputs", [])
                 if any(_artifact(o) == _artifact(path) for o in owned):

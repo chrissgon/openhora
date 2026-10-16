@@ -34,8 +34,9 @@ STANDINS = REPO / "runtime" / "tests" / "corpus" / "standins.jsonl"
 UNCLASSIFIED_STOPPED_MAX = 115
 UNCLASSIFIED_CHANGED_MAX = 43
 # The measured share of the stopped lines whose guard passed that are classified question or blocked (361 of 468),
-# rounded down to two decimals.
-STOPS_RECOGNISED_MIN = 0.77
+# rounded down to two decimals. After the removal of the flow-fix-bug skill (2026-10-15) and of its 30 lines, which
+# the classifier recognised well (the corpus cannot be read for a skill that is gone), the measured share is 0.765.
+STOPS_RECOGNISED_MIN = 0.76
 KEYS = {"id", "skill", "case", "tier", "response", "created", "modified", "deleted", "stopped", "outputs_written",
         "stop_reason", "guards", "pass_rate"}
 

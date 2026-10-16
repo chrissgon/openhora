@@ -1,0 +1,54 @@
+{
+  "flow": "improve-code",
+  "title": "Improve existing code, to its pull request",
+  "tasks": [
+    {
+      "key": "impact",
+      "skill": "eng-impact-analysis",
+      "title": "What the change reaches",
+      "text": "the request names the code to improve and what is wrong with it. Give the full surface of that change: what it touches, which written rules and measured budgets constrain it, which tests assert today's behaviour, and who outside the code meets it. Write it as the Impact section of the plan, docs/engineering/plans/<task>.md (a short kebab-case name from the request), and choose no approach here.",
+      "depends_on": [],
+      "milestone": false
+    },
+    {
+      "key": "options",
+      "skill": "eng-tradeoffs",
+      "title": "Choose the approach",
+      "text": "the impact is done (the Impact section of the plan docs/engineering/plans/<task>.md). Compare the ways to improve the code by what each one did when it ran, against the plan's cases and the project's written rules, and write a decision record in docs/engineering/adr/ with the numbers. Recommend one; a rule of the project is changed only by the person. If only one option meets the rules, say so in one line.",
+      "depends_on": [
+        "impact"
+      ],
+      "milestone": true
+    },
+    {
+      "key": "refactor",
+      "skill": "eng-refactor",
+      "title": "Refactor",
+      "text": "the approach is chosen (the decision record in docs/engineering/adr/ and the plan docs/engineering/plans/<task>.md). Make the code cheaper to keep without changing its behaviour: run the project's full check before and after, report the measurements the project cares about, and record the smell, why the change preserves behaviour and the before-and-after table in the Refactor section of the plan. Propose the commit and do not make it.",
+      "depends_on": [
+        "options"
+      ],
+      "milestone": true
+    },
+    {
+      "key": "review",
+      "skill": "eng-code-review",
+      "title": "Review the change",
+      "text": "the refactor is done (docs/engineering/plans/<task>.md). Review the change on the current branch against the plan: confirm by running the project's checks that behaviour is unchanged, and write the review, docs/engineering/reviews/<change>.md, with only findings a developer can act on. Fix nothing in this task.",
+      "depends_on": [
+        "refactor"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "pull-request",
+      "skill": "ops-pull-request",
+      "title": "Prepare the pull request",
+      "text": "the change is on the current branch, reviewed. Prepare its pull request into the base branch and stop at the confirmation gate: show the payload and ask.",
+      "depends_on": [
+        "review"
+      ],
+      "milestone": true
+    }
+  ]
+}

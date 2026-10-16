@@ -232,7 +232,7 @@
     {
       "id": 9,
       "prompt": "We need a brand for Lumen Desk, our help-desk tool for small clinics: what it stands for, a name check, a look, a voice and one guide. Create it from nothing.\n\nFor this task: tell me which skill or flow would handle the request above, and whether it has what it needs. I only want the route: do not start it and do not do any of its work.",
-      "expected_output": "A routing block whose Route line reads `Route: flow-brand (flow, pending)`: the flow is planned, not built. Nothing is handed over and no brand work is done; at most one fallback is proposed. No file other than docs/workbench/state.md changes.",
+      "expected_output": "A routing block whose Route line reads `Route: flow-brand (flow, ready)`: the flow is built as a flow file. Nothing is handed over, because the user asked only for the route, and no brand work is done. No file other than docs/workbench/state.md changes.",
       "files": [
         "evals/files/route-brand"
       ],

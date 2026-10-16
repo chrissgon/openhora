@@ -56,7 +56,7 @@ Security, accessibility, performance, privacy and documentation are references i
 ## Invocation shapes
 
 1. **Single capability**: "validate the business model of product X" → orchestrator → `biz-business-model`.
-2. **Flow inside one area**: "marketing strategy for launch X" → `flow-launch` (planned, not built), reading Brand and Business artifacts as inputs. The one flow built today is `flow-fix-bug` ("fix this bug end to end").
+2. **Flow inside one area**: "marketing strategy for launch X" → `flow-launch` (planned, not built), reading Brand and Business artifacts as inputs. The flows built today are flow files (`flows/<name>.json`), among them `flow-fix-bug` ("fix this bug end to end"), `flow-build-feature` and `flow-improve-code`.
 3. **Flow across areas**: "build a digital product from scratch" → `flow-new-product` (planned, not built), one checkpoint per phase, resumable through `docs/workbench/state.md`.
 4. **Actuator**: "schedule a post about X tomorrow at 9" → `flow-social-post` (planned, not built) → copy → asset → confirmation gate → publish → record.
 

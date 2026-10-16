@@ -144,14 +144,14 @@ Nothing until the actuators, the pre-approved gate and a runtime exist. Candidat
 
 ## Flows (`flow-`)
 
-Only `flow-fix-bug` is built (2026-10-02). Every other row is planned: its name may be cited as a route, never as something that can run today.
+A flow is a file, `flows/<name>.json`, that the task runtime plans at once with no model call; a row whose State says so is built as a file, and its route is `flow-<name>`. `flow-fix-bug` was a skill until 2026-10-15; its nine phases are now `flows/fix-bug.json`. Every other row is planned: its name may be cited as a route, never as something that can run today.
 
 | Flow | Area | Phases | State | Wave |
 |------|------|--------|-------|------|
-| flow-fix-bug | engineering | root-cause → unit-tests → impact-analysis (optional) → tradeoffs (optional) → implement → integration-tests (optional) → docs (optional) → code-review → pull-request | rewrite | 1 |
-| flow-build-feature | engineering | feature-spec → architecture → unit-tests → implement → integration-tests → code-review → docs → pull-request | rewrite (backlog NS4) | 1 |
-| flow-improve-code | engineering | codebase-map or impact-analysis → tradeoffs → refactor → code-review → pull-request | rewrite (backlog NS5) | 1 |
-| flow-new-project | engineering | clarify → prd or feature-spec → backlog → architecture → implement per task → pull-request | rewrite (backlog NS6) | 1 |
+| flow-fix-bug | engineering | root-cause → unit-tests → implement → code-review → pull-request | built as a file, `flows/fix-bug.json` (replaces the skill of the same name; its four optional phases, impact, options, integration tests and docs, are not tasks: a static file cannot read the plan's conditions, so they are separate requests) | 1 |
+| flow-build-feature | engineering | feature-spec → architecture → unit-tests → implement → integration-tests → code-review → docs → pull-request | built as a file, `flows/build-feature.json` (backlog NS4) | 1 |
+| flow-improve-code | engineering | impact-analysis → tradeoffs → refactor → code-review → pull-request | built as a file, `flows/improve-code.json` (backlog NS5); it takes the impact analysis because the request names the code, and an area nobody knows yet starts with a codebase map as a request of its own | 1 |
+| flow-new-project | engineering | clarify → feature-spec → architecture → backlog → implement → pull-request | built as a file, `flows/new-project.json` (backlog NS6): the feature specification, because the design and the backlog read it and the PRD writes none; the design before the backlog, which stops without it; one implementation task, the first of the backlog | 1 |
 | flow-implement-ticket | engineering | read ticket → clarify → route to fix-bug, build-feature or improve-code → update ticket | create; requires `integration:issue-tracker` (backlog NS7) | 1 |
 | flow-business-plan | business | validate-idea → ai-opportunity-assessment → market-analysis → icp-positioning → business-model → gtm → business-plan | rewrite (backlog NS8) | 2 |
 | flow-brand | brand | strategy → name → identity → voice → guidelines | rewrite; phases requested by the user on 2026-09-29 (backlog PB14); the task runtime plans it from flows/brand.json | 3 |
@@ -398,8 +398,9 @@ Wave 1:
 - [x] product-backlog
 - [x] ops-pull-request (from two real pull requests and the generic part of an earlier prompt; bundles `scripts/pr-context.sh`; the floor model once changed code while preparing a pull request, to watch in real use)
 - [x] ops-branch-sync
-- [x] flow-fix-bug (from a real bug taken through the nine phases, the fix in one repository and the records in another; floor 0.8 at the threshold, the floor model sometimes starts eng-root-cause directly instead of the flow)
-- [ ] flow-build-feature, flow-improve-code, flow-new-project, flow-implement-ticket (backlog NS4 to NS7)
+- [x] flow-fix-bug, now `flows/fix-bug.json` (the skill was removed on 2026-10-15; from a real bug taken through the nine phases, the fix in one repository and the records in another; floor 0.8 at the threshold, the floor model sometimes starts eng-root-cause directly instead of the flow)
+- [x] flow-build-feature, flow-improve-code, flow-new-project as flow files (backlog NS4 to NS6; no lab test, a flow file is code and its tests are offline)
+- [ ] flow-implement-ticket (backlog NS7; a router's decision, not a static flow: not built)
 - [x] agents implementer, reviewer
 - [ ] agent explorer (planned; backlog NS12)
 
