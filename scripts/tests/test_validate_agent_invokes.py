@@ -183,6 +183,8 @@ def test_a_sentence_that_invokes_another_skill_is_warned(tree, line):
     "Stop and ask the user to invoke the skill `eng-other`.",
     "Run the skill `eng-ghost`.",
     "Run the skill `eng-demo`.",
+    "This skill uses the `eng-other` skill's template.",
+    "The step reads the `eng-other` skill\u2019s output.",
     "Run `eng-other` after the change.",
     "The router hands requests over, as in a table.",
     "Run the skill `eng-other`. <!-- validate: allow capability-invokes -- the user asked for it -->",

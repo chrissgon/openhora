@@ -242,7 +242,7 @@ INVOKES_ALLOW_RE = re.compile(r"validate:\s*allow\s+capability-invokes\s+--\s+\S
 _VERBS = r"(?:run|runs|invoke|invokes|call|calls|use|uses|execute|executes)"
 INVOKE_RES = (
     re.compile(r"\b" + _VERBS + r"\s+(?:the\s+|this\s+|that\s+)?skill\s+`([a-z0-9-]+)`", re.I),
-    re.compile(r"\b" + _VERBS + r"\s+(?:the\s+|this\s+|that\s+)?`([a-z0-9-]+)`\s+skill\b", re.I),
+    re.compile(r"\b" + _VERBS + r"\s+(?:the\s+|this\s+|that\s+)?`([a-z0-9-]+)`\s+skill\b(?!['\u2019])", re.I),
     re.compile(r"\binvokes?\s+`([a-z0-9-]+)`", re.I),
     re.compile(r"\bask(?:s)?\s+(?:the\s+)?skill\s+`([a-z0-9-]+)`\s+to\b", re.I),
     re.compile(r"`/([a-z0-9-]+)`"),
