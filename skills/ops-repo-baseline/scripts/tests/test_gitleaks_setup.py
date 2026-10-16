@@ -217,4 +217,5 @@ def test_local_command_in_the_skill_equals_the_workflow_command_and_ignore_file_
     for text in (skill_md, (SKILL / "references" / "gitleaks.md").read_text()):
         assert ".gitleaksignore" in text
         assert "<commit>:<file>:<rule>:<line>" in text
+        assert "<file>:<rule>:<line>" in text and "not committed yet" in text
     assert "stay red" in (SKILL / "references" / "gitleaks.md").read_text()
