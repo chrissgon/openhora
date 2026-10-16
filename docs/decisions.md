@@ -1035,6 +1035,8 @@ Pull request: https://github.com/chrissgon/openhora/pull/433.
 
 ## 2026-10-16: macro-enabled Office packages are refused for every source (ATT-5)
 
+Pull request: https://github.com/chrissgon/openhora/pull/436.
+
 - **Decision.** The converter refuses a Word document, a spreadsheet or a presentation that carries macros, whoever sent it (a file the person adds, one that arrives from a messaging app, a Drive file). Open question 4 of the attachments specification, answered with its recommendation: every source, not only attachments. The converter accepts only Office Open XML packages (`sources.SUBTYPES` has no old binary Word, Excel or PowerPoint format; a binary file named as a package fails `check_package`), so the VBA streams of an OLE `.doc` or `.xls` are not reachable and need no check.
 - **By content, not by name.** The input is mounted as `/in/input` and a sender chooses a file's name, so the extension (`.docm`, `.xlsm`, `.pptm`, `.dotm`, `.xltm`, `.potm`) cannot decide. `refuse_macros` in `providers/converter/_inner.py` looks at the package's part names and content types: a `vbaProject.bin`, `vbaProjectSignature.bin` or `vbaData.xml` part, a part under `xl/macrosheets/` or `xl/dialogs/`, or a content type containing `macroEnabled`, `vbaProject`, `vbaData` or `macrosheet`. It runs first in `convert` for every Office type, after the zip-bomb guard and before any tool reads the file; `[Content_Types].xml` is read up to 2 MiB only.
 - **The refusal.** One fixed sentence, `MACRO_REFUSAL`, as the converter's failure (standard error, exit 3, nothing on standard output); the host and `runtime/sources.py` record it as they record the converter's other refusals. No new host code, no new reason word.
