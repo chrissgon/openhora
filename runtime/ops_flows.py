@@ -312,28 +312,30 @@ def flow_save(project: str, name: str, pending_id: int | None = None, flow: str 
 # --- binding a flow when a plan is built ------------------------------------------------------------------------------------------------
 
 
-def _stage_folder(project: str, request_id: int) -> str:
-    return drop.folder(os.path.realpath(project), f"{STAGE_PREFIX}{request_id}")
+def _stage_id(request_id) -> str:
+    return f"{STAGE_PREFIX}{request_id}"
 
 
-def _hash_of(path: str) -> str:
-    """The sha256 of a regular file read without following a link; OpsError when it is none."""
+def _hash_of(project: str, request_id, name: str) -> str:
+    """The sha256 of a regular file of a request's staging folder, read through the folder's descriptors (drop.open_folder, drop.read_file:
+    no link anywhere on the way, a regular file, at most MAX_HASHED bytes); OpsError when it is none."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
-        raise core.OpsError(f"{os.path.basename(path)} is not a regular file in the staging folder", 1) from None
-    digest = hashlib.sha256()
-    with os.fdopen(fd, "rb") as f:
-        if not os.path.isfile(path) or os.fstat(f.fileno()).st_size > MAX_HASHED:
-            raise core.OpsError(f"{os.path.basename(path)} is not a regular file of at most {MAX_HASHED} bytes", 1)
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        dir_fd = drop.open_folder(project, _stage_id(request_id))
+        try:
+            data = drop.read_file(dir_fd, name, MAX_HASHED)
+        finally:
+            os.close(dir_fd)
+    except (OSError, drop.DropError):
+        raise core.OpsError(f"{name} is not a regular file in the staging folder", 1) from None
+    if len(data) > MAX_HASHED:
+        raise core.OpsError(f"{name} is not a regular file of at most {MAX_HASHED} bytes", 1)
+    return hashlib.sha256(data).hexdigest()
 
 
 def staged(project: str, request_id: int) -> dict:
     """{file name: sha256} of the files handed over for a request (stage_file), read now."""
-    return {os.path.basename(path): _hash_of(path) for path, _rel in drop.files(project, f"{STAGE_PREFIX}{request_id}")}
+    return {os.path.basename(path): _hash_of(project, request_id, os.path.basename(path))
+            for path, _rel in drop.files(project, _stage_id(request_id))}
 
 
 def stage_file(project: str, request_id: int, file: str) -> dict:
@@ -456,24 +458,10 @@ def before_approve(ctx: dict, item: dict) -> None:
 
 
 def discard_staged(ctx: dict, request_id) -> None:
-    """Remove what was handed over for a request (.workbench-local/drop/request-<id>/): regular files and links, then the folder. It
-    follows nothing and never fails (a file that cannot be removed stays; the folder is the person's own, git-ignored)."""
-    folder = _stage_folder(os.path.realpath(_project(ctx)), request_id)
-    if os.path.islink(folder):
-        return
-    try:
-        names = os.listdir(folder)
-    except OSError:
-        return
-    for name in names:
-        try:
-            os.unlink(os.path.join(folder, name))
-        except OSError:
-            pass
-    try:
-        os.rmdir(folder)
-    except OSError:
-        pass
+    """Remove what was handed over for a request (.workbench-local/drop/request-<id>/): regular files and links, then the folder, through
+    the drop's descriptors (drop.discard). It follows nothing and never fails (a file that cannot be removed stays; the folder is the
+    person's own, git-ignored)."""
+    drop.discard(_project(ctx), _stage_id(request_id))
 
 
 def _hand_over(ctx: dict, task_id):
@@ -494,7 +482,7 @@ def after_approve(ctx: dict, item: dict, done: dict):
     out = {"placed": [], "failed": []}
     ids = {t["key"]: t["id"] for t in done.get("tasks") or []}
     try:
-        have = staged(project, item["task_id"]) if os.path.isdir(_stage_folder(project, item["task_id"])) else {}
+        have = staged(project, item["task_id"])
     except (OSError, core.OpsError) as e:      # a file over the cap, or one that vanished: the files cannot be read now
         have = {}
         out["failed"] += [{"task": ids.get(key), "file": file, "reason": type(e).__name__, "next": _hand_over(ctx, ids.get(key))}
@@ -504,21 +492,23 @@ def after_approve(ctx: dict, item: dict, done: dict):
     for key, file, digest in need:
         if file not in have and file not in strict:
             continue
-        source = os.path.join(_stage_folder(project, item["task_id"]), file)
         try:
             if have.get(file) != digest:
                 raise OSError("the staged file is missing or changed")
-            with open(source, "rb") as f:
-                data = f.read(MAX_HASHED + 1)
+            dir_fd = drop.open_folder(project, _stage_id(item["task_id"]))
+            try:
+                data = drop.read_file(dir_fd, file, MAX_HASHED)
+            finally:
+                os.close(dir_fd)
             if hashlib.sha256(data).hexdigest() != digest:
                 raise OSError("the staged file changed while it was read")
-            target = drop.folder(project, ids[key])
-            os.makedirs(target, mode=0o700, exist_ok=True)
-            fd = os.open(os.path.join(target, file), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
+            target = drop.open_folder(project, ids[key], create=True)   # one part at a time, none of them a link
+            try:
+                drop.write_new(target, file, data)
+            finally:
+                os.close(target)
             out["placed"].append({"task": ids[key], "file": file})
-        except (OSError, core.OpsError, KeyError) as e:
+        except (OSError, drop.DropError, core.OpsError, KeyError) as e:
             out["failed"].append({"task": ids.get(key), "file": file, "reason": type(e).__name__, "next": _hand_over(ctx, ids.get(key))})
     discard_staged(ctx, item["task_id"])
     return out if out["placed"] or out["failed"] else None

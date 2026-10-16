@@ -715,22 +715,50 @@ def test_an_effect_is_refused_while_a_code_task_of_its_request_runs(world):
 # --- stopping ---------------------------------------------------------------------------------------------------------------------
 
 
-def holder_process(cfg, task_id: int, leader: bool = True, on_term: str = "die"):
+def holder_process(cfg, task_id: int, leader: bool = True, on_term: str = "die", gated: bool = False):
     """A process that holds a task's lock and sleeps, with "<pid> <pgid>" in the file as a task run writes it. leader: it
     has a session (and a group) of its own, as a dispatcher's child; otherwise it shares the test's group, as a `run-next`
     started from a shell does. on_term: "die" (the default), "ignore" (SIGTERM does nothing), "release" (SIGTERM closes the
-    lock and the process goes on sleeping)."""
+    lock, prints "released" on its stdout and the process goes on sleeping), "release_on_go" (SIGTERM does nothing; the
+    process lets the lock go, and says "released", when a line arrives on its stdin). The process writes its owner line first and
+    takes the lock after, retrying until a deadline, so that the lock is never held under another holder's name and a probe
+    that holds the lock for a moment (`stop_children`'s, a test's) cannot make it fail. gated: the process is started, says
+    "ready" and waits for `let_in(process)` before it writes and takes the lock: a test that must have the holder arrive
+    while another thread of this process probes the lock starts it first, because a fork made by a thread while the main
+    thread holds a probe's descriptor copies it, and a flock belongs to the open file, so the child holds the lock until it
+    has exec'd. Without gated it returns once the lock is held."""
     code = ("import sys, os, time, signal; sys.path.insert(0, %r); import ops_core as core; "
-            "cfg = {'data_dir': %r}; fd = core._try_lock(cfg, 'task-%d.lock'); "
-            "os.ftruncate(fd, 0); os.write(fd, ('%%d %%d\\n' %% (os.getpid(), os.getpgrp())).encode()); "
+            "cfg = {'data_dir': %r}; name = 'task-%d.lock'; path = os.path.join(core._locks_dir(cfg), name)\n"
+            "if %r:\n"
+            "    print('ready', flush=True); sys.stdin.readline()\n"
+            "os.makedirs(os.path.dirname(path), exist_ok=True)\n"
+            "f = os.open(path, os.O_RDWR | os.O_CREAT, 0o600); os.ftruncate(f, 0)\n"
+            "os.write(f, ('%%d %%d\\n' %% (os.getpid(), os.getpgrp())).encode()); os.close(f)\n"
+            "deadline = time.monotonic() + 30; fd = None\n"
+            "while fd is None and time.monotonic() < deadline:\n"
+            "    fd = core._try_lock(cfg, name)\n"
+            "    if fd is None: time.sleep(0.005)\n"
+            "if fd is None: sys.exit(3)\n"
             "mode = %r\n"
             "if mode == 'ignore': signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-            "if mode == 'release': signal.signal(signal.SIGTERM, lambda *a: os.close(fd))\n"
-            "print('held', flush=True); time.sleep(60)"
-            % (str(st.RUNTIME), cfg["data_dir"], task_id, on_term))
-    process = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, start_new_session=leader)
-    assert process.stdout.readline().strip() == b"held"
+            "if mode == 'release': signal.signal(signal.SIGTERM, lambda *a: (os.close(fd), os.write(1, b'released\\n')))\n"
+            "if mode == 'release_on_go': signal.signal(signal.SIGTERM, lambda *a: None)\n"
+            "print('held', flush=True)\n"
+            "if mode == 'release_on_go':\n"
+            "    sys.stdin.readline(); os.close(fd); os.write(1, b'released\\n')\n"
+            "time.sleep(60)"
+            % (str(st.RUNTIME), cfg["data_dir"], task_id, gated, on_term))
+    process = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               start_new_session=leader)
+    assert process.stdout.readline().strip() == (b"ready" if gated else b"held")
     return process
+
+
+def let_in(process) -> None:
+    """Let a gated holder take its turn: it writes its owner line, takes the lock and says "held"."""
+    process.stdin.write(b"go\n")
+    process.stdin.flush()
+    assert process.stdout.readline().strip() == b"held"
 
 
 def test_stop_runs_ends_only_this_processs_children_and_all_ends_every_live_run(world, monkeypatch):
@@ -951,34 +979,47 @@ def test_a_task_started_and_not_yet_claimed_is_counted_as_running_and_not_decide
     assert snapshot["running"] == [] and sorted(t["id"] for t in snapshot["ready"]) == [one, two]
 
 
-def test_a_lock_that_changed_hands_during_the_grace_is_not_killed(world):
+def test_a_lock_that_changed_hands_during_the_grace_is_not_killed(world, monkeypatch):
+    """The first holder gets the TERM and keeps the lock until the test tells it to let go; another process then takes the task's
+    lock, all inside the grace. `stop_children` must not signal the new holder, and must not KILL the first either: the file now
+    names the new holder, so the KILL (only for a lock held while the file still names the process that got the TERM) does not
+    go out. The hand-over is made to happen, not hoped for: the grace poll's first sleep is replaced by a function that lets the
+    first holder go and returns only when the second holder holds the lock. The second holder is started before the stop, so that
+    no fork of this process overlaps `stop_children`'s probes of the lock; it writes its owner line before it takes the lock."""
     cfg = ops_core.context(world["path"])["cfg"]
-    first = holder_process(cfg, 17, on_term="release")  # lets the lock go on TERM, but stays alive
-    second = []
+    first = holder_process(cfg, 17, on_term="release_on_go")  # keeps the lock after the TERM until it is told to let go
+    second = holder_process(cfg, 17, gated=True)  # waits outside the lock until the first has let go
+    taken, slept = threading.Event(), []
+    real_time = time
+
+    class Clock:
+        """ops_runs.time: the real clock, except that the first sleep of the grace poll hands the lock over."""
+        monotonic = staticmethod(real_time.monotonic)
+
+        @staticmethod
+        def sleep(seconds):
+            slept.append(seconds)
+            if len(slept) == 1:
+                first.stdin.write(b"go\n")
+                first.stdin.flush()
+                assert first.stdout.readline().strip() == b"released"
+                let_in(second)  # another process takes the task's lock
+                taken.set()
+            else:
+                real_time.sleep(seconds)
+    monkeypatch.setattr(ops_runs, "time", Clock)
     try:
-        def take_over():
-            until(lambda: first.poll() is None and ops_core._lock_owner(cfg, 17) is not None, 5, "owner")
-            until(lambda: _free(cfg, 17), 10, "the first holder to let go")
-            second.append(holder_process(cfg, 17))  # another process takes the task's lock
-        thread = threading.Thread(target=take_over, daemon=True)
-        thread.start()
-        assert ops_runs.stop_children(only_mine=False, cfg=cfg, grace=4.0) == [17]
-        thread.join(15)
-        assert second and second[0].poll() is None  # the new holder never got a TERM, and no KILL either
-        assert first.poll() is None
+        assert ops_runs.stop_children(only_mine=False, cfg=cfg, grace=1.0) == [17]
+        assert taken.is_set(), "the lock did not change hands during the grace: the test did not reach what it is about"
+        assert second.poll() is None  # the new holder never got a TERM, and no KILL either
+        assert ops_core._lock_owner(cfg, 17) == (second.pid, os.getpgid(second.pid))  # the lock is the new holder's, under its own name
+        with pytest.raises(subprocess.TimeoutExpired):   # the first, which got the TERM and let go, is not killed either (a KILL is not instant)
+            first.wait(0.5)
     finally:
-        for process in [first, *second]:
+        for process in (first, second):
             if process.poll() is None:
                 process.kill()
             process.wait()
-
-
-def _free(cfg, task_id) -> bool:
-    fd = ops_core._try_lock(cfg, f"task-{task_id}.lock")
-    if fd is None:
-        return False
-    os.close(fd)
-    return True
 
 
 # --- the review leftovers of PAR-4 (PAR-6) ------------------------------------------------------------------------------------
