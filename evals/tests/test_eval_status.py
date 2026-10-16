@@ -691,9 +691,9 @@ def test_the_hash_command_prints_the_content_hash_the_version_and_the_case_hashe
     assert out == {"skill": "core-demo", "content_sha256": es.content_hash(skill), "version": "0.4.0", "cases": es.case_hashes(skill)}
 
 
-def test_the_48_old_records_stay_as_history_and_no_evidence_is_converted_from_them():
+def test_the_old_records_stay_as_history_and_no_evidence_is_converted_from_them():
     records = sorted(REPO.glob("skills/*/evals/result.json"))
-    assert len(records) >= 48
+    assert len(records) >= 47   # 48 until the flow-fix-bug skill was removed (it is flows/fix-bug.json)
     # Evidence exists only as files the runner wrote for a test event (lab-<UTC start>-<hex>.jsonl), never as a
     # conversion of an old record, and every committed file is valid.
     evidence = list(REPO.glob("skills/*/evals/evidence/*"))
