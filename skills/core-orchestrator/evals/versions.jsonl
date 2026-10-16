@@ -6,3 +6,4 @@
 {"version": "2.3.0", "content_sha256": "9e8754fbb17751027396937bf2a25b52dfa77d2451b59766404d905700297f1f", "class": "y", "date": "2026-10-13"}
 {"version": "3.0.0", "content_sha256": "1ddfcff06bae7a1e1166b2f8e637ff402b71d2f50a14e20cecf40930536aae4e", "class": "x", "date": "2026-10-15"}
 {"version": "4.0.0", "content_sha256": "9540e2b95085782dbdb726b6c9085a719f4e4413c8d0fff4196243987ba2827c", "class": "x", "date": "2026-10-16"}
+{"version": "4.1.0", "content_sha256": "263187a5f83c949f25ea7d31b02d50ff24017b45edca2e43da4bdbd5b87dff8d", "class": "y", "date": "2026-10-16"}

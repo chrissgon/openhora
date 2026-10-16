@@ -1,6 +1,7 @@
 # Security review: <repository>, <YYYY-MM-DD>
 
 - Owner: eng-security-review
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: draft | approved | done
 - Scope: dependency alerts only (secrets, authentication, input handling and configuration not reviewed)
 - Source: <integration | provider | file from the user>, fetched <date>; <open_count> open alerts

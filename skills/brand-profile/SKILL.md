@@ -14,12 +14,12 @@ license: MIT
 metadata:
   area: brand
   kind: capability
-  inputs: [docs/workbench/state.md, AGENTS.md]
+  inputs: [docs/workbench/state.md, docs/workbench/runtime.json]
   outputs: [docs/brand/profile.md]
   updates: [docs/workbench/state.md]
   requires: [integration:vcs, search:web]
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Personal brand profile
@@ -38,8 +38,8 @@ Collect, with a source for every fact, the raw material of one person's brand in
 
 | Source | Required | If missing |
 |--------|----------|------------|
-| docs/workbench/state.md: language of artifacts and posts, prior decisions | no | Ask in step 3. |
-| The project `AGENTS.md`: language of artifacts and posts | no | Use the state file; else ask in step 3. |
+| docs/workbench/state.md: the languages of the posts, prior decisions | no | Ask in step 3. |
+| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | Write in English; reply in the user's language. |
 | A profile export, or the profile text pasted by the user (how a person exports it: the platform's reference, section "A profile") | yes | Ask for it in step 3. Never scrape a social network. |
 | Public code-host profile and repositories (`integration:vcs`) | no | Skip; ask for proof in step 3, and say in the reply that it was not read and why. |
 | Texts the person wrote alone (posts, messages, READMEs), at least three | yes for the voice section | Write what exists, add an open question; the voice stays a hypothesis. |
@@ -72,7 +72,7 @@ Nothing was written: <what is missing or undecided, in one line>.
 The scripts are in the `scripts/` folder next to this file, not in the project. Run each from the project root by that path, one command at a time: `python3 <this skill's folder>/scripts/<name>.py`.
 
 Progress:
-- [ ] Step 1: Read `docs/workbench/state.md` and the project `AGENTS.md` (language of artifacts and of posts). If `docs/brand/profile.md` exists, this run updates it: keep answered questions and confirmed facts.
+- [ ] Step 1: Read `docs/workbench/state.md` (the languages of the posts) and the project language (the artifact language). If `docs/brand/profile.md` exists, this run updates it: keep answered questions and confirmed facts.
 - [ ] Step 2: Collect what needs no one's answer. When the person names a code-host account, read its public profile, its profile README and the list of repositories with name, description, visibility and last push date, through the code-host integration. Private repositories are never cited. When the user links a past post, read the author's text verbatim from the raw page (the post's structured data or the page source), never from a summarizing fetch, which may paraphrase or translate. Write every item with its source and date. A source you cannot read (no integration, no web access) is skipped and named in the reply with the reason.
 - [ ] Step 3: Gate on material only. With no material at all: Stop rule 1. When any material exists, do not stop to ask: continue to step 4, and write each item below that the state file and the user's message do not answer as an open question in the profile, with its recommended answer; they are listed in the reply (step 15). An item the state file or the user's message states is never a question, not even to confirm it. A text whose first line or the state file says who wrote it is settled.
   All eight items carry a `Recommended:` line, item 7 included. Ask each as `<n>. <question>` and `Recommended: <answer>`; start from the default in brackets and replace it with evidence from step 2 when there is some. A range or "I can't suggest" is not a recommendation.
@@ -81,7 +81,7 @@ Progress:
   3. The two to four themes they want to be known for, in their words. [the topics of their public work]
   4. Which proof may be cited in public: products, projects, numbers. [public products only, until they allow more]
   5. What is never exposed, in posts or replies. [employer and clients, family, income, politics, exact location]
-  6. The languages of the artifacts and of the posts. [the language they wrote to you in, for both]
+  6. The languages of the posts. [the language they wrote to you in]
   7. The material: the profile export or its text, and at least three texts they wrote alone, with who wrote each text you hold. [Recommended: the profile export as PDF or pasted text, plus three posts you wrote alone, each marked with who wrote it]
   8. Any voice reference they name ("like <someone>") and in what way. [none; the voice comes from the samples]
   Record each answer in the state file as a dated decision, quoting the user.
@@ -107,9 +107,10 @@ Progress:
 # Brand profile: <public name>
 
 - Owner: brand-profile
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: draft (waiting for the open questions) | confirmed
 - Date: <YYYY-MM-DD>
-- Language of artifacts: <...>; language of posts: <...> [n]
+- Language of posts: <...> [n]
 
 ## Who they are
 - Public name: <...> [n]

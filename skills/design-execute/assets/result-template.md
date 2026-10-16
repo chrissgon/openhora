@@ -1,6 +1,7 @@
 # Design results: {artifact}
 
 - Owner: design-execute
+- Language: {the tag this file is written in: on an update, the one already here unless the request sets another; else the project language}
 - Status: {in progress | waiting on user | approved}
 - Date: {YYYY-MM-DD, from `date +%F`}
 - Brief: docs/design/briefs/{artifact}.md

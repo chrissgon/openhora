@@ -20,7 +20,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [publisher:<platform>]
   side_effects: [publish]
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Engage
@@ -112,6 +112,7 @@ Draft a reply for every category, so the person finds it ready in the inbox, exc
 # Engagement policy: <person>
 
 - Owner: mkt-engage
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Network: <platform>; comments come in as links the person pastes
 
 ## What replies on its own

@@ -1,6 +1,7 @@
 # Messaging: {product or launch}
 
 - Owner: mkt-messaging
+- Language: {the tag this file is written in: on an update, the one already here unless the request sets another; else the project language}
 - Status: draft
 - Date: {YYYY-MM-DD}
 - Page: {which page this messaging is for}

@@ -20,7 +20,7 @@ metadata:
   updates: []
   requires: [integration:vcs]
   side_effects: []
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Code review
@@ -94,6 +94,7 @@ Write to `docs/engineering/reviews/<change>.md`, where `<change>` is the task id
 # Code review: <change>
 
 - Owner: eng-code-review
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: draft
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Reviewed: <reference>, because <the user named it | the working tree is dirty | the last commit>

@@ -19,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Brand identity
@@ -101,6 +101,7 @@ Progress:
 # Visual identity: <name>
 
 - Owner: brand-identity
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: draft | approved (<date>)
 - Date: <YYYY-MM-DD>
 - Reads: <strategy, voice, design system with path or URL>

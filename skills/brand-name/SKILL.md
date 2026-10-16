@@ -17,7 +17,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Brand name
@@ -86,6 +86,7 @@ Progress:
 # Brand name: <name>
 
 - Owner: brand-name
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Mode: audit | research
 - Status: draft (waiting for ownership answers) | limited (the network was not reachable: nothing is free or taken yet)
 - Date: <YYYY-MM-DD>

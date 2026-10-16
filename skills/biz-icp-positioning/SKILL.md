@@ -16,12 +16,12 @@ license: MIT
 metadata:
   area: business
   kind: capability
-  inputs: [docs/workbench/state.md, docs/business/market.md, docs/workbench/research/<topic>.md, AGENTS.md]
+  inputs: [docs/workbench/state.md, docs/business/market.md, docs/workbench/research/<topic>.md, docs/workbench/runtime.json]
   outputs: [docs/business/icp.md, docs/business/positioning.md]
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # ICP and positioning
@@ -43,7 +43,7 @@ Pick the customers the business goes after first and say, truthfully, why they s
 |----------|----------|------------|
 | docs/business/market.md | no | Stop rule 1 asks for the offer and the segments; the message says that `docs/business/market.md` does not exist and that `biz-market-analysis` writes it. |
 | docs/workbench/state.md: decisions on offer, job, segments, size band, founder access, name, validation, how to break a tie | no | Stop rule 1. |
-| The project's `AGENTS.md`: language of artifacts | no | Write in English; reply in the user's language. |
+| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | Write in English; reply in the user's language. |
 | docs/workbench/research/*.md on these segments | no | Research in step 4; reuse cited claims instead of searching again. |
 | `search:web` capability | yes for the comparison | Write the query plan and the interview plan, mark both artifacts `Status: limited` (lint them with `--status-words limited`), and score nothing. |
 
@@ -74,7 +74,7 @@ Nothing was written yet: <what is undecided, in one line>.
 The scripts are in the `scripts/` folder next to this file, not in the project. Run each from the project root by that path, one command at a time: `python3 <this skill's folder>/scripts/<name>.py`. Where an artifact records a command that was run, write the script's name and its arguments, never its path.
 
 Progress:
-- [ ] Step 1: Read `docs/workbench/state.md`, the project `AGENTS.md`, `docs/business/market.md` (ranking, Implications, Unknowns) and matching research briefs. If `docs/business/icp.md` exists, this run updates it and keeps its interview results.
+- [ ] Step 1: Read `docs/workbench/state.md`, the project language (the artifact language), `docs/business/market.md` (ranking, Implications, Unknowns) and matching research briefs. If `docs/business/icp.md` exists, this run updates it and keeps its interview results.
 - [ ] Step 2: Scope. Check each item against the state file's Decisions; any item with no decision: Stop rule 1.
   1. The offer to position (recommend the top of the market ranking), and, when the offer is a broad capability ("automation with AI", "custom software"), which job it does for the customer. Recommend leaving the job open for the interviews to find when the user has no experience in the segment; never pick one yourself.
   2. The segments to compare, at least three (recommend the ones market.md names under Implications).
@@ -120,6 +120,7 @@ Progress:
 # Ideal customer profile: <offer>
 
 - Owner: biz-icp-positioning
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: hypothesis | validated (<n> interviews, <date>) | limited
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Offer: <offer>; size band: <band>; founder access: <from the state file>
@@ -173,6 +174,7 @@ Progress:
 # Positioning: <name> for <primary profile>
 
 - Owner: biz-icp-positioning
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: hypothesis
 - Date: <YYYY-MM-DD, from `date +%F`>
 

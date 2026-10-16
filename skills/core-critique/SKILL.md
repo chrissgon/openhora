@@ -18,7 +18,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "2.1.0"
+  version: "2.2.0"
 ---
 
 # Critique
@@ -88,6 +88,7 @@ Write to `docs/workbench/critiques/<topic>.md`:
 # Critique: <topic>
 
 - Owner: core-critique
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: draft
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Proposal: <path, or "the user's message">

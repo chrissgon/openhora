@@ -19,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Brand guidelines
@@ -75,7 +75,7 @@ Progress:
   ```bash
   python3 <this skill's folder>/scripts/check_guide.py --guide docs/brand/guidelines.md --brand-dir docs/brand
   ```
-  Fix every stale quote (copy it exactly from its file), every colour not in identity.md, every brand file not cited, every missing brand file whose skill the guide does not name, and every example cell that is not a quote, and rerun until it prints `"ok": true`. Write `**bold**` instead of quotation marks around labels that are not quotes, so they are not read as quotes.
+  When the guide is not in English, add `--examples-heading "<the guide's heading of the do-and-don't table>"` to the command, written as the guide spells it: without it the check passes vacuously on the examples. Fix every stale quote (copy it exactly from its file), every colour not in identity.md, every brand file not cited, every missing brand file whose skill the guide does not name, and every example cell that is not a quote, and rerun until it prints `"ok": true`. Write `**bold**` instead of quotation marks around labels that are not quotes, so they are not read as quotes.
 - [ ] Step 7: Self-check against "Quality criteria": list every rule, label, number, colour and example in the guide and the brand file it came from; remove what has no origin. If you changed the guide, run step 6 again.
 - [ ] Step 8: Reply with the template under "Output template".
 
@@ -87,6 +87,7 @@ Progress:
 # Brand guide: <name>
 
 - Owner: brand-guidelines
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: draft | approved (<date>)
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Consolidates: <each brand file and its date>; the files are the source

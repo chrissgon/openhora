@@ -17,7 +17,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Clarify
@@ -145,6 +145,7 @@ Write to `docs/workbench/briefs/<topic>.md`:
 # Brief: <topic>
 
 - Owner: core-clarify
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: draft
 - Date: <YYYY-MM-DD>
 

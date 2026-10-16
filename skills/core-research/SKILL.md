@@ -19,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Research
@@ -94,6 +94,7 @@ Write to `docs/workbench/research/<topic>.md`:
 # Research: <topic>
 
 - Owner: core-research
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: draft | limited
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Question: <one sentence>

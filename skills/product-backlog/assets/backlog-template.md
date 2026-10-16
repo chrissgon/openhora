@@ -1,6 +1,7 @@
 # Backlog: {project}
 
 - Owner: product-backlog
+- Language: {the tag this file is written in: on an update, the one already here unless the request sets another; else the project language}
 - Status: draft
 - Updated: {YYYY-MM-DD}
 

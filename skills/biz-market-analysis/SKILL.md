@@ -15,12 +15,12 @@ license: MIT
 metadata:
   area: business
   kind: capability
-  inputs: [docs/workbench/state.md, docs/business/idea-validation.md, docs/workbench/research/<topic>.md, AGENTS.md]
+  inputs: [docs/workbench/state.md, docs/business/idea-validation.md, docs/workbench/research/<topic>.md, docs/workbench/runtime.json]
   outputs: [docs/business/market.md]
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Market analysis
@@ -41,7 +41,7 @@ Turn "I think there is demand" into a sourced picture of one market: buyers, alt
 | Artifact | Required | If missing |
 |----------|----------|------------|
 | docs/workbench/state.md: decisions on scope, offers, customer type, capacity, budget | no | Stop rule 1 for each scope item it does not record. |
-| The project's `AGENTS.md`: language of artifacts | no | Write in English; reply in the user's language. |
+| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | Write in English; reply in the user's language. |
 | docs/business/idea-validation.md (written by `biz-validate-idea`, planned) | no | Proceed; for an existing company the offers come from the state file or the user. |
 | docs/workbench/research/*.md briefs on this market | no | Research in step 5. Reuse a brief's cited claims instead of searching again. |
 | `search:web` capability: a search tool, not only a page fetcher | yes for a complete analysis | Degraded mode (step 5). A fetcher alone is not enough: never fetch URLs recalled from memory to stand in for a search. |
@@ -68,7 +68,7 @@ Nothing was searched or written yet: the scope below is your decision.
 The scripts are in the `scripts/` folder next to this file, not in the project. Run each from the project root by that path, one command at a time: `python3 <this skill's folder>/scripts/<name>.py`. Where the artifact records a command that was run, write the script's name and its arguments, never its path.
 
 Progress:
-- [ ] Step 1: Read. Open `docs/workbench/state.md` (Decisions, Open questions), the project `AGENTS.md` (artifact language), `docs/business/idea-validation.md` and every file in `docs/workbench/research/` whose title matches this market. If `docs/business/market.md` exists, this run updates it: keep its sources, refresh what is older than 12 months.
+- [ ] Step 1: Read. Open `docs/workbench/state.md` (Decisions, Open questions), the project language (the artifact language), `docs/business/idea-validation.md` and every file in `docs/workbench/research/` whose title matches this market. If `docs/business/market.md` exists, this run updates it: keep its sources, refresh what is older than 12 months.
 - [ ] Step 2: Scope. Check each item against the state file's Decisions:
   1. Geography and delivery (for example: whole country, remote delivery).
   2. Offers to compare (each product or service line) and whether to compare them against each other.
@@ -126,6 +126,7 @@ Write to `docs/business/market.md`, headings translated into the artifact langua
 # Market analysis: <business or offer>
 
 - Owner: biz-market-analysis
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Status: draft | limited
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Scope: <geography, delivery>; offers: <list>; customers: <type, size band>

@@ -18,7 +18,7 @@ metadata:
   updates: []
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Security audit
@@ -104,6 +104,8 @@ The record:
 
 ```markdown
 # Security <audit of the workbench | vetting of <skill>>, <YYYY-MM-DD>
+
+Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 
 <One paragraph: what was audited, against which checklist, by whom, and what it is for.>
 

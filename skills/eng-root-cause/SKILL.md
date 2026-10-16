@@ -17,7 +17,7 @@ metadata:
   updates: []
   requires: [search:web]
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Root cause
@@ -95,6 +95,7 @@ Add to `docs/engineering/plans/<task>.md`, creating the file with its header whe
 # Plan: <task>
 
 - Task: <backlog id, issue, or the user's words quoted>
+- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
 - Date: <YYYY-MM-DD, from `date +%F`>
 
 ## Root cause
