@@ -180,9 +180,13 @@ def variables(cls: str) -> list[str]:
 
 
 # What a provider's process keeps of the environment besides the variables that select its class: what finds a program, a home, the
-# user's secret store, a docker daemon and the state folder. No key, no token and no choice of another class's provider is here.
+# user's secret store, the folder of the credentials directory, a docker daemon and the state folder. No key, no token and no choice of
+# another class's provider is here. OPENHORA_CREDENTIALS_DIR and CREDENTIALS_DIRECTORY (what a systemd unit sets) carry a path and never
+# a value: without them a provider's process, which reads its secret through the resolver, would not find a credentials directory that
+# only these variables name (it looks in ~/.config/openhora/credentials alone), and the secret would read as missing (package S16).
 ENV_MINIMUM = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-               "OPENHORA_STATE_DIR", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")
+               "OPENHORA_STATE_DIR", "OPENHORA_CREDENTIALS_DIR", "CREDENTIALS_DIRECTORY",
+               "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")
 
 
 def provider_environment(cls: str, env=None, passes=()) -> dict:
