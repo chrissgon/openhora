@@ -252,7 +252,13 @@ def test_the_stripper_is_linear_on_hostile_text(name):
     character grow with the memory alone, which a loaded machine multiplies), the two sizes are scanned in turn nine times each, and the
     best processor time of each is the time of that size. A linear scan takes about eight times as long at the larger size, a quadratic
     one sixty-four times; the bound is twenty-four times plus 3 ms. Then the shape is scanned once at its full size against one
-    generous bound of processor time, which a hang or a very bad growth cannot meet. Processor time, not wall clock: see cpu_seconds."""
+    generous bound of processor time, which a hang or a very bad growth cannot meet. Processor time, not wall clock: see cpu_seconds.
+
+    What the test can see (measured in a review of the package, so that a green result is read for what it is). It catches a
+    quadratic scan once that scan's cost at a million characters exceeds about 3.2 times the cost a linear scan would have there
+    (the bound is twenty-four times the small size plus 3 ms, against eight for a linear scan and sixty-four for a quadratic one),
+    so a quadratic term that is small beside the linear work passes. It never catches n^1.5 (eight times the size costs about 23
+    times as much, under twenty-four) or n log n, and the 30 s bound sees only a hang."""
     import gc
     build, full = HOSTILE_SHAPES[name]
     unit = len(build(1000)) / 1000.0

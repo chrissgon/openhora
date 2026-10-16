@@ -178,7 +178,7 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
     return {"done": done, "approval": approval, "doc": doc, "result": result}
 
 
-APPROVE_BUSY = "is being written by another approval; wait for it to end"
+APPROVE_BUSY = "is being cancelled with its request or written by another approval; wait for that to end, then approve it again if it is still open"
 RESOLVE_BUSY = "is being written; wait for the write to finish, then reject or answer it"
 
 

@@ -337,7 +337,15 @@ def test_hostile_shapes_of_200_kb_end_quickly_and_neither_nest_deeply_nor_build_
     machine, which CI has shown at four to five times for a doubled size of a shape that allocates much, and the 15 ms is what a few
     milliseconds of render can gain from it). One generous
     absolute bound per shape (3000 ms) guards against a hang, and the four-paragraph shapes, which the caps of the renderer bound, keep their
-    absolute bound of 100 ms of processor time (which a busy machine does not inflate)."""
+    absolute bound of 100 ms of processor time (which a busy machine does not inflate).
+
+    What the test can see (measured in a review of the package, so that a green result is read for what it is). The growth check
+    catches a quadratic render only when that render takes more than about 400 ms at 200 KB: a quadratic shape whose cost at the
+    larger size is below that stays inside thirty times the smaller plus 15 ms, so a quadratic cost that is small in absolute terms
+    is not seen, and neither is a shape that grows as n^1.5 (eight times the size costs about 23 times as much, under thirty) or
+    as n log n. The absolute bound of 100 ms on the fourParagraphs shapes is what catches the removal of a cap (MAX_LINKS, MAX_BRACKET,
+    MAX_URL, MAX_SPACE): the caps make the cost the same at an eighth of the size and at the size, so the growth check cannot tell
+    that one was removed, and only the absolute cost shows it."""
     got = floor_tests.run_node(tmp_path, SIZE)
     for name, shape in got["shapes"].items():
         assert shape["bad"] == 0, name

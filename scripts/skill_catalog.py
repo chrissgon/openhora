@@ -31,7 +31,7 @@ task runs it; `contained` when its manifest is whole and it is in another pack t
 
 Output: a header, then one entry per line, sorted by name (two runs on the same tree and inputs are identical):
 
-  - skill `<name>` | <area> | <kind> | v<version> | runtime: yes|no | effects: <list>|none | requires: <list>|none | in: <paths>|none | out: <paths>|none | does: <sentence>
+  - skill `<name>` | <area> | <kind> | v<version> | runtime: yes|contained|no | effects: <list>|none | requires: <list>|none | in: <paths>|none | out: <paths>|none | does: <sentence>
     - proof `<model>`: <band> (<runs> runs, source <source>)   or   unknown (no evidence in the status|proof file)
   - flow `<name>` | <title> | tasks: <key> (<skill>) -> <key> (step <kind>) -> ...
   - planned `<name>` | <area> | intent: <the routing table's intent> | backlog: <id>|none
