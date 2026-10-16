@@ -2,12 +2,12 @@
 
 - Owner: brand-profile
 - Status: confirmed
-- Date: 2026-09-21
+- Date: 2037-09-21
 - Language of artifacts: English; language of posts: English and Portuguese [2]
 
 ## Who they are
 - Public name: Dana Example [1]
-- Experience: 7 years 8 months since 2019-01 [1]
+- Experience: 7 years 8 months since 2030-01 [1]
 
 ## Citable proof
 | Proof | What it shows | Type | Source | May cite |
@@ -34,5 +34,5 @@
 ```
 
 ## Sources
-[1] LinkedIn export and code host, 2026-09-20.
-[2] Decisions in docs/workbench/state.md, 2026-09-20 and 2026-09-23.
+[1] LinkedIn export and code host, 2037-09-20.
+[2] Decisions in docs/workbench/state.md, 2037-09-20 and 2037-09-23.

@@ -216,6 +216,8 @@ def test_the_images_row_leaves_the_exit_code_of_the_doctor_alone(monkeypatch, ca
         monkeypatch.setattr(doctor_ops, "linger_check", lambda **k: {"status": "ok", "detail": "x"})
         monkeypatch.setattr(doctor_ops, "proxy_logs_check", lambda tool=None: {"status": "ok", "detail": "x"})
         monkeypatch.setattr(doctor_ops, "secret_store_check", lambda probe: {"status": "ok", "detail": "x"})
+        monkeypatch.setattr(doctor_ops, "password_manager_check", lambda probe: {"status": "ok", "detail": "x"})
+        monkeypatch.setattr(doctor, "manager_probe", lambda: {"state": "na", "detail": ""})
         monkeypatch.setattr(doctor_ops, "disk_check", lambda *a, **k: {"status": "ok", "detail": "x"})
         monkeypatch.setattr(doctor_ops, "sources_access_check", lambda *a, **k: {"status": "ok", "detail": "x"})
         codes[name] = doctor.main(["--unattended", "--project", str(tmp_path), "--strict", "--json"])

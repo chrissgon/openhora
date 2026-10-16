@@ -216,11 +216,29 @@ def test_the_secret_store_states_are_told_apart():
 # --- the whole run, and the doctor's own output -------------------------------------------------------------------------------------
 
 
+def test_the_password_manager_is_na_without_a_mapping_ok_when_it_answers_and_a_warning_with_the_fix_otherwise():
+    check = ops.password_manager_check
+    assert check(lambda: {"state": "na", "detail": "x"})["status"] == "na"
+    assert check(lambda: {"state": "ok", "detail": "x"})["status"] == "ok"
+    for state in ("locked", "unavailable"):
+        got = check(lambda s=state: {"state": s, "detail": "the password manager (1Password) is locked"})
+        assert got["status"] == "warn" and "not missing" in got["detail"] and "credentials" in got["fix"]
+    unsafe = check(lambda: {"state": "unsafe", "detail": "the password-manager mapping /x can be read by others (mode 0644): chmod 600"})
+    assert unsafe["status"] == "warn" and "chmod 600" in unsafe["detail"] and unsafe["fix"]
+    assert check(lambda: {"state": "unknown", "detail": "d"})["status"] == "unverified"
+
+    def boom():
+        raise ImportError("no resolver")
+    assert check(boom)["status"] == "unverified"
+    assert ops.run_all(manager_probe=None, tool=FakeDocker([], {}), run=runner(out="yes"), system="Linux",
+                       usage=usage_of({}))["password_manager"]["status"] == "unverified"
+
+
 def test_run_all_reads_the_project_and_gives_every_check(tmp_path):
     cfg = {"data_dir": str(tmp_path / "data"), "sources_dir": str(tmp_path / "sources")}
     got = ops.run_all(project="/p", load_config=lambda p: cfg, tool=FakeDocker([], {}), run=runner(out="yes"), system="Linux",
                       usage=usage_of({str(tmp_path): 30 * GIB}), probe=lambda: {"state": "ok", "detail": ""}, image={"state": "published-present"})
-    assert set(got) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "image", "images", "project"}
+    assert set(got) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "password_manager", "image", "images", "project"}
     assert got["linger"]["status"] == "ok" and got["disk"]["status"] == "ok" and got["sources_access"]["status"] == "na"
     assert got["project"]["status"] == "ok"
     bad = ops.run_all(project="/p", load_config=lambda p: (_ for _ in ()).throw(ValueError("runtime.json not found")), tool=FakeDocker([], {}),
@@ -280,7 +298,7 @@ def test_the_json_carries_the_unattended_key_the_image_setup_and_the_state_of_ea
     stub_doctor(monkeypatch, tmp_path, linger="yes")
     assert doctor.main(["--unattended", "--project", str(tmp_path), "--json", "--min-free-gib", "3"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert set(report["unattended"]) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "image", "images", "project"}
+    assert set(report["unattended"]) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "password_manager", "image", "images", "project"}
     assert report["unattended"]["linger"]["status"] == "ok" and report["unattended"]["secret_store"]["status"] == "warn"
     assert report["image"]["setup"].startswith("python3 scripts/image_lock.py pull")
     assert {s["name"]: s["state"] for s in report["secrets"]} == {"A": "locked", "B": "missing"}
@@ -356,3 +374,20 @@ def test_ack_lease_needs_the_project_and_the_unattended_mode_and_removes_only_th
     target.write_text("keep")
     (tmp_path / "lease-takeover.json").symlink_to(target)
     assert ops.ack_lease(str(tmp_path)) is False and target.exists(), "a link is not followed and not removed as a record"
+
+
+def test_the_doctor_prints_the_manager_check_the_managers_sentence_and_the_also_mapped_mark(monkeypatch, tmp_path, capsys):
+    stub_doctor(monkeypatch, tmp_path, linger="yes")
+    sentence = "the password manager (1Password) is locked or not signed in: unlock the app"
+    monkeypatch.setattr(doctor, "secrets_report", lambda classes: [
+        {"name": "A", "found": False, "state": "locked", "source": None, "service": None, "backend": "password-manager", "also_mapped": False,
+         "store": "available", "detail": sentence, "classes": [], "readers": ["x"], "set": "s"},
+        {"name": "B", "found": True, "state": "found", "source": "environment (B)", "service": None, "backend": None, "also_mapped": True,
+         "store": "available", "detail": "", "classes": [], "readers": ["x"], "set": "s"}])
+    monkeypatch.setattr(doctor, "manager_probe", lambda: {"state": "locked", "detail": sentence})
+    assert doctor.main(["--unattended", "--project", str(tmp_path)]) == 0
+    err = capsys.readouterr().err
+    locked_line = next(line for line in err.splitlines() if line.startswith("locked    A"))
+    assert sentence in locked_line and "the secret store is locked" not in locked_line, "the line carries the failing backend's sentence"
+    assert "found     B" in err and "mapped in the password manager, not asked: found earlier" in err
+    assert "warn       password_manager" in err and "fix: unlock the app, or install the tool" in err
