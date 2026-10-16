@@ -115,7 +115,8 @@ def attempt(lab, spec, hooks, counts) -> dict:
             why = lab.run_failure(spec["runner"], prompt_path, case_dir, spec["model"], out_tmp, env,
                                   spec.get("timeout"), spec.get("max_cost"), web, start_dir=root,
                                   box={"root": root, "runner": spec["runner"], "pass": pass_env + list(extra),
-                                       "network": "open" if web else "proxy"})
+                                       "network": "open" if web else "proxy",
+                                       **({"local": spec["local"]} if spec.get("local") else {})})
             # Before anything is read or stored: each passed value is replaced by a marker, by exact value.
             counts["redactions"] += lab.redact_folder(case_dir, values, staged) + lab.redact_folder(out_tmp, values)
             if not why:
@@ -146,7 +147,8 @@ def run(lab, spec, hooks=None) -> dict:
     spec is a dictionary: "dest" (the run folder), "names" (what a temporary folder must not carry), "label" (the
     run in a pause's record), "runner", "model" (the model id the runner is called with; it also names the model's web lock), "timeout", "max_cost", "web" (the adapter call), "account"
     ({"key", "markers", "probe"}), "refusal_markers", "settings", "pass_env", "values", "control",
-    "retries", "prompt", "response_limit", and optionally "counts" (a dictionary updated in place) and
+    "retries", "prompt", "response_limit", and optionally "local" (a local model's description: the box's "local" of
+    evals/execution.py run_group), "counts" (a dictionary updated in place) and
     "env_extra" ({name: value}, or a function of the attempt's fresh folder that returns one, called right before
     the adapter call: set in its environment and added to its box's passed names, never to the values replaced).
 

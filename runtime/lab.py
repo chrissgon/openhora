@@ -61,6 +61,10 @@ MODULE = "workbench_eval_execution"  # the name the lab's runner gives the kit t
 # checks, the grading, the evidence) are not in it. A name enters __all__ only with a line in the pull request that
 # says why it is not measurement. What this file may read of the status script is the kit's STATUS_NAMES.
 RESPONSE_LIMIT = 2000000  # characters of a reply handed to the caller
+# A model on the person's own machine (evals/local_models.py) is tested in the lab; the runtime never runs one: it has no
+# price (so `auto` never picks it), no evidence in the repository and no key proxy, and its server is the person's to start.
+LOCAL_MODEL_PREFIX = "local/"
+LOCAL_MODEL_REFUSAL = "a local model is for lab tests only; the runtime does not run one"
 
 
 class LabError(Exception):
@@ -845,6 +849,8 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False,
     (each after the gate file's retries, "auth" at once), "settings" (the copy carries a tool's settings) and
     "stopped". Raises LabError when no run could be made (configuration, container, a file that may not enter).
     Call it inside `with session():`."""
+    if isinstance(model, str) and model.startswith(LOCAL_MODEL_PREFIX):  # one guard, before anything is resolved or started
+        raise LabError("config", LOCAL_MODEL_REFUSAL)
     named = _platform_names(platforms)
     if model is not None and adapter is not None and pass_env is not None:  # a stand-in: the gate file gives the control only
         ref = reference()

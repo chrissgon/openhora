@@ -85,6 +85,7 @@ ROOT = os.path.normpath(os.path.join(HERE, ".."))
 STATUS_SCRIPT = os.path.join(HERE, "eval_status.py")
 EXECUTOR_SCRIPT = os.path.join(HERE, "executor.py")  # where a run's commands execute: a container
 STAGE_SCRIPT = os.path.join(HERE, "..", "scripts", "stage_skills.py")  # what a run sees of the skills: staged copies
+LOCAL_MODELS_SCRIPT = os.path.join(HERE, "local_models.py")  # a model on the person's machine: its weights and its identity
 # "container" for every real run; the unit tests set "host" to drive stand-in adapters without docker.
 EXECUTOR = "container"  # content hash and the per-skill record
 
@@ -110,6 +111,17 @@ def load_executor():
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             sys.modules[name] = module
+    return sys.modules[name]
+
+
+def load_local_models():
+    """evals/local_models.py as a module."""
+    name = "workbench_eval_local_models"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, LOCAL_MODELS_SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
     return sys.modules[name]
 
 
@@ -514,7 +526,7 @@ def stop_all_groups(grace=STOP_GRACE):
     """End every group still registered; no new one starts afterwards."""
     STOPPING.set()
     with GROUPS_LOCK:
-        pending, containers, held = list(GROUPS), list(CONTAINERS), list(HELD)
+        pending, containers, held, served = list(GROUPS), list(CONTAINERS), list(HELD), list(LOCAL_HELD)
     for name in containers:  # first, so that the work stops; their docker clients end with them
         try:
             load_executor().remove(name)
@@ -523,6 +535,11 @@ def stop_all_groups(grace=STOP_GRACE):
     for run_id in held:  # a run's key proxy and network go with its container (the run's own end releases them again: safe)
         try:
             load_executor().release(run_id)
+        except Exception:
+            pass
+    for run_id in served:  # a local model's server and network go with its run's container too
+        try:
+            load_executor().release_local(run_id)
         except Exception:
             pass
     for pgid in pending:
@@ -542,6 +559,7 @@ def stop_all_groups(grace=STOP_GRACE):
 
 CONTAINERS = set()  # names of containers started and not yet ended; guarded by GROUPS_LOCK
 HELD = set()  # run ids whose key proxy and network are up and not yet released; guarded by GROUPS_LOCK
+LOCAL_HELD = set()  # run ids whose model server and network are up and not yet released; guarded by GROUPS_LOCK
 METER_POLL = 0.25  # how long the meter file must stay unchanged, after the run container is gone, before it is read
 
 
@@ -557,17 +575,32 @@ def run_group(cmd, timeout, cwd=None, env=None, box=None):
     a network of its own first (executor.held_route(), hold()), both removed with the container on every way out,
     and the proxy's count of the run's tokens is read when the run ends into box["meter"] (None when there is none,
     which the key proxy not writing it or a command that holds no key both mean); when they cannot start, or the
-    model has no route, the command fails as an infrastructure failure, before any container runs."""
+    model has no route, the command fails as an infrastructure failure, before any container runs.
+
+    box["local"] ({"alias", "weights", "stat", "context", "memory_gb", "accelerator", "cpus", "load_timeout_seconds"}) is a
+    local model's run: its weights are checked against the file's (device, inode, size, mtime) taken with their hash, then
+    a model server and an internal network of the run's own are started (executor.hold_local()) and the run is put on
+    that network only, with no key; both are removed with the container on every way out (executor.release_local())."""
     container = held = run_id = meter_dir = None
-    started = False  # hold() was called: what it made is released, whatever fails after it
+    started = served = False  # hold() / hold_local() was called: what it made is released, whatever fails after it
     try:
         if box is not None and EXECUTOR == "container":
             executor = load_executor()
             box["meter"] = None
             model, network = box.get("model"), box.get("network") or "none"
+            local = box.get("local") if network != "none" else None  # a local model: its server, not a key proxy
             try:
-                route = executor.held_route(box.get("pass") or (), env, network, model)
+                route = None if local else executor.held_route(box.get("pass") or (), env, network, model)
                 run_id = executor.new_run_id()
+                if local:
+                    models = load_local_models()
+                    models.assert_unchanged(local["weights"], local["stat"])  # the file the id was hashed from, before each server
+                    with GROUPS_LOCK:
+                        LOCAL_HELD.add(run_id)  # before it starts: a stop in the meantime releases what hold_local() has made so far
+                    served = True
+                    loaded = executor.hold_local(run_id, {**local, "cpus": local.get("cpus") or executor.host_cpus(env)}, env)
+                    if isinstance(loaded, dict) and loaded.get("seconds") is not None:  # how long this run waited for its model to load
+                        print(f"MODEL SERVER {local['alias']} ready after {loaded['seconds']} s (run {run_id})", file=sys.stderr)
                 if route:  # the key stays there; the run gets a placeholder and its own proxy's address
                     meter_dir = executor.meter_folder(temp_base())
                     with GROUPS_LOCK:
@@ -575,8 +608,9 @@ def run_group(cmd, timeout, cwd=None, env=None, box=None):
                     started = True
                     held = executor.hold(run_id, model, env, network, meter_dir=meter_dir)
                 cmd, container = executor.command(cmd, box["root"], cwd=cwd, env=env, runner=box.get("runner"),
-                                                  pass_names=box.get("pass") or (), network=network, model=model, run_id=run_id)
-            except executor.ExecutorError as e:  # an infrastructure failure of this command, never a score
+                                                  pass_names=box.get("pass") or (), network=network, model=model, run_id=run_id,
+                                                  **({"local": local} if local else {}))
+            except (executor.ExecutorError, load_local_models().LocalModelError) as e:  # an infrastructure failure of this command, never a score
                 return subprocess.CompletedProcess(cmd, 1, "", f"Error: {e}\n")
             cwd = None
         return _run_group(cmd, timeout, cwd, env, container)
@@ -604,8 +638,18 @@ def run_group(cmd, timeout, cwd=None, env=None, box=None):
                     if held:  # read last: it holds what the proxy wrote when it stopped
                         box["meter"] = load_executor().read_meter(held["meter"])
                 finally:
-                    if meter_dir:
-                        shutil.rmtree(meter_dir, ignore_errors=True)
+                    try:
+                        if served:  # the model server and the run's network: the run's container is gone, so the network is free
+                            try:
+                                load_executor().release_local(run_id, env=env)
+                            except load_executor().ExecutorError:
+                                pass  # best effort: an orphan is found by its label (wb.eval.run=<run id>)
+                            finally:
+                                with GROUPS_LOCK:
+                                    LOCAL_HELD.discard(run_id)
+                    finally:
+                        if meter_dir:
+                            shutil.rmtree(meter_dir, ignore_errors=True)
 
 
 def wait_idle(executor, path, route):

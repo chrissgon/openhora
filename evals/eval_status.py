@@ -42,7 +42,9 @@ removed on 2026-10-15 (see the top of this file), and nothing reads one that is 
    "counts": {model id: {"with"|"without": {"retries", "refusals", "timeouts", "pauses", "early_ends",
    "resumes"[, "invoked"]}}}, "extra_pass_env": [names], "complete": bool[, "gate": {model id: {"passed",
    "with", "baseline", "threshold", "tolerance"[, "note"]}} (an old event: the single gate of its first
-   model)][, "upstream": {model id: provider or host}][, "image_source": "published"|"local"]}
+   model)][, "upstream": {model id: provider or host}][, "image_source": "published"|"local"]
+   [, "local_model": {model id: {"weights_sha256", "file_type", "context", "accelerator", "server_image",
+   "server_version", "server_args_sha256"}}]}
   A run line: {"record": "run", "skill", "version", "content_sha256", "model", "adapter", "kind", "test",
    "date", "measurement_version", "measurement_sha256", "case", "case_sha256", "variant": "with"|"without",
    "outcome": "graded"|"timeout", "score", "results": [0|1, ...][, "context_sha256"][, "platform"][, "cpu_platform"]
@@ -55,6 +57,9 @@ removed on 2026-10-15 (see the top of this file), and nothing reads one that is 
   either); "platform" names a social platform and never this. "upstream" names, for each model that ran through a
   key proxy, the provider its entry pins or the route's host; "image_source" says whether the image was pulled
   ("published": "image_digest" is the platform manifest's repo digest) or built here ("local": the image id).
+  "local_model" names, for a local model (evals/local_models.py), what served it: the sha256 of its weights, their
+  llama.cpp file type, the context the server ran with, the accelerator, the model server image's manifest digest and
+  version line, and the hash of the server's arguments (the run id, the weights path and the user replaced by constants).
   "run_sha256" is a hash of what the run left and a re-grading would read (eval_run.py run_record_hash).
 
 A run line with "platform" is a run of a case of that platform's case file, skills/<name>/evals/platforms/
