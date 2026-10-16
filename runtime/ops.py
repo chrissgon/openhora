@@ -284,8 +284,8 @@ def task_prompt(request_text: str, task_text: str, answered, handed=None, edited
     since the task's last run (runtime/documents.py, imported_since): one line each, EDITED_LINE, right before
     the answers, so that the person's edit is read as the person's word and not as external content. sourced lists
     the lines that name the copies of the sources the plan chose (ops_sources.prompt_lines): after the handed files.
-    instructions is the block of the person's standing instructions (runtime/instructions.py), right after the task's
-    paragraph, before the handed files; "" (no file) leaves the prompt as it was. Only code gives it, never a run's text."""
+    instructions is the person's standing-instructions block (runtime/instructions.py), right after the task's paragraph,
+    before the handed files; "" leaves the prompt as it was. Only code gives it, never a run's text."""
     parts = [request_text.strip()]
     if (task_text or "").strip():
         parts += ["", "For this task: " + task_text.strip()]
@@ -1746,7 +1746,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         return {"out": out, "failed": True}
 
     out["use"] = _use_start(ctx, run_id, skill, routing)
-    held, why = ops_instructions.for_run(cfg["project"])   # the person's standing instructions: a file that fails a check stops the run
+    held, why = ops_instructions.for_run(cfg["project"])   # the standing instructions; a file that fails a check stops the run
     if why:
         return fail("internal", why)
     prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, str(run_id))
@@ -2759,8 +2759,7 @@ from ops_steps import run_step  # noqa: E402,F401
 # The workflows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
-# The person's standing instructions (runtime/ops_instructions.py): their three operations, the block of a run's prompt and the answer that may propose a line.
-import ops_instructions  # noqa: E402
+import ops_instructions  # noqa: E402  (the standing instructions: three operations, the block of a prompt, the answer's proposal)
 from ops_instructions import answer_proposing, instructions_add, instructions_read, instructions_set  # noqa: E402,F401
 # The routines (runtime/ops_routines.py): the schedule's workflows, their approval by hash, the brakes and the tick a round calls.
 import ops_routines  # noqa: E402
