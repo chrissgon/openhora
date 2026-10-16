@@ -18,7 +18,7 @@ metadata:
   updates: []
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Security audit
@@ -104,6 +104,8 @@ The record:
 
 ```markdown
 # Security <audit of the workbench | vetting of <skill>>, <YYYY-MM-DD>
+
+Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the language the request sets for this deliverable, else the task's language line, else the `language` key of docs/workbench/runtime.json, else English>
 
 <One paragraph: what was audited, against which checklist, by whom, and what it is for.>
 
