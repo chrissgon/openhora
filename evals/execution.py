@@ -97,14 +97,20 @@ def die(msg, code=2):
     sys.exit(code)
 
 
+EXECUTOR_LOCK = threading.Lock()
+
+
 def load_executor():
-    """evals/executor.py as a module."""
+    """evals/executor.py as a module. Runs call it from several threads: the module is whole before any of them sees it
+    (it is registered after it ran, under a lock; registered before, a second thread took the half-made module and found
+    that it had no `read_meter`)."""
     name = "workbench_eval_executor"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, EXECUTOR_SCRIPT)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        spec.loader.exec_module(module)
+    with EXECUTOR_LOCK:
+        if name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(name, EXECUTOR_SCRIPT)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            sys.modules[name] = module
     return sys.modules[name]
 
 

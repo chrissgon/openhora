@@ -233,6 +233,13 @@ def _never(project: str, rel: str, declared, cfg: dict, settings_names) -> str |
     return None
 
 
+def drop_errors() -> tuple:
+    """The errors of reading a file: OSError, and the drop's own refusals (a link on the way). The drop module imports this one, so it is
+    looked up when needed."""
+    import drop
+    return (OSError, drop.DropError)
+
+
 def scan(data: bytes) -> str | None:
     """Why bytes may not leave or enter a copy: too large to scan, or what looks like a credential (with the labels,
     never the value); None when they may."""
@@ -293,16 +300,32 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
         if rel == AGENTS_MD and AGENTS_MD in declared:
             continue  # rule 5, below
         reason = _never(project, rel, declared + sorted(handed_rels), cfg, settings_names)
+        data = None
         if reason is None:
             source = os.path.join(project, *rel.split("/"))
             try:
-                with open(source, "rb") as f:
-                    data = f.read(SCAN_MAX + 1)
-            except OSError as e:
-                reason = f"cannot be read: {e.strerror}"
+                if rel in handed_rels:   # the file drop is read through its descriptors, never by its path (limit L2)
+                    import drop as the_drop
+                    data = the_drop.read_dropped(project, rel, SCAN_MAX)
+                else:
+                    with open(source, "rb") as f:
+                        data = f.read(SCAN_MAX + 1)
+            except drop_errors() as e:
+                reason = f"cannot be read: {getattr(e, 'strerror', None) or e}"
             else:
                 reason = scan(data)
-        if reason is None:
+        if reason is None and rel in handed_rels:
+            # the run receives the very bytes that were scanned, from a copy of them outside the project
+            source = os.path.join(prepared_dir, *rel.split("/"))
+            try:
+                os.makedirs(os.path.dirname(source), mode=0o700, exist_ok=True)
+                with open(source, "wb") as f:
+                    f.write(data)
+            except OSError as e:
+                raise CopyError(f"the prepared folder {prepared_dir} cannot be written: {e.strerror}") from None
+            files.append((source, rel))
+            base[rel] = hashlib.sha256(data).hexdigest()
+        elif reason is None:
             files.append((source, rel))
             base[rel] = _sha256(source)
         elif reason:
