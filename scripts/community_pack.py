@@ -3,7 +3,7 @@
 check of what was asked before a model runs, and the packing of the evidence file the test wrote.
 
 Usage:
-  python3 scripts/community_pack.py preflight --skill <name> --model <id> [--adapter <folder>] (--full | --cases <ids>)
+  python3 scripts/community_pack.py preflight --skill <name> --model <id> [--adapter <folder>] (--full | --quick | --cases <ids>)
                                               [--root <checkout>]
   python3 scripts/community_pack.py pack --skill <name> --model <id> --out <folder> --repository <owner/name>
                                          --repository-id <n> --run-id <n> --run-attempt <n> --run-number <n>
@@ -11,7 +11,9 @@ Usage:
 
 preflight refuses, before anything runs, what the workflow must not run: a skill that is not in the checkout, a model
 that the gate file (evals/eval-gate.json) does not list with a route (a model whose key a key proxy holds), an
-adapter other than the one the model's entry names, a malformed case list, and a key variable that is not set. The
+adapter other than the one the model's entry names, a malformed case list, a request that is not exactly one of a full test, a
+quick test (every case once with the skill: it adds to the pool, docs/community-evidence.md) or a partial test (the named
+cases), and a key variable that is not set. The
 variables checked are the model's own (its entry's pass_env) and the grader's (the pass_env of the grader's own
 entry in the gate file: every grading goes through it, whatever the model tested). Only the NAMES of a missing
 variable are printed, never a value. It prints {"ok": true, ...} or a list of problems on stderr and exits 1.
@@ -77,8 +79,9 @@ def model_entry(gate, name):
     return None, None
 
 
-def preflight_problems(root, skill, model, adapter, full, cases, env):
-    """Why this request must not run; [] when it may. `env` is the environment the key variables are looked up in."""
+def preflight_problems(root, skill, model, adapter, full, cases, env, quick=False):
+    """Why this request must not run; [] when it may. `env` is the environment the key variables are looked up in. Exactly one of
+    full (a full test), quick (a quick test) and cases (a partial test) is asked for."""
     lines = load_lines()
     out = []
     if not lines.NAME_RE.fullmatch(skill or ""):
@@ -87,8 +90,9 @@ def preflight_problems(root, skill, model, adapter, full, cases, env):
         out.append(f"{skill} is not a skill of the official repository at this commit")
     if not lines.MODEL_RE.fullmatch(model or ""):
         out.append("model must be a model id (letters, digits and . _ : / @ -)")
-    if full == bool(cases):
-        out.append("give exactly one of full (every case, a full test) or cases (the named cases, a partial test)")
+    if [bool(full), bool(quick), bool(cases)].count(True) != 1:
+        out.append("give exactly one of full (every case, a full test), quick (every case once with the skill, a quick test) or "
+                   "cases (the named cases, a partial test)")
     if cases and not CASES_RE.fullmatch(cases):
         out.append("cases must be case ids separated by commas")
     gate = read_gate(root)
@@ -223,6 +227,7 @@ def main(argv, env=None):
     pre = sub.choices["preflight"]
     pre.add_argument("--adapter", default="")
     pre.add_argument("--full", action="store_true")
+    pre.add_argument("--quick", action="store_true")
     pre.add_argument("--cases", default="")
     pk = sub.choices["pack"]
     pk.add_argument("--out", required=True)
@@ -232,12 +237,12 @@ def main(argv, env=None):
     args = parser.parse_args(argv)
     root = os.path.abspath(args.root)
     if args.command == "preflight":
-        problems = preflight_problems(root, args.skill, args.model, args.adapter, args.full, args.cases, env)
+        problems = preflight_problems(root, args.skill, args.model, args.adapter, args.full, args.cases, env, args.quick)
         if problems:
             for p in problems:
                 print(f"community_pack: {p}", file=sys.stderr)
             return 1
-        print(json.dumps({"ok": True, "skill": args.skill, "model": args.model, "full": args.full}))
+        print(json.dumps({"ok": True, "skill": args.skill, "model": args.model, "full": args.full, "quick": args.quick}))
         return 0
     path = workflow_path(args.workflow_ref)
     if path is None:

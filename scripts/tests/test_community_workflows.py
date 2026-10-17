@@ -163,11 +163,28 @@ def test_a_secret_appears_only_as_an_environment_variable_of_the_two_steps_that_
 
 def test_the_inputs_cannot_choose_the_provider_the_model_or_the_code():
     inputs = re.search(r"workflow_call:\n    inputs:\n(.*?)\n    secrets:", EVAL, re.S).group(1)
-    assert set(re.findall(r"^      (\w+):\n", inputs, re.M)) == {"skill", "model", "adapter", "cases", "full", "arch"}
+    assert set(re.findall(r"^      (\w+):\n", inputs, re.M)) == {"skill", "model", "adapter", "cases", "full", "quick", "arch"}
     text = code(EVAL)
-    assert "preflight" in text and "--floor-model \"\"" in text  # one model per community file
+    # One model per community file: the run names the one model it was asked for with --model, so the gate file's lab models
+    # (the default of an event that names none) do not run beside it. The option --floor-model no longer exists in the runner.
+    assert "preflight" in text and '(--skill "$SKILL" --model "$MODEL")' in text and "--floor-model" not in text
     assert "--pass-env" not in text and "--scratch" not in text and "--no-grade" not in text and "--runs" not in text
     assert "base_url" not in text.lower() and "endpoint" not in text.lower()
+
+
+def test_quick_is_an_input_exclusive_with_cases_and_full_and_reaches_the_runner_as_a_flag_alone():
+    inputs = re.search(r"workflow_call:\n    inputs:\n(.*?)\n    secrets:", EVAL, re.S).group(1)
+    assert re.search(r"^      quick:\n(?:        .*\n)*?        type: boolean\n        required: false\n        default: false$", inputs, re.M)
+    assert "Give one of cases, full or quick" in inputs
+    steps = re.split(r"\n      - ", jobs(EVAL)["run"])
+    check = next(s for s in steps if s.startswith("name: Check the request"))
+    lab = next(s for s in steps if s.startswith("name: Run the lab test"))
+    # The request check hands every choice made to the preflight, which refuses anything but exactly one of the three.
+    assert 'QUICK: ${{ inputs.quick }}' in check and '[ "$QUICK" != "true" ] || args+=(--quick)' in code(check)
+    assert '[ "$FULL" != "true" ] || args+=(--full)' in code(check) and '[ -z "$CASES" ] || args+=(--cases "$CASES")' in code(check)
+    # The run itself: a quick test is the flag alone (no case list, no run count), else a full test or the named cases.
+    assert 'QUICK: ${{ inputs.quick }}' in lab
+    assert 'if [ "$QUICK" = "true" ]; then args+=(--quick); elif [ "$FULL" != "true" ]; then args+=(--cases "$CASES"); fi' in code(lab)
 
 
 def test_every_job_has_a_timeout_and_the_files_move_between_jobs_as_artifacts_of_the_same_run():
