@@ -33,7 +33,7 @@ closed keys: `evidence` below validates every file, and an unknown key or a valu
 error. A committed evidence file is written by tooling and never edited. The old records, result.json, were
 removed on 2026-10-15 (see the top of this file), and nothing reads one that is added back.
 
-  The event line: {"record": "test", "skill", "test", "kind": "full"|"partial", "version", "content_sha256",
+  The event line: {"record": "test", "skill", "test", "kind": "full"|"partial"|"quick", "version", "content_sha256",
    "date", "models": {tier: model id} or [model id, ...], "adapters": {tier: adapter} or {model id: adapter},
    "adapter_sha256": {adapter: sha256 of its
    run-prompt.sh}, "grader", "runs", "timeout_seconds", "retries", "measurement_version",
@@ -141,13 +141,14 @@ confidence bound, always printed with the mean and N.
 
 The band of a skill on one model (the skill's own row is the lead model's, the first of "lab_models"), the first
 that applies:
-  needs a test  (a) no full test of the current major version passes the gate (none at or above the
-                measurement floor, or the gate cannot be computed); (b) a guard assertion (tagged guard or
+  needs a test  (a) no full test of the current major version, and no closed pool, passes the gate (none at or
+                above the measurement floor, or the gate cannot be computed); (b) a guard assertion (tagged guard or
                 guard:<effect>) has no with-skill run in the current set, or a confirmed failure there
-                ("guard_failed"); (c) the newest full test fails the gate, or a case changed again after it
+                ("guard_failed"); (c) the newest full test, or the newest closed pool, fails the gate, or a case
+                changed again after it
   watch         no with-skill lab line in the current set; or the current set holds runs of guard-only cases
                 alone; or the pessimistic score is under 0.70; or three or more Y changes (the version file)
-                since the version the newest complete full test ran on; or a case changed after the newest
+                since the version the newest complete full test, or closed pool, ran on; or a case changed after the newest
                 full test waits for its runs; or the baseline has fewer runs per case than "runs" and is
                 closer than "baseline_margin" to the mean with the skill (exactly the margin is not thin, with
                 the gate's float slack); or the field signal is on
@@ -248,8 +249,8 @@ of evals/container/, and the run-prompt.sh and eval.json of each eval adapter. s
 it differs from a committed "measurement_sha256"; the runner computes it when an event starts, writes it into
 every evidence line and writes no evidence when it differs.
 
-The gate (the reliability model, section 2). Only a full test evaluates it, and the runner writes its result
-into the event line when the test ends; `gate` computes it again from the lines (`gate --model <id>` for another
+The gate (the reliability model, section 2). Only a full test, or a closed pool (below), evaluates it, and the
+runner writes a full test's result into its event line when the test ends; `gate` computes it again from the lines (`gate --model <id>` for another
 model than the lead model). It is computed over the run lines with the skill, of kind full, on the model
 (by default the lead model, the first of lab_models), of the X.Y version the newest full test that lists the model
 ran on and of the same epoch as that test, every current case being required and only lines of weight
@@ -258,7 +259,7 @@ floor, and the line's major version is the current one. A second full test of an
 to the first and replaces none; a full test closed as abandoned keeps its lines. The mean of those lines
 passes when it is at the threshold or above and is not below the mean of the baselines in force by more than
 the tolerance, both unrounded. Both means are the mean of the cases' means, so that a case with more lines
-weighs as much as the others. A partial test never moves the gate, with one exception: a case added after the
+weighs as much as the others. A partial test never moves the gate by itself (its lines are in the pool, below), with one exception: a case added after the
 newest full test is "pending", and is left out of the gate, until it has with-skill lines and a baseline in
 force (eval_run.py --cases <id> --baseline); those lines then enter the gate. A case changed after the newest
 full test is treated as an added case, once: it is pending ("changed" lists it), its earlier text's runs leave
@@ -271,6 +272,26 @@ A baseline line is in force while three things are unchanged: the case (its hash
 epoch of it after the line's date: "epochs" of the gate file, [{"date", "models", "skills", "cause"}], where
 models and skills are lists or "all"), and the measurement (its version at or above the floor). The skill's
 version does not age it: a run without the skill never saw the skill.
+
+The pooled gate (package P11; the reliability model, section 2). A quick test (kind "quick", eval_run.py --quick) runs every
+case once with the skill and no baseline, so alone it moves the score and never a band or the gate. The with-skill lines of
+one skill, one model and one evidence source (lab, local or community: never mixed) that weigh (the case exists with the same
+hash, the measurement version is at or above the floor, the major version is the current one) and are dated after the newest
+epoch that reaches the skill on the model, from full, partial and quick events together, form a pool, one for each X.Y (the
+current X.Y also needs the configured grader and the current context: lab_view's current set). A pool closes when every
+current case has at least "runs" (the gate file's) lines in it and a baseline in force (baseline_lines: the source's own and
+the lab's, in the order of the source: pool_baselines), and, for the community source, when its lines come from at least
+POOL_MIN_CONTRIBUTORS (2) contributors (the owner of the fork each attested manifest names). A closed pool is evaluated by
+the unchanged measure.gate_passes on the means of the cases' means, and counts as a passing or a failing full test: it
+satisfies rule (a) of `needs a test`, it can be rule (c) with the cause "the pooled gate of X.Y fails", and it restarts the
+count of Y changes. The route is on only for a model whose evidence of the source holds a quick line (pooled_state is None
+otherwise, and nothing about a skill tested by full and partial tests changes); where it is on, the newest closed pool that
+holds a quick line decides the gate when its newest test is newer than the newest full test that lists the model (a tie stays
+with the full test), and the gate carries "note": "pooled". A row, a model's figures and a local or community figure gain
+"pool": {"xy", "runs", "cases", "cases_at_runs", "baseline_cases", "lines", "tests", "quick_lines", "contributors" (None
+outside the community source), "closed", "progress" ("pool of 1.2: 7 of 12 cases at 3 runs; baseline in force for 12"), "gate"
+(of the current X.Y's pool once closed), "deciding" (the newest closed pool: {"xy", "test", "gate"})} only then; the cause of a
+skill with no passing gate adds the progress, and its command is a quick test.
 
 Data goes to stdout as JSON, diagnostics to stderr. Standard library only.
 Exit codes: 0 ok, 1 the snapshot tables are behind (--check) or an evidence file is not valid, 2 usage error.
@@ -2158,6 +2179,20 @@ def guard_only(case):
     return bool(assertions) and all(_is_guard(a) for a in assertions)
 
 
+def context_checker(root, skill_dir, cases):
+    """A function that says whether a with-skill run line was given the context a run of its case is given now (case_context):
+    the dependency skills and the shared references. True too when this tree cannot compute the context."""
+    contexts = {}
+
+    def context_ok(line):
+        cid = str(line["case"])
+        if cid not in contexts:
+            contexts[cid] = case_context(root, skill_dir, cases.get(cid, {}), True)
+        current = contexts[cid]
+        return current is UNKNOWN_CONTEXT or line.get("context_sha256") == current
+    return context_ok
+
+
 def lab_view(root, skill_dir, cfg, events=None):
     """What the score, the bands and the tables read from a skill's lab evidence: per model the current set and the
     inherited lines (the model's section 6), and the id of the model the configuration reads (subject_model).
@@ -2175,15 +2210,7 @@ def lab_view(root, skill_dir, cfg, events=None):
     floor = cfg.get("measurement_floor", 1)
     ref = subject_model(cfg)
     grader = model_id(cfg, cfg["grader"]) if cfg.get("grader") else None
-    contexts = {}
-
-    def context_ok(line):
-        cid = str(line["case"])
-        if cid not in contexts:
-            contexts[cid] = case_context(root, skill_dir, cases.get(cid, {}), True)
-        current = contexts[cid]
-        return current is UNKNOWN_CONTEXT or line.get("context_sha256") == current
-
+    context_ok = context_checker(root, skill_dir, cases)
     pools = {}
     for event, runs in skill_evidence(skill_dir) if events is None else events:
         for line in base_lines(runs):
@@ -2215,6 +2242,132 @@ def y_changes_since(skill_dir, version):
     lines, _, _ = read_versions(skill_dir)
     start = _vkey(version)
     return sum(1 for l in lines if l.get("class") == "y" and _vkey(l.get("version")) > start)
+
+
+# --- the pooled gate (package P11; the reliability model, section 2) ---------------------------------------------------------
+#
+# A quick test runs every case once with the skill and nothing else, so alone it moves the score and never a band or the gate.
+# The with-skill lines of one skill, one model and one evidence source (lab, local or community: never mixed) that weigh and
+# are in the current epoch, from full, partial and quick events together, form a pool, one per X.Y. A pool CLOSES when every
+# current case has at least "runs" (the gate file's, 3) lines in it and a baseline in force (the rule that exists:
+# baseline_lines) and, in the community source, the lines come from at least POOL_MIN_CONTRIBUTORS contributors. A closed pool
+# is evaluated by the unchanged rule of the gate (measure.gate_passes on the means of the cases' means) and counts as a full
+# test for the band: it satisfies `needs a test` (a), it can fail the gate, and it resets the count of Y changes.
+#
+# The route is on only for a model whose evidence holds a quick line: a skill tested by full and partial tests alone is gated
+# exactly as before, so nothing already committed changes. When it is on, the newest closed pool decides the gate when its
+# newest test is newer than the newest full test that lists the model; otherwise the full test stands, as it does today.
+
+POOL_MIN_CONTRIBUTORS = 2  # contributors whose lines a community pool needs to close
+
+
+def pool_baselines(skill_dir, cfg, events, rule):
+    """{case id: [baseline lines in force]} for a pool of a source. The source's own baselines (baseline_lines on its events)
+    and the baselines of rule["baseline_events"] (the lab's, for a local or a community pool): a lab or a local pool uses its
+    own source's first and the lab's for the cases it lacks, a community pool the lab's first ("baseline_first": "other":
+    a baseline is a run without the skill, and the lab's is the most trusted) and its own for the cases the lab lacks."""
+    own = baseline_lines(skill_dir, cfg, events)
+    others = (rule or {}).get("baseline_events")
+    other = baseline_lines(skill_dir, cfg, others) if others else {}
+    first, second = (other, own) if (rule or {}).get("baseline_first") == "other" else (own, other)
+    return {cid: first.get(cid) or second.get(cid) for cid in set(first) | set(second) if first.get(cid) or second.get(cid)}
+
+
+def pool_groups(root, skill_dir, cfg, events):
+    """({X.Y: [(event line, run line)]}, whether the model's evidence holds a quick line): the with-skill lines of the subject
+    model in `events` (one source) that weigh (the case exists with the same hash, the measurement version is at or above the
+    floor, the major version is the current one) and are dated after the newest epoch that reaches the skill on the model, by
+    the X.Y of the line. Of the current X.Y a line also needs the configured grader and the current context (lab_view's
+    current set); an earlier X.Y keeps its own, as a full test of it does. A line of a platform's case is never in a pool."""
+    skill = os.path.basename(os.path.normpath(skill_dir))
+    version = skill_version(skill_dir)
+    if version is None:
+        return {}, False
+    ref, floor = subject_model(cfg), cfg.get("measurement_floor", 1)
+    if not any(line.get("kind") == "quick" for _, runs in model_events(events, ref) for line in runs):
+        return {}, False  # the usual case, and the cheap one: nothing below is computed for a skill with no quick test
+    hashes, cases = case_hashes(skill_dir), skill_cases(skill_dir)
+    grader = model_id(cfg, cfg["grader"]) if cfg.get("grader") else None
+    context_ok = context_checker(root, skill_dir, cases)
+    major, current = _major(version), _xy(version)
+    groups, quick = {}, False
+    for event, runs in model_events(events, ref):
+        for line in base_lines(runs):
+            if (line["variant"] != "with" or (ref is not None and line["model"] != ref) or _major(line["version"]) != major
+                    or line["measurement_version"] < floor):
+                continue
+            quick = quick or line["kind"] == "quick"
+            if hashes.get(str(line["case"])) != line["case_sha256"] or epoch_after(cfg, skill, line["model"], line["date"]):
+                continue
+            xy = _xy(line["version"])
+            if xy == current and not ((grader is None or model_id(cfg, event.get("grader", "")) == grader) and context_ok(line)):
+                continue
+            groups.setdefault(xy, []).append((event, line))
+    return groups, quick
+
+
+def pool_of(xy, group, case_ids, baselines, cfg, rule):
+    """One pool: its figures, whether it is closed and, when it is, its gate. group is [(event line, run line)] of one X.Y."""
+    runs = event_config(cfg)["runs"]
+    by_case = {}
+    for _, line in group:
+        by_case.setdefault(str(line["case"]), []).append(line["score"])
+    at_runs = sum(1 for c in case_ids if len(by_case.get(c, ())) >= runs)
+    based = sum(1 for c in case_ids if baselines.get(c))
+    who = rule.get("who") if rule else None
+    contributors = (len({who[e["test"]] for e, _ in group if e["test"] in who}) if who is not None else None)
+    closed = (bool(case_ids) and at_runs == len(case_ids) and based == len(case_ids)
+              and (contributors is None or contributors >= POOL_MIN_CONTRIBUTORS))
+    text = f"pool of {xy}: {at_runs} of {len(case_ids)} cases at {runs} runs; baseline in force for {based}"
+    if contributors is not None:
+        text += f"; {contributors} of {POOL_MIN_CONTRIBUTORS} contributors"
+    out = {"xy": xy, "runs": runs, "cases": len(case_ids), "cases_at_runs": at_runs, "baseline_cases": based, "lines": len(group),
+           "tests": len({e["test"] for e, _ in group}), "quick_lines": sum(1 for _, l in group if l["kind"] == "quick"),
+           "contributors": contributors, "closed": closed, "progress": text, "gate": None,
+           "test": max((e["test"] for e, _ in group), default=None),
+           "version": max((l["version"] for _, l in group), key=_vkey, default=None)}
+    if closed:
+        threshold, tolerance = cfg.get("threshold", 0.8), cfg.get("tolerance", 0)
+
+        def case_mean(scores_of):
+            means = [sum(scores_of(c)) / len(scores_of(c)) for c in case_ids]
+            return sum(means) / len(means)
+
+        with_mean = case_mean(lambda c: by_case[c])
+        base_mean = case_mean(lambda c: [l["score"] for l in baselines[c]])
+        out["gate"] = {"computed": True, "passed": load_measure().gate_passes(with_mean, base_mean, threshold, tolerance),
+                       "with": with_mean, "baseline": base_mean, "baseline_runs": min(len(baselines[c]) for c in case_ids),
+                       "version": xy, "test": out["test"]}
+    return out
+
+
+def pooled_state(root, skill_dir, cfg, events, rule=None):
+    """The pooled route of one skill on the subject model, from one source's events, or None when the route is off (the model's
+    evidence holds no quick line: the skill is gated by its full tests alone, exactly as before). Otherwise {"xy": the current
+    X.Y, "current": the pool of the current X.Y (empty when nothing of it ran), "closed": the pools of every X.Y that hold a
+    quick line and are closed, oldest first, "deciding": the newest of them or None}. rule describes the source: {"baseline_events":
+    the events whose baselines the source may use besides its own, "baseline_first": "own" | "other", "who": {test id:
+    contributor} for the community source, which then needs POOL_MIN_CONTRIBUTORS}."""
+    groups, quick = pool_groups(root, skill_dir, cfg, events)
+    version = skill_version(skill_dir)
+    if not quick or version is None:
+        return None
+    case_ids = sorted(case_hashes(skill_dir), key=_case_key)
+    baselines = pool_baselines(skill_dir, cfg, events, rule)
+    current = _xy(version)
+    pools = {xy: pool_of(xy, groups.get(xy, []), case_ids, baselines, cfg, rule) for xy in set(groups) | {current}}
+    closed = sorted((p for xy, p in pools.items() if p["closed"] and p["quick_lines"]), key=lambda p: p["test"])
+    return {"xy": current, "current": pools[current], "closed": closed, "deciding": closed[-1] if closed else None}
+
+
+def pool_row(state):
+    """What a row of the status shows of the pooled route: the progress and the figures of the current X.Y's pool, its gate once
+    it is closed, and the newest closed pool that decides the skill's gate (None when none)."""
+    cur, deciding = state["current"], state["deciding"]
+    keep = ("xy", "runs", "cases", "cases_at_runs", "baseline_cases", "lines", "tests", "quick_lines", "contributors", "closed", "progress")
+    gate = lambda p: ({k: p["gate"][k] for k in ("passed", "with", "baseline", "test")} if p and p["gate"] else None)
+    return {**{k: cur[k] for k in keep}, "gate": gate(cur),
+            "deciding": {"xy": deciding["xy"], "test": deciding["test"], "gate": gate(deciding)} if deciding else None}
 
 
 def field_view(root, skill_dir, cfg, authors, lab_events, version):
@@ -2286,10 +2439,10 @@ def assertion_counts(cases, ref_current, baselines):
     return rows, (round(sum(diffs) / len(diffs), 4) if diffs else None)
 
 
-def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
+def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, pool_rule=None):
     """The band of one skill on the subject model (the first of lab_models, or the model given), with its cause and the
     command that clears it, the score, the gate, the guards, the field columns and a row per model (the model's sections
-    4 to 7; see --help).
+    4 to 7; see --help). pool_rule describes the source of `events` for the pooled gate (pooled_state); None is the lab's.
 
     Each model's row carries the same band, cause and gate, computed by this same function on that model's lines
     (as_subject; per_model=False there, so that it does not recurse); the subject's row copies the skill's own. No
@@ -2309,6 +2462,14 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
                                                                       "cases": []}
     floor = cfg.get("measurement_floor", 1)
     major, xy = (_major(version), _xy(version)) if version else (None, None)
+    # The pooled route (package P11): on only when the model's evidence holds a quick line. A closed pool whose newest test is
+    # newer than the newest full test decides the gate in its place; the cause texts show the pool's progress while it is open.
+    route = pooled_state(root, skill_dir, cfg, events, pool_rule) if version else None
+    decided = (route["deciding"] if route and route["deciding"]
+               and (gate.get("test") is None or route["deciding"]["test"] > gate["test"]) else None)
+    if decided:
+        gate = {**gate, **decided["gate"], "note": "pooled", "cause": None, "cases": sorted(case_hashes(skill_dir), key=_case_key),
+                "pending": [], "changed": [], "dropped": {}}
     mine = model_events(events, ref)  # the tests that list this model
     mine_full = [(e, runs) for e, runs in mine if e.get("kind") == "full" and _major(e.get("version", "")) == major
                  and counts_for(e, runs, ref)]  # complete for this model, or the abandoned test of which it is the lead
@@ -2318,13 +2479,22 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
     complete_fulls = [e for e in measured_fulls if complete_of[id(e)]]
     last_full = fulls[-1] if fulls else None
     run_full = f"python3 evals/eval_run.py --skill {skill}"
+    run_quick = f"python3 evals/eval_run.py --skill {skill} --quick"
+    # While the pooled route is on, the way to a passing gate is to fill the pool; a full test fills it too.
+    run_next = run_quick if route else run_full
+    progress = f" ({route['current']['progress']})" if route else ""
     causes = []  # (kind, text, command), in the order of the model's section 5
 
-    # needs a test (a) and (c): the gate of the newest full test of the current major version.
-    if not measured_fulls:
+    # needs a test (a) and (c): the gate of the newest full test of the current major version, or of the pool that decides.
+    if decided:
+        if not decided["gate"]["passed"]:
+            causes.append(("gate failed", f"the pooled gate of {decided['xy']} fails (with the skill "
+                           f"{decided['gate']['with']:.3f}, baseline {decided['gate']['baseline']:.3f}; "
+                           f"{decided['lines']} runs from {decided['tests']} test(s))", f"after the fix: {run_next}"))
+    elif not measured_fulls:
         why = (f"no full test of version {major}.x at or above the measurement floor {floor}" if fulls
                else f"no full test of version {major}.x")
-        causes.append(("no passing full test", why, run_full))
+        causes.append(("no passing full test", why + (" and no closed pool" if route else "") + progress, run_next))
     elif gate.get("computed") and not gate["passed"]:
         causes.append(("gate failed", f"the newest full test of {gate['version']} fails the gate (with the skill "
                        f"{gate['with']:.3f}, baseline {gate['baseline']:.3f})", f"after the fix: {run_full}"))
@@ -2334,7 +2504,7 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
                            f"after the fix: {run_full}"))
     elif not gate.get("computed"):
         kind = "gate failed" if "changed again after the newest full test" in (gate.get("cause") or "") else "no passing full test"
-        causes.append((kind, gate.get("cause") or "the gate cannot be computed", run_full))
+        causes.append((kind, (gate.get("cause") or "the gate cannot be computed") + (progress if kind != "gate failed" else ""), run_next))
 
     # needs a test (b): every guard assertion has a with-skill run in the current set, and no confirmed failure.
     ref_current = ref_pool["current"]
@@ -2364,7 +2534,9 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
         if ref_score["score"] < RELIABLE_AT:
             watch.append(("score", f"the pessimistic score {ref_score['score']:.2f} is under {RELIABLE_AT:.2f}", partial))
         newest_full = complete_fulls[-1] if complete_fulls else None
-        y = y_changes_since(skill_dir, newest_full["version"]) if newest_full else 0
+        reset_at = [newest_full["version"]] if newest_full else []
+        reset_at += [p["version"] for p in route["closed"]] if route else []  # a closed pool resets the count like a full test
+        y = y_changes_since(skill_dir, max(reset_at, key=_vkey)) if reset_at else 0
         if y >= Y_CHANGES_FOR_FULL:
             watch.append(("y changes", f"{y} Y changes since the newest full test", run_full))
         waiting = [c for c in gate.get("changed") or [] if c in (gate.get("pending") or [])]
@@ -2404,11 +2576,15 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
     standing = {"band": band, "cause": first[1], "kind": first[0], "command": first[2],
                 "causes": [{"kind": k, "cause": t, "command": c} for k, t, c in causes + watch],
                 "gate": {k: gate.get(k) for k in GATE_ROW_KEYS}}
+    if route:
+        standing["pool"] = pool_row(route)  # only a model on the pooled route has one
     if per_model:
         for model, figures in models.items():
             other = standing if model == ref else skill_band(root, skill_dir, as_subject(cfg, model), authors, per_model=False,
-                                                             events=events)
+                                                             events=events, pool_rule=pool_rule)
             figures.update({k: other[k] for k in MODEL_BAND_KEYS})
+            if "pool" in other:
+                figures["pool"] = other["pool"]
     row = {"skill": skill, "version": version, "band": band, "cause": first[1], "kind": first[0], "command": first[2],
            "causes": standing["causes"],
            "pending": gate.get("pending") or [], "score": ref_score["score"], "mean": ref_score["mean"],
@@ -2421,6 +2597,8 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
            "models": models}
     if gate.get("pending"):
         row["pending_command"] = f"python3 evals/eval_run.py --skill {skill} --cases {','.join(gate['pending'])} --baseline"
+    if "pool" in standing:
+        row["pool"] = standing["pool"]
     if counts:
         row["assertions"], row["difference_not_format"] = counts, difference
     return row
@@ -2439,12 +2617,15 @@ def local_status(root, name, config, base):
         return {}
     skill_dir = os.path.join(root, "skills", name)
     found = {}
+    rule = {"baseline_events": skill_evidence(skill_dir), "baseline_first": "own"}  # the pool: its own baseline, else the lab's
     for model in sorted({line["model"] for _, runs in events for line in base_lines(runs)}):
         cfg = as_subject({**config, "models": {**known_models(config), model: []}}, model)
-        row = skill_band(root, skill_dir, cfg, None, per_model=False, events=events)
+        row = skill_band(root, skill_dir, cfg, None, per_model=False, events=events, pool_rule=rule)
         found[model] = {key: row[key] for key in LOCAL_ROW_KEYS}
         found[model]["tests"] = sum(1 for event, _ in model_events(events, model))
         found[model]["last_full_test"] = row["last_full_test"]
+        if "pool" in row:
+            found[model]["pool"] = row["pool"]
     return found
 
 
@@ -2580,7 +2761,8 @@ def community_pool(root, skill_dir, authors):
     COMMUNITY_CAP with-skill run lines of each contributor kept per model (the contributor is the owner of the fork the
     manifest names, which the attestation binds: several accounts or forks of one person remain a residual risk).
     A line dropped by the cap takes its place in the count of "capped"; the baseline lines of an event that keeps no
-    with-skill line go with it. info: {"files", "contributors", "capped", "manifests"}."""
+    with-skill line go with it. info: {"files", "contributors", "capped", "manifests", "who"}; "who" is {test id: the owner of
+    the fork the test came from}, what the pooled gate counts contributors by (pooled_state)."""
     skill = os.path.basename(os.path.normpath(skill_dir))
     loaded = {}
     for path in community_files(skill_dir):
@@ -2618,7 +2800,8 @@ def community_pool(root, skill_dir, authors):
             events.append((f["event"], runs))
         pool[model] = events
         info[model] = {"files": len(files), "contributors": len({f["who"] for f in files}), "capped": dropped,
-                       "manifests": [f["manifest"] for f in files]}
+                       "manifests": [f["manifest"] for f in files],
+                       "who": {f["event"]["test"]: f["who"] for f in files}}  # whose fork a test came from: the pool's contributors
     return pool, info
 
 
@@ -2629,11 +2812,17 @@ def community_status(root, name, config, authors):
     skill_dir = os.path.join(root, "skills", name)
     pool, info = community_pool(root, skill_dir, authors)
     found = {}
+    lab_events = skill_evidence(skill_dir)
     for model, events in pool.items():
-        row = skill_band(root, skill_dir, as_subject(config, model), authors, per_model=False, events=events)
+        # The pooled gate of this source: a community pool may use a lab baseline in force (the lab's is the most trusted) and
+        # its own for the cases the lab lacks, and closes only with lines from POOL_MIN_CONTRIBUTORS contributors.
+        rule = {"baseline_events": lab_events, "baseline_first": "other", "who": info[model]["who"]}
+        row = skill_band(root, skill_dir, as_subject(config, model), authors, per_model=False, events=events, pool_rule=rule)
         found[model] = {key: row[key] for key in COMMUNITY_ROW_KEYS}
         found[model]["tests"] = len(events)
-        found[model].update({k: v for k, v in info[model].items() if k != "manifests"})
+        found[model].update({k: v for k, v in info[model].items() if k not in ("manifests", "who")})
+        if "pool" in row:
+            found[model]["pool"] = row["pool"]
     return found, info
 
 
@@ -2732,7 +2921,8 @@ def _gate_cell(gate):
     """passed or failed, with the two means "with vs baseline"; "not computed" when the gate has no result."""
     if not gate or gate.get("passed") is None:
         return "not computed"
-    verdict = ("passed" if gate["passed"] else "failed") + ("" if gate.get("computed") else f" ({gate.get('note') or 'written'})")
+    verdict = ("passed" if gate["passed"] else "failed") + (
+        " (pooled)" if gate.get("note") == "pooled" else "" if gate.get("computed") else f" ({gate.get('note') or 'written'})")
     return f"{verdict}, {_num(gate.get('with'))} vs {_num(gate.get('baseline'))}"
 
 
@@ -2740,7 +2930,11 @@ def _community_cell(figures):
     """runs, mean and score of a pair's community evidence, with the marker of a pair that is reliable only through it."""
     if not figures:
         return "-"
+    pool = figures.get("pool")
     return (f"{figures['runs']:g}, {_num(figures['mean'])}, {_num(figures['score'])}"
+            + (f" (pool: {pool['cases_at_runs']} of {pool['cases']} cases at {pool['runs']} runs, {pool['contributors']} contributor(s))"
+               if pool and not pool["closed"] else
+               f" (pooled, {pool['contributors']} contributor(s))" if pool else "")
             + (" (community only)" if figures.get("community_only") else ""))
 
 
@@ -2929,7 +3123,12 @@ def main(argv, root=None):
             if not MODEL_RE.fullmatch(opts["model"]):
                 die(f"--model {opts['model']!r} is not a model id.")
             config = as_subject(config, model_id(config, opts["model"]))
-        print(json.dumps(gate_of(os.path.join(root, "skills", skill), config), indent=2))
+        skill_dir = os.path.join(root, "skills", skill)
+        out = gate_of(skill_dir, config)
+        route = pooled_state(root, skill_dir, config, skill_evidence(skill_dir)) if skill_version(skill_dir) else None
+        if route:  # the pooled route (lab evidence), present only when the model's evidence holds a quick line
+            out["pool"] = pool_row(route)
+        print(json.dumps(out, indent=2))
         return 0
     if cmd == "inventory":
         if len(flags) != 1:
