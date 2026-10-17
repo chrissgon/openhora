@@ -23,7 +23,7 @@
     {
       "command": "/answer",
       "arguments": "<id> <text>",
-      "help": "answer a pending decision"
+      "help": "answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page"
     },
     {
       "command": "/release",
@@ -33,7 +33,7 @@
     {
       "command": "/approve",
       "arguments": "<id> [sha256]",
-      "help": "approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash"
+      "help": "approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved with its hash, in the terminal, on the page, or on a messaging app the project grants that effect's word (from a card that carried the whole text)"
     },
     {
       "command": "/reject",

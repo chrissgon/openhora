@@ -6,7 +6,7 @@
 provider (providers/messenger/README.md) in, one dict out, nothing called.
 
   {"kind": "action", "action": "<id>"}                a tapped button
-  {"kind": "approve", "id": 12}                       /approve 12
+  {"kind": "approve", "id": 12}                       /approve 12 ("sha256": the typed hash, when /approve 12 <hash> carries one)
   {"kind": "reject", "id": 12, "note": "text"|None}   /reject 12 [note]
   {"kind": "release", "id": 12}                       /release 12
   {"kind": "answer", "id": 12, "text": "..."}         /answer 12 <text>
@@ -53,6 +53,8 @@ def parse(update: dict) -> dict:
                 return {"kind": "answer", "id": number, "text": tail}
             if name == "reject":
                 return {"kind": "reject", "id": number, "note": tail or None}
+            if name == "approve" and tail:
+                return {"kind": name, "id": number, "sha256": tail.split()[0].lower()}
             return {"kind": name, "id": number}
         if name == "pending":
             return {"kind": "pending"}

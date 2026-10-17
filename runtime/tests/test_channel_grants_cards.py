@@ -1,0 +1,275 @@
+"""The card and the bridge of a granted effect (package POL-1; runtime/messaging_cards.py, runtime/messaging_bridge.py), over the stand-in
+operations object and the stand-in messenger of test_messaging.py. What the policy layer decides is in test_channel_grants.py; here is what the
+messaging channel does with it: an effect card carries the approve button only when the project's accepted policy grants the effect's word,
+the notices carry text, the decision says the whole effect fits on a card, and the card carried the whole text (inline, or as the attached
+document); a tap or a typed line is bound to the card the person saw, by its hash, which must be the decision's own; and an old card, a stale
+one, a cut one and one of a narrowed policy approve nothing. Offline, no model.
+
+Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_channel_grants_cards.py
+"""
+from __future__ import annotations
+
+import pytest
+
+import standin_tree as st
+from test_messaging import OPEN_POLICY, SECRET_TEXT, SENDER, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
+
+ops = st.load("ops")
+operations = st.load("operations")
+bridge = st.load("messaging_bridge")
+cards = st.load("messaging_cards")
+inbound = st.load("messaging_inbound")
+
+HASH = "e" * 64
+GRANTED = [*OPEN_POLICY, "approve-effect-write"]
+LABEL = "Approve this exact content"
+
+
+def effect(number=7, sha=HASH, word="write", on_cards=True, body="Replace the page with:\n\nOpen at nine.", **more):
+    return decision("effect", number, title="Write to the plan page", body=body, payload_sha256=sha,
+                    effect_word=word, effect_on_cards=on_cards, **more)
+
+
+def fresh_bridge(world):
+    """A bridge with an empty ledger and nothing sent: a new start of the same world."""
+    (world.tmp / "data" / "messaging-telegram.json").unlink(missing_ok=True)
+    world.standin.joinpath("sent.jsonl").unlink(missing_ok=True)
+    world.bridge = world.make()
+
+
+def grant(world, groups=GRANTED, notices="text"):
+    world.config["channels"] = {"messaging": groups}
+    world.config["messaging"]["notices"] = notices
+
+
+def approve_calls(world):
+    return world.calls("approve")
+
+
+def approve_action(world, index=-1):
+    message = world.sent()[index]["message"]
+    return next(a["id"] for a in message["actions"] if a["label"] == LABEL)
+
+
+# --- the card -------------------------------------------------------------------------------------------------------------------
+
+
+def test_a_granted_whole_card_has_the_approve_button_the_hash_line_and_the_ledger_records_it(world):
+    grant(world)
+    world.items[7] = effect()
+    world.bridge.tick()
+    [card] = world.sent()
+    message = card["message"]
+    assert [a["label"] for a in message["actions"]] == [LABEL, "Reject"] or [a["label"] for a in message["actions"]] == ["Reject", LABEL]
+    assert "Open at nine." in message["text"] and f"sha256 {HASH}" in message["text"] and "Approve it on the page or in the terminal" not in message["text"]
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["whole"] is True and entry["approvable"] is True and entry["effect_word"] == "write" and entry["content_sha256"] == HASH
+    assert "Open at nine" not in open(world.tmp / "data" / "messaging-telegram.json", encoding="utf-8").read(), "the ledger holds no project text"
+    again = world.make()      # a restart sends nothing twice
+    again.tick()
+    assert len(world.sent()) == 1
+
+
+def test_the_default_and_a_wrong_word_and_notices_of_count_draw_no_button_and_keep_the_command(world):
+    world.items[7] = effect()
+    command = operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256=HASH)
+    for groups, notices in ((OPEN_POLICY, "text"), ([*OPEN_POLICY, "approve-effect-create", "approve-effect-send"], "text"), (GRANTED, "count")):
+        grant(world, groups, notices)
+        fresh_bridge(world)
+        world.bridge.tick()
+        [card] = world.sent()
+        assert [a["label"] for a in card["message"]["actions"]] == ["Reject"], (groups, notices)
+        assert "Approve it on the page or in the terminal:" in card["message"]["text"] and f"`{command}`" in card["message"]["text"]
+        world.say("/approve 7")
+        assert approve_calls(world) == [] and command in world.texts()[-1] and world.texts()[-1].startswith(bridge.EFFECT_REPLY), (groups, notices)
+    assert approve_calls(world) == []
+
+
+def test_a_card_cut_on_a_platform_without_documents_draws_no_approve_and_says_so_with_the_command(world):
+    grant(world)
+    world.caps(max_text=1600, documents=False)          # Twilio's limit and no documents
+    world.items[7] = effect(body="y" * 2500)
+    world.bridge.tick()
+    [card] = world.sent()
+    message = card["message"]
+    assert [a["label"] for a in message["actions"]] == ["Reject"] and message["document"] is None
+    assert cards.TOO_LONG_LINE in message["text"] and "Approve it on the page or in the terminal:" in message["text"] and len(message["text"]) <= 1600
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["whole"] is False and entry["approvable"] is False
+    world.say("/approve 7")
+    assert approve_calls(world) == [] and world.texts()[-1].startswith(bridge.TOO_LONG) and HASH in world.texts()[-1]
+
+
+def test_the_same_long_effect_on_a_platform_with_documents_is_whole_as_the_attached_document_and_is_approved(world):
+    grant(world)
+    world.caps(max_text=300, documents=True)
+    world.items[7] = effect(body="y" * 2000)
+    world.bridge.tick()
+    [card] = world.sent()
+    message = card["message"]
+    assert LABEL in [a["label"] for a in message["actions"]] and message["document"]["text"].endswith("y" * 2000)
+    assert message["document"]["name"] == "effect-7.txt" and len(message["text"]) <= 300
+    world.fake.answers["approve"] = {"task_state": "done"}
+    world.say(None, action=approve_action(world))
+    assert wait_for(lambda: approve_calls(world))
+    assert approve_calls(world)[0][2] == {"pending_id": 7, "sha256": HASH, "channel": "messaging"}
+
+
+def test_an_effect_that_cannot_be_on_a_card_draws_no_button_and_no_card_or_typed_line_approves_it_even_with_the_group_granted(world):
+    for word in ("send", "publish"):
+        groups = [*OPEN_POLICY, f"approve-effect-{word}"]
+        grant(world, groups)
+        fresh_bridge(world)
+        world.items[7] = effect(word=word, on_cards=False)         # an attachment, an image: the hash covers a file the card cannot carry
+        world.bridge.tick()
+        [card] = world.sent()
+        assert [a["label"] for a in card["message"]["actions"]] == ["Reject"], word
+        assert "Approve it on the page or in the terminal:" in card["message"]["text"] and cards.APPROVES_LINE.format(sha=HASH) not in card["message"]["text"]
+        # forced: even a card the ledger calls whole, whatever the bridge was told, the decision says it does not fit
+        for entry in world.bridge.ledger.data["cards"]:
+            entry["whole"], entry["approvable"] = True, True
+        world.say("/approve 7")
+        world.say(f"/approve 7 {HASH}")
+        world.say(None, action="1:approve")
+        assert approve_calls(world) == [], word
+        assert world.texts()[-2].startswith(bridge.TOO_LONG)
+    # the same words with a text-only message or post are approvable
+    grant(world, [*OPEN_POLICY, "approve-effect-send"])
+    fresh_bridge(world)
+    world.items[7] = effect(word="send", on_cards=True)
+    world.bridge.tick()
+    assert LABEL in [a["label"] for a in world.sent()[-1]["message"]["actions"]]
+
+
+# --- the tap and the typed line -------------------------------------------------------------------------------------------------
+
+
+def test_a_tap_approves_with_the_cards_hash_in_the_channel_messaging_and_replies(world):
+    grant(world)
+    world.items[7] = effect()
+    world.bridge.tick()
+    world.fake.answers["approve"] = {"task_state": "done"}
+    world.say(None, action=approve_action(world))
+    assert wait_for(lambda: world.texts()[-1] == "Approved #7.")
+    [(_, _, kwargs)] = approve_calls(world)
+    assert kwargs == {"pending_id": 7, "sha256": HASH, "channel": "messaging"}
+    assert world.standin.joinpath("acks.jsonl").read_text().strip() == '{"ref": "ref-1"}'
+
+
+def test_a_refusal_of_the_operations_layer_is_replied_and_nothing_else_is_said(world):
+    grant(world)
+    world.items[7] = effect()
+    world.bridge.tick()
+    world.fake.answers["approve"] = ops.OpsError("nothing was written: the page changed; the effect stays open", 1)
+    world.say(None, action=approve_action(world))
+    assert wait_for(lambda: "the page changed" in world.texts()[-1])
+    assert len(approve_calls(world)) == 1 and "Approved" not in " ".join(world.texts())
+
+
+def test_a_typed_approve_binds_to_the_newest_whole_card_and_a_typed_hash_must_be_the_cards(world):
+    grant(world)
+    world.items[7] = effect()
+    world.say("/approve 7")      # no card yet: the person has seen nothing
+    assert world.texts() == [bridge.NO_CARD] and approve_calls(world) == []
+    world.bridge.tick()
+    other = "d" * 64
+    world.say(f"/approve 7 {other}")
+    assert world.texts()[-1] == bridge.WRONG_HASH and approve_calls(world) == []
+    world.fake.answers["approve"] = {"task_state": "done"}
+    world.say("/approve 7")
+    assert wait_for(lambda: len(approve_calls(world)) == 1) and approve_calls(world)[0][2] == {"pending_id": 7, "sha256": HASH, "channel": "messaging"}
+    assert wait_for(lambda: world.texts()[-1] == "Approved #7.")
+    world.say(f"/approve 7 {HASH.upper()}")
+    assert wait_for(lambda: len(approve_calls(world)) == 2), "the typed hash is compared as a hash, in either case"
+    assert inbound.parse({"text": f"/approve 7 {HASH}"}) == {"kind": "approve", "id": 7, "sha256": HASH}
+    assert inbound.parse({"text": "/approve 7"}) == {"kind": "approve", "id": 7}
+
+
+def test_a_stale_card_is_refused_with_the_decision_changed_and_a_new_card_with_the_new_hash_is_sent(world):
+    grant(world)
+    world.items[7] = effect()
+    world.bridge.tick()
+    old = approve_action(world)
+    new_hash = "9" * 64
+    world.items[7] = effect(sha=new_hash)              # the effect was opened again with other content
+    world.say(None, action=old)
+    assert approve_calls(world) == [] and bridge.CHANGED in world.texts()
+    fresh = world.sent()[-1]["message"]
+    assert f"sha256 {new_hash}" in fresh["text"] and LABEL in [a["label"] for a in fresh["actions"]]
+    world.fake.answers["approve"] = {"task_state": "done"}
+    world.say(None, action=approve_action(world))
+    assert wait_for(lambda: approve_calls(world)) and approve_calls(world)[0][2]["sha256"] == new_hash
+    world.say(None, action=old)           # and the old button never works again
+    assert len(approve_calls(world)) == 1
+
+
+def test_a_card_of_before_the_whole_flag_and_a_decision_no_longer_open_approve_nothing(world):
+    grant(world)
+    world.items[7] = effect()
+    world.bridge.tick()
+    action = approve_action(world)
+    for entry in world.bridge.ledger.data["cards"]:
+        entry.pop("whole")                                  # a ledger entry of an earlier bridge: not whole (fails closed)
+    world.say(None, action=action)
+    world.say("/approve 7")
+    assert approve_calls(world) == [] and world.texts()[-1].startswith(bridge.TOO_LONG)
+    for entry in world.bridge.ledger.data["cards"]:
+        entry["whole"] = True
+    world.items[7] = {**effect(), "status": "resolved"}
+    world.say(None, action=action)
+    assert approve_calls(world) == [] and world.texts()[-1] == bridge.NOT_OPEN.format(number=7, status="resolved")
+
+
+def test_the_policy_is_read_when_the_person_taps_so_a_grant_taken_back_approves_nothing(world):
+    grant(world)
+    world.items[7] = effect()
+    world.bridge.tick()
+    action = approve_action(world)
+    grant(world, OPEN_POLICY)                 # the person narrowed the policy and accepted it after the card was sent
+    world.say(None, action=action)
+    assert approve_calls(world) == [] and world.texts()[-1].startswith(bridge.EFFECT_REPLY)
+    grant(world)
+    said = len(world.texts())
+    world.fake.config_answer = lambda project: {"path": project, "sha256": "a" * 64, "accepted": False, "data_dir": "x", **world.config}
+    world.say(None, action=action)       # a configuration that is not accepted refuses everything: the tap is dropped with no call and no reply
+    assert approve_calls(world) == [] and len(world.texts()) == said
+
+
+def test_an_effect_card_sent_before_the_word_was_granted_is_sent_again_once_it_can_be_approved(world):
+    world.items[7] = effect()
+    world.config["channels"] = {"messaging": OPEN_POLICY}
+    world.bridge.tick()
+    assert len(world.sent()) == 1 and [a["label"] for a in world.sent()[0]["message"]["actions"]] == ["Reject"]
+    world.bridge.tick()
+    assert len(world.sent()) == 1, "nothing changed: nothing is sent again"
+    grant(world)                                # the person accepted a configuration that grants the word
+    world.bridge.tick()
+    assert len(world.sent()) == 2 and LABEL in [a["label"] for a in world.sent()[1]["message"]["actions"]]
+    world.bridge.tick()
+    assert len(world.sent()) == 2, "and once"
+    grant(world, GRANTED, notices="count")      # a card that cannot carry the text is not sent again for a grant it cannot use
+    world.items[8] = effect(number=8, sha="8" * 64)
+    world.bridge.tick()
+    assert len(world.sent()) == 3 and [a["label"] for a in world.sent()[2]["message"]["actions"]] == ["Reject"]
+    world.bridge.tick()
+    assert len(world.sent()) == 3
+
+
+def test_the_other_kinds_are_unchanged_a_plan_is_approved_with_its_hash_and_an_effect_word_changes_none_of_it(world):
+    grant(world, [*GRANTED, "approve-networked-plans"])
+    world.items[1] = decision("plan", 1)
+    world.bridge.tick()
+    world.fake.answers["approve"] = {"approved": True}
+    world.say(None, action=world.sent()[0]["message"]["actions"][0]["id"])
+    [(_, _, kwargs)] = approve_calls(world)
+    assert kwargs == {"pending_id": 1, "sha256": "p" * 64, "channel": "messaging"} and world.texts()[-1] == "Approved #1."
+
+
+def test_a_listed_sender_only_a_card_is_acted_on_in_its_own_chat_and_by_its_projects_senders(world):
+    grant(world)
+    world.items[7] = effect()
+    world.bridge.tick()
+    action = approve_action(world)
+    world.say(None, action=action, sender="9999", chat="9999")        # another account: dropped with no reply and no call
+    world.say(None, action=action, chat="4243")                       # the sender's own id in a chat that is not theirs: dropped too
+    assert approve_calls(world) == [] and len(world.sent()) == 1

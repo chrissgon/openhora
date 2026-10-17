@@ -301,27 +301,36 @@ def networked_steps(item: dict) -> list:
     return found
 
 
-def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None) -> None:
+def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None, effect=None) -> None:
     """What approve checks of the decision before anything else. A go-ahead is said on the tasks of a plan: any other
     pending decision is refused. The channel's policy (operations.refusal, decisions M-8 and M-13) must cover the approval
-    of the decision's kind, and, with task keys, the group `go-ahead` too. An effect is checked against the policy only
-    for a channel that may approve one at all (operations.EFFECT_CHANNELS: the page); for any other channel the rule of
-    ops.approve speaks. The policy is never the only guard of an effect. A plan approved from a messaging app carries
-    its hash: the tap or the typed command names exactly what the person saw (an acceptance has none; the bridge binds
-    it to the card, runtime/messaging.py)."""
+    of the decision's kind, and, with task keys, the group `go-ahead` too. An effect is asked of the policy by its word
+    (`effect:<word>`, from `effect`, ops_grants.effect_facts; `effect` with no word when it is unknown) for a channel that may approve
+    one by default (operations.EFFECT_CHANNELS: the terminal and the page); for any other channel the grant rule of
+    ops_grants.effect_refusal speaks, in ops.approve. The policy is never the only guard of an effect. A plan that holds a networked
+    step is approved by default in the terminal or on the page (operations.NETWORKED_PLAN_CHANNELS, limit L36) and from another
+    channel only where the project grants it (`approve-networked-plans`: a messaging app; never the conversation or the MCP mode).
+    A plan approved from a messaging app or the MCP mode carries its hash: the tap, the typed command or the tool call names exactly
+    what the person saw (an acceptance has none; the bridge binds it to the card, runtime/messaging.py)."""
     if go_ahead and item["kind"] != "plan":
         raise core.OpsError(f"pending decision {item['id']} is a {item['kind']}: go ahead is said on the tasks of a plan", 2)
-    if item["kind"] == "plan" and channel not in operations.NETWORKED_PLAN_CHANNELS and networked_steps(item):   # by default; fails closed: no channel is none
+    if item["kind"] == "plan" and channel not in operations.NETWORKED_PLAN_CHANNELS and networked_steps(item) \
+            and not operations.permitted("approve", channel or "", policy, "plan:networked"):   # fails closed: no channel is none
         key, kind = networked_steps(item)[0]
         raise core.OpsError(f"the plan holds the task {key}, a {kind} step that reaches the network: a plan with one is approved in the "
-                            "terminal or on the page by default, never from a conversation, a messaging app or the MCP mode (limit L36). Nothing was approved", 1)
+                            "terminal or on the page by default, and from a messaging app only when the project grants approve-networked-plans; "
+                            "never from a conversation or the MCP mode (limit L36). Nothing was approved", 1)
     if channel and (item["kind"] != "effect" or channel in operations.EFFECT_CHANNELS):
-        refused = operations.refusal("approve", channel, policy, item["kind"], bool(go_ahead))
+        kind = item["kind"]
+        if kind == "effect" and (effect or {}).get("word"):
+            kind = "effect:" + effect["word"]
+        refused = operations.refusal("approve", channel, policy, kind, bool(go_ahead))
         if refused:
             raise core.OpsError(refused, 1)
-    if channel == MESSAGING and item["kind"] == "plan" and sha256 is None:
-        raise core.OpsError("a plan is approved from a messaging app only with its hash: send /approve "
-                            f"{item['id']} <hash>, or tap the button of its card", 1)
+    if channel in (MESSAGING, "mcp") and item["kind"] == "plan" and sha256 is None:
+        raise core.OpsError(f"a plan is approved from {'a messaging app' if channel == MESSAGING else 'the MCP mode'} only with its hash: "
+                            + (f"send /approve {item['id']} <hash>, or tap the button of its card" if channel == MESSAGING
+                               else "give the hash its pending decision shows (sha256)"), 1)
 
 
 def settled(ctx: dict, out):

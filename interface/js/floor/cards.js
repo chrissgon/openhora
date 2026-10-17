@@ -122,7 +122,7 @@ export function createCard(item, env) {
     if (word === "answered") return ["answer"];
     if (word === "released") return ["release"];
     if (word === "rejected") return ["reject"];
-    if (word === "approved" || word === "accepted") return ["approve", kind];
+    if (word === "approved" || word === "accepted") return ["approve", kind === "effect" && state.item.effect_word ? `effect:${state.item.effect_word}` : kind];   // an effect is covered by its word (POL-1)
     if (word === "route" || word === "choose-flow") return ["route"];
     return null;
   }

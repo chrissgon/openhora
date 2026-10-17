@@ -745,7 +745,7 @@ def test_a_folder_marked_for_another_project_is_taken_over_only_by_accept_config
     # the page, the conversation and the other channels cannot: the operation is a terminal verb, and no other call takes the flag
     operations = st.load("operations")
     [row] = [r for r in operations.OPERATIONS if r["name"] == "accept-config"]
-    assert row["channels"] == ("terminal",) and [x["name"] for x in row["args"]] == ["sha256", "adopt_sources"]
+    assert row["channels"] == ("terminal",) and [x["name"] for x in row["args"]] == ["sha256", "adopt_sources", "widen"]   # POL-1 added --widen
     import inspect
     for name in ("set_mode", "give_consent", "set_model"):
         if hasattr(ops, name):

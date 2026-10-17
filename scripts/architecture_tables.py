@@ -42,8 +42,9 @@ nothing outside them is touched, and a block is never edited by hand. Each table
   roles                 runtime/roles.json: each key and its value (names of skills, areas and packs)
   held-reasons          REASONS of runtime/dispatcher.py: its text literals and the module's own text constants
   channel-groups        GROUPS of runtime/operations.py with the operations and the decision kind of each, where each is
-                        valid and which are in DEFAULT_POLICY; BRAKES and the channel constants in a head line: the
-                        literals are read with ast.literal_eval, runtime/operations.py is never imported
+                        valid (the ceiling, and the grants of GRANTS) and which are in DEFAULT_POLICY; BRAKES and the channel
+                        constants in a head line, then, when the file has GRANTS, the table of the grants with what each gives
+                        away (GRANT_TEXT): the literals are read with ast.literal_eval, runtime/operations.py is never imported
   messenger-capabilities  each shipped implementation of the class messenger:<platform> (providers/resolve.py) and the
                         capabilities it declares: a CAPABILITIES literal, else the dict its `capabilities` function
                         returns, parsed with ast (a value the provider computes from its settings is shown as such);
@@ -682,12 +683,17 @@ def channel_groups(root):
     must_read = _literal_set(tree, "MUST_READ") or []
     page_only = _literal_set(tree, "PAGE_ONLY_GROUPS") or []
     never = _literal_set(tree, "NEVER_NARROWED") or []
+    grants = _constant(tree, "GRANTS") if isinstance(_constant(tree, "GRANTS"), dict) else {}
+    grant_text = _constant(tree, "GRANT_TEXT") if isinstance(_constant(tree, "GRANT_TEXT"), dict) else {}
     ceiling = {row["name"]: row["channels"] for row in rows}
     out = []
     for name, group in groups.items():
         ops = group["operations"]
+        kind = group.get("kind") or ""
+        model_client = kind == "effect" or kind.startswith("effect:") or kind == "plan:networked"    # never valid on the MCP mode
         valid = [c for c in policy_channels if (name not in page_only or c == "page")
-                 and any(c in ceiling.get(op, ()) for op in ops)]
+                 and (any(c in ceiling.get(op, ()) for op in ops) or name in grants.get(c, ()))
+                 and not (c == "mcp" and model_client) and not (kind == "plan:networked" and c != "messaging")]
         listed = [c for c, names in default.items() if name in names]
         out.append([_code(name), _names(ops), _code(group["kind"]) if group.get("kind") else NONE,
                     _names(valid), _names(listed)])
@@ -696,9 +702,15 @@ def channel_groups(root):
             f"project's `channels` takes its `DEFAULT_POLICY`: "
             + ("; ".join(f"{_code(c)}: {_names(g)}" for c, g in default.items()) or NONE)
             + f"; any other channel keeps its whole ceiling. Valid on the page only (`PAGE_ONLY_GROUPS`): {_names(page_only)}. "
-            f"An effect is approved only from (`EFFECT_CHANNELS`): {_names(effect)}. Brakes (`BRAKES`), permitted on the page "
+            f"An effect is approved with no grant from (`EFFECT_CHANNELS`): {_names(effect)}. Brakes (`BRAKES`), permitted on the page "
             f"whatever its policy says: {_names(brakes)}.\n\n")
-    return head + _table(["Group", "Operations", "Decision kind", "Valid on", "In the default policy of"], out)
+    table = _table(["Group", "Operations", "Decision kind", "Valid on", "In the default policy of"], out)
+    if not grants:
+        return head + table
+    rows_of_grants = [[_code(c), _code(g), _cell(grant_text.get(f"{c}:{g}", ""))] for c, names in grants.items() for g in names]
+    return (head + table.rstrip("\n") + "\n\nA grant (`GRANTS`) widens a channel and counts only when the project's own entry for the channel lists it, "
+            "never through the default policy; accepting a file that adds one asks for the hash of the widening list (`accept-config --widen`).\n\n"
+            + _table(["Channel", "Grant", "What it gives away"], rows_of_grants))
 
 
 CAPABILITY_KEYS = ("max_text", "buttons", "max_buttons", "max_button_label", "lists", "max_list_rows", "url_buttons",
