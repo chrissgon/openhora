@@ -8,10 +8,11 @@ file. The channel rule is a column: a row lists the channels that may call it, a
 channel (`channel_arg`) is told which one called it, so that code, not a prompt, refuses what a channel may not do
 (an effect is approved with its hash, in the terminal or on the local page, or on a messaging app that the project's configuration grants that effect's word; never from the conversation or the MCP mode).
 
-The channel policy (decisions M-8, M-12, M-13, POL-1) is the second half of the file: GROUPS, DEFAULT_POLICY, BRAKES, EFFECT_CHANNELS,
-GRANTS and the pure functions effective_groups, permitted, policy_allows, refusal and permissions. A project narrows a channel's
-ceiling with named groups and widens it only by a grant of GRANTS; `refusal` is the one helper every shell and the operations
-layer call, and contracts/runtime.md says where.
+The channel policy (decisions M-8, M-12, M-13, POL-1, POL-2) is the second half of the file: GROUPS, GROUP_TEXT, DEFAULT_POLICY, BRAKES,
+EFFECT_CHANNELS, GRANTS and the pure functions effective_groups, permitted, policy_allows, refusal and permissions. A project narrows a
+channel's ceiling with named groups and widens it only by a grant of GRANTS; a policy is a named set of groups, a channel has a default
+and on a messaging app each listed sender may have their own (`effective_groups(channel, cfg, sender)`). `refusal` is the one helper
+every shell and the operations layer call, and contracts/runtime.md says where.
 
 OPERATIONS and CHAT_OWN are pure literals (`ast.literal_eval` reads them: scripts/architecture_tables.py and a test
 do, so that the generated tables and the shells cannot differ). A row:
@@ -108,7 +109,7 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False,
      "help": "copy one file of yours for a request that waits for its plan, so that a flow with a file parameter can name it and its plan carry the file's hash (the plan's approval moves it into the task that reads it)"},
     {"name": "config", "call": "config", "args": (), "channels": ("terminal", "page"), "model": False,
-     "help": "the configuration's path and hash, whether you accepted it, and the data folder; it never refuses"},
+     "help": "the configuration's path and hash, whether you accepted it, the data folder, the profiles of the channels and senders, and what the file widens (the list whose hash accept-config --widen takes); it never refuses"},
     {"name": "progress", "call": "progress", "args": ({"name": "since", "kind": "str"},),
      "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False, "chat_reply": "text",
      "help": "where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD)"},
@@ -124,7 +125,7 @@ OPERATIONS = (
      "help": "answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page"},
     {"name": "release", "call": "release",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"},),
-     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False, "job": True,
+     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False, "channel_arg": True, "job": True,
      "help": "release a delivery (it stays a draft)"},
     {"name": "approve", "call": "approve",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"}, {"name": "sha256", "kind": "str"},
@@ -133,11 +134,11 @@ OPERATIONS = (
      "help": "approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved with its hash, in the terminal, on the page, or on a messaging app the project grants that effect's word (from a card that carried the whole text)"},
     {"name": "reject", "call": "reject",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"}, {"name": "note", "kind": "str"}),
-     "channels": ("terminal", "chat", "page", "messaging"), "model": False,
+     "channels": ("terminal", "chat", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "reject a plan, an acceptance or an effect"},
     {"name": "retry", "call": "retry",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
-     "channels": ("terminal", "chat", "page", "messaging"), "model": False,
+     "channels": ("terminal", "chat", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "make a failed or blocked task ready again"},
     {"name": "go-ahead", "call": "go_ahead",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},
@@ -172,7 +173,7 @@ OPERATIONS = (
               {"name": "adopt_sources", "kind": "flag", "flag": "adopt-sources"},
               {"name": "widen", "kind": "str"}),
      "channels": ("terminal",), "model": False,
-     "help": "record the hash of runtime.json you accept; --adopt-sources also lets this project take over a sources folder marked for another; a file that widens a channel (a grant the accepted file did not list) is accepted only with --widen <the sha256 of the widening list that config shows>"},
+     "help": "record the hash of runtime.json you accept; --adopt-sources also lets this project take over a sources folder marked for another; a file that gives a channel or a listed sender a group the accepted file did not effectively give it (a grant, a group such as release or retry, a sender moved to a wider profile) is accepted only with --widen <the sha256 of the widening list that config shows>"},
     {"name": "proof", "call": "proof", "args": ({"name": "skill", "kind": "str"},),
      "channels": ("terminal",), "model": False,
      "help": "the model each skill in use would run on when nothing chooses one, with its band, price and expected cost on every model, and the two checks"},
@@ -371,6 +372,10 @@ GROUPS = {
     "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
                             "flows", "flow-check", "routines", "instructions", "conversation", "connections", "version", "config", "commands", "artifact-raw"),
              "kind": None},
+    # POL-2: what a limited reader sees on a messaging app: `read` without the spend (costs, agents' caps and spend), the connections and
+    # the configuration, and without `task` and `progress`, which carry a run's cost. A profile lists `read` or `read-limited`, not both.
+    "read-limited": {"operations": ("status", "pending", "skills", "artifacts", "artifact", "flows", "flow-check", "routines",
+                                    "instructions", "conversation", "version", "commands", "artifact-raw"), "kind": None},
     "talk": {"operations": ("say",), "kind": None},
     "answer": {"operations": ("answer",), "kind": None},
     "release": {"operations": ("release",), "kind": None},
@@ -410,6 +415,12 @@ NEVER_NARROWED = ("terminal",)
 POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's configuration narrows; `chat` (local access, equal to the terminal) and `terminal` never are
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
+MESSAGING_ONLY_GROUPS = ("read-limited",)          # valid on a messaging app alone (the page and the MCP mode list `read`)
+# A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
+# the first (a test ties each pair to GROUPS).
+IMPLIED = {"read": ("read-limited",),
+           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish")}
+SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy mapping (never in runtime.json), {"<platform>:<sender id>": [groups]} of each listed sender whose entry names a profile
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant
@@ -422,9 +433,14 @@ BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel") 
 # project's OWN entry for it lists it (never through DEFAULT_POLICY, never through "no entry keeps the ceiling"). accept-config shows
 # what each grant gives away and takes the hash of that list (--widen) before it accepts a file that adds one. The other groups
 # (approve-plans, release, reject-cancel, retry, brakes, routine-edit, ...) are inside a channel's ceiling: a project turns them on
-# by listing them, and a runtime.json edited to list one is accepted by accept-config WITHOUT --widen, because --widen covers GRANTS
-# alone; the person reads the file before accepting it, as for every other key. An effect is approved by the exact hash on every
+# by listing them, and that is a widening too (POL-2): accept-config takes the same hash for ANY group a channel or a listed sender
+# has in the file and did not effectively have in the one accepted before (messaging: the default; the page and the MCP mode: their
+# ceiling), a text line for each in GROUP_TEXT (policy_widening). An effect is approved by the exact hash on every
 # channel; a grant changes where, never whether. The MCP mode (a model client) is granted no effect, no networked plan and no consent.
+#
+# Profiles (POL-2). A policy is a named set of groups, a profile (runtime.json `policies`); a channel's entry may name one, and on a messaging
+# app each listed sender may have their own, which REPLACES the channel's groups for that sender (SENDERS_KEY in the loaded policy mapping;
+# effective_groups(channel, cfg, sender)). Nothing but accept-config in the terminal changes a profile, and nothing a sender sends names one.
 EFFECT_APPROVAL_WORDS = ("create", "write", "send", "publish")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
     "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans"),
@@ -441,6 +457,37 @@ GRANT_TEXT = {
     "mcp:reject-cancel": "a connected AI client may reject a decision and cancel a request",
     "mcp:retry": "a connected AI client may make a failed or blocked task ready again",
 }
+GROUP_TEXT = {
+    "read": "reads everything the channel shows: the state of the work, what waits, the spend, the agents' caps and the connections",
+    "read-limited": "reads what the work is and what waits for the person, never the spend (costs, agents, a run's cost in task and progress), the connections or the configuration",
+    "talk": "writes a line to the planning agent (a new request, or the answer to its question)",
+    "answer": "answers a question a task asked",
+    "release": "releases a delivery (it stays a draft)",
+    "request": "makes a request and has it routed",
+    "approve-plans": "approves a plan, with its hash: the tasks start to run",
+    "approve-acceptances": "accepts what a request delivered or proposed: more work follows",
+    "approve-effects": "approves any effect with its hash (the page alone)",
+    "approve-effect-create": "approves a pull request, with its hash",
+    "approve-effect-write": "approves the write of a page of the documents platform, with its hash",
+    "approve-effect-send": "approves an e-mail sent from the project's outbox, with its hash",
+    "approve-effect-publish": "approves a post to a social platform, with its hash",
+    "approve-networked-plans": "approves a plan that holds a script which reaches the network, with the plan's hash",
+    "go-ahead": "goes ahead on a task that waits for another request",
+    "reject-cancel": "rejects a decision and cancels a request",
+    "brakes": "cancels a request and stops a running task",
+    "retry": "makes a failed or blocked task ready again",
+    "set-mode": "moves an agent's autonomy mode up or down",
+    "consent": "gives the consent an autonomous agent needs (the page alone)",
+    "dispatch": "starts the dispatcher's round",
+    "documents": "syncs the documents platform and hands a file over to a task",
+    "flow-write": "saves a flow of the project and hands a file over for a plan",
+    "routine-brakes": "pauses and cancels a routine",
+    "routine-edit": "makes and changes a routine (it stays a draft until it is approved)",
+    "routine-approve": "approves a routine by its hash and resumes it",
+    "instructions-write": "writes the person's standing instructions",
+    "verdict": "records a verdict on a skill's use",
+    "sources": "adds, imports, refreshes and describes the project's sources",
+}
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 
 
@@ -452,17 +499,40 @@ def by_name(name: str) -> dict:
     raise KeyError(name)
 
 
+def sender_key(platform: str, sender: str) -> str:
+    """The key of a listed sender in the policy mapping and in the widening list: `<platform>:<sender id>`. A platform has no colon (project_config
+    refuses it), so the first colon always ends the platform."""
+    return f"{platform}:{sender}"
+
+
+def actor_text(actor) -> str | None:
+    """An actor, as the store keeps it (`terminal`, `page`, `mcp`, `chat`, or `messaging:<platform>:<profile>:<sender id>`), as a person or a versioned
+    file may read it: `<profile> on <platform>` for a messaging sender, WITHOUT the sender id; the channel's name otherwise; None for none."""
+    if not isinstance(actor, str) or not actor:
+        return None
+    if not actor.startswith("messaging:"):
+        return actor
+    parts = actor.split(":", 3)
+    return f"{parts[2]} on {parts[1]}" if len(parts) == 4 else "messaging"
+
+
 def _explicit(channel: str, cfg, sender=None):
-    """The project's own entry for a channel (the groups it lists), or None when it has none. A grant counts only from here."""
+    """The project's own entry for a channel (the groups it lists), or None when it has none; for a messaging sender (`sender`: sender_key) whose entry
+    names a profile, the profile's groups instead. A grant counts only from here."""
+    if sender is not None and channel == "messaging":
+        mine = ((cfg or {}).get(SENDERS_KEY) or {}).get(sender)
+        if mine is not None:
+            return tuple(mine)
     given = (cfg or {}).get(channel)
     return tuple(given) if given is not None else None
 
 
 def effective_groups(channel: str, cfg, sender=None) -> tuple | None:
-    """The one seam every check of the policy reads: the groups that apply to a channel (for a sender, when per-sender policies exist):
-    the project's entry, else the default of the channel, else None (the whole ceiling). Pure. `cfg` is the project's `channels`
-    mapping today; `sender` is not used yet (a later package gives each listed sender a profile of its own through this function,
-    so no caller changes). A grant counts only when it comes from an explicit entry (`_explicit`), never from the default."""
+    """The one seam every check of the policy reads: the groups that apply to a channel, or to one sender of the messaging channel: the sender's
+    profile (its entry in `messaging.senders` names one), else the channel's entry (a list of groups, or the profile the channel names), else the
+    default of the channel (DEFAULT_POLICY), else None (the whole ceiling). A sender's profile REPLACES the channel's groups for that sender: it may be
+    narrower. Pure. `cfg` is the project's loaded `channels` mapping (project_config); `sender` is `sender_key(platform, id)` and is read for the
+    messaging channel only. A grant counts only when it comes from an explicit entry or an explicit profile (`_explicit`), never from the default."""
     given = _explicit(channel, cfg, sender)
     return given if given is not None else DEFAULT_POLICY.get(channel)
 
@@ -506,6 +576,51 @@ def granted(op_name: str, channel: str, cfg, kind=None, sender=None) -> bool:
 def grants(cfg) -> list:
     """[(channel, group)] of the grants the project's own entries list, in the order of GRANTS (pure)."""
     return [(channel, name) for channel, names in GRANTS.items() for name in names if name in (_explicit(channel, cfg) or ())]
+
+
+def sender_grants(cfg) -> list:
+    """[(sender key, group)] of the grants that the profiles of the listed senders hold, in the order of GRANTS["messaging"] (pure)."""
+    listed = (cfg or {}).get(SENDERS_KEY) or {}
+    return [(key, name) for key in sorted(listed) for name in GRANTS["messaging"] if name in listed[key]]
+
+
+def group_refusal(channel: str, group: str) -> str | None:
+    """The sentence that refuses one group for one channel, or None when the channel takes it (pure; project_config uses it for a channel's entry and
+    for a profile at the place it is assigned). A group is valid when one of its operations is in the channel's ceiling (a policy narrows), or when it
+    is a grant of that channel (GRANTS: the one way a policy widens). The effect groups and the networked-plan group are never valid on the MCP mode, the
+    umbrella `approve-effects` is the page's alone, and `read-limited` is a messaging app's alone."""
+    spec = GROUPS[group]
+    effect_family = is_effect_kind(spec["kind"]) or spec["kind"] == "plan:networked"
+    if group in PAGE_ONLY_GROUPS and channel != "page":
+        return (f"the group {group!r} is valid on the page only (an effect is approved in the terminal or on the page, with its hash; "
+                f"a messaging app takes one word at a time: {', '.join(g for g in GRANTS['messaging'] if g.startswith('approve-effect-'))})")
+    if group in MESSAGING_ONLY_GROUPS and channel != "messaging":
+        return (f"the group {group!r} is valid on a messaging app only (the {channel} reads everything it shows: list the group 'read')")
+    if channel == "mcp" and effect_family:
+        return (f"the group {group!r} is not valid on the MCP mode (an effect and a networked plan are approved by a person; "
+                "the MCP mode is a model client)")
+    if group == "approve-networked-plans" and channel != "messaging":
+        return (f"the group {group!r} is valid on a messaging app only (a plan that reaches the network is approved in the terminal "
+                "or on the page by default, and nowhere else unless the project grants a messaging app)")
+    if group in GRANTS.get(channel, ()):
+        return None
+    names = spec["operations"]
+    if not any(channel in by_name(name)["channels"] for name in names):
+        return (f"the group {group!r} covers {', '.join(names)}, which the table of operations does not give the channel {channel}; "
+                "a policy narrows the ceiling and never widens it, except by a grant"
+                + (f" (the grants of {channel}: {', '.join(GRANTS[channel])})" if channel in GRANTS else " (this channel has none)"))
+    return None
+
+
+def ceiling_groups(channel: str) -> tuple:
+    """The groups a channel with NO entry of its own holds: every group the channel takes (group_refusal) that is not a grant of the channel (a
+    grant is held only by listing it), in the order of GROUPS. What `accept-config` compares a file with when a channel's entry is removed."""
+    return tuple(name for name in GROUPS if group_refusal(channel, name) is None and name not in GRANTS.get(channel, ()))
+
+
+def default_groups(channel: str) -> tuple:
+    """What a channel holds when the project lists nothing for it: the default of the channel (DEFAULT_POLICY), else its whole ceiling."""
+    return tuple(DEFAULT_POLICY[channel]) if channel in DEFAULT_POLICY else ceiling_groups(channel)
 
 
 def grant_only_rows(channel: str) -> tuple:

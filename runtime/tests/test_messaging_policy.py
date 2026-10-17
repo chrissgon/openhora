@@ -35,7 +35,7 @@ def set_policy(path, groups):
     else:
         raw["channels"] = {"messaging": groups}
     file.write_text(json.dumps(raw))
-    ops.accept_config(path, project_config.load(path)["sha256"])
+    ops.accept_config(path, project_config.load(path)["sha256"], widen=ops.config(path)["widening_sha256"])
 
 
 def decisions(tree):  # noqa: F811
@@ -202,10 +202,10 @@ def test_channels_are_checked_against_the_groups_and_the_ceiling(monkeypatch):
 
 def test_the_messaging_section_is_read_and_each_wrong_value_is_a_sentence():
     good = {"senders": {"telegram": ["4242", "4243"]}, "notices": "count", "page_url": "https://page.example/open"}
-    assert project_config._messaging(good) == good
-    assert project_config._messaging(None) == {"senders": {}, "notices": "text", "page_url": None}
+    assert project_config._messaging(good) == {**good, "sender_profiles": {}}      # POL-2: the entries that name a profile, none here
+    assert project_config._messaging(None) == {"senders": {}, "sender_profiles": {}, "notices": "text", "page_url": None}
     assert project_config._messaging({"senders": {"telegram": ["4242"]}}) == {
-        "senders": {"telegram": ["4242"]}, "notices": "text", "page_url": None}
+        "senders": {"telegram": ["4242"]}, "sender_profiles": {}, "notices": "text", "page_url": None}
     for bad in ({"notices": "loud"}, {"senders": {"telegram": "4242"}}, {"senders": {"telegram": [4242]}},
                 {"senders": {"telegram": [""]}}, {"senders": {"Telegram": ["1"]}}, {"senders": []},
                 {"page_url": "ftp://page.example"}, {"page_url": "javascript:alert(1)"}, {"page_url": 5}, {"colour": "red"}, []):

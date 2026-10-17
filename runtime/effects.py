@@ -259,8 +259,12 @@ def _subprocess(argv):
 
 def approval_row(approval: dict, doc: dict) -> list:
     """The generated copy of an approval for the state file's ## Approvals table (contracts/state.md): Scope, What,
-    Payload hash, Approved, Expires, Status."""
+    Payload hash, Approved, Expires, Status. An approval made on a messaging app says on which platform and with which profile; the sender's id is
+    in the store alone (a phone number never enters the project's repository)."""
     what = module_for(doc["effect"]).describe(doc)
+    parts = str(approval.get("actor") or "").split(":", 3)
+    if len(parts) == 4 and parts[0] == "messaging":   # POL-2: the platform and the PROFILE of a person on a messaging app, never the sender's id (the file is versioned)
+        what += f" (approved on {parts[1]}, profile {parts[2]})"
     clean = lambda text: " ".join(str(text).replace("|", "/").split())
     return [approval["scope"], clean(what), f"sha256:{approval['payload_sha256']}", approval["approved_at"][:10],
             approval.get("expires_at") or "after execution", approval["status"]]

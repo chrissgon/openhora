@@ -65,3 +65,19 @@ def test_the_service_lists_the_grants_only_when_the_project_grants_something():
     listed = service._permissions(holder, entry)["grants"]
     assert [(g["channel"], g["group"]) for g in listed] == [("messaging", "approve-effect-write"), ("mcp", "retry")]
     assert all(g["text"] == operations.GRANT_TEXT[f"{g['channel']}:{g['group']}"] for g in listed)
+
+
+def test_the_service_names_a_group_a_senders_profile_holds_and_never_the_sender():
+    service = st.load("service")
+    policies = {"page": ["read"], operations.SENDERS_KEY: {"telegram:55119000000001": ["read", "approve-effect-write", "approve-effect-send"]}}
+    fake = type("Ops", (), {"operations": operations, "config": staticmethod(lambda folder: {"accepted": True, "channels": policies}),
+                            "OpsError": Exception})
+    holder = type("Service", (), {"ops": fake})
+    entry = {"folder": "x", "config": {"accepted": True}}
+    listed = service._permissions(holder, entry)["grants"]
+    assert [(g["channel"], g["group"]) for g in listed] == [("messaging", "approve-effect-write"), ("messaging", "approve-effect-send")]
+    assert all(g["text"].endswith("(to a listed sender whose profile lists it)") and "55119000000001" not in g["text"] for g in listed)
+    policies["messaging"] = ["read", "approve-effect-write"]        # the channel grants it itself: said once, as the channel's
+    listed = service._permissions(holder, entry)["grants"]
+    assert [(g["channel"], g["group"], g["text"].endswith("lists it)")) for g in listed] == [("messaging", "approve-effect-write", False),
+                                                                                              ("messaging", "approve-effect-send", True)]

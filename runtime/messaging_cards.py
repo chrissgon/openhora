@@ -23,6 +23,9 @@ calls nothing.
            the policy permits `answer` and the platform keeps reply context). What the platform cannot draw as a button (no buttons,
            or more actions than it shows) becomes a typed line, "Send /approve 12". What the policy refuses is neither drawn nor
            offered as a line: the card says "Act on it on the page or in the terminal."
+  sender   (POL-2) the card is drawn for one sender, and what it offers is what THAT sender's profile permits: the owner's card of a plan has
+           Approve and Reject, an employee's card of the same plan, whose profile lists neither, has no button; the result says whether the card
+           offers its sender anything to act on or answer (`actionable`), which a profile with `notices: actionable` is sent a card for
 
 Standard library only. Runs on Python 3.9.
 """
@@ -110,7 +113,7 @@ def gated(item: dict) -> bool:
 
 
 def build(project_name: str, item: dict, caps: dict, policy, notices: str = "text", page_url=None, operations=None,
-          effect_command: str | None = None, delivery: str | None = None, _blocked: str | None = None) -> dict:
+          effect_command: str | None = None, delivery: str | None = None, _blocked: str | None = None, sender: str | None = None) -> dict:
     """The card of one open decision. Returns {"message": the neutral message without action ids (each action is
     {"op", "label"}), "content_sha256", "kind", "pending_id", "whole", "approvable", "gated", "blocked"} ("approvable": the card offers an approval, as a
     button or a typed line; "gated": its approval needs the whole text; "blocked": "document" when its file did not arrive). `operations` is the table module (operations.py);
@@ -119,7 +122,10 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     card the approval of which needs it is sent first, as a message of its own (messaging_bridge.send_card), and `delivery` says what
     happened: "sent" (the provider confirmed the document: the card cites it and is whole) or "failed" (it did not arrive: the card is not
     whole, offers no approval and says so); None is a card not yet sent, whose document, if it has one, travels in the message.
-    `_blocked` is the second pass of a card whose first pass was not whole."""
+    `_blocked` is the second pass of a card whose first pass was not whole.
+    `sender` (POL-2) is the sender the card is for (`<platform>:<sender id>`, operations.sender_key): what a button offers is what THAT sender's profile
+    permits, so a card drawn for a limited profile has fewer buttons than the same decision's card for the owner. "actionable" says whether the card
+    offers its sender anything to act on or answer (the profile's `notices: actionable` sends a card only then)."""
     kind, pending_id = item["kind"], item["id"]
     words = list(item.get("actions") or [])
     allowed, refused = [], False
@@ -128,16 +134,17 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     approval_ok = False
     if needs_whole and not blocked and notices == "text":
         if kind == "effect":
-            approval_ok = item.get("effect_on_cards") is True and operations.permitted("approve", CHANNEL, policy, effect_kind(item))
+            approval_ok = item.get("effect_on_cards") is True and operations.permitted("approve", CHANNEL, policy, effect_kind(item), sender)
         else:
-            approval_ok = operations.permitted("approve", CHANNEL, policy, "plan") and operations.permitted("approve", CHANNEL, policy, "plan:networked")
+            approval_ok = (operations.permitted("approve", CHANNEL, policy, "plan", sender)
+                           and operations.permitted("approve", CHANNEL, policy, "plan:networked", sender))
     for word in words:
         op = WORD_OPERATION.get(word)
         if op is None or (needs_whole and op == "approve" and not approval_ok):
             continue
         if needs_whole and op == "approve":
             allowed.append(op)
-        elif operations.permitted(op, CHANNEL, policy, kind):
+        elif operations.permitted(op, CHANNEL, policy, kind, sender):
             if op not in allowed:
                 allowed.append(op)
         else:
@@ -146,7 +153,7 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
         refused = True
     allowed.sort(key=ORDER.index)
     answerable = "answered" in words and kind == "question"
-    reply = answerable and caps.get("reply_context") and operations.permitted("answer", CHANNEL, policy)
+    reply = answerable and caps.get("reply_context") and operations.permitted("answer", CHANNEL, policy, None, sender)
     if answerable and not reply:
         refused = True
     buttons_ok = bool(caps.get("buttons")) and caps.get("max_buttons", 0) > 0
@@ -197,12 +204,12 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     else:
         whole = notices != "count"
     if needs_whole and approval_ok and not whole:    # a cut card approves nothing: the same card again, with the command and the line
-        return build(project_name, item, caps, policy, notices, page_url, operations, effect_command, delivery, _blocked="long")
+        return build(project_name, item, caps, policy, notices, page_url, operations, effect_command, delivery, _blocked="long", sender=sender)
     text = header + "\n\n" + body + tail if body else header + tail
     labels = dict(LABELS, approve=EFFECT_LABEL) if kind == "effect" else LABELS
     message = {"text": text, "actions": [{"op": op, "label": labels[op]} for op in shown], "link": link, "document": document}
     return {"message": message, "content_sha256": content_sha256(item), "kind": kind, "pending_id": pending_id, "whole": whole,
-            "approvable": "approve" in allowed, "gated": needs_whole,
+            "approvable": "approve" in allowed, "gated": needs_whole, "actionable": bool(allowed) or bool(reply),
             "blocked": "document" if (needs_whole and blocked == "document") else None}
 
 

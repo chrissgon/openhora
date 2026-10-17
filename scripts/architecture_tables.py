@@ -42,7 +42,8 @@ nothing outside them is touched, and a block is never edited by hand. Each table
   roles                 runtime/roles.json: each key and its value (names of skills, areas and packs)
   held-reasons          REASONS of runtime/dispatcher.py: its text literals and the module's own text constants
   channel-groups        GROUPS of runtime/operations.py with the operations and the decision kind of each, where each is
-                        valid (the ceiling, and the grants of GRANTS) and which are in DEFAULT_POLICY; BRAKES and the channel
+                        valid (the ceiling, and the grants of GRANTS; PAGE_ONLY_GROUPS and MESSAGING_ONLY_GROUPS) and which are in
+                        DEFAULT_POLICY, with what each gives (GROUP_TEXT, when the file has it); BRAKES and the channel
                         constants in a head line, then, when the file has GRANTS, the table of the grants with what each gives
                         away (GRANT_TEXT): the literals are read with ast.literal_eval, runtime/operations.py is never imported
   messenger-capabilities  each shipped implementation of the class messenger:<platform> (providers/resolve.py) and the
@@ -682,6 +683,8 @@ def channel_groups(root):
         raise SourceError("runtime/operations.py: DEFAULT_POLICY, BRAKES, EFFECT_CHANNELS and POLICY_CHANNELS must be literals")
     must_read = _literal_set(tree, "MUST_READ") or []
     page_only = _literal_set(tree, "PAGE_ONLY_GROUPS") or []
+    messaging_only = _literal_set(tree, "MESSAGING_ONLY_GROUPS") or []
+    group_text = _constant(tree, "GROUP_TEXT") if isinstance(_constant(tree, "GROUP_TEXT"), dict) else {}
     never = _literal_set(tree, "NEVER_NARROWED") or []
     grants = _constant(tree, "GRANTS") if isinstance(_constant(tree, "GRANTS"), dict) else {}
     grant_text = _constant(tree, "GRANT_TEXT") if isinstance(_constant(tree, "GRANT_TEXT"), dict) else {}
@@ -691,25 +694,27 @@ def channel_groups(root):
         ops = group["operations"]
         kind = group.get("kind") or ""
         model_client = kind == "effect" or kind.startswith("effect:") or kind == "plan:networked"    # never valid on the MCP mode
-        valid = [c for c in policy_channels if (name not in page_only or c == "page")
+        valid = [c for c in policy_channels if (name not in page_only or c == "page") and (name not in messaging_only or c == "messaging")
                  and (any(c in ceiling.get(op, ()) for op in ops) or name in grants.get(c, ()))
                  and not (c == "mcp" and model_client) and not (kind == "plan:networked" and c != "messaging")]
         listed = [c for c, names in default.items() if name in names]
         out.append([_code(name), _names(ops), _code(group["kind"]) if group.get("kind") else NONE,
-                    _names(valid), _names(listed)])
+                    _names(valid), _names(listed)] + ([_cell(group_text.get(name, ""))] if group_text else []))
     head = (f"Channels with a policy (`POLICY_CHANNELS`): {_names(policy_channels)}. Never narrowed (`NEVER_NARROWED`): "
             f"{_names(never)}. A policy for {_names(must_read)} must list `read` (`MUST_READ`). A channel with no entry in the "
             f"project's `channels` takes its `DEFAULT_POLICY`: "
             + ("; ".join(f"{_code(c)}: {_names(g)}" for c, g in default.items()) or NONE)
             + f"; any other channel keeps its whole ceiling. Valid on the page only (`PAGE_ONLY_GROUPS`): {_names(page_only)}. "
+            f"Valid on a messaging app only (`MESSAGING_ONLY_GROUPS`): {_names(messaging_only)}. "
             f"An effect is approved with no grant from (`EFFECT_CHANNELS`): {_names(effect)}. Brakes (`BRAKES`), permitted on the page "
             f"whatever its policy says: {_names(brakes)}.\n\n")
-    table = _table(["Group", "Operations", "Decision kind", "Valid on", "In the default policy of"], out)
+    table = _table(["Group", "Operations", "Decision kind", "Valid on", "In the default policy of"] + (["What it gives"] if group_text else []), out)
     if not grants:
         return head + table
     rows_of_grants = [[_code(c), _code(g), _cell(grant_text.get(f"{c}:{g}", ""))] for c, names in grants.items() for g in names]
     return (head + table.rstrip("\n") + "\n\nA grant (`GRANTS`) widens a channel and counts only when the project's own entry for the channel lists it, "
-            "never through the default policy; accepting a file that adds one asks for the hash of the widening list (`accept-config --widen`).\n\n"
+            "never through the default policy; accepting a file that gives a channel or a sender any group the accepted file did not effectively give "
+            "them, a grant or not, asks for the hash of the widening list (`accept-config --widen`).\n\n"
             + _table(["Channel", "Grant", "What it gives away"], rows_of_grants))
 
 

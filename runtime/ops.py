@@ -210,6 +210,8 @@ import ops_sources  # noqa: E402  (the sources of the project: the ingest operat
 import ops_step_effects  # noqa: E402  (the approval of an effect that a step task opened: the write-back)
 import ops_grants  # noqa: E402  (the effect's word and whether it fits on a card: what the channel policy asks of an effect)
 import policy_grants  # noqa: E402  (the grants a configuration asks for, the widening list and its hash)
+import policy_widening  # noqa: E402  (what a configuration widens over the one accepted before: the cursors config reads)
+import ops_actor  # noqa: E402  (who acted: the sender of a messaging app, its profile, and the record of both with a decision)
 import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode, set_model; this file re-exports them at its end)
 import ops_models  # noqa: E402  (which model a run goes to: the choice, the key, the billing and the consent)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
@@ -764,7 +766,7 @@ def _provider_path(cfg: dict, cls: str, platform: str | None = None) -> str:
         raise core.OpsError(f"the {'code ' if cls == 'integration:vcs' else ''}provider does not resolve: {e}", 3) from None
 
 
-def _approve_effect(ctx: dict, item: dict, sha256) -> dict:
+def _approve_effect(ctx: dict, item: dict, sha256, actor=None) -> dict:
     """approve() for an `effect`: the approval row, then, holding the write lock, the checks and the execution by code,
     then the effect is done and the state file gets the generated row. Refused, before anything is executed, while a code
     task of the effect's request is running (the checks read the project's tracked files and the request's change set)."""
@@ -785,25 +787,25 @@ def _approve_effect(ctx: dict, item: dict, sha256) -> dict:
         if fresh["status"] != "open":
             raise core.OpsError(f"pending decision {pending_id} is {fresh['status']}, not open: nothing was executed", 1)
         if stepped is not None:
-            return _approve_step_effect(ctx, fresh, sha256, stepped)
+            return _approve_step_effect(ctx, fresh, sha256, stepped, actor)
         # from here a code task of the request is not claimed (admit reads this lock)
         if request_id is not None:
             with core._claim_lock(cfg):  # a claim happens under this lock: either the code task is seen here or the lock is seen there
                 if ops_runs.code_running(ctx, request_id):
                     raise core.OpsError("a code task of this request is running; approve when it ends", 1)
-        return _execute_effect(ctx, item, sha256)
+        return _execute_effect(ctx, item, sha256, actor)
 
 
-def _approve_step_effect(ctx: dict, item: dict, sha256, stepped) -> dict:
+def _approve_step_effect(ctx: dict, item: dict, sha256, stepped, actor=None) -> dict:
     """approve() for an `effect` that a step task's gate opened (package P8): runtime/ops_step_effects.py checks and executes it with the
     person's approval of the hash; here the state file gets the generated row of the executed approval, as for any effect."""
-    done = ops_step_effects.approve(ctx, item, sha256, stepped)
+    done = ops_step_effects.approve(ctx, item, sha256, stepped, actor=actor)
     row = effects.approval_row(core._stored(ctx, ctx["store"].approval_get, done["approval"]["id"]), done["doc"])
     return {**done["done"], "approval_id": done["approval"]["id"], "result": done["result"],
             "state": _write_approval_row(ctx["cfg"], row)}
 
 
-def _execute_effect(ctx: dict, item: dict, sha256) -> dict:
+def _execute_effect(ctx: dict, item: dict, sha256, actor=None) -> dict:
     """The rest of _approve_effect, with the request's effect lock held: the document, the approval row, the checks and the
     execution under the write lock."""
     store, cfg, pending_id = ctx["store"], ctx["cfg"], item["id"]
@@ -822,7 +824,7 @@ def _execute_effect(ctx: dict, item: dict, sha256) -> dict:
         raise core.OpsError(kind.unconfigured(cfg), 3)
     what = kind.describe(doc)
     approval = core._stored(ctx, store.approval_add, scope="action", what=" ".join(what.split())[:1000], by="user",
-                       payload_sha256=sha256, pending_id=pending_id)
+                       payload_sha256=sha256, pending_id=pending_id, actor=actor)
     with core._write_lock(cfg):
         try:
             made = changeset.load(os.path.dirname(payload["changeset_dir"]))
@@ -837,7 +839,7 @@ def _execute_effect(ctx: dict, item: dict, sha256) -> dict:
         except (effects.EffectError, changeset.ChangesetError) as e:
             raise core.OpsError(f"nothing was sent: {e.reason}; the effect stays open, and approving it again with the same "
                            f"hash tries again", 3 if getattr(e, "kind", "") == "not-configured" else 1) from None
-        done = core._stored(ctx, store.effect_done, pending_id, approval["id"], by="user", result=result)
+        done = core._stored(ctx, store.effect_done, pending_id, approval["id"], by="user", result=result, actor=actor)
     row = effects.approval_row(core._stored(ctx, store.approval_get, approval["id"]), doc)
     return {**done, "approval_id": approval["id"], "commit": result["commit"], "pull_request": result["pull_request"],
             "replayed": result["replayed"], "state": _write_approval_row(cfg, row)}
@@ -1095,7 +1097,7 @@ def pending(project: str, pending_id: int | None = None) -> dict:
     if pending_id is not None:
         item = core._stored(ctx, ctx["store"].pending_get, pending_id)
         known = ops_grants.effect_facts(ctx, item) if item["kind"] == "effect" else None   # POL-1: the word the policy is asked about, and whether a card can hold all of it
-        return {**item, "agent": agents.get(item["task_id"]), "actions": _actions(ctx["store"], item),
+        return {**ops_actor.shown(item), "agent": agents.get(item["task_id"]), "actions": _actions(ctx["store"], item),
                 **({"effect_word": known["word"], "effect_on_cards": known["on_cards"]} if known else {}),
                 **({"plan_networked": bool(ops_waits.networked_steps(item))} if item["kind"] == "plan" else {})}   # a plan with a networked step needs a whole card to be approved off the terminal and the page
     return {"pending": [_listed(item, ctx["store"], agents) for item in core._stored(ctx, ctx["store"].pending_list)]}
@@ -1106,7 +1108,8 @@ COMMENTS_LINE = "Comments left on the platform:"
 APPROVAL_WORDS = re.compile(r"(?i)(yes|y|ok|okay|approved|approve|proceed|go)\.?")
 
 
-def answer(project: str, pending_id: int, text: str, with_comments: bool = False) -> dict:
+def answer(project: str, pending_id: int, text: str, with_comments: bool = False, channel: str | None = None, sender: str | None = None,
+           actor: str | None = None) -> dict:
     """Answer a pending decision. The task becomes ready, and its next run is given the answer. The answer to a
     question is also written by code into the project's state file, as a decision of the user (L10), so that the
     next run finds it where the skills look for decisions; "state" says whether it was written. A failure there
@@ -1115,6 +1118,7 @@ def answer(project: str, pending_id: int, text: str, with_comments: bool = False
     documents its skill owns (its declared outputs), are appended under COMMENTS_LINE, one per line, oldest first,
     and marked used by this pending decision ("comments": their ids)."""
     ctx = core.context(project)
+    ops_actor.guard(ctx, "answer", channel, sender)
     said = core._text(text, "the answer")
     if core._stored(ctx, ctx["store"].pending_get, pending_id)["kind"] == "effect" and \
             APPROVAL_WORDS.fullmatch(said.strip()):
@@ -1138,7 +1142,8 @@ def answer(project: str, pending_id: int, text: str, with_comments: bool = False
             said = "\n".join([said, "", COMMENTS_LINE, *lines])
             used = [c["id"] for c in saved]
     with ops_step_effects.resolution_guard(ctx, core._stored(ctx, ctx["store"].pending_get, pending_id)):    # not while its write runs
-        out = core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="answered", by="user", answer=said)
+        out = core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="answered", by="user", answer=said,
+                           actor=actor or ops_actor.label(ctx["cfg"], channel, sender))
     if used:
         core._stored(ctx, ctx["store"].comments_use, used, pending_id=pending_id)
         out = {**out, "comments": used}
@@ -1171,17 +1176,18 @@ def answer(project: str, pending_id: int, text: str, with_comments: bool = False
     return {**out, "state": {"written": True}}
 
 
-def release(project: str, pending_id: int) -> dict:
+def release(project: str, pending_id: int, channel: str | None = None, sender: str | None = None) -> dict:
     """Release a delivery (a pending decision of kind review). The task is done; the tasks that depended on it
     become ready. The delivery stays a draft: releasing is not approving. What a release starts (stage 6,
     _after_release) follows in the same call: the brief's delivery routed again (one run of the router, holding the
     route lock, so the release is refused while the router answers another request), the backlog's sub-tasks; its result is
     under "after"."""
     ctx = core.context(project)
-    return _release(ctx, pending_id, by="user")
+    ops_actor.guard(ctx, "release", channel, sender)
+    return _release(ctx, pending_id, by="user", actor=ops_actor.label(ctx["cfg"], channel, sender))
 
 
-def _release(ctx: dict, pending_id: int, by: str) -> dict:
+def _release(ctx: dict, pending_id: int, by: str, actor=None) -> dict:
     """pending_resolve(released) and then _after_release, for the person (by "user") and for a mode ("mode:<mode>")."""
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
     made = (item.get("payload") or {}).get("changeset") or {}
@@ -1192,14 +1198,16 @@ def _release(ctx: dict, pending_id: int, by: str) -> dict:
     task = core._stored(ctx, ctx["store"].task_get, item["task_id"])
     lock = core._route_lock(ctx["cfg"]) if item["kind"] == "review" and _brief_delivery(ctx, task) else contextlib.nullcontext()
     with lock:
-        out = ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="released", by=by))
+        out = ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="released", by=by, actor=actor))
         after = _after_release(ctx, item)
     return {**out, "after": after} if after else out
 
 
-def retry(project: str, task_id: int) -> dict:
-    """Make a failed or blocked task ready again."""
-    return ops_waits.retry(core.context(project), task_id)
+def retry(project: str, task_id: int, channel: str | None = None, sender: str | None = None) -> dict:
+    """Make a failed or blocked task ready again. From a messaging app the sender's profile must cover `retry` (a task row has no actor: nothing is recorded)."""
+    ctx = core.context(project)
+    ops_actor.guard(ctx, "retry", channel, sender)
+    return ops_waits.retry(ctx, task_id)
 
 
 def go_ahead(project: str, task_id: int, drop_after: bool = False) -> dict:
@@ -1597,16 +1605,20 @@ def status(project: str) -> dict:
 
 def config(project: str) -> dict:
     """What a shell may know of a project's configuration, and the one read that never refuses an unaccepted one:
-    {"path", "sha256", "accepted", "data_dir", "messaging", "channels", "grants", "widening", "widening_sha256", "warnings"}. "accepted" says
-    whether the file's hash is the one the person accepted last; "grants" are the widenings the file lists ([{"channel", "group", "means"}], POL-1),
-    "widening" those the last accepted file did not list, "widening_sha256" the hash accept-config --widen takes for them (None when there are none). A configuration that cannot be read at all, or that names another checkout, is still refused
+    {"path", "sha256", "accepted", "data_dir", "messaging", "channels", "policies", "channel_profiles", "grants", "widening", "widening_sha256", "warnings"}. "accepted" says
+    whether the file's hash is the one the person accepted last; "policies" are the profiles of the file; "grants" are the widenings of operations.GRANTS
+    the file lists ([{"channel", "group", "means"}], a sender's also "sender"); "widening" is every group a channel or a listed sender has in this file
+    and did not effectively have in the one accepted before ([{"place", "channel", "group", "means"}], POL-1 and POL-2: a place is a channel or
+    `<platform>:<sender id>`), "widening_sha256" the hash accept-config --widen takes for it (None when there is none). A configuration that cannot be read at all, or that names another checkout, is still refused
     (code 3): there is nothing to report."""
     ctx = core.context(project, check_config=False)
     cfg = ctx["cfg"]
     accepted = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
+    got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)
     return {"path": cfg["path"], "sha256": cfg["sha256"], "accepted": accepted == cfg["sha256"],
-            "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"],
-            **policy_grants.view(core._stored(ctx, ctx["store"].cursor_get, policy_grants.CURSOR), cfg)}   # POL-1: grants, widening, its hash, warnings
+            "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"], "policies": cfg["policies"],
+            "channel_profiles": cfg["channel_profiles"],
+            **policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg)}   # POL-1/POL-2: grants, widening, its hash, warnings
 
 
 def task(project: str, task_id: int) -> dict:
@@ -1620,7 +1632,7 @@ def task(project: str, task_id: int) -> dict:
     store = ctx["store"]
     found = core._stored(ctx, store.task_get, task_id)
     return {"task": ops_waits.task_row(ctx, found), "drop": ops_reads.drop_note(found), "runs": core._stored(ctx, store.task_runs_list, task_id),
-            "pending": [{**item, "agent": found["agent"] if found["parent_id"] is not None else None,
+            "pending": [{**ops_actor.shown(item), "agent": found["agent"] if found["parent_id"] is not None else None,
                          "actions": _actions(store, item)}
                         for item in core._stored(ctx, store.pending_list, "all", task_id)]}
 
@@ -1637,7 +1649,7 @@ def progress(project: str, since: str | None = None) -> dict:
         raise core.OpsError(str(e), 2) from None
     tasks = core._stored(ctx, ctx["store"].tasks_list)
     runs = [run for task in tasks for run in core._stored(ctx, ctx["store"].task_runs_list, task["id"])]
-    pending_rows = core._stored(ctx, ctx["store"].pending_list, "all")
+    pending_rows = [ops_actor.shown(row) for row in core._stored(ctx, ctx["store"].pending_list, "all")]   # who acted, by profile and platform: never the sender's id
     executed = core._stored(ctx, ctx["store"].approvals_list, status="executed")
     now_progress = progress_calc.progress([t for t in tasks if t["parent_id"] is None], tasks, pending_rows, now)
     period = progress_calc.summary(tasks, runs, pending_rows, executed, start, end)
@@ -2126,7 +2138,8 @@ def _backlog_subtasks(ctx: dict, task: dict) -> dict:
 EFFECT_CHANNELS = operations.EFFECT_CHANNELS  # the channels an effect may be approved from (decision D8, extended); the source is operations.py
 
 
-def approve(project: str, pending_id: int, sha256: str | None = None, channel: str | None = None, go_ahead=None) -> dict:
+def approve(project: str, pending_id: int, sha256: str | None = None, channel: str | None = None, go_ahead=None,
+            sender: str | None = None) -> dict:
     """Approve a pending decision of kind `plan` (its tasks are created as the plan lists them, and those with no
     dependency are ready) or `acceptance` (the request written on the task board is kept, and waits for its route).
     With sha256, a plan is approved only when it is the plan's hash. An `effect` (stage 4) is approved only with
@@ -2136,13 +2149,17 @@ def approve(project: str, pending_id: int, sha256: str | None = None, channel: s
     the content's hash and take it back typed or clicked), or from a messaging app whose policy the accepted configuration
     grants that effect's word (POL-1: a card that carried the whole text, the same hash); the table of operations tells this
     function which channel called, and any other channel (the conversation, the MCP mode), or none, is refused before anything is
-    executed or sent (the pending row is read first, to know its kind; the rule fails closed). go_ahead: a plan's task keys to go ahead on."""
+    executed or sent (the pending row is read first, to know its kind; the rule fails closed). go_ahead: a plan's task keys to go ahead on.
+    sender (POL-2): who acted when the channel is a messaging app, `<platform>:<sender id>` (operations.sender_key), set by the bridge from the update the
+    provider authenticated. The policy is asked for THAT sender (the profile the loaded configuration gives them, at this call), and the store records the
+    actor with the decision (ops_actor.label)."""
     ctx = core.context(project)
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
     facts = ops_grants.effect_facts(ctx, item) if item["kind"] == "effect" else None   # the effect's word and whether all of it fits on a card
-    ops_waits.only_on_plans(item, go_ahead, sha256, channel, ctx["cfg"]["channels"], facts)
+    actor = ops_actor.label(ctx["cfg"], channel, sender)
+    ops_waits.only_on_plans(item, go_ahead, sha256, channel, ctx["cfg"]["channels"], facts, sender)
     if item["kind"] == "effect":   # outside the terminal and the page only a granted word, a whole card and the hash (POL-1; fails closed)
-        refused = ops_grants.effect_refusal(ctx, item, channel, facts)
+        refused = ops_grants.effect_refusal(ctx, item, channel, facts, sender)
         if refused:
             raise core.OpsError(refused, 1)
     if item["kind"] == "plan":
@@ -2152,11 +2169,11 @@ def approve(project: str, pending_id: int, sha256: str | None = None, channel: s
             raise core.OpsError(f"pending decision {pending_id}: its tasks do not have the hash it states; nothing was approved", 1)
         if sha256 is not None and sha256 != stated:
             raise core.OpsError(f"the plan's hash is {stated} and you typed {sha256}: nothing was approved", 1)
-        return {**ops_waits.approve_plan(ctx, item, go_ahead), "plan_sha256": stated}
+        return {**ops_waits.approve_plan(ctx, item, go_ahead, actor), "plan_sha256": stated}
     if item["kind"] == "acceptance":
-        return ops_waits.accept(ctx, item)
+        return ops_waits.accept(ctx, item, actor)
     if item["kind"] == "effect":
-        return _approve_effect(ctx, item, sha256)
+        return _approve_effect(ctx, item, sha256, actor)
     raise core.OpsError(f"pending decision {pending_id} is a {item['kind']}: approve takes a plan, an acceptance or an effect; "
                    "a question or a review is answered or released", 2)
 
@@ -2230,23 +2247,25 @@ def hand_over(project: str, task_id: int, file: str) -> dict:
             raise core.OpsError(str(e), 1) from None
 
 
-def reject(project: str, pending_id: int, note: str | None = None) -> dict:
+def reject(project: str, pending_id: int, note: str | None = None, channel: str | None = None, sender: str | None = None) -> dict:
     """Reject a pending decision of kind `plan` or `acceptance`: the request is cancelled, with what is open under
     it. A note is kept on a rejected plan. An `effect` rejected cancels its task, and nothing is sent."""
     ctx = core.context(project)
+    ops_actor.guard(ctx, "reject", channel, sender)
+    actor = ops_actor.label(ctx["cfg"], channel, sender)
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
     if item["kind"] == "plan":
         said = core._text(note, "the note") if note is not None else None
-        out = core._stored(ctx, ctx["store"].plan_reject, pending_id, by="user", note=said)
+        out = core._stored(ctx, ctx["store"].plan_reject, pending_id, by="user", note=said, actor=actor)
         ops_flows.discard_staged(ctx, item["task_id"])      # and the files handed over for it
         return out
     if item["kind"] == "acceptance":
-        return core._stored(ctx, ctx["store"].acceptance_resolve, pending_id, resolution="rejected", by="user")
+        return core._stored(ctx, ctx["store"].acceptance_resolve, pending_id, resolution="rejected", by="user", actor=actor)
     if item["kind"] == "effect":
         said = core._text(note, "the note") if note is not None else None
         with ops_step_effects.resolution_guard(ctx, item):    # refused while the write of an output runs: it would end with no record
             return ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="rejected",
-                                                       by="user", answer=said))
+                                                       by="user", answer=said, actor=actor))
     raise core.OpsError(f"pending decision {pending_id} is a {item['kind']}: reject takes a plan, an acceptance or an effect", 2)
 
 

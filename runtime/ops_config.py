@@ -55,7 +55,7 @@ import autonomy
 import ops_models
 import lab
 import path_rule
-import policy_grants
+import policy_widening
 import project_config
 import sources
 import state_merge
@@ -105,7 +105,7 @@ def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool 
             raise core.OpsError(f"the configuration was not accepted: the sources folder is refused ({e}){more}", 1) from None
     previous = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
     core._stored(ctx, ctx["store"].cursor_set, ACCEPTED_BY, by)
-    core._stored(ctx, ctx["store"].cursor_set, policy_grants.CURSOR, policy_grants.dump(cfg["channels"]))   # POL-1: the grants of the file accepted now are what the next acceptance compares with
+    core._stored(ctx, ctx["store"].cursor_set, policy_widening.EFFECTIVE, policy_widening.dump(policy_widening.snapshot(cfg)))   # POL-1/POL-2: what the file accepted now effectively has is what the next acceptance compares with
     core._stored(ctx, ctx["store"].cursor_set, project_config.ACCEPTED, sha256)
     done = {"previous": previous, "checkpoints": write_checkpoints(cfg)}
     if adopted:
@@ -114,28 +114,36 @@ def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool 
 
 
 def _widening_refusal(cfg: dict, listed: list, digest) -> "core.OpsError":
-    """The refusal of a file that widens a channel and was accepted without the hash of what it widens: the list, what each gives away, and the command."""
-    lines = "".join(f"\n  {i['channel']}:{i['group']}: {i['means']}" for i in listed)
-    return core.OpsError(f"the file widens what a channel may do, and nothing was accepted. It lists, and the accepted file did not:{lines}\n"
-                         "To accept it, run: " + core._command("accept-config", cfg["project"], sha256=cfg["sha256"], widen=digest), 1)
+    """The refusal of a file that widens a channel or a sender and was accepted without the hash of what it widens: the list, what each gives away, and the command."""
+    return core.OpsError("the file widens what a channel may do or what a listed sender may do, and nothing was accepted. It gives, and the accepted file did not:"
+                         + policy_widening.lines(listed) + "\nTo accept it, run: "
+                         + core._command("accept-config", cfg["project"], sha256=cfg["sha256"], widen=digest), 1)
+
+
+def _widening_of(ctx: dict, cfg: dict) -> list:
+    """The widenings of this configuration over the file the person accepted last (policy_widening): read from the store's two cursors."""
+    got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)
+    return policy_widening.widening(policy_widening.baseline(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY)), policy_widening.snapshot(cfg))
 
 
 def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen: str | None = None) -> dict:
     """Record the hash of the project's configuration that the person accepts, after reading the file. The only
     operation that accepts any change of it (set_mode accepts a move down the order of the modes, and, for the person
     in the terminal, the one move up it sets), and the only one that runs on a configuration that was not accepted.
-    A file that lists a grant (operations.GRANTS: a channel widened) that the accepted file did not list is accepted only
-    with `widen`, the sha256 of the widening list that `config` shows (policy_grants.widening_sha256): without it the call
-    stops and prints the list and the command (the hash proves no reading: whoever can run accept-config can compute it, and it covers GRANTS alone).
-    Returns {"accepted", "previous", "path", "checkpoints", "widened"}: "widened" lists the grants this acceptance gave away."""
+    A file that gives a channel or a listed sender a group that the accepted file did not effectively give it (a grant of operations.GRANTS, or a
+    group inside the channel's ceiling such as release or retry; the default for messaging, the ceiling otherwise; a sender moved to a wider profile)
+    is accepted only with `widen`, the sha256 of the widening list that `config` shows (policy_widening.widening_sha256): without it the call
+    stops and prints the list and the command (the hash proves no reading: whoever can run accept-config can compute it). A project accepted
+    before the record of what a file effectively has is asked once for what it lists beyond the defaults.
+    Returns {"accepted", "previous", "path", "checkpoints", "widened"}: "widened" lists what this acceptance gave away."""
     ctx = core.context(project, check_config=False)
     cfg = ctx["cfg"]
     with core._config_lock(cfg):
         cfg = core._config_of(project)  # the file as it is now, under the lock
         if sha256 != cfg["sha256"]:
             raise core.OpsError(f"the file's hash is {cfg['sha256']} and you typed {sha256}: nothing was accepted", 1)
-        listed = policy_grants.widening(policy_grants.parse(core._stored(ctx, ctx["store"].cursor_get, policy_grants.CURSOR)), cfg["channels"])
-        digest = policy_grants.widening_sha256(listed)
+        listed = _widening_of(ctx, cfg)
+        digest = policy_widening.widening_sha256(listed)
         if listed and widen != digest:
             raise _widening_refusal(cfg, listed, digest)
         done = _record_acceptance(ctx, cfg, sha256, "person", adopt=adopt_sources)

@@ -38,6 +38,7 @@ ops_waits = st.load("ops_waits")
 ops_grants = st.load("ops_grants")
 operations = st.load("operations")
 policy_grants = st.load("policy_grants")
+policy_widening = st.load("policy_widening")
 project_config = st.load("project_config")
 mcp = st.load("mcp")
 
@@ -45,7 +46,8 @@ WAIT = 30
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging", "bogus")
 KINDS = (None, "plan", "acceptance", "effect")
 BRAKES_BEFORE = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")
-NEW_GROUPS = ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans")
+NEW_GROUPS = ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans",
+              "read-limited")      # POL-2's group is new too: the rule before the grants knew no such name
 # The rule as it was before the grants, written out here (the default has to answer exactly so): a row lists the channel, the terminal is never
 # narrowed, an effect only from the terminal and the page, a channel with no entry keeps its default or its ceiling, a group covers its kind.
 OLD_GROUPS = {name: spec for name, spec in operations.GROUPS.items() if name not in NEW_GROUPS}
@@ -270,16 +272,23 @@ def test_the_renamed_group_refuses_its_old_name_with_the_known_groups_and_no_ali
 def test_the_widening_list_its_hash_and_the_warning_for_notices_that_carry_no_text():
     cfg = {"channels": {"messaging": ["read", "approve-plans", "approve-networked-plans", "approve-effect-write"], "mcp": ["read", "retry"]},
            "messaging": {"notices": "text"}}
-    shown = policy_grants.grants(cfg["channels"])
+    shown = policy_grants.grants(cfg)
     assert [(g["channel"], g["group"]) for g in shown] == [("messaging", "approve-effect-write"), ("messaging", "approve-networked-plans"), ("mcp", "retry")]
     assert all(g["means"] == operations.GRANT_TEXT[f"{g['channel']}:{g['group']}"] for g in shown)
-    held = [("messaging", "approve-effect-write")]
-    wide = policy_grants.widening(held, cfg["channels"])
-    assert [(w["channel"], w["group"]) for w in wide] == [("messaging", "approve-networked-plans"), ("mcp", "retry")]
-    expect = hashlib.sha256(b"messaging:approve-networked-plans\nmcp:retry\n").hexdigest()      # what a person can compute by hand
-    assert policy_grants.widening_sha256(wide) == expect and policy_grants.widening_sha256([]) is None
-    assert policy_grants.parse(policy_grants.dump(cfg["channels"])) == [("messaging", "approve-effect-write"), ("messaging", "approve-networked-plans"), ("mcp", "retry")]
-    assert policy_grants.parse(None) == policy_grants.parse("not json") == policy_grants.parse('["nonsense", 3]') == []
+    # POL-2: the widening is every group a place did not effectively have in the file accepted before, a grant or not; what was recorded is a snapshot
+    held = {"channels": {"messaging": [*operations.DEFAULT_POLICY["messaging"], "approve-effect-write"]}, "senders": {}}
+    wide = policy_widening.widening(held, policy_widening.snapshot(cfg))
+    assert [(w["channel"], w["group"]) for w in wide] == [("messaging", "approve-plans"), ("messaging", "approve-networked-plans"), ("mcp", "retry")]
+    expect = hashlib.sha256(b"messaging:approve-plans\nmessaging:approve-networked-plans\nmcp:retry\n").hexdigest()      # what a person can compute by hand
+    assert policy_widening.widening_sha256(wide) == expect and policy_widening.widening_sha256([]) is None
+    snap = policy_widening.snapshot(cfg)
+    assert snap == {"channels": {"mcp": ["read", "retry"], "messaging": ["read", "approve-plans", "approve-networked-plans", "approve-effect-write"]}, "senders": {}}
+    back = policy_widening.parse(policy_widening.dump(snap))        # the record holds the groups as a mask over GROUPS, and no sender
+    assert {c: set(g) for c, g in back["channels"].items()} == {c: set(g) for c, g in snap["channels"].items()} and back["senders"] == {} == back["sender_ids"]
+    assert policy_widening.parse(None) is policy_widening.parse("not json") is policy_widening.parse('{"v": 1}') is None
+    # a record POL-1 wrote (the grants alone) stands for the defaults plus those grants; nothing recorded is the defaults
+    assert policy_widening.baseline(None, '["messaging:approve-effect-write"]') == held
+    assert policy_widening.baseline(None, None) == {"channels": {}, "senders": {}} == policy_widening.baseline(None, "not json")
     assert policy_grants.warnings(cfg) == []
     count = {**cfg, "messaging": {"notices": "count"}}
     [warning] = policy_grants.warnings(count)
@@ -406,7 +415,7 @@ def test_the_acceptance_that_set_mode_and_consent_make_does_not_widen_and_keeps_
     path = world["path"]
     accept(path, {"messaging": ["read", "approve-effect-write"]})
     ctx = ops_core.context(path)
-    assert json.loads(ctx["store"].cursor_get(ctx["conn"], policy_grants.CURSOR)) == ["messaging:approve-effect-write"]
+    assert policy_widening.parse(ctx["store"].cursor_get(ctx["conn"], policy_widening.EFFECTIVE))["channels"] == {"messaging": ["read", "approve-effect-write"]}
     file = Path(path) / "docs" / "workbench" / "runtime.json"
     raw = json.loads(file.read_text())
     raw["area_agents"] = {"planning": {"pack": "planning", "mode": "supervised"}}
@@ -416,7 +425,7 @@ def test_the_acceptance_that_set_mode_and_consent_make_does_not_widen_and_keeps_
     assert moved["accepted"] is True and moved["by"] == "person"
     assert ops.config(path)["widening"] == [] and len(ops.config(path)["grants"]) == 1
     ctx = ops_core.context(path)
-    assert json.loads(ctx["store"].cursor_get(ctx["conn"], policy_grants.CURSOR)) == ["messaging:approve-effect-write"]
+    assert policy_widening.parse(ctx["store"].cursor_get(ctx["conn"], policy_widening.EFFECTIVE))["channels"] == {"messaging": ["read", "approve-effect-write"]}
     # an edit that adds a grant to the file, then set-mode --accept: refused, since the file is not the accepted one
     raw = json.loads(file.read_text())
     raw["channels"]["messaging"].append("approve-effect-create")

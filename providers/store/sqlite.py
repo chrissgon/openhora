@@ -29,6 +29,9 @@ and the `autonomy` column of task_runs (`proven`, `consent` or `supervised`: how
 Schema version 15 adds a stop request to a request or a task (`stop_requested_at`, `stop_requested_by`) and the run status `cancelled`.
 Schema version 16 adds the `language` column of tasks (a request or a task: the language tag the person asked the deliverable in, NULL when
 not requested: the project's `language` setting decides then).
+Schema version 17 adds the `actor` column of pending_decisions and of approvals (POL-2): who acted when a decision was resolved or an approval
+was made (`terminal`, `page`, `mcp`, or `messaging:<platform>:<profile>:<sender id>`), NULL for a row older than the column. It names a person's
+messaging account, so it lives in the store only; the approvals trigger refuses to change it, as it refuses every other column but the status.
 
 Concurrency: the database runs in WAL mode (readers never block the writer) with a 10-second busy
 timeout, and every write is one BEGIN IMMEDIATE transaction, so several agents and overlapping
@@ -55,7 +58,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -65,6 +68,7 @@ NOTE_MAX = 4 * 1024       # --note, --error
 VALUE_MAX = 4 * 1024      # cursor values
 TITLE_MAX = 1024          # inbox titles
 REF_MAX = 512             # external ids, targets, idempotency keys
+ACTOR_MAX = 256           # the actor of a resolution or an approval
 LABEL_MAX = 128           # source, name, kind, agent, trigger, by
 PATH_MAX = 4096           # --out-dir, --db
 TEXT_MAX = 64 * 1024      # the text of a request or a task, an answer
@@ -540,6 +544,25 @@ MIGRATIONS = {
     16: ("the language a request or a task asks its deliverable in", [
         "ALTER TABLE tasks ADD COLUMN language TEXT CHECK (language IS NULL OR language GLOB '[a-z][a-z]' "
         "OR language GLOB '[a-z][a-z]-[A-Z][A-Z]')",
+    ]),
+    # POL-2: who acted. A decision resolved from a messaging app records the platform, the profile the sender had and the sender's id (an account
+    # of a person: the store only, never a file of the project); the terminal, the page and the MCP mode record their own name. `resolved_by` and
+    # `approved_by` keep the kind of actor they always had ("user", "code", "mode:<mode>"). The approvals trigger is made again with the new
+    # column in its list: an approval only moves forward, and its actor never changes.
+    17: ("the actor of a resolution and of an approval", [
+        "ALTER TABLE pending_decisions ADD COLUMN actor TEXT",
+        "ALTER TABLE approvals ADD COLUMN actor TEXT",
+        "DROP TRIGGER approvals_only_status_moves",
+        """CREATE TRIGGER approvals_only_status_moves BEFORE UPDATE ON approvals
+            WHEN NEW.id IS NOT OLD.id OR NEW.scope IS NOT OLD.scope OR NEW.what IS NOT OLD.what
+              OR NEW.payload_sha256 IS NOT OLD.payload_sha256 OR NEW.policy_sha256 IS NOT OLD.policy_sha256
+              OR NEW.bounds IS NOT OLD.bounds OR NEW.task_id IS NOT OLD.task_id OR NEW.pending_id IS NOT OLD.pending_id
+              OR NEW.approved_at IS NOT OLD.approved_at OR NEW.approved_by IS NOT OLD.approved_by
+              OR NEW.expires_at IS NOT OLD.expires_at OR NEW.actor IS NOT OLD.actor
+              OR (NEW.status IS NOT OLD.status AND NOT (
+                    (OLD.status = 'pending-execution' AND NEW.status IN ('executed', 'revoked'))
+                 OR (OLD.status = 'active' AND NEW.status IN ('expired', 'revoked'))))
+            BEGIN SELECT RAISE(ABORT, 'an approval only moves forward: its status, never its content'); END""",
     ]),
 }
 
@@ -1741,7 +1764,7 @@ def _pending_item(pending: dict) -> tuple:
 
 
 def pending_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution: str, by: str,
-                    answer: str | None = None) -> dict:
+                    answer: str | None = None, actor: str | None = None) -> dict:
     """Record the person's decision on an open pending decision and move the task that waited, in one
     transaction. `answered` (with the answer's text) makes the task ready again: its next run gets the answer.
     `released` (a review only) makes it done; then the tasks that depended on it become ready, and a request
@@ -1750,11 +1773,13 @@ def pending_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution: st
     only answered, and the request stays `requested`: a request is never given out to run. An `effect` is
     `answered` (the task is ready again, its next run gets the comment) or `rejected` (the task is cancelled); both
     revoke a `pending-execution` approval of it in the same transaction; it is approved through effect_done only.
+    `actor` (POL-2) is who acted, kept beside `by`: see migration 17.
     Returns {"pending_id", "task_id", "task_state", "ready": [ids], "completed": [request ids]}."""
     if resolution not in RESOLUTIONS and resolution not in EFFECT_RESOLUTIONS:
         raise StoreError(f"resolution must be one of {', '.join(sorted({*RESOLUTIONS, *EFFECT_RESOLUTIONS}))}",
                          EXIT_USAGE)
     by = text_arg(by, "by", LABEL_MAX)
+    actor = text_arg(actor, "actor", ACTOR_MAX, required=False)
     answer = text_arg(answer, "answer", TEXT_MAX, multiline=True, required=resolution == "answered")
     now = iso(utcnow())
     with write(conn):
@@ -1780,11 +1805,11 @@ def pending_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution: st
                 raise StoreError(f"pending decision {pending_id} is on request {task['id']} ({task['state']}): "
                                  "it is only answered, while the request waits for its plan")
             conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = ?, answer = ?, "
-                         "resolved_at = ?, resolved_by = ? WHERE id = ?", (resolution, answer, now, by, pending_id))
+                         "resolved_at = ?, resolved_by = ?, actor = ? WHERE id = ?", (resolution, answer, now, by, actor, pending_id))
             return {"pending_id": pending_id, "task_id": task["id"], "task_state": "requested", "ready": [],
                     "completed": []}
         conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = ?, answer = ?, resolved_at = ?, "
-                     "resolved_by = ? WHERE id = ?", (resolution, answer, now, by, pending_id))
+                     "resolved_by = ?, actor = ? WHERE id = ?", (resolution, answer, now, by, actor, pending_id))
         state = (EFFECT_RESOLUTIONS if row["kind"] == "effect" else RESOLUTIONS)[resolution]
         moved = conn.execute("UPDATE tasks SET state = ?, updated_at = ? WHERE id = ? AND state = 'waiting'",
                              (state, now, row["task_id"])).rowcount
@@ -2240,9 +2265,9 @@ def _open_of_kind(conn: sqlite3.Connection, pending_id: int, kind: str) -> dict:
     return item
 
 
-def _resolve(conn: sqlite3.Connection, pending_id: int, resolution: str, by: str, now: str, answer=None) -> None:
+def _resolve(conn: sqlite3.Connection, pending_id: int, resolution: str, by: str, now: str, answer=None, actor=None) -> None:
     conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = ?, answer = ?, resolved_at = ?, "
-                 "resolved_by = ? WHERE id = ?", (resolution, answer, now, by, pending_id))
+                 "resolved_by = ?, actor = ? WHERE id = ?", (resolution, answer, now, by, actor, pending_id))
 
 
 def _rel_path(path: str) -> str:
@@ -2325,7 +2350,7 @@ def request_from_board(conn: sqlite3.Connection, *, title: str, text: str, remot
 
 
 def acceptance_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution: str, by: str,
-                       note: str | None = None, waits: list | None = None) -> dict:
+                       note: str | None = None, waits: list | None = None, actor: str | None = None) -> dict:
     """The person's decision on an `acceptance`, by its payload's `what` (stage 6):
 
     no `what`   (a request written on the task board, stage 3) `accepted` leaves the request `requested` (it is
@@ -2340,6 +2365,7 @@ def acceptance_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution:
     if ("acceptance", resolution) not in KIND_RESOLUTIONS:
         raise StoreError("an acceptance is accepted or rejected", EXIT_USAGE)
     by = text_arg(by, "by", LABEL_MAX)
+    actor = text_arg(actor, "actor", ACTOR_MAX, required=False)
     note = text_arg(note, "note", NOTE_MAX, multiline=True, required=False)
     now = iso(utcnow())
     with write(conn):
@@ -2349,13 +2375,13 @@ def acceptance_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution:
             if what not in ACCEPTANCE_WHATS:
                 raise StoreError(f"pending decision {pending_id} accepts {what!r}, not one of "
                                  f"{', '.join(ACCEPTANCE_WHATS)}")
-            _resolve(conn, pending_id, resolution, by, now, note)
+            _resolve(conn, pending_id, resolution, by, now, note, actor)
             out = {"pending_id": pending_id, "task_id": item["task_id"]}
             if what == "subtasks" and resolution == "accepted":
                 out["added"] = _tasks_add(conn, item["task_id"], item["payload"].get("tasks"), now, waits)["tasks"]
             out["task_state"] = _task(conn, item["task_id"])["state"]
             return out
-        _resolve(conn, pending_id, resolution, by, now, note)
+        _resolve(conn, pending_id, resolution, by, now, note, actor)
         task = _task(conn, item["task_id"])
         if resolution == "rejected" and task["parent_id"] is None:
             _cancel_request(conn, task["id"], by, now)
@@ -2496,13 +2522,14 @@ def plan_open(conn: sqlite3.Connection, request_id: int, *, title: str, body: st
 
 
 def plan_approve(conn: sqlite3.Connection, pending_id: int, *, by: str, waits: list | None = None,
-                 go_ahead=()) -> dict:
+                 go_ahead=(), actor: str | None = None) -> dict:
     """Approve a `plan`: the tasks of its payload["tasks"] are created as request_add creates a plan's tasks, the
     request takes the payload's flow (None for a plan of one skill) and becomes `planned`, and the tasks with no
     dependency and no open wait become `ready`. waits are the waits the tasks begin with (request_add reads them
     alike); the keys in go_ahead are the person's decision that no derived wait holds them.
     Returns {"request", "tasks": [{"id", "key", "skill", "state"}], "ready": [ids]}."""
     by = text_arg(by, "by", LABEL_MAX)
+    actor = text_arg(actor, "actor", ACTOR_MAX, required=False)
     now = iso(utcnow())
     with write(conn):
         item = _open_of_kind(conn, pending_id, "plan")
@@ -2514,7 +2541,7 @@ def plan_approve(conn: sqlite3.Connection, pending_id: int, *, by: str, waits: l
         plan = _plan_items(payload.get("tasks"), empty_text=True)
         if not plan or (flow is None and len(plan) != 1):
             raise StoreError("a plan holds at least one task, and a plan of several tasks names its flow", EXIT_USAGE)
-        _resolve(conn, pending_id, "approved", by, now)
+        _resolve(conn, pending_id, "approved", by, now, None, actor)
         conn.execute("UPDATE tasks SET flow = ?, state = 'planned', updated_at = ? WHERE id = ?",
                      (flow, now, request["id"]))
         ids = _insert_plan(conn, request["id"], flow, plan, now)
@@ -2525,15 +2552,16 @@ def plan_approve(conn: sqlite3.Connection, pending_id: int, *, by: str, waits: l
     return {"request": request["id"], "tasks": [row_dict(r) for r in rows], "ready": ready}
 
 
-def plan_reject(conn: sqlite3.Connection, pending_id: int, *, by: str, note: str | None = None) -> dict:
+def plan_reject(conn: sqlite3.Connection, pending_id: int, *, by: str, note: str | None = None, actor: str | None = None) -> dict:
     """Reject a `plan`: it is resolved `rejected` (the note kept as its answer) and the request is cancelled as
     request_cancel cancels it. Returns {"pending_id", "request", "cancelled", "pending"}."""
     by = text_arg(by, "by", LABEL_MAX)
+    actor = text_arg(actor, "actor", ACTOR_MAX, required=False)
     note = text_arg(note, "note", NOTE_MAX, multiline=True, required=False)
     now = iso(utcnow())
     with write(conn):
         item = _open_of_kind(conn, pending_id, "plan")
-        _resolve(conn, pending_id, "rejected", by, now, note)
+        _resolve(conn, pending_id, "rejected", by, now, note, actor)
         out = _cancel_request(conn, item["task_id"], by, now)
     return {"pending_id": pending_id, **out}
 
@@ -2789,8 +2817,8 @@ def _revoke_pending_execution(conn: sqlite3.Connection, pending_id: int, now: st
 
 def approval_add(conn: sqlite3.Connection, *, scope: str, what: str, by: str, payload_sha256: str | None = None,
                  policy_sha256: str | None = None, bounds: dict | None = None, task_id: int | None = None,
-                 pending_id: int | None = None, expires_at: str | None = None) -> dict:
-    """Record an approval, in one transaction. Returns the row, with "existing": true or false.
+                 pending_id: int | None = None, expires_at: str | None = None, actor: str | None = None) -> dict:
+    """Record an approval, in one transaction. Returns the row, with "existing": true or false. `actor` (POL-2) is who approved, kept beside `by`.
 
     action    payload_sha256 and pending_id are required; the pending decision must be open, of kind `effect`, with
               the same payload_sha256; the row is `pending-execution` and its task is the pending decision's. When a
@@ -2803,6 +2831,7 @@ def approval_add(conn: sqlite3.Connection, *, scope: str, what: str, by: str, pa
         raise StoreError(f"scope must be one of {', '.join(APPROVAL_SCOPES)}", EXIT_USAGE)
     what = text_arg(what, "what", TITLE_MAX)
     by = text_arg(by, "by", LABEL_MAX)
+    actor = text_arg(actor, "actor", ACTOR_MAX, required=False)
     _sha_or_none(payload_sha256, "payload_sha256")
     _sha_or_none(policy_sha256, "policy_sha256")
     if scope in ("action", "plan") and payload_sha256 is None:
@@ -2844,9 +2873,9 @@ def approval_add(conn: sqlite3.Connection, *, scope: str, what: str, by: str, pa
         status = "active" if scope == "standing" else "pending-execution"
         approval_id = conn.execute(
             "INSERT INTO approvals (scope, what, payload_sha256, policy_sha256, bounds, task_id, pending_id, "
-            "approved_at, approved_by, expires_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "approved_at, approved_by, expires_at, status, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (scope, what, payload_sha256, policy_sha256, bounds_text, task_id, pending_id, now, by, expires,
-             status)).lastrowid
+             status, actor)).lastrowid
         return {**_approval(conn, approval_id), "existing": False}
 
 
@@ -2919,7 +2948,7 @@ def approval_revoke(conn: sqlite3.Connection, approval_id: int, *, by: str) -> d
         return {**_approval_move(conn, approval_id, "revoked", now), "revoked_by": by}
 
 
-def effect_done(conn: sqlite3.Connection, pending_id: int, approval_id: int, *, by: str, result: dict) -> dict:
+def effect_done(conn: sqlite3.Connection, pending_id: int, approval_id: int, *, by: str, result: dict, actor: str | None = None) -> dict:
     """After code executed an effect, all or nothing: the pending decision is resolved `approved`, with result kept
     under "result" of its payload; the approval is `executed`, with executed_at; the task goes from `waiting` to
     `done`; the tasks that depended on it become ready and a request whose tasks are all done completes, as for the
@@ -2927,6 +2956,7 @@ def effect_done(conn: sqlite3.Connection, pending_id: int, approval_id: int, *, 
     not `pending-execution` or belongs to another pending decision. Returns {"pending_id", "approval_id", "task_id",
     "task_state", "ready", "completed"}."""
     by = text_arg(by, "by", LABEL_MAX)
+    actor = text_arg(actor, "actor", ACTOR_MAX, required=False)
     if not isinstance(result, dict):
         raise StoreError("the result of an effect is an object", EXIT_USAGE)
     now = iso(utcnow())
@@ -2940,8 +2970,8 @@ def effect_done(conn: sqlite3.Connection, pending_id: int, approval_id: int, *, 
         _approval_move(conn, approval_id, "executed", now)
         payload = dict(item["payload"] or {}, result=result)
         conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = 'approved', payload = ?, "
-                     "resolved_at = ?, resolved_by = ? WHERE id = ?",
-                     (json.dumps(payload, ensure_ascii=True, sort_keys=True), now, by, pending_id))
+                     "resolved_at = ?, resolved_by = ?, actor = ? WHERE id = ?",
+                     (json.dumps(payload, ensure_ascii=True, sort_keys=True), now, by, actor, pending_id))
         moved = conn.execute("UPDATE tasks SET state = 'done', updated_at = ? WHERE id = ? AND state = 'waiting'",
                              (now, item["task_id"])).rowcount
         if not moved:

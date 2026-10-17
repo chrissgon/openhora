@@ -82,6 +82,15 @@ first lab model. "price_max_age_days" (absent means 90): a price of runtime/pric
 it is ignored. The one price table is runtime/prices.json (runtime/prices.py), read by the cost of a run, the `auto`
 ranking and the proof page; `price_warnings()` says so, and the doctor of a project (the connections read) shows it.
 
+It also reads "policies" (package POL-2; absent means none), "channels" and "messaging" together, as the channel policy: "policies" maps a profile
+name (lowercase words joined by hyphens, at most 32 characters) to a list of groups, or to {"groups": [...], "notices": "all" | "actionable"};
+"channels.<channel>" is a list of groups or the name of a profile, the channel's default; "messaging.senders.<platform>" lists plain sender ids
+and entries {"id": "<sender id>", "policy": "<profile>"}, and a sender's profile replaces the channel's groups for that sender. Every place a profile
+is assigned checks it against the channel (project_config._check_assigned; the refusal names the profile and the channel), and `load` returns the
+resolved groups in "channels" (the listed senders that have a profile under operations.SENDERS_KEY), the profiles in "policies" and the names in
+"channel_profiles" and "messaging.sender_profiles". The sender ids stay a list of ids for every reader of the bridge. A change is a widening, asked
+once by the hash of its list, when a place has a group the accepted file did not effectively give it (runtime/policy_widening.py).
+
 The hash is the sha256 of the file's bytes. Every operation compares it with the hash the person accepted last
 (kept in the store's cursor ACCEPTED, written only by ops.accept_config) and refuses to act on a file that
 changed. Nothing in this module reads the store.
@@ -120,7 +129,7 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
-                     "sweep_orphan_containers", "language", "outbox")
+                     "sweep_orphan_containers", "language", "outbox", "policies")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -203,8 +212,13 @@ def load(project: str) -> dict:
     out["model_prices"] = _model_prices(raw.get("model_prices"))
     out["default_model"] = _default_model(raw.get("default_model"))
     out["price_max_age_days"] = _price_max_age(raw)
-    out["messaging"] = _messaging(raw.get("messaging"))
-    out["channels"] = _channels(raw.get("channels"))
+    out["policies"] = _policies(raw.get("policies"))
+    out["messaging"] = _messaging(raw.get("messaging"), out["policies"])
+    out["channels"] = _channels(raw.get("channels"), out["policies"])
+    out["channel_profiles"] = channel_profiles(raw.get("channels"))
+    senders = sender_policy(out["messaging"], out["policies"])
+    if senders:
+        out["channels"][operations.SENDERS_KEY] = senders   # the groups of each listed sender whose entry names a profile (operations.effective_groups)
     out["max_running"] = _max_running(raw)
     out["run_retention_days"] = _bounded(raw, "run_retention_days", RUN_RETENTION_DEFAULT, 1, RUN_RETENTION_MAX)
     out["source_versions_kept"] = _bounded(raw, "source_versions_kept", SOURCE_VERSIONS_DEFAULT, SOURCE_VERSIONS_MIN, SOURCE_VERSIONS_MAX)
@@ -249,46 +263,102 @@ POLICY_CHANNELS = operations.POLICY_CHANNELS  # the channels a policy narrows: p
 
 
 def _refused_group(channel: str, group: str, groups: list) -> str | None:
-    """The sentence that refuses one group for one channel, or None when the channel takes it. A group is valid when one of its
-    operations is in the channel's ceiling (a policy narrows), or when it is a grant of that channel (operations.GRANTS: the one
-    way a policy widens). The effect groups and the networked-plan group are never valid on the MCP mode, and the umbrella
-    `approve-effects` is the page's alone."""
-    spec = operations.GROUPS[group]
-    effect_family = operations.is_effect_kind(spec["kind"]) or spec["kind"] == "plan:networked"
-    if group in operations.PAGE_ONLY_GROUPS and channel != "page":
-        return (f"the group {group!r} is valid on the page only (an effect is approved in the terminal or on the page, with its hash; "
-                f"a messaging app takes one word at a time: {', '.join(g for g in operations.GRANTS['messaging'] if g.startswith('approve-effect-'))})")
-    if channel == "mcp" and effect_family:
-        return (f"the group {group!r} is not valid on the MCP mode (an effect and a networked plan are approved by a person; "
-                "the MCP mode is a model client)")
-    if group == "approve-networked-plans" and channel != "messaging":
-        return (f"the group {group!r} is valid on a messaging app only (a plan that reaches the network is approved in the terminal "
-                "or on the page by default, and nowhere else unless the project grants a messaging app)")
-    if group in operations.GRANTS.get(channel, ()):
-        return None
-    names = spec["operations"]
-    if not any(channel in operations.by_name(name)["channels"] for name in names):
-        return (f"the group {group!r} covers {', '.join(names)}, which the table of operations does not give the channel {channel}; "
-                "a policy narrows the ceiling and never widens it, except by a grant"
-                + (f" (the grants of {channel}: {', '.join(operations.GRANTS[channel])})" if channel in operations.GRANTS else " (this channel has none)"))
-    return None
+    """The sentence that refuses one group for one channel, or None when the channel takes it (operations.group_refusal: the rule lives with the
+    table, so that a channel's entry and a profile assigned to it are checked by one function)."""
+    return operations.group_refusal(channel, group)
 
 
-def _channels(value) -> dict:
-    """The key "channels" (the channel policy, decisions M-8, M-13 and POL-1; absent means {}), checked: {"page": ["<group>", ...],
-    "mcp": [...], "messaging": [...]}. Each group is one of operations.GROUPS and is valid on a channel when at least one
-    operation it covers is listed by the channel's row in the table (the ceiling): a policy narrows what the table allows,
-    and widens it only by a grant of that channel (operations.GRANTS: the effect words and the networked plans on messaging;
-    plans, acceptances, reject-cancel and retry on the MCP mode), which the group then covers. `approve-effects` is valid on the
-    page only; `approve-networked-plans` needs `approve-plans`. A policy for the page or the MCP mode lists `read`. `chat` and
-    `terminal` are errors: the conversation's input is local access, equal to the terminal, and neither is narrowed. A channel
-    that has no entry keeps its ceiling, except messaging, which keeps operations.DEFAULT_POLICY (read, talk, answer, the routine
-    brakes) and never a grant. Like every key of the file, a change takes effect after accept-config in the terminal, and one that
-    adds a grant only with the hash of the widening list."""
+PROFILE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")   # a profile's name: lowercase words joined by hyphens, at most 32 characters
+PROFILE_KEYS = ("groups", "notices")
+PROFILE_NOTICES = ("all", "actionable")
+DEFAULT_PROFILE = "default"                            # the label of a sender who has no profile (the channel's own groups); not a name a project may use
+SENDER_ID_MAX = 64
+SENDERS_MAX = 100                                      # senders listed in all (policy_widening keeps a record of them in a cursor of 4 KiB)
+
+
+def _groups_of(where: str, groups) -> list:
+    """A list of group names, each one of operations.GROUPS; `where` names the place in the sentence."""
+    if not isinstance(groups, list) or not all(isinstance(g, str) for g in groups):
+        raise ConfigError(f"runtime.json {where} must be a list of group names")
+    for group in groups:
+        if group not in operations.GROUPS:
+            raise ConfigError(f"runtime.json {where}: {group!r} is not a group (known: {', '.join(operations.GROUPS)})")
+    return list(dict.fromkeys(groups))
+
+
+def _policies(value) -> dict:
+    """The key "policies" (POL-2; absent means {}): {"<profile>": ["<group>", ...]} or {"<profile>": {"groups": [...], "notices": "all" or
+    "actionable"}}. A profile is a named set of groups; by itself it says nothing of a channel and is checked at each place it is assigned
+    (`channels.<channel>` names it as the channel's default, a sender's entry in `messaging.senders` names it for that sender). A name is lowercase words
+    joined by hyphens, at most 32 characters, and not `default`. A profile that lists unknown groups, or both `read` and `read-limited`, is refused.
+    Returns {"<profile>": {"groups": [...], "notices": "all" | "actionable"}}; `notices` (default all) says whether a sender gets a card for every
+    decision (all) or only for one their profile can act on or answer (actionable)."""
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise ConfigError("runtime.json channels must be an object from a channel to a list of groups")
+        raise ConfigError("runtime.json policies must be an object from a profile name to a list of groups")
+    out = {}
+    for name, body in value.items():
+        if not isinstance(name, str) or not PROFILE_NAME.fullmatch(name):
+            raise ConfigError(f"runtime.json policies: {name!r} is not a profile name (lowercase words joined by hyphens, at most 32 characters)")
+        if name == DEFAULT_PROFILE:
+            raise ConfigError(f"runtime.json policies: {DEFAULT_PROFILE!r} is the label of a sender with no profile; choose another name")
+        notices = "all"
+        if isinstance(body, dict):
+            unknown = sorted(set(body) - set(PROFILE_KEYS))
+            if unknown or "groups" not in body:
+                raise ConfigError(f"runtime.json policies.{name}: an object profile has the keys {', '.join(PROFILE_KEYS)} (groups required)"
+                                  + (f"; {unknown[0]!r} is not one" if unknown else ""))
+            notices = body.get("notices", "all")
+            if notices not in PROFILE_NOTICES:
+                raise ConfigError(f"runtime.json policies.{name}.notices must be one of {', '.join(PROFILE_NOTICES)}")
+            groups = _groups_of(f"policies.{name}.groups", body["groups"])
+        else:
+            groups = _groups_of(f"policies.{name}", body)
+        if "read" in groups and "read-limited" in groups:
+            raise ConfigError(f"runtime.json policies.{name}: lists both 'read' and 'read-limited'; choose one (read-limited is read without the spend)")
+        out[name] = {"groups": groups, "notices": notices}
+    return out
+
+
+def _check_assigned(where: str, channel: str, groups: list, profile: str | None) -> None:
+    """The groups of a channel's entry, or of a profile at the place it is assigned, against the channel: every group is one the channel takes, the
+    networked plans need the plans, and the page and the MCP mode list `read`. The sentence names the profile (when there is one) and the channel."""
+    label = f"profile {profile!r}: " if profile else ""
+    for group in groups:
+        why = _refused_group(channel, group, groups)
+        if why:
+            raise ConfigError(f"runtime.json {where}: {label}{why}")
+    if "approve-networked-plans" in groups and "approve-plans" not in groups:
+        raise ConfigError(f"runtime.json {where}: {label}'approve-networked-plans' needs 'approve-plans' beside it "
+                          "(it adds networked plans to the plans the channel approves)")
+    if channel in operations.MUST_READ and "read" not in groups:
+        raise ConfigError(f"runtime.json {where}: {label}must list the group 'read' (the {channel} reads what it shows)")
+
+
+def channel_profiles(value) -> dict:
+    """{channel: profile name} for the channels of `channels` whose entry is a profile name (the raw value, already checked by _channels)."""
+    return {c: v for c, v in (value or {}).items() if isinstance(v, str)}
+
+
+def _channels(value, policies=None) -> dict:
+    """The key "channels" (the channel policy, decisions M-8, M-13, POL-1 and POL-2; absent means {}), checked: {"page": ["<group>", ...],
+    "mcp": [...], "messaging": [...]}, or a channel's value a profile name of the key "policies" (then the profile's groups). Each group is one of
+    operations.GROUPS and is valid on a channel when at least one
+    operation it covers is listed by the channel's row in the table (the ceiling): a policy narrows what the table allows,
+    and widens it only by a grant of that channel (operations.GRANTS: the effect words and the networked plans on messaging;
+    plans, acceptances, reject-cancel and retry on the MCP mode), which the group then covers. `approve-effects` is valid on the
+    page only; `approve-networked-plans` needs `approve-plans`; `read-limited` is a messaging app's. A policy for the page or the MCP mode lists `read`.
+    `chat` and `terminal` are errors: the conversation's input is local access, equal to the terminal, and neither is narrowed. A channel
+    that has no entry keeps its ceiling, except messaging, which keeps operations.DEFAULT_POLICY (read, talk, answer, the routine
+    brakes) and never a grant. Like every key of the file, a change takes effect after accept-config in the terminal, and one that
+    adds a group beyond what the accepted file effectively had only with the hash of the widening list. Returns {channel: [groups]}; the
+    profile names are read by channel_profiles."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError("runtime.json channels must be an object from a channel to a list of groups or a profile name")
+    policies = policies or {}
     out = {}
     for channel, groups in value.items():
         if channel in ("chat", "terminal"):
@@ -297,20 +367,30 @@ def _channels(value) -> dict:
         if channel not in POLICY_CHANNELS:
             raise ConfigError(f"runtime.json channels: {channel!r} has no policy; the channels with one are {', '.join(POLICY_CHANNELS)} "
                               "(the terminal and the conversation are never narrowed)")
-        if not isinstance(groups, list) or not all(isinstance(g, str) for g in groups):
-            raise ConfigError(f"runtime.json channels.{channel} must be a list of group names")
-        for group in groups:
-            if group not in operations.GROUPS:
-                raise ConfigError(f"runtime.json channels.{channel}: {group!r} is not a group (known: {', '.join(operations.GROUPS)})")
-            why = _refused_group(channel, group, groups)
-            if why:
-                raise ConfigError(f"runtime.json channels.{channel}: {why}")
-        if "approve-networked-plans" in groups and "approve-plans" not in groups:
-            raise ConfigError(f"runtime.json channels.{channel}: 'approve-networked-plans' needs 'approve-plans' beside it "
-                              "(it adds networked plans to the plans the channel approves)")
-        if channel in operations.MUST_READ and "read" not in groups:
-            raise ConfigError(f"runtime.json channels.{channel} must list the group 'read' (the {channel} reads what it shows)")
+        profile = None
+        if isinstance(groups, str):
+            if groups not in policies:
+                raise ConfigError(f"runtime.json channels.{channel}: {groups!r} is not a profile of policies "
+                                  f"(known: {', '.join(policies) or 'none'}); a channel takes a list of groups or the name of a profile")
+            profile, groups = groups, list(policies[groups]["groups"])
+        elif not isinstance(groups, list) or not all(isinstance(g, str) for g in groups):
+            raise ConfigError(f"runtime.json channels.{channel} must be a list of group names or the name of a profile")
+        else:
+            for group in groups:
+                if group not in operations.GROUPS:
+                    raise ConfigError(f"runtime.json channels.{channel}: {group!r} is not a group (known: {', '.join(operations.GROUPS)})")
+        _check_assigned(f"channels.{channel}", channel, groups, profile)
         out[channel] = list(dict.fromkeys(groups))
+    return out
+
+
+def sender_policy(messaging: dict, policies: dict) -> dict:
+    """{"<platform>:<sender id>": [groups]} of the senders whose entry names a profile (from `_messaging`'s "sender_profiles"): what
+    operations.effective_groups reads for that sender. A sender with a plain entry is not here: it gets the channel's groups."""
+    out = {}
+    for platform, named in (messaging.get("sender_profiles") or {}).items():
+        for sender, profile in named.items():
+            out[operations.sender_key(platform, sender)] = list(policies[profile]["groups"])
     return out
 
 
@@ -319,14 +399,34 @@ NOTICES = ("text", "count")
 PLATFORM_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
-def _messaging(value) -> dict:
+def _sender_entry(platform: str, entry, policies: dict) -> tuple:
+    """(sender id, profile name or None) of one entry of `messaging.senders.<platform>`: a plain id (the sender gets the channel's groups), or
+    {"id": "<sender id>", "policy": "<profile>"} (the sender gets the profile's groups instead). The id is non-empty text without a space,
+    at most SENDER_ID_MAX characters."""
+    where = f"messaging.senders.{platform}"
+    profile = None
+    if isinstance(entry, dict):
+        if sorted(entry) != ["id", "policy"]:
+            raise ConfigError(f"runtime.json {where}: an entry object has the keys id and policy, and no other")
+        entry, profile = entry["id"], entry["policy"]
+        if not isinstance(profile, str) or profile not in policies:
+            raise ConfigError(f"runtime.json {where}: {profile!r} is not a profile of policies (known: {', '.join(policies) or 'none'})")
+    if not isinstance(entry, str) or not entry.strip() or any(c.isspace() for c in entry) or len(entry) > SENDER_ID_MAX:
+        raise ConfigError(f"runtime.json {where} must list sender ids, each non-empty text without a space of at most {SENDER_ID_MAX} characters")
+    return entry, profile
+
+
+def _messaging(value, policies=None) -> dict:
     """The key "messaging" (the messaging bridge, runtime/messaging.py; absent means no sender and the defaults), checked:
-    {"senders": {"<platform>": ["<sender id>", ...]}, "notices": "text" or "count" (default "text"), "page_url": an
-    http:// or https:// URL, or null}. A platform is lowercase words joined by hyphens, a sender id is non-empty text
-    without a space. Nothing in it is a secret (the bot's token is read from the secret store), and, as every key of
+    {"senders": {"<platform>": ["<sender id>" or {"id": "<sender id>", "policy": "<profile>"}, ...]}, "notices": "text" or "count"
+    (default "text"), "page_url": an http:// or https:// URL, or null}. A platform is lowercase words joined by hyphens, a sender id is non-empty
+    text without a space; an id is listed once on a platform. A sender's profile (POL-2) replaces the channel's groups for that sender, and is checked
+    against the messaging channel here: a profile that lists a group the channel does not take is refused with the profile's name. Returns
+    "senders" {platform: [ids]} (the ids alone, as every reader of the bridge expects) and "sender_profiles" {platform: {id: profile}}, the
+    entries that name one. Nothing in it is a secret (the bot's token is read from the secret store), and, as every key of
     the file, a change takes effect only after the person runs accept-config in the terminal."""
     if value is None:
-        return {"senders": {}, "notices": "text", "page_url": None}
+        return {"senders": {}, "sender_profiles": {}, "notices": "text", "page_url": None}
     if not isinstance(value, dict):
         raise ConfigError("runtime.json messaging must be an object")
     unknown = sorted(set(value) - set(MESSAGING_KEYS))
@@ -335,20 +435,38 @@ def _messaging(value) -> dict:
     senders = value.get("senders", {})
     if not isinstance(senders, dict):
         raise ConfigError("runtime.json messaging.senders must be an object from a platform to a list of sender ids")
-    out_senders = {}
-    for platform, ids in senders.items():
+    policies = policies or {}
+    out_senders, out_profiles, checked = {}, {}, set()
+    for platform, entries in senders.items():
         if not isinstance(platform, str) or not PLATFORM_NAME.fullmatch(platform):
             raise ConfigError(f"runtime.json messaging.senders: {platform!r} is not a platform name (lowercase words joined by hyphens)")
-        if not isinstance(ids, list) or not all(isinstance(i, str) and i.strip() and not any(c.isspace() for c in i) for i in ids):
+        if not isinstance(entries, list):
             raise ConfigError(f"runtime.json messaging.senders.{platform} must be a list of sender ids, each non-empty text without a space")
-        out_senders[platform] = list(dict.fromkeys(ids))
+        ids, named = [], {}
+        for entry in entries:
+            sender, profile = _sender_entry(platform, entry, policies)
+            if sender in ids:
+                raise ConfigError(f"runtime.json messaging.senders.{platform}: a sender is listed once on a platform, and one is listed twice "
+                                  "(a sender's profile is the one entry's)")
+            ids.append(sender)
+            if profile:
+                named[sender] = profile
+                if profile not in checked:
+                    checked.add(profile)
+                    _check_assigned(f"messaging.senders.{platform}", "messaging", policies[profile]["groups"], profile)
+        out_senders[platform] = ids
+        if named:
+            out_profiles[platform] = named
+    if sum(len(ids) for ids in out_senders.values()) > SENDERS_MAX:
+        raise ConfigError(f"runtime.json messaging.senders lists more than {SENDERS_MAX} senders in all: the record of what the file gives them "
+                          "is kept in the store (a cursor of 4 KiB) and is bounded")
     notices = value.get("notices", "text")
     if notices not in NOTICES:
         raise ConfigError(f"runtime.json messaging.notices must be one of {', '.join(NOTICES)}")
     page_url = value.get("page_url")
     if page_url is not None and (not isinstance(page_url, str) or not re.fullmatch(r"https?://[^\s<>\"']+", page_url)):
         raise ConfigError("runtime.json messaging.page_url must be an http:// or https:// URL, or null")
-    return {"senders": out_senders, "notices": notices, "page_url": page_url}
+    return {"senders": out_senders, "sender_profiles": out_profiles, "notices": notices, "page_url": page_url}
 
 
 PRICE_MAX_AGE_DEFAULT, PRICE_MAX_AGE_CEILING = 90, 3650

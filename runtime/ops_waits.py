@@ -161,7 +161,7 @@ def annotate(ctx: dict, request: dict, decision: dict) -> dict:
                         "cycles": got["cycles"]}}
 
 
-def approve_plan(ctx: dict, item: dict, go_ahead) -> dict:
+def approve_plan(ctx: dict, item: dict, go_ahead, actor=None) -> dict:
     """Approve a plan decision: its tasks are created with the waits derived for them (and the go-ahead of the keys the
     person named, in the same transaction, so no task is ever ready for a moment before its wait exists), the go-ahead is
     written to the state file as the person's decision, and the waits of the other tasks are derived again (a task
@@ -176,7 +176,7 @@ def approve_plan(ctx: dict, item: dict, go_ahead) -> dict:
     if idle:
         raise core.OpsError(f"go ahead names {', '.join(idle)}, which waits for no task to derive: nothing was approved", 2)
     ops_flows.before_approve(ctx, item)    # a file the plan names must be there with the plan's hash, before anything is approved
-    done = core._stored(ctx, store.plan_approve, item["id"], by="user", waits=got["store"], go_ahead=keys)
+    done = core._stored(ctx, store.plan_approve, item["id"], by="user", waits=got["store"], go_ahead=keys, actor=actor)
     out = {**done, "waits": got["shown"]}
     placed = ops_flows.after_approve(ctx, item, done)    # and then it goes to the drop of the task that reads it
     if placed:
@@ -301,7 +301,7 @@ def networked_steps(item: dict) -> list:
     return found
 
 
-def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None, effect=None) -> None:
+def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None, effect=None, sender=None) -> None:
     """What approve checks of the decision before anything else. A go-ahead is said on the tasks of a plan: any other
     pending decision is refused. The channel's policy (operations.refusal, decisions M-8 and M-13) must cover the approval
     of the decision's kind, and, with task keys, the group `go-ahead` too. An effect is asked of the policy by its word
@@ -311,11 +311,12 @@ def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None, 
     step is approved by default in the terminal or on the page (operations.NETWORKED_PLAN_CHANNELS, limit L36) and from another
     channel only where the project grants it (`approve-networked-plans`: a messaging app; never the conversation or the MCP mode).
     A plan approved from a messaging app or the MCP mode carries its hash: the tap, the typed command or the tool call names exactly
-    what the person saw (an acceptance has none; the bridge binds it to the card, runtime/messaging.py)."""
+    what the person saw (an acceptance has none; the bridge binds it to the card, runtime/messaging.py). `sender` (POL-2) is the messaging sender who
+    acted (operations.sender_key): the policy is asked for that sender's profile, never for the channel's alone."""
     if go_ahead and item["kind"] != "plan":
         raise core.OpsError(f"pending decision {item['id']} is a {item['kind']}: go ahead is said on the tasks of a plan", 2)
     if item["kind"] == "plan" and channel not in operations.NETWORKED_PLAN_CHANNELS and networked_steps(item) \
-            and not operations.permitted("approve", channel or "", policy, "plan:networked"):   # fails closed: no channel is none
+            and not operations.permitted("approve", channel or "", policy, "plan:networked", sender):   # fails closed: no channel is none
         key, kind = networked_steps(item)[0]
         raise core.OpsError(f"the plan holds the task {key}, a {kind} step that reaches the network: a plan with one is approved in the "
                             "terminal or on the page by default, and from a messaging app only when the project grants approve-networked-plans; "
@@ -324,7 +325,7 @@ def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None, 
         kind = item["kind"]
         if kind == "effect" and (effect or {}).get("word"):
             kind = "effect:" + effect["word"]
-        refused = operations.refusal("approve", channel, policy, kind, bool(go_ahead))
+        refused = operations.refusal("approve", channel, policy, kind, bool(go_ahead), sender=sender)
         if refused:
             raise core.OpsError(refused, 1)
     if channel in (MESSAGING, "mcp") and item["kind"] == "plan" and sha256 is None:
@@ -355,13 +356,13 @@ def request_flow(ctx: dict, tasks: list, after, **fields) -> dict:
     return {**out, "waits": derived["shown"], "missing": derived["missing"]}
 
 
-def accept(ctx: dict, item: dict) -> dict:
+def accept(ctx: dict, item: dict, actor=None) -> dict:
     """acceptance_resolve `accepted` for the person: the accepted sub-tasks begin with their waits, then derived again."""
     payload = item.get("payload") or {}
     waits = for_plan(ctx, payload.get("tasks") or [], None, request=item["task_id"])["store"] \
         if payload.get("what") == "subtasks" else None
     return settled(ctx, core._stored(ctx, ctx["store"].acceptance_resolve, item["id"], resolution="accepted", by="user",
-                                     waits=waits))
+                                     waits=waits, actor=actor))
 
 
 def add_subtasks(ctx: dict, request_id: int, tasks: list) -> dict:

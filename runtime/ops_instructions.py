@@ -226,12 +226,12 @@ def proposal(ctx: dict, request_id, line, channel=None):
             "text": f'{PROPOSAL_ASK} "{one}"\n{command}\n{where}'}
 
 
-def answer_proposing(project: str, pending_id: int, text: str, with_comments: bool = False, channel=None) -> dict:
+def answer_proposing(project: str, pending_id: int, text: str, with_comments: bool = False, channel=None, sender=None) -> dict:
     """The operation `answer`: ops.answer, and, for the answer to a question, the proposal of proposal() under "instruction_proposal"
     ({"line", ...}) when one is offered. The answer is recorded first; nothing here can undo it."""
     ctx = core.context(project)
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
-    out = _ops().answer(project, pending_id, text, with_comments=with_comments)
+    out = _ops().answer(project, pending_id, text, with_comments=with_comments, channel=channel, sender=sender)
     if item["kind"] == "question" and channel in DISPLAYS:
         offered = proposal(ctx, _request_of(ctx, item["task_id"]), text, channel)
         if offered:

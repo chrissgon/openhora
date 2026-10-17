@@ -51,7 +51,7 @@ def configure(tree, agents, **extra) -> None:
     raw.update(extra)
     config_path(tree).write_text(json.dumps(raw), encoding="utf-8")
     project = str(tree["project"])
-    ops.accept_config(project, project_config.load(project)["sha256"])
+    ops.accept_config(project, project_config.load(project)["sha256"], widen=ops.config(project)["widening_sha256"])
 
 
 def agent_of(tree) -> dict:
@@ -294,7 +294,7 @@ def test_changing_the_model_or_the_mode_asks_again_and_a_consent_that_no_longer_
     raw = json.loads(config_path(tree).read_text(encoding="utf-8"))
     raw["area_agents"]["business"].update(model="fm", consent={"model": "m", "mode": "autonomous-with-policy"})
     config_path(tree).write_text(json.dumps(raw), encoding="utf-8")
-    ops.accept_config(path, project_config.load(path)["sha256"])
+    ops.accept_config(path, project_config.load(path)["sha256"], widen=ops.config(path)["widening_sha256"])
     assert autonomy.consent_valid(agent_of(tree), "fm") is False
     planned(tree)
     ops.dispatch(path)
@@ -393,7 +393,7 @@ def test_a_review_of_a_run_carries_what_the_dispatcher_reads(tree):
     raw = json.loads(config_path(tree).read_text(encoding="utf-8"))
     raw["area_agents"]["business"]["model"] = "m"
     config_path(tree).write_text(json.dumps(raw), encoding="utf-8")
-    ops.accept_config(path, project_config.load(path)["sha256"])
+    ops.accept_config(path, project_config.load(path)["sha256"], widen=ops.config(path)["widening_sha256"])
     ctx = ops_core.context(path)
     [review] = ops._snapshot(ctx, ops_core._keys())["reviews"]
     assert (review["proven"], review["consent"]) == (False, False)

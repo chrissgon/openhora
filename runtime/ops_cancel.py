@@ -48,6 +48,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_flows  # noqa: E402
 import ops_waits  # noqa: E402
@@ -125,9 +126,11 @@ def request_cancel(conn, request_id: int, *, by: str, context: dict) -> dict:
     return _said(out, writing)
 
 
-def _who(by: str, channel) -> str:
-    """The label the stop request carries: the person (or the board), and the channel that carried the call."""
-    return by if channel in (None, "", by) else f"{by} from {channel}"
+def _who(by: str, channel, profile=None) -> str:
+    """The label the stop request carries: the person (or the board), the channel that carried the call and, from a messaging app, the PROFILE of the
+    sender (never the sender: the label reaches the task's note and the board)."""
+    said = by if channel in (None, "", by) else f"{by} from {channel}"
+    return f"{said}, profile {profile}" if profile else said
 
 
 def _busy(request_id: int) -> core.OpsError:
@@ -231,12 +234,13 @@ def _end(ctx: dict, first: dict, signal: bool = True) -> list:
     return answers
 
 
-def cancel_request(ctx: dict, request_id: int, *, by: str = "user", channel=None) -> dict:
+def cancel_request(ctx: dict, request_id: int, *, by: str = "user", channel=None, sender=None) -> dict:
     """Cancel a request at any moment (the sequence in the module's text). Returns {"request", "cancelled": [the ids of the
     tasks and the request cancelled], "stopped": [{"task" and/or "run", "state": "cancelled" | "stopping"}], "pending": [the
     pending decisions cancelled], "already"}; "stopping" is a run that did not end within the waits: the request keeps its stop
     request, and its owner (or the next recovery) finishes it."""
-    cfg, store, who = ctx["cfg"], ctx["store"], _who(by, channel)
+    ops_actor.guard(ctx, "cancel", channel, sender)
+    cfg, store, who = ctx["cfg"], ctx["store"], _who(by, channel, ops_actor.profile_of(ctx["cfg"], sender) if channel == "messaging" and sender else None)
     if core._stored(ctx, store.task_get, request_id)["parent_id"] is not None:   # asked before any lock is taken: a task's id makes no lock file
         raise core.OpsError(f"task {request_id} is not a request: cancel the request it belongs to", 1)
     with contextlib.ExitStack() as stack:
@@ -258,12 +262,13 @@ def cancel_request(ctx: dict, request_id: int, *, by: str = "user", channel=None
                                          "already": first["already"], **({"kept": first["kept"]} if first.get("kept") else {})}, writing))
 
 
-def stop_one(ctx: dict, task_id: int, *, by: str = "user", channel=None) -> dict:
+def stop_one(ctx: dict, task_id: int, *, by: str = "user", channel=None, sender=None) -> dict:
     """Stop one running task at any moment: its run ends `cancelled` and the task `blocked` with the note "stopped by <who>:
     retry it or cancel the request", so that `retry` resumes it (a step task at its step) and its dependents stay planned. The
     other tasks of the request follow the request. Returns the shape of cancel for the task's request, "cancelled" and "pending"
     empty."""
-    cfg, store, who = ctx["cfg"], ctx["store"], _who(by, channel)
+    ops_actor.guard(ctx, "stop-task", channel, sender)
+    cfg, store, who = ctx["cfg"], ctx["store"], _who(by, channel, ops_actor.profile_of(ctx["cfg"], sender) if channel == "messaging" and sender else None)
     task = core._stored(ctx, store.task_get, task_id)
     request_id = task["parent_id"]
     if request_id is None:
@@ -279,15 +284,15 @@ def stop_one(ctx: dict, task_id: int, *, by: str = "user", channel=None) -> dict
                                    "pending": [], "already": first["already"]})
 
 
-def cancel(project: str, request_id: int, channel: str | None = None) -> dict:
+def cancel(project: str, request_id: int, channel: str | None = None, sender: str | None = None) -> dict:
     """The operation `cancel`: cancel a request, its tasks that are not done and their open pending decisions, at any moment; a run in
     progress is ended and returns nothing (limit L41). Returns {"request", "cancelled", "stopped", "pending", "already"}."""
-    return cancel_request(core.context(project), request_id, channel=channel)
+    return cancel_request(core.context(project), request_id, channel=channel, sender=sender)
 
 
-def stop_task(project: str, task_id: int, channel: str | None = None) -> dict:
+def stop_task(project: str, task_id: int, channel: str | None = None, sender: str | None = None) -> dict:
     """The operation `stop-task`: stop one running task; its run ends cancelled and the task blocked, for `retry`."""
-    return stop_one(core.context(project), task_id, channel=channel)
+    return stop_one(core.context(project), task_id, channel=channel, sender=sender)
 
 
 def watch(ctx: dict, request_id: int):
