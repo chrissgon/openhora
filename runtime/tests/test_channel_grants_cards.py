@@ -417,20 +417,28 @@ def test_a_whole_card_that_did_not_offer_the_approval_is_not_approved_by_a_typed
     grant(world, GRANTED)
     world.say("/approve 7")
     assert approve_calls(world) == [] and world.texts()[-1] == bridge.NOT_OFFERED
-    # a plan card is the same when its entry says it offered nothing; an entry of before the field is as it was
+    # a plain plan or an acceptance is not gated: the permission is read when the person acts, whatever the entry of its card says
     world.items[1] = decision("plan", 1)
     world.bridge.tick()
     for entry in world.bridge.ledger.data["cards"]:
         if entry["pending_id"] == 1:
             entry["approvable"] = False
-    world.say("/approve 1")
-    assert approve_calls(world) == [] and world.texts()[-1] == bridge.NOT_OFFERED
-    for entry in world.bridge.ledger.data["cards"]:
-        if entry["pending_id"] == 1:
-            del entry["approvable"]
     world.fake.answers["approve"] = {"approved": True}
     world.say("/approve 1")
     assert approve_calls(world)[0][2] == {"pending_id": 1, "sha256": "p" * 64, "channel": "messaging"}
+
+
+def test_an_acceptance_card_sent_before_the_policy_allowed_it_is_approved_by_a_typed_line_after_the_policy_widens(world):
+    grant(world, ["read", "talk", "answer"])                 # messaging lacks approve-acceptances: the card offers no approval
+    world.items[3] = decision("acceptance", 3, body="Accept 2 deliveries.")
+    world.bridge.tick()
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["approvable"] is False
+    grant(world, OPEN_POLICY)                                # the person widens the policy (a group of the ceiling, accepted as ever)
+    world.fake.answers["approve"] = {"accepted": True}
+    world.say("/approve 3")
+    assert approve_calls(world)[0][2] == {"pending_id": 3, "channel": "messaging"}, "as before POL-1: the permission is read when the person acts"
+    assert bridge.NOT_OFFERED not in world.texts()
 
 
 def test_a_networked_plan_card_from_before_the_grant_with_an_unconfirmed_file_approves_nothing_and_is_not_resent_for_ever(world):
@@ -481,3 +489,29 @@ def test_a_hash_typed_with_approve_must_be_the_cards_for_an_acceptance_too(world
     card_hash = world.bridge.ledger.data["cards"][0]["content_sha256"]
     world.say(f"/approve 3 {card_hash}")
     assert approve_calls(world)[0][2] == {"pending_id": 3, "channel": "messaging"}
+
+
+def test_the_persons_own_pending_tries_a_card_whose_file_failed_once_per_request_and_a_tick_never_does(world):
+    grant(world)
+    world.caps(max_text=300, documents=True)
+    world.standin.joinpath("document_fail.json").write_text("true")
+    world.items[7] = effect(body="y" * 2000)
+    world.bridge.tick()
+    assert len(world.sent()) == 2 and cards.DOCUMENT_LINE in world.sent()[1]["message"]["text"] and "/pending" in cards.DOCUMENT_LINE
+    for _ in range(3):
+        world.bridge.tick()
+    assert len(world.sent()) == 2, "a tick never retries it"
+    world.say("/pending")                                     # one request: the file first, then the card (the reply that lists comes first)
+    after = len(world.sent())
+    assert after == 5 and world.sent()[after - 2]["message"]["document"] is not None, "the list, the file, the card"
+    [entry] = [e for e in world.bridge.ledger.data["cards"] if e["pending_id"] == 7][-1:]
+    assert entry["blocked"] == "document" and entry["whole"] is False, "it failed again: the same confirmation rules, the same card"
+    for _ in range(3):
+        world.bridge.tick()
+    assert len(world.sent()) == after
+    world.standin.joinpath("document_fail.json").unlink()      # the file arrives this time
+    world.say("/pending")
+    last = world.sent()[-1]["message"]
+    assert LABEL in [a["label"] for a in last["actions"]] and last["document"] is None
+    entry = [e for e in world.bridge.ledger.data["cards"] if e["pending_id"] == 7][-1]
+    assert entry["whole"] is True and entry["approvable"] is True and not entry.get("blocked")

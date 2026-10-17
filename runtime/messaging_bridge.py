@@ -268,7 +268,7 @@ class Bridge(shell_kit.Jobs):
 
     # --- notices ---------------------------------------------------------------------------------------------
 
-    def notify_project(self, project: dict, only_chat=None, cap: int = CARDS_PER_TICK) -> int:
+    def notify_project(self, project: dict, only_chat=None, cap: int = CARDS_PER_TICK, retry_blocked: bool = False) -> int:
         """Send the cards a project's open decisions lack (to `only_chat`, or to every listed sender). Returns how many
         decisions are left over for the next tick."""
         settings = self.settings(project)
@@ -286,7 +286,7 @@ class Bridge(shell_kit.Jobs):
             if item.get("status", "open") != "open":
                 continue
             digest = cards.content_sha256(item)
-            lacking = [c for c in chats if not self.ledger.sent(project["id"], item["id"], digest, c) or self.outdated(project, settings, item, c)]
+            lacking = [c for c in chats if not self.ledger.sent(project["id"], item["id"], digest, c) or self.outdated(project, settings, item, c, retry_blocked)]
             if not lacking:
                 continue
             if sent >= cap:
@@ -297,15 +297,16 @@ class Bridge(shell_kit.Jobs):
             sent += 1
         return left
 
-    def outdated(self, project: dict, settings: dict, item: dict, chat: str) -> bool:
+    def outdated(self, project: dict, settings: dict, item: dict, chat: str, retry_blocked: bool = False) -> bool:
         """An effect, or a plan that reaches the network, whose card was sent without an approval (the project had not granted it yet, or the notices
         carried no text) gets a new card once the policy lets this card offer one; a card that already offered it, or that still could not, is not
         sent again. A card whose file did not arrive (`blocked` "document") is not sent again either: it said where to approve, and a file that
-        failed once would fail on every tick (the simplest rule; a changed content is a new card anyway)."""
+        failed once would fail on every tick (the simplest rule; a changed content is a new card anyway). The person's own /pending
+        (`retry_blocked`) tries such a card again, once per request: the file first, with the same confirmation rules."""
         if not cards.gated(item):
             return False
         last = self.ledger.last_card(project["id"], item["id"], chat)
-        if last is None or last.get("approvable") or last.get("blocked"):
+        if last is None or last.get("approvable") or (last.get("blocked") and not retry_blocked):
             return False
         built = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"],
                             settings["page_url"], operations=self.ops.operations)
@@ -406,7 +407,7 @@ class Bridge(shell_kit.Jobs):
             return
         self.reply(chat, f"{project['name']}: " + "\n".join(f"#{i['id']} {i['kind']}: {i['title']}" for i in found))
         try:
-            self.notify_project(project, only_chat=chat)
+            self.notify_project(project, only_chat=chat, retry_blocked=True)
         except self.ops.OpsError as e:
             self.log(f"cards could not be sent ({e.__class__.__name__})")
 
@@ -464,12 +465,9 @@ class Bridge(shell_kit.Jobs):
                                                            sha256=card["content_sha256"])
                 self.reply(chat, f"{TOO_LONG}\n{command}")
                 return
-            if card.get("approvable") is not True:
-                self.reply(chat, NOT_OFFERED)
+            if card.get("approvable") is not True:       # only a gated card (an effect, a networked plan) must have offered the approval;
+                self.reply(chat, NOT_OFFERED)           # a plain plan or an acceptance is checked against the policy when the person acts
                 return
-        if card.get("approvable") is False:      # a typed line approves only a card that offered the approval (an entry of before the field has none)
-            self.reply(chat, NOT_OFFERED)
-            return
         if kind == "acceptance" and cards.content_sha256(item) != card["content_sha256"]:
             self.reply(chat, CHANGED)
             self.renew(project, chat, number, card)
