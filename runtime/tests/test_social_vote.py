@@ -104,7 +104,10 @@ args = sys.argv[1:]
 with open(os.environ["FAKE_CALLS"], "a") as f:
     f.write(json.dumps(["scheduler"] + args) + "\n")
 if "--dry-run" in args:
-    print(json.dumps({"dry_run": True, "approved": "d" * 64}))
+    out = {"dry_run": True, "approved": "d" * 64}
+    if os.environ.get("FAKE_SCHEDULER_WARNING"):
+        out["warnings"] = [os.environ["FAKE_SCHEDULER_WARNING"]]
+    print(json.dumps(out))
 else:
     assert args[args.index("--approved") + 1] == "d" * 64
     print(json.dumps({"scheduled": True, "id": args[args.index("--id") + 1]}))
@@ -409,6 +412,26 @@ def test_approve_schedules_the_post_and_commits_only_the_queue(env):
     assert queue[-1]["pillar"] == "Database performance"
     assert calls(env, "publisher") == []
     assert inbox(env) == []
+
+
+def test_approve_carries_the_schedulers_warnings_into_its_result(env, monkeypatch):
+    # The vote post is scheduled by `approve`, which passes its own environment to the scheduler: when UV_PYTHON is
+    # unset there the scheduler's dry run warns that the interpreter is not pinned, and the person must see it.
+    rt(env, "tick")
+    item = inbox(env)[0]
+    monkeypatch.setenv("FAKE_SCHEDULER_WARNING", "the interpreter of uv run is not pinned")
+    code, out, err = rt(env, "approve", "--id", str(item["id"]), "--confirmed", "--sha256", item["payload_sha256"])
+    assert code == 0, err
+    assert out["warnings"] == ["the interpreter of uv run is not pinned"]
+    assert out["scheduled"]["id"]
+
+
+def test_approve_without_scheduler_warnings_adds_no_key(env):
+    rt(env, "tick")
+    item = inbox(env)[0]
+    code, out, err = rt(env, "approve", "--id", str(item["id"]), "--confirmed", "--sha256", item["payload_sha256"])
+    assert code == 0, err
+    assert "warnings" not in out
 
 
 def test_wrong_hash_or_edited_post_does_nothing(env):

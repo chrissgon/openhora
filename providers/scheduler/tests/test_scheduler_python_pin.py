@@ -299,10 +299,77 @@ def test_both_providers_compute_the_same_digest_for_a_pinned_job():
     assert launchd.approval_digest(pinned_every) != launchd.approval_digest(LEGACY_RECURRING)
 
 
-def test_a_job_scheduled_from_inside_a_pinned_job_records_the_same_pin(s):
-    # The vote step of the tick calls schedule with the environment it inherited: the pin it was given.
+def test_a_job_scheduled_with_the_pinned_path_in_its_environment_records_the_same_pin(s):
+    # A caller that schedules with UV_PYTHON set to a recorded path (the vote approval run with the variable, or a
+    # command of a pinned job that calls schedule) gets the same pin: the path is already the real binary.
     link = s.interpreter()
     s.env["UV_PYTHON"] = str(link)
     first = json.loads(s.plan(s.command_file("print(1)")).stdout)["job"]["python"]
     s.env["UV_PYTHON"] = first["path"]  # what the pinned job's command has in its environment
     assert json.loads(s.plan(s.command_file("print(1)"), "post-2").stdout)["job"]["python"] == first
+
+
+# --- an interpreter or a program that cannot be read -----------------------------------------
+
+
+needs_permissions = pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads any file")
+
+
+@needs_permissions
+def test_an_executable_but_unreadable_interpreter_is_not_a_pin_and_does_not_crash(s):
+    link = s.interpreter()
+    Path(os.path.realpath(link)).chmod(0o111)
+    s.env["UV_PYTHON"] = str(link)
+    dry = s.plan(s.command_file("print(1)"))
+    assert dry.returncode == 0, dry.stderr
+    out = json.loads(dry.stdout)
+    assert "python" not in out["job"] and out["warnings"] == [PIN_WARNING]
+
+
+@needs_permissions
+def test_an_interpreter_that_became_unreadable_refuses_a_one_shot_job(s):
+    link = s.interpreter()
+    s.env["UV_PYTHON"] = str(link)
+    assert s.schedule(s.command_file("print(1)"))[0].returncode == 0
+    Path(os.path.realpath(link)).chmod(0o000)
+    fired = s.run("run", "--id", "post-1")
+    assert "Traceback" not in fired.stderr
+    job = s.job()
+    assert job["status"] == "refused" and f"the interpreter {os.path.realpath(link)} changed" in job["reason"]
+
+
+@needs_permissions
+def test_an_interpreter_that_became_unreadable_refuses_and_records_a_recurring_job(s):
+    link = s.interpreter()
+    s.env["UV_PYTHON"] = str(link)
+    assert s.schedule(s.command_file("print(1)"), "tick", every=15)[0].returncode == 0
+    Path(os.path.realpath(link)).chmod(0o000)
+    fired = s.run("run", "--id", "tick")
+    assert "Traceback" not in fired.stderr
+    last = s.firings()[-1]
+    assert last["status"] == "refused" and "the interpreter" in last["reason"]
+    assert s.job("tick")["status"] == "refused"
+
+
+@needs_permissions
+def test_a_program_that_became_unreadable_is_a_refusal_too(s):
+    program = s.tmp / "tool.sh"
+    program.write_text("#!/bin/sh\nexit 0\n")
+    program.chmod(0o755)
+    path = s.tmp / "job.json"
+    path.write_text(json.dumps({"argv": [str(program)], "cwd": str(s.tmp), "snapshot": []}))
+    assert s.schedule(path)[0].returncode == 0
+    program.chmod(0o000)
+    fired = s.run("run", "--id", "post-1")
+    assert "Traceback" not in fired.stderr
+    job = s.job()
+    assert job["status"] == "refused" and f"the program {program} changed after scheduling" in job["reason"]
+
+
+def test_the_mismatch_message_names_the_interpreter(s):
+    link = s.interpreter()
+    s.env["UV_PYTHON"] = str(link)
+    path = s.command_file("print(1)")
+    done = s.run("schedule", "--id", "post-1", "--at", s.at, "--command-file", str(path), "--confirmed",
+                 "--approved", "0" * 64)
+    assert done.returncode != 0 and "the interpreter (UV_PYTHON)" in done.stderr

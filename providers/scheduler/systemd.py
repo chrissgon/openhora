@@ -513,10 +513,13 @@ def pinned_python() -> dict | None:
     """The interpreter UV_PYTHON names, when it is an absolute path to an executable file: {path, sha256} of the real
     binary (a link that uv repoints on an upgrade is resolved now). Otherwise None: nothing is pinned."""
     value = os.environ.get("UV_PYTHON", "")
-    if not os.path.isabs(value) or not os.path.isfile(value) or not os.access(value, os.X_OK):
+    if not os.path.isabs(value) or not os.path.isfile(value) or not os.access(value, os.R_OK | os.X_OK):
         return None
     real = os.path.realpath(value)
-    return {"path": real, "sha256": sha256(Path(real))}
+    try:
+        return {"path": real, "sha256": sha256(Path(real))}
+    except OSError:  # a link whose target cannot be read: nothing to hash, nothing pinned
+        return None
 
 
 def approval_digest(job: dict) -> str:
@@ -756,7 +759,7 @@ def cmd_schedule(args) -> int:
         return EXIT_OK
     if args.approved != job["approved"]:
         raise ProviderError(
-            "the job changed since the dry run (a file, the program, the runner or the command file): "
+            "the job changed since the dry run (a file, the program, the interpreter (UV_PYTHON), the runner or the command file): "
             "run --dry-run again and show the new payload before confirming", EXIT_USAGE)
     systemctl()  # refuse an untrusted systemctl override before writing anything
 
@@ -925,17 +928,25 @@ def finish(job: dict, status: str, **fields) -> int:
     return EXIT_OK if status == "done" else EXIT_SERVICE
 
 
+def differs(path: Path, expected: str) -> bool:
+    """True when the file is gone, cannot be read or no longer has the hash: all of them are a change."""
+    try:
+        return not path.is_file() or sha256(path) != expected
+    except OSError:
+        return True
+
+
 def changed_since_approval(job: dict) -> str | None:
     """Name what no longer matches its approved hash, or None when everything matches."""
     for source, entry in job["files"].items():
         copy = Path(entry["copy"])
-        if not copy.is_file() or sha256(copy) != entry["sha256"]:
+        if differs(copy, entry["sha256"]):
             return f"the copy of {Path(source).name} changed after scheduling"
     program = Path(job["program"]["path"])
-    if not program.is_file() or sha256(program) != job["program"]["sha256"]:
+    if differs(program, job["program"]["sha256"]):
         return f"the program {program} changed after scheduling"
     pin = job.get("python")
-    if pin and (not Path(pin["path"]).is_file() or sha256(Path(pin["path"])) != pin["sha256"]):
+    if pin and differs(Path(pin["path"]), pin["sha256"]):
         return f"the interpreter {pin['path']} changed after scheduling"
     if sha256(Path(__file__).resolve()) != job["runner"]["sha256"]:
         return "the runner script changed after scheduling"
