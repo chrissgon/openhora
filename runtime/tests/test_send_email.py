@@ -692,6 +692,38 @@ def test_every_send_is_made_under_the_decision_lock_and_not_the_write_lock_so_a_
     assert f"sha256:{item['payload_sha256']}" in text, "and the state row"
 
 
+def test_a_cancel_during_the_send_cancels_the_rest_keeps_the_decision_open_and_the_send_records(world, monkeypatch):
+    """R18 (limit L41): nothing runs for the request but the send, so the cancel goes on without signalling anything, leaves the decision of
+    the running send open (its record needs it) and cancels the request; the send then lands and records itself."""
+    task, item = opened(world)
+    ctx = ops_core.context(world["path"])
+    request = ctx["store"].task_get(ctx["conn"], task)["parent_id"]
+    real, seen = effect_send.caller, {}
+
+    def watching(cfg_, root):
+        call = real(cfg_, root)
+
+        def wrapper(verb, args):
+            if "--confirmed" in args:      # the send itself is running
+                seen["out"] = ops.cancel(world["path"], request, channel="page")
+                c = ops_core.context(world["path"])
+                seen["pending"] = c["store"].pending_get(c["conn"], item["id"])["status"]
+                seen["request"] = c["store"].task_get(c["conn"], request)["state"]
+                seen["task"] = c["store"].task_get(c["conn"], task)["state"]
+            return call(verb, args)
+        return wrapper
+    monkeypatch.setattr(effect_send, "caller", watching)
+    done = approve(world, item)
+    assert seen["out"]["kept"] == [item["id"]] and seen["out"]["writing"][0]["pending"] == item["id"] and seen["out"]["stopped"] == [], seen
+    assert seen["pending"] == "open" and seen["task"] == "waiting" and seen["request"] == "cancelled", seen
+    assert done["task_state"] == "done" and len(sent(world)) == 1, "the send went out and was recorded"
+    ctx = ops_core.context(world["path"])
+    settled = ctx["store"].pending_get(ctx["conn"], item["id"])
+    assert settled["status"] == "resolved" and settled["resolution"] == "approved"
+    assert ctx["store"].task_get(ctx["conn"], request)["state"] == "cancelled", "and the request ends cancelled"
+    assert f"sha256:{item['payload_sha256']}" in (Path(world["path"]) / "docs" / "workbench" / "state.md").read_text(encoding="utf-8")
+
+
 def test_an_ordinary_long_pt_br_subject_is_prepared_approved_and_arrives_as_written(world):
     subject = "reuni\u00e3o fatura pr\u00f3xima 100% aten\u00e7\u00e3o reuni\u00e3o Paulo reuni\u00e3o"
     task, item = opened(world, subject=subject)

@@ -611,6 +611,42 @@ def test_a_failure_after_which_the_ledger_holds_the_key_as_published_stays_open_
     assert done["task_state"] == "done" and done["result"]["replayed"] is True and done["result"]["first_comment"] == "posted" and len(posts(world)) == 1
 
 
+def test_a_cancel_during_the_publication_cancels_the_rest_keeps_the_decision_open_and_the_post_records(world, monkeypatch):
+    """R18 (limit L41): nothing runs for the request but the publication, so the cancel goes on without signalling anything, leaves the decision
+    of the running publication open (its record needs it) and cancels the request; the post then goes out and records itself."""
+    task, item = opened(world)
+    ctx = ops_core.context(world["path"])
+    request = ctx["store"].task_get(ctx["conn"], task)["parent_id"]
+    real, seen = effect_publish.caller, {}
+
+    def watching(cfg_, root):
+        call = real(cfg_, root)
+
+        class Watching:      # the call the runtime uses, with its `build` and `ledger_problem` as they are
+            def __getattr__(self, name):
+                return getattr(call, name)
+
+            def __call__(self, verb, args):
+                if "--confirmed" in args:      # the publication itself is running
+                    seen["out"] = ops.cancel(world["path"], request, channel="page")
+                    c = ops_core.context(world["path"])
+                    seen["pending"] = c["store"].pending_get(c["conn"], item["id"])["status"]
+                    seen["request"] = c["store"].task_get(c["conn"], request)["state"]
+                    seen["task"] = c["store"].task_get(c["conn"], task)["state"]
+                return call(verb, args)
+        return Watching()
+    monkeypatch.setattr(effect_publish, "caller", watching)
+    done = approve(world, item)
+    assert seen["out"]["kept"] == [item["id"]] and seen["out"]["writing"][0]["pending"] == item["id"] and seen["out"]["stopped"] == [], seen
+    assert seen["pending"] == "open" and seen["task"] == "waiting" and seen["request"] == "cancelled", seen
+    assert done["task_state"] == "done" and len(posts(world)) == 1, "the post went out and was recorded"
+    ctx = ops_core.context(world["path"])
+    settled = ctx["store"].pending_get(ctx["conn"], item["id"])
+    assert settled["status"] == "resolved" and settled["resolution"] == "approved"
+    assert ctx["store"].task_get(ctx["conn"], request)["state"] == "cancelled", "and the request ends cancelled"
+    assert f"sha256:{item['payload_sha256']}" in (Path(world["path"]) / "docs" / "workbench" / "state.md").read_text(encoding="utf-8")
+
+
 # --- the long-content rule and the seam for POL-1 -----------------------------------------------------------------------------------------------------
 
 

@@ -162,6 +162,10 @@ The goal decided on 2026-09-28 (`docs/decisions.md`): a company run by agents, o
   - Done when: an offline test stops a running stand-in run, the request ends `cancelled`, the run row records `stopped` with the person's stop in its error, the spend rule counts the run as before, and no effect is interrupted mid-execution; the same cancel works from the page, the terminal and the messaging channel where its policy allows it.
   - Plan: a package of the task runtime (`runtime/`, with a change to the store's `request_cancel`); it changes no skill, so it asks no test of one.
 
+- [ ] **R19. A stop also removes the containers and networks of a project script (P9).** `runtime/run_stop.py` `NAMES` and `runtime/orphans.py` name only the lab's objects (`wb-eval-run-`, `wb-eval-keys-`, `wb-eval-held-` and a 16-character id). When the project-script package (pull request #416) merges, add its `openhora-script-*` containers and `openhora-script-in-*` and `openhora-script-out-*` networks, with the same rules: an exact name pattern, the `is_shared` re-check, a removal only of what a run of the stopped task started.
+  - From: the review of CANCEL-BOARD (pull request #427), 2026-10-16.
+  - Plan: a small change to `NAMES`, `orphans.remove_runs` and the fake container client of `runtime/tests/test_cancel_running.py`; Y at most, no skill touched.
+
 - [ ] **INSTRUCTIONS. Per-project standing instructions.** A file of the project, `docs/workbench/instructions.md`, written only by the person, loaded into every model run of the task runtime, never overriding a stop rule or an approval, protected from runs (not returned, not mirrored) and capped in size; a proposal made in the chat is accepted by the person. It replaces the agent memory that the earlier R2 listed.
   - From: the maintainer's decision of 2026-10-15.
   - Plan: package INSTRUCTIONS of the delegation platform plan, spec SPEC-INSTRUCTIONS, in progress: pull request #430 (limit L40).

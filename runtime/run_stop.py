@@ -58,7 +58,8 @@ def processes() -> list:
     """[(pid, ppid, pgid, command, start)] of every process, from `ps` (the one seam a test replaces); start is the five words of its start
     time joined by "_", as ops_core._process_start gives them; [] when it cannot be asked."""
     try:
-        done = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,ppid=,pgid=,lstart=,command="], capture_output=True, text=True, timeout=20, check=False)
+        done = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,ppid=,pgid=,lstart=,command="], capture_output=True, text=True, timeout=20, check=False,
+                              env={**os.environ, "LC_ALL": "C"})      # in the C locale `lstart` is five words in every language (ja_JP prints four)
     except (OSError, subprocess.SubprocessError):
         return []
     rows = []
