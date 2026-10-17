@@ -380,7 +380,7 @@ A card is found by platform, project id and chat (`sent`, `:189`), so two sets o
 
 ### The card and the neutral message
 
-The neutral message the bridge sends is `{"text", "actions": [{"id", "label"}], "link": {"label", "url"} | null, "document": {"name", "text"} | null}`, where the text is Markdown as the agents write it and the action ids are `<seq>:<operation>` made by the bridge. `messaging_cards.build` (`:89`) makes it from a pending decision and returns `{"message", "content_sha256", "kind", "pending_id"}` (each action of `message` is first `{"op", "label"}`, and the bridge turns it into `{"id", "label"}`):
+The neutral message the bridge sends is `{"text", "actions": [{"id", "label"}], "link": {"label", "url"} | null, "document": {"name", "text"} | null}` (and, only for a platform that declares `actions_need_reply`, `"footer": [str]`, the lines the text ends with), where the text is Markdown as the agents write it and the action ids are `<seq>:<operation>` made by the bridge. `messaging_cards.build` (`:89`) makes it from a pending decision and returns `{"message", "content_sha256", "kind", "pending_id"}` (each action of `message` is first `{"op", "label"}`, and the bridge turns it into `{"id", "label"}`):
 
 - a header `<project name> · <kind> #<id>`, then the body, then a footer;
 - **actions**: one for each resolution word of the decision whose operation the policy permits (approved and accepted are `approve`, rejected `reject`, released `release`), in the order approve, release, reject; an effect is never offered an approval; a question is answered by replying to its card, when the policy permits `answer` and the platform keeps reply context;

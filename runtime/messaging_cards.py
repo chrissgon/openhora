@@ -11,6 +11,8 @@ calls nothing.
   body     with notices "text": the decision's own text (title, then body), cut to fit with "(continues on the page)", or,
            when the platform takes documents, a short body and the whole text as a document; with notices "count":
            "A <kind> waits for you." and nothing of the project's text
+  footer   (only for a platform that declares `actions_need_reply`) the lines the card ends with, as a list, beside `text`, which still
+           ends with them: the e-mail provider moves them up under the first line and must never guess where they start
   actions  one for each resolution word of the decision whose operation the channel's policy permits
            (operations.permitted, decision M-8): approved and accepted are `approve`, rejected `reject`, released
            `release`. An effect is offered an approval only when ALL of these hold (POL-1; each one is code, none is a prompt):
@@ -201,6 +203,8 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     text = header + "\n\n" + body + tail if body else header + tail
     labels = dict(LABELS, approve=EFFECT_LABEL) if kind == "effect" else LABELS
     message = {"text": text, "actions": [{"op": op, "label": labels[op]} for op in shown], "link": link, "document": document}
+    if footer and caps.get("actions_need_reply"):
+        message["footer"] = list(footer)      # the lines this function appended, handed over so that a provider never has to infer them (e-mail)
     return {"message": message, "content_sha256": content_sha256(item), "kind": kind, "pending_id": pending_id, "whole": whole,
             "approvable": "approve" in allowed, "gated": needs_whole,
             "blocked": "document" if (needs_whole and blocked == "document") else None}

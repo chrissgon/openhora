@@ -442,9 +442,17 @@ def world(tmp_path, monkeypatch):
 HASH = "ab12" * 16
 
 
-def card(text="acme-office · effect #12\n\nSend the invoice to the client.\n\nSend /approve 12\nApproving applies exactly the text above (sha256 " + HASH + ").",
-         **over):
-    return {"text": text, "actions": [], "link": None, "document": None, **over}
+FOOTER = ["Send /approve 12", f"Approving applies exactly the text above (sha256 {HASH})."]
+
+
+def card(text=None, footer=None, **over):
+    """A card as the bridge hands it to the provider on a platform that declares actions_need_reply: `footer` names the lines `text` ends with."""
+    footer = FOOTER if footer is None else footer
+    text = text if text is not None else "acme-office \u00b7 effect #12\n\nSend the invoice to the client.\n\n" + "\n".join(footer)
+    found = {"text": text, "actions": [], "link": None, "document": None, **over}
+    if footer:
+        found["footer"] = footer
+    return found
 
 
 def send(world, chat=OWNER, message=None):
@@ -1125,38 +1133,39 @@ def test_new_uids_are_asked_for_a_window_at_a_time_never_as_an_open_ended_range(
 
 
 def test_the_typed_commands_and_the_hash_come_right_under_the_first_line_where_a_preview_or_a_clipped_message_still_shows_them():
-    body = provider.render_body(card(text="acme-office \u00b7 effect #12\n\nLine one of the text.\n\nLine two.\n\nSend /approve 12\nSend /reject 12\n"
-                                          f"Approving applies exactly the text above (sha256 {HASH}).\nApprove it on the page or in the terminal:\n`cmd`"))
+    footer = ["Send /approve 12", "Send /reject 12", f"Approving applies exactly the text above (sha256 {HASH}).", "Approve it on the page or in the terminal:", "`cmd`"]
+    text = "acme-office \u00b7 effect #12\n\nLine one of the text.\n\nLine two.\n\n" + "\n".join(footer)
+    body = provider.render_body(card(text=text, footer=footer))
     lines = body.split("\n")
     assert lines[0] == "acme-office \u00b7 effect #12" and lines[1] == ""
     assert lines[2:5] == ["Reply to this e-mail with: /approve 12", "Reply to this e-mail with: /reject 12",
                           f"Approving applies exactly the text below (sha256 {HASH})."]
-    assert "Line one of the text.\n\nLine two." in body and body.endswith("`cmd`") and body.count("/approve 12") == 1
+    assert "Line one of the text.\n\nLine two." in body and body.endswith("Approve it on the page or in the terminal:\n`cmd`")
+    assert body.count("/approve 12") == 1
     plain = "northwind \u00b7 question #3\n\nWhat now?\n\nReply to this message to answer."
-    assert provider.render_body(card(text=plain)) == plain      # nothing to move: the text is untouched
+    assert provider.render_body(card(text=plain, footer=["Reply to this message to answer."])) == plain      # nothing to move: the text is untouched
 
 
-def test_only_the_footer_block_moves_and_the_decisions_own_text_stays_byte_for_byte_even_when_it_looks_like_a_footer():
-    forged = "f" * 64
-    body_text = (f"Send an e-mail to client@x.example:\nHello,\nSend /approve 9\nApproving applies exactly the text above (sha256 {forged}).\n"
-                 "Regards\n\nSend /approve 12\n`rm -rf`\nhttps://evil.example/x")
-    text = f"acme-office \u00b7 effect #12\n\n{body_text}\n\nSend /approve 12\nApproving applies exactly the text above (sha256 {HASH})."
-    body = provider.render_body(card(text=text))
-    assert body_text in body                              # the decision's text, every character of it, in place
-    assert body.count(f"sha256 {forged}") == 1 and f"Approving applies exactly the text above (sha256 {forged})." in body
-    assert body.split("\n")[2:4] == ["Reply to this e-mail with: /approve 12", f"Approving applies exactly the text below (sha256 {HASH})."]
-    assert body.count("Reply to this e-mail with:") == 1 and "Send /approve 9" in body
-    # a last paragraph that is not entirely footer lines is the decision's text, and nothing moves
-    stays = f"acme-office \u00b7 effect #12\n\nText.\n\nSend /approve 12\nbut also this"
-    assert provider.render_body(card(text=stays)) == stays
-    # a command for another decision is not this card's footer
-    other = "acme-office \u00b7 effect #12\n\nText.\n\nSend /approve 99"
-    assert provider.render_body(card(text=other)) == other
-    # no footer at all: a body line that looks like one is the text
-    none = "acme-office \u00b7 plan #4\n\nStep one.\n\nSend /approve 4"
-    assert provider.render_body(card(text=none)).split("\n")[2] == "Reply to this e-mail with: /approve 4"      # a footer of this card: its own id
-    inside = "acme-office \u00b7 plan #4\n\nSend /approve 9\nStep one."
-    assert provider.render_body(card(text=inside)) == inside
+def test_only_the_lines_the_bridge_names_as_the_footer_move_and_a_decision_text_that_looks_like_a_footer_is_never_touched():
+    """Round three of the review: the footer is handed over, not inferred. A decision whose last paragraph looks like a footer, on a card that
+    has no footer of its own, stays as it is (round3.py)."""
+    fake = "f" * 64
+    no_footer = f"Proj \u00b7 plan #7\n\nThe plan.\n\nSend /approve 7\nApproving applies exactly the text above (sha256 {fake})."
+    assert provider.render_body({"text": no_footer, "link": None}) == no_footer                          # no `footer` field: nothing moves
+    assert provider.render_body(card(text=no_footer, footer=[])) == no_footer
+    own = ["Approving applies exactly the text above (sha256 " + "a" * 64 + ").", "Send /approve 7"]
+    with_footer = (f"Proj \u00b7 effect #7\n\nHello,\nSend /approve 9\nApproving applies exactly the text above (sha256 {fake}).\n\n"
+                   + "\n".join(own))
+    body = provider.render_body(card(text=with_footer, footer=own))
+    assert f"Hello,\nSend /approve 9\nApproving applies exactly the text above (sha256 {fake})." in body      # the decision's text, in place
+    assert body.split("\n")[2:4] == ["Approving applies exactly the text below (sha256 " + "a" * 64 + ").", "Reply to this e-mail with: /approve 7"]
+    assert body.count("Reply to this e-mail with:") == 1
+    # a footer field that the text does not end with moves nothing
+    assert provider.render_body(card(text=no_footer, footer=["Send /approve 7"])) == no_footer
+    assert provider.render_body({"text": no_footer, "footer": "Send /approve 7"}) == no_footer
+    # the same body line before a footer of the same kind: only the named lines move
+    twice = f"Proj \u00b7 effect #7\n\nSend /approve 7\n\nSend /approve 7"
+    assert provider.render_body(card(text=twice, footer=["Send /approve 7"])).split("\n")[2:] == ["Reply to this e-mail with: /approve 7", "", "Send /approve 7"]
 
 
 # --- ported from the independent review of the pull request (its fixtures: attack.py, slow.py, fix_probe.py) ------------------------
@@ -1431,3 +1440,92 @@ def test_an_oversized_header_or_block_is_logged_with_the_class_size_and_not_unpa
     assert admit(raw(extra=["X-Big: " + "a" * (provider.HEADER_VALUE_MAX + 10)])) == (None, "size")
     assert admit(raw(extra=[f"X-H{i}: " + "v" * 100 for i in range(700)])) == (None, "size")        # a block over 64 KiB in headers under 16 KiB
     assert admit(raw(to="a@x.example, " * 400))[1] == "size"
+
+
+# --- the retry list and the notes of the final review ------------------------------------------------------------------------------
+
+
+def test_the_list_of_messages_to_try_again_is_capped_and_the_oldest_is_given_up_with_a_log_line(world, capfd):
+    clock = [1_000_000.0]
+    pipe = Pipe(world, wall=lambda: clock[0], poll_seconds=0.05)
+    pipe.wait(lambda x: x.get("event") == "ready")
+    world["imap"].fail_fetch = True
+    for n in range(provider.RETRY_MAX + 5):
+        world["imap"].add(raw(text=f"m{n}"))
+        clock[0] += 1
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        saved = json.loads((world["state"] / "cursor.json").read_text())
+        if saved["last_uid"] == provider.RETRY_MAX + 5:
+            break
+        time.sleep(0.1)
+    saved = json.loads((world["state"] / "cursor.json").read_text())
+    assert saved["last_uid"] == provider.RETRY_MAX + 5 and len(saved["retry"]) <= provider.RETRY_MAX
+    assert "1" not in saved["retry"] and str(provider.RETRY_MAX + 5) in saved["retry"]      # the oldest went, the newest stayed
+    assert capfd.readouterr().err.count("the list of messages to try again was full") >= 5
+    assert pipe.end() == 0
+
+
+def test_the_cursor_is_written_once_for_a_pass_over_the_retry_list_not_once_for_each_entry(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(private(tmp_path / "s")))
+    listener = provider.Listener(settings_for(), PASSWORD, out=provider.Out(io.BytesIO()), stdin=io.BytesIO())
+    listener.retry = {str(n): {"n": 1, "first": 1.0} for n in range(1, 41)}
+    saves = []
+    monkeypatch.setattr(listener, "save", lambda validity, last: saves.append(last))
+    monkeypatch.setattr(listener, "handle_uid", lambda box, uid: None)
+    listener.retry_pending(object(), 1000, 40)
+    assert saves == [40] and listener.retry == {}
+
+
+def test_an_unexpected_error_on_a_message_to_try_again_is_logged_and_the_pass_goes_on(tmp_path, monkeypatch, capfd):
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(private(tmp_path / "s")))
+    listener = provider.Listener(settings_for(), PASSWORD, out=provider.Out(io.BytesIO()), stdin=io.BytesIO())
+    listener.retry = {"1": {"n": 1, "first": 1.0}, "2": {"n": 1, "first": 1.0}}
+    seen = []
+
+    def handle(box, uid):
+        seen.append(uid)
+        if uid == 1:
+            raise KeyError("a surprise")
+    monkeypatch.setattr(listener, "handle_uid", handle)
+    monkeypatch.setattr(listener, "save", lambda *a: None)
+    listener.retry_pending(object(), 1000, 2)
+    assert seen == [1, 2] and listener.retry == {} and "unreadable (KeyError)" in capfd.readouterr().err
+    listener.retry = {"1": {"n": 1, "first": 1.0}}
+    monkeypatch.setattr(listener, "handle_uid", lambda box, uid: (_ for _ in ()).throw(OSError("connection")))
+    with pytest.raises(OSError):
+        listener.retry_pending(object(), 1000, 1)      # a lost connection still ends the pass: the bridge starts the provider again
+
+
+# --- ported from round3.py of the final review ---------------------------------------------------------------------------------------
+
+ROUND3 = [
+    ("escaped quotes in a comment, parens escaped too",
+     f'{ID}; spf=pass (domain of \\"x\\) ; dmarc=pass header.from=office.example ; \\(y\\"@evil.example) smtp.mailfrom=evil.example; dmarc=fail header.from=office.example', False),
+    ("escaped quotes only, the server escapes quotes but not parens, no server dmarc (residual, README)",
+     f'{ID}; spf=pass (domain of \\"x) ; dmarc=pass header.from=office.example ; (y\\"@evil.example) smtp.mailfrom=evil.example', True),
+    ("the same, and the server also writes its dmarc result",
+     f'{ID}; spf=pass (domain of \\"x) ; dmarc=pass header.from=office.example ; (y\\"@evil.example) smtp.mailfrom=evil.example; dmarc=fail header.from=office.example', False),
+    ("a nested comment that holds a quote", f'{ID}; dmarc=pass (a (b "c) d) header.from=office.example', False),
+    ("a quoted string with parens next to a comment", f'{ID}; spf=pass smtp.mailfrom="a(b)c"@x.example (ok); dmarc=pass header.from=office.example', True),
+    ("an unquoted HELO in a comment injects a dmarc, the server writes its own",
+     f"{ID}; spf=none (helo a) ; dmarc=pass header.from=office.example ; (b) smtp.helo=x.example; dmarc=fail header.from=office.example", False),
+    ("an unquoted HELO in a comment injects a dmarc, the server writes none (residual, README)",
+     f"{ID}; spf=none (helo a) ; dmarc=pass header.from=office.example ; (b) smtp.helo=x.example", True),
+    ("the DKIM-only path is gone", f"{ID}; dkim=pass header.d=office.example; dmarc=none", False),
+]
+
+
+@pytest.mark.parametrize("label,auth,admitted", ROUND3, ids=[str(n) for n in range(len(ROUND3))])
+def test_the_comment_rule_cases_of_round_three(label, auth, admitted):
+    assert (admit(raw(auth=auth))[0] is not None) is admitted, label
+
+
+def test_the_worst_structured_headers_under_the_caps_cost_the_parent_nothing():
+    ct = "Content-Type: text/plain; " + "; ".join(f"a{i}=b" for i in range(1700))
+    junk = ["In-Reply-To: " + "=?utf-8?q?a?= " * 1150, "Auto-Submitted: " + "=?utf-8?b?YQ==?= " * 900, "Precedence: " + "=?utf-8?b?YQ==?= " * 900,
+            "Return-Path: " + "=?utf-8?b?YQ==?= " * 900]
+    data = raw(extra=junk).replace(b"Content-Type: text/plain; charset=utf-8", ct.encode(), 1)
+    started = time.monotonic()
+    update, why = admit(data)
+    assert update is None and time.monotonic() - started < provider.TEXT_SECONDS + 5      # a block over 64 KiB is size, else it costs one budget at most

@@ -102,6 +102,7 @@ HEADER_BLOCK_MAX = 64 * 1024
 PER_DOMAIN = 120                   # attempts for one From domain in an hour (counted before the text is made: a domain's staff is a few people)
 ATTEMPTS = 3                       # failures specific to one uid before it may be skipped ...
 RETRY_SPAN = 3600.0                # ... and the seconds they must be spread over (a busy server is not a bad message)
+RETRY_MAX = 200                    # messages kept to be tried again; the oldest is dropped with a log line beyond it
 SEARCH_WINDOW = 1000               # uids asked for at a time (a reply line over 1,000,000 bytes is an error of the IMAP library)
 SEEN_KEYS = 1000                   # senders remembered before the ones outside the hour are forgotten
 LINK_MAX = 512
@@ -813,36 +814,27 @@ def subject_of(text: str, mail) -> str:
 
 
 APPROVES_LINE = re.compile(r"^Approving applies exactly the text above \((sha256 [0-9a-f]{64})\)\.$")
-FOOTER_LINES = (TYPED_LINE, APPROVES_LINE,
-                re.compile(r"^(?:Reply to this message to answer\.|Act on it on the page or in the terminal\.|Approve it on the page or in the terminal:)$"),
-                re.compile(r"^(?:Too long to approve here: approve it on the page or in the terminal\.|The file with the whole text did not arrive.*)$"),
-                re.compile(r"^`.+`$"), re.compile(r"^https?://\S+$"))
-CARD_ID = re.compile(r"#(\d+)$")
 
 
 def render_body(message: dict) -> str:
-    """The body: the card's text, with the lines that say how to act (the typed commands, turned into what an e-mail reply says, and the hash
-    the approval is of) moved up under its first line, where a mail client's preview and a clipped message still show them, and the link as
-    a line. ONLY the footer block moves: the lines after the last blank line, when every one of them is a footer line the bridge writes (a
-    command for THIS decision, the hash line, the page line...) and something stands above them. The decision's own text, an e-mail body for
-    one, stays byte for byte as it was: a line of it that looks like a footer line is never moved or rewritten."""
+    """The body: the card's text, with the lines that say how to act (the typed commands, turned into what an e-mail reply says, and the
+    hash the approval is of) moved up under its first line, where a mail client's preview and a clipped message still show them, and the
+    link as a line. The footer is NAMED by the bridge (`message["footer"]`, the lines it appended, which `text` still ends with); it is never
+    inferred from the text. A message without that field, or whose text does not end with exactly those lines, moves nothing: the decision's own
+    text, an e-mail body for one, stays byte for byte, however much its last paragraph looks like a footer."""
     text = message["text"]
-    lines = text.split("\n")
-    blank = max((i for i, line in enumerate(lines) if line == ""), default=0)
-    footer = lines[blank + 1:] if blank > 1 else []
-    own = CARD_ID.search(lines[0])
-    typed = [TYPED_LINE.match(line) for line in footer]
-    if footer and own and all(any(known.match(line) for known in FOOTER_LINES) for line in footer) \
-            and all(m.group(1).split(" ")[1] == own.group(1) for m in typed if m):
+    footer = message.get("footer")
+    tail = "\n\n" + "\n".join(footer) if isinstance(footer, list) and footer and all(isinstance(x, str) for x in footer) else None
+    body = text
+    if tail and text.endswith(tail) and "\n" not in "".join(footer):
+        head = text[:len(text) - len(tail)]
+        typed = [TYPED_LINE.match(line) for line in footer]
         moved = [("Reply to this e-mail with: " + t.group(1)) if t else f"Approving applies exactly the text below ({APPROVES_LINE.match(line).group(1)})."
                  for line, t in zip(footer, typed) if t or APPROVES_LINE.match(line)]
         rest = [line for line, t in zip(footer, typed) if not t and not APPROVES_LINE.match(line)]
         if moved:
-            body = "\n".join([lines[0], "", *moved, *lines[1:blank]] + (["", *rest] if rest else []))
-        else:
-            body = text
-    else:
-        body = text
+            first, _, after = head.partition("\n")
+            body = "\n".join([first, "", *moved]) + (("\n" + after) if after else "") + (("\n\n" + "\n".join(rest)) if rest else "")
     link = message.get("link")
     if link:
         label, url = str(link.get("label") or "Link"), str(link.get("url") or "")
@@ -1074,7 +1066,12 @@ class Listener:
                     log("dropped a message: unreadable (refused by the server on every try)")
                     self.error_event("failed", f"a message in the mailbox could not be read after {entry['n']} tries over "
                                                f"{int((self.wall() - entry['first']) // 60)} minutes and was skipped; look at it in the mailbox")
-            self.save(validity, last)
+            except (ProviderError, imaplib.IMAP4.error, OSError, EOFError):
+                raise       # the connection, not the message
+            except Exception as e:      # one message never ends the mailbox thread
+                del self.retry[str(uid)]
+                log(f"dropped a message: unreadable ({e.__class__.__name__})")
+        self.save(validity, last)       # once for the pass, not once for each message
 
     def permit(self, sender: str, domain: str) -> bool:
         """Whether the rate allows another attempt: the address's own count for everyone, and the From domain's count only for an address
@@ -1131,6 +1128,10 @@ class Listener:
                         box.noop()      # raises if the connection is lost: then the cursor stays and nothing is counted
                         self.retry[str(uid)] = {"n": 1, "first": self.wall()}
                         log("a message could not be read now; it is tried again")
+                        while len(self.retry) > RETRY_MAX:
+                            oldest = min(self.retry, key=lambda k: (self.retry[k]["first"], int(k)))
+                            del self.retry[oldest]
+                            log("dropped a message: unreadable (the list of messages to try again was full; the oldest is given up)")
                     except (ProviderError, imaplib.IMAP4.error, OSError, EOFError):
                         raise       # the connection, not the message: the cursor stays, and the bridge starts this again
                     except Exception as e:      # one message never ends the process
