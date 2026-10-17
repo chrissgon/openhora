@@ -850,14 +850,53 @@ def hidden_text_flag(record):
     return 1 if record["count"] else 0
 
 
+PROVENANCE_WORD = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+PROVENANCE_KEYS = ("channel", "platform", "profile", "attachment")   # ATT-1: where a version came from; never a sender
+
+
+def clean_provenance(provenance):
+    """The provenance a version may carry (ATT-1), or None: an object with at most the keys of PROVENANCE_KEYS, each a short word of lower-case
+    letters, digits and hyphens (`attachment`, a whole number; `profile` may be null). The account of the person who sent a file is never
+    part of it: a version, its manifest and the catalog are read by a model and travel with the project, and the sender stays in the store.
+    SourcesError (usage) for anything else."""
+    if provenance is None:
+        return None
+    if not isinstance(provenance, dict) or not provenance or set(provenance) - set(PROVENANCE_KEYS):
+        raise SourcesError("the provenance of a version names a channel, a platform, a profile and an attachment, and nothing else", "usage")
+    out = {}
+    for key, value in provenance.items():
+        if key == "attachment":
+            if type(value) is not int or value < 1:
+                raise SourcesError("the attachment of a provenance is a whole number", "usage")
+        elif value is None and key == "profile":
+            pass
+        elif not isinstance(value, str) or not PROVENANCE_WORD.fullmatch(value):
+            raise SourcesError(f"the {key} of a provenance is a short word of lower-case letters, digits and hyphens", "usage")
+        out[key] = value
+    return out
+
+
+def provenance_text(provenance) -> str | None:
+    """The words the catalog and the planner read for a provenance: `sent on telegram, profile staff`, or None for a version a person added
+    directly. Built from the cleaned object only."""
+    found = clean_provenance(provenance)
+    if not found or not found.get("platform"):
+        return None
+    return f"sent on {found['platform']}" + (f", profile {found['profile']}" if found.get("profile") else "")
+
+
 def catalog_entry(*, source_id: str, source_type: str, origin: str, kind: str, converted_name: str, converted: bytes,
-                  original_bytes: int, imported_at: str, warnings=(), hidden_text=None) -> dict:
+                  original_bytes: int, imported_at: str, warnings=(), hidden_text=None, provenance=None) -> dict:
     """The catalog entry of one version, built by code from the converted output alone (limit L27): name, type, size, date,
     the sheets and columns with a few sample values, the first headings. No model and no raw file: `converted` is the
-    scanned converted text. The person's description is the registry's, joined at read time."""
+    scanned converted text. The person's description is the registry's, joined at read time. A version that came through a messaging app
+    (ATT-1) says so: `provenance` is the words of provenance_text."""
     text = converted.decode("utf-8", errors="replace")
     entry = {"name": _clean(origin, 120) or source_id, "type": source_type, "kind": kind, "original_bytes": original_bytes,
              "converted_bytes": len(converted), "date": imported_at, "warnings": list(warnings)}
+    came = provenance_text(provenance)
+    if came:
+        entry["provenance"] = came
     if hidden_text is not None and hidden_text["examined"]:
         entry["hidden_text"] = {"count": hidden_text["count"], "kinds": dict(hidden_text["kinds"]),
                                 **({"capped": True} if hidden_text.get("capped") else {})}
@@ -884,6 +923,8 @@ def catalog_text(rows: list) -> str:
         lines = [f"- source {row['id']} ({row['type']}, {entry.get('kind', '?')}, {entry.get('converted_bytes', '?')} bytes of text, "
                  f"version {row['version']}, {entry.get('date', '?')})"]
         lines.append(f"  name: {_clean(entry.get('name'), 120)}")
+        if entry.get("provenance"):
+            lines.append(f"  provenance: {_clean(entry['provenance'], 120)}")
         if row.get("description"):
             lines.append(f"  description: {_clean(row['description'], 300)}")
         for sheet in entry.get("sheets") or []:
@@ -1067,7 +1108,7 @@ def _refuse_intake(e: "intake.IntakeError") -> "SourcesError":
 
 def import_version(ctx, source: dict, data, *, convert, label: str = "import", by: str = "runtime", kind=None,
                    origin_version=None, clock=None, evidence_base=None, free_margin=intake.FREE_MARGIN_BYTES, name=None,
-                   manifest_extra=None) -> dict:
+                   manifest_extra=None, provenance=None) -> dict:
     """Import one version of a source. `source` is the registry row; `data` is a path, bytes, or (file, length);
     `convert(input_path, subtype, out_dir) -> info` is the converter (the provider of converter:document in production: a
     function that writes its outputs to `out_dir`, a folder of the staging area, and returns {"converter", "tool_versions",
@@ -1076,7 +1117,9 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
     name), shown in the catalog in place of the origin. Returns {"imported": True, "source", "version", ...}, or {"imported": False, "unchanged":
     True, "version"} when a refresh brings the bytes already held (same original and same converted text) with label other
     than changed-by-person. SourcesError on any refusal, with nothing written in the folder and no row (limit L24 and L27 are
-    in the steps below)."""
+    in the steps below). `provenance` (ATT-1) says where the version came from, when it came through a messaging app (clean_provenance):
+    it is kept in the manifest, in the version's row and in the catalog entry, and holds no sender."""
+    provenance = clean_provenance(provenance)
     if label not in LABELS or by not in ("runtime", "person"):
         raise SourcesError("an unknown label", "usage")
     cfg = ctx["cfg"]
@@ -1092,7 +1135,7 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
             try:
                 return _import_in(ctx, folder, source, stream, length, stage_path, token, convert=convert, label=label, by=by,
                                   kind=kind, origin_version=origin_version, clock=clock, free_margin=free_margin, name=name,
-                                  manifest_extra=manifest_extra)
+                                  manifest_extra=manifest_extra, provenance=provenance)
             finally:
                 shutil.rmtree(stage_path, ignore_errors=True)
     finally:
@@ -1168,7 +1211,7 @@ READY_TEXT = ("notion", "markdown")   # kinds that arrive as Markdown text alrea
 
 
 def _import_in(ctx, folder, source, stream, length, stage_path, token, *, convert, label, by, kind, origin_version, clock,
-               free_margin, name=None, manifest_extra=None) -> dict:
+               free_margin, name=None, manifest_extra=None, provenance=None) -> dict:
     cfg = ctx["cfg"]
     in_dir, out_dir = os.path.join(stage_path, "in"), os.path.join(stage_path, "out")
     notion = kind in READY_TEXT
@@ -1244,7 +1287,7 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
         version = _next_version(ctx, folder, source["id"], latest)
         catalog = catalog_entry(source_id=source["id"], source_type=source["type"], origin=name or source["origin"], kind=subtype,
                                 converted_name=converted_name, converted=converted, original_bytes=received.size,
-                                imported_at=when, warnings=warnings, hidden_text=hidden)
+                                imported_at=when, warnings=warnings, hidden_text=hidden, provenance=provenance)
         manifest = {"manifest": 1, "source": source["id"], "version": version, "type": source["type"], "origin": source["origin"],
                     "date": when, "label": label, "by": by, "kind": subtype,
                     "original": {"name": original_name, "sha256": original_sha, "bytes": received.size},
@@ -1254,6 +1297,8 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
                     "hidden_text": hidden, "origin_version": origin_version, "warnings": warnings}
         if name:
             manifest["name"] = _clean(name, 200)
+        if provenance:
+            manifest["provenance"] = provenance
         if manifest_extra:
             manifest.update(manifest_extra)
         manifest_bytes = (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode("utf-8")
@@ -1268,7 +1313,7 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
                     converted_name=converted_name, converted_sha256=converted_sha, converted_bytes=len(converted),
                     converter=manifest["converter"]["name"], converter_version=json.dumps(manifest["converter"]["tools"], sort_keys=True),
                     warnings=warnings, catalog=catalog, origin_version=origin_version, imported_at=when,
-                    hidden_text=hidden_text_flag(hidden))
+                    hidden_text=hidden_text_flag(hidden), provenance=provenance)
         except SourcesError:
             fd = folder.subdir([source["id"]])
             try:
@@ -1778,11 +1823,16 @@ def drive_refresh(ctx, source: dict, *, convert, call=None, clock=None, evidence
 
 
 def drive_source_id(name: str, taken) -> str:
-    """A source id for a picked file, from its name: lowercase letters, digits and hyphens, at most 36 characters, not in `taken`
-    (a number is added when it is)."""
-    base = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")[:36].strip("-") or "drive-file"
+    """A source id for a picked Drive file, from its name (source_id_from_name, with `drive-file` for a name that leaves nothing)."""
+    return source_id_from_name(name, taken, "drive-file")
+
+
+def source_id_from_name(name: str, taken, fallback: str = "file") -> str:
+    """A source id from a file's name: lowercase letters, digits and hyphens, at most 36 characters, not in `taken` (a number is added
+    when it is). `fallback` is the id of a name that leaves nothing (a Drive file, an attachment)."""
+    base = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")[:36].strip("-") or fallback
     if not SOURCE_ID.fullmatch(base):
-        base = "drive-file"
+        base = fallback
     taken, candidate, n = set(taken), base, 1
     while candidate in taken:
         n += 1

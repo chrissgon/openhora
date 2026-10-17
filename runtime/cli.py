@@ -56,6 +56,9 @@ Usage:
   python3 runtime/cli.py source-describe --project <dir> --source <id> [--description <text>]
   python3 runtime/cli.py source-drive --project <dir> [--file-id <Drive file id> --source <id>] [--description <text>]
   python3 runtime/cli.py sources  --project <dir>
+  python3 runtime/cli.py attachments --project <dir>
+  python3 runtime/cli.py attachment-add --project <dir> --id <attachment id>
+  python3 runtime/cli.py attachment-discard --project <dir> --id <attachment id>
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -274,6 +277,13 @@ source-drive  makes Google Drive files sources. It opens the Picker on a one-sho
           app read and write the files you pick, so it is not read-only; the runtime asks for reads only.
 sources   the catalog of the sources: each one's newest version (name, type, size, date, sheets and columns with sample values,
           first headings), your description, and whether its files changed outside the runtime. It calls no model.
+attachments  the files people sent through a messaging app that wait for your answer (what each is, the source it would become, when it expires), the
+          latest decisions, the day's count and the limits. A held file lives in the data folder, never in a run, a prompt or the sources
+          folder; it is deleted when it is added, refused, discarded or after 7 days. It calls no model.
+attachment-add  adds a held file (--id) as a source of the project, or as the next version of the source it names: the same container with no
+          network, credential scan and immutable version as source-import, with where it came from (the platform and the profile, never
+          who sent it). The held file is deleted whatever the result.
+attachment-discard  deletes a held file (--id) without adding it.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.

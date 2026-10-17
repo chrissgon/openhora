@@ -26,14 +26,18 @@ What it does, once an hour at most (UPKEEP_EVERY_SECONDS; `<data_dir>/upkeep.jso
      nothing reads an old version (a task receives the newest). It runs under the sources lock, takes this host's lease like any
      other writer of the folder, right before the first removal and only when there is one (limit L28: a live lease of another host skips it, naming that host; a pass that removes nothing writes nothing and takes none), and reaches the folder only
      through the descriptor of `sources.Folder`, with O_NOFOLLOW at every step and a device and inode check before a removal.
-  3. Orphan containers, by runtime/orphans.py, in its conservative mode only: a run container that has ended, a key proxy whose run
+  3. Held attachments (ATT-1). A file a messaging app brought that waited HELD_DAYS (7) for an answer is deleted and its row ends `expired`; an incoming
+     folder (where a fetch is written) older than 24 hours is a crash's leftover and is removed, and so is a folder of `held/` that no held row names and that
+     is older than 24 hours. Only inside `<data_dir>/attachments/`, through descriptors with O_NOFOLLOW, and under the attachments lock (an add or a discard
+     in progress is not interrupted: the pass looks again an hour later). Limit L48.
+  4. Orphan containers, by runtime/orphans.py, in its conservative mode only: a run container that has ended, a key proxy whose run
      container is gone, a network nothing of its run is on, past 30 minutes. A running run container is never removed by a pass; the
      explicit command `python3 runtime/upkeep.py containers --include-running` is the one way, for a stuck one older than 6 hours.
      The harness's shared proxies are never touched. Skipped without docker, when the project's `sweep_orphan_containers` is false in
      runtime.json (a setting a person accepts in the terminal; an environment variable would never reach a scheduler's job), or when
      OPENHORA_UPKEEP_CONTAINERS is `off` (the tests').
 
-Limit L29: this module deletes only inside `data_dir` (run folders) and the sources folder (old versions), never follows a symbolic
+Limit L29: this module deletes only inside `data_dir` (run folders and the attachments folder) and the sources folder (old versions), never follows a symbolic
 link (each folder is opened from its parent's descriptor with O_NOFOLLOW and compared with `os.path.samestat`), and never removes a
 run that is live, a version a task that is not finished received, or a shared container.
 
@@ -41,6 +45,7 @@ Standard library only. Runs on Python 3.9: python3 runtime/upkeep.py --help
 """
 from __future__ import annotations
 
+import datetime
 import fcntl
 import json
 import os
@@ -51,6 +56,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import attachments  # noqa: E402  (the same folder: the hold of the files a messaging app brought)
 import orphans  # noqa: E402  (the same folder: the sweep of orphan containers)
 import sources  # noqa: E402  (the same folder: the sources folder, its lease and its lock)
 
@@ -323,7 +329,78 @@ def sweep_versions(ctx: dict, *, kept: int, dry_run: bool = False, clock=None) -
     return out
 
 
-# --- 3. the whole pass -------------------------------------------------------------------------------------------------------
+# --- 3. held attachments (ATT-1) ---------------------------------------------------------------------------------------------
+
+
+def sweep_attachments(ctx: dict, *, now: float, dry_run: bool = False) -> dict:
+    """Delete the files a messaging app brought that waited too long, and the leftovers of a crash. Returns {"expired": [attachment id], "removed":
+    [folder name], "kept": [{"name", "why"}], "problem"}. A held row older than HELD_DAYS is decided `expired` (the row stays, the sender's id with it,
+    in the store) and its folder deleted; an `incoming/` folder older than INCOMING_KEPT_SECONDS and a `held/` folder no held row names (and as old) are
+    removed. Run under the attachments lock, taken without waiting."""
+    cfg, store, conn = ctx["cfg"], ctx["store"], ctx["conn"]
+    out = {"expired": [], "removed": [], "kept": [], "problem": None}
+    try:
+        with sources.intake.Lock(attachments.lock_path(cfg), blocking=False):
+            cutoff = attachments.iso(datetime.datetime.fromtimestamp(now - attachments.HELD_DAYS * DAY, datetime.timezone.utc))
+            for row in store.attachments_list(conn, ["held"], older_than=cutoff):
+                if dry_run:
+                    out["expired"].append(row["id"])
+                    continue
+                try:
+                    store.attachment_decide(conn, row["id"], "expired")
+                except store.StoreError:
+                    continue      # decided by someone else meanwhile
+                attachments.delete_held(cfg["data_dir"], row["id"])
+                out["expired"].append(row["id"])
+            waiting = {str(r["id"]) for r in store.attachments_list(conn, ["held"])}
+            try:
+                data_fd = os.open(cfg["data_dir"], os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            except OSError:
+                return out
+            try:
+                for name, keep in ((attachments.INCOMING, set()), (attachments.HELD, waiting)):
+                    _sweep_attachment_folder(data_fd, name, keep, now, dry_run, out)
+            finally:
+                os.close(data_fd)
+    except BlockingIOError:
+        out["problem"] = "an add or a discard of an attachment is in progress: the files are looked at on the next pass"
+    return out
+
+
+def _sweep_attachment_folder(data_fd: int, name: str, keep: set, now: float, dry_run: bool, out: dict) -> None:
+    """Remove the entries of <data_dir>/attachments/<name> that are not in `keep` and are older than a day (a link or a stray file is removed as itself)."""
+    try:
+        base_info = os.stat(attachments.FOLDER, dir_fd=data_fd, follow_symlinks=False)
+        base_fd = _open_dir(data_fd, attachments.FOLDER, base_info)
+    except OSError:
+        return
+    try:
+        folder_info = os.stat(name, dir_fd=base_fd, follow_symlinks=False)
+        folder_fd = _open_dir(base_fd, name, folder_info)
+    except OSError:
+        os.close(base_fd)
+        return
+    try:
+        for entry in sorted(os.listdir(folder_fd)):
+            if entry in keep:
+                continue
+            try:
+                info = os.stat(entry, dir_fd=folder_fd, follow_symlinks=False)
+            except OSError:
+                continue
+            newest = newest_mtime(folder_fd, entry, info) if stat.S_ISDIR(info.st_mode) else info.st_mtime
+            if now - newest < attachments.INCOMING_KEPT_SECONDS:
+                continue
+            if dry_run or remove_in(folder_fd, entry):
+                out["removed"].append(f"{name}/{entry}")
+            else:
+                out["kept"].append({"name": f"{name}/{entry}", "why": "it could not be removed completely"})
+    finally:
+        os.close(folder_fd)
+        os.close(base_fd)
+
+
+# --- 4. the whole pass -------------------------------------------------------------------------------------------------------
 
 
 def _state_path(cfg: dict) -> str:
@@ -354,7 +431,7 @@ def containers_enabled() -> bool:
 
 def run(ctx: dict, *, now=None, force: bool = False, tool=None, clock=None) -> dict:
     """One pass of upkeep for the project of `ctx`. Returns {"skipped": why} when it is too soon or another process is at it, else
-    {"runs", "versions", "containers", "at"}; a part that failed reports {"problem"}. It raises nothing (a pass that fails is tried again
+    {"runs", "versions", "attachments", "containers", "at"}; a part that failed reports {"problem"}. It raises nothing (a pass that fails is tried again
     at the next hour). `tool` is the container tool (None: docker, if there is one and the sweep is enabled)."""
     cfg = ctx["cfg"]
     now = time.time() if now is None else now
@@ -373,6 +450,7 @@ def run(ctx: dict, *, now=None, force: bool = False, tool=None, clock=None) -> d
         summary = {}
         for key, part in (("runs", lambda: sweep_runs(ctx, now=now, days=cfg.get("run_retention_days", 30))),
                           ("versions", lambda: sweep_versions(ctx, kept=cfg.get("source_versions_kept", 5), clock=clock)),
+                          ("attachments", lambda: sweep_attachments(ctx, now=now)),
                           ("containers", lambda: _containers(cfg, now, tool))):
             try:
                 summary[key] = part()
@@ -388,6 +466,8 @@ def run(ctx: dict, *, now=None, force: bool = False, tool=None, clock=None) -> d
 
 def _counts(part: dict) -> dict:
     out = {"removed": len(part.get("removed") or []), "kept": len(part.get("kept") or []), "problem": part.get("problem")}
+    if "expired" in part:
+        out["expired"] = len(part["expired"])
     if part.get("lease_took_over"):
         out["lease_took_over"] = part["lease_took_over"]
     return out

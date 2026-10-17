@@ -2681,6 +2681,8 @@ from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEA
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
 # The sources of the project (runtime/ops_sources.py): the ingest operations.
 from ops_sources import source_add, source_describe, source_drive, source_import, source_refresh, sources_catalog  # noqa: E402,F401
+# The files sent through a messaging app (runtime/ops_attachments.py): the held list, the hold, the add and the discard.
+from ops_attachments import attachment_add, attachment_discard, attachment_hold, attachments  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)

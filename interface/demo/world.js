@@ -115,6 +115,7 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
           case "version": return get(reads.version(state, P));
           case "commands": return get(clone(F.commands));
           case "instructions": return get(reads.instructions());
+          case "attachments": return get(reads.attachments());
           default: break;
         }
       }
@@ -153,6 +154,7 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
     if (parts[0] === "agents" && parts[2] === "consent") return plain(P, async () => writes.giveConsent(ctx, P, parts[1], body));
     if (key === "POST conversation") return job(P, "say", async () => writes.say(ctx, P, body));
     if (parts[0] === "instructions") throw notInDemo("Writing the project's instructions");
+    if (parts[0] === "attachments") throw notInDemo("Adding or discarding a file sent from a messaging app");
     if (key === "POST sync") throw notInDemo("Syncing with the platform");
     if (key === "POST dispatch") throw notInDemo("Running the next task");
     throw notFound("no such route, project or file");

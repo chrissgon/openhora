@@ -67,6 +67,8 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
                                                      "plan:networked"], owners
         elif row["name"] == "cancel":   # R18: the one operation in two groups, so that a policy written with reject-cancel stays valid
             assert sorted(g for g, _ in owners) == ["brakes", "reject-cancel"] and {k for _, k in owners} == {None}, owners
+        elif row["name"] == "attachment-hold":   # ATT-1: the group of the files, and the grant that adds them without a card (kind "direct")
+            assert sorted(owners, key=str) == [("add-sources", None), ("add-sources-direct", "direct")], owners
         else:
             assert len(owners) == 1 and owners[0][1] is None, (row["name"], owners)
     # POL-2: `read-limited` is a subset of `read` (the one group beside `brakes`/`reject-cancel` that shares operations), valid on a messaging app alone

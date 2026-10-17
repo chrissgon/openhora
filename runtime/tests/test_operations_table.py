@@ -30,6 +30,7 @@ ops_routines = st.load("ops_routines")
 ops_cancel = st.load("ops_cancel")
 ops_instructions = st.load("ops_instructions")
 ops_contained = st.load("ops_contained")
+ops_attachments = st.load("ops_attachments")
 operations = st.load("operations")
 cli = st.load("cli")
 effects = st.load("effects")
@@ -108,7 +109,7 @@ def test_every_row_calls_a_function_of_the_operations_layer_that_accepts_its_arg
 
 def test_every_public_function_of_the_operations_layer_is_a_row_or_listed_as_not_one():
     # the layer is seven files (CONS-1B, ADJ-R1, R4-C3, P6a): ops.py and the siblings it re-exports from; a function counts where it is defined
-    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_instructions, ops_contained, ops_cancel) for n, f in inspect.getmembers(module, inspect.isfunction)
+    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_instructions, ops_contained, ops_cancel, ops_attachments) for n, f in inspect.getmembers(module, inspect.isfunction)
               if not n.startswith("_") and f.__module__ == module.__name__}
     called = {r["call"] for r in operations.OPERATIONS}
     assert called <= public
@@ -134,7 +135,7 @@ def build_choices() -> tuple:
 
 def test_a_chat_command_is_read_back_from_the_line_that_writes_it():
     assert [r["name"] for r in chat_rows()] == ["status", "progress", "pending", "answer", "release", "approve", "reject",
-                                                "retry", "cancel", "stop-task"]
+                                                "retry", "cancel", "stop-task", "attachments", "attachment-add", "attachment-discard"]
     for row in chat_rows():
         for optional in (False, True):
             values = example(row, optional)
