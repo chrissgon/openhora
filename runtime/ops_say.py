@@ -24,6 +24,7 @@ import contextlib
 import datetime
 import fcntl
 import importlib
+import inspect
 import json
 import os
 import re
@@ -35,6 +36,7 @@ import autonomy
 import lab
 import language as language_rules
 import operations
+import ops_actor
 import plan
 import router
 import skill_meta
@@ -125,7 +127,7 @@ def chat_memory(messages: list, settled: set) -> str:
     return "\n".join([MEMORY_HEAD, *lines]) if lines else ""
 
 
-def say(project: str, text: str, channel: str | None = None) -> dict:
+def say(project: str, text: str, channel: str | None = None, sender: str | None = None) -> dict:
     """One turn of the conversation with the planning agent (decision D12), one more shell of this layer. The person's
     line is stored; a line that starts with "/" is one command of the table of operations (runtime/operations.py), which calls its operation once; a plain
     line that asks about the state (STATE_QUESTIONS) is answered at once by code from the store's records (state_reply):
@@ -140,12 +142,14 @@ def say(project: str, text: str, channel: str | None = None) -> dict:
     shown, never executed.
     `channel` is the shell that carries the line (the terminal, the local page, the MCP mode; the conversation's own
     shell passes none and is `chat`): a command in the line is done only when its row lists that channel, so a shell
-    that may not approve, reject, retry or cancel cannot do it by typing the command here either. Returns {"reply",
-    "request_id", "pending_id", "ran", "queued"}."""
+    that may not approve, reject, retry or cancel cannot do it by typing the command here either. `sender` (POL-2) is the messaging sender who typed the
+    line (`<platform>:<sender id>`, operations.sender_key): a command in it is checked against THAT sender's profile and done as that sender.
+    Returns {"reply", "request_id", "pending_id", "ran", "queued"}."""
+    channel = channel or "chat"
+    ops_actor.require(channel, sender)
     ctx = core.context(project)
     said = core._text(text, "the line")
     store = ctx["store"]
-    channel = channel or "chat"
     if _turn_routes(said) and not asks_state(ctx, said):
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
         # router is free again; a shell that drains nothing is refused while the router answers another request.
@@ -156,25 +160,27 @@ def say(project: str, text: str, channel: str | None = None) -> dict:
         if channel not in QUEUING_CHANNELS and route_busy(ctx):
             raise core.RunBusy(RUN_BUSY, 1)
     stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=said)
-    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"])
+    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"], sender)
     core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant", text=reply or "(no reply)",
                  task_id=request_id, run_id=run_id)
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
             **({"instruction_proposal": offered} if offered else {})}
 
 
-def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int) -> tuple:
+def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender=None) -> tuple:
     """(reply, request_id, pending_id, ran, run_id, proposal) of one stored line of the person: a command, a question about the
     state, the answer to the router's question, or a new request. `line_id` is the line's message id: the memory
     the router is given is the messages before it. proposal is None, or the proposal to add the line to the project's
     instructions (runtime/ops_instructions.py proposal) that an answer to the router's question may end with: its text
     closes the reply, and the line is the person's own text, never the reply's."""
     if said.startswith("/"):
-        return (*_say_command(project, ctx, said, channel, line_id), None)
+        return (*_say_command(project, ctx, said, channel, line_id, sender), None)
     asked = _router_question(ctx, _last_request(ctx))
     if asked is None and state_question(said):
+        if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
+            return f"error: {operations.not_enabled('status', channel)}", None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
         return state_reply(project), None, None, False, None, None
-    out = _say_route(project, ctx, said, line_id, channel, answer_to=asked)
+    out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender)
     offered = importlib.import_module("ops_instructions").proposal(ctx, out[1], said, channel) if asked is not None else None
     return (out[0] + "\n\n" + offered["text"], *out[1:], offered) if offered else (*out, None)
 
@@ -512,7 +518,7 @@ def _router_question(ctx: dict, request_id):
     return open_items[-1]["id"] if open_items and open_items[-1]["kind"] == "question" else None
 
 
-def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int) -> tuple:
+def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int, sender=None) -> tuple:
     """(reply, request_id, pending_id, ran, run_id) of a command line: the table of operations reads it
     (operations.parse_chat); an operation it names is called once with the arguments it read, when its row lists the
     channel that carries the line (`channel`) and the project's policy permits the command under that channel
@@ -526,12 +532,12 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int)
     name, found = parsed
     if name == "new":
         after, found = operations.split_new(found)
-        return _say_route(project, ctx, found, line_id, channel, after=after)
+        return _say_route(project, ctx, found, line_id, channel, after=after, sender=sender)
     row = operations.by_name(name)
     if channel not in row["channels"]:
         return f"error: /{name} is done in the terminal or on the page", None, None, False, None
     policy = ctx["cfg"]["channels"]
-    refused = operations.refusal(name, channel, policy)  # the project's policy, under the channel that carries the line
+    refused = operations.refusal(name, channel, policy, sender=sender)  # the project's policy, under the channel that carries the line (and the sender's profile)
     if refused:
         return f"error: {refused}", None, None, False, None
     if channel == "messaging" and name == "approve":  # an acceptance approved from a line has no card to be bound to
@@ -544,13 +550,19 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int)
         if kind == "effect":  # from a line, on any channel and whatever the policy
             return ("error: an effect is approved in the terminal, with its hash: "
                     + core._command("approve", ctx["cfg"]["project"], pending_id=found["pending_id"], sha256="<hash>")), None, None, False, None
-        refused = operations.refusal(name, channel, policy, kind)
+        refused = operations.refusal(name, channel, policy, kind, sender=sender)
         if refused:
             return f"error: {refused}", None, None, False, None
+    function = getattr(_ops(), row["call"])
     if row.get("channel_arg"):
         found = dict(found, channel=channel if channel == "messaging" else "chat")  # a messaging app's own rule (ops_waits) narrows approve
+        if channel == "messaging":
+            if "sender" not in inspect.signature(function).parameters:       # an operation that cannot be told who acts would be asked for the channel alone
+                return f"error: /{name} is not done from a messaging app", None, None, False, None
+            found["sender"] = sender       # the operation asks the policy, and records the actor, for THIS sender
     try:
-        out = getattr(_ops(), row["call"])(project, **found)
+        with ops_actor.carried_by(channel):
+            out = function(project, **found)
     except core.OpsError as e:
         return f"error: {e}", None, None, False, None
     if row.get("chat_reply"):
@@ -578,7 +590,7 @@ def _planning_may_start(ctx: dict) -> tuple:
     return ok, why
 
 
-def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, answer_to=None, after=None) -> tuple:
+def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, answer_to=None, after=None, sender=None) -> tuple:
     """A plain line: the answer to the router's question (then the router runs again), or a new request with the
     memory in front of it (the messages before the line). Either way the router runs only when the planning agent may
     start. A reply of the router that is a direct turn cancels the request by code and is answered from the store's
@@ -588,7 +600,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         return f"The planning agent may not start now: {why}. Nothing was run.", None, None, False, None
     if answer_to is not None:
         request_id = core._stored(ctx, ctx["store"].pending_get, answer_to)["task_id"]
-        _ops().answer(project, answer_to, said)
+        _ops().answer(project, answer_to, said, actor=ops_actor.label(ctx["cfg"], channel, sender))
     else:
         messages = [m for m in core._stored(ctx, ctx["store"].messages_list, CONVERSATION, limit=500) if m["id"] < line_id]
         settled = {t["id"] for t in core._stored(ctx, ctx["store"].tasks_list)

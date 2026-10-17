@@ -23,7 +23,7 @@
     {
       "command": "/answer",
       "arguments": "<id> <text>",
-      "help": "answer a pending decision"
+      "help": "answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page"
     },
     {
       "command": "/release",

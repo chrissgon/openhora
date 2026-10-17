@@ -9,7 +9,8 @@ from `approve` and `pending`; it reads the effect document by the decision's own
 
   effect_facts(ctx, item)                   {"word", "on_cards"} of an `effect` decision
   effect_kind(facts)                        the kind the policy is asked about: `effect:<word>`, or `effect` when the word is unknown
-  effect_refusal(ctx, item, channel, facts)  the sentence that refuses an effect to a channel outside operations.EFFECT_CHANNELS, or None
+  effect_refusal(ctx, item, channel, facts, sender)  the sentence that refuses an effect to a channel outside operations.EFFECT_CHANNELS, or None
+                                            (for a messaging app, the grant is asked of the sender's profile: POL-2)
 
 The word is the `effect` key of the effect document (effects.KINDS), read only when the file's bytes have the hash of the decision
 (effects.read_document: a file changed since the gate is not read), from the file the gate path recorded in the payload or the file of the
@@ -72,7 +73,7 @@ def effect_kind(facts) -> str:
     return "effect:" + word if word else "effect"
 
 
-def effect_refusal(ctx: dict, item: dict, channel, facts: dict):
+def effect_refusal(ctx: dict, item: dict, channel, facts: dict, sender=None):
     """The sentence that refuses an `effect` to a channel outside operations.EFFECT_CHANNELS, or None when the project's accepted policy
     grants that channel this effect's word and the whole effect fits on a card. Fails closed: no channel, the conversation and the MCP mode
     are never granted (operations.policy_allows). The hash is checked by the caller (ops._approve_effect) and by the bridge's card."""
@@ -80,7 +81,7 @@ def effect_refusal(ctx: dict, item: dict, channel, facts: dict):
         return None
     command = core._command("approve", ctx["cfg"]["project"], pending_id=item["id"], sha256="<hash>")
     kind = effect_kind(facts)
-    if not operations.permitted("approve", channel or "", ctx["cfg"]["channels"], kind):
+    if not operations.permitted("approve", channel or "", ctx["cfg"]["channels"], kind, sender):
         group = "approve-effect-" + facts["word"] if facts.get("word") in operations.EFFECT_APPROVAL_WORDS else None
         return ("an effect is approved in the terminal, with its hash: " + command
                 + (f" (or on the page; a messaging app approves it only when the project's configuration grants it {group})" if group else ""))

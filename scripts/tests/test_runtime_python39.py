@@ -77,8 +77,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/routines.py", "runtime/ops_routines.py",
     # The person's standing instructions (package INSTRUCTIONS): the file and its checks, and the operations over it.
     "runtime/instructions.py", "runtime/ops_instructions.py", "runtime/ops_contained.py",
-    # The grants of the channel policy (POL-1): the effect's word and card, and the widening list with its hash.
-    "runtime/ops_grants.py", "runtime/policy_grants.py",
+    # The grants of the channel policy (POL-1): the effect's word and card, and the widening list with its hash; who acted (POL-2): the sender, its profile and the record.
+    "runtime/ops_grants.py", "runtime/policy_grants.py", "runtime/policy_widening.py", "runtime/ops_actor.py",
     # The language the deliverables are written in (LANGUAGE): the rule, the order and the words; the operations that check a request's choice.
     "runtime/language.py", "runtime/ops_language.py",
     # The project script (P9): the step kind, the provider's host side (it loads the two programs that run inside its image, which parse here too).

@@ -44,7 +44,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(sources, "provider_convert", lambda cfg, call=None: standin_convert)
     monkeypatch.setattr(plan, "resolve_pack", lambda pack, root: list(PACKS[pack]))
     project = str(built["project"])
-    ops.accept_config(project, ops.project_config.load(project)["sha256"])
+    ops.accept_config(project, ops.project_config.load(project)["sha256"], widen=ops.config(project)["widening_sha256"])
     built["path"] = project
     built["files"] = tmp_path / "files"
     built["files"].mkdir()
@@ -59,7 +59,7 @@ def agents(world, **extra) -> None:
                           "engineering": {"pack": "eng", "mode": "supervised", "max_runs_per_day": 50}}
     raw.update(extra)
     path.write_text(json.dumps(raw), encoding="utf-8")
-    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"], widen=ops.config(world["path"])["widening_sha256"])
 
 
 def ctx_of(world):
@@ -542,7 +542,7 @@ def test_with_every_area_agent_stopped_a_step_task_still_starts_until_the_runtim
     raw = json.loads(path.read_text(encoding="utf-8"))
     raw["area_agents"] = {"business": {"pack": "biz", "mode": "stopped"}}
     path.write_text(json.dumps(raw), encoding="utf-8")
-    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"], widen=ops.config(world["path"])["widening_sha256"])
     made = add_step(world, file=csv_file(world))
     ops.dispatch(world["path"], wait=False)
     assert calls == [(made["task"], "run-step")]          # an area agent's mode is not the runtime's: it has its own brake
@@ -565,7 +565,7 @@ def test_the_brake_of_the_runtime_is_the_terminals_and_the_pages_a_stop_never_wi
     raw = json.loads(path.read_text(encoding="utf-8"))
     raw["channels"] = {"page": ["read"]}
     path.write_text(json.dumps(raw), encoding="utf-8")
-    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"], widen=ops.config(world["path"])["widening_sha256"])
     assert ops.set_mode(world["path"], "runtime", "stopped", channel="page")["mode"] == "stopped"      # a stop is never withheld
     with pytest.raises(ops.OpsError) as refused:
         ops.set_mode(world["path"], "runtime", "autonomous", channel="page")                          # a resume needs the group set-mode
@@ -573,7 +573,7 @@ def test_the_brake_of_the_runtime_is_the_terminals_and_the_pages_a_stop_never_wi
     assert ops.set_mode(world["path"], "runtime", "autonomous", channel="terminal")["mode"] == "autonomous"
     raw["channels"] = {"page": ["read", "set-mode"]}
     path.write_text(json.dumps(raw), encoding="utf-8")
-    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"], widen=ops.config(world["path"])["widening_sha256"])
     ops.set_mode(world["path"], "runtime", "stopped", channel="page")
     assert ops.set_mode(world["path"], "runtime", "autonomous", channel="page")["mode"] == "autonomous"
 

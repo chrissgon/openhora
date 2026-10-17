@@ -727,8 +727,11 @@ def _permissions(service: Service, entry: dict):
     if not found.get("accepted"):
         return None
     out = {"channel": "page", "allowed": service.ops.operations.permissions("page", found.get("channels"))}
-    grants = [{"channel": c, "group": g, "text": service.ops.operations.GRANT_TEXT.get(f"{c}:{g}", g)}
-              for c, g in service.ops.operations.grants(found.get("channels"))]
+    table = service.ops.operations
+    grants = [{"channel": c, "group": g, "text": table.GRANT_TEXT.get(f"{c}:{g}", g)} for c, g in table.grants(found.get("channels"))]
+    held = {(g["channel"], g["group"]) for g in grants}
+    grants += [{"channel": "messaging", "group": g, "text": table.GRANT_TEXT.get(f"messaging:{g}", g) + " (to a listed sender whose profile lists it)"}
+               for g in dict.fromkeys(g for _, g in table.sender_grants(found.get("channels"))) if ("messaging", g) not in held]   # POL-2: a sender's profile widens too; the page names the group, never the sender
     return {**out, "grants": grants} if grants else out     # POL-1: what the project widened (for the line the page shows); the key is there only when something is
 
 

@@ -1049,7 +1049,7 @@ class Listener:
 
     def retry_pending(self, box: Mailbox, validity: int, last: int) -> None:
         """Try again the messages the server would not give. One that has failed ATTEMPTS times over RETRY_SPAN seconds is skipped, and the
-        person is told by an error event (not only a line on stderr). A NOOP after each refusal raises when the connection is gone: that
+        skip is logged by the bridge (an error event of the provider, not only a line on stderr). A NOOP after each refusal raises when the connection is gone: that
         failure is the server's, is never counted against a message, and the bridge starts this again."""
         for uid in sorted(int(k) for k in self.retry):
             if self.stop.is_set():

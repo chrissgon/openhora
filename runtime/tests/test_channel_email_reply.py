@@ -144,6 +144,7 @@ def test_everything_that_is_not_an_action_needs_no_reply_and_a_platform_without_
     assert wait_for(lambda: world.calls("answer_proposing"))
     world.caps(actions_need_reply=False)
     world.items[2] = decision("plan", 2, plan_sha256="q" * 64)
+    world.bridge.tick()                                    # a decision is acted on from the card the sender was sent (POL-2)
     world.say("/reject 2")
     assert world.calls("reject") and bridge.REPLY_TO_CARD not in world.texts()
 

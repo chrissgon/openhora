@@ -38,6 +38,7 @@ ops_waits = st.load("ops_waits")
 ops_grants = st.load("ops_grants")
 operations = st.load("operations")
 policy_grants = st.load("policy_grants")
+policy_widening = st.load("policy_widening")
 project_config = st.load("project_config")
 mcp = st.load("mcp")
 
@@ -45,7 +46,8 @@ WAIT = 30
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging", "bogus")
 KINDS = (None, "plan", "acceptance", "effect")
 BRAKES_BEFORE = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")
-NEW_GROUPS = ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans")
+NEW_GROUPS = ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans",
+              "read-limited")      # POL-2's group is new too: the rule before the grants knew no such name
 # The rule as it was before the grants, written out here (the default has to answer exactly so): a row lists the channel, the terminal is never
 # narrowed, an effect only from the terminal and the page, a channel with no entry keeps its default or its ceiling, a group covers its kind.
 OLD_GROUPS = {name: spec for name, spec in operations.GROUPS.items() if name not in NEW_GROUPS}
@@ -270,16 +272,26 @@ def test_the_renamed_group_refuses_its_old_name_with_the_known_groups_and_no_ali
 def test_the_widening_list_its_hash_and_the_warning_for_notices_that_carry_no_text():
     cfg = {"channels": {"messaging": ["read", "approve-plans", "approve-networked-plans", "approve-effect-write"], "mcp": ["read", "retry"]},
            "messaging": {"notices": "text"}}
-    shown = policy_grants.grants(cfg["channels"])
+    shown = policy_grants.grants(cfg)
     assert [(g["channel"], g["group"]) for g in shown] == [("messaging", "approve-effect-write"), ("messaging", "approve-networked-plans"), ("mcp", "retry")]
     assert all(g["means"] == operations.GRANT_TEXT[f"{g['channel']}:{g['group']}"] for g in shown)
-    held = [("messaging", "approve-effect-write")]
-    wide = policy_grants.widening(held, cfg["channels"])
-    assert [(w["channel"], w["group"]) for w in wide] == [("messaging", "approve-networked-plans"), ("mcp", "retry")]
-    expect = hashlib.sha256(b"messaging:approve-networked-plans\nmcp:retry\n").hexdigest()      # what a person can compute by hand
-    assert policy_grants.widening_sha256(wide) == expect and policy_grants.widening_sha256([]) is None
-    assert policy_grants.parse(policy_grants.dump(cfg["channels"])) == [("messaging", "approve-effect-write"), ("messaging", "approve-networked-plans"), ("mcp", "retry")]
-    assert policy_grants.parse(None) == policy_grants.parse("not json") == policy_grants.parse('["nonsense", 3]') == []
+    # POL-2: the widening is every group a place did not effectively have in the file accepted before, a grant or not; what was recorded is a snapshot
+    held = {"channels": {"messaging": [*operations.DEFAULT_POLICY["messaging"], "approve-effect-write"]}, "senders": {}}
+    wide = policy_widening.widening(held, policy_widening.snapshot(cfg))
+    assert [(w["channel"], w["group"]) for w in wide] == [("messaging", "approve-plans"), ("messaging", "approve-networked-plans"), ("mcp", "retry")]
+    expect = hashlib.sha256(b"messaging:approve-plans\nmessaging:approve-networked-plans\nmcp:retry\n").hexdigest()      # what a person can compute by hand
+    assert policy_widening.widening_sha256(wide) == expect and policy_widening.widening_sha256([]) is None
+    snap = policy_widening.snapshot(cfg)
+    assert snap == {"channels": {"mcp": ["read", "retry"], "messaging": ["read", "approve-plans", "approve-networked-plans", "approve-effect-write"]}, "senders": {}}
+    back = policy_widening.parse(policy_widening.dump(snap))        # the record holds the groups as a mask over GROUPS, and no sender
+    assert {c: set(g) for c, g in back["channels"].items()} == {c: set(g) for c, g in snap["channels"].items()} and back["senders"] == {} == back["sender_ids"]
+    assert policy_widening.parse(None) is policy_widening.parse("not json") is policy_widening.parse('{"v": 1}') is None
+    # a project that never accepted a file has the defaults; one that accepted a file before the record existed has only the grants POL-1 recorded,
+    # and its baseline is "unknown": every group an entry lists beyond them is listed once
+    assert policy_widening.baseline(None, '["messaging:approve-effect-write"]') == policy_widening.baseline(None, None) == {"channels": {}, "senders": {}}
+    assert policy_widening.baseline(None, '["messaging:approve-effect-write"]', True) == {"channels": {"messaging": ["approve-effect-write"]}, "senders": {},
+                                                                                       "unknown": True}
+    assert policy_widening.baseline(None, "not json", True) == {"channels": {}, "senders": {}, "unknown": True}
     assert policy_grants.warnings(cfg) == []
     count = {**cfg, "messaging": {"notices": "count"}}
     [warning] = policy_grants.warnings(count)
@@ -305,7 +317,7 @@ def test_a_granted_write_is_approved_on_messaging_after_accept_config_with_the_w
     assert shown["widening_sha256"] == digest and "documents platform" in shown["grants"][0]["means"]
     # before the acceptance the same approval is refused, and nothing is written
     with pytest.raises(ops.OpsError) as before:
-        ops.approve(path, item["id"], item["payload_sha256"], channel="messaging")
+        ops.approve(path, item["id"], item["payload_sha256"], channel="messaging", sender="telegram:4242")
     assert before.value.code == 3 and writes(world) == []
     # accept-config without the hash, with another, with the file's hash: nothing is accepted until the widening list's hash is typed
     for wrong in (None, "0" * 64, shown["sha256"]):
@@ -318,12 +330,12 @@ def test_a_granted_write_is_approved_on_messaging_after_accept_config_with_the_w
     assert ops.config(path)["widening"] == [] and ops.config(path)["widening_sha256"] is None and len(ops.config(path)["grants"]) == 1
     # the same approval now runs once, from a messaging app, with the hash of the exact content
     with pytest.raises(ops.OpsError) as no_hash:
-        ops.approve(path, item["id"], None, channel="messaging")
+        ops.approve(path, item["id"], None, channel="messaging", sender="telegram:4242")
     assert "with --sha256" in str(no_hash.value) and writes(world) == []
     with pytest.raises(ops.OpsError) as wrong_hash:
-        ops.approve(path, item["id"], "f" * 64, channel="messaging")
+        ops.approve(path, item["id"], "f" * 64, channel="messaging", sender="telegram:4242")
     assert "nothing was approved" in str(wrong_hash.value) and writes(world) == []
-    done = ops.approve(path, item["id"], item["payload_sha256"], channel="messaging")
+    done = ops.approve(path, item["id"], item["payload_sha256"], channel="messaging", sender="telegram:4242")
     assert done["task_state"] == "done" and done["result"]["written"] is True and len(writes(world)) == 1
     assert world["platform"].text(world["page"]).startswith("# Plan for the harbour market")
     ctx = ops_core.context(path)
@@ -332,7 +344,7 @@ def test_a_granted_write_is_approved_on_messaging_after_accept_config_with_the_w
     assert ctx["store"].pending_get(ctx["conn"], item["id"])["status"] == "resolved"
     assert "state" in done, "the record of the executed approval is the state file's generated row"
     with pytest.raises(ops.OpsError):
-        ops.approve(path, item["id"], item["payload_sha256"], channel="messaging")
+        ops.approve(path, item["id"], item["payload_sha256"], channel="messaging", sender="telegram:4242")
     assert len(writes(world)) == 1, "approved once, executed once"
 
 
@@ -342,15 +354,15 @@ def test_a_write_grant_does_not_approve_another_word_the_conversation_the_mcp_mo
     accept(path, {"messaging": ["read", "approve-effect-create", "approve-effect-send", "approve-effect-publish"]})     # every word but the one this effect has
     for channel in ("messaging", "chat", "mcp", None, "bogus"):
         with pytest.raises(ops.OpsError) as no:
-            ops.approve(path, item["id"], item["payload_sha256"], channel=channel)
+            ops.approve(path, item["id"], item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
         assert "an effect is approved in the terminal, with its hash" in str(no.value) and "approve-effect-write" in str(no.value), channel
     accept(path, {"messaging": ["read", "approve-effect-write"], "page": ["read", "approve-effect-create"]})
     for channel in ("chat", "mcp", None):
         with pytest.raises(ops.OpsError):
-            ops.approve(path, item["id"], item["payload_sha256"], channel=channel)
+            ops.approve(path, item["id"], item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
     # a line typed into say never approves an effect, whatever the policy grants
     for channel in ("messaging", "chat", "page"):
-        said = ops.say(path, f"/approve {item['id']} {item['payload_sha256']}", channel=channel)["reply"]
+        said = ops.say(path, f"/approve {item['id']} {item['payload_sha256']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"]
         assert said.startswith("error: "), (channel, said)
     assert writes(world) == [] and ops.pending(path, item["id"])["status"] == "open"
     # the page, under a policy that lists only another word, is refused for this one; under its own word it approves
@@ -406,7 +418,7 @@ def test_the_acceptance_that_set_mode_and_consent_make_does_not_widen_and_keeps_
     path = world["path"]
     accept(path, {"messaging": ["read", "approve-effect-write"]})
     ctx = ops_core.context(path)
-    assert json.loads(ctx["store"].cursor_get(ctx["conn"], policy_grants.CURSOR)) == ["messaging:approve-effect-write"]
+    assert policy_widening.parse(ctx["store"].cursor_get(ctx["conn"], policy_widening.EFFECTIVE))["channels"] == {"messaging": ["read", "approve-effect-write"]}
     file = Path(path) / "docs" / "workbench" / "runtime.json"
     raw = json.loads(file.read_text())
     raw["area_agents"] = {"planning": {"pack": "planning", "mode": "supervised"}}
@@ -416,7 +428,7 @@ def test_the_acceptance_that_set_mode_and_consent_make_does_not_widen_and_keeps_
     assert moved["accepted"] is True and moved["by"] == "person"
     assert ops.config(path)["widening"] == [] and len(ops.config(path)["grants"]) == 1
     ctx = ops_core.context(path)
-    assert json.loads(ctx["store"].cursor_get(ctx["conn"], policy_grants.CURSOR)) == ["messaging:approve-effect-write"]
+    assert policy_widening.parse(ctx["store"].cursor_get(ctx["conn"], policy_widening.EFFECTIVE))["channels"] == {"messaging": ["read", "approve-effect-write"]}
     # an edit that adds a grant to the file, then set-mode --accept: refused, since the file is not the accepted one
     raw = json.loads(file.read_text())
     raw["channels"]["messaging"].append("approve-effect-create")
@@ -437,7 +449,7 @@ def test_limit_44_an_effect_is_approved_off_the_terminal_and_the_page_only_for_a
 
     def refused(channel, sha=digest):
         with pytest.raises(ops.OpsError):
-            ops.approve(path, item["id"], sha, channel=channel)
+            ops.approve(path, item["id"], sha, channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
         assert writes(world) == [] and ops.pending(path, item["id"])["status"] == "open"
 
     # no grant: the default, every channel but the terminal and the page is refused before anything executes
@@ -453,7 +465,7 @@ def test_limit_44_an_effect_is_approved_off_the_terminal_and_the_page_only_for_a
     refused("messaging", "0" * 64)
     refused("messaging", None)
     for channel in ("messaging", "chat"):
-        assert ops.say(path, f"/approve {item['id']} {digest}", channel=channel)["reply"].startswith("error: ")
+        assert ops.say(path, f"/approve {item['id']} {digest}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"].startswith("error: ")
     # a card that did not carry the whole text approves nothing: the card is built whole or not, and the bridge takes the hash from it
     full = ops.pending(path, item["id"])
     caps = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False}
@@ -463,7 +475,7 @@ def test_limit_44_an_effect_is_approved_off_the_terminal_and_the_page_only_for_a
     assert whole["whole"] is True and whole["approvable"] is True
     assert cut["whole"] is False and cut["approvable"] is False and counted["approvable"] is False
     # the granted channel, the right word, the exact hash: executes once
-    assert ops.approve(path, item["id"], digest, channel="messaging")["task_state"] == "done" and len(writes(world)) == 1
+    assert ops.approve(path, item["id"], digest, channel="messaging", sender="telegram:4242")["task_state"] == "done" and len(writes(world)) == 1
 
 # --- the facts of an effect -----------------------------------------------------------------------------------------------------------
 
@@ -507,15 +519,15 @@ def test_a_pull_request_effect_carries_its_word_and_no_card_approves_it_even_wit
     assert "effect_word" not in ops.pending(path)["pending"][0], "the list does not read every effect document"
     # the default: refused before anything executes, and the sentence is the one it always was
     with pytest.raises(ops.OpsError) as no:
-        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging")
+        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:4242")
     assert "an effect is approved in the terminal, with its hash" in str(no.value) and provider_calls(tree) == []
     accept(path, {"messaging": ["read", "approve-effect-write"]})          # the wrong word
     with pytest.raises(ops.OpsError):
-        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging")
+        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:4242")
     assert provider_calls(tree) == [] and ops.pending(path, effect["id"])["status"] == "open"
     accept(path, {"messaging": ["read", "approve-effect-create"]})
     with pytest.raises(ops.OpsError) as no:      # the grant is there and approves nothing yet: a card does not show the change
-        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging")
+        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:4242")
     assert "more than a card can show" in str(no.value) and "the code of a change" in str(no.value)
     assert provider_calls(tree) == [] and ops.pending(path, effect["id"])["status"] == "open"
     done = ops.approve(path, effect["id"], effect["payload_sha256"], channel="terminal")

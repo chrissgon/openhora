@@ -171,7 +171,7 @@ def test_limit_31_a_write_without_the_approval_of_its_exact_content_is_refused_b
     sha_wrong = "0" * 64
     for channel in ("messaging", "mcp", "conversation", None):
         with pytest.raises(ops_core.OpsError) as refused:
-            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel)
+            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
         assert "approved in the terminal" in str(refused.value)
     with pytest.raises(ops_core.OpsError):
         ops.approve(world["path"], item["id"], sha256=None, channel="terminal")
@@ -196,7 +196,7 @@ def test_limit_31_a_write_without_the_approval_of_its_exact_content_is_refused_b
 @pytest.mark.parametrize("channel", ["terminal", "page"])
 def test_with_the_approval_of_its_hash_from_the_terminal_or_the_page_it_writes_once_and_records(world, channel):
     task, item = opened(world)
-    done = ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel)
+    done = ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
     assert done["task_state"] == "done" and done["result"]["written"] is True and done["result"]["bytes"] == len(CONTENT.encode())
     assert done["result"]["content_sha256"] == sha(CONTENT)
     assert len(writes(world)) == 1 and world["platform"].text(world["page"]).startswith("# Plan for the harbour market")
@@ -208,7 +208,7 @@ def test_with_the_approval_of_its_hash_from_the_terminal_or_the_page_it_writes_o
     assert settled["status"] == "resolved" and settled["resolution"] == "approved" and settled["payload"]["result"]["written"] is True
     # a second approval, or a second run of the task, writes nothing more
     with pytest.raises(ops_core.OpsError):
-        ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel)
+        ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
     assert len(writes(world)) == 1
 
 

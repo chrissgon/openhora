@@ -74,7 +74,7 @@ export function checkoutOf(head) {
   return script ? script.slice(0, -SERVICE_SCRIPT.length) : "";
 }
 
-/** The folder of a project from the path of its configuration file (`status.config.path`), or null when it is not the configuration's own place. */
+/** The folder of a project from the path of its configuration file, or null when it is not the configuration's own place (an answer of `status` names the file, not the path: the service's `folder` is the source). */
 export function folderOf(configPath) {
   return typeof configPath === "string" && configPath.endsWith(CONFIG_TAIL) && configPath.length > CONFIG_TAIL.length ? configPath.slice(0, -CONFIG_TAIL.length) : null;
 }

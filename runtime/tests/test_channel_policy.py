@@ -45,7 +45,7 @@ def set_channels(path, channels, agents=None):
     if agents is not None:
         raw["area_agents"] = agents
     file.write_text(json.dumps(raw))
-    ops.accept_config(path, project_config.load(path)["sha256"])
+    ops.accept_config(path, project_config.load(path)["sha256"], widen=ops.config(path)["widening_sha256"])
 
 
 def real_world(path):
@@ -60,7 +60,7 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
     for row in operations.OPERATIONS:
         if not {"page", "mcp", "messaging"} & set(row["channels"]):
             continue
-        owners = [(g, s["kind"]) for g, s in operations.GROUPS.items() if row["name"] in s["operations"]]
+        owners = [(g, s["kind"]) for g, s in operations.GROUPS.items() if row["name"] in s["operations"] and g not in operations.MESSAGING_ONLY_GROUPS]
         if row["name"] == "approve":
             # the umbrella and one group for each word of an effect (POL-1), and the networked plans beside the plans
             assert sorted(k for _, k in owners) == ["acceptance", "effect", "effect:create", "effect:publish", "effect:send", "effect:write", "plan",
@@ -69,6 +69,9 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
             assert sorted(g for g, _ in owners) == ["brakes", "reject-cancel"] and {k for _, k in owners} == {None}, owners
         else:
             assert len(owners) == 1 and owners[0][1] is None, (row["name"], owners)
+    # POL-2: `read-limited` is a subset of `read` (the one group beside `brakes`/`reject-cancel` that shares operations), valid on a messaging app alone
+    assert set(operations.GROUPS["read-limited"]["operations"]) < set(operations.GROUPS["read"]["operations"])
+    assert operations.MESSAGING_ONLY_GROUPS == ("read-limited",)
     for group, spec in operations.GROUPS.items():  # every operation a group names is a row of the table
         for name in spec["operations"]:
             operations.by_name(name)
@@ -322,7 +325,7 @@ def test_a_typed_approve_on_the_page_follows_the_page_policy_and_never_approves_
     assert reply.startswith("error: an effect is approved in the terminal, with its hash") and provider_calls(tree) == []
     assert ops.pending(path, effect["id"])["status"] == "open"
     for channel in ("terminal", "mcp", "messaging", None):
-        said = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel=channel)["reply"]
+        said = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"]
         assert said.startswith("error: ") and provider_calls(tree) == [], channel
     ops.say(path, f"/approve {accept_id}", channel="page")
     assert ops.pending(path, accept_id)["status"] == "resolved"

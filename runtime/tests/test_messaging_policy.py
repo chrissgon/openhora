@@ -35,7 +35,7 @@ def set_policy(path, groups):
     else:
         raw["channels"] = {"messaging": groups}
     file.write_text(json.dumps(raw))
-    ops.accept_config(path, project_config.load(path)["sha256"])
+    ops.accept_config(path, project_config.load(path)["sha256"], widen=ops.config(path)["widening_sha256"])
 
 
 def decisions(tree):  # noqa: F811
@@ -107,15 +107,15 @@ def test_a_plan_with_its_hash_and_an_acceptance_are_approved_and_the_rest_is_ref
     set_policy(path, ["read", "approve-plans", "approve-acceptances"])
     for hash_ in (None, "0" * 64):
         with pytest.raises(ops.OpsError) as refused:
-            ops.approve(path, plan_id, hash_, channel="messaging")
+            ops.approve(path, plan_id, hash_, channel="messaging", sender="telegram:4242")
         assert ("only with its hash" in str(refused.value)) if hash_ is None else ("nothing was approved" in str(refused.value))
     assert ops.pending(path, plan_id)["status"] == "open"
-    ops.approve(path, plan_id, digest, channel="messaging")
+    ops.approve(path, plan_id, digest, channel="messaging", sender="telegram:4242")
     assert ops.pending(path, plan_id)["status"] == "resolved"
-    ops.approve(path, accept_id, channel="messaging")
+    ops.approve(path, accept_id, channel="messaging", sender="telegram:4242")
     assert ops.pending(path, accept_id)["status"] == "resolved"
     with pytest.raises(ops.OpsError) as refused:
-        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging")
+        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:4242")
     assert "an effect is approved in the terminal, with its hash" in str(refused.value)
     assert ops.pending(path, effect["id"])["status"] == "open" and provider_calls(tree) == []
 
@@ -124,11 +124,11 @@ def test_a_policy_with_approve_plans_does_not_approve_an_acceptance_and_the_defa
     path, plan_id, digest, accept_id, effect = decisions(tree)
     set_policy(path, ["approve-plans"])
     with pytest.raises(ops.OpsError) as refused:
-        ops.approve(path, accept_id, channel="messaging")
+        ops.approve(path, accept_id, channel="messaging", sender="telegram:4242")
     assert NOT_ENABLED in str(refused.value) and ops.pending(path, accept_id)["status"] == "open"
     set_policy(path, None)  # no entry: the closed default
     with pytest.raises(ops.OpsError) as refused:
-        ops.approve(path, plan_id, digest, channel="messaging")
+        ops.approve(path, plan_id, digest, channel="messaging", sender="telegram:4242")
     assert NOT_ENABLED in str(refused.value) and ops.pending(path, plan_id)["status"] == "open"
     # the terminal, the page and the conversation are not narrowed by it
     ops.approve(path, plan_id, digest, channel="terminal")
@@ -146,28 +146,28 @@ def test_typed_commands_follow_the_policy_and_the_default_allows_reads_talk_and_
     before = (ops.status(path), ops.pending(path))
     for command in (f"/approve {plan_id} {digest}", f"/approve {accept_id}", f"/approve {effect['id']} {effect['payload_sha256']}",
                     f"/reject {plan_id}", "/retry 2", "/cancel 1", "/stop-task 1", "/release 1"):
-        reply = ops.say(path, command, channel="messaging")["reply"]
+        reply = ops.say(path, command, channel="messaging", sender="telegram:4242")["reply"]
         assert reply == f"error: /{command[1:].split()[0]} {NOT_ENABLED}", command
     assert (ops.status(path), ops.pending(path)) == before and provider_calls(tree) == []
-    assert ops.say(path, "/pending", channel="messaging")["reply"].lstrip().startswith("{")
-    assert ops.say(path, "/status", channel="messaging")["reply"]
-    answered = ops.say(path, "/answer 99999 text", channel="messaging")["reply"]  # allowed, and the layer's own sentence
+    assert ops.say(path, "/pending", channel="messaging", sender="telegram:4242")["reply"].lstrip().startswith("{")
+    assert ops.say(path, "/status", channel="messaging", sender="telegram:4242")["reply"]
+    answered = ops.say(path, "/answer 99999 text", channel="messaging", sender="telegram:4242")["reply"]  # allowed, and the layer's own sentence
     assert NOT_ENABLED not in answered
 
 
 def test_a_typed_approve_with_the_policy_on_needs_the_hash_and_a_command_the_table_does_not_give_is_refused(tree):  # noqa: F811
     path, plan_id, digest, accept_id, effect = decisions(tree)
     set_policy(path, ["read", "talk", "approve-plans"])
-    reply = ops.say(path, f"/approve {plan_id}", channel="messaging")["reply"]
+    reply = ops.say(path, f"/approve {plan_id}", channel="messaging", sender="telegram:4242")["reply"]
     assert "as the whole line" in reply and ops.pending(path, plan_id)["status"] == "open"
-    reply = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel="messaging")["reply"]
+    reply = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel="messaging", sender="telegram:4242")["reply"]
     assert "as the whole line" in reply and provider_calls(tree) == []
-    reply = ops.say(path, f"/approve {accept_id}", channel="messaging")["reply"]
+    reply = ops.say(path, f"/approve {accept_id}", channel="messaging", sender="telegram:4242")["reply"]
     assert "as the whole line" in reply and ops.pending(path, accept_id)["status"] == "open"
     sha = ops.config(path)["sha256"]
-    reply = ops.say(path, "/set-mode autonomous", channel="messaging")["reply"]
+    reply = ops.say(path, "/set-mode autonomous", channel="messaging", sender="telegram:4242")["reply"]
     assert reply.startswith(operations.HELP_HEAD) and ops.config(path)["sha256"] == sha  # no such command here: the help
-    reply = ops.say(path, f"/approve {plan_id} {digest}", channel="messaging")["reply"]
+    reply = ops.say(path, f"/approve {plan_id} {digest}", channel="messaging", sender="telegram:4242")["reply"]
     assert "as the whole line" in reply and ops.pending(path, plan_id)["status"] == "open"
 
 
@@ -202,10 +202,10 @@ def test_channels_are_checked_against_the_groups_and_the_ceiling(monkeypatch):
 
 def test_the_messaging_section_is_read_and_each_wrong_value_is_a_sentence():
     good = {"senders": {"telegram": ["4242", "4243"]}, "notices": "count", "page_url": "https://page.example/open"}
-    assert project_config._messaging(good) == good
-    assert project_config._messaging(None) == {"senders": {}, "notices": "text", "page_url": None}
+    assert project_config._messaging(good) == {**good, "sender_profiles": {}}      # POL-2: the entries that name a profile, none here
+    assert project_config._messaging(None) == {"senders": {}, "sender_profiles": {}, "notices": "text", "page_url": None}
     assert project_config._messaging({"senders": {"telegram": ["4242"]}}) == {
-        "senders": {"telegram": ["4242"]}, "notices": "text", "page_url": None}
+        "senders": {"telegram": ["4242"]}, "sender_profiles": {}, "notices": "text", "page_url": None}
     for bad in ({"notices": "loud"}, {"senders": {"telegram": "4242"}}, {"senders": {"telegram": [4242]}},
                 {"senders": {"telegram": [""]}}, {"senders": {"Telegram": ["1"]}}, {"senders": []},
                 {"page_url": "ftp://page.example"}, {"page_url": "javascript:alert(1)"}, {"page_url": 5}, {"colour": "red"}, []):
@@ -229,7 +229,7 @@ def test_a_typed_approve_is_refused_outright_from_messaging_even_with_the_policy
     path, plan_id, digest, accept_id, effect = decisions(tree)
     set_policy(path, ["read", "talk", "approve-plans", "approve-acceptances"])
     for line in (f"/approve {accept_id}", f"/approve {plan_id} {digest}"):
-        assert ops.say(path, line, channel="messaging")["reply"] == "error: use the card's button, or /approve <id> as the whole line"
+        assert ops.say(path, line, channel="messaging", sender="telegram:4242")["reply"] == "error: use the card's button, or /approve <id> as the whole line"
     assert ops.pending(path, accept_id)["status"] == "open" and ops.pending(path, plan_id)["status"] == "open"
-    ops.approve(path, accept_id, channel="messaging")  # the bridge's own call, after its binding, still works
+    ops.approve(path, accept_id, channel="messaging", sender="telegram:4242")  # the bridge's own call, after its binding, still works
     assert ops.pending(path, accept_id)["status"] == "resolved"

@@ -112,7 +112,7 @@ def step_effect_of(ctx: dict, item: dict):
     return (task, kind, gate) if gate is not None else None
 
 
-def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
+def approve(ctx: dict, item: dict, sha256: str, found, call=None, actor=None) -> dict:
     """Execute the effect of a step task's gate with the person's approval of `sha256`. `found` is step_effect_of's answer. `call(verb,
     args)` is the seam a test replaces: by default the kind's own (`module.caller`: its provider). Returns {"done": the
     store's answer, "approval": the approval row, "doc": the document, "result": what the effect module returned}. core.OpsError on any
@@ -155,7 +155,7 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
     key = module.idempotency_key(doc, f"wb-{hashlib.sha256(cfg['store_db'].encode('utf-8')).hexdigest()[:12]}-p{pending_id}")
     with (_decision_lock(cfg, pending_id, APPROVE_BUSY) if long else contextlib.nullcontext()):
         approval = core._stored(ctx, store.approval_add, scope="action", what=" ".join(module.describe(doc).split())[:1000], by="user",
-                                payload_sha256=sha256, pending_id=pending_id)
+                                payload_sha256=sha256, pending_id=pending_id, actor=actor)
         with (contextlib.nullcontext() if long else core._write_lock(cfg)):
             try:
                 result = module.execute(doc, approval, call or module.caller(cfg, ctx["root"]), key, cfg["data_dir"], project=cfg["project"])
@@ -173,7 +173,7 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
             # The record of a write that landed must not fail because another writer held the project's files for the usual wait
             # (core.WRITE_LOCK_WAIT): it waits for as long as it takes. Every holder is bounded (a provider call has its timeout).
             with core._write_lock(cfg, wait=None):
-                done = core._stored(ctx, store.effect_done, pending_id, approval["id"], by="user", result=result)
+                done = core._stored(ctx, store.effect_done, pending_id, approval["id"], by="user", result=result, actor=actor)
     return {"done": done, "approval": approval, "doc": doc, "result": result}
 
 

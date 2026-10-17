@@ -43,6 +43,14 @@ the card the person saw carried the whole text (the ledger's `whole`), the decis
 card's hash. Otherwise the reply is the command to run in the terminal (decision D8, the default). The approval runs in a job thread:
 an effect may take minutes.
 
+Who acted (POL-2). The update's sender is the one the PROVIDER authenticated (Telegram's user id, a snowflake, the signed phone digits), and a card is
+sent to a private chat whose id is that sender's: the bridge makes the sender's key (`<platform>:<id>`, operations.sender_key) and asks the policy for
+THAT sender, so each listed sender has the profile `runtime.json` gives them (`messaging.senders`), else the channel's. Nothing a sender sends can name
+a profile or change one: a profile changes only by accept-config in the terminal. Every check reads the accepted configuration when the sender ACTS
+(`settings` at each call), never when the card was sent, so a sender removed or narrowed since loses the act at once; a card is acted on only in the
+chat it was sent to (the ledger's `chat` must be the acting sender's); the operations layer is told the sender and records it with the decision
+(ops_actor); and a profile with `notices: actionable` is sent a card only for a decision it can act on or answer.
+
 A platform that declares `actions_need_reply` (e-mail) acts on a typed approve, reject, release or answer only when the update is a reply to the
 ledger's card of that very decision in that chat, and the action is bound to that card, not to the newest one.
 
@@ -50,7 +58,9 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import inspect
 import os
+import re
 import threading
 import time
 import traceback
@@ -68,7 +78,7 @@ RETRY_SECONDS = 5
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DROPPED = "dropped an update from an unlisted sender"
 STALE = "This button is no longer valid. Send /pending."
-NO_CARD = "Send /pending first, so you see what you approve."
+NO_CARD = "Act on the card sent to you (send /pending)."
 CHANGED = "This decision changed since you saw it."
 STILL_WORKING = "Still working on the last message."
 RUN_BUSY = "The planning agent is answering another request. Send it again in a moment."
@@ -82,6 +92,55 @@ WRONG_HASH = "The hash you typed is not the one of the card you saw. Send /pendi
 NOT_OPEN = "Pending decision {number} is {status}, not open."
 NOT_OFFERED = "That card did not offer an approval. Send /pending for the current one."
 REPLY_TO_CARD = "Reply to the card of this decision to act on it."
+
+
+def home_folders() -> list:
+    """The person's home folder as it is spelled and as it resolves (a link), longest first; none for an empty home or the root."""
+    found = []
+    for spelled in (os.path.expanduser("~"), os.environ.get("HOME", "")):
+        for path in (spelled, os.path.realpath(spelled) if spelled else ""):
+            path = path.rstrip("/")
+            if path and path not in found:
+                found.append(path)
+    return sorted(found, key=len, reverse=True)
+
+
+def scrub(text):
+    """The text with the home folder replaced by `~`, so that a message to a phone carries no username or folder layout, and a command in it still
+    works when pasted in the person's shell: an unquoted `~/x` is expanded by the shell, and a quoted path (`'<home>/my folder'`, which the
+    command builders quote when it has a space) becomes `~/'my folder'`, where the tilde stays outside the quotes."""
+    if not isinstance(text, str):
+        return text
+    for home in home_folders():
+        quoted = re.escape(home)
+        text = re.sub(r"'" + quoted + r"(/[^']*)?'", lambda m: "~/'" + m.group(1)[1:] + "'" if m.group(1) else "~", text)
+        text = re.sub(r"(?<![\w.~/-])" + quoted + r"(?=/|\.?(?:[\s'\"`)\]>:,;]|$))", "~", text)
+    return text
+
+
+def scrub_message(message: dict) -> dict:
+    """A neutral message as it goes out: the text and the file (name and text) scrubbed; buttons and the link are the bridge's own and carry no path."""
+    out = dict(message)
+    out["text"] = scrub(out.get("text"))
+    footer = out.get("footer")
+    if isinstance(footer, list):      # the lines a card ends with, handed over beside the text (e-mail): scrubbed with it, so that the text still ends with them
+        out["footer"] = [scrub(line) for line in footer]
+        tail = "\n\n" + "\n".join(out["footer"])
+        if not (out["footer"] and isinstance(out["text"], str) and out["text"].endswith(tail)):
+            del out["footer"]         # a footer the text no longer ends with is not handed over (the provider would not move it)
+    document = out.get("document")
+    if isinstance(document, dict):
+        out["document"] = {**document, "name": scrub(document.get("name")), "text": scrub(document.get("text"))}
+    return out
+
+
+def reason_of(error) -> str:
+    """Why a configuration cannot be read, for the log: the refusal of runtime.json (a sentence about a key, never a sender: digits of eight or more are
+    masked all the same), else nothing."""
+    text = " ".join(str(error).split())
+    if not text.startswith("runtime.json "):
+        return ""
+    return ": " + re.sub(r"\d{8,}", "<digits>", text)[:200]
 
 
 class Fatal(Exception):
@@ -115,7 +174,35 @@ class Bridge(shell_kit.Jobs):
         messaging = found.get("messaging") or {}
         return {"senders": list((messaging.get("senders") or {}).get(self.platform) or []),
                 "notices": messaging.get("notices") or "text", "page_url": messaging.get("page_url"),
-                "policy": found.get("channels") or {}}
+                "policy": found.get("channels") or {}, "profiles": found.get("policies") or {},
+                "sender_profiles": (messaging.get("sender_profiles") or {}).get(self.platform) or {},
+                "channel_profile": (found.get("channel_profiles") or {}).get(CHANNEL)}
+
+    def key(self, sender: str) -> str:
+        """The key of a sender in the policy: `<platform>:<id>` (operations.sender_key)."""
+        return self.ops.operations.sender_key(self.platform, sender)
+
+    def wants(self, project: dict, settings: dict, item: dict, sender: str) -> bool:
+        """Whether this sender is sent a card for the decision: their profile permits reading the pending decisions and, when the profile says
+        `notices: actionable`, the card would offer them something to act on or answer."""
+        operations = self.ops.operations
+        key = self.key(sender)
+        if not operations.permitted("pending", CHANNEL, settings["policy"], None, key):
+            return False
+        named = settings["sender_profiles"].get(sender) or settings["channel_profile"]
+        if (settings["profiles"].get(named) or {}).get("notices") != "actionable":
+            return True
+        built = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"], settings["page_url"],
+                            operations=operations, sender=key)
+        return bool(built["actionable"])
+
+    def hears_count(self, settings: dict, sender: str):
+        """The sender, when the "N more waiting" line may go to them: their profile reads what waits and sends them every notice (a count of decisions
+        they are not sent a card for would tell a profile what it may not know)."""
+        named = settings["sender_profiles"].get(sender) or settings["channel_profile"]
+        if (settings["profiles"].get(named) or {}).get("notices") == "actionable":
+            return None
+        return sender if self.ops.operations.permitted("pending", CHANNEL, settings["policy"], None, self.key(sender)) else None
 
     def recheck(self) -> None:
         """Look at every project again: serve those with an accepted configuration that lists a sender for the platform,
@@ -125,8 +212,8 @@ class Bridge(shell_kit.Jobs):
             try:
                 found = self.settings(project)
                 why = NOT_ACCEPTED_WHY if found is None else (None if found["senders"] else NO_SENDER_WHY.format(platform=self.platform))
-            except self.ops.OpsError:
-                why = UNREADABLE_WHY
+            except self.ops.OpsError as e:
+                why = UNREADABLE_WHY + reason_of(e)
             if why is None:
                 ready.append(project)
             if self.skipped.get(project["id"]) != why:
@@ -163,13 +250,17 @@ class Bridge(shell_kit.Jobs):
 
     # --- sending ---------------------------------------------------------------------------------------------
 
+    def deliver(self, chat: str, message: dict):
+        """The one point where the bridge sends anything: every reply, card and file passes the filter that keeps the home folder off a phone."""
+        return self.messenger.send(chat, scrub_message(message))
+
     def reply(self, chat: str, text: str):
         """Send a reply. True when every piece went out, False when a send failed (logged), None when the platform deferred it
         (it cannot take a message yet: not an error, not logged, and the caller may try again)."""
         caps = self.messenger.capabilities()
         for piece in cards.split(text or "(no reply)", caps["max_text"]):
             try:
-                self.messenger.send(chat, {"text": piece, "actions": [], "link": None, "document": None})
+                self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None})
             except provider.MessengerError as e:
                 if e.kind == "deferred":
                     return None
@@ -177,24 +268,34 @@ class Bridge(shell_kit.Jobs):
                 return False
         return True
 
-    def allow(self, project: dict, op: str, kind=None) -> dict:
-        """The project's accepted settings when the policy permits the operation (for this kind of decision), else
-        Refused with the sentence the operations layer uses too."""
+    def allow(self, project: dict, op: str, kind=None, sender=None) -> dict:
+        """The project's accepted settings when the policy permits the operation (for this kind of decision) to THIS sender (their profile, read now),
+        else Refused with the sentence the operations layer uses too."""
+        if sender is None:
+            raise RuntimeError("the bridge asks the policy for a sender, never for the channel alone")
         settings = self.settings(project)
         if settings is None:
             raise Refused(NOT_ACCEPTED)
         operations = self.ops.operations
-        if not operations.permitted(op, CHANNEL, settings["policy"], kind):
+        if not operations.permitted(op, CHANNEL, settings["policy"], kind, self.key(sender)):
             raise Refused(operations.not_enabled(op, CHANNEL))
         return settings
 
-    def run_op(self, project: dict, op: str, kind=None, **args):
-        """The one call path: the policy first, then the operation, as the channel `messaging`."""
-        self.allow(project, op, kind)
+    def run_op(self, project: dict, op: str, kind=None, sender=None, **args):
+        """The one call path: the policy first (for the sender's profile), then the operation, as the channel `messaging` and, when it takes one,
+        as that sender (the layer asks the policy again for them and records who acted)."""
+        self.allow(project, op, kind, sender)         # raises when no sender is named
         row = self.ops.operations.by_name(op)
+        function = getattr(self.ops, row["call"])
         if row.get("channel_arg"):
             args["channel"] = CHANNEL
-        return getattr(self.ops, row["call"])(project["path"], **args)
+            if sender is not None:
+                params = inspect.signature(function).parameters.values()
+                if any(p.name == "sender" for p in params):
+                    args["sender"] = self.key(sender)
+                elif not any(p.kind == p.VAR_KEYWORD for p in params):      # a real operation that cannot be told who acts would be asked for the channel alone: never
+                    raise RuntimeError(f"the operation {op} takes no sender: the bridge does not call it")
+        return function(project["path"], **args)
 
     def send_card(self, project: dict, settings: dict, item: dict, chat: str) -> bool:
         operations = self.ops.operations
@@ -203,8 +304,9 @@ class Bridge(shell_kit.Jobs):
             command = operations.command_line("approve", project["path"], checkout=ROOT, pending_id=item["id"],
                                               sha256=item.get("payload_sha256"))
         caps = self.messenger.capabilities()
+        sender = self.key(chat)
         card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"],
-                           settings["page_url"], operations=operations, effect_command=command)
+                           settings["page_url"], operations=operations, effect_command=command, sender=sender)
         document = card["message"]["document"]
         if document and card["gated"] and card["approvable"]:
             # An approval needs the whole text DELIVERED: the file goes first, as a message of its own, and the card with the buttons only after
@@ -213,13 +315,13 @@ class Bridge(shell_kit.Jobs):
             if state is None:
                 return False
             card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"], settings["page_url"],
-                               operations=operations, effect_command=command, delivery=state)
+                               operations=operations, effect_command=command, delivery=state, sender=sender)
         seq = self.ledger.next_seq()
         message = dict(card["message"])
         made = {f"{seq}:{a['op']}": a["op"] for a in message["actions"]}
         message["actions"] = [{"id": f"{seq}:{a['op']}", "label": a["label"]} for a in message["actions"]]
         try:
-            message_id = self.messenger.send(chat, message)
+            message_id = self.deliver(chat, message)
         except provider.MessengerError as e:
             if e.kind == "deferred":
                 self.defer(project, item, chat)
@@ -246,7 +348,7 @@ class Bridge(shell_kit.Jobs):
         (a document that failed after the text, or a send that raised), None when the platform deferred it (nothing is recorded; it is tried
         again). A provider that cannot tell is "failed": the card is then not approvable here."""
         try:
-            sent = self.messenger.send(chat, cards.document_message(project["name"], item, document))
+            sent = self.deliver(chat, cards.document_message(project["name"], item, document))
         except provider.MessengerError as e:
             if e.kind == "deferred":
                 self.defer(project, item, chat)
@@ -278,19 +380,21 @@ class Bridge(shell_kit.Jobs):
         settings = self.settings(project)
         if not settings or not settings["senders"]:
             return 0
-        if not self.ops.operations.permitted("pending", CHANNEL, settings["policy"]):
+        chats = [c for c in ([only_chat] if only_chat else settings["senders"])
+                 if self.ops.operations.permitted("pending", CHANNEL, settings["policy"], None, self.key(c))]
+        if not chats:
             if project["id"] not in self.policy_noted:
                 self.policy_noted.add(project["id"])
                 self.log("notices are off: the project's channel policy does not permit reads")
             return 0
-        chats = [only_chat] if only_chat else settings["senders"]
         left = sent = 0
         for listed in self.ops.pending(project["path"])["pending"]:
             item = self.ops.pending(project["path"], pending_id=listed["id"])
             if item.get("status", "open") != "open":
                 continue
             digest = cards.content_sha256(item)
-            lacking = [c for c in chats if not self.ledger.sent(project["id"], item["id"], digest, c) or self.outdated(project, settings, item, c, retry_blocked)]
+            lacking = [c for c in chats if self.wants(project, settings, item, c)
+                       and (not self.ledger.sent(project["id"], item["id"], digest, c) or self.outdated(project, settings, item, c, retry_blocked))]
             if not lacking:
                 continue
             if sent >= cap:
@@ -313,7 +417,7 @@ class Bridge(shell_kit.Jobs):
         if last is None or last.get("approvable") or (last.get("blocked") and not retry_blocked):
             return False
         built = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"],
-                            settings["page_url"], operations=self.ops.operations)
+                            settings["page_url"], operations=self.ops.operations, sender=self.key(chat))
         return bool(built["approvable"])
 
     def tick(self) -> None:
@@ -325,7 +429,9 @@ class Bridge(shell_kit.Jobs):
             except self.ops.OpsError as e:
                 self.log(f"a project could not be read for notices ({e.__class__.__name__})")
                 continue
-            for chat in (settings["senders"] if settings else []):
+            for chat in (self.hears_count(settings, c) for c in (settings["senders"] if settings else [])):
+                if chat is None:
+                    continue
                 key = (project["id"], chat)
                 if not left:
                     self.more.pop(key, None)
@@ -375,7 +481,7 @@ class Bridge(shell_kit.Jobs):
                 if not self.listed_in(target, sender):
                     self.log(DROPPED)
                     return
-                self.act(target, chat, "answer", card["pending_id"], text=intent["text"])
+                self.act(target, chat, "answer", card["pending_id"], card=card, text=intent["text"])
             else:
                 self.say(project, chat, intent["text"])
         else:
@@ -398,7 +504,7 @@ class Bridge(shell_kit.Jobs):
                 self.log(f"a button could not be acknowledged ({e.kind})")
         card = self.ledger.by_action(chat, action_id)
         project = next((p for p in self.projects if card and p["id"] == card["project"]), None)
-        if card is None or project is None:
+        if card is None or project is None or card.get("chat") != chat:      # a card is acted on only in the chat it was sent to, by that chat's sender
             self.reply(chat, STALE)
             return
         if not self.listed_in(project, chat):
@@ -420,13 +526,19 @@ class Bridge(shell_kit.Jobs):
 
     def listing(self, project: dict, chat: str) -> None:
         try:
-            found = self.run_op(project, "pending")["pending"]
+            found = self.run_op(project, "pending", sender=chat)["pending"]
         except (Refused, self.ops.OpsError) as e:
             self.reply(chat, str(e))
             return
         if not found:
             self.reply(chat, f"{project['name']}: nothing waits for you.")
             return
+        settings = self.settings(project)
+        if settings is not None:      # a profile that is sent only what it can act on is listed only that
+            found = [i for i in found if self.wants(project, settings, self.ops.pending(project["path"], pending_id=i["id"]), chat)]
+            if not found:
+                self.reply(chat, f"{project['name']}: nothing waits for you to act on.")
+                return
         self.reply(chat, f"{project['name']}: " + "\n".join(f"#{i['id']} {i['kind']}: {i['title']}" for i in found))
         try:
             self.notify_project(project, only_chat=chat, retry_blocked=True)
@@ -436,16 +548,21 @@ class Bridge(shell_kit.Jobs):
     def act(self, project: dict, chat: str, op: str, pending_id: int, card=None, note=None, text=None, typed_hash=None) -> None:
         """approve, reject, release or answer one decision, bound to the card the person saw."""
         try:
+            card = card or self.ledger.last_card(project["id"], pending_id, chat)
+            if card is not None and card.get("chat") != chat:      # never another chat's card
+                card = None
+            if op in ("answer", "reject", "release") and card is None:     # a decision is acted on from the card its sender was sent, as an approval is
+                self.reply(chat, NO_CARD)
+                return
             if op == "answer":
-                self.run_op(project, "answer", pending_id=pending_id, text=text)
+                self.run_op(project, "answer", sender=chat, pending_id=pending_id, text=text)
                 self.reply(chat, f"Answered #{pending_id}.")
                 return
-            card = card or self.ledger.last_card(project["id"], pending_id, chat)
             item = self.ops.pending(project["path"], pending_id=pending_id)
             if op == "approve":
                 self.approve(project, chat, item, card, typed_hash)
             elif op == "reject":
-                self.run_op(project, "reject", pending_id=pending_id, **({"note": note} if note else {}))
+                self.run_op(project, "reject", sender=chat, pending_id=pending_id, **({"note": note} if note else {}))
                 self.reply(chat, f"Rejected #{pending_id}.")
             else:
                 self.release(project, chat, pending_id)
@@ -473,7 +590,7 @@ class Bridge(shell_kit.Jobs):
         if kind not in ("plan", "acceptance"):
             self.reply(chat, f"Pending decision {number} is a {kind}: approve takes a plan or an acceptance.")
             return
-        self.allow(project, "approve", kind)
+        self.allow(project, "approve", kind, chat)
         if card is None:
             self.reply(chat, NO_CARD)
             return
@@ -481,7 +598,7 @@ class Bridge(shell_kit.Jobs):
             self.reply(chat, WRONG_HASH)         # a hash typed with /approve is the card's, for an effect, a plan and an acceptance
             return
         if kind == "plan" and item.get("plan_networked") is True:       # a plan that reaches the network: its destinations must have been shown, whole
-            self.allow(project, "approve", "plan:networked")
+            self.allow(project, "approve", "plan:networked", chat)
             if card.get("whole") is not True or self.settings(project)["notices"] != "text":
                 command = self.ops.operations.command_line("approve", project["path"], checkout=ROOT, pending_id=number,
                                                            sha256=card["content_sha256"])
@@ -497,7 +614,7 @@ class Bridge(shell_kit.Jobs):
         args = {"pending_id": number}
         if kind == "plan":
             args["sha256"] = card["content_sha256"]
-        self.run_op(project, "approve", kind=kind, **args)
+        self.run_op(project, "approve", kind=kind, sender=chat, **args)
         self.reply(chat, f"Approved #{number}.")
 
     def approve_effect(self, project: dict, chat: str, item: dict, card, typed_hash=None) -> None:
@@ -513,7 +630,7 @@ class Bridge(shell_kit.Jobs):
         settings = self.settings(project)
         if settings is None:
             raise Refused(NOT_ACCEPTED)
-        if not self.ops.operations.permitted("approve", CHANNEL, settings["policy"], ask) or settings["notices"] != "text":
+        if not self.ops.operations.permitted("approve", CHANNEL, settings["policy"], ask, self.key(chat)) or settings["notices"] != "text":
             self.reply(chat, f"{EFFECT_REPLY}\n{command}")     # not granted, or a card that carries none of the text: the command, as it always was
             return
         if card is None:
@@ -539,7 +656,7 @@ class Bridge(shell_kit.Jobs):
 
         def call():
             try:
-                self.run_op(project, "approve", kind=ask, pending_id=number, sha256=shown)
+                self.run_op(project, "approve", kind=ask, sender=chat, pending_id=number, sha256=shown)
                 self.reply(chat, f"Approved #{number}.")
             except Refused as e:
                 self.reply(chat, str(e))
@@ -551,7 +668,7 @@ class Bridge(shell_kit.Jobs):
     def release(self, project: dict, chat: str, pending_id: int) -> None:
         def call():
             try:
-                self.run_op(project, "release", pending_id=pending_id)
+                self.run_op(project, "release", sender=chat, pending_id=pending_id)
                 self.reply(chat, f"Released #{pending_id}.")
             except Refused as e:
                 self.reply(chat, str(e))
@@ -562,7 +679,7 @@ class Bridge(shell_kit.Jobs):
     def say(self, project: dict, chat: str, text: str) -> None:
         def call():
             try:
-                result = self.run_op(project, "say", text=text)
+                result = self.run_op(project, "say", sender=chat, text=text)
                 self.reply(chat, result.get("reply") or "(no reply)")
             except Refused as e:
                 self.reply(chat, str(e))

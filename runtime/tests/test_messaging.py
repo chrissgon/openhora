@@ -219,7 +219,7 @@ def test_an_effect_card_has_no_approve_and_carries_the_exact_command_and_the_lin
     message = card["message"]
     assert [a["label"] for a in message["actions"]] == ["Reject"]
     assert "Approve it on the page or in the terminal:" in message["text"]
-    command = operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256="e" * 64)
+    command = bridge.scrub(operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256="e" * 64))   # the card spells the home folder as ~
     assert message["text"].rstrip().endswith(f"`{command}`") and "e" * 64 in command  # on its own line, tap-to-copy
     assert message["text"].rstrip().splitlines()[-1] == f"`{command}`"
     assert message["link"]["url"] == "https://page.example/open"
@@ -310,18 +310,19 @@ def test_an_acceptance_whose_content_changed_after_its_card_is_not_approved_and_
 def test_typed_commands_are_bound_to_the_last_card_and_approve_needs_one(world):
     world.items[1] = decision("plan", 1)
     world.say("/approve 1")
-    assert world.texts() == ["Send /pending first, so you see what you approve."] and world.calls("approve") == []
+    assert world.texts() == ["Act on the card sent to you (send /pending)."] and world.calls("approve") == []
     world.bridge.tick()
     world.fake.answers["approve"] = {"approved": True}
     world.say("/approve 1")
     assert world.calls("approve")[0][2] == {"pending_id": 1, "sha256": PLAN_HASH, "channel": "messaging"}
     world.fake.answers["reject"] = {"rejected": True}
     world.say("/reject 1 not now")
-    assert world.calls("reject")[0][2] == {"pending_id": 1, "note": "not now"}
+    assert world.calls("reject")[0][2] == {"pending_id": 1, "note": "not now", "channel": "messaging"}
     world.items[2] = decision("review", 2)
+    world.bridge.tick()
     world.fake.answers["release"] = {"released": True}
     world.say("/release 2")
-    assert wait_for(lambda: world.calls("release")) and world.calls("release")[0][2] == {"pending_id": 2}
+    assert wait_for(lambda: world.calls("release")) and world.calls("release")[0][2] == {"pending_id": 2, "channel": "messaging"}
     assert wait_for(lambda: world.texts()[-1] == "Released #2.")
     world.say("/approve")
     assert world.texts()[-1] == "Usage: /approve <id>"

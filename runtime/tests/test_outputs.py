@@ -191,7 +191,7 @@ def opened(world, task):
 
 
 def approve(world, item, channel="terminal"):
-    return ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel)
+    return ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
 
 
 def effect_doc(world, task, cycle=0):
@@ -370,7 +370,7 @@ def test_limit_31_an_output_is_not_approved_from_messaging_the_tool_server_or_a_
     item = opened(world, task)
     for channel in ("messaging", "mcp", "conversation", None):
         with pytest.raises(ops_core.OpsError) as refused:
-            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel)
+            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
         assert "approved in the terminal" in str(refused.value)
     with pytest.raises(ops_core.OpsError) as refused:
         ops.approve(world["path"], item["id"], sha256="0" * 64, channel="terminal")

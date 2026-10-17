@@ -223,7 +223,7 @@ def test_request_route_answer_release_and_say_go_through_the_operations_layer(wo
     assert world.fake.calls[0] == ("request", path, {"text": "make a plan", "flow": "demo", "title": "T"})
     assert world.fake.calls[1] == ("answer_proposing", path, {"pending_id": 2, "text": "yes", "with_comments": True, "channel": "mcp"})
     assert sorted(c[0] for c in world.fake.calls[2:]) == ["release", "route", "say"]
-    assert {c[0]: c[2] for c in world.fake.calls[2:]} == {"route": {"request_id": 5, "flow": "demo", "channel": "mcp"}, "release": {"pending_id": 2},
+    assert {c[0]: c[2] for c in world.fake.calls[2:]} == {"route": {"request_id": 5, "flow": "demo", "channel": "mcp"}, "release": {"pending_id": 2, "channel": "mcp"},
                                                           "say": {"text": "hello", "channel": "mcp"}}
     for name in ("request", "route", "answer", "release", "say"):
         assert "mcp" in operations.by_name(name)["channels"], name
@@ -326,7 +326,7 @@ def test_say_is_called_as_the_channel_mcp_and_the_client_cannot_change_it(world)
     [(_, _, kwargs)] = world.fake.named("say")
     assert kwargs == {"text": "hello", "channel": "mcp"}
     assert "mcp" not in ops.EFFECT_CHANNELS  # the rule of the operations layer, which this shell does not restate
-    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "answer", "approve", "cancel", "stop-task", "set-mode", "set-model", "give-consent", "dispatch", "say", "instructions-set",
+    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "answer", "release", "approve", "reject", "retry", "cancel", "stop-task", "set-mode", "set-model", "give-consent", "dispatch", "say", "instructions-set",
                                                                                          "instructions-add", "routine-create", "routine-change"]
     assert "mcp" not in operations.by_name("approve")["channels"]
     # set-mode takes the channel (R4-C3) to refuse `accept` from any but the terminal; it has no tool and no chat command
@@ -532,7 +532,7 @@ def test_a_folder_that_is_not_a_project_ends_the_start_and_an_unaccepted_configu
                      for a in row["args"] if a.get("required")}
         sentence = refusal_of(tool(server, row["name"], arguments))
         assert digest in sentence and "accept-config" in sentence, row["name"]
-    ops.accept_config(path, digest)
+    ops.accept_config(path, digest, widen=ops.config(path)["widening_sha256"])
     [listed] = result_of(tool(server, "projects"))["projects"]
     assert listed["config"]["accepted"] is True and listed["open_pending"] == 0 and listed["running_task"] is None
     assert result_of(tool(server, "status"))["pending"] == []

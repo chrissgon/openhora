@@ -965,8 +965,8 @@ def test_the_config_operation_never_refuses_an_unaccepted_configuration_and_the_
     digest = ops.project_config.load(real.path)["sha256"]
     found = ops.config(real.path)
     assert found == {"path": os.path.join(real.path, "docs", "workbench", "runtime.json"), "sha256": digest, "accepted": False,
-                     "data_dir": str(real.tree["data"]), "messaging": {"senders": {}, "notices": "text", "page_url": None},
-                     "channels": {}, "grants": [], "widening": [], "widening_sha256": None, "warnings": []}   # POL-1: grants, widening, its hash, warnings
+                     "data_dir": str(real.tree["data"]), "messaging": {"senders": {}, "sender_profiles": {}, "notices": "text", "page_url": None},
+                     "channels": {}, "policies": {}, "channel_profiles": {}, "grants": [], "widening": [], "widening_sha256": None, "warnings": []}   # POL-1: grants, widening, its hash, warnings
     with pytest.raises(ops.OpsError) as refused:
         ops.status(real.path)
     assert refused.value.code == 3 and digest in str(refused.value)
