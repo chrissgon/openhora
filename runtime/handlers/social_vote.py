@@ -531,6 +531,8 @@ def vote_approve(cfg: dict, project: Path, store, item: dict, a, h) -> dict:
     done = run_json([sys.executable, sched, "schedule", "--id", b["key"], "--at", b["slot"]["when"],
                      "--command-file", job, "--confirmed", "--approved", dry["approved"]])
     result = {"scheduled": {"id": b["key"], "at": b["slot"]["when"], "digest": dry["approved"]}}
+    if dry.get("warnings"):  # e.g. the scheduler's: the interpreter of uv run is not pinned (UV_PYTHON unset here)
+        result["warnings"] = dry["warnings"]
     _action(store, h, "vote-schedule", b["key"], item["payload_sha256"], done)
 
     commit = None
