@@ -42,7 +42,8 @@ def quick(folder, who, run_id, date):
 
 @pytest.fixture
 def pooled(tmp_path, monkeypatch):
-    """A checkout whose only evidence of old-model is a lab baseline and four community quick tests from two forks: the pool
+    """A checkout whose only evidence of old-model is a lab baseline and three community quick tests from two forks (the lines count in the order they were made: the first three of
+    each case, one fork holding two thirds of them at most): the pool
     closes through community evidence alone. Returns the standing the facade builds from it, read before any stand-in."""
     root = tmp_path / "checkout"
     root.mkdir()
@@ -52,7 +53,7 @@ def pooled(tmp_path, monkeypatch):
     bands.event(folder, "partial", "1.0.0", "2029-12-01", [(c, "without", 0.5, {"model": "old-model", "adapter": "oh"})
                                                            for c in (1, 2, 3) for _ in range(3)], strong="old-model")
     community.commit(root, "Owner <owner@mail.example>", "lab evidence")
-    for n, who in enumerate(("ana", "ana", "ana", "bo"), 1):
+    for n, who in enumerate(("ana", "bo", "ana"), 1):
         quick(folder, who, n, f"2030-01-0{n}")
     community.commit(root)
     module = lab.LAB.load_status()

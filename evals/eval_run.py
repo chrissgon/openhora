@@ -84,10 +84,12 @@ the skill, on every model the event runs, and nothing else: no baseline (the eve
 gate, an event of the kind "quick" whose "runs" is 1, about a third of the with-skill cost of a full test. It is
 PRELIMINARY ALONE: it moves the score, it satisfies the guard assertions it runs, and it never moves a band or the gate.
 What it adds up to is the pool: the with-skill lines of one skill, one model and one evidence source (lab, local or
-community: never mixed), of the current X.Y since the newest epoch, from full, partial and quick events together. A pool
-closes when every current case has at least "runs" (3) lines in it and a baseline in force, and, for community evidence,
-lines from at least two contributors; a closed pool is evaluated by the unchanged rule of the gate and counts as a full
-test (eval_status.py, "The pooled gate"). The same event rules hold as for the other kinds: an open event of the skill must be
+community: never mixed), of the current X.Y since the newest epoch, from full, partial and quick events together. The
+pool's gate reads, per case, only the first "runs" (3) lines in time order; later lines count for the score and nowhere else.
+A pool closes when every current case has that many lines and a baseline in force, and, for community evidence, when the
+counted lines come from at least two contributors, none holding more than two thirds of them; a closed pool is evaluated by
+the unchanged rule of the gate and counts as a full test (eval_status.py, "The pooled gate"). To iterate on a skill that is
+being written, run the quick test as a trial: --quick --scratch writes no evidence and blocks no later event. The same event rules hold as for the other kinds: an open event of the skill must be
 resumed (--resume) or closed (--close) first, evidence is written only at the configured values and in the eval container.
 --quick cannot be combined with --cases, --baseline, --baseline-on, --platform, --runs, --only or --ablate: it chooses
 nothing but the model.

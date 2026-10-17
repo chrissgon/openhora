@@ -152,10 +152,10 @@ def test_the_cause_of_an_open_pool_shows_its_progress_and_the_command_is_a_quick
     baseline(demo)
     quicks(demo, 2)
     r = row(root, demo)
-    assert r["cause"] == ("no full test of version 1.x and no closed pool (pool of 1.0: 0 of 3 cases at 3 runs; "
-                          "baseline in force for 3)")
+    text = "pool of 1.0: 0 of 3 cases at 3 runs; baseline in force for 3; lines from 2030-01-01 to 2030-01-02"
+    assert r["cause"] == f"no full test of version 1.x and no closed pool ({text})"
     assert r["command"] == "python3 evals/eval_run.py --skill core-demo --quick"
-    assert r["pool"]["progress"] == "pool of 1.0: 0 of 3 cases at 3 runs; baseline in force for 3"
+    assert r["pool"]["progress"] == text and (r["pool"]["from"], r["pool"]["to"]) == ("2030-01-01", "2030-01-02")
     assert (r["pool"]["cases"], r["pool"]["cases_at_runs"], r["pool"]["baseline_cases"], r["pool"]["lines"]) == (3, 0, 3, 6)
 
 
@@ -164,9 +164,9 @@ def test_a_pool_missing_one_case_stays_open_with_the_progress_text(root, demo):
     quicks(demo, 2)
     quick(demo, date="2030-01-03", cases=(1, 2))  # case 3 has two lines, the others three
     r = row(root, demo)
+    text = "pool of 1.0: 2 of 3 cases at 3 runs; baseline in force for 3; lines from 2030-01-01 to 2030-01-03"
     assert r["pool"]["closed"] is False and r["band"] == "needs a test" and r["gate"]["computed"] is False
-    assert r["pool"]["progress"] == "pool of 1.0: 2 of 3 cases at 3 runs; baseline in force for 3"
-    assert "pool of 1.0: 2 of 3 cases at 3 runs; baseline in force for 3" in r["cause"]
+    assert r["pool"]["progress"] == text and text in r["cause"]
 
 
 def test_a_pool_without_a_baseline_in_force_stays_open_whatever_its_lines(root, demo):
@@ -183,7 +183,8 @@ def test_three_quick_tests_and_a_baseline_in_force_close_the_pool_and_a_passing_
     baseline(demo)
     quicks(demo, 3)
     r = row(root, demo)
-    assert r["pool"]["closed"] is True and r["pool"]["progress"] == "pool of 1.0: 3 of 3 cases at 3 runs; baseline in force for 3"
+    assert r["pool"]["closed"] is True
+    assert r["pool"]["progress"] == "pool of 1.0: 3 of 3 cases at 3 runs; baseline in force for 3; lines from 2030-01-01 to 2030-01-03"
     assert (r["band"], r["cause"], r["causes"]) == ("reliable", None, [])
     gate = r["gate"]
     assert (gate["computed"], gate["passed"], gate["note"], gate["version"]) == (True, True, "pooled", "1.0")
@@ -199,23 +200,69 @@ def test_a_closed_pool_that_fails_the_gate_is_a_failed_gate_and_the_band_needs_a
     assert r["pool"]["closed"] is True
     assert r["gate"]["computed"] is True and r["gate"]["passed"] is False and r["gate"]["note"] == "pooled"
     assert (r["band"], r["kind"]) == ("needs a test", "gate failed")
-    assert r["cause"].startswith("the pooled gate of 1.0 fails (with the skill 0.600, baseline 0.500; 9 runs from 3 test(s))")
+    assert r["cause"] == ("the pooled gate of 1.0 fails (with the skill 0.600, baseline 0.500; the first 3 lines of each case, "
+                          "9 of 9, dated 2030-01-01 to 2030-01-03)")
     assert r["command"] == "after the fix: python3 evals/eval_run.py --skill core-demo --quick"
 
 
+# --- the gate reads the first `runs` lines of each case, and nothing else -------------------------------------------------
+
+def test_the_gate_of_a_closed_pool_reads_the_first_three_lines_of_each_case_and_later_lines_move_only_the_score(root, demo):
+    baseline(demo)
+    quicks(demo, 3, score=0.6)
+    failing = row(root, demo)
+    assert failing["gate"]["passed"] is False and failing["gate"]["with"] == pytest.approx(0.6)
+    for n in range(4, 13):  # nine more quick tests, all at 1.0: a top-up that would pass a pool that reads every line
+        quick(demo, date=f"2030-01-{n:02d}", score=1.0)
+    for d in ("2030-02-01", "2030-02-02"):  # and partial reruns of the case that did worst
+        tb.event(demo, "partial", "1.0.0", d, [(1, "with", 1.0, None)] * 3)
+    after = row(root, demo)
+    assert after["gate"]["passed"] is False and after["gate"]["with"] == pytest.approx(0.6)  # the gate did not move
+    assert after["gate"]["test"] == failing["gate"]["test"] and (after["band"], after["kind"]) == ("needs a test", "gate failed")
+    assert after["pool"]["lines"] == 12 * 3 + 6 and after["pool"]["counted"] == 9
+    assert after["mean"] > failing["mean"] and after["runs"] > failing["runs"]  # the score read every line
+
+
+def test_the_first_lines_are_chosen_by_time_so_a_later_line_never_changes_an_earlier_one(root, demo):
+    baseline(demo)
+    quick(demo, date="2030-01-02", score=0.9)
+    quick(demo, date="2030-01-01", score=0.9)  # written second, dated first: time decides, not the order of writing
+    quick(demo, date="2030-01-03", score=0.9)
+    first = row(root, demo)["gate"]
+    quick(demo, date="2030-01-04", score=0.0)
+    assert row(root, demo)["gate"] == first
+    # A later partial test of one case adds nothing to the gate either.
+    tb.event(demo, "partial", "1.0.0", "2030-01-05", [(1, "with", 0.0, None)] * 3)
+    assert row(root, demo)["gate"] == first
+
+
 def test_the_pool_is_judged_by_the_unchanged_rule_of_the_gate_means_per_case_first(root, demo):
-    """Case 1 has nine lines at 1.0, cases 2 and 3 three lines at 0.5: the mean of the lines is 0.8, which would pass, and the mean of
-    the cases' means is 0.667, which does not: a case with more lines weighs as much as the others, as in a full test."""
+    """Case 1 is 1.0 in its three counted lines, cases 2 and 3 are 0.5: the mean of the cases' means is 0.667, below the threshold,
+    whatever the lines after them say; the baseline at 0.2 leaves only the threshold to decide."""
     baseline(demo, score=0.2)
     quicks(demo, 3, score=0.5, cases=(2, 3))
-    for n in range(4, 13):
+    for n in range(4, 7):
         quick(demo, date=f"2030-01-{n:02d}", score=1.0, cases=(1,))
     r = row(root, demo)
-    assert r["pool"]["closed"] is True and r["pool"]["lines"] == 15
+    assert r["pool"]["closed"] is True
     assert r["gate"]["with"] == pytest.approx((1.0 + 0.5 + 0.5) / 3) and r["gate"]["baseline"] == pytest.approx(0.2)
     assert r["gate"]["passed"] is False and (r["band"], r["kind"]) == ("needs a test", "gate failed")
-    measure = es.load_measure()
-    assert measure.gate_passes(0.8, 0.2, CFG["threshold"], CFG["tolerance"]) is True  # by lines it would have passed
+    assert es.load_measure().gate_passes(0.8, 0.2, CFG["threshold"], CFG["tolerance"]) is True  # a mean of the lines would pass
+
+
+def test_targeted_partial_reruns_after_a_failing_full_test_cannot_turn_the_gate_once_a_quick_test_exists(root, demo):
+    """The reviewer's fixture: case 1 unlucky at 0.5 in a full test (mean 0.767, below 0.8); partial reruns of case 1, then one quick
+    test. The lines of the full test are the first three of each case: the pool reads them, and nothing after them."""
+    lines = [(1, "with", 0.5, None)] * 3 + [(c, "with", 0.9, None) for c in (2, 3) for _ in range(3)]
+    lines += [(c, "without", 0.4, None) for c in (1, 2, 3) for _ in range(3)]
+    tb.event(demo, "full", "1.0.0", "2030-01-01", lines,
+             gate={"passed": False, "with": 0.767, "baseline": 0.4, "threshold": 0.8, "tolerance": 0.05})
+    for d in ("2030-01-02", "2030-01-03"):
+        tb.event(demo, "partial", "1.0.0", d, [(1, "with", 0.9, None)] * 3)
+    quick(demo, date="2030-01-04", score=0.8)
+    r = row(root, demo)
+    assert r["gate"]["passed"] is False and r["gate"]["note"] is None  # the full test stands: the pool's newest counted test is it
+    assert (r["band"], r["kind"]) == ("needs a test", "gate failed") and r["pool"]["counted"] == 9
 
 
 def test_a_full_test_given_up_and_quick_tests_that_fill_it_close_the_pool(root, demo):
@@ -242,26 +289,15 @@ def test_a_full_test_alone_is_gated_exactly_as_before_and_has_no_pool(root, demo
     assert "pool" not in again and again["gate"] == quick_free["gate"]  # and, with no quick test, there is no pooled route
 
 
-def test_a_full_test_stands_when_the_quick_tests_are_older_than_it(root, demo):
+def test_a_later_full_test_stands_over_an_older_pool(root, demo):
     baseline(demo)
     quicks(demo, 3, score=0.6)  # a closed pool, failing the gate
     assert row(root, demo)["band"] == "needs a test"
     tb.full(demo, date="2030-03-01", score=0.9)  # a later full test of the same X.Y passes by itself
     r = row(root, demo)
-    # The full test's own lines are the newest in the pool: the pool's newest test is that full test, and a tie goes to the full test.
-    assert r["gate"]["note"] is None and r["gate"]["test"] == r["pool"]["deciding"]["test"]
+    assert r["gate"]["note"] is None and r["gate"]["test"] > r["pool"]["deciding"]["test"]
     # The gate passes; the weak quick lines still count in the score (the band is watch, for a pessimistic score under 0.70).
     assert r["gate"]["passed"] is True and (r["band"], r["kind"]) == ("watch", "score")
-
-
-def test_a_pool_that_the_newest_test_closes_and_fails_overrides_an_older_passing_full_test(root, demo):
-    tb.full(demo, date="2030-01-01", score=0.9)
-    assert row(root, demo)["band"] == "reliable"
-    for n in range(2, 8):
-        quick(demo, date=f"2030-02-{n:02d}", score=0.0)
-    r = row(root, demo)
-    assert r["pool"]["deciding"]["xy"] == "1.0" and r["gate"]["note"] == "pooled"
-    assert r["gate"]["passed"] is False and (r["band"], r["kind"]) == ("needs a test", "gate failed")
 
 
 # --- the guards, the Y changes, a new X.Y -----------------------------------------------------------------------------
@@ -315,23 +351,99 @@ def test_three_y_changes_make_the_skill_watch_and_a_closed_pool_resets_the_count
     assert "y changes" not in [c["kind"] for c in r["causes"]] and r["band"] == "reliable"
 
 
-def test_a_case_that_changed_leaves_the_lines_of_its_old_text_out_of_the_pool(root, demo):
+CASES_3 = [{"id": i, "prompt": f"p{i}", "assertions": [f"a{j}" for j in range(10)]} for i in (1, 2, 3)]
+
+
+def changed_third(extra=None):
+    """The three cases, the third one with another prompt (a changed case), or with one more case after it (an added one)."""
+    cases = [dict(c) for c in CASES_3]
+    if extra:
+        return cases + [extra]
+    cases[2] = {**cases[2], "prompt": "p3 changed"}
+    return cases
+
+
+def test_a_case_changed_after_the_pool_closed_is_pending_and_the_band_is_watch_as_for_a_full_test(root, demo):
     baseline(demo)
     quicks(demo, 3)
-    assert row(root, demo)["pool"]["closed"] is True
-    cases = [{"id": i, "prompt": f"p{i}", "assertions": [f"a{j}" for j in range(10)]} for i in (1, 2)]
-    cases.append({"id": 3, "prompt": "p3 changed", "assertions": [f"a{j}" for j in range(10)]})
-    tb.skill(root, cases=cases)
+    assert row(root, demo)["band"] == "reliable"
+    tb.skill(root, cases=changed_third())
     r = row(root, demo)
-    assert r["pool"]["closed"] is False and r["pool"]["cases_at_runs"] == 2 and r["pool"]["baseline_cases"] == 2
+    assert r["pool"]["closed"] is True and r["pool"]["pending"] == ["3"] and r["pool"]["changed"] == ["3"]
+    assert r["gate"]["passed"] is True and r["gate"]["note"] == "pooled" and r["pool"]["gate_cases"] == ["1", "2"]
+    assert (r["band"], r["kind"]) == ("watch", "case pending")
+    assert r["gate"]["with"] == pytest.approx(0.9) and r["pending"] == ["3"]
+    assert "case(s) 3 changed after the newest full test and wait for their runs (case 3 had 3 run(s) of mean 0.900)" in r["cause"]
+    assert r["command"] == "python3 evals/eval_run.py --skill core-demo --cases 3 --baseline"
+    # The same change on a skill with a full test, for the comparison the review asked for.
+    full = tb.skill(root, name="core-full", cases=CASES_3)
+    tb.versions(full, ("1.0.0", "new"))
+    tb.full(full)
+    tb.skill(root, name="core-full", cases=changed_third())
+    f = tb.band(root, full, CFG)
+    assert (f["band"], f["kind"]) == (r["band"], r["kind"])
 
 
-def test_an_epoch_starts_the_pool_over_and_expires_the_baseline(root, demo):
+def test_a_case_added_after_the_pool_closed_is_pending_and_enters_the_gate_once_it_has_its_runs(root, demo):
+    baseline(demo)
+    quicks(demo, 3)
+    added = {"id": 4, "prompt": "p4", "assertions": [f"a{j}" for j in range(10)]}
+    tb.skill(root, cases=CASES_3 + [added])
+    r = row(root, demo)
+    assert r["pool"]["closed"] is True and r["pool"]["pending"] == ["4"] and r["pool"]["changed"] == []
+    assert r["pool"]["gate_cases"] == ["1", "2", "3"] and r["pending"] == ["4"]
+    assert r["band"] == "reliable"  # an added case waits and changes no band, as for a full test
+    assert r["pending_command"] == "python3 evals/eval_run.py --skill core-demo --cases 4 --baseline"
+    # Its runs and its baseline: it enters the gate, which is then computed on all four cases.
+    tb.event(demo, "partial", "1.0.0", "2030-02-01", [(4, "with", 0.9, None)] * 3 + [(4, "without", 0.5, None)] * 3)
+    after = row(root, demo)
+    assert after["pool"]["gate_cases"] == ["1", "2", "3", "4"] and after["pending"] == [] and after["pool"]["pending"] == []
+
+
+def test_a_case_changed_again_after_its_changed_text_ran_cannot_be_computed_and_the_band_needs_a_test(root, demo):
+    baseline(demo)
+    quicks(demo, 3)
+    tb.skill(root, cases=changed_third())
+    # The changed text of case 3 runs (not enough to count) ...
+    tb.event(demo, "partial", "1.0.0", "2030-02-01", [(3, "with", 0.9, None)])
+    cases = changed_third()
+    cases[2] = {**cases[2], "prompt": "p3 changed again"}
+    tb.skill(root, cases=cases)  # ... and the case changes a second time
+    r = row(root, demo)
+    assert r["pool"]["closed"] is False and "case(s) 3 changed again after the pool closed" in r["pool"]["progress"]
+    assert r["band"] == "needs a test"
+
+
+def test_an_epoch_after_the_pool_closed_leaves_its_result_standing_and_the_band_is_watch_as_for_a_full_test(root, demo):
     baseline(demo)
     quicks(demo, 3)
     cfg = {**CFG, "epochs": [{"date": "2030-06-01", "models": "all", "skills": "all", "cause": "a hosted model changed"}]}
     r = row(root, demo, cfg)
-    assert r["pool"]["lines"] == 0 and r["pool"]["closed"] is False and r["pool"]["baseline_cases"] == 0
+    assert r["pool"]["lines"] == 0 and r["pool"]["closed"] is False and r["pool"]["baseline_cases"] == 0  # the new era starts empty
+    assert r["pool"]["deciding"]["frozen"] is True
+    assert r["gate"]["computed"] is False and r["gate"]["passed"] is True and r["gate"]["note"] == "pooled, baseline expired"
+    assert r["gate"]["with"] == pytest.approx(0.9)
+    assert (r["band"], r["kind"]) == ("watch", "no current run")
+    full = tb.skill(root, name="core-full", cases=CASES_3)
+    tb.versions(full, ("1.0.0", "new"))
+    tb.full(full)
+    f = tb.band(root, full, cfg)
+    assert (f["band"], f["kind"]) == (r["band"], r["kind"])  # the review's asymmetry is gone
+    # A pool of the new era closes on its own lines and baseline, and decides again.
+    baseline(demo, date="2030-06-02")
+    for n in (3, 4, 5):
+        quick(demo, date=f"2030-06-{n:02d}")
+    again = row(root, demo, cfg)
+    assert again["pool"]["closed"] is True and again["gate"]["computed"] is True and again["gate"]["note"] == "pooled"
+    assert again["band"] == "reliable"
+
+
+def test_a_frozen_pool_that_failed_stays_failed_after_an_epoch(root, demo):
+    baseline(demo)
+    quicks(demo, 3, score=0.6)
+    cfg = {**CFG, "epochs": [{"date": "2030-06-01", "models": "all", "skills": "all", "cause": "a hosted model changed"}]}
+    r = row(root, demo, cfg)
+    assert (r["band"], r["kind"]) == ("needs a test", "gate failed") and "baseline expired" in r["cause"]
 
 
 def test_the_pool_reads_the_lines_of_the_subject_model_only(root, demo):
@@ -428,13 +540,51 @@ def test_a_community_pool_from_one_contributor_does_not_close_and_from_two_does(
         quick_c(crepo, "ana", n, date=f"2030-01-0{n}")
     one = community_row(croot)
     assert one["pool"]["closed"] is False and one["pool"]["contributors"] == 1 and one["pool"]["cases_at_runs"] == 3
-    assert one["pool"]["progress"] == "pool of 1.0: 3 of 3 cases at 3 runs; baseline in force for 3; 1 of 2 contributors"
+    assert one["pool"]["progress"].startswith("pool of 1.0: 3 of 3 cases at 3 runs; baseline in force for 3; 1 of 2 contributors, ")
     assert (one["band"], one["kind"]) == ("needs a test", "no passing full test") and one["community_only"] is False
     assert "1 of 2 contributors" in one["cause"]
-    quick_c(crepo, "bo", 1, date="2030-01-04")  # a fourth test from a second fork: the pool has two contributors
+    # Lines count in the order they were made: a second fork's test after the third line of every case adds a line to the score
+    # and nothing to the pool, which stays with one contributor.
+    quick_c(crepo, "bo", 1, date="2030-01-04")
+    assert community_row(croot)["pool"]["closed"] is False
+    # Where the second fork's tests come before the third line, the counted lines have two contributors.
+    quick_c(crepo, "bo", 2, date="2030-01-02")  # between the first and the third test of the first fork
     two = community_row(croot)
     assert two["pool"]["closed"] is True and two["pool"]["contributors"] == 2 and two["contributors"] == 2
     assert two["band"] == "reliable" and two["community_only"] is True  # reliable through community evidence alone: held for review
+
+
+def test_a_community_pool_closes_only_when_no_contributor_holds_more_than_two_thirds_of_the_counted_lines(croot, crepo):
+    lab_baseline_for(crepo)
+    tc.commit(croot, "Owner <owner@mail.example>", "lab evidence")
+    quick_c(crepo, "ana", 1, date="2030-01-01")
+    quick_c(crepo, "ana", 2, date="2030-01-02")
+    quick_c(crepo, "ana", 3, date="2030-01-03", cases=(1,))
+    quick_c(crepo, "bo", 1, date="2030-01-04", cases=(2, 3))
+    shared = community_row(croot)["pool"]  # ana holds 7 of the 9 counted lines: 78%
+    assert shared["contributors"] == 2 and shared["closed"] is False
+    assert "the largest holding 78% of the counted lines (at most 67%)" in shared["progress"]
+    # Exactly two thirds is allowed: ana 6 of 9, bo 3 of 9, in a pool of its own.
+    crepo2 = bands_skill(croot, "core-two")
+    lab_baseline_for(crepo2)
+    tc.commit(croot, "Owner <owner@mail.example>", "lab evidence of a second skill")
+    quick_c(crepo2, "ana", 1, date="2030-01-01")
+    quick_c(crepo2, "bo", 2, date="2030-01-02")
+    quick_c(crepo2, "ana", 3, date="2030-01-03")
+    two_thirds = community_row2(croot, "core-two")
+    assert two_thirds["pool"]["closed"] is True and two_thirds["pool"]["contributors"] == 2
+
+
+def bands_skill(root, name):
+    folder = tb.skill(root, name=name)
+    tb.versions(folder, ("1.0.0", "new"))
+    return folder
+
+
+def community_row2(croot, name, model="old-model"):
+    tc.commit(croot)
+    return es.community_section(str(croot), [name], CFG, es.evidence_authors(str(croot)),
+                                es.all_status(str(croot), name)["skills"])["skills"][name][model]
 
 
 def test_a_community_pool_may_use_the_labs_baseline_and_its_own_for_the_cases_the_lab_lacks(croot, crepo):
@@ -445,21 +595,51 @@ def test_a_community_pool_may_use_the_labs_baseline_and_its_own_for_the_cases_th
         quick_c(crepo, who, n, date=f"2030-01-0{n}")
     open_pool = community_row(croot)["pool"]
     assert open_pool["baseline_cases"] == 2 and open_pool["closed"] is False  # no baseline in force for case 3: it stays open
-    # a community full test of the model brings its own baseline for every case (and its lines to the pool)
+    # a community full test of the model brings its own baseline for every case (its with-skill lines come after the third)
     tc.community(crepo, model="old-model", adapter="oh", repo_id=444, run_id=9, kind="full", repository="cy/openhora", run_number=9,
                  date="2030-01-09", with_score=0.9, base_score=0.5)
     pooled = community_row(croot)["pool"]
-    assert pooled["baseline_cases"] == 3 and pooled["closed"] is True and pooled["contributors"] == 3
+    assert pooled["baseline_cases"] == 3 and pooled["closed"] is True and pooled["contributors"] == 2
 
 
-def test_the_per_contributor_cap_still_applies_to_a_community_pool(croot, crepo):
+def test_the_per_contributor_cap_cannot_push_an_earlier_line_out_of_the_pool(croot, crepo):
+    """The review's second blocker: with the newest 30 lines of a contributor kept, a contributor could re-draw a pool by adding
+    lines. The pool reads the lines before the cap and counts a contributor's first lines only: the score column keeps the
+    newest 30, the gate keeps what the first lines said."""
     lab_baseline_for(crepo)
     tc.commit(croot, "Owner <owner@mail.example>", "lab evidence")
-    for n in range(1, 12):  # 11 quick tests of one fork: 33 lines with the skill, the cap is 30
-        quick_c(crepo, "ana", n, date=f"2030-01-{n:02d}")
-    figures = community_row(croot)
-    assert figures["capped"] == 3 and figures["runs"] == 30 and figures["pool"]["lines"] == 30
-    assert figures["pool"]["closed"] is False and figures["pool"]["contributors"] == 1
+    quick_c(crepo, "ana", 1, date="2030-01-01", score=0.5)
+    quick_c(crepo, "bo", 1, date="2030-01-02", score=0.5)
+    quick_c(crepo, "ana", 2, date="2030-01-03", score=0.5)
+    failing = community_row(croot)
+    assert failing["pool"]["closed"] is True and failing["pool"]["gate"]["passed"] is False
+    for n in range(3, 14):  # 11 more quick tests of the first fork, all good: 39 lines with the skill, over the cap of 30
+        quick_c(crepo, "ana", n, date=f"2030-01-{n + 1:02d}", score=1.0)
+    after = community_row(croot)
+    assert after["capped"] == 9 and after["runs"] == 33  # the column keeps the newest 30 of the fork's lines
+    assert after["pool"]["closed"] is True and after["pool"]["gate"]["passed"] is False
+    assert after["pool"]["gate"]["with"] == pytest.approx(failing["pool"]["gate"]["with"])  # and the gate has not moved
+    assert after["pool"]["lines"] == 3 * 14 and after["pool"]["counted"] == 9
+
+
+def test_the_cap_applies_to_the_counted_lines_of_a_pool_in_time_order(croot):
+    """With 12 cases one fork's first three tests are 36 lines: the cap of 30 stops its counting after the 30th, and the other
+    fork's test supplies the last line of the six cases that lack one."""
+    folder = tb.skill(croot, cases=[{"id": i, "prompt": f"p{i}", "assertions": [f"a{j}" for j in range(10)]} for i in range(1, 13)])
+    tb.versions(folder, ("1.0.0", "new"))
+    tb.event(folder, "partial", "1.0.0", "2029-12-01", [(c, "without", 0.5, {"model": "old-model", "adapter": "oh"})
+                                                       for c in range(1, 13) for _ in range(3)], strong="old-model")
+    tc.commit(croot, "Owner <owner@mail.example>", "lab evidence")
+    ids = tuple(range(1, 13))
+    for n in (1, 2, 3):
+        tc.community(folder, model="old-model", adapter="oh", repo_id=111, run_id=n, kind="quick", per_case=1, cases=ids,
+                     date=f"2030-01-0{n}", repository="ana/openhora", run_number=n, extra_event={"runs": 1})
+    assert community_row(croot)["pool"]["cases_at_runs"] == 6  # ana's counted lines stop at 30: six cases have two
+    tc.community(folder, model="old-model", adapter="oh", repo_id=222, run_id=1, kind="quick", per_case=1, cases=ids,
+                 date="2030-01-04", repository="bo/openhora", run_number=1, extra_event={"runs": 1})
+    done = community_row(croot)["pool"]
+    assert done["cases_at_runs"] == 12 and done["contributors"] == 2 and done["closed"] is False  # ana holds 30 of 36 lines: 83%
+    assert "the largest holding 83%" in done["progress"]
 
 
 def test_lab_and_community_lines_never_mix_in_a_pool(croot, crepo):
@@ -474,6 +654,70 @@ def test_lab_and_community_lines_never_mix_in_a_pool(croot, crepo):
     com = tc.section(croot)["skills"]["core-demo"]["s-model"]
     assert com["pool"]["lines"] == 3 and com["pool"]["closed"] is False  # nor the lab's in the community's
     assert lab["pool"]["lines"] + com["pool"]["lines"] == 9  # nine lines of three tests, and neither pool is closed
+
+
+# --- a draft's lines, and what switches the route on --------------------------------------------------------------------
+
+def rewrite_content(path, sha):
+    """Give the lines of an evidence file another content hash: what an edit of the skill under the same version does to the
+    lines already written (the version file's line is written again with the final content)."""
+    lines = [json.loads(line) for line in path.read_text().splitlines()]
+    for line in lines:
+        line["content_sha256"] = sha
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+
+
+def draft_skill(root):
+    cases = [{"id": 1, "prompt": "p", "assertions": [f"a{j}" for j in range(9)] + [{"text": "asks", "tags": ["guard"]}]},
+             {"id": 2, "prompt": "q", "assertions": [f"a{j}" for j in range(10)]}]
+    folder = tb.skill(root, version="0.1.0", cases=cases)
+    tb.versions(folder, ("0.1.0", "new"))
+    return folder
+
+
+def test_the_lines_of_a_draft_never_count_once_the_version_file_names_the_final_content(root):
+    folder = draft_skill(root)
+    draft = tb.event(folder, "quick", "0.1.0", "2030-01-01", [(1, "with", 0.9, {"guard_failed": [10], "results": [1] * 9 + [0]}),
+                                                            (2, "with", 0.9, None)])
+    assert [(g["case"], g["state"]) for g in row(root, folder)["guards"]] == [("1", "failed")]  # the draft is the only evidence
+    # The skill is edited and the version line is written again with the final content (the step "run bump again").
+    folder = tb.skill(root, version="0.1.0")
+    (folder / "evals" / "versions.jsonl").write_text(json.dumps(
+        {"version": "0.1.0", "content_sha256": tb.H["b"], "class": "new", "date": "2030-01-02"}) + "\n")
+    r = row(root, folder)
+    assert r["runs"] == 0 and [g["state"] for g in r["guards"]] == ["not run"]  # the draft's lines weigh nothing: no trap
+    final = tb.event(folder, "quick", "0.1.0", "2030-01-03", [(1, "with", 0.9, None), (2, "with", 0.9, None)])
+    rewrite_content(final, tb.H["b"])
+    after = row(root, folder)
+    assert [g["state"] for g in after["guards"]] == ["passed"] and after["runs"] == 2 and draft.exists()
+    state = es.pooled_state(str(root), str(folder), CFG, es.skill_evidence(str(folder)))
+    assert state["current"]["lines"] == 2  # the pool reads the final content's lines alone
+
+
+def test_a_skill_with_no_version_file_cannot_say_and_every_line_counts(root):
+    folder = tb.skill(root)
+    quick(folder)
+    assert row(root, folder)["runs"] == 3
+
+
+def test_a_quick_line_that_does_not_weigh_does_not_turn_the_route_on(root, demo):
+    tb.full(demo)
+    path = quick(demo, date="2030-01-02")
+    lines = [json.loads(line) for line in path.read_text().splitlines()]
+    for line in lines[1:]:
+        line["case_sha256"] = "9" * 64  # a case that has changed since: its line weighs nothing
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+    r = row(root, demo)
+    assert "pool" not in r and r["gate"]["note"] is None and r["band"] == "reliable"
+
+
+def test_a_quick_line_before_the_newest_epoch_alone_does_not_turn_the_route_on_for_the_current_era(root, demo):
+    quicks(demo, 1)  # an open pool of an earlier era
+    cfg = {**CFG, "epochs": [{"date": "2030-06-01", "models": "all", "skills": "all", "cause": "a hosted model changed"}]}
+    r = row(root, demo, cfg)
+    assert "pool" not in r
+
+
 
 
 # --- the committed evidence has no pool ---------------------------------------------------------------------------------
@@ -586,3 +830,16 @@ def test_a_quick_test_given_up_is_closed_and_keeps_the_lines_it_has(tmp_path, mo
     assert {(l["case"], l["model"]) for l in runs} == {(1, "m"), (1, "f"), (2, "f")} and "gate" not in closed
     assert er.load_status().evidence_problems(str(tmp_path)) == ({}, 1)
     assert json.loads((event / "event.json").read_text())["state"] == "closed"
+
+
+# --- --quick --scratch: the trials of a skill being written ------------------------------------------------------------
+
+def test_a_quick_trial_with_scratch_writes_no_evidence_and_does_not_block_the_next_event(tmp_path, monkeypatch, capsys):
+    skill = demo_run(tmp_path, monkeypatch)
+    assert er.main(["--skill", "demo", "--quick", "--scratch"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["complete"] is True and out["evidence"]["written"] is False and "--scratch" in out["evidence"]["reason"]
+    assert t.evidence_of(skill) == []
+    # The first quick test that writes evidence follows, with nothing open in its way.
+    assert er.main(["--skill", "demo", "--quick"]) == 0
+    assert json.loads(capsys.readouterr().out)["evidence"]["written"] is True and len(t.evidence_of(skill)) == 1
