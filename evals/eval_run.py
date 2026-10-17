@@ -9,6 +9,7 @@ Usage:
                       [--retries <n>] [--early-end-rate 0.15] [--scratch]
                       [--dry-run] [--check-cases [--with-setup]]
   python3 eval_run.py --skill <name> --platform <platform> [--cases <id>,...] [the model, run and check options above]
+  python3 eval_run.py --skill <name> --quick [--model <id>]... [--jobs 4] [--timeout <seconds>] [--max-cost-usd <amount>]
   python3 eval_run.py --resume <event folder> [--jobs 4]
   python3 eval_run.py --close <event folder>
   python3 eval_run.py --routing --pack <name> (--skill <name> | --prompts <file>) [--model <id>] [--jobs 4]
@@ -71,12 +72,28 @@ newest full test ran on, its own and those of every earlier full test that lists
 epoch (a second full test of an unchanged X.Y adds its runs and replaces none; a full test of another model
 changes nothing of this model's gate), every current case required, against the mean of the baselines in force
 for that model (evals/eval_status.py gate [--model <id>]).
-A partial test never moves the gate.
-An interrupted event is resumed (--resume). A full test that is abandoned instead is closed:
+A partial test never moves the gate. (A closed pool, below, is evaluated by the status script from the lines, not by an event.)
+An interrupted event is resumed (--resume). A full test or a quick test that is abandoned instead is closed:
 `--close <event folder>` writes its file into the skill as an incomplete event, whose lines stay in the gate of
 that version, where the next full test adds its own. While an event of a skill that may write evidence is
 open (neither complete nor closed), the runner starts no new such event of that skill: a test that is going
 badly cannot be interrupted, dropped and drawn again. A trial (below) is never open in that sense.
+
+Quick tests (--quick; package P11). `eval_run.py --skill <name> --quick [--model <id>]` runs every current case once with
+the skill, on every model the event runs, and nothing else: no baseline (the event line says "none" for every case), no
+gate, an event of the kind "quick" whose "runs" is 1, about a third of the with-skill cost of a full test. It is
+PRELIMINARY ALONE: it moves the score, it satisfies the guard assertions it runs, and it never moves a band or the gate.
+What it adds up to is the pool: the with-skill lines of one skill, one model and one evidence source (lab, local or
+community: never mixed), of the current X.Y since the newest epoch, from full, partial and quick events together. The
+pool's gate reads, per case, only the first "runs" (3) lines in time order; later lines count for the score and nowhere else.
+A pool closes when every current case has that many lines and a baseline in force, and, for community evidence, when the
+counted lines come from at least two contributors, none holding more than two thirds of them (a contributor's lines in one case
+count up to two of the three, the rest count for the score alone); a closed pool is evaluated by
+the unchanged rule of the gate and counts as a full test (eval_status.py, "The pooled gate"). To iterate on a skill that is
+being written, run the quick test as a trial: --quick --scratch writes no evidence and blocks no later event. The same event rules hold as for the other kinds: an open event of the skill must be
+resumed (--resume) or closed (--close) first, evidence is written only at the configured values and in the eval container.
+--quick cannot be combined with --cases, --baseline, --baseline-on, --platform, --runs, --only or --ablate: it chooses
+nothing but the model.
 
 Tests per platform (--platform <platform>; the plan's decision 14c). The cases of one social platform live in
 skills/<name>/evals/platforms/<platform>.json (its top-level "platform", when present, names the same
@@ -404,7 +421,7 @@ resumptions), the score, one 0 or 1 per assertion ("results"), "guard_failed" wh
 with-skill run confirmed a failed guard (above, "Grading"), the measurement version and the measurement
 fingerprint computed when the event started. A run that failed on infrastructure, was paused on the account
 limit or ended early writes no line. The event line carries what describes the event as a whole: its kind
-("full": every case with the skill on the lead model; "partial": chosen cases), the models (a list of
+("full": every case with the skill on the lead model; "partial": chosen cases; "quick": every case once with the skill), the models (a list of
 ids) with their adapters ({model id: adapter}) and the hash of each adapter's run-prompt.sh, the grader, the configured runs, timeout and retries,
 the image's digest and CPU platform, the versions of the tools in the image, the grading template's hash, the
 hash of every case, whether the baseline of each case was run, the web cases, per model and variant the
@@ -667,7 +684,7 @@ def parse(argv):
             "runs": None, "jobs": 4, "timeout": None, "max_cost": None, "check_cases": False, "retries": None,
             "early_rate": 0.15, "regrade": None, "scratch": False, "resume": None, "unpause": False, "at": None,
             "baseline": False, "baseline_on": [], "close": None, "with_setup": False,
-            "routing": False, "pack": None, "prompts": None, "platform": None}
+            "routing": False, "pack": None, "prompts": None, "platform": None, "quick": False}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -684,6 +701,7 @@ def parse(argv):
         elif a == "--baseline": opts["baseline"] = True; i += 1
         elif a == "--baseline-on": opts["baseline_on"].append(val()); i += 2
         elif a == "--platform": opts["platform"] = val(); i += 2
+        elif a == "--quick": opts["quick"] = True; i += 1
         elif a == "--close": opts["close"] = val(); i += 2
         elif a == "--threshold": opts["threshold"] = float(val()); i += 2
         elif a == "--only": opts["only"] = val(); i += 2
@@ -715,6 +733,7 @@ def parse(argv):
     # trial, and an event made with another value than the configured one writes no evidence.
     control = load_status().event_config(gate)
     timeout_given = opts["timeout"] is not None  # a local model's configured limit replaces the gate file's, unless --timeout is given
+    runs_given = opts["runs"] is not None
     for key, name in (("runs", "runs"), ("timeout", "timeout_seconds"), ("retries", "retries")):
         if opts[key] is None:
             opts[key] = control[name]
@@ -823,6 +842,17 @@ def parse(argv):
             die("--platform goes with --skill: it runs the cases of one platform's case file.")
         if opts["baseline"] or opts["baseline_on"] or opts["only"] in ("without", "ablated") or opts["ablate"]:
             die("--platform runs a platform's cases with the skill only, as a partial test: no baseline, no ablation.")
+    if opts["quick"]:
+        # A quick test: every case once with the skill, no baseline, an event of the kind "quick". It chooses nothing else.
+        if opts["routing"] or opts["regrade"] is not None or opts["check_cases"] or opts["resume"] is not None \
+                or opts["close"] is not None or opts["unpause"]:
+            die("--quick goes with --skill: it runs every case of the skill once, with the skill.")
+        clash = [flag for flag, on in (("--cases", opts["cases"]), ("--baseline", opts["baseline"]),
+                                       ("--baseline-on", opts["baseline_on"]), ("--platform", opts["platform"] is not None),
+                                       ("--runs", runs_given), ("--only", opts["only"]), ("--ablate", opts["ablate"] is not None))
+                 if on]
+        if clash:
+            die(f"--quick runs every case once with the skill and no baseline: it does not go with {', '.join(clash)}.")
     if opts["with_setup"] and not opts["check_cases"]:
         die("--with-setup goes with --check-cases: it runs the cases' setup commands in the eval container.")
     if opts["at"] is not None and not opts["unpause"]:
@@ -854,6 +884,8 @@ def parse(argv):
     if not 1 <= opts["jobs"] <= 8:
         die("--jobs must be between 1 and 8.")
     cap_local_jobs(opts)
+    if opts["quick"]:
+        opts["runs"] = 1  # one run of each case: the runs of the gate file are what a pool needs, not what a quick test runs
     if not 1 <= opts["runs"] <= 10:
         die("--runs must be between 1 and 10.")
     try:
@@ -2219,13 +2251,15 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
     chosen = [flag for flag, on in (("--only", o["only"]), ("--ablate", o["ablate"]),
                                     ("--no-grade", not o["grade"])) if on]
     if chosen:
-        return f"the event ran chosen variants ({', '.join(chosen)}): evidence comes from a full test or a partial test"
+        return f"the event ran chosen variants ({', '.join(chosen)}): evidence comes from a full, a partial or a quick test"
     if version is None:
         return "the skill has no metadata.version of the form X.Y.Z: an evidence line names the version that ran"
     if gate:
         control = load_status().event_config(gate)
         for key, name in (("runs", "runs"), ("timeout", "timeout_seconds"), ("retries", "retries")):
             configured, where = control[name], f"evals/eval-gate.json, {name}"
+            if key == "runs" and o.get("quick"):  # a quick test runs each case once whatever the gate file configures
+                configured, where = 1, "a quick test runs each case once"
             if key == "timeout" and (o.get("local") or {}).get("timeout_seconds"):  # a local model declares its own limit
                 configured, where = o["local"]["timeout_seconds"], f"the local models file, timeout_seconds of {o['local']['name']}"
             if o[key] != configured:
@@ -2486,8 +2520,8 @@ def run(argv):
     def baseline_slots(case):
         """Where the case runs without the skill in this event: on the lead model when its baseline is not in
         force in a full test, or when --baseline asks; on another model only with --baseline-on (and --only
-        without, a trial, runs it on every model of the event). A platform's cases run with the skill only."""
-        if o.get("platform"):
+        without, a trial, runs it on every model of the event). A platform's cases and a quick test's run with the skill only."""
+        if o.get("platform") or o.get("quick"):
             return []
         if o["only"]:
             return slot_names if o["only"] == "without" else []
@@ -2524,8 +2558,9 @@ def run(argv):
     hashes = {str(c["id"]): status.case_hash(skill_dir, c, evals.get("allow_web") is True) for c in cases}
     # An event is a full test when it runs every current case with the skill on the lead model, graded:
     # `--skill <name>` without --cases. --cases makes a partial test, even of every case; so does --platform, whose
-    # cases never enter the gate or the score.
-    kind = ("full" if not o["cases"] and not o.get("platform") and len(cases) == len(all_cases)
+    # cases never enter the gate or the score. A quick test (--quick) is its own kind: every case once with the skill, no baseline.
+    kind = ("quick" if o.get("quick") else
+            "full" if not o["cases"] and not o.get("platform") and len(cases) == len(all_cases)
             and "with_skill" in with_variants and LEAD_SLOT in slot_names and o["grade"] else "partial")
     if resumed is None and not scratch:
         # No new event of a skill while one of its events that may write evidence is open.

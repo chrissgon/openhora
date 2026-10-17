@@ -53,12 +53,17 @@ on:
         required: false
         default: ""
       cases:
-        description: "A partial test: case ids separated by commas (leave empty with full: true)"
+        description: "A partial test: case ids separated by commas (leave empty with full: true or quick: true)"
         type: string
         required: false
         default: ""
       full:
         description: "A full test: every case, and the baseline of each case whose baseline is not in force"
+        type: boolean
+        required: false
+        default: false
+      quick:
+        description: "A quick test: every case once with the skill, no baseline. Preliminary alone; it adds to the pool (docs/community-evidence.md). Give one of cases, full or quick"
         type: boolean
         required: false
         default: false
@@ -116,13 +121,16 @@ jobs:
           ADAPTER: ${{ inputs.adapter }}
           CASES: ${{ inputs.cases }}
           FULL: ${{ inputs.full }}
+          QUICK: ${{ inputs.quick }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           args=(preflight --skill "$SKILL" --model "$MODEL")
           [ -z "$ADAPTER" ] || args+=(--adapter "$ADAPTER")
-          if [ "$FULL" = "true" ]; then args+=(--full); else args+=(--cases "$CASES"); fi
+          [ "$FULL" != "true" ] || args+=(--full)
+          [ "$QUICK" != "true" ] || args+=(--quick)
+          [ -z "$CASES" ] || args+=(--cases "$CASES")
           python3 scripts/community_pack.py "${args[@]}"
       - name: Pull the published eval image by the digest of the lock file
         env:
@@ -135,14 +143,15 @@ jobs:
           ADAPTER: ${{ inputs.adapter }}
           CASES: ${{ inputs.cases }}
           FULL: ${{ inputs.full }}
+          QUICK: ${{ inputs.quick }}
           WB_LOCAL_EVIDENCE_DIR: ${{ runner.temp }}/local-evidence
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
-          args=(--skill "$SKILL" --model "$MODEL" --floor-model "")
+          args=(--skill "$SKILL" --model "$MODEL")
           [ -z "$ADAPTER" ] || args+=(--harness "$ADAPTER")
-          [ "$FULL" = "true" ] || args+=(--cases "$CASES")
+          if [ "$QUICK" = "true" ]; then args+=(--quick); elif [ "$FULL" != "true" ]; then args+=(--cases "$CASES"); fi
           python3 evals/eval_run.py "${args[@]}"
       - name: Pack the evidence file and its manifest
         id: pack

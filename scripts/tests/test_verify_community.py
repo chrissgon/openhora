@@ -137,6 +137,18 @@ def test_a_file_with_a_valid_attestation_is_accepted_and_shown_in_the_community_
     assert figures["runs"] == 9 and figures["gaps"] == 0 and figures["band"] == "reliable"
 
 
+def test_a_quick_test_file_is_verified_like_the_others_with_the_same_attestation_and_checks(world):
+    path = world.run_files(run_number=1, kind="quick", per_case=1, extra_event={"runs": 1})
+    code, summary, err, gh = world.verify(path)  # read strictly, as a new file is: one run for a quick test, the configured number otherwise
+    assert code == 0 and summary["refused"] == {} and len(summary["verified"]) == 1, err
+    assert len(gh.calls) == 2 and all("--deny-self-hosted-runners" in argv and "--signer-digest" in argv for argv in gh.calls)
+    # A quick file that says it ran three times a case, or has a line without the skill, is refused by the same shape check.
+    for number, extra in ((2, {"extra_event": {"runs": 3}}), (3, {"extra_event": {"runs": 1, "baseline": {"1": "run", "2": "none", "3": "none"}}})):
+        refused = world.run_files(run_number=number, kind="quick", per_case=1, **extra)
+        code, summary, _, _ = world.verify(refused)
+        assert code == 1 and "quick test" in json.dumps(summary["refused"])
+
+
 def test_the_flags_that_bind_the_signer_are_always_passed(world):
     path = world.run_files(run_number=1)
     _, _, _, gh = world.verify(path)
