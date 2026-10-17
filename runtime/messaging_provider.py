@@ -51,6 +51,17 @@ PAUSED_WAIT = 300.0                # a provider that exits 3 after an error even
 PAUSED_REPEAT = 86400.0            # the line that says it is paused is written again this often while it stays paused
 
 
+class Sent(str):
+    """The id of the message a send answered, a str as it always was, with `document_failed`: true when the text went out and the document that
+    was to follow it did not (the provider's answer says so). A card whose approval needs its whole text delivered reads it
+    (messaging_bridge.send_card): the id alone never said the document arrived."""
+
+    def __new__(cls, value, document_failed: bool = False):
+        found = super().__new__(cls, value)
+        found.document_failed = bool(document_failed)
+        return found
+
+
 class MessengerError(Exception):
     """A provider verb failed. `kind` is the resolver's word (usage, not-configured, failed, timeout)."""
 
@@ -134,7 +145,7 @@ class Messenger:
                 pass
         if not isinstance(found.get("message_id"), str):
             raise MessengerError("failed", "send did not return a message_id")
-        return found["message_id"]
+        return Sent(found["message_id"], found.get("document_failed") is True)
 
     def ack(self, action_ref: str) -> None:
         if self.session is not None:
@@ -282,7 +293,7 @@ class ListenSession:
             raise MessengerError("failed", "the messenger provider did not answer in time")
         answer = entry[1]
         if answer.get("ok") is True:
-            return answer["message_id"]
+            return Sent(answer["message_id"], answer.get("document_failed") is True)
         raise MessengerError(answer.get("kind", "failed"), answer.get("reason", "the send failed"))
 
     def close(self) -> None:
@@ -556,7 +567,7 @@ class ListenSession:
             self.log("an event of a kind that is not known was dropped")
         elif type(found.get("id")) is int and type(found.get("ok")) is bool:
             if found["ok"]:
-                answer = {"ok": True, "message_id": found.get("message_id")}
+                answer = {"ok": True, "message_id": found.get("message_id"), "document_failed": found.get("document_failed") is True}
                 if not isinstance(answer["message_id"], str):
                     answer = {"ok": False, "kind": "failed", "reason": "the answer to a send has no message_id"}
             else:

@@ -128,7 +128,7 @@ export function createSwitcher({ onSelect, onForgetToken, onOpen, onAdd = () => 
     close() { if (open) setOpen(false, { focus: false }); },
     isOpen: () => open,
     /**
-     * projects: [{id, name, badge, sub, accepted}]; selectedId; heading: the card's header text; loading: the projects are not read yet.
+     * projects: [{id, name, badge, sub, accepted, grants}] (grants: one line of text, or empty); selectedId; heading: the card's header text; loading: the projects are not read yet.
      */
     update({ projects: next, selectedId, heading: text, loading = false }) {
       projects = next;
@@ -153,7 +153,7 @@ export function createSwitcher({ onSelect, onForgetToken, onOpen, onAdd = () => 
       list.replaceChildren(...projects.map((p, i) => {
         const optionId = `${listId}-o${i}`;
         const row = h("li", { class: `pui-list-item wb-option${p.id === selected ? " is-selected" : ""}`, id: optionId, role: "option", "aria-selected": String(p.id === selected) },
-          h("span", { class: "wb-option-text" }, h("strong", { class: "wb-option-name", text: p.name }), h("span", { class: "wb-option-sub", text: p.sub || "" })),
+          h("span", { class: "wb-option-text" }, h("strong", { class: "wb-option-name", text: p.name }), h("span", { class: "wb-option-sub", text: p.sub || "" }), p.grants ? h("span", { class: "wb-option-sub wb-option-grants", text: p.grants }) : null),
           p.accepted === false
             ? h("span", { class: "pui-chip pui-warn pui-soft wb-chip-small", text: "Not accepted" })
             : h("span", { class: "pui-badge pui-warn pui-soft pui-rounded-full", text: String(p.badge ?? 0) }),

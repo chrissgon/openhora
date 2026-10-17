@@ -1406,3 +1406,17 @@ def test_the_protocol_descriptor_gets_only_json_lines_a_library_print_goes_to_st
 def test_the_module_never_sets_a_session_of_its_own():
     source = SCRIPT.read_text(encoding="utf-8")
     assert "setsid" not in source and "start_new_session" not in source
+
+
+def test_a_document_that_does_not_arrive_fails_the_whole_send_because_discord_takes_text_and_file_in_one_message(monkeypatch):
+    """POL-1: the card an approval needs is whole only if its file was delivered. Discord sends the text and the file as one multipart message, so
+    there is no half-delivered card to report: either the answer is ok and the file is in it, or the answer is not ok and nothing went out."""
+    opener = router()
+    opener.routes = [r for r in opener.routes if "messages" not in r[1].pattern]
+    opener.on("POST", r"^/channels/7001/messages$", http_error(400, {"message": "Invalid Form Body", "code": 50035}))
+    rig, conn = started(monkeypatch, ready(), opener=opener)
+    rig.request(1, message={"text": "see the file", "actions": [], "link": None, "document": {"name": "plan", "text": "the whole plan"}})
+    answer = rig.answer(1)
+    assert answer["ok"] is False and "message_id" not in answer and "document_failed" not in answer
+    assert len(opener.calls("POST", "^/channels/7001/messages$")) == 1, "one request carries both"
+    rig.end()

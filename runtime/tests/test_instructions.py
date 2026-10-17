@@ -365,8 +365,12 @@ def test_limit_40_the_standing_instructions_are_written_only_by_the_person(limit
             assert not operations.permitted(name, channel, None) and not operations.permitted(name, channel, {channel: GROUPS}), (name, channel)
             assert operations.refusal(name, channel, {channel: GROUPS})
         assert operations.permitted(name, "terminal", None) and operations.permitted(name, "page", None)
-        assert operations.permitted(name, "page", {"page": ["read", "instructions"]}) and not operations.permitted(name, "page", {"page": ["read"]})
-        assert operations.GROUPS["instructions"]["operations"] == ("instructions-set", "instructions-add")
+        assert operations.permitted(name, "page", {"page": ["read", "instructions-write"]}) and not operations.permitted(name, "page", {"page": ["read"]})
+        assert operations.GROUPS["instructions-write"]["operations"] == ("instructions-set", "instructions-add")
+    # POL-1: the group is `instructions-write` and no alias keeps the old name, which is the read operation of the group `read`
+    assert "instructions" not in operations.GROUPS
+    with pytest.raises(project_config.ConfigError, match=r"'instructions' is not a group \(known: .*\binstructions-write\b"):
+        project_config._channels({"page": ["read", "instructions"]})
     path = str(project)
     before = (project / PATH).read_bytes()
     base_hash = instructions.sha256(before)

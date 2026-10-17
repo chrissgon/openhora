@@ -42,6 +42,14 @@ import operations  # noqa: E402  (the table of operations: the one place that sp
 PROVIDER_CLASS = "integration:vcs"
 GATE = True  # a skill's confirmation gate can name its word (runtime/effects.py)
 POLICY = False  # a gate kind: the person approves its exact content, never a standing approval (runtime/effects.py)
+APPROVAL_GROUP = "approve-effect-create"      # POL-1: the group a project's policy grants; until a card shows the change itself, on_cards keeps it from approving anything
+
+
+def on_cards(doc) -> bool:
+    """False: the card of a pull request shows the title, the body, the paths and each file's hash, not the code the hash covers, and approving
+    code that was not seen is not approving the whole text. The grant `approve-effect-create` exists for the package that makes a card show
+    the change; until then no pull request is approved from a messaging app, whatever the configuration lists."""
+    return False
 FENCE = re.compile(r"^\s*(```|~~~)")
 BASE_HEAD = re.compile(r"^Base ← head:\s*(?P<base>\S+)\s*←\s*(?P<head>\S+)\s*$")
 EffectError = effects.EffectError

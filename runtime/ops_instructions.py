@@ -13,7 +13,7 @@ call time, never imported at module level.
 
   instructions   (read, with the terminal, the page, the MCP mode and messaging) the path, whether the file is there, its
                  sha256, its characters, the cap, the problem if any, and the text. It writes nothing.
-  instructions-set / instructions-add   (group `instructions`, the terminal and the page only: operations.INSTRUCTIONS_CHANNELS,
+  instructions-set / instructions-add   (group `instructions-write`, the terminal and the page only: operations.INSTRUCTIONS_CHANNELS,
                  by default, and no policy of today widens it; limit L40) replace the whole text, or append one line `- <text>`. No model
                  call, an atomic write (a temporary file, then os.replace) under the project's write lock, and a
                  compare-and-set on the sha256 of the file the person read (`none` for a file that was not there): a file

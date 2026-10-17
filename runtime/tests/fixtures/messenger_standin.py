@@ -61,7 +61,8 @@ def main() -> int:
         with open(a.message_file, encoding="utf-8") as f:
             message = json.load(f)
         count = append("sent.jsonl", {"chat": a.chat, "message": message})
-        print(json.dumps({"message_id": str(100 + count)}))
+        failed = bool(message.get("document")) and read("document_fail.json", False) is True      # a test asks for a document that did not go out
+        print(json.dumps({"message_id": str(100 + count), **({"document_failed": True} if failed else {})}))
     else:
         append("acks.jsonl", {"ref": a.action_ref})
         print(json.dumps({"acked": True}))

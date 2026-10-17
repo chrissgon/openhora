@@ -35,8 +35,13 @@ at most every 24 hours, never every tick.
 
 Approvals. A tap or /approve is bound to the card the person saw. A plan is approved with the hash the ledger recorded
 (ops.approve refuses a plan that changed). An acceptance has no hash, so the bridge compares the decision's text now with
-the hash recorded for the card and approves nothing when they differ. An effect is never approved here (decision D8):
-the reply is the command to run in the terminal.
+the hash recorded for the card and approves nothing when they differ. An effect is approved here only when the project's accepted
+policy grants the messaging channel that effect's word (`approve-effect-<word>`, operations.GRANTS; POL-1) and ALL of these hold:
+the card the person saw carried the whole text (the ledger's `whole`), the decision says the whole effect fits on a card
+(`effect_on_cards`: not an e-mail with an attachment, not a post with an image), and the card's hash is the decision's own
+`payload_sha256` (a card made for an earlier content is `CHANGED`, nothing runs and a new card is sent). A line typed with a hash must carry the
+card's hash. Otherwise the reply is the command to run in the terminal (decision D8, the default). The approval runs in a job thread:
+an effect may take minutes.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -69,6 +74,10 @@ NOT_ACCEPTED_WHY = "its configuration is not accepted (run accept-config in the 
 NO_SENDER_WHY = "runtime.json messaging.senders.{platform} lists no sender"
 UNREADABLE_WHY = "its configuration cannot be read"
 EFFECT_REPLY = "An effect is approved on the page or in the terminal, with its hash:"
+TOO_LONG = "Too long to approve here: approve it on the page or in the terminal, with its hash:"
+WRONG_HASH = "The hash you typed is not the one of the card you saw. Send /pending."
+NOT_OPEN = "Pending decision {number} is {status}, not open."
+NOT_OFFERED = "That card did not offer an approval. Send /pending for the current one."
 
 
 class Fatal(Exception):
@@ -189,8 +198,18 @@ class Bridge(shell_kit.Jobs):
         if item["kind"] == "effect":
             command = operations.command_line("approve", project["path"], checkout=ROOT, pending_id=item["id"],
                                               sha256=item.get("payload_sha256"))
-        card = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"],
+        caps = self.messenger.capabilities()
+        card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"],
                            settings["page_url"], operations=operations, effect_command=command)
+        document = card["message"]["document"]
+        if document and card["gated"] and card["approvable"]:
+            # An approval needs the whole text DELIVERED: the file goes first, as a message of its own, and the card with the buttons only after
+            # the provider confirmed it. A file that failed (or a send that could not be told) makes a card with no approval that says so.
+            state = self.send_document(project, item, chat, document)
+            if state is None:
+                return False
+            card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"], settings["page_url"],
+                               operations=operations, effect_command=command, delivery=state)
         seq = self.ledger.next_seq()
         message = dict(card["message"])
         made = {f"{seq}:{a['op']}": a["op"] for a in message["actions"]}
@@ -205,13 +224,37 @@ class Bridge(shell_kit.Jobs):
             if e.kind == "not-configured":
                 raise Fatal(e.reason) from None
             return False
+        # `whole` is recorded true only for a text that arrived: no file travelled in this message, or the provider confirmed the one that did.
+        # A plain str (a provider that never said) is not a confirmation. A card sent while it was not approvable carries its file inline.
+        confirmed = not message.get("document") or getattr(message_id, "document_failed", True) is False
         try:
             self.ledger.add({"project": project["id"], "pending_id": item["id"], "kind": item["kind"],
                              "content_sha256": card["content_sha256"], "chat": chat, "message_id": message_id,
-                             "actions": made, "sent_at": self.clock()})
+                             "actions": made, "sent_at": self.clock(), "whole": bool(card.get("whole")) and confirmed,
+                             "approvable": bool(card.get("approvable")), "blocked": card.get("blocked"),
+                             "effect_word": item.get("effect_word")})
         except OSError as e:  # the card went out and the process keeps the record in memory; it is not sent again
             self.log(f"the ledger could not be written ({e.__class__.__name__})")
         return True
+
+    def send_document(self, project: dict, item: dict, chat: str, document: dict):
+        """The whole text of a decision as a file, before its card. "sent" when the provider confirmed the document, "failed" when it did not
+        (a document that failed after the text, or a send that raised), None when the platform deferred it (nothing is recorded; it is tried
+        again). A provider that cannot tell is "failed": the card is then not approvable here."""
+        try:
+            sent = self.messenger.send(chat, cards.document_message(project["name"], item, document))
+        except provider.MessengerError as e:
+            if e.kind == "deferred":
+                self.defer(project, item, chat)
+                return None
+            self.log(f"the file of a card could not be sent ({e.kind})")
+            if e.kind == "not-configured":
+                raise Fatal(e.reason) from None
+            return "failed"
+        if getattr(sent, "document_failed", True) is not False:
+            self.log("the file of a card was not delivered: its card has no approval")
+            return "failed"
+        return "sent"
 
     def defer(self, project: dict, item: dict, chat: str) -> None:
         """The platform cannot take this card now: keep it (nothing is recorded), remember the chat, and say so once a day."""
@@ -225,7 +268,7 @@ class Bridge(shell_kit.Jobs):
 
     # --- notices ---------------------------------------------------------------------------------------------
 
-    def notify_project(self, project: dict, only_chat=None, cap: int = CARDS_PER_TICK) -> int:
+    def notify_project(self, project: dict, only_chat=None, cap: int = CARDS_PER_TICK, retry_blocked: bool = False) -> int:
         """Send the cards a project's open decisions lack (to `only_chat`, or to every listed sender). Returns how many
         decisions are left over for the next tick."""
         settings = self.settings(project)
@@ -243,7 +286,7 @@ class Bridge(shell_kit.Jobs):
             if item.get("status", "open") != "open":
                 continue
             digest = cards.content_sha256(item)
-            lacking = [c for c in chats if not self.ledger.sent(project["id"], item["id"], digest, c)]
+            lacking = [c for c in chats if not self.ledger.sent(project["id"], item["id"], digest, c) or self.outdated(project, settings, item, c, retry_blocked)]
             if not lacking:
                 continue
             if sent >= cap:
@@ -253,6 +296,21 @@ class Bridge(shell_kit.Jobs):
                 self.send_card(project, settings, item, chat)
             sent += 1
         return left
+
+    def outdated(self, project: dict, settings: dict, item: dict, chat: str, retry_blocked: bool = False) -> bool:
+        """An effect, or a plan that reaches the network, whose card was sent without an approval (the project had not granted it yet, or the notices
+        carried no text) gets a new card once the policy lets this card offer one; a card that already offered it, or that still could not, is not
+        sent again. A card whose file did not arrive (`blocked` "document") is not sent again either: it said where to approve, and a file that
+        failed once would fail on every tick (the simplest rule; a changed content is a new card anyway). The person's own /pending
+        (`retry_blocked`) tries such a card again, once per request: the file first, with the same confirmation rules."""
+        if not cards.gated(item):
+            return False
+        last = self.ledger.last_card(project["id"], item["id"], chat)
+        if last is None or last.get("approvable") or (last.get("blocked") and not retry_blocked):
+            return False
+        built = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"],
+                            settings["page_url"], operations=self.ops.operations)
+        return bool(built["approvable"])
 
     def tick(self) -> None:
         self.recheck()
@@ -294,7 +352,7 @@ class Bridge(shell_kit.Jobs):
         elif kind == "pending":
             self.listing(project, chat)
         elif kind in ("approve", "reject", "release"):
-            self.act(project, chat, kind, intent["id"], note=intent.get("note"))
+            self.act(project, chat, kind, intent["id"], note=intent.get("note"), typed_hash=intent.get("sha256"))
         elif kind == "answer":
             self.act(project, chat, "answer", intent["id"], text=intent["text"])
         elif kind == "reply":
@@ -349,11 +407,11 @@ class Bridge(shell_kit.Jobs):
             return
         self.reply(chat, f"{project['name']}: " + "\n".join(f"#{i['id']} {i['kind']}: {i['title']}" for i in found))
         try:
-            self.notify_project(project, only_chat=chat)
+            self.notify_project(project, only_chat=chat, retry_blocked=True)
         except self.ops.OpsError as e:
             self.log(f"cards could not be sent ({e.__class__.__name__})")
 
-    def act(self, project: dict, chat: str, op: str, pending_id: int, card=None, note=None, text=None) -> None:
+    def act(self, project: dict, chat: str, op: str, pending_id: int, card=None, note=None, text=None, typed_hash=None) -> None:
         """approve, reject, release or answer one decision, bound to the card the person saw."""
         try:
             if op == "answer":
@@ -363,7 +421,7 @@ class Bridge(shell_kit.Jobs):
             card = card or self.ledger.last_card(project["id"], pending_id, chat)
             item = self.ops.pending(project["path"], pending_id=pending_id)
             if op == "approve":
-                self.approve(project, chat, item, card)
+                self.approve(project, chat, item, card, typed_hash)
             elif op == "reject":
                 self.run_op(project, "reject", pending_id=pending_id, **({"note": note} if note else {}))
                 self.reply(chat, f"Rejected #{pending_id}.")
@@ -385,12 +443,10 @@ class Bridge(shell_kit.Jobs):
         except self.ops.OpsError:
             pass
 
-    def approve(self, project: dict, chat: str, item: dict, card) -> None:
+    def approve(self, project: dict, chat: str, item: dict, card, typed_hash=None) -> None:
         kind, number = item["kind"], item["id"]
         if kind == "effect":
-            command = self.ops.operations.command_line("approve", project["path"], checkout=ROOT, pending_id=number,
-                                                       sha256=item.get("payload_sha256"))
-            self.reply(chat, f"{EFFECT_REPLY}\n{command}")
+            self.approve_effect(project, chat, item, card, typed_hash)
             return
         if kind not in ("plan", "acceptance"):
             self.reply(chat, f"Pending decision {number} is a {kind}: approve takes a plan or an acceptance.")
@@ -399,6 +455,19 @@ class Bridge(shell_kit.Jobs):
         if card is None:
             self.reply(chat, NO_CARD)
             return
+        if typed_hash is not None and typed_hash != card["content_sha256"]:
+            self.reply(chat, WRONG_HASH)         # a hash typed with /approve is the card's, for an effect, a plan and an acceptance
+            return
+        if kind == "plan" and item.get("plan_networked") is True:       # a plan that reaches the network: its destinations must have been shown, whole
+            self.allow(project, "approve", "plan:networked")
+            if card.get("whole") is not True or self.settings(project)["notices"] != "text":
+                command = self.ops.operations.command_line("approve", project["path"], checkout=ROOT, pending_id=number,
+                                                           sha256=card["content_sha256"])
+                self.reply(chat, f"{TOO_LONG}\n{command}")
+                return
+            if card.get("approvable") is not True:       # only a gated card (an effect, a networked plan) must have offered the approval;
+                self.reply(chat, NOT_OFFERED)           # a plain plan or an acceptance is checked against the policy when the person acts
+                return
         if kind == "acceptance" and cards.content_sha256(item) != card["content_sha256"]:
             self.reply(chat, CHANGED)
             self.renew(project, chat, number, card)
@@ -408,6 +477,54 @@ class Bridge(shell_kit.Jobs):
             args["sha256"] = card["content_sha256"]
         self.run_op(project, "approve", kind=kind, **args)
         self.reply(chat, f"Approved #{number}.")
+
+    def approve_effect(self, project: dict, chat: str, item: dict, card, typed_hash=None) -> None:
+        """An effect, from a tap or a typed line. By default (the policy does not grant the word) the reply is the command, as it always was.
+        Granted, every one of these must hold or nothing runs: a card (NO_CARD), a card that carried the whole text and a decision whose
+        whole effect fits on a card (TOO_LONG), a typed hash that is the card's, a card whose hash is the decision's own payload hash
+        (CHANGED, and a new card), a decision still open. The call is the operations layer's approve with the CARD's hash, in a job thread."""
+        number = item["id"]
+        word = item.get("effect_word")
+        ask = "effect:" + word if isinstance(word, str) and word else "effect"
+        command = self.ops.operations.command_line("approve", project["path"], checkout=ROOT, pending_id=number,
+                                                   sha256=item.get("payload_sha256"))
+        settings = self.settings(project)
+        if settings is None:
+            raise Refused(NOT_ACCEPTED)
+        if not self.ops.operations.permitted("approve", CHANNEL, settings["policy"], ask) or settings["notices"] != "text":
+            self.reply(chat, f"{EFFECT_REPLY}\n{command}")     # not granted, or a card that carries none of the text: the command, as it always was
+            return
+        if card is None:
+            self.reply(chat, NO_CARD)
+            return
+        if card.get("whole") is not True or item.get("effect_on_cards") is not True:
+            self.reply(chat, f"{TOO_LONG}\n{command}")
+            return
+        if typed_hash is not None and typed_hash != card["content_sha256"]:
+            self.reply(chat, WRONG_HASH)
+            return
+        if card.get("approvable") is not True:       # only a card that offered the approval can be approved by a typed line
+            self.reply(chat, NOT_OFFERED)
+            return
+        if item.get("status", "open") != "open":
+            self.reply(chat, NOT_OPEN.format(number=number, status=item.get("status")))
+            return
+        if card["content_sha256"] != item.get("payload_sha256"):
+            self.reply(chat, CHANGED)
+            self.renew(project, chat, number, card)
+            return
+        shown = card["content_sha256"]
+
+        def call():
+            try:
+                self.run_op(project, "approve", kind=ask, pending_id=number, sha256=shown)
+                self.reply(chat, f"Approved #{number}.")
+            except Refused as e:
+                self.reply(chat, str(e))
+            except self.ops.OpsError as e:
+                self.reply(chat, str(e))
+                self.renew(project, chat, number, card)
+        self.start(project, chat, "approve", call)
 
     def release(self, project: dict, chat: str, pending_id: int) -> None:
         def call():

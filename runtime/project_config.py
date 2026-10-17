@@ -248,15 +248,43 @@ def _max_running(raw: dict) -> int:
 POLICY_CHANNELS = operations.POLICY_CHANNELS  # the channels a policy narrows: page, mcp and messaging (chat and the terminal never)
 
 
+def _refused_group(channel: str, group: str, groups: list) -> str | None:
+    """The sentence that refuses one group for one channel, or None when the channel takes it. A group is valid when one of its
+    operations is in the channel's ceiling (a policy narrows), or when it is a grant of that channel (operations.GRANTS: the one
+    way a policy widens). The effect groups and the networked-plan group are never valid on the MCP mode, and the umbrella
+    `approve-effects` is the page's alone."""
+    spec = operations.GROUPS[group]
+    effect_family = operations.is_effect_kind(spec["kind"]) or spec["kind"] == "plan:networked"
+    if group in operations.PAGE_ONLY_GROUPS and channel != "page":
+        return (f"the group {group!r} is valid on the page only (an effect is approved in the terminal or on the page, with its hash; "
+                f"a messaging app takes one word at a time: {', '.join(g for g in operations.GRANTS['messaging'] if g.startswith('approve-effect-'))})")
+    if channel == "mcp" and effect_family:
+        return (f"the group {group!r} is not valid on the MCP mode (an effect and a networked plan are approved by a person; "
+                "the MCP mode is a model client)")
+    if group == "approve-networked-plans" and channel != "messaging":
+        return (f"the group {group!r} is valid on a messaging app only (a plan that reaches the network is approved in the terminal "
+                "or on the page by default, and nowhere else unless the project grants a messaging app)")
+    if group in operations.GRANTS.get(channel, ()):
+        return None
+    names = spec["operations"]
+    if not any(channel in operations.by_name(name)["channels"] for name in names):
+        return (f"the group {group!r} covers {', '.join(names)}, which the table of operations does not give the channel {channel}; "
+                "a policy narrows the ceiling and never widens it, except by a grant"
+                + (f" (the grants of {channel}: {', '.join(operations.GRANTS[channel])})" if channel in operations.GRANTS else " (this channel has none)"))
+    return None
+
+
 def _channels(value) -> dict:
-    """The key "channels" (the channel policy, decisions M-8 and M-13; absent means {}), checked: {"page": ["<group>", ...],
+    """The key "channels" (the channel policy, decisions M-8, M-13 and POL-1; absent means {}), checked: {"page": ["<group>", ...],
     "mcp": [...], "messaging": [...]}. Each group is one of operations.GROUPS and is valid on a channel when at least one
-    operation it covers is listed by the channel's row in the table (the ceiling): a policy narrows what the table allows
-    and never widens it, and the group then covers the ceiling's share of it. `approve-effects` is valid on the page only.
-    A policy for the page or the MCP mode lists `read`. `chat` and `terminal` are errors: the conversation's input is local
-    access, equal to the terminal, and neither is narrowed. A channel that has no entry keeps its ceiling, except messaging,
-    which keeps operations.DEFAULT_POLICY (read, talk, answer). Like every key of the file, a change takes effect after
-    accept-config in the terminal."""
+    operation it covers is listed by the channel's row in the table (the ceiling): a policy narrows what the table allows,
+    and widens it only by a grant of that channel (operations.GRANTS: the effect words and the networked plans on messaging;
+    plans, acceptances, reject-cancel and retry on the MCP mode), which the group then covers. `approve-effects` is valid on the
+    page only; `approve-networked-plans` needs `approve-plans`. A policy for the page or the MCP mode lists `read`. `chat` and
+    `terminal` are errors: the conversation's input is local access, equal to the terminal, and neither is narrowed. A channel
+    that has no entry keeps its ceiling, except messaging, which keeps operations.DEFAULT_POLICY (read, talk, answer, the routine
+    brakes) and never a grant. Like every key of the file, a change takes effect after accept-config in the terminal, and one that
+    adds a grant only with the hash of the widening list."""
     if value is None:
         return {}
     if not isinstance(value, dict):
@@ -274,14 +302,12 @@ def _channels(value) -> dict:
         for group in groups:
             if group not in operations.GROUPS:
                 raise ConfigError(f"runtime.json channels.{channel}: {group!r} is not a group (known: {', '.join(operations.GROUPS)})")
-            if group in operations.PAGE_ONLY_GROUPS and channel != "page":
-                raise ConfigError(f"runtime.json channels.{channel}: the group {group!r} is valid on the page only "
-                                  "(an effect is approved in the terminal or on the page, with its hash)")
-            names = operations.GROUPS[group]["operations"]
-            if not any(channel in operations.by_name(name)["channels"] for name in names):
-                raise ConfigError(f"runtime.json channels.{channel}: the group {group!r} covers {', '.join(names)}, which the table "
-                                  f"of operations does not give the channel {channel}; "
-                                  "a policy narrows the ceiling and never widens it")
+            why = _refused_group(channel, group, groups)
+            if why:
+                raise ConfigError(f"runtime.json channels.{channel}: {why}")
+        if "approve-networked-plans" in groups and "approve-plans" not in groups:
+            raise ConfigError(f"runtime.json channels.{channel}: 'approve-networked-plans' needs 'approve-plans' beside it "
+                              "(it adds networked plans to the plans the channel approves)")
         if channel in operations.MUST_READ and "read" not in groups:
             raise ConfigError(f"runtime.json channels.{channel} must list the group 'read' (the {channel} reads what it shows)")
         out[channel] = list(dict.fromkeys(groups))

@@ -92,6 +92,7 @@ import project_config  # noqa: E402
 PROVIDER_CLASS = "integration:documents"
 GATE = False      # no skill's confirmation gate names this word
 POLICY = False    # no standing approval covers a write-back: every one is approved by the hash of its exact content
+APPROVAL_GROUP = "approve-effect-write"      # POL-1: the group a project's policy grants to let a messaging app approve a page write (never a table: on_cards)
 STEP = True       # opened by a step task (runtime/steps.py, Gate) and approved through runtime/ops_step_effects.py
 OUTPUT_VERBS = ("page-create", "table-create", "rows-append", "table-read", "rows-state")      # the provider verbs of the outputs
 OUTPUT_TIMEOUT = 900      # seconds: 500 rows at 2.8 calls a second take about 3 minutes; 429 waits and the table's listing add to it
@@ -143,6 +144,13 @@ def is_long(doc) -> bool:
     """Whether the write of this document takes long (an output: a page body, a table of up to 500 rows one call a row), so that
     runtime/ops_step_effects.py makes it without the project's write lock."""
     return _output(doc)
+
+
+def on_cards(doc) -> bool:
+    """Whether the whole write can be on a messaging card: a page (update_page, create_page) is, because the decision's text holds the content
+    exactly as it will be written; a table (create_table, append_rows) is not, because its card is a preview (the first rows, the last three,
+    a cell cut at 60 characters) while the hash covers every row. A document in a form this does not know is not on a card."""
+    return isinstance(doc, dict) and doc.get("operation", "update_page") in ("update_page", "create_page") and isinstance(doc.get("content"), str)
 
 
 def _output(doc) -> bool:

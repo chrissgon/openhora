@@ -706,7 +706,10 @@ def _policy_refusal(service: Service, project: dict, row: dict, route: dict, par
     if row["name"] == "approve":
         args = arguments(row, route, params, given, from_query)
         go_ahead = bool(args.get("go_ahead"))
-        kind = service.ops.pending(project["path"], pending_id=args["pending_id"])["kind"]
+        decision = service.ops.pending(project["path"], pending_id=args["pending_id"])
+        kind = decision["kind"]
+        if kind == "effect" and decision.get("effect_word"):
+            kind = "effect:" + decision["effect_word"]    # POL-1: the policy covers an effect by its word
     refused = operations.refusal(row["name"], "page", found.get("channels"), kind, go_ahead)
     if refused:
         raise service.ops.OpsError(refused, 1)
@@ -723,7 +726,10 @@ def _permissions(service: Service, entry: dict):
         return None
     if not found.get("accepted"):
         return None
-    return {"channel": "page", "allowed": service.ops.operations.permissions("page", found.get("channels"))}
+    out = {"channel": "page", "allowed": service.ops.operations.permissions("page", found.get("channels"))}
+    grants = [{"channel": c, "group": g, "text": service.ops.operations.GRANT_TEXT.get(f"{c}:{g}", g)}
+              for c, g in service.ops.operations.grants(found.get("channels"))]
+    return {**out, "grants": grants} if grants else out     # POL-1: what the project widened (for the line the page shows); the key is there only when something is
 
 
 def _shown_commands(service: Service, project: dict, result: dict) -> dict:

@@ -41,15 +41,20 @@ operation that calls a model or a platform (the row's `job`) is started in a thr
 {"job": <n>} returns it again, "state" "done" or "failed" at the end. A job that ends within one second is returned
 ended. A job that calls a model is refused with "busy" while another such job of the project runs.
 
-What is refused. A client of this channel may request, route, answer, release a draft and say, and read; nothing else.
+What is refused. A client of this channel may request, route, answer, release a draft and say, and read; nothing else, unless a project
+GRANTS it more (POL-1, operations.GRANTS["mcp"]: `approve-plans` with the plan's hash, `approve-acceptances`, `reject-cancel`, `retry`; each
+off by default and listed in the project's own `channels.mcp`, which widens only with the hash of the widening list at accept-config, and
+the grant's text says a model then authorises runs). Those tools (approve, reject, cancel, retry) are in `tools/list` only when at least one
+project served has accepted a grant that covers them; the check at each `tools/call` is the project's own. An effect, a plan that reaches
+the network and consent are never granted to this channel, whatever the configuration lists.
 A project may narrow that further with `channels.mcp` in its runtime.json (named groups, decision M-13; it must list `read`):
 `tools/list` shows the ceiling's tools whatever the policy, and the check that enforces the policy is made at each `tools/call`,
 per project, with the policy that project accepted; a call the policy refuses is a tool result with "isError": true and the sentence
 "/<tool> is not enabled for this channel; the project's configuration (channels.mcp) turns it on" (a policy is read after
 accept-config like every key). `say` is the group `talk`, which also creates and routes requests; `request` and `route` are the group
 `request`.
-An operation whose row does not list `mcp` has no tool (the table is read, nothing is spelled here): approve, reject,
-cancel, stop-task, retry, accept-config, run-next, the standing approvals and the others are done in the terminal or on the page,
+An operation whose row does not list `mcp` has no tool (the table is read, nothing is spelled here), except the four a grant reaches:
+stop-task, accept-config, run-next, the standing approvals and the others are done in the terminal or on the page,
 where the person is. The same holds for a command typed into the tool `say`: the tool is called as the channel `mcp`
 (a client cannot name another) and the operations layer does a command of a line only when its row lists that channel,
 so "/approve", "/reject", "/retry", "/cancel" and "/stop-task" in a line are refused with "/<command> is done in the terminal or on the
@@ -99,7 +104,8 @@ INSTRUCTIONS = (
     "request, route, say, answer and release change the work. A tool that returns a job is polled with the tool job. "
     "Approvals, rejections, cancellations and retries are made in the terminal or on the local page, where the person is "
     "(an effect, a publication, a pull request or a message sent, only with the hash of its content): none is a tool "
-    "here, and a command of that kind typed into say is refused."
+    "here unless the project's configuration grants it (plans with their hash, acceptances, reject-cancel and retry; never an effect), "
+    "and a command of that kind typed into say is refused."
 )
 REFUSAL_WORDS = ("refused", "not_configured", "busy")  # returned as a tool result with isError, not as an error object
 WORDS = {
@@ -142,9 +148,12 @@ def usage(message: str) -> Fail:
 # --- the tools, read from the table ----------------------------------------------------------------------------------
 
 
-def operation_rows(ops_module=None) -> tuple:
-    """The rows of the table of operations that list the channel `mcp`, in the table's order: the tools of this shell."""
-    return tuple(r for r in (ops_module or ops).operations.OPERATIONS if CHANNEL in r["channels"])
+def operation_rows(ops_module=None, grants: bool = False) -> tuple:
+    """The rows of the table of operations that list the channel `mcp`, in the table's order: the tools of this shell. With `grants`, also the
+    rows a grant of the channel reaches (operations.grant_only_rows: approve, reject, cancel, retry), still in the table's order."""
+    table = (ops_module or ops).operations
+    reached = table.grant_only_rows(CHANNEL) if grants else ()
+    return tuple(r for r in table.OPERATIONS if CHANNEL in r["channels"] or r["name"] in reached)
 
 
 def _property(arg: dict) -> dict:
@@ -221,9 +230,35 @@ class Server(shell_kit.Jobs):
     def ids(self) -> list:
         return [p["id"] for p in self.projects]
 
+    def granted(self) -> set:
+        """The names of the grant-only tools that at least one project served has accepted a grant for (fails closed: a project whose
+        configuration cannot be read, or is not accepted, grants nothing)."""
+        names = set()
+        for project in self.projects:
+            try:
+                found = self.ops.config(project["path"])
+            except Exception:   # a stand-in or a project that cannot be read grants nothing
+                continue
+            if not isinstance(found, dict) or not found.get("accepted"):
+                continue
+            for row in self.ops.operations.grant_only_rows(CHANNEL):
+                if self.ops.operations.granted(row, CHANNEL, found.get("channels")):
+                    names.add(row)
+        return names
+
+    def rows(self, name=None) -> tuple:
+        """The rows that are tools now: those the table lists for the channel, and the grant-only ones that at least one project granted. A tool
+        nobody granted is as unknown as it always was (a call to it is an invalid-params error, not a refusal). With `name`, the projects'
+        configurations are read only when that name is a grant-only tool (every other call asks nothing more of them)."""
+        listed = operation_rows(self.ops)
+        if name is not None and name not in self.ops.operations.grant_only_rows(CHANNEL):
+            return listed
+        granted = self.granted()
+        return tuple(r for r in operation_rows(self.ops, True) if CHANNEL in r["channels"] or r["name"] in granted)
+
     def tools(self) -> list:
         ids = self.ids()
-        return [tool_of(r, ids) for r in operation_rows(self.ops)] + own_tools()
+        return [tool_of(r, ids) for r in self.rows()] + own_tools()
 
 
 # --- one tool call ---------------------------------------------------------------------------------------------------
@@ -319,7 +354,7 @@ def call_tool(server: Server, name, given) -> dict:
         if shown is None:
             raise Fail(SERVER_ERROR, "no such job", "not_found", 404)
         return _text(shown)
-    rows = {r["name"]: r for r in operation_rows(server.ops)}
+    rows = {r["name"]: r for r in server.rows(name if isinstance(name, str) else None)}   # a grant-only tool is found here only when a project granted it; the project's own check follows
     row = rows.get(name) if isinstance(name, str) else None
     if row is None:
         raise Fail(INVALID_PARAMS, f"unknown tool {name!r}" if isinstance(name, str) else "name must be text",
@@ -444,7 +479,7 @@ def handle(server: Server, message):
 
 
 def _names(server: Server) -> set:
-    return {r["name"] for r in operation_rows(server.ops)} | set(OWN_TOOLS)
+    return {r["name"] for r in operation_rows(server.ops, True)} | set(OWN_TOOLS)   # only to name a call in the log
 
 
 def decode(line: bytes):

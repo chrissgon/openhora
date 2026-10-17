@@ -361,6 +361,7 @@ class Sender(meta.BaseSender):
             follow.append(("document", lambda: self.graph.post_message(
                 document_body(to, self.graph.upload(document_name(document["name"]), document["text"]),
                               document_name(document["name"]), first))))
+        document_failed = False
         for what, step in follow:
             try:
                 got = step()
@@ -372,7 +373,8 @@ class Sender(meta.BaseSender):
                     raise
                 # the text is delivered: failing the send would make the bridge send it twice
                 self.log(f"the {what} after the text could not be sent ({e.status}, {e.error_code})")
-        return first
+                document_failed = document_failed or what == "document"
+        return meta.SentId(first, document_failed)      # a str: the id; `document_failed` says the document did not go out
 
 
 # --- the webhook ------------------------------------------------------------------------------------------------------

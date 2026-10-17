@@ -62,7 +62,9 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
             continue
         owners = [(g, s["kind"]) for g, s in operations.GROUPS.items() if row["name"] in s["operations"]]
         if row["name"] == "approve":
-            assert sorted(k for _, k in owners) == ["acceptance", "effect", "plan"], owners
+            # the umbrella and one group for each word of an effect (POL-1), and the networked plans beside the plans
+            assert sorted(k for _, k in owners) == ["acceptance", "effect", "effect:create", "effect:publish", "effect:send", "effect:write", "plan",
+                                                     "plan:networked"], owners
         elif row["name"] == "cancel":   # R18: the one operation in two groups, so that a policy written with reject-cancel stays valid
             assert sorted(g for g, _ in owners) == ["brakes", "reject-cancel"] and {k for _, k in owners} == {None}, owners
         else:
@@ -85,9 +87,10 @@ def test_a_group_is_valid_on_a_channel_with_one_operation_in_its_ceiling_and_the
     assert ok({"messaging": ["read", "reject-cancel", "retry"]}) == {"messaging": ["read", "reject-cancel", "retry"]}  # reject and cancel are both on it
     assert ok({"messaging": []}) == {"messaging": []}                        # the closed default is not a "must list read" channel
     assert ok({"page": ["read", "reject-cancel"], "mcp": ["read"]})
+    assert ok({"mcp": ["read", "retry"]}) == {"mcp": ["read", "retry"]}      # POL-1: a grant of the MCP mode (it was invalid before: the ceiling has no retry), valid because the project's own entry lists it
     for bad in ({"page": ["talk"]}, {"mcp": []}, {"mcp": ["talk"]},           # page and mcp list read
                 {"mcp": ["read", "approve-effects"]}, {"messaging": ["approve-effects"]},   # approve-effects is for the page alone
-                {"mcp": ["read", "retry"]}, {"mcp": ["read", "go-ahead"]}, {"messaging": ["go-ahead"]},  # no operation of the group in the ceiling
+                {"mcp": ["read", "go-ahead"]}, {"messaging": ["go-ahead"]},  # no operation of the group in the ceiling
                 {"messaging": ["verdict"]}, {"messaging": ["documents"]},
                 {"chat": ["read"]}, {"terminal": ["read"]}, {"nobody": ["read"]}):
         with pytest.raises(project_config.ConfigError):

@@ -208,6 +208,8 @@ import ops_say  # noqa: E402  (the conversation and its queue; this file re-expo
 import sources  # noqa: E402  (limit L26: the protected paths gain the sources folder when it sits inside the project)
 import ops_sources  # noqa: E402  (the sources of the project: the ingest operations and the pieces the planner and a run ask of them)
 import ops_step_effects  # noqa: E402  (the approval of an effect that a step task opened: the write-back)
+import ops_grants  # noqa: E402  (the effect's word and whether it fits on a card: what the channel policy asks of an effect)
+import policy_grants  # noqa: E402  (the grants a configuration asks for, the widening list and its hash)
 import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode, set_model; this file re-exports them at its end)
 import ops_models  # noqa: E402  (which model a run goes to: the choice, the key, the billing and the consent)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
@@ -1092,7 +1094,10 @@ def pending(project: str, pending_id: int | None = None) -> dict:
     agents = _agent_by_task(core._stored(ctx, ctx["store"].tasks_list))
     if pending_id is not None:
         item = core._stored(ctx, ctx["store"].pending_get, pending_id)
-        return {**item, "agent": agents.get(item["task_id"]), "actions": _actions(ctx["store"], item)}
+        known = ops_grants.effect_facts(ctx, item) if item["kind"] == "effect" else None   # POL-1: the word the policy is asked about, and whether a card can hold all of it
+        return {**item, "agent": agents.get(item["task_id"]), "actions": _actions(ctx["store"], item),
+                **({"effect_word": known["word"], "effect_on_cards": known["on_cards"]} if known else {}),
+                **({"plan_networked": bool(ops_waits.networked_steps(item))} if item["kind"] == "plan" else {})}   # a plan with a networked step needs a whole card to be approved off the terminal and the page
     return {"pending": [_listed(item, ctx["store"], agents) for item in core._stored(ctx, ctx["store"].pending_list)]}
 
 
@@ -1592,14 +1597,16 @@ def status(project: str) -> dict:
 
 def config(project: str) -> dict:
     """What a shell may know of a project's configuration, and the one read that never refuses an unaccepted one:
-    {"path", "sha256", "accepted", "data_dir", "messaging", "channels"}. "accepted" says whether the file's hash is the one the person
-    accepted last. A configuration that cannot be read at all, or that names another checkout, is still refused
+    {"path", "sha256", "accepted", "data_dir", "messaging", "channels", "grants", "widening", "widening_sha256", "warnings"}. "accepted" says
+    whether the file's hash is the one the person accepted last; "grants" are the widenings the file lists ([{"channel", "group", "means"}], POL-1),
+    "widening" those the last accepted file did not list, "widening_sha256" the hash accept-config --widen takes for them (None when there are none). A configuration that cannot be read at all, or that names another checkout, is still refused
     (code 3): there is nothing to report."""
     ctx = core.context(project, check_config=False)
     cfg = ctx["cfg"]
     accepted = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
     return {"path": cfg["path"], "sha256": cfg["sha256"], "accepted": accepted == cfg["sha256"],
-            "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"]}
+            "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"],
+            **policy_grants.view(core._stored(ctx, ctx["store"].cursor_get, policy_grants.CURSOR), cfg)}   # POL-1: grants, widening, its hash, warnings
 
 
 def task(project: str, task_id: int) -> dict:
@@ -2125,16 +2132,19 @@ def approve(project: str, pending_id: int, sha256: str | None = None, channel: s
     With sha256, a plan is approved only when it is the plan's hash. An `effect` (stage 4) is approved only with
     its hash, and code then executes it: the one commit through the code provider, then the pull request; nothing is
     sent when anything moved since the gate, and a failure leaves it open, approved again with the same hash. An
-    effect is approved only from the terminal or from the local page (decision D8, extended: both show the person
-    the content's hash and take it back typed or clicked); the table of operations tells this function which channel
-    called, and any other channel (the conversation, a messaging app), or none, is refused before anything is executed or
-    sent (the pending row is read first, to know its kind; the rule fails closed). go_ahead: a plan's task keys to go ahead on."""
+    effect is approved from the terminal or from the local page (decision D8, extended: both show the person
+    the content's hash and take it back typed or clicked), or from a messaging app whose policy the accepted configuration
+    grants that effect's word (POL-1: a card that carried the whole text, the same hash); the table of operations tells this
+    function which channel called, and any other channel (the conversation, the MCP mode), or none, is refused before anything is
+    executed or sent (the pending row is read first, to know its kind; the rule fails closed). go_ahead: a plan's task keys to go ahead on."""
     ctx = core.context(project)
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
-    ops_waits.only_on_plans(item, go_ahead, sha256, channel, ctx["cfg"]["channels"])
-    if item["kind"] == "effect" and channel not in EFFECT_CHANNELS:
-        raise core.OpsError("an effect is approved in the terminal, with its hash: "
-                       + core._command("approve", ctx["cfg"]["project"], pending_id=pending_id, sha256="<hash>"), 1)
+    facts = ops_grants.effect_facts(ctx, item) if item["kind"] == "effect" else None   # the effect's word and whether all of it fits on a card
+    ops_waits.only_on_plans(item, go_ahead, sha256, channel, ctx["cfg"]["channels"], facts)
+    if item["kind"] == "effect":   # outside the terminal and the page only a granted word, a whole card and the hash (POL-1; fails closed)
+        refused = ops_grants.effect_refusal(ctx, item, channel, facts)
+        if refused:
+            raise core.OpsError(refused, 1)
     if item["kind"] == "plan":
         payload = item.get("payload") or {}
         stated = payload.get("plan_sha256")

@@ -6,11 +6,12 @@ this table and spells nothing of its own: one row per operation, with its argume
 and whether it calls a model. Adding an operation adds one row here and one function in ops.py; adding a shell adds a
 file. The channel rule is a column: a row lists the channels that may call it, and a row whose function takes the
 channel (`channel_arg`) is told which one called it, so that code, not a prompt, refuses what a channel may not do
-(an effect is approved only from the terminal or from the local page, with its hash; never from the conversation).
+(an effect is approved with its hash, in the terminal or on the local page, or on a messaging app that the project's configuration grants that effect's word; never from the conversation or the MCP mode).
 
-The channel policy (decisions M-8, M-12, M-13) is the second half of the file: GROUPS, DEFAULT_POLICY, BRAKES, EFFECT_CHANNELS
-and the pure functions permitted, policy_allows, refusal and permissions. A project narrows a channel's ceiling with named
-groups; `refusal` is the one helper every shell and the operations layer call, and contracts/runtime.md says where.
+The channel policy (decisions M-8, M-12, M-13, POL-1) is the second half of the file: GROUPS, DEFAULT_POLICY, BRAKES, EFFECT_CHANNELS,
+GRANTS and the pure functions effective_groups, permitted, policy_allows, refusal and permissions. A project narrows a channel's
+ceiling with named groups and widens it only by a grant of GRANTS; `refusal` is the one helper every shell and the operations
+layer call, and contracts/runtime.md says where.
 
 OPERATIONS and CHAT_OWN are pure literals (`ast.literal_eval` reads them: scripts/architecture_tables.py and a test
 do, so that the generated tables and the shells cannot differ). A row:
@@ -129,7 +130,7 @@ OPERATIONS = (
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"}, {"name": "sha256", "kind": "str"},
               {"name": "go_ahead", "kind": "list", "flag": "go-ahead"}),
      "channels": ("terminal", "chat", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
-     "help": "approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash"},
+     "help": "approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved with its hash, in the terminal, on the page, or on a messaging app the project grants that effect's word (from a card that carried the whole text)"},
     {"name": "reject", "call": "reject",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"}, {"name": "note", "kind": "str"}),
      "channels": ("terminal", "chat", "page", "messaging"), "model": False,
@@ -168,9 +169,10 @@ OPERATIONS = (
      "help": "run one named step task in this process, no model: what the dispatcher starts (with --unattended, which asks again for the brake and the kind's flag) for a step task of a kind it may start on its own (ingest, and the kinds that follow); a flow can hold a step task since P6a"},
     {"name": "accept-config", "call": "accept_config",
      "args": ({"name": "sha256", "kind": "str", "required": True},
-              {"name": "adopt_sources", "kind": "flag", "flag": "adopt-sources"}),
+              {"name": "adopt_sources", "kind": "flag", "flag": "adopt-sources"},
+              {"name": "widen", "kind": "str"}),
      "channels": ("terminal",), "model": False,
-     "help": "record the hash of runtime.json you accept; --adopt-sources also lets this project take over a sources folder marked for another"},
+     "help": "record the hash of runtime.json you accept; --adopt-sources also lets this project take over a sources folder marked for another; a file that widens a channel (a grant the accepted file did not list) is accepted only with --widen <the sha256 of the widening list that config shows>"},
     {"name": "proof", "call": "proof", "args": ({"name": "skill", "kind": "str"},),
      "channels": ("terminal",), "model": False,
      "help": "the model each skill in use would run on when nothing chooses one, with its band, price and expected cost on every model, and the two checks"},
@@ -332,7 +334,7 @@ OPERATIONS = (
               {"name": "providers", "kind": "list", "flag": "provider"}, {"name": "window_seconds", "kind": "int", "flag": "window-seconds"},
               {"name": "consent", "kind": "flag"}, {"name": "warning_sha256", "kind": "str", "flag": "warning-sha256"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
-     "help": "create a routine as a draft: --flow a flow, --param name=value its fixed arguments, --every day|week|minutes with --at HH:MM, --weekday, --minutes, --model (an id, auto, or the project's default), --provider (the approved set for auto), --window-seconds (the catch-up window, default its period), --consent (terminal; the page sends the hash of the warning) for a fixed model with no evidence; nothing fires until routine-approve; from messaging only when the project grants it, and never for a flow with a networked script or one a standing policy covers"},
+     "help": "create a routine as a draft: --flow a flow, --param name=value its fixed arguments, --every day|week|minutes with --at HH:MM, --weekday, --minutes, --model (an id, auto, or the project's default), --provider (the approved set for auto), --window-seconds (the catch-up window, default its period), --consent (terminal; the page sends the hash of the warning) for a fixed model with no evidence; nothing fires until routine-approve; from messaging only when the project's `channels.messaging` lists routine-edit, and never for a flow with a networked script or one a standing policy covers"},
     {"name": "routine-change", "call": "routine_change",
      "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"}, {"name": "flow", "kind": "str"}, {"name": "params", "kind": "list", "flag": "param"},
               {"name": "every", "kind": "choice", "choices": ("day", "week", "minutes")}, {"name": "at", "kind": "str"},
@@ -360,7 +362,7 @@ CHAT_OWN = (
 )
 
 # The channel policy (decisions M-8, M-12, M-13). The `channels` column of the table is the ceiling of a channel; a
-# project's runtime.json (`channels.<channel>`, a list of these group names) narrows it, never widens it. A group names
+# project's runtime.json (`channels.<channel>`, a list of these group names) narrows it, and widens it only by a grant (GRANTS). A group names
 # the operations it covers, and, for `approve`, the kind of decision (a group with no kind covers every kind its
 # operations take). Every operation that the page, the MCP mode or the messaging channel may call is in exactly one group
 # (a test walks the table). A group is valid on a channel when one of its operations is in that channel's ceiling; it then
@@ -375,23 +377,28 @@ GROUPS = {
     "request": {"operations": ("request", "route"), "kind": None},
     "approve-plans": {"operations": ("approve",), "kind": "plan"},
     "approve-acceptances": {"operations": ("approve",), "kind": "acceptance"},
-    "approve-effects": {"operations": ("approve",), "kind": "effect"},
+    "approve-effects": {"operations": ("approve",), "kind": "effect"},   # the umbrella: every word, on the page alone; a messaging app takes the per-word groups below, as grants
+    "approve-effect-create": {"operations": ("approve",), "kind": "effect:create"},       # a pull request (effect_pull_request.py)
+    "approve-effect-write": {"operations": ("approve",), "kind": "effect:write"},         # a write to the documents platform (effect_write.py)
+    "approve-effect-send": {"operations": ("approve",), "kind": "effect:send"},           # an e-mail from the project's outbox (effect_send.py APPROVAL_GROUP)
+    "approve-effect-publish": {"operations": ("approve",), "kind": "effect:publish"},     # a post (effect_publish.py APPROVAL_GROUP)
+    "approve-networked-plans": {"operations": ("approve",), "kind": "plan:networked"},    # a plan that holds a step reaching the network (P9, limit L36): on top of approve-plans
     "go-ahead": {"operations": ("go-ahead",), "kind": None},
     "reject-cancel": {"operations": ("reject", "cancel"), "kind": None},
-    "brakes": {"operations": ("cancel", "stop-task"), "kind": None},   # R18: end what runs, a grant for messaging (in no default); `cancel` is also in reject-cancel, so a written policy stays valid
+    "brakes": {"operations": ("cancel", "stop-task"), "kind": None},   # R18: end what runs, turned on for messaging by listing it (in no default); `cancel` is also in reject-cancel, so a written policy stays valid
     "retry": {"operations": ("retry",), "kind": None},
     "set-mode": {"operations": ("set-mode", "set-model"), "kind": None},
     "consent": {"operations": ("give-consent",), "kind": None},   # the page's consent for an autonomous agent (D38): a group of its own, so granting set-mode never grants it
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
     "flow-write": {"operations": ("flow-save", "stage-file"), "kind": None},   # saving a flow of the project, and handing a file over for the plan of one (not `flows`, the read operation of the group `read`)
-    # routines (P6b): the brakes reach the messaging channel by default; making and changing one is a grant of `channels.messaging`
+    # routines (P6b): the brakes reach the messaging channel by default; making and changing one is turned on by `channels.messaging` listing `routine-edit`
     # (and never for a flow that holds a networked script or that a standing policy covers: ROUTINE_LOCAL_CHANNELS); approving one
     # (by the hash of its content) and resuming it are the terminal's and the page's
     "routine-brakes": {"operations": ("routine-pause", "routine-cancel"), "kind": None},
     "routine-edit": {"operations": ("routine-create", "routine-change"), "kind": None},
     "routine-approve": {"operations": ("routine-approve", "routine-resume"), "kind": None},   # the approval of a routine's exact content by its hash, and the lifting of a pause
-    "instructions": {"operations": ("instructions-set", "instructions-add"), "kind": None},   # writing the person's standing instructions (L40): the terminal and the page alone, whatever a policy lists
+    "instructions-write": {"operations": ("instructions-set", "instructions-add"), "kind": None},   # writing the person's standing instructions (L40): the terminal and the page alone BY DEFAULT, whatever a policy lists today (a later package makes it a grant); not `instructions`, the read operation of the group `read`
     "verdict": {"operations": ("verdict",), "kind": None},
     "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "sources"), "kind": None},
 }
@@ -409,6 +416,33 @@ NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a 
 ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose flow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
 BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
 
+# Grants (POL-1). A channel restriction is a policy: the default is today's rule, and the person may widen it in the project's
+# configuration. "Grant" means one thing here: a group of GRANTS below, which goes BEYOND the ceiling of a channel (an effect on a
+# messaging app, a networked plan, and the operations the MCP mode's rows do not list), and which a channel reaches only when the
+# project's OWN entry for it lists it (never through DEFAULT_POLICY, never through "no entry keeps the ceiling"). accept-config shows
+# what each grant gives away and takes the hash of that list (--widen) before it accepts a file that adds one. The other groups
+# (approve-plans, release, reject-cancel, retry, brakes, routine-edit, ...) are inside a channel's ceiling: a project turns them on
+# by listing them, and a runtime.json edited to list one is accepted by accept-config WITHOUT --widen, because --widen covers GRANTS
+# alone; the person reads the file before accepting it, as for every other key. An effect is approved by the exact hash on every
+# channel; a grant changes where, never whether. The MCP mode (a model client) is granted no effect, no networked plan and no consent.
+EFFECT_APPROVAL_WORDS = ("create", "write", "send", "publish")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
+GRANTS = {
+    "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans"),
+    "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
+}
+GRANT_TEXT = {
+    "messaging:approve-effect-create": "a messaging app may approve a pull request, with its hash; today its card shows the files and their hashes and not the code, so no pull request is approved from a card yet and this grant approves nothing until a card shows the change",
+    "messaging:approve-effect-write": "a messaging app may approve the write of a page of your documents platform (never a table: its card is a preview), from a card that carries the whole text, with its hash",
+    "messaging:approve-effect-send": "a messaging app may approve an e-mail sent from your outbox (never one with an attachment), from a card that carries the whole text, with its hash",
+    "messaging:approve-effect-publish": "a messaging app may approve a post to a social platform (never one with an image), from a card that carries the whole text, with its hash",
+    "messaging:approve-networked-plans": "a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash",
+    "mcp:approve-plans": "a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain",
+    "mcp:approve-acceptances": "a connected AI client may accept what a request delivered or proposed: a model then authorises more work",
+    "mcp:reject-cancel": "a connected AI client may reject a decision and cancel a request",
+    "mcp:retry": "a connected AI client may make a failed or blocked task ready again",
+}
+NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
+
 
 def by_name(name: str) -> dict:
     """The row of an operation. KeyError when there is none."""
@@ -418,11 +452,25 @@ def by_name(name: str) -> dict:
     raise KeyError(name)
 
 
+def _explicit(channel: str, cfg, sender=None):
+    """The project's own entry for a channel (the groups it lists), or None when it has none. A grant counts only from here."""
+    given = (cfg or {}).get(channel)
+    return tuple(given) if given is not None else None
+
+
+def effective_groups(channel: str, cfg, sender=None) -> tuple | None:
+    """The one seam every check of the policy reads: the groups that apply to a channel (for a sender, when per-sender policies exist):
+    the project's entry, else the default of the channel, else None (the whole ceiling). Pure. `cfg` is the project's `channels`
+    mapping today; `sender` is not used yet (a later package gives each listed sender a profile of its own through this function,
+    so no caller changes). A grant counts only when it comes from an explicit entry (`_explicit`), never from the default."""
+    given = _explicit(channel, cfg, sender)
+    return given if given is not None else DEFAULT_POLICY.get(channel)
+
+
 def policy_groups(channel: str, policy) -> tuple:
     """The groups that apply to a channel: the project's entry, else the default of the channel, else None (the whole
-    ceiling)."""
-    given = (policy or {}).get(channel)
-    return tuple(given) if given is not None else DEFAULT_POLICY.get(channel)
+    ceiling). The name the callers and the tests know; the rule is effective_groups."""
+    return effective_groups(channel, policy)
 
 
 def is_read(op_name: str) -> bool:
@@ -431,38 +479,83 @@ def is_read(op_name: str) -> bool:
     return op_name in GROUPS["read"]["operations"]
 
 
-def policy_allows(op_name: str, channel: str, policy, kind: str | None = None) -> bool:
-    """Whether the channel's ceiling lists the operation and the project's groups cover it (pure), without the brakes.
-    The terminal is never narrowed; a channel with no groups keeps its ceiling. For a group with a kind, the decision's
-    kind must equal it (`kind` None asks whether any group covers the operation)."""
-    try:
-        row = by_name(op_name)
-    except KeyError:
+def is_effect_kind(kind) -> bool:
+    """Whether a kind of `approve` is of the effect family: `effect` (the umbrella, no word) or `effect:<word>`."""
+    return kind == "effect" or (isinstance(kind, str) and kind.startswith("effect:"))
+
+
+def _covers(group_kind, kind) -> bool:
+    """Whether a group of this kind covers a decision of that kind: a group with no kind covers every kind, `kind` None asks whether
+    any does, equal kinds match, and the umbrella `effect` covers every `effect:<word>`."""
+    return group_kind is None or kind is None or group_kind == kind or (group_kind == "effect" and is_effect_kind(kind) and kind != "effect")
+
+
+def granted(op_name: str, channel: str, cfg, kind=None, sender=None) -> bool:
+    """Whether the project's own entry for the channel lists a group of GRANTS[channel] that covers the operation (for this kind).
+    The umbrella `approve-effects` is not a grant, and no default holds one."""
+    given = _explicit(channel, cfg, sender)
+    if not given:
         return False
-    if channel not in row["channels"]:
-        return False
-    if channel in NEVER_NARROWED:
-        return True
-    if op_name == "approve" and kind == "effect" and channel not in EFFECT_CHANNELS:
-        return False
-    groups = policy_groups(channel, policy)
-    if groups is None:
-        return True
-    for name in groups:
+    for name in given:
         group = GROUPS.get(name)
-        if group and op_name in group["operations"] and (group["kind"] is None or kind is None or group["kind"] == kind):
+        if name in GRANTS.get(channel, ()) and group and op_name in group["operations"] and _covers(group["kind"], kind):
             return True
     return False
 
 
-def permitted(op_name: str, channel: str, policy, kind: str | None = None) -> bool:
+def grants(cfg) -> list:
+    """[(channel, group)] of the grants the project's own entries list, in the order of GRANTS (pure)."""
+    return [(channel, name) for channel, names in GRANTS.items() for name in names if name in (_explicit(channel, cfg) or ())]
+
+
+def grant_only_rows(channel: str) -> tuple:
+    """The names of the operations whose row does not list the channel and that a grant of the channel reaches (the MCP mode: approve,
+    reject, cancel and retry, off unless the project grants them)."""
+    names = {op for name in GRANTS.get(channel, ()) for op in GROUPS[name]["operations"] if channel not in by_name(op)["channels"]}
+    return tuple(row["name"] for row in OPERATIONS if row["name"] in names)
+
+
+def policy_allows(op_name: str, channel: str, policy, kind: str | None = None, sender=None) -> bool:
+    """Whether the channel's ceiling lists the operation and the project's groups cover it (pure), without the brakes.
+    The terminal is never narrowed; a channel with no groups keeps its ceiling. For a group with a kind, the decision's
+    kind must equal it (`kind` None asks whether any group covers the operation). Four cases, in this order:
+    (1) the kind is `plan:networked` (a plan with a networked step): the channels of NETWORKED_PLAN_CHANNELS ask as for a plan, any
+    other needs the grant; (2) an effect (`effect` or `effect:<word>`) on a channel outside EFFECT_CHANNELS: only a grant of the
+    channel for that word (`effect` with no word is false, and so is the umbrella); (3) a row that does not list the channel: only a
+    grant that covers the operation; (4) the rest: the ceiling and the effective groups, as before."""
+    try:
+        row = by_name(op_name)
+    except KeyError:
+        return False
+    if channel in NEVER_NARROWED:
+        return channel in row["channels"]
+    if op_name == "approve" and kind == "plan:networked":
+        if channel not in NETWORKED_PLAN_CHANNELS:
+            return channel in row["channels"] and granted(op_name, channel, policy, kind, sender)
+        kind = "plan"
+    if op_name == "approve" and is_effect_kind(kind) and channel not in EFFECT_CHANNELS:
+        return channel in row["channels"] and kind != "effect" and granted(op_name, channel, policy, kind, sender)
+    if channel not in row["channels"]:
+        return granted(op_name, channel, policy, kind, sender)
+    groups = effective_groups(channel, policy, sender)
+    if groups is None:
+        return True
+    for name in groups:
+        group = GROUPS.get(name)
+        if group and op_name in group["operations"] and _covers(group["kind"], kind):
+            return True
+    return False
+
+
+def permitted(op_name: str, channel: str, policy, kind: str | None = None, sender=None) -> bool:
     """Whether a channel may call an operation under a project's policy (pure): `policy_allows`, and, on the page, the
     BRAKES whatever the policy says (cancel, and set-mode, whose direction ops_config.set_mode checks: a move down is
-    never withheld, a move up needs the group). Never the only guard of an effect: an effect is approved only from
-    EFFECT_CHANNELS, with its hash, and a line typed into any channel never approves one (ops.approve, ops_say)."""
+    never withheld, a move up needs the group). Never the only guard of an effect: an effect is approved with its hash,
+    in EFFECT_CHANNELS or where the project grants the word, from a card that carried the whole text, and a line typed
+    into any channel never approves one (ops.approve, ops_say, messaging_bridge)."""
     if channel == "page" and op_name in BRAKES and policy_allows(op_name, channel, None):
         return True
-    return policy_allows(op_name, channel, policy, kind)
+    return policy_allows(op_name, channel, policy, kind, sender)
 
 
 def not_enabled(name: str, channel: str) -> str:
@@ -470,15 +563,15 @@ def not_enabled(name: str, channel: str) -> str:
     return f"/{name} is not enabled for this channel; the project's configuration (channels.{channel}) turns it on"
 
 
-def refusal(op_name: str, channel: str, policy, kind: str | None = None, go_ahead: bool = False):
+def refusal(op_name: str, channel: str, policy, kind: str | None = None, go_ahead: bool = False, sender=None):
     """The sentence that refuses a call, or None when the channel's policy lets it through (pure; the one helper the
     page, the MCP mode, a typed line, the approve rule and the queue's drain call). `kind` is the decision's kind for
     approve; `go_ahead` is true when approve carries task keys, which needs the group `go-ahead` too (on a channel with
     a policy). The caller raises OpsError(sentence, 1). A channel with no policy entry keeps its ceiling, so this
     refuses only what the ceiling or the project's groups refuse; the terminal and the conversation are never refused."""
-    if not permitted(op_name, channel, policy, kind):
+    if not permitted(op_name, channel, policy, kind, sender):
         return not_enabled(op_name, channel)
-    if go_ahead and channel in POLICY_CHANNELS and not permitted("go-ahead", channel, policy):
+    if go_ahead and channel in POLICY_CHANNELS and not permitted("go-ahead", channel, policy, None, sender):
         return not_enabled("go-ahead", channel)
     return None
 
@@ -486,16 +579,18 @@ def refusal(op_name: str, channel: str, policy, kind: str | None = None, go_ahea
 def permissions(channel: str, policy) -> list:
     """What the channel may do under the policy, as the names the page reads (a list in the table's order): the plain
     name of every operation the channel's row lists and `permitted` allows, except `approve` and `set-mode`, which are
-    pairs: approve:plan, approve:acceptance, approve:effect, approve:go-ahead (a plan's task keys: the kind plan and the
-    group go-ahead) and set-mode:down, set-mode:up. On the page cancel and set-mode:down are always there (the brakes)."""
+    pairs: approve:plan, approve:acceptance, approve:effect:<word> for each word the policy covers (and approve:effect when
+    any is), approve:go-ahead (a plan's task keys: the kind plan and the group go-ahead) and set-mode:down, set-mode:up.
+    On the page cancel and set-mode:down are always there (the brakes)."""
     out = []
     for row in OPERATIONS:
         name = row["name"]
         if channel not in row["channels"]:
             continue
         if name == "approve":
-            kinds = [k for k in ("plan", "acceptance", "effect") if permitted("approve", channel, policy, k)]
-            out += ["approve:" + k for k in kinds]
+            kinds = [k for k in ("plan", "acceptance") if permitted("approve", channel, policy, k)]
+            words = [w for w in EFFECT_APPROVAL_WORDS if permitted("approve", channel, policy, "effect:" + w)]
+            out += ["approve:" + k for k in kinds] + (["approve:effect"] + ["approve:effect:" + w for w in words] if words else [])
             if "plan" in kinds and permitted("go-ahead", channel, policy):
                 out.append("approve:go-ahead")
         elif name == "set-mode":
