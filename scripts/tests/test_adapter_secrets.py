@@ -46,6 +46,8 @@ BEFORE = {
     "NOTION_SOURCES_TOKEN": ((), "notion-sources", ("providers/documents/notion.py",)),
     # P7: the Google Drive files the person picked as sources; one record (token, client, Picker key), scope drive.file.
     "GDRIVE_SOURCES_TOKEN": ((), "gdrive-sources", ("providers/documents/gdrive.py", "providers/documents/gdrive_auth.py")),
+    # O1: the OneDrive files the person chose as sources; one record (refresh token, client id, tenant), scope Files.Read.
+    "ONEDRIVE_SOURCES_TOKEN": ((), "onedrive-sources", ("providers/documents/onedrive.py", "providers/documents/onedrive_auth.py")),
     "MESSENGER_TELEGRAM_BOT_TOKEN": ((), "messenger-telegram", ("providers/messenger/telegram.py",)),
     "MESSENGER_DISCORD_BOT_TOKEN": ((), "messenger-discord", ("providers/messenger/discord.py",)),
     "MESSENGER_WHATSAPP_CLOUD_TOKEN": ((), "messenger-whatsapp-cloud", ("providers/messenger/whatsapp-cloud.py",)),
