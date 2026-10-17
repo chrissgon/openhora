@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import shutil
 import threading
 from pathlib import Path
@@ -56,6 +57,7 @@ def lab(tree, tmp_path, monkeypatch):  # noqa: F811
     data.mkdir()
     w = Lab()
     w.path, w.plan, w.digest, w.acceptance, w.effect, w.folder, w.log = path, plan_id, digest, accept_id, effect, folder, []
+    w.tmp = tmp_path
     projects = [{"id": shell_kit.project_id(path), "name": "northwind-shop", "path": path}]
     w.bridge = bridge.Bridge(ops, projects, providers.Messenger("telegram", root=str(root)), ledgers.Ledger(str(data), "telegram"), "telegram", w.log.append,
                              clock=lambda: "2026-10-11T10:00:00+00:00")
@@ -343,3 +345,67 @@ def test_the_bridge_asks_the_policy_for_a_sender_never_for_the_channel_alone(lab
     for call in (lambda: lab.bridge.allow(project, "pending"), lambda: lab.bridge.run_op(project, "pending")):
         with pytest.raises(RuntimeError, match="never for the channel alone"):
             call()
+
+
+def everything_sent(lab) -> str:
+    """Every message the stand-in messenger was handed, whole: texts, files and links."""
+    return json.dumps(lab.sent(), ensure_ascii=False)
+
+
+def test_no_message_the_bridge_sends_carries_the_home_folder_whatever_it_is_and_a_command_in_it_still_runs(lab, monkeypatch):
+    """The home folder is the test's temporary folder (the project, the data and the checkout all lie under it). One filter at the one send point
+    covers a reply, a card and a file; each case below is a different way a path reaches a phone."""
+    home = str(lab.tmp)
+    monkeypatch.setenv("HOME", home)
+    monkeypatch.setattr(bridge, "ROOT", str(lab.tmp / "checkout"))                  # the checkout a command is spelled with
+    configure(lab, [{"id": OWNER, "policy": "owner"}, {"id": STAFF, "policy": "staff"}],
+              policies={**POLICIES_ALL, "owner": [*POLICIES["owner"], "approve-networked-plans"]}, notices="count")
+    real_pending = ops.pending
+
+    def networked(project, pending_id=None):
+        found = real_pending(project, pending_id) if pending_id is not None else real_pending(project)
+        return {**found, "plan_networked": True} if pending_id is not None and found.get("kind") == "plan" else found
+    monkeypatch.setattr(ops, "pending", networked)
+    lab.bridge.tick()                                                                   # the cards: an effect that no card approves carries a command
+    lab.say(STAFF, f"/approve {lab.plan} {lab.digest}")                                 # a refused operation
+    lab.say(OWNER, f"/approve {lab.effect['id']} {lab.effect['payload_sha256']}")       # an effect: the command to run in the terminal
+    lab.say(OWNER, f"/approve {lab.plan} {lab.digest}")                                 # a plan that reaches the network: the command, too
+    monkeypatch.setattr(ops, "reject", lambda project, pending_id, note=None, channel=None, sender=None: (_ for _ in ()).throw(
+        ops.OpsError(f"nothing was done in {lab.path}/docs: see {home}/x", 1)))        # an OpsError that carries a path
+    lab.say(OWNER, f"/reject {lab.acceptance}")
+    lab.bridge.reply(OWNER, json.dumps({"approve": {"command": operations.command_line("routine-approve", lab.path, checkout=str(lab.tmp / "checkout"),
+                                                                                       routine_id=1, sha256="a" * 64)}}))           # a draft routine's approve command
+    real_say = ops.say
+    monkeypatch.setattr(ops, "say", lambda project, text, channel=None, sender=None: {"reply": "unclassified: " + operations.command_line(
+        "route", lab.path, checkout=str(lab.tmp / "checkout"), request_id=3)})
+    lab.say(OWNER, "make a thing")                                                      # an unclassified route
+    assert wait_for(lambda: "unclassified" in everything_sent(lab))
+    monkeypatch.setattr(ops, "pending", real_pending)
+    monkeypatch.setitem(ops.SERVICE, os.path.realpath(lab.path), {"dispatch": "off", "at": "2026-10-17T10:00:00Z"})      # the local service dispatches nothing
+    ops.approve(lab.path, lab.plan, lab.digest, channel="terminal")                     # the person approves the plan in the terminal: its tasks are ready, and held
+    monkeypatch.setattr(ops, "say", real_say)
+    lab.say(OWNER, "/status")                                                           # a held task: its command
+    assert wait_for(lambda: "dispatch off" in everything_sent(lab) and "run-next" in everything_sent(lab).split("dispatch off")[-1])
+    blob = everything_sent(lab)
+    assert home not in blob and lab.path not in blob and str(lab.tmp / "checkout") not in blob, "no message carries the home folder"
+    assert blob.count("~/") >= 4, "the commands are still there, spelled from the home folder (an unquoted `~/x` is expanded by the shell)"
+    assert "runtime/cli.py" in blob and "approve --project ~/" in blob
+
+
+def test_the_filter_keeps_a_quoted_path_runnable_and_touches_nothing_that_is_not_the_home_folder():
+    home = "/Users/zed"
+    from_env = bridge.home_folders
+    try:
+        bridge.home_folders = lambda: [home]
+        assert bridge.scrub("python3 /Users/zed/co/runtime/cli.py approve --project '/Users/zed/my proj' --sha256 abc") == \
+            "python3 ~/co/runtime/cli.py approve --project ~/'my proj' --sha256 abc"
+        assert bridge.scrub("'/Users/zed'") == "~" and bridge.scrub("/Users/zed") == "~" and bridge.scrub("in /Users/zed.") == "in ~."
+        assert bridge.scrub("/Users/zedx/y /tmp/Users/zed /opt/Users/zed/z a/Users/zed") == "/Users/zedx/y /tmp/Users/zed /opt/Users/zed/z a/Users/zed"
+        assert bridge.scrub_message({"text": "/Users/zed/a", "actions": [{"id": "1", "label": "Approve"}], "link": {"label": "x", "url": "https://h.example/u"},
+                                     "document": {"name": "n.txt", "text": "see /Users/zed/b"}}) == \
+            {"text": "~/a", "actions": [{"id": "1", "label": "Approve"}], "link": {"label": "x", "url": "https://h.example/u"},
+             "document": {"name": "n.txt", "text": "see ~/b"}}
+        assert bridge.scrub(None) is None
+    finally:
+        bridge.home_folders = from_env
+    assert bridge.home_folders() and all(not p.endswith("/") for p in bridge.home_folders())

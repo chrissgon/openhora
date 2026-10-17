@@ -90,6 +90,40 @@ NOT_OPEN = "Pending decision {number} is {status}, not open."
 NOT_OFFERED = "That card did not offer an approval. Send /pending for the current one."
 
 
+def home_folders() -> list:
+    """The person's home folder as it is spelled and as it resolves (a link), longest first; none for an empty home or the root."""
+    found = []
+    for spelled in (os.path.expanduser("~"), os.environ.get("HOME", "")):
+        for path in (spelled, os.path.realpath(spelled) if spelled else ""):
+            path = path.rstrip("/")
+            if path and path not in found:
+                found.append(path)
+    return sorted(found, key=len, reverse=True)
+
+
+def scrub(text):
+    """The text with the home folder replaced by `~`, so that a message to a phone carries no username or folder layout, and a command in it still
+    works when pasted in the person's shell: an unquoted `~/x` is expanded by the shell, and a quoted path (`'<home>/my folder'`, which the
+    command builders quote when it has a space) becomes `~/'my folder'`, where the tilde stays outside the quotes."""
+    if not isinstance(text, str):
+        return text
+    for home in home_folders():
+        quoted = re.escape(home)
+        text = re.sub(r"'" + quoted + r"(/[^']*)?'", lambda m: "~/'" + m.group(1)[1:] + "'" if m.group(1) else "~", text)
+        text = re.sub(r"(?<![\w.~/-])" + quoted + r"(?=/|\.?(?:[\s'\"`)\]>:,;]|$))", "~", text)
+    return text
+
+
+def scrub_message(message: dict) -> dict:
+    """A neutral message as it goes out: the text and the file (name and text) scrubbed; buttons and the link are the bridge's own and carry no path."""
+    out = dict(message)
+    out["text"] = scrub(out.get("text"))
+    document = out.get("document")
+    if isinstance(document, dict):
+        out["document"] = {**document, "name": scrub(document.get("name")), "text": scrub(document.get("text"))}
+    return out
+
+
 def reason_of(error) -> str:
     """Why a configuration cannot be read, for the log: the refusal of runtime.json (a sentence about a key, never a sender: digits of eight or more are
     masked all the same), else nothing."""
@@ -206,13 +240,17 @@ class Bridge(shell_kit.Jobs):
 
     # --- sending ---------------------------------------------------------------------------------------------
 
+    def deliver(self, chat: str, message: dict):
+        """The one point where the bridge sends anything: every reply, card and file passes the filter that keeps the home folder off a phone."""
+        return self.messenger.send(chat, scrub_message(message))
+
     def reply(self, chat: str, text: str):
         """Send a reply. True when every piece went out, False when a send failed (logged), None when the platform deferred it
         (it cannot take a message yet: not an error, not logged, and the caller may try again)."""
         caps = self.messenger.capabilities()
         for piece in cards.split(text or "(no reply)", caps["max_text"]):
             try:
-                self.messenger.send(chat, {"text": piece, "actions": [], "link": None, "document": None})
+                self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None})
             except provider.MessengerError as e:
                 if e.kind == "deferred":
                     return None
@@ -273,7 +311,7 @@ class Bridge(shell_kit.Jobs):
         made = {f"{seq}:{a['op']}": a["op"] for a in message["actions"]}
         message["actions"] = [{"id": f"{seq}:{a['op']}", "label": a["label"]} for a in message["actions"]]
         try:
-            message_id = self.messenger.send(chat, message)
+            message_id = self.deliver(chat, message)
         except provider.MessengerError as e:
             if e.kind == "deferred":
                 self.defer(project, item, chat)
@@ -300,7 +338,7 @@ class Bridge(shell_kit.Jobs):
         (a document that failed after the text, or a send that raised), None when the platform deferred it (nothing is recorded; it is tried
         again). A provider that cannot tell is "failed": the card is then not approvable here."""
         try:
-            sent = self.messenger.send(chat, cards.document_message(project["name"], item, document))
+            sent = self.deliver(chat, cards.document_message(project["name"], item, document))
         except provider.MessengerError as e:
             if e.kind == "deferred":
                 self.defer(project, item, chat)

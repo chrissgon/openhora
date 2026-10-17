@@ -73,7 +73,7 @@ def test_a_granted_whole_card_has_the_approve_button_the_hash_line_and_the_ledge
 
 def test_the_default_and_a_wrong_word_and_notices_of_count_draw_no_button_and_keep_the_command(world):
     world.items[7] = effect()
-    command = operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256=HASH)
+    command = bridge.scrub(operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256=HASH))   # the card spells the home folder as ~
     for groups, notices in ((OPEN_POLICY, "text"), ([*OPEN_POLICY, "approve-effect-create", "approve-effect-send"], "text"), (GRANTED, "count")):
         grant(world, groups, notices)
         fresh_bridge(world)

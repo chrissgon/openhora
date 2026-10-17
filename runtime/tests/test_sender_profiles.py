@@ -662,7 +662,7 @@ def test_a_group_that_holds_another_is_one_line_and_the_pairs_are_the_tables():
     assert policy_widening.widening(held, {"channels": {"page": ["read", "approve-effect-write"]}, "senders": {}}) == []
 
 
-def test_no_reply_to_a_messaging_app_carries_an_absolute_path_and_status_names_the_file_not_its_place(tree):  # noqa: F811
+def test_status_names_the_file_not_its_place_and_the_reads_a_messaging_line_can_ask_carry_no_project_path(tree):  # noqa: F811
     path = str(tree["project"])
     accept(path, policies=POLICIES, channels={"messaging": "staff"}, messaging={"senders": SENDERS})
     shown = ops.status(path)["config"]

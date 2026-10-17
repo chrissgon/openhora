@@ -219,7 +219,7 @@ def test_an_effect_card_has_no_approve_and_carries_the_exact_command_and_the_lin
     message = card["message"]
     assert [a["label"] for a in message["actions"]] == ["Reject"]
     assert "Approve it on the page or in the terminal:" in message["text"]
-    command = operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256="e" * 64)
+    command = bridge.scrub(operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256="e" * 64))   # the card spells the home folder as ~
     assert message["text"].rstrip().endswith(f"`{command}`") and "e" * 64 in command  # on its own line, tap-to-copy
     assert message["text"].rstrip().splitlines()[-1] == f"`{command}`"
     assert message["link"]["url"] == "https://page.example/open"
