@@ -74,7 +74,7 @@ Measurement version 10, measurement floor 6.
 
 **The gate.** The mean with the skill on a model is at the threshold or above and not below the baselines' mean by more than the tolerance, both means taken as the mean of the cases' means, unrounded, over the full-test lines of one `X.Y` and one epoch.
 
-**The band and its causes.** `needs a test` (no passing full test of the major version; a guard with a confirmed failure or no run; the newest full test failing or not computable), `watch` (no current run; guard cases only; a score under 0.70; three Y changes; a case pending; a thin baseline; the field signal), `reliable` otherwise. Every model with evidence gets the same band by the same rules on its own lines, and each decides the skill's standing on that model only.
+**The band and its causes.** `needs a test` (no passing full test of the major version and no passing closed pool of it (P11: quick, partial and full tests' lines together); a guard with a confirmed failure or no run; the newest full test or closed pool failing or not computable), `watch` (no current run; guard cases only; a score under 0.70; three Y changes; a case pending; a thin baseline; the field signal), `reliable` otherwise. Every model with evidence gets the same band by the same rules on its own lines, and each decides the skill's standing on that model only.
 
 **The pessimistic score.** The lower bound of the Wilson interval on the weighted runs (z = 1.2816), a penalty for little evidence and never called a confidence bound; always shown with the mean and N.
 
