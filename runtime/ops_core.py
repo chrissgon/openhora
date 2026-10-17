@@ -394,7 +394,8 @@ def _process_start(pid: int):
     """The start time of a process as `ps` gives it, five words joined by "_" (Fri_Oct_16_00:38:12_2026), or None when it cannot be asked:
     with its pid it names a process for good, as the pid alone cannot (a pid is reused)."""
     try:
-        done = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))], capture_output=True, text=True, timeout=10, check=False)
+        done = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))], capture_output=True, text=True, timeout=10, check=False,
+                              env={**os.environ, "LC_ALL": "C"})      # in the C locale `lstart` is five words in every language (ja_JP prints four)
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
     words = done.stdout.split()

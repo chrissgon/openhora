@@ -119,8 +119,9 @@ def describe(doc: dict) -> str:
 
 def is_long(doc) -> bool:
     """Whether the publication is made without the project's write lock, under the lock of the decision: every one is. It takes a request to the
-    platform, an upload when there is an image and the first comment's retries, and a cancel or an answer of the decision must be refused while it
-    runs: the post would otherwise go out after the decision was closed, and its record would be refused."""
+    platform, an upload when there is an image and the first comment's retries, and an answer of the decision must be refused while it runs, and a
+    cancel of its request must leave the decision open (ops_cancel): the post would otherwise go out after the decision was closed, and its record
+    would be refused."""
     return isinstance(doc, dict)
 
 

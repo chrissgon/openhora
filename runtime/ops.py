@@ -215,7 +215,6 @@ import ops_language  # noqa: E402  (the language of a deliverable: the check of 
 import language as language_rules  # noqa: E402  (the rule and the words; the operation `request` has an argument of the same name)
 import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
 import board  # noqa: E402
-import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
 import changeset  # noqa: E402
 import deps as deps_sets  # noqa: E402  (the operation `deps` would hide the module: part 0, F.1, rule 5)
 import dispatcher  # noqa: E402

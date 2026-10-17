@@ -22,7 +22,7 @@ with the approval the person gave. What a kind module of this path exposes, besi
     caller(cfg, root)                    the `call(verb, args)` that reaches the provider (providers/mailer/smtp.py) with the outbox
                                          password in its environment and nothing else of the secrets
     idempotency_key(doc, default)        the document's own key: one e-mail is sent once, however many decisions reach it
-    is_long(doc)                         whether the decision takes the decision's lock (every send does: a cancel is refused while it runs)
+    is_long(doc)                         whether the decision takes the decision's lock (every send does: an answer is refused while it runs, a cancel keeps the decision open)
     on_cards(doc)                        whether the whole e-mail can be on a messaging card (False with an attachment: the card cannot
                                          carry the file the hash covers); read by the policy layer when it grants approval from a messaging app
     APPROVAL_GROUP                       the policy group that would let a messaging app approve this kind (`approve-effect-send`,
@@ -95,8 +95,9 @@ class UnknownError(effects.EffectError):
 
 def is_long(doc) -> bool:
     """Whether the send is made without the project's write lock, under the lock of the decision: every send is. It opens connections, takes
-    seconds to minutes (20 recipients, a slow line, 18 MB), and a cancel or an answer of the decision must be refused while it runs ("being
-    written"): the e-mail would otherwise be delivered after the decision was closed, and its record refused."""
+    seconds to minutes (20 recipients, a slow line, 18 MB), and an answer of the decision must be refused while it runs ("being written"), and a
+    cancel of its request must leave the decision open (ops_cancel): the e-mail would otherwise be delivered after the decision was closed, and
+    its record refused."""
     return isinstance(doc, dict)
 
 
