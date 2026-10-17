@@ -72,9 +72,10 @@ HELP_WIDTH = 27
 OPERATIONS = (
     {"name": "request", "call": "request",
      "args": ({"name": "text", "kind": "text", "required": True}, {"name": "flow", "kind": "str"},
-              {"name": "title", "kind": "str"}, {"name": "after", "kind": "int"}, {"name": "model", "kind": "str"}),
+              {"name": "title", "kind": "str"}, {"name": "after", "kind": "int"}, {"name": "model", "kind": "str"},
+              {"name": "language", "kind": "str"}),
      "channels": ("terminal", "page", "mcp"), "model": False,
-     "help": "record what you want; with a flow, plan it from the flow file, else it waits for its route; with after, run it after that request; with model, run its tasks on that model (an id of the gate file, or auto)"},
+     "help": "record what you want; with a flow, plan it from the flow file, else it waits for its route; with after, run it after that request; with model, run its tasks on that model (an id of the gate file, or auto); with language, write its deliverables in that language (a tag such as en or pt-BR; else the project's language setting)"},
     {"name": "route", "call": "route",
      "args": ({"name": "request_id", "kind": "int", "required": True, "flag": "request"}, {"name": "flow", "kind": "str"},
               {"name": "params", "kind": "list", "flag": "param"}),

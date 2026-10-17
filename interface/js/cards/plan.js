@@ -12,7 +12,7 @@ import { replyView } from "../floor/reply.js";
 import { withheldLine } from "../floor/widgets.js";
 import { wordOf } from "../permissions.js";
 import * as router from "../router.js";
-import { WEB_SOURCES_NOTE, failureText, limitsLine, planHash, planText, stackedRow, taskRows, webWithSources } from "./plan-rows.js";
+import { WEB_SOURCES_NOTE, failureText, languageLine, limitsLine, planHash, planText, stackedRow, taskRows, webWithSources } from "./plan-rows.js";
 import { createWaitsBlock } from "./plan-waits.js";
 
 let counter = 0;
@@ -69,6 +69,7 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
   };
   if (waits && waits.withheld) allow("approve", "go-ahead");
   const limits = limitsLine(item);
+  const language = languageLine(item);
   const hashBlock = shown
     ? h("div", { class: "wb-plan-hash-block" }, h("span", { class: "wb-card-label", text: "Plan hash" }), h("code", { class: "wb-plan-hash", tabindex: "0", role: "group", "aria-label": "Plan hash", text: shown }))
     : h("p", { class: "wb-card-note", text: "This plan carries no hash, so it cannot be approved from here." });
@@ -94,7 +95,7 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
   const el = h("article", { class: "pui-card wb-card wb-plan-card", "aria-labelledby": titleId },
     h("div", { class: "wb-card-head" }, kind, meta),
     h("div", { class: "pui-card-content wb-card-content" },
-      title, list, waits ? waits.el : null, limits ? h("p", { class: "wb-card-note", text: limits }) : null, hashBlock, asText,
+      title, list, language ? h("p", { class: "wb-card-note wb-plan-language", text: language }) : null, waits ? waits.el : null, limits ? h("p", { class: "wb-card-note", text: limits }) : null, hashBlock, asText,
       reject ? noteGroup : null, error, row, withheldLine(lacking)));
 
   let sending = false;

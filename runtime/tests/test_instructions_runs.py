@@ -32,6 +32,8 @@ ops = st.load("ops")
 ops_instructions = st.load("ops_instructions")
 router = st.load("router")
 routines = st.load("routines")
+language = st.load("language")
+LANGUAGE_LINE = language.line(None, None)     # a project that sets no language: every task run and every router run carries this paragraph, after the task's own
 
 PATH = "docs/workbench/instructions.md"
 RULES = "Write every post in Portuguese.\nNever name a competitor."
@@ -103,7 +105,7 @@ def test_a_task_run_receives_the_block_once_right_after_the_task_paragraph_and_w
     path = str(plain_tree["project"])
     seen = kept_prompts(monkeypatch)
     ops.request(path, REQUEST, "demo")
-    plain = "\n".join([REQUEST, "", "For this task: do the market analysis."]) + "\n"
+    plain = "\n".join([REQUEST, "", "For this task: do the market analysis.", "", LANGUAGE_LINE]) + "\n"
     first = ops.run_next(path)
     assert seen == [plain] and first["status"] == "ok"
     # a blank file is no file: the prompt is byte-identical to what the same run was given before the package
@@ -112,7 +114,8 @@ def test_a_task_run_receives_the_block_once_right_after_the_task_paragraph_and_w
     ops.answer(path, first["pending_id"], "Portugal.")
     second = ops.run_next(path)
     assert second["status"] == "ok"
-    assert seen[1] == ops.task_prompt(REQUEST, "do the market analysis.", [{"body": asked["body"], "answer": "Portugal."}]) and HEAD not in seen[1]
+    assert seen[1] == ops.task_prompt(REQUEST, "do the market analysis.", [{"body": asked["body"], "answer": "Portugal."}],
+                                      language_line=LANGUAGE_LINE) and HEAD not in seen[1]
     # a file: the block, exactly once, after the paragraph and before the earlier answers
     put(plain_tree, RULES + "\n")
     ops.answer(path, second["pending_id"], "Leave the open question open.")
@@ -147,7 +150,7 @@ def test_the_router_run_receives_the_block_once_after_its_task_text_and_without_
     reply(chat_tree, FLOW, "router-reply-2.md")
     path = str(chat_tree["project"])
     asked = say(chat_tree, "Which market first?")
-    assert router_prompt(chat_tree) == ops.task_prompt("Which market first?", router.ROUTE_TASK_TEXT, [])
+    assert router_prompt(chat_tree) == ops.task_prompt("Which market first?", router.ROUTE_TASK_TEXT, [], language_line=language.router_line(None, None))
     put(chat_tree, RULES + "\n")
     answered = say(chat_tree, "The clinic project.")
     prompt = router_prompt(chat_tree)

@@ -78,6 +78,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/intake.py` | The generic streaming intake: how a body of a declared length gets from a stream onto disk, safely. |
 | `runtime/isolated.py` | Skill code the runtime runs on the host, as an isolated subprocess with a scrubbed environment. |
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
+| `runtime/language.py` | The language artifacts are written in: the tag rule, the order that decides it, and the words a run, a plan card and a refusal use. |
 | `runtime/lease.py` | Two hosts do not write the sources folder within one lease window, and no database or lock lives in a synced folder (package P-OPS, finding I4). |
 | `runtime/mail_address.py` | What the runtime needs to know of an e-mail address, and nothing else (package EMAIL-SEND): the same rule as providers/_email.py `normalize_address`, written again because the runtime does not import a provider; a test holds the two equal on a table of addresses. |
 | `runtime/manifest.py` | The runtime manifest of a skill: skills/&lt;name&gt;/evals/runtime-manifest.json, read and checked. |
@@ -96,6 +97,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_core.py` | The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the project's context and the store call, the locks, the runtime's own key and the data-folder names. |
 | `runtime/ops_flows.py` | The operations over flows (flow files, P6a): list them, check one, save a plan as one, hand a file over for a request, and the pieces the rest of the layer asks of them (binding a flow's parameters and dates, and moving a handed-over file into the task that reads it). |
 | `runtime/ops_instructions.py` | The person's standing instructions in the operations layer: the three operations over the file, the block a run's prompt receives, the check a routine's task makes, and the proposal that follows an answer (runtime/instructions.py holds the file and its checks). |
+| `runtime/ops_language.py` | The language of a deliverable in the operations layer: the check of the person's choice on a request, and the line a run gets (runtime/language.py holds the rule, the order and the words). |
 | `runtime/ops_models.py` | Which model a run goes to, in the operations layer: the person's choice (a request, a task, an agent, the project's default), the proof of the skill on each model (runtime/proof.py) and the person's consent for an agent's own model (decision D38). |
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_routines.py` | The operations over routines (package P6b; decisions D23, D24, D31 to D35, findings S3, S10, I5, F4, F12) and the tick that fires them. |
@@ -149,7 +151,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 **The store, as built.** Migration 1 holds the first runtime's tables (`cursors`, `events`, `runs`, `inbox`, `actions`); the task runtime uses `cursors` and `actions` too. The migrations, generated from `MIGRATIONS` of `providers/store/sqlite.py`:
 
 <!-- generated: store-migrations -->
-Schema version 15: the highest migration of `MIGRATIONS`.
+Schema version 16: the highest migration of `MIGRATIONS`.
 
 | Migration | Description | Tables created | Columns added | Triggers |
 |---|---|---|---|---|
@@ -168,6 +170,7 @@ Schema version 15: the highest migration of `MIGRATIONS`.
 | 13 | a task that runs its skill without the web | - | `tasks.web_off` | - |
 | 14 | routines, their fires, and the Drive source type | `sources`, `routines`, `routine_fires` | - | `sources_never_deleted`, `sources_only_description_moves`, `routines_never_deleted`, `routine_fires_never_deleted`, `routine_fires_never_changed` |
 | 15 | a stop request on a request or a task, and the run status `cancelled` | `task_runs` | `tasks.stop_requested_at`, `tasks.stop_requested_by` | `task_runs_never_deleted` |
+| 16 | the language a request or a task asks its deliverable in | - | `tasks.language` | - |
 <!-- /generated -->
 
 The task runtime's tables, those that migration 2 and later create, with their columns (generated from the same source):
@@ -175,7 +178,7 @@ The task runtime's tables, those that migration 2 and later create, with their c
 <!-- generated: task-runtime-tables -->
 | Table | Created by migration | Columns |
 |---|---|---|
-| `tasks` | 2 | id, parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, note, created_at, updated_at, remote_id (migration 4), remote_version (migration 4), remote_written_sha256 (migration 4), after_request (migration 8), model (migration 10), sources (migration 11), step_kind (migration 12), step_args (migration 12), step_footprint (migration 12), step_state (migration 12), web_off (migration 13), stop_requested_at (migration 15), stop_requested_by (migration 15) |
+| `tasks` | 2 | id, parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, note, created_at, updated_at, remote_id (migration 4), remote_version (migration 4), remote_written_sha256 (migration 4), after_request (migration 8), model (migration 10), sources (migration 11), step_kind (migration 12), step_args (migration 12), step_footprint (migration 12), step_state (migration 12), web_off (migration 13), stop_requested_at (migration 15), stop_requested_by (migration 15), language (migration 16) |
 | `task_runs` | 15 | id, task_id, skill, skill_version, skill_sha256, model, adapter, web, status, failure, ending, attempts, started_at, ended_at, cost_usd, tokens, duration_ms, skill_loaded, image_digest, run_dir, error, redactions, billing, autonomy |
 | `pending_decisions` | 2 | id, task_id, run_id, kind, title, body, payload, payload_sha256, status, resolution, answer, created_at, resolved_at, resolved_by |
 | `document_records` | 4 | id, path, provider, remote_id, written_sha256, remote_version, read_sha256, status, note, updated_at |
@@ -445,6 +448,14 @@ The limit's text and the stage that built it come from the contract's table; the
 - The assist proposes and never writes: the proposal is the person's own line, once per request, never from a model's reply: `test_an_answer_to_the_routers_question_may_end_with_one_proposal_of_the_persons_own_line_once_per_request`, `test_the_conditions_of_a_proposal`.
 - A routine's approval covers the file; a routine of a project without it keeps its hash; a task whose instructions changed after the fire does not start: `test_a_routine_of_a_project_without_the_file_keeps_its_content_and_its_hash`, `test_adding_changing_or_removing_the_file_stops_the_next_fire_and_names_the_instructions_and_approving_again_fires`, `test_a_task_of_a_routine_does_not_start_when_the_instructions_changed_after_the_fire_and_an_ordinary_task_does`.
 
+**The language of a deliverable** ([contracts/runtime.md](../../../contracts/runtime.md), "The language of a deliverable"; `runtime/language.py`, `runtime/ops_language.py`).
+
+- The order is one and code computes it: the request's recorded language, else the key `language`, else `en`; the language a message is written in and an answer decide nothing: `test_the_order_is_the_requests_choice_then_the_key_then_english`, `test_an_answer_that_asks_for_another_language_changes_neither_the_task_nor_the_next_prompt` (`runtime/tests/test_project_language.py`).
+- Every task run and the router's run get a language paragraph (the router's is its own variant, which tells it when to propose a `Language:` line), right after the "For this task:" paragraph and before the standing instructions, whether or not the project sets the key; a contained run, a step task, the first runtime and the lab never do, and `evals/` and `runtime/lab.py` never name the modules: `test_the_requested_language_goes_from_the_request_to_the_plan_the_hash_the_task_row_and_the_runs_prompt_once`, `test_a_contained_run_never_gets_the_language_line`, `test_nothing_of_the_lab_the_steps_or_the_first_runtime_names_the_language_modules`.
+- The person's choice is checked before anything is recorded (code 2, the refusal names the rule and the right form), kept on the request row and copied to each task of the plan as the field `language`, so the plan hash covers it; a plan that asks for none hashes as it did: `test_a_bad_language_is_refused_before_anything_is_recorded`, `test_the_requested_language_is_a_field_of_each_task_that_runs_a_skill_and_the_plan_hash_covers_it`; the column and its check: `providers/store/tests/test_sqlite_language.py`.
+- The router may propose one `Language:` line (the request's words name a language, never the language they are written in); two lines or a bad tag leave the reply unclassified, an explicit choice ignores it (the line is not even read), and the person sees the language on the plan before approving it: `test_the_router_reads_one_language_line_and_a_bad_tag_or_two_lines_leave_the_reply_unclassified`, `test_a_proposal_from_the_router_is_on_the_card_in_the_task_rows_after_approval_and_in_the_run`, `test_an_explicit_choice_ignores_the_routers_line`.
+- Every plan shows one line, `Language: pt-BR` or `Language: en (requested)`, in the plan's text, the conversation's plan reply and the page's plan card: `test_the_form_the_words_and_the_card_line` (`runtime/tests/test_interface_language.py`).
+
 **Mirrors and the drop.**
 
 - Only tasks still open when the board is configured are mirrored: `test_a_task_already_final_when_the_board_is_configured_is_never_mirrored_and_the_count_is_said`.
@@ -474,7 +485,7 @@ The limit's text and the stage that built it come from the contract's table; the
 <!-- generated: cli-verbs -->
 | Verb | Flags it reads | Operation |
 |---|---|---|
-| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` `[--model]` | `request` |
+| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` `[--model]` `[--language]` | `request` |
 | `route` | `--request` `[--flow]` `[--param]` | `route` |
 | `route-queued` | - | `route_queued` |
 | `status` | - | `status` |
@@ -570,7 +581,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 <!-- generated: operations -->
 | Operation | Verb of `cli.py` | Channels | Calls a model | What it does |
 |---|---|---|---|---|
-| `request` | `request` | terminal, page, mcp | no | record what you want; with a flow, plan it from the flow file, else it waits for its route; with after, run it after that request; with model, run its tasks on that model (an id of the gate file, or auto) |
+| `request` | `request` | terminal, page, mcp | no | record what you want; with a flow, plan it from the flow file, else it waits for its route; with after, run it after that request; with model, run its tasks on that model (an id of the gate file, or auto); with language, write its deliverables in that language (a tag such as en or pt-BR; else the project's language setting) |
 | `route` | `route` | terminal, page, mcp | yes, without --flow | plan a request that waits for its route: one run of the router skill, or the plan of a flow file of the workbench or of the project (with --param name=value, repeated, for the flow's parameters; a file parameter names a file stage-file handed over); on the page, while a run is in progress, the request is queued |
 | `route_queued` | `route-queued` | terminal | yes | route the oldest queued line or request, when no run is in progress (the local service calls it every few seconds) |
 | `status` | `status` | terminal, chat, page, mcp, messaging | no | requests, tasks and what waits for you |
@@ -715,3 +726,4 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 - 2026-10-16: the review of INSTRUCTIONS: the protected paths are compared with `path_rule.fold` (Unicode case folding and compatibility forms) and `returning` checks the inode; the separator check reads a line as a person does; the block carries a code made for each run; the contained run moved to `runtime/ops_contained.py`.
 - 2026-10-16: second review of INSTRUCTIONS: `returning` resolves the real path it will write (a link on the way to a protected path is caught, the file there or not), a name inside `instructions.md` or `runtime.json` is class `other`, and a return validates every path before writing any.
 - 2026-10-16: cancel and stop at any moment (R18, package CANCEL-BOARD): migration 15 (`tasks.stop_requested_at`, `stop_requested_by`; `task_runs` rebuilt to admit the status `cancelled`), the operations `cancel` (now working while a run is in progress) and `stop-task`, `runtime/ops_cancel.py` and `runtime/run_stop.py`, the group `brakes` (a grant of `channels.messaging`, in no default), limit L41, `Stop task` on the page and `POST /projects/{p}/tasks/{id}/stop`.
+- 2026-10-16: the language of a deliverable (LANGUAGE, runtime part): migration 16 (`tasks.language`), `runtime/language.py` and `runtime/ops_language.py`, the option `request --language`, the line every task run and the router's run get, the field `language` of a plan's tasks (the hash covers it), the router's optional `Language:` line, and the plan's language line on every surface.

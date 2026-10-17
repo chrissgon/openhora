@@ -20,7 +20,8 @@ export async function createRequest(api, project, form, { signal, route = true }
   const title = typeof form.title === "string" && form.title.trim() ? form.title.trim() : undefined;
   const after = afterNumber(form.after).value;
   const model = typeof form.model === "string" && form.model ? form.model : undefined;
-  const made = await api.request(project, text, { title, after, model, signal });
+  const language = typeof form.language === "string" && form.language ? form.language : undefined;
+  const made = await api.request(project, text, { title, after, model, language, signal });
   if (!route) return { request: made.request, unrouted: true };
   // A flow with a file parameter (P6a): each file chosen is handed over for the request first (stage-file), and the parameter is the file's name, so the
   // plan that route builds carries the hash of exactly that file. A refusal of the hand-over leaves the request waiting for its route, like a busy router.
