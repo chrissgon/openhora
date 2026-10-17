@@ -15,7 +15,7 @@ the engine. The kinds registered today: `ingest` (runtime/step_ingest.py), which
 write a file (P8) and the media pipeline of the short-video rebase register the same way.
 
   Kind(name, order, executors, stops=(), decisions={}, footprint=..., check=..., cleanup={}, side_steps={}, errors=(), prepared=None,
-       rejected={}, unattended=False, brings_source=False, networked=False, gates={}, effectful=())
+       rejected={}, unattended=False, brings_source=False, networked=False, gates={}, effectful=(), vet=None, routine_slot=None)
   register(kind) / kind_of(name) / load_builtin()   the registry; load_builtin imports every runtime/step_*.py
   plan_task(kind, args, key=, title=, text=, ...)   a plan's task for a step: the kind, its checked arguments (canonical, so the plan
                                                     hash covers them) and the footprint the kind derived. StepFailure when the kind is
@@ -134,6 +134,13 @@ class Kind:
     effectful   refused for every kind: no step performs an external effect itself. A review is passed by one word from any channel, and
                 a step before it is no safer, so every external effect goes through a gate (a static test over runtime/step_*.py holds
                 the kinds to it)
+    routine_slot  function(args, workbench_root) -> a JSON object, or None: what a routine's approved content must hold for a task of this kind
+                (runtime/routines.py `scripts`; steps.routine_slots): for the project script, its sha256, destinations, lock sha256 and the
+                definition hash of the script image, so that a change to any of them stops the routine and asks
+    vet         function(project, args, protected) -> None, or None: for a kind whose arguments name files of the project (a script and its
+                hash), it reads them and raises StepFailure when they are not what the arguments say or may not be used. It runs when a plan
+                is built and again before the plan is approved (steps.vet; runtime/ops_flows.py), so a hash written by hand is checked
+                before anyone approves it, not only when the step runs
     """
 
     name: str
@@ -153,6 +160,8 @@ class Kind:
     networked: bool = False
     gates: dict = dataclasses.field(default_factory=dict)
     effectful: tuple = ()
+    vet: Callable = None
+    routine_slot: Callable = None
 
     def steps(self) -> tuple:
         """The steps the summary lists: the order, without the side steps."""
@@ -302,6 +311,30 @@ def footprint_of(kind: Kind, args: dict) -> list:
     if len(found) > FOOTPRINT_MAX or not all(isinstance(p, str) for p in found):
         raise StepFailure("bad_footprint", "footprint")
     return sorted(set(found))
+
+
+def routine_slots(tasks, workbench_root: str) -> list:
+    """The entries a routine's approved content holds for the step tasks of a flow (Kind.routine_slot), each with the task's key. A
+    task of a kind that has none, or a skill task, gives nothing. A kind this checkout does not have is skipped here (the limit of
+    runtime/ops_routines.py local_reason refuses it)."""
+    out = []
+    for t in tasks or []:
+        if isinstance(t, dict) and t.get("step"):
+            try:
+                kind = kind_of(t["step"])
+            except StepFailure:
+                continue
+            found = kind.routine_slot(t.get("args") if isinstance(t.get("args"), dict) else {}, workbench_root) if kind.routine_slot else None
+            if found is not None:
+                out.append({"key": t.get("key"), "kind": kind.name, **found})
+    return out
+
+
+def vet(project: str, kind_name: str, args, protected=lambda path: False) -> None:
+    """Run the kind's vet hook over a task's arguments in a project (nothing for a kind that has none). StepFailure when it refuses."""
+    kind = kind_of(kind_name)
+    if kind.vet is not None:
+        kind.vet(project, args if isinstance(args, dict) else {}, protected)
 
 
 def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_on=(), milestone: bool = False) -> dict:

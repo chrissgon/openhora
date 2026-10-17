@@ -185,6 +185,16 @@ def sweep(tool, *, now: float, dry_run: bool = False, include_running: bool = Fa
     return out
 
 
+SCRIPT_CONTAINERS = ("openhora-script-run-", "openhora-script-proxy-", "openhora-script-build-")      # providers/script/container.py names_of
+SCRIPT_NETWORKS = ("openhora-script-in-", "openhora-script-out-")
+
+
+def script_objects(token: str) -> list:
+    """[(kind, name)] of the objects a project script's step makes under one 16-character token: its containers, then its networks. The names are
+    built from the token, never read from a listing, so only these exact names are ever asked of the container tool."""
+    return [("container", prefix + token) for prefix in SCRIPT_CONTAINERS] + [("network", prefix + token) for prefix in SCRIPT_NETWORKS]
+
+
 def remove_runs(tool, run_ids, *, dry_run: bool = False) -> dict:
     """Remove what the runs named by run_ids left that is still there (R18: a run was stopped and its process may have been killed
     before it cleaned up): their run container and key proxy (`wb-eval-run-<id>`, `wb-eval-keys-<id>`), then their network
@@ -193,7 +203,16 @@ def remove_runs(tool, run_ids, *, dry_run: bool = False) -> dict:
     could not give removes nothing for that kind. Returns {"removed": [{"kind", "name", "run"}], "kept": [{"name", "why"}],
     "problem"}."""
     wanted = {str(r) for r in run_ids if RUN_ID.fullmatch(str(r))}
+    scripts = {str(r)[7:] for r in run_ids if str(r).startswith("script:") and RUN_ID.fullmatch(str(r)[7:])}      # a project script's step (run_stop.SCRIPT_PREFIX)
     out = {"removed": [], "kept": [], "problem": None}
+    for token in sorted(scripts):      # the exact names, containers first, then the step's networks; one that is not there is not an error
+        for kind, name in script_objects(token):
+            if dry_run:
+                out["removed"].append({"kind": kind, "name": name, "run": "script:" + token, "dry_run": True})
+                continue
+            code, _ = tool(*(("rm", "-f", name) if kind == "container" else ("network", "rm", name)))
+            if code == 0:
+                out["removed"].append({"kind": kind, "name": name, "run": "script:" + token})
     if not wanted:
         return out
     plan = []

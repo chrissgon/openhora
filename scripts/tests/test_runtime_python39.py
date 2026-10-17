@@ -79,6 +79,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/instructions.py", "runtime/ops_instructions.py", "runtime/ops_contained.py",
     # The language the deliverables are written in (LANGUAGE): the rule, the order and the words; the operations that check a request's choice.
     "runtime/language.py", "runtime/ops_language.py",
+    # The project script (P9): the step kind, the provider's host side (it loads the two programs that run inside its image, which parse here too).
+    "runtime/step_project_script.py", "providers/script/container.py", "providers/script/egress_proxy.py", "providers/script/_inner.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.
     "runtime/parallel.py",
     # How the credential of a run is billed, read from the adapters' manifests (ADJ-R3): the operations layer imports it.

@@ -110,6 +110,7 @@ def content_of(ctx: dict, record: dict, loaded: dict | None = None) -> dict:
     return routines.content(
         schedule=record["schedule"], window_seconds=record.get("window_seconds"), flow=loaded["flow"],
         template_sha256=flow_files.template_sha256(loaded), params=record["params"], skills=skills, image=seen["digest"],
+        scripts=steps.routine_slots(loaded["tasks"], core.ROOT),
         model=word, consent=bool(record.get("consent")) and word != AUTO, warning_sha256=autonomy.CONSENT_WARNING_SHA256,
         providers=record.get("providers") or [] if word == AUTO else [],
         instructions=ops_instructions.hash_of(ctx["cfg"]["project"]))   # the person's standing instructions: the file's sha256, only when it is there

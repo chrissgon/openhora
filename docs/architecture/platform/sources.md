@@ -97,6 +97,7 @@ Beside them:
 
 - 2026-10-16: macro-enabled Office packages are refused for every source by the converter (package ATT-5).
 - 2026-10-15: the registry's type column admits `drive` (migration 14, package P6b); the rows P7 stored as a `file` with a `drive:` origin were rewritten.
+- 2026-10-15: a project script's result is a new version of a `file` source (P9, [scripts.md](scripts.md)): `collect_outputs` takes the producer's own `names`, and the manifest and the converter record say which script made the version.
 - 2026-10-15: the lease and the retention of old versions, with package P-OPS (limits L28 and L29; [unattended.md](unattended.md)).
 - 2026-10-15: Google Drive files as sources (P7): `providers/documents/gdrive.py`, its authorization and the one-shot Picker page, `source-drive`, the refresh by version, `public_row`; files only, one scope.
 - 2026-10-15: first version, with package P4 (the sources folder and limits L21 to L27, the registry and versions of migration 11, the catalog, `converter:document`, Notion pages by address, the planner's choice in `core-orchestrator` 3.0.0, the plan card, the copies a task receives).

@@ -1656,6 +1656,7 @@ def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str
     past = []
     for skill in dict.fromkeys(t["skill"] for t in tasks if t.get("skill")):
         past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)
+    ops_flows.vet(ctx, tasks)    # a step kind that vets its files (a project script) is checked when the plan is built (PlanError)
     tasks = language_rules.with_language([dict(t) for t in tasks], request.get("language"))   # the person's choice is a field of each task: the hash covers it
     built = plan.build(request, tasks, route_read, source, limits, past, flow=flow, bound=bound,
                        project_language=ops_language.project_of(ctx["cfg"]))
@@ -1840,6 +1841,7 @@ def _combined(ctx: dict, request: dict, routed: list) -> dict:
     forced = ops_sources.forced_for(ctx, request["text"])  # the sources an @mention names are in the plan whatever the router chose
     mine = ops_language.project_of(cfg)
     out = plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=[], forced=forced, project_language=mine)
+    ops_flows.vet(ctx, out["tasks"])
     past = []
     for skill in dict.fromkeys(t["skill"] for t in out["tasks"] if t.get("skill")):
         past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)

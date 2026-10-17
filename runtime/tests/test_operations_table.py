@@ -50,7 +50,7 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "effective_model", "content_of", "local_reason", "tick", "fire", "routine_of_task", "consent_in_force",
                   # ops_instructions.py: what a run's prompt, a routine's content and the answer ask of the standing instructions, beside the
                   # four operations; ops.py `answer` is the step that records an answer, which the row `answer` now reaches through answer_proposing
-                  "for_run", "guard", "contained_prompt", "hash_of", "proposal", "answer"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "for_run", "guard", "contained_prompt", "hash_of", "proposal", "answer", "vet"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.

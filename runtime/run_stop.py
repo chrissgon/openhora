@@ -50,6 +50,8 @@ ROUTER_WAIT = 30.0      # seconds the canceller waits for the router's run row t
 STOP_POLL = 1.0       # seconds between two reads of the stop request by the watcher
 STOP_AGAIN = 10.0     # seconds after which the watcher ends the lab's runs again while the router's call has not returned
 NAMES = re.compile(r"wb-eval-(?:run|keys|held)-[0-9a-f]{16}(?![0-9a-f])")   # a run's own objects, as the lab names them
+SCRIPT_NAMES = re.compile(r"openhora-script-(?:run|proxy|build)-([0-9a-f]{16})(?![0-9a-f])")   # a project script's containers (providers/script), by their `--name`
+SCRIPT_PREFIX = "script:"      # in the list of a stop's runs, a script step's token is written `script:<16 hex>`: orphans.remove_runs removes its objects
 
 
 def processes() -> list:
@@ -89,6 +91,8 @@ def snapshot(owner_pid: int, rows=None) -> dict:
             run = orphans.run_of_name("network" if name.startswith("wb-eval-held-") else "container", name)
             if run:
                 runs.add(run)
+        for token in SCRIPT_NAMES.findall(commands.get(pid, "")):     # a project script's `docker run` (its container, its proxy, its build)
+            runs.add(SCRIPT_PREFIX + token)
     return {"pids": sorted(seen), "runs": sorted(runs)}
 
 

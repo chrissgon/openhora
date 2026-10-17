@@ -203,13 +203,13 @@ def test_a_source_a_parameter_fills_must_be_an_id_the_project_holds_or_one_a_ste
 
 
 def test_only_a_kind_that_declares_it_brings_a_source_in_and_sources_of_reads_the_kinds_it_is_given():
-    assert steps.sourcing_kinds() == ("ingest",)
+    assert {"ingest", "project-script"} <= set(steps.sourcing_kinds()) and "pull-notes" not in steps.sourcing_kinds()   # the kinds that declare it (a project script makes a source version)
     flow = {"flow": "f", "title": "F", "params": {}, "tasks": [
         {"key": "pull", "step": "pull-notes", "args": {"source": "notes"}, "title": "T", "text": "T", "depends_on": [], "milestone": False},
         {"key": "read", "skill": "s", "title": "T", "text": "T", "depends_on": ["pull"], "milestone": False}]}
     assert flow_files.sources_of(flow) == {"read": []}                              # the default is today's only kind
     assert flow_files.sources_of(flow, ("pull-notes",)) == {"read": ["notes"]}
-    assert flow_files.sources_of(flow, steps.sourcing_kinds()) == {"read": []}
+    assert flow_files.sources_of(flow, steps.sourcing_kinds()) == {"read": []}               # no declared kind is called pull-notes
 
 
 # --- minor 5: the write of a flow --------------------------------------------------------------------------------------------------

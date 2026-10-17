@@ -405,6 +405,7 @@ MUST_READ = ("page", "mcp")                        # a policy for these lists `r
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
+NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant
 ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose flow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
 BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
 

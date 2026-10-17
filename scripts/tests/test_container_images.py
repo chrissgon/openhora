@@ -249,7 +249,24 @@ def test_the_images_row_leaves_the_exit_code_of_the_doctor_alone(monkeypatch, ca
 
 def test_the_families_are_the_providers_that_build_an_image_here_with_their_current_definition():
     families = doctor.image_families()
-    assert [f["family"] for f in families] == ["converter", "exporter"]            # a provider that builds an image adds itself to doctor.IMAGE_FAMILIES
+    assert [f["family"] for f in families] == ["converter", "exporter", "script"]            # a provider that builds an image adds itself to doctor.IMAGE_FAMILIES
     for family in families:
         assert family["tag"] == f"{family['repository']}:{family['hash'][:12]}" and len(family["hash"]) == 64
-    assert {f["repository"] for f in families} == {"openhora-converter", "openhora-exporter"}
+    assert {f["repository"] for f in families} == {"openhora-converter", "openhora-exporter", "openhora-script"}
+
+
+def test_the_script_image_is_a_family_and_its_dependency_images_are_never_taken_for_an_earlier_definition_of_it():
+    """Package P9: providers/script/container.py builds `openhora-script:<definition>` (IMAGE_REPOSITORY, definition_hash, image_tag) and
+    keeps one image per lock file in the repository `openhora-script-deps`, which the family does not select (a repository that only starts
+    the same is not the family's)."""
+    family = next(f for f in doctor.image_families() if f["family"] == "script")
+    assert family["repository"] == "openhora-script" and family["tag"] == f"openhora-script:{family['hash'][:12]}" and len(family["hash"]) == 64
+    images = {
+        family["tag"]: {"labels": label(family["hash"]), "size": 170 * MIB},                                  # the current definition
+        f"openhora-script:{OLD_A[:12]}": {"labels": label(OLD_A), "size": 160 * MIB},                         # an earlier one
+        f"openhora-script-deps:{'1' * 16}-{OLD_A[:12]}": {"labels": label(OLD_A), "size": 200 * MIB},        # a dependency image: not the family's
+    }
+    tool = FakeImages(images)
+    done = box.remove_old_definition_images(tool, family["repository"], family["hash"], dry_run=False)
+    assert [i["image"] for i in done["removed"]] == [f"openhora-script:{OLD_A[:12]}"] and done["kept"] == []
+    assert set(tool.images) == {family["tag"], f"openhora-script-deps:{'1' * 16}-{OLD_A[:12]}"}

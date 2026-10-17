@@ -56,6 +56,7 @@ import ops_flows  # noqa: E402  (a file a plan names reaches the task that reads
 import path_rule  # noqa: E402
 import plan  # noqa: E402
 import state_merge  # noqa: E402
+import steps  # noqa: E402  (a plan that holds a step of a networked kind: networked_steps)
 
 FINAL = ("done", "cancelled")
 LIVE = ("planned", "ready")      # the states in which a task has not started and may still wait
@@ -283,6 +284,23 @@ def current_tasks(ctx: dict) -> list:
     return core._stored(ctx, ctx["store"].tasks_list)
 
 
+def networked_steps(item: dict) -> list:
+    """[(task key, kind)] of the step tasks of a plan decision whose kind reaches the network (steps.Kind.networked), or whose kind this
+    checkout does not have (it cannot be shown not to reach the network, so it counts). A script with declared destinations can send a
+    write to them, which is an external effect that the effect gate does not see: by default such a plan is approved by a person at the
+    terminal or on the page (operations.NETWORKED_PLAN_CHANNELS, limit L36)."""
+    found = []
+    for t in (item.get("payload") or {}).get("tasks") or []:
+        if isinstance(t, dict) and t.get("step"):
+            try:
+                reaches = steps.kind_of(t["step"]).networked
+            except steps.StepFailure:
+                reaches = True
+            if reaches:
+                found.append((t.get("key"), t["step"]))
+    return found
+
+
 def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None) -> None:
     """What approve checks of the decision before anything else. A go-ahead is said on the tasks of a plan: any other
     pending decision is refused. The channel's policy (operations.refusal, decisions M-8 and M-13) must cover the approval
@@ -293,6 +311,10 @@ def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None) 
     it to the card, runtime/messaging.py)."""
     if go_ahead and item["kind"] != "plan":
         raise core.OpsError(f"pending decision {item['id']} is a {item['kind']}: go ahead is said on the tasks of a plan", 2)
+    if item["kind"] == "plan" and channel not in operations.NETWORKED_PLAN_CHANNELS and networked_steps(item):   # by default; fails closed: no channel is none
+        key, kind = networked_steps(item)[0]
+        raise core.OpsError(f"the plan holds the task {key}, a {kind} step that reaches the network: a plan with one is approved in the "
+                            "terminal or on the page by default, never from a conversation, a messaging app or the MCP mode (limit L36). Nothing was approved", 1)
     if channel and (item["kind"] != "effect" or channel in operations.EFFECT_CHANNELS):
         refused = operations.refusal("approve", channel, policy, item["kind"], bool(go_ahead))
         if refused:

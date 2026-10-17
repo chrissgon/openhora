@@ -93,10 +93,10 @@ NOT_IMPLEMENTATIONS = {"auth"}  # helpers that live next to providers (providers
 LISTED = ["generator:image", "generator:video", "integration:design-tool", "integration:issue-tracker",
           "integration:vcs", "publisher:<platform>", "reader:email", "scheduler:job", "search:web", "sender:email",
           "store:runtime"]
-# Roles whose folder and variables are derived from the text of the class. `messenger`, `converter` and `exporter` are in ROLES and not in
-# LISTED, on purpose: the runtime uses them (the messaging bridge, the sources module), and no skill may require them, so they are
+# Roles whose folder and variables are derived from the text of the class. `messenger`, `converter`, `exporter` and `script` are in ROLES and not in
+# LISTED, on purpose: the runtime uses them (the messaging bridge, the sources module, the project-script step), and no skill may require them, so they are
 # not in contracts/environment.md (providers/CONTRACT.md says so in their rows).
-ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter"}
+ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),

@@ -676,44 +676,46 @@ def accept_type(found) -> None:
 # --- what a container writes back (L24) ------------------------------------------------------------------------------
 
 
-def collect_outputs(folder: str, *, cap: int = CONVERTED_CAP) -> dict:
+def collect_outputs(folder: str, *, cap: int = CONVERTED_CAP, names=OUTPUT_NAMES, entries_max: int = OUTPUT_ENTRIES_MAX,
+                    who: str = "converter") -> dict:
     """Read back what a converter left in `folder`: {name: bytes}. Limit L24: only regular files come back, each checked
     with lstat (a link, a folder, a pipe, a device or a socket is refused; a file with more than one link too) and opened
     with O_NOFOLLOW, then checked again on the open descriptor (the same inode); the names are from OUTPUT_NAMES; at most
     OUTPUT_ENTRIES_MAX entries; each file at most `cap` bytes (info.json: INFO_CAP). SourcesError (convert) on the first
-    entry that breaks a rule, naming it; nothing is returned then."""
+    entry that breaks a rule, naming it; nothing is returned then. A project script's outputs (package P9) are read back by this
+    function too, with their own `names` and `entries_max` and `who` naming the producer in the message."""
     try:
-        names = sorted(os.listdir(folder))
+        found = sorted(os.listdir(folder))
     except OSError as e:
-        raise SourcesError(f"the converter's outputs cannot be listed: {e.strerror}", "convert") from None
-    if len(names) > OUTPUT_ENTRIES_MAX:
-        raise SourcesError(f"the converter left {len(names)} entries; at most {OUTPUT_ENTRIES_MAX} are taken", "convert")
+        raise SourcesError(f"the {who}'s outputs cannot be listed: {e.strerror}", "convert") from None
+    if len(found) > entries_max:
+        raise SourcesError(f"the {who} left {len(found)} entries; at most {entries_max} are taken", "convert")
     out = {}
-    for name in names:
+    for name in found:
         shown = CONTROL.sub("?", name)[:60]
-        if name not in OUTPUT_NAMES:
-            raise SourcesError(f"the converter left {shown!r}, which is not one of its outputs ({', '.join(OUTPUT_NAMES)})", "convert")
+        if name not in names:
+            raise SourcesError(f"the {who} left {shown!r}, which is not one of its outputs ({', '.join(names)})", "convert")
         path = os.path.join(folder, name)
         try:
             info = os.lstat(path)
         except OSError as e:
-            raise SourcesError(f"the converter's output {shown} cannot be looked at: {e.strerror}", "convert") from None
+            raise SourcesError(f"the {who}'s output {shown} cannot be looked at: {e.strerror}", "convert") from None
         if not stat.S_ISREG(info.st_mode):
-            raise SourcesError(f"the converter's output {shown} is not a regular file (a link, a folder or a special file "
+            raise SourcesError(f"the {who}'s output {shown} is not a regular file (a link, a folder or a special file "
                                "is never taken)", "convert")
         if info.st_nlink != 1:
-            raise SourcesError(f"the converter's output {shown} has more than one link", "convert")
+            raise SourcesError(f"the {who}'s output {shown} has more than one link", "convert")
         limit = INFO_CAP if name == "info.json" else cap
         if info.st_size > limit:
-            raise SourcesError(f"the converter's output {shown} is {info.st_size} bytes, over the {limit} that one output may be", "size")
+            raise SourcesError(f"the {who}'s output {shown} is {info.st_size} bytes, over the {limit} that one output may be", "size")
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
         except OSError as e:
-            raise SourcesError(f"the converter's output {shown} cannot be opened: {e.strerror}", "convert") from None
+            raise SourcesError(f"the {who}'s output {shown} cannot be opened: {e.strerror}", "convert") from None
         try:
             opened = os.fstat(fd)
             if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(info, opened):
-                raise SourcesError(f"the converter's output {shown} changed while it was read", "convert")
+                raise SourcesError(f"the {who}'s output {shown} changed while it was read", "convert")
             data = b""
             while len(data) <= limit:
                 piece = os.read(fd, 65536)
@@ -723,7 +725,7 @@ def collect_outputs(folder: str, *, cap: int = CONVERTED_CAP) -> dict:
         finally:
             os.close(fd)
         if len(data) > limit:
-            raise SourcesError(f"the converter's output {shown} grew past {limit} bytes while it was read", "size")
+            raise SourcesError(f"the {who}'s output {shown} grew past {limit} bytes while it was read", "size")
         out[name] = data
     return out
 
