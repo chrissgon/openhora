@@ -539,40 +539,75 @@ def test_a_community_pool_from_one_contributor_does_not_close_and_from_two_does(
     for n in (1, 2, 3):
         quick_c(crepo, "ana", n, date=f"2030-01-0{n}")
     one = community_row(croot)
-    assert one["pool"]["closed"] is False and one["pool"]["contributors"] == 1 and one["pool"]["cases_at_runs"] == 3
-    assert one["pool"]["progress"].startswith("pool of 1.0: 3 of 3 cases at 3 runs; baseline in force for 3; 1 of 2 contributors, ")
+    # One fork's lines in a case count up to floor(3 x 2/3) = 2: its third line is skipped (it counts for the score alone).
+    assert one["pool"]["closed"] is False and one["pool"]["contributors"] == 1 and one["pool"]["cases_at_runs"] == 0
+    assert one["pool"]["counted"] == 6 and one["pool"]["lines"] == 9
+    assert one["pool"]["progress"].startswith("pool of 1.0: 0 of 3 cases at 3 runs; baseline in force for 3; 1 of 2 contributors, ")
     assert (one["band"], one["kind"]) == ("needs a test", "no passing full test") and one["community_only"] is False
     assert "1 of 2 contributors" in one["cause"]
-    # Lines count in the order they were made: a second fork's test after the third line of every case adds a line to the score
-    # and nothing to the pool, which stays with one contributor.
+    # (a) a second fork submits one test after the first fork's three: its line fills the third slot of every case.
     quick_c(crepo, "bo", 1, date="2030-01-04")
-    assert community_row(croot)["pool"]["closed"] is False
-    # Where the second fork's tests come before the third line, the counted lines have two contributors.
-    quick_c(crepo, "bo", 2, date="2030-01-02")  # between the first and the third test of the first fork
     two = community_row(croot)
     assert two["pool"]["closed"] is True and two["pool"]["contributors"] == 2 and two["contributors"] == 2
+    assert two["pool"]["counted"] == 9 and two["pool"]["lines"] == 12
     assert two["band"] == "reliable" and two["community_only"] is True  # reliable through community evidence alone: held for review
 
 
+def test_a_lone_contributor_never_closes_a_community_pool_however_many_tests_it_submits(croot, crepo):
+    lab_baseline_for(crepo)
+    tc.commit(croot, "Owner <owner@mail.example>", "lab evidence")
+    for n in range(1, 11):
+        quick_c(crepo, "ana", n, date=f"2030-01-{n:02d}")
+    pool = community_row(croot)["pool"]
+    assert pool["closed"] is False and pool["cases_at_runs"] == 0 and pool["contributors"] == 1 and pool["lines"] == 30
+    assert pool["counted"] == 6  # two lines in each of the three cases
+
+
+def test_a_community_pool_where_one_fork_held_most_of_the_lines_closes_once_the_other_adds_more(croot, crepo):
+    """The review's variant: bo was first on cases 2 and 3, ana filled the rest, and case 1 has two lines of ana's and none of
+    anyone else's. It closes after bo adds a test, whatever ana adds."""
+    lab_baseline_for(crepo)
+    tc.commit(croot, "Owner <owner@mail.example>", "lab evidence")
+    quick_c(crepo, "bo", 1, date="2030-01-01", cases=(2, 3))
+    quick_c(crepo, "ana", 1, date="2030-01-02")
+    quick_c(crepo, "ana", 2, date="2030-01-03")
+    quick_c(crepo, "ana", 3, date="2030-01-04", cases=(1,))  # ana's third line of case 1: skipped, she holds two already
+    stuck = community_row(croot)["pool"]
+    assert stuck["closed"] is False and stuck["cases_at_runs"] == 2 and stuck["counted"] == 8
+    quick_c(crepo, "ana", 4, date="2030-01-05")
+    assert community_row(croot)["pool"]["closed"] is False  # more of ana's changes nothing
+    quick_c(crepo, "bo", 2, date="2030-01-06", cases=(1,))
+    done = community_row(croot)["pool"]
+    assert done["closed"] is True and done["counted"] == 9 and done["contributors"] == 2
+
+
 def test_a_community_pool_closes_only_when_no_contributor_holds_more_than_two_thirds_of_the_counted_lines(croot, crepo):
+    """By construction (a fork's lines in a case count up to two of three) the share is at most two thirds in every closed pool:
+    exactly two thirds is allowed, and the pool's own check stays as a sanity check."""
     lab_baseline_for(crepo)
     tc.commit(croot, "Owner <owner@mail.example>", "lab evidence")
     quick_c(crepo, "ana", 1, date="2030-01-01")
-    quick_c(crepo, "ana", 2, date="2030-01-02")
-    quick_c(crepo, "ana", 3, date="2030-01-03", cases=(1,))
-    quick_c(crepo, "bo", 1, date="2030-01-04", cases=(2, 3))
-    shared = community_row(croot)["pool"]  # ana holds 7 of the 9 counted lines: 78%
-    assert shared["contributors"] == 2 and shared["closed"] is False
-    assert "the largest holding 78% of the counted lines (at most 67%)" in shared["progress"]
-    # Exactly two thirds is allowed: ana 6 of 9, bo 3 of 9, in a pool of its own.
+    quick_c(crepo, "bo", 2, date="2030-01-02")
+    quick_c(crepo, "ana", 3, date="2030-01-03")
+    pool = community_row(croot)["pool"]
+    assert pool["closed"] is True and pool["contributors"] == 2
+    assert "the largest holding 67% of the counted lines (at most 67%)" in pool["progress"]
+    # Ana's lines come first in every case; bo's one test supplies the third, and nothing counts her third line.
     crepo2 = bands_skill(croot, "core-two")
     lab_baseline_for(crepo2)
     tc.commit(croot, "Owner <owner@mail.example>", "lab evidence of a second skill")
-    quick_c(crepo2, "ana", 1, date="2030-01-01")
-    quick_c(crepo2, "bo", 2, date="2030-01-02")
-    quick_c(crepo2, "ana", 3, date="2030-01-03")
-    two_thirds = community_row2(croot, "core-two")
-    assert two_thirds["pool"]["closed"] is True and two_thirds["pool"]["contributors"] == 2
+    for n in (1, 2, 3):
+        quick_c(crepo2, "ana", n, date=f"2030-01-0{n}")
+    quick_c(crepo2, "bo", 1, date="2030-01-04")
+    other = community_row2(croot, "core-two")["pool"]
+    assert other["closed"] is True and "the largest holding 67%" in other["progress"]
+
+
+def test_a_maintainers_lab_pool_is_not_limited_per_contributor(root, demo):
+    baseline(demo)
+    quicks(demo, 3)
+    r = row(root, demo)
+    assert r["pool"]["closed"] is True and r["pool"]["contributors"] is None and r["pool"]["counted"] == 9
 
 
 def bands_skill(root, name):
@@ -623,23 +658,28 @@ def test_the_per_contributor_cap_cannot_push_an_earlier_line_out_of_the_pool(cro
 
 
 def test_the_cap_applies_to_the_counted_lines_of_a_pool_in_time_order(croot):
-    """With 12 cases one fork's first three tests are 36 lines: the cap of 30 stops its counting after the 30th, and the other
-    fork's test supplies the last line of the six cases that lack one."""
-    folder = tb.skill(croot, cases=[{"id": i, "prompt": f"p{i}", "assertions": [f"a{j}" for j in range(10)]} for i in range(1, 13)])
+    """With 16 cases one fork's two counted lines a case are 32 lines: the cap of 30 stops its counting at the 30th, and the other
+    fork's tests supply the lines of the two cases that lack one."""
+    ids = tuple(range(1, 17))
+    folder = tb.skill(croot, cases=[{"id": i, "prompt": f"p{i}", "assertions": [f"a{j}" for j in range(10)]} for i in ids])
     tb.versions(folder, ("1.0.0", "new"))
     tb.event(folder, "partial", "1.0.0", "2029-12-01", [(c, "without", 0.5, {"model": "old-model", "adapter": "oh"})
-                                                       for c in range(1, 13) for _ in range(3)], strong="old-model")
+                                                       for c in ids for _ in range(3)], strong="old-model")
     tc.commit(croot, "Owner <owner@mail.example>", "lab evidence")
-    ids = tuple(range(1, 13))
-    for n in (1, 2, 3):
-        tc.community(folder, model="old-model", adapter="oh", repo_id=111, run_id=n, kind="quick", per_case=1, cases=ids,
-                     date=f"2030-01-0{n}", repository="ana/openhora", run_number=n, extra_event={"runs": 1})
-    assert community_row(croot)["pool"]["cases_at_runs"] == 6  # ana's counted lines stop at 30: six cases have two
-    tc.community(folder, model="old-model", adapter="oh", repo_id=222, run_id=1, kind="quick", per_case=1, cases=ids,
-                 date="2030-01-04", repository="bo/openhora", run_number=1, extra_event={"runs": 1})
+
+    def quick16(who, repo_id, run_id, date):
+        tc.community(folder, model="old-model", adapter="oh", repo_id=repo_id, run_id=run_id, kind="quick", per_case=1, cases=ids,
+                     date=date, repository=f"{who}/openhora", run_number=run_id, extra_event={"runs": 1})
+
+    quick16("ana", 111, 1, "2030-01-01")
+    quick16("ana", 111, 2, "2030-01-02")  # her 17th to 30th counted lines: cases 1 to 14 have two, cases 15 and 16 one
+    quick16("bo", 222, 1, "2030-01-03")
+    after_one = community_row(croot)["pool"]
+    assert after_one["cases_at_runs"] == 14 and after_one["closed"] is False
+    quick16("bo", 222, 2, "2030-01-04")
     done = community_row(croot)["pool"]
-    assert done["cases_at_runs"] == 12 and done["contributors"] == 2 and done["closed"] is False  # ana holds 30 of 36 lines: 83%
-    assert "the largest holding 83%" in done["progress"]
+    assert done["cases_at_runs"] == 16 and done["closed"] is True and done["contributors"] == 2
+    assert done["counted"] == 48 and "the largest holding 62%" in done["progress"]  # ana 30 of 48
 
 
 def test_lab_and_community_lines_never_mix_in_a_pool(croot, crepo):
@@ -830,6 +870,44 @@ def test_a_quick_test_given_up_is_closed_and_keeps_the_lines_it_has(tmp_path, mo
     assert {(l["case"], l["model"]) for l in runs} == {(1, "m"), (1, "f"), (2, "f")} and "gate" not in closed
     assert er.load_status().evidence_problems(str(tmp_path)) == ({}, 1)
     assert json.loads((event / "event.json").read_text())["state"] == "closed"
+
+
+def test_a_draft_full_test_never_enters_a_full_tests_gate(root):
+    folder = tb.skill(root)
+    tb.versions(folder, ("1.0.0", "new"))
+    path = tb.full(folder, score=0.9)
+    assert row(root, folder)["gate"]["passed"] is True
+    rewrite_content(path, tb.H["c"])  # the lines of a draft: the version file names other content for 1.0.0
+    r = row(root, folder)
+    assert r["gate"]["computed"] is False and r["band"] == "needs a test"
+    # A skill with no version file cannot say, and the full test stands.
+    other = tb.skill(root, name="core-free")
+    tb.full(other, score=0.9)
+    assert tb.band(root, other, CFG)["gate"]["passed"] is True
+
+
+def test_local_lines_set_aside_by_the_version_file_are_counted_and_said(root, tmp_path):
+    folder = tb.skill(root)
+    tb.versions(folder, ("1.0.0", "new"))
+    base = tmp_path / "local-evidence"
+    for n in (1, 2):
+        path = quick(folder, date=f"2030-01-0{n}")
+        rewrite_content(path, tb.H["c"])  # tested on content the checkout's version file does not name
+        target = base / "core-demo" / path.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(path.read_text())
+        path.unlink()
+    found = es.local_status(str(root), "core-demo", CFG, str(base))["s-model"]
+    note = "6 lines of content the version file does not name: bump, or run on the committed content"
+    assert found["runs"] == 0 and found["unnamed_lines"] == 6
+    assert found["cause"].endswith("; " + note) and found["causes"][-1]["cause"] == note
+    # Run on the committed content, nothing is set aside and nothing is said.
+    ok = quick(folder, date="2030-01-03")
+    target = base / "core-demo" / ok.name
+    target.write_text(ok.read_text())
+    ok.unlink()
+    again = es.local_status(str(root), "core-demo", CFG, str(base))["s-model"]
+    assert again["runs"] == 3 and again["unnamed_lines"] == 6  # the draft's six are still said beside the three that count
 
 
 # --- --quick --scratch: the trials of a skill being written ------------------------------------------------------------

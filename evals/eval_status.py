@@ -285,7 +285,9 @@ file); later lines count for the score and nowhere else, so a rerun, a top-up or
 closed pool, and a failing one is cleared by a new X.Y. The pool closes when every current case that is not pending has "runs"
 counted lines and a baseline in force (baselines_in_era: the source's own and the lab's, in the order of the source:
 pool_baselines), and, for the community source, when the counted lines come from at least POOL_MIN_CONTRIBUTORS (2)
-contributors (the owner of the fork each attested manifest names), none holding more than POOL_MAX_SHARE (2/3) of them; the
+contributors (the owner of the fork each attested manifest names), none holding more than POOL_MAX_SHARE (2/3) of them: a
+contributor's lines in one case count up to floor(runs x 2/3), the rest count for the score alone, so the check holds by
+construction and one fork that fills a case first cannot block the others (a line counts by the lines before it alone); the
 per-contributor cap (COMMUNITY_CAP) is applied to the counted lines in time order, on the files as they stand before the
 newest-30 window of the score column (community_pool's "pool_events"). A closed pool is evaluated by the unchanged
 measure.gate_passes on the means of the cases' means and counts as a passing or a failing full test: it satisfies rule (a)
@@ -1318,7 +1320,9 @@ def gate_of(skill_dir, cfg, extra=(), evidence=None):
     skill = os.path.basename(os.path.normpath(skill_dir))
     ref, floor = subject_model(cfg), cfg.get("measurement_floor", 1)
     read = skill_evidence(skill_dir) if evidence is None else list(evidence)
-    events = model_events(sorted(((e, base_lines(runs)) for e, runs in read + list(extra)), key=lambda e: e[0]["test"]), ref)
+    version_ok = version_file_filter(skill_dir)  # a draft's lines with the skill never enter the gate (baselines are the skill's no more)
+    events = model_events(sorted(((e, [l for l in base_lines(runs) if l["variant"] != "with" or version_ok(l)])
+                                  for e, runs in read + list(extra)), key=lambda e: e[0]["test"]), ref)
     current, version = case_hashes(skill_dir), skill_version(skill_dir)
     threshold, tolerance = cfg.get("threshold", 0.8), cfg.get("tolerance", 0)
     out = {"computed": False, "passed": None, "with": None, "baseline": None, "threshold": threshold, "tolerance": tolerance,
@@ -2268,7 +2272,8 @@ def y_changes_since(skill_dir, version):
 #
 # A pool CLOSES when every current case that is not pending has `runs` counted lines and a baseline in force (the baseline of
 # its era) and, in the community source, the counted lines come from at least POOL_MIN_CONTRIBUTORS contributors of whom none
-# holds more than POOL_MAX_SHARE of them. A closed pool is evaluated by the unchanged measure.gate_passes on the means of the
+# holds more than POOL_MAX_SHARE of them (a rule that holds by construction: a contributor's lines in one case count up to
+# floor(runs x 2/3), the rest are skipped, and the check stays as a sanity check). A closed pool is evaluated by the unchanged measure.gate_passes on the means of the
 # cases' means and counts as a full test: it satisfies rule (a) of `needs a test`, it can fail as rule (c), it restarts the
 # count of Y changes, and it is FROZEN like a full test: a case added or changed after it closed is pending on its lines (the
 # case's old lines leave it and the band is `watch`: gate_of's rule, once), and an epoch after it leaves its result standing
@@ -2369,18 +2374,26 @@ def pool_of(xy, era, now, entries, hashes, baselines, cfg, rule):
     for e in entries:
         if not e["weighs"]:
             stale.setdefault(str(e["line"]["case"]), []).append(e["line"])
-    # The lines the gate reads: per case the first `runs` in time order (and, in the community source, at most `cap` of one
-    # contributor's); a line is counted or not by the lines before it alone, so a later line never changes an earlier one.
-    counted, per_case, per_who = [], {}, {}
+    # The lines the gate reads: per case the first `runs` in time order. In the community source a line is also skipped (it
+    # counts for the score and nowhere else) when its contributor already holds floor(runs x 2/3) of the case's counted lines,
+    # and when the contributor already has `cap` counted lines in the pool: so every case needs lines of at least two
+    # contributors, none above two thirds, and one fork that fills a case first cannot block the others. A line is counted or
+    # not by the lines before it alone, so a later line never changes an earlier one.
+    per_case_limit = (runs * 2) // 3
+    counted, per_case, per_who, per_case_who = [], {}, {}, {}
     for e in weighing:
         cid = str(e["line"]["case"])
         name = who.get(e["event"]["test"]) if who is not None else None
-        if len(per_case.setdefault(cid, [])) >= runs or (cap is not None and name is not None and per_who.get(name, 0) >= cap):
+        if len(per_case.setdefault(cid, [])) >= runs:
+            continue
+        if name is not None and (per_case_who.get((cid, name), 0) >= per_case_limit
+                                 or (cap is not None and per_who.get(name, 0) >= cap)):
             continue
         per_case[cid].append(e)
         counted.append(e)
         if name is not None:
             per_who[name] = per_who.get(name, 0) + 1
+            per_case_who[(cid, name)] = per_case_who.get((cid, name), 0) + 1
     # What the pool covered when it closed, as the full and quick events it counted list their cases (a partial test lists
     # only the ones it ran): a case that is not there, or whose hash is not one of those there, was added or changed since; it
     # is pending, as for a full test, only when the cases it replaced had been run the whole `runs`.
@@ -2398,15 +2411,19 @@ def pool_of(xy, era, now, entries, hashes, baselines, cfg, rule):
     gate_cases = [c for c in case_ids if ready(c)]
     blocked = [c for c in case_ids if c not in pending and not ready(c)]
     gate_lines = [e for c in gate_cases for e in per_case[c]]
-    shares = {}
-    for e in gate_lines:
-        name = who.get(e["event"]["test"]) if who is not None else None
-        if name is not None:
-            shares[name] = shares.get(name, 0) + 1
-    contributors = len(shares) if who is not None else None
-    top = (max(shares.values()) / len(gate_lines)) if shares and gate_lines else 0
+    def shares_of(lines):
+        found = {}
+        for e in lines:
+            name = who.get(e["event"]["test"]) if who is not None else None
+            if name is not None:
+                found[name] = found.get(name, 0) + 1
+        return found
+
+    shares, shown = shares_of(gate_lines), shares_of(counted)  # the check reads the gate's lines; the status shows every counted line
+    contributors = len(shown) if who is not None else None
+    top = (max(shown.values()) / len(counted)) if shown and counted else 0
     closed = (bool(gate_cases) and not blocked and not again
-              and (contributors is None or (contributors >= POOL_MIN_CONTRIBUTORS and top <= POOL_MAX_SHARE + 1e-9)))
+              and (who is None or (len(shares) >= POOL_MIN_CONTRIBUTORS and max(shares.values()) / len(gate_lines) <= POOL_MAX_SHARE + 1e-9)))
     at_runs = sum(1 for c in case_ids if len(per_case.get(c, ())) >= runs)
     based = sum(1 for c in case_ids if baselines.get(c))
     text = f"pool of {xy}: {at_runs} of {len(case_ids)} cases at {runs} runs; baseline in force for {based}"
@@ -2728,6 +2745,23 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, 
 LOCAL_ROW_KEYS = ("score", "mean", "runs", "current_runs", "inherited_runs") + MODEL_BAND_KEYS
 
 
+def unnamed_lines(skill_dir, cfg, events):
+    """How many with-skill lines of the subject model in `events` would weigh but for the version file: the case has the line's
+    hash, the measurement version is at or above the floor and the major version is the current one, yet the line's version and
+    content hash are not a line of the checkout's version file (version_file_filter). A person's own tests of content they have
+    not bumped are these lines."""
+    version = skill_version(skill_dir)
+    if version is None:
+        return 0
+    ok, hashes, ref, floor = version_file_filter(skill_dir), case_hashes(skill_dir), subject_model(cfg), cfg.get("measurement_floor", 1)
+    return sum(1 for _, runs in model_events(events, ref) for line in base_lines(runs)
+               if line["variant"] == "with" and (ref is None or line["model"] == ref) and _major(line["version"]) == _major(version)
+               and hashes.get(str(line["case"])) == line["case_sha256"] and line["measurement_version"] >= floor and not ok(line))
+
+
+UNNAMED_TEXT = "{n} lines of content the version file does not name: bump, or run on the committed content"
+
+
 def local_status(root, name, config, base):
     """{model id: figures} of one skill's local evidence (a person's own tests, outside the checkout), or {} when it has
     none. Each model's figures are the ones a model of the repository gets (skill_band on that model's lines, by the
@@ -2743,6 +2777,12 @@ def local_status(root, name, config, base):
         cfg = as_subject({**config, "models": {**known_models(config), model: []}}, model)
         row = skill_band(root, skill_dir, cfg, None, per_model=False, events=events, pool_rule=rule)
         found[model] = {key: row[key] for key in LOCAL_ROW_KEYS}
+        unnamed = unnamed_lines(skill_dir, cfg, events)
+        if unnamed:  # the lines set aside are said, with what clears it: the figures above do not count them
+            note = UNNAMED_TEXT.format(n=unnamed)
+            found[model]["unnamed_lines"] = unnamed
+            found[model]["cause"] = f"{found[model]['cause']}; {note}" if found[model]["cause"] else note
+            found[model]["causes"] = found[model]["causes"] + [{"kind": "unnamed lines", "cause": note, "command": "python3 evals/eval_status.py bump --skill " + name}]
         found[model]["tests"] = sum(1 for event, _ in model_events(events, model))
         found[model]["last_full_test"] = row["last_full_test"]
         if "pool" in row:

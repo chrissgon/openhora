@@ -87,7 +87,8 @@ What it adds up to is the pool: the with-skill lines of one skill, one model and
 community: never mixed), of the current X.Y since the newest epoch, from full, partial and quick events together. The
 pool's gate reads, per case, only the first "runs" (3) lines in time order; later lines count for the score and nowhere else.
 A pool closes when every current case has that many lines and a baseline in force, and, for community evidence, when the
-counted lines come from at least two contributors, none holding more than two thirds of them; a closed pool is evaluated by
+counted lines come from at least two contributors, none holding more than two thirds of them (a contributor's lines in one case
+count up to two of the three, the rest count for the score alone); a closed pool is evaluated by
 the unchanged rule of the gate and counts as a full test (eval_status.py, "The pooled gate"). To iterate on a skill that is
 being written, run the quick test as a trial: --quick --scratch writes no evidence and blocks no later event. The same event rules hold as for the other kinds: an open event of the skill must be
 resumed (--resume) or closed (--close) first, evidence is written only at the configured values and in the eval container.
