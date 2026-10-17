@@ -116,6 +116,11 @@
       "where": null
     },
     {
+      "name": "ONEDRIVE_SOURCES_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
       "name": "OP_SERVICE_ACCOUNT_TOKEN",
       "found": false,
       "where": null

@@ -97,6 +97,8 @@ For LinkedIn the file is `LINKEDIN_ACCESS_TOKEN` (field `access_token`), with th
 
 The consent page of the Picker (`gdrive_auth.py pick`) also needs a browser; the files it picks are then read by the server with the record alone. A refresh token of a Google project in "Testing" expires after seven days (the provider's `auth.py` cites the source): a server that runs for weeks needs the project published, or a weekly consent. The runtime never runs the consent itself.
 
+**OneDrive as a source** (`ONEDRIVE_SOURCES_TOKEN`) is the same kind of record (JSON: refresh token, client id, tenant, scope, account kind, date; no client secret exists), made by `uv run providers/documents/onedrive_auth.py authorize` on a machine with a browser, and copied whole to the credentials directory the same way. Microsoft replaces the refresh token on every use and the old one lives out its 90 days. A record in the OS secret store is rewritten with the new token after each refresh (`onedrive.py`); a record in the environment or in the credentials directory is never rewritten, so it ages **90 days from the consent**, used or not: a server that runs for months needs `authorize` run again, and the file copied again, before then (`onedrive.py --check` prints `rotation`, which says whether a new token was stored).
+
 ## Retention (I6)
 
 Two keys of `runtime.json`, both optional, accepted in the terminal like every key of the file:
