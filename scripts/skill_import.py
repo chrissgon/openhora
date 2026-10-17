@@ -24,8 +24,8 @@ review files below). evals/ is outside the content hash and is stripped from eve
 home is <XDG data home>/openhora/skills by default (the local evidence base is beside it), WB_IMPORT_HOME names another, and
 --home <dir> names one for a call, for example a project's git-ignored <project>/.workbench-local/skills (a folder inside a
 working tree, which that project's own ignore rules must keep out of its commits). It is refused when it is inside this checkout
-(by device and inode) or inside any checkout of the workbench (an ancestor that holds evals/eval-gate.json and
-scripts/skill_import.py), and when its path holds the skills folder of any adapter (adapters/*/eval.json "skills_dir", read at run
+(by device and inode) or inside any checkout of the workbench (an ancestor, links resolved, that holds evals/eval-gate.json, or both a
+skills/ folder and scripts/validate.py: an older checkout has only some of the files of a newer one), and when its path holds the skills folder of any adapter (adapters/*/eval.json "skills_dir", read at run
 time, never named here), compared without regard to case and, for what exists, by identity (os.path.samefile) against
 <ancestor>/<skills_dir> for every ancestor, since a case-insensitive file system names one folder in many ways. So an import is
 never installed by accident. The skill's name has an area prefix, is not the name of a folder of skills/ and is the folder's name.
@@ -384,6 +384,7 @@ def name_questions(name, area_flag):
 # --- reading a tree safely --------------------------------------------------------------------------------------------
 
 GIT_FILE = ".git"
+GIT_DIR_FILES = ("head", "commondir")
 
 
 def entry_problems(files):
@@ -464,6 +465,9 @@ def scan_tree(root, mode="source"):
                 refused.append((rel, "a hard-linked file"))
             elif low == GIT_FILE:
                 refused.append((rel, "a .git file, a pointer to a git directory"))
+            elif low in GIT_DIR_FILES:
+                refused.append((rel, f"a file named {fn} (a git directory can be split over two folders: HEAD and commondir here, objects/ "
+                                     "and refs/ there)"))
             elif low in marks:
                 refused.append((rel, "an install marker of the workbench"))
             elif mode == "source" and (low in caches or low.endswith(".pyc")):
@@ -802,6 +806,11 @@ def read_origin(tree, files):
         text = open(os.path.join(tree, md), "rb").read().decode("utf-8")
     except UnicodeDecodeError:
         raise Refused(f"{md} is not UTF-8 text")
+    changes = []  # a file written on Windows: the fence is read as it is on every machine, and the record says what was changed
+    if text.startswith("\ufeff"):
+        text, changes = text[1:], changes + ["a byte order mark was removed from the start of " + md]
+    if "\r\n" in text:
+        text, changes = text.replace("\r\n", "\n"), changes + ["line ends of " + md + " were changed from CRLF to LF"]
     fm_text, body = split_text(text)
     fm, error = None, None
     if fm_text is not None:
@@ -809,7 +818,7 @@ def read_origin(tree, files):
             fm = v.load_yaml(fm_text)
         except Exception as e:  # noqa: BLE001 -- the workbench's reader is a subset of YAML; a skill that needs more is told so
             error = f"the frontmatter cannot be read by the workbench's reader (a subset of YAML: key: value, [a, b] lists, one nested map): {e}"
-    return {"shape": shape, "md": md, "text": text, "fm": fm, "fm_error": error, "body": body}
+    return {"shape": shape, "md": md, "text": text, "fm": fm, "fm_error": error, "body": body, "changes": changes}
 
 
 def first_paragraph(body):
@@ -964,7 +973,7 @@ def plan_skill(origin_info, tree, files, name, area_flag, declares, drops, previ
             "foreign": foreign, "origin_name": fm.get("name") if isinstance(fm.get("name"), str) else None,
             "origin_version": origin_version, "declared": {k: answers[k] for k in answers if k in MUST_ANSWER + MAY_ASSUME and k not in assumed},
             "declared_text": {**((previous or {}).get("declared_text") or {}), **{k: declares[k] for k in ("description", "license") if k in declares}},
-            "shape": info["shape"]}
+            "shape": info["shape"], "changes": info.get("changes", [])}
     return plan, questions
 
 
@@ -1002,7 +1011,7 @@ def snapshot_of(folder):
 
 
 def notes_for(plan):
-    notes = []
+    notes = list(plan.get("changes") or [])
     if any(k in plan["foreign"] for k in ("allowed-tools", "allowed_tools")):
         notes.append("the origin limits the tools the skill may use (allowed-tools); the workbench does not enforce tool limits: the "
                      "container is the boundary")
@@ -1708,7 +1717,7 @@ def parser():
     p.add_argument("--max-cost-usd", dest="max_cost_usd")
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--allow-web-cases", action="store_true")
-    p.add_argument("--yes", action="store_true", help="the spend bound is approved")
+    p.add_argument("--yes", action="store_true", help="the estimate of the spend is approved")
     p = verb("status", "the computed step, the audit and the figures of each imported skill")
     p.add_argument("--name")
     p = verb("refresh", "fetch the origin again and show the difference")

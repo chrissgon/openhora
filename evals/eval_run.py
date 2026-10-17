@@ -112,7 +112,8 @@ names out), no passing check (<folder>/evals/import/check.json, written by scrip
 current content hash), and no audit record (<folder>/evals/import/audit.json, written by scripts/skill_import.py audit) whose
 verdict is not "do not install" at that hash. The event runs from ONE COPY of the folder, made at its start without following
 a link into the system's temporary space (removed when the invocation ends): those checks are made on the copy, every run is
-staged from it, and a change of the folder while the event runs writes no evidence. `--resume <event folder>` alone resumes
+staged from it, and a change of the folder while the event runs writes no evidence. A SIGKILL or a crash can leave the copy in the
+temporary folder (mode 0700, readable by its owner only); the next such event removes copies older than a day. `--resume <event folder>` alone resumes
 such an event (no --skill-dir; it keeps the options it started with) and checks the folder, the check and the audit again. A
 case with "allow_web" runs only with --allow-web-cases and an audit verdict of "install": the open network could hand the
 person's fixture files to any host. `eval_status.py status --skill-dir <folder>` shows the figures, and says that a quick
@@ -784,6 +785,28 @@ def copy_imported(src, dst):
                 os.close(fd)
             os.chmod(os.path.join(target, n), 0o755 if info.st_mode & 0o100 else 0o644)
     return dst
+
+
+COPY_PREFIX = "eval-import-"
+STALE_COPY_SECONDS = 24 * 3600
+
+
+def sweep_stale_copies(folder, now=None):
+    """Remove the per-event copies of a skill from outside (eval-import-*) older than a day from `folder`, the system's temporary space: a
+    SIGKILL, a power cut or a crash ends an invocation without its cleanup, and such a copy is left in a folder only its owner can read
+    (mode 0700). Returns the names removed. A copy younger than a day may belong to an event that is running, and is left alone."""
+    now = time.time() if now is None else now
+    removed = []
+    for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name)
+        try:
+            info = os.lstat(path)
+        except OSError:
+            continue
+        if name.startswith(COPY_PREFIX) and stat.S_ISDIR(info.st_mode) and now - info.st_mtime > STALE_COPY_SECONDS:
+            shutil.rmtree(path, ignore_errors=True)
+            removed.append(name)
+    return removed
 
 
 def read_check(folder):
@@ -2631,7 +2654,8 @@ def run_event(argv, cleanup):
     origin_dir = o.get("skill_dir")  # the folder of a skill from outside as the person keeps it
     if origin_dir and not o["dry"] and not closing:
         # The event runs from one copy, made now: what the checks below read, what is staged and what is hashed are the same bytes.
-        copy_root = tempfile.mkdtemp(prefix="eval-import-", dir=temp_base())
+        sweep_stale_copies(temp_base())
+        copy_root = tempfile.mkdtemp(prefix=COPY_PREFIX, dir=temp_base())
         cleanup.append(lambda: shutil.rmtree(copy_root, ignore_errors=True))
         skill_dir = copy_imported(origin_dir, os.path.join(copy_root, o["skill"]))
     evals = load_evals(o["skill"], o.get("platform"), skill_dir if origin_dir else None)

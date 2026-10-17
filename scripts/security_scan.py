@@ -317,7 +317,9 @@ def scan_file(root, path, cache):
     skill, declared = skill_side_effects(root, rel, cache)
     is_skill_md = bool(skill) and rel.endswith("/SKILL.md")
     parts_of = rel.split("/")
-    in_scripts = bool(skill) and parts_of[2] == "scripts"  # any file there is a script to the effect rule, whatever its extension
+    # Any file under scripts/ is a script to the effect rule, whatever its extension, except the data and fixtures of scripts/tests/
+    # (its .py and .sh files are scripts by their extension, as before).
+    in_scripts = bool(skill) and parts_of[2] == "scripts" and not (len(parts_of) > 3 and parts_of[3] == "tests")
     in_reference = bool(skill) and parts_of[2] == "references" and ext == ".md"
     lines = text.split("\n")
     in_fence = False

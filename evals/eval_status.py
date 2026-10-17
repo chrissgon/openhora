@@ -1141,17 +1141,21 @@ def inside_checkout(path, root=ROOT):
 
 
 def enclosing_workbench(path):
-    """The root of a checkout of the workbench that `path` is inside (any checkout, not only this one), or None: the first ancestor
-    of its real path that holds both evals/eval-gate.json and scripts/skill_import.py. A skill from outside never lives in one."""
+    """The root of a checkout of the workbench that `path` is inside (any checkout, any age, not only this one), or None: the first
+    ancestor of its real path (links resolved) that holds evals/eval-gate.json, or both a skills/ folder and scripts/validate.py (an
+    older checkout may have only some of the files of a newer one). A skill from outside never lives in one."""
     here = os.path.realpath(path)
     while True:
         if (os.path.isfile(os.path.join(here, "evals", "eval-gate.json"))
-                and os.path.isfile(os.path.join(here, "scripts", "skill_import.py"))):
+                or (os.path.isdir(os.path.join(here, "skills")) and os.path.isfile(os.path.join(here, "scripts", "validate.py")))):
             return here
         parent = os.path.dirname(here)
         if parent == here:
             return None
         here = parent
+
+
+GIT_DIR_FILES = ("head", "commondir")  # files of a git directory that can sit apart from its objects/ and refs/ (a worktree's, a linked one's)
 
 
 def stray_names(folder):
@@ -1169,6 +1173,7 @@ def stray_names(folder):
         dns[:] = sorted(d for d in dns if not (top and d.casefold() == EVALS_REL))
         if "head" in {f.casefold() for f in fns} and {"objects", "refs"} <= {d.casefold() for d in dns}:
             found.append(os.path.relpath(dp, folder).replace(os.sep, "/"))
+        found += [os.path.relpath(os.path.join(dp, n), folder).replace(os.sep, "/") for n in fns if n.casefold() in GIT_DIR_FILES]
         for n in dns + fns:
             low = n.casefold()
             if low in marks or low in caches or low in control or low.endswith(".pyc"):

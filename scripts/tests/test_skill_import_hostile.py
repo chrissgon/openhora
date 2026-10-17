@@ -341,3 +341,73 @@ def test_an_install_marker_or_a_cache_name_in_the_folder_is_refused_by_check(cap
 def test_the_effect_stop_is_documented_as_what_the_scan_detects():
     text = (REPO / "scripts" / "skill_import.py").read_text()
     assert "a remote write the scan detects" in text
+
+
+# --- the second review ------------------------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("shape", ["gate", "skills"])
+def test_a_home_inside_an_older_checkout_of_the_workbench_is_refused(tmp_path, shape):
+    older = builders.older_checkout(str(tmp_path / ("older-" + shape)), shape)
+    assert es.enclosing_workbench(str(Path(older) / "skills" / "imports")) == os.path.realpath(older)
+    with pytest.raises(si.Refused, match="inside a checkout of the workbench"):
+        si.resolve_home(str(Path(older) / "skills" / "imports"))
+    assert es.enclosing_workbench(str(tmp_path / "plain" / "skills")) is None
+
+
+def test_a_link_to_a_checkout_does_not_hide_it(tmp_path):
+    older = builders.older_checkout(str(tmp_path / "older"), "gate")
+    link = tmp_path / "shortcut"
+    os.symlink(older, link)
+    with pytest.raises(si.Refused, match="inside a checkout of the workbench"):
+        si.resolve_home(str(link / "imports"))
+    deeper = tmp_path / "other"
+    deeper.mkdir()
+    os.symlink(older, deeper / "via")
+    with pytest.raises(si.Refused):
+        si.resolve_home(str(deeper / "via" / "x" / "y"))
+
+
+def test_the_checkout_the_tests_run_from_is_a_checkout_by_the_second_rule_too(tmp_path):
+    assert es.enclosing_workbench(str(REPO / "skills")) == os.path.realpath(REPO)
+    assert es.enclosing_workbench(str(tmp_path)) is None
+
+
+def test_a_git_directory_split_over_two_folders_is_refused_by_the_names_of_its_files(capsys, tmp_path):
+    source = builders.split_git_dir_skill(str(tmp_path / "src" / "split"))
+    code, out = call(capsys, "fetch", "--from", source)
+    assert code == 3
+    why = {r["path"]: r["why"] for r in out["refused"]}
+    assert set(why) == {"references/a/HEAD", "references/a/commondir"} and all("split over two folders" in w for w in why.values())
+    assert not list((tmp_path / "home" / ".quarantine").iterdir())
+
+
+@pytest.mark.parametrize("name", ["HEAD", "head", "Head", "commondir", "CommonDir"])
+def test_a_file_named_head_or_commondir_is_refused_in_any_case(capsys, tmp_path, name):
+    source = tmp_path / "src" / "named"
+    shutil.copytree(FIX / "web-notes", source)
+    builders.write(str(source), "references/" + name, "x\n")
+    code, out = call(capsys, "fetch", "--from", str(source))
+    assert code == 3 and [r["path"] for r in out["refused"]] == ["references/" + name]
+    folder = normalized(capsys)
+    builders.write(str(folder), "references/" + name, "x\n")
+    code, out = call(capsys, "check", "--name", folder.name)
+    assert code == 1 and any(name in e for e in out["entries"])
+
+
+def test_a_skill_written_on_windows_is_read_with_its_byte_order_mark_and_crlf_and_the_record_says_so(capsys, tmp_path):
+    source = builders.windows_skill(str(tmp_path / "src" / "win"))
+    folder = normalized(capsys, Path(source), "core-win")
+    text = (folder / "SKILL.md").read_text()
+    head, keys, body = strict_frontmatter(text)
+    assert keys == ["name", "description", "license", "metadata"] and "\r" not in text and not text.startswith(chr(0xFEFF))
+    assert "Make the list." in body
+    notes = json.loads((folder / "evals" / "import" / "record.json").read_text())["notes"]
+    assert any("byte order mark" in n for n in notes) and any("CRLF to LF" in n for n in notes)
+    fm = si.validate_module().load_yaml(si.split_text(text)[0])
+    assert fm["description"] == "Make a list. Use when asked for a list." and fm["license"] == "MIT"
+
+
+def test_the_yes_flag_of_test_speaks_of_an_estimate():
+    parser = si.parser()
+    text = parser.format_help() + "".join(a.format_help() for a in parser._subparsers._group_actions[0].choices.values())
+    assert "spend bound" not in text and "the estimate of the spend is approved" in text

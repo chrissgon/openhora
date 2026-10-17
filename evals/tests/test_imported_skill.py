@@ -273,7 +273,7 @@ def test_an_event_is_refused_without_a_check_that_passed_at_the_current_content(
     assert t.calls(tmp_path) == []
 
 
-@pytest.mark.parametrize("name", [".installed-by-openhora", "__pycache__", ".DS_Store", ".git", ".GIT"])
+@pytest.mark.parametrize("name", [".installed-by-openhora", "__pycache__", ".DS_Store", ".git", ".GIT", "HEAD", "commondir"])
 def test_an_event_is_refused_when_the_content_holds_an_install_marker_or_a_cache_name(tmp_path, tmp_path_factory, monkeypatch, capsys, name):
     standin(tmp_path, monkeypatch)
     folder = imported(tmp_path, tmp_path_factory)
@@ -480,3 +480,52 @@ def test_the_help_and_the_docs_say_it_is_a_warning_and_not_a_refusal():
     doc = er.__doc__
     assert "--skill-dir" in doc and "never into the checkout" in doc and "--allow-web-cases" in doc
     assert "unbumped edit" in (REPO / "evals" / "README.md").read_text() and "not a refusal" in (REPO / "evals" / "README.md").read_text()
+
+
+@pytest.mark.parametrize("shape", ["gate", "skills"])
+def test_a_folder_inside_an_older_checkout_or_behind_a_link_to_one_is_refused(tmp_path, tmp_path_factory, monkeypatch, capsys, shape):
+    standin(tmp_path, monkeypatch)
+    older = tmp_path_factory.mktemp("older")
+    if shape == "gate":
+        (older / "evals").mkdir()
+        (older / "evals" / "eval-gate.json").write_text("{}\n")
+    else:  # an older checkout lacks the gate file and the import tool, and has skills/ and the validator
+        (older / "skills").mkdir()
+        (older / "scripts").mkdir()
+        (older / "scripts" / "validate.py").write_text("")
+    folder = older / "imports" / "demo"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text(t.SKILL_MD)
+    for path in (folder, tmp_path / "shortcut"):
+        if path != folder:
+            os.symlink(older, path)
+            path = path / "imports" / "demo"
+        with pytest.raises(SystemExit) as e:
+            er.parse(["--skill-dir", str(path)])
+        assert e.value.code == 2 and "inside a checkout of the workbench" in capsys.readouterr().err
+
+
+def test_a_per_event_copy_left_by_a_killed_run_is_removed_after_a_day_and_nothing_else_is(tmp_path):
+    import time
+    now = time.time()
+    for name, age in (("eval-import-old", 3 * 86400), ("eval-import-new", 60), ("eval-other-old", 3 * 86400)):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "f").write_text("x")
+        os.utime(tmp_path / name, (now - age, now - age))
+    (tmp_path / "eval-import-file").write_text("not a folder")
+    os.utime(tmp_path / "eval-import-file", (now - 3 * 86400, now - 3 * 86400))
+    assert er.sweep_stale_copies(str(tmp_path), now=now) == ["eval-import-old"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["eval-import-file", "eval-import-new", "eval-other-old"]
+
+
+def test_an_event_sweeps_the_stale_copies_and_the_docs_say_a_sigkill_can_leave_one(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    import time
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    base = Path(er.temp_base())
+    stale = base / ("eval-import-stale-" + tmp_path.name[:12])
+    stale.mkdir()
+    os.utime(stale, (time.time() - 3 * 86400,) * 2)
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")
+    assert code == 0 and not stale.exists()
+    assert "SIGKILL" in er.__doc__ and "SIGKILL" in (REPO / "evals" / "README.md").read_text()
