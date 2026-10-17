@@ -1,0 +1,27 @@
+{
+  "skill_name": "NAME",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Make short study notes from saved-page.md.",
+      "files": ["evals/files/article"],
+      "expected_output": "A title, at most five bullets and one open question, resting on the page.",
+      "assertions": [
+        "The notes state that a shallow pool can warm by about ten degrees in an afternoon",
+        "The notes have at most five bullets",
+        "The notes end with one open question"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Turn saved-page.md into flash cards, one fact per card.",
+      "files": ["evals/files/article"],
+      "expected_output": "Cards, each with one fact of the page.",
+      "assertions": [
+        "At least one card states that small crabs hide under the rocks because the water there stays cooler",
+        "No card states a fact the page does not give",
+        "Each card holds one fact"
+      ]
+    }
+  ]
+}

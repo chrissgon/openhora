@@ -2,6 +2,7 @@
 """Validate openhora conventions.
 
 Usage: python3 scripts/validate.py [--strict] [--json] [--spec] [--flags]
+       python3 scripts/validate.py --foreign <folder of a skill from outside> [--strict] [--json]
 
 Checks every skill under skills/ and every agent under agents/:
   - folder name equals frontmatter name; name is lowercase, hyphenated, no leading/trailing/double hyphen
@@ -42,7 +43,8 @@ Checks every skill under skills/ and every agent under agents/:
   - eval-status (through evals/eval_status.py): evals/eval-gate.json, the gate's configuration (models,
     adapters, threshold), has its fields; [evidence] every file under skills/<name>/evals/evidence/ is a valid
     lab evidence file (lab-<test id>.jsonl) or contributed field evidence file (field-<id>.jsonl), every line
-    of its closed form (python3 evals/eval_status.py evidence); [snapshot] the two tables between the
+    of its closed form (python3 evals/eval_status.py evidence), and none carries `imported` on its event line (the marker of
+    a skill from outside, whose evidence stays on the person's machine and never enters the repository); [snapshot] the two tables between the
     eval-status markers in docs/inventory.md are behind the evidence (a warning, never an error: they are a
     snapshot regenerated in a pull request of its own with python3 evals/eval_status.py inventory --write); [band]
     the skills in `needs a test` and in `watch` (the reliability model, section 5), one warning line per band
@@ -163,6 +165,18 @@ They say what a skill or its cases still have to change; none reads a skill's sc
 A rule whose file is not in the tree being validated (the class table, the layout contract, the owner-table
 script, the architecture-tables script or the pages, the manifest of copies and its script, the routing table, test_dirs.py) is
 skipped and says so in a NOTE line on stderr, which counts as neither an error nor a warning.
+
+--foreign <folder> checks one skill from outside the repository (scripts/skill_import.py check runs it), in the folder
+<home>/<name>, and nothing else: the per-skill checks of the list above (frontmatter keys, name, prefix and area, kind,
+description length, 500 lines, the Confirmation gate heading when side_effects is non-empty, placeholders, relative links);
+the case findings of evals/evals.json (the rules of the list above; [guard-effect], an assertion tagged guard:<effect> for
+each declared effect, is an error, and [guard-missing], a guard assertion when the skill has stop rules, a gate or the
+external-content line, a warning); [version-file], the content hash of the folder equal to the last line of
+evals/versions.jsonl (an error); and, as warnings, [harness-name] (a skill that names a harness is bound to that tool, which
+the report says) and [english-only], and [owner-clash] for a path of its outputs or updates that a skill of the
+workbench owns (one owner per artifact: a warning here, where the repository's own rule [contract-owner] is an error). Skipped, and listed in the output's "skipped": the artifact contract against the
+table of owning skills, the class checks against a base commit, the copies, the inventory, the private terms and the
+routing table. The normal run, with no --foreign, is unchanged. Nothing of the folder is executed or imported: it is read.
 
 Options:
   --strict   treat warnings as errors
@@ -500,9 +514,12 @@ def known_class(value, classes):
     return False
 
 
-def check_skill(dirname, report, outputs_index, classes=None):
-    where = f"skills/{dirname}"
-    path = os.path.join(SKILLS, dirname, "SKILL.md")
+def check_skill(dirname, report, outputs_index, classes=None, skills_dir=None, where=None):
+    """The per-skill checks of one folder: skills/<dirname>, or, with skills_dir, <skills_dir>/<dirname> (a skill from
+    outside, --foreign), reported under `where`."""
+    skills_dir = skills_dir or SKILLS
+    where = where or f"skills/{dirname}"
+    path = os.path.join(skills_dir, dirname, "SKILL.md")
     if not os.path.isfile(path):
         report.error(where, "missing SKILL.md")
         return None
@@ -596,12 +613,13 @@ def check_skill(dirname, report, outputs_index, classes=None):
     if "Delete this section" in body:
         report.error(where, "template instruction 'Delete this section...' is still present")
 
-    check_links(report, where, os.path.join(SKILLS, dirname), body)
-    for dirpath, _, files in sorted(os.walk(os.path.join(SKILLS, dirname, "references"))):
+    check_links(report, where, os.path.join(skills_dir, dirname), body)
+    shown_from = ROOT if skills_dir == SKILLS else os.path.dirname(skills_dir)
+    for dirpath, _, files in sorted(os.walk(os.path.join(skills_dir, dirname, "references"))):
         for fn in sorted(f for f in files if f.endswith(".md")):
             p = os.path.join(dirpath, fn)
             with open(p, encoding="utf-8", errors="ignore") as f:
-                check_links(report, os.path.relpath(p, ROOT).replace(os.sep, "/"), dirpath, f.read())
+                check_links(report, os.path.relpath(p, shown_from).replace(os.sep, "/"), dirpath, f.read())
 
     for out in meta.get("outputs") or []:
         outputs_index.setdefault(out, []).append(name or dirname)
@@ -1694,10 +1712,151 @@ def run_spec_validator(report):
                 report.error(f"skills/{d}", f"skills-ref: {r.stdout.strip() or r.stderr.strip()}")
 
 
+FOREIGN_SKIPPED = ("the artifact contract against the table of owning skills", "the class checks against a base commit",
+                   "the copies of shared scripts", "the inventory and the snapshot tables", "the private terms",
+                   "the routing table", "the flow files")
+
+
+def foreign_text_files(folder):
+    """[(path relative to the folder, text)] of the text files a model reads of a skill from outside: everything but evals/,
+    the tests of its scripts and the caches. The files are read, never run or imported."""
+    scanner = load_scanner()
+    found = []
+    for dirpath, dirs, files in os.walk(folder):
+        top = os.path.relpath(dirpath, folder) == "."
+        dirs[:] = sorted(d for d in dirs if d not in scanner.SKIP_DIRS and not (top and d == "evals")
+                         and not (os.path.relpath(os.path.join(dirpath, d), folder).replace(os.sep, "/") == "scripts/tests"))
+        for fn in sorted(files):
+            path = os.path.join(dirpath, fn)
+            if os.path.islink(path):
+                continue
+            text = scanner.read_text(path)
+            if text is not None:
+                found.append((os.path.relpath(path, folder).replace(os.sep, "/"), text))
+    return found
+
+
+def check_foreign(folder, report):
+    """The checks of one skill from outside the repository (--foreign): see the module docstring. The folder's name is the
+    skill's name; it is checked as skills/<name> would be, and reported under its own name."""
+    folder = os.path.abspath(folder)
+    name = os.path.basename(folder)
+    where = name
+    for skipped in FOREIGN_SKIPPED:
+        report.note(f"[foreign] skipped: {skipped}")
+    if not os.path.isfile(os.path.join(folder, "SKILL.md")):
+        report.error(where, "missing SKILL.md")
+        return
+    classes = load_classes(report)
+    if check_skill(name, report, {}, classes, skills_dir=os.path.dirname(folder), where=where) is None:
+        return
+    meta, body = {}, ""
+    front, body = split_frontmatter(os.path.join(folder, "SKILL.md"))
+    try:
+        meta = (load_yaml(front) if front else {}).get("metadata") or {}
+    except Exception:  # noqa: BLE001 -- check_skill reported it
+        meta = {}
+    meta = meta if isinstance(meta, dict) else {}
+    effects = [e for e in (meta.get("side_effects") if isinstance(meta.get("side_effects"), list) else []) if isinstance(e, str)]
+    # The version file names the content: every test of the folder says which content it ran on.
+    es = load_eval_status()
+    lines, problems, _ = es.read_versions(folder)
+    last = lines[-1] if lines else None
+    current = es.content_hash(folder)
+    for problem in problems:
+        report.error(where, f"[version-file] evals/versions.jsonl: {problem}")
+    if not lines:
+        report.error(where, "[version-file] evals/versions.jsonl is missing: the import tool writes its first line")
+    elif not isinstance(last, dict) or last.get("content_sha256") != current:
+        report.error(where, "[version-file] the content of the folder is not the last line of evals/versions.jsonl: it changed "
+                     "after it was imported or refreshed, so no test of it names its content")
+    # Cases: the same findings as for a skill of the repository.
+    path = os.path.join(folder, "evals", "evals.json")
+    if not os.path.isfile(path):
+        report.warn(where, f"no evals/evals.json; a skill has at least {MIN_CASES} cases", "eval-cases-count")
+    else:
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as e:
+            report.warn(where, f"evals/evals.json is not valid JSON: {e}", "eval-keys")
+            data = None
+        if isinstance(data, dict):
+            cases = [c for c in data.get("evals", []) if isinstance(c, dict)] if isinstance(data.get("evals"), list) else []
+            keys, few, conditional, is_run, named = case_file_findings(name, data, cases, None, effects)
+            if len(cases) < MIN_CASES:
+                report.warn(where, f"{len(cases)} case(s) in evals/evals.json; a skill has at least {MIN_CASES}", "eval-cases-count")
+            for found, rule, text in ((keys, "eval-keys", "case file: {}"),
+                                      (few, "eval-assertions-count", "fewer than %d assertions: {}" % MIN_ASSERTIONS),
+                                      (conditional, "eval-conditional-assertion", "an assertion that starts with \"If\": {}"),
+                                      (is_run, "eval-run-assertion", "the grader reads the reply and the files, not the commands: {}"),
+                                      (named, "eval-prompt-names-skill", "the prompt names the skill under test: {}")):
+                if found:
+                    report.warn(where, text.format("; ".join(found)), rule)
+            tags = {t for c in cases for a in c.get("assertions") or [] if isinstance(a, dict)
+                    for t in a.get("tags") or [] if isinstance(t, str)}
+            without = [e for e in effects if f"guard:{e}" not in tags]
+            if without:
+                report.error(where, f"[guard-effect] no assertion is tagged guard:<effect> for the declared effect(s) "
+                             f"{', '.join(without)}: one guard per declared effect (evals/README.md, Guards)")
+            asks = (EXTERNAL_LINE_RE.search(body) or re.search(r"^## (?:Stop rules|Confirmation gate)[ \t]*$", strip_code(body), re.M))
+            if asks and not any(t == "guard" or t.startswith("guard:") for t in tags):
+                report.warn(where, "the skill carries the external-content line, a Stop rules or a Confirmation gate section, and "
+                            "no assertion is tagged guard", "guard-missing")
+    # An imported skill is not core: a harness name binds it to that tool, a language other than English is said.
+    for rel, text in foreign_text_files(folder):
+        lines_of = text.splitlines()
+        hits = [(n, m.group(0)) for n, line in enumerate(lines_of, 1) for m in [HARNESS_RE.search(line)] if m]
+        if hits:
+            report.warn(f"{where}/{rel}", f"[{HARNESS_RULE}] names a harness ({hits[0][1]!r} at line {hits[0][0]}"
+                        f"{f', and {len(hits) - 1} more line(s)' if len(hits) > 1 else ''}): the skill is bound to that tool, "
+                        "which the workbench's own skills are not", HARNESS_RULE)
+        english = [(n, m.group(0)) for n, line in enumerate(lines_of, 1) for m in [PORTUGUESE_RE.search(line)] if m]
+        if english:
+            report.warn(f"{where}/{rel}", f"[english-only] text that is not English ({english[0][1]!r} at line {english[0][0]})",
+                        "english-only")
+    # One owner per artifact: a path the skill owns that a skill of the workbench owns too.
+    owned = {}
+    for s in declarations(ROOT):
+        for path in s["outputs"]:
+            owned.setdefault(artifact_key(path), s["name"])
+    clash = [f"{p} (owned by {owned[artifact_key(p)]})" for field in ("outputs", "updates")
+             for p in (meta.get(field) if isinstance(meta.get(field), list) else []) if isinstance(p, str) and artifact_key(p) in owned]
+    if clash:
+        report.warn(where, f"outputs or updates {'; '.join(clash)}: an artifact has one owner, and the workbench's skill is it",
+                    "owner-clash")
+
+
+def main_foreign(folder, strict, as_json):
+    """--foreign <folder>: the checks of check_foreign, the summary on stdout, the findings on stderr."""
+    report = Report()
+    check_foreign(folder, report)
+    for e in report.errors:
+        print(f"ERROR   {e['where']}: {e['message']}", file=sys.stderr)
+    for w in report.warnings:
+        print(f"WARNING {w['where']}: {w['message']}", file=sys.stderr)
+    for n in report.notes:
+        print(f"NOTE    {n}", file=sys.stderr)
+    failed = bool(report.errors) or (strict and bool(report.warnings))
+    summary = {"foreign": os.path.abspath(folder), "skills": 1, "errors": len(report.errors), "warnings": len(report.warnings),
+               "ok": not failed, "skipped": list(FOREIGN_SKIPPED)}
+    print(json.dumps({"summary": summary, "errors": report.errors, "warnings": report.warnings}, indent=2) if as_json
+          else json.dumps(summary))
+    return 1 if failed else 0
+
+
 def main(argv):
     if "--help" in argv or "-h" in argv:
         print(__doc__)
         return 0
+    if "--foreign" in argv:
+        at = argv.index("--foreign")
+        rest = argv[:at] + argv[at + 2:]
+        bad = [a for a in rest if a not in ("--strict", "--json")]
+        if at + 1 >= len(argv) or bad:
+            print("Error: --foreign takes a folder and goes with --strict and --json only. See --help.", file=sys.stderr)
+            return 2
+        return main_foreign(argv[at + 1], "--strict" in rest, "--json" in rest)
     unknown = [a for a in argv if a not in ("--strict", "--json", "--spec", "--flags")]
     if unknown:
         print(f"Error: unknown option(s) {unknown}. See --help.", file=sys.stderr)

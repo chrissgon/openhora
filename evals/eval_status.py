@@ -4,6 +4,7 @@ model, docs/architecture/reliability-model-2026-10-02.md), the gate, the version
 
 Usage:
   python3 evals/eval_status.py status [--skill <name>]
+  python3 evals/eval_status.py status --skill-dir <folder of a skill from outside>
   python3 evals/eval_status.py hash --skill <name>
   python3 evals/eval_status.py evidence [--skill <name> | --file <path>]
   python3 evals/eval_status.py gate --skill <name> [--model <id>]
@@ -166,6 +167,14 @@ gate is not computed. A skill is done on a model when that model's first full te
 A person's own tests of any model are in the local evidence folder (local_evidence_base) and are read by `status`
 into a section of its own, "local": {"folder", "skills": {skill: {model id: figures}}}, the figures of a model of
 the repository computed from the local files alone; never mixed into the rows above.
+A skill from outside (package IMPORT-CLI; scripts/skill_import.py) is not in skills/. Its folder is given to the runner with
+--skill-dir, its tests are always local, under <local evidence base>/imported/<name>/, and their event lines carry
+"imported": true. `status --skill-dir <folder>` prints {"imported": true, "skill", "folder", "version", "scope", "cases",
+"models": {model id: figures}}: the figures of local_status on that folder, each with "kinds" (the kinds of test the model
+has), "preliminary" ("preliminary: quick test only" while the model's tests are quick tests alone, a text of the same kind
+while no full test and no closed pool stands behind them, else null), "scope" ("your machine only, not checkable by
+others") and "cases" ("measured against your own cases, which nobody else has read"); the commands it gives are written
+for --skill-dir. The band of an imported skill is the same rule on the local lines; a quick test alone never moves it.
 The field signal: three or more `failed` verdicts on the current X.Y, on the subject model, in the weeks after
 the newest lab event of that X.Y (all of them when it has none), at most one per contributor except the
 repository's owner. The contributor of a field file is the author of the commit that added it, read from git
@@ -2762,15 +2771,44 @@ def unnamed_lines(skill_dir, cfg, events):
 UNNAMED_TEXT = "{n} lines of content the version file does not name: bump, or run on the committed content"
 
 
-def local_status(root, name, config, base):
+IMPORTED_DIR = "imported"  # under the local evidence base: <base>/imported/<name>/ holds the tests of a skill from outside
+IMPORTED_SCOPE = "your machine only, not checkable by others"
+IMPORTED_CASES = "measured against your own cases, which nobody else has read"
+PRELIMINARY_QUICK = "preliminary: quick test only"
+PRELIMINARY_OTHER = "preliminary: no full test and no closed pool yet"
+UNNAMED_IMPORT = ("{n} lines of content the import record does not name: the folder changed after it was imported or refreshed; "
+                  "record the edit with scripts/skill_import.py bump, or refresh it from its origin")
+
+
+def imported_evidence_name(name):
+    """The folder name under the local evidence base that holds the tests of the imported skill `name`."""
+    return f"{IMPORTED_DIR}/{name}"
+
+
+def for_import(text, name, folder):
+    """A command or sentence of the status written for a skill of the repository, said for an imported one: the runner is
+    pointed at the folder (`--skill-dir`), and the version bump of a checkout does not apply to an import."""
+    if not isinstance(text, str):
+        return text
+    return (text.replace(f"evals/eval_run.py --skill {name}", f"evals/eval_run.py --skill-dir {folder}")
+            .replace(f"python3 evals/eval_status.py bump --skill {name}", f"python3 scripts/skill_import.py bump --name {name}"))
+
+
+def local_status(root, name, config, base, skill_dir=None):
     """{model id: figures} of one skill's local evidence (a person's own tests, outside the checkout), or {} when it has
     none. Each model's figures are the ones a model of the repository gets (skill_band on that model's lines, by the
     same rules), computed from the local files alone: they are never added to the repository's figures, and they are
-    information for the person's own choice of a model. The model need not be in the gate file's list."""
-    events = local_skill_evidence(name, base)
+    information for the person's own choice of a model. The model need not be in the gate file's list.
+
+    With skill_dir, the skill is an imported one (scripts/skill_import.py): its folder is skill_dir, outside the checkout,
+    its evidence is read from <base>/imported/<name>/, the commands are said for the runner's --skill-dir, and each model's
+    figures carry "kinds" (the kinds of test it has), "preliminary" (a text when no full test and no closed pool stands behind
+    the figures, else None), "scope" and "cases" (what the figures are, and are not)."""
+    imported = skill_dir is not None
+    events = local_skill_evidence(imported_evidence_name(name) if imported else name, base)
     if not events:
         return {}
-    skill_dir = os.path.join(root, "skills", name)
+    skill_dir = skill_dir if imported else os.path.join(root, "skills", name)
     found = {}
     rule = {"baseline_events": skill_evidence(skill_dir), "baseline_first": "own"}  # the pool: its own baseline, else the lab's
     for model in sorted({line["model"] for _, runs in events for line in base_lines(runs)}):
@@ -2779,7 +2817,7 @@ def local_status(root, name, config, base):
         found[model] = {key: row[key] for key in LOCAL_ROW_KEYS}
         unnamed = unnamed_lines(skill_dir, cfg, events)
         if unnamed:  # the lines set aside are said, with what clears it: the figures above do not count them
-            note = UNNAMED_TEXT.format(n=unnamed)
+            note = (UNNAMED_IMPORT if imported else UNNAMED_TEXT).format(n=unnamed)
             found[model]["unnamed_lines"] = unnamed
             found[model]["cause"] = f"{found[model]['cause']}; {note}" if found[model]["cause"] else note
             found[model]["causes"] = found[model]["causes"] + [{"kind": "unnamed lines", "cause": note, "command": "python3 evals/eval_status.py bump --skill " + name}]
@@ -2787,7 +2825,30 @@ def local_status(root, name, config, base):
         found[model]["last_full_test"] = row["last_full_test"]
         if "pool" in row:
             found[model]["pool"] = row["pool"]
+        if imported:
+            kinds = sorted({e.get("kind") for e, _ in model_events(events, model)})
+            standing = bool(row["last_full_test"]) or bool((row.get("pool") or {}).get("deciding"))
+            found[model].update(kinds=kinds, scope=IMPORTED_SCOPE, cases=IMPORTED_CASES,
+                                preliminary=None if standing else (PRELIMINARY_QUICK if kinds == ["quick"] else PRELIMINARY_OTHER))
+            for key in ("cause", "command"):
+                found[model][key] = for_import(found[model][key], name, skill_dir)
+            found[model]["causes"] = [{**c, "cause": for_import(c["cause"], name, skill_dir),
+                                       "command": for_import(c["command"], name, skill_dir)} for c in found[model]["causes"]]
     return found
+
+
+def imported_status(root, folder, config, base):
+    """What `status --skill-dir <folder>` prints: {"imported": true, "skill", "folder", "version", "scope", "cases",
+    "models": {model id: figures}}, from the local tests of the skill in that folder (local_status). The folder is read,
+    never imported or run. ValueError when it is not an imported skill's folder."""
+    folder = os.path.abspath(folder)
+    name = os.path.basename(folder)
+    if not NAME_RE.fullmatch(name) or not os.path.isfile(os.path.join(folder, "SKILL.md")):
+        raise ValueError(f"{folder} is not a skill folder: its name is the skill's (lowercase, hyphens) and it holds a SKILL.md")
+    if os.path.isdir(os.path.join(root, "skills", name)):
+        raise ValueError(f"{name} is the name of a skill of the repository: an imported skill has a name of its own")
+    return {"imported": True, "skill": name, "folder": folder, "version": skill_version(folder), "scope": IMPORTED_SCOPE,
+            "cases": IMPORTED_CASES, "models": local_status(root, name, config, base, skill_dir=folder)}
 
 
 # --- community evidence (the plan's decision D19 as D36 clarifies it; package P10) --------------------------------------
@@ -3187,7 +3248,7 @@ def main(argv, root=None):
         return 0
     opts, flags, i = {}, set(), 0
     while i < len(rest):
-        if rest[i] in ("--skill", "--file", "--kind", "--cause", "--skills", "--models", "--date", "--class", "--model"):
+        if rest[i] in ("--skill", "--skill-dir", "--file", "--kind", "--cause", "--skills", "--models", "--date", "--class", "--model"):
             if i + 1 >= len(rest):
                 die(f"{rest[i]} needs a value.")
             opts[rest[i][2:]] = rest[i + 1]
@@ -3244,7 +3305,15 @@ def main(argv, root=None):
         print(f"{GATE_REL} written. Add the entry below to docs/decisions.md, in the same commit as the change.", file=sys.stderr)
         print(json.dumps(out, indent=2))
         return 0
+    if "skill-dir" in opts and (cmd != "status" or skill or flags):
+        die("--skill-dir goes with the status command alone, and not with --skill. See --help.")
     if cmd == "status":
+        if "skill-dir" in opts:
+            try:
+                print(json.dumps(imported_status(root, opts["skill-dir"], load_gate(root), local_evidence_base()), indent=2))
+            except ValueError as e:
+                die(str(e), 2)
+            return 0
         print(json.dumps(all_status(root, skill, local_evidence_base()), indent=2))
         return 0
     if cmd == "hash":

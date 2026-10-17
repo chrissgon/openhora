@@ -1,0 +1,392 @@
+"""Offline tests of a skill from outside in the lab (package IMPORT-CLI): `eval_run.py --skill-dir`, its refusals, the local evidence
+it writes under imported/<name>/ with "imported": true, `eval_status.py status --skill-dir`, the validator's refusal of such a file
+under skills/, and the warning a full or a quick test prints on content the version file does not name (a follow-up of package P11).
+No model is called: a stand-in adapter answers, as in test_eval_run.py, and the fixtures are those of scripts/tests/fixtures/import/.
+
+Run: uv run --with pytest pytest evals/tests/test_imported_skill.py
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import shutil
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[2]
+FIX = REPO / "scripts" / "tests" / "fixtures" / "import"
+
+
+def load(module, name):
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(f"{module}.py"))
+    loaded = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(loaded)
+    return loaded
+
+
+tb = load("test_bands", "bands_tests_for_imported_skill")
+t = load("test_eval_run", "eval_run_tests_for_imported_skill")
+er, es = t.er, tb.es
+
+
+@pytest.fixture(autouse=True)
+def own_lock_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(er, "LOCK_DIR", str(tmp_path / "locks"))
+    monkeypatch.setattr(er.KIT, "LOCK_DIR", str(tmp_path / "locks"))
+    monkeypatch.setattr(er, "RETRY_PAUSE", 0)
+    monkeypatch.setattr(er.KIT, "RETRY_PAUSE", 0)
+
+
+def local_base():
+    return Path(os.environ["WB_LOCAL_EVIDENCE_DIR"])
+
+
+def standin(tmp_path, monkeypatch, runner=None):
+    """A temporary tree as the root of the runner, with a stand-in adapter h and a gate file; no skill under skills/."""
+    t.as_in_the_container(monkeypatch)
+    adapter = tmp_path / "adapters" / "h"
+    adapter.mkdir(parents=True)
+    (adapter / "eval.json").write_text(t.EVAL_JSON)
+    (adapter / "run-prompt.sh").write_text(runner or t.SCORES)
+    monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
+    t.configure_gate(tmp_path, tolerance=0.05, runs=3)
+
+
+def imported(tmp_path, tmp_path_factory, name="demo", cases=None, verdict="install", audit=True):
+    """A skill folder outside the root (named like the skill the stand-in adapter looks for), with its version file, its cases and
+    an audit record at its current content."""
+    folder = tmp_path_factory.mktemp("home") / name
+    (folder / "evals" / "import").mkdir(parents=True)
+    (folder / "SKILL.md").write_text(t.SKILL_MD.replace("name: demo", f"name: {name}"))
+    cases = cases or [{"id": 1, "prompt": "p", "assertions": ["a"]}, {"id": 2, "prompt": "q", "assertions": ["a"]}]
+    (folder / "evals" / "evals.json").write_text(json.dumps({"skill_name": name, "evals": cases}))
+    content = es.content_hash(str(folder))
+    (folder / "evals" / "versions.jsonl").write_text(json.dumps({"version": "0.3.0", "content_sha256": content, "class": "new", "date": "2030-01-01"}) + "\n")
+    if audit:
+        (folder / "evals" / "import" / "audit.json").write_text(json.dumps(
+            {"verdict": verdict, "record": "vetting-2030-01-02.md", "record_sha256": "0" * 64, "content_sha256": content, "date": "2030-01-02"}))
+    return folder
+
+
+def run_main(capsys, *argv):
+    code = er.main(list(argv))
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+# --- the options -------------------------------------------------------------------------------------------------------------
+
+def test_skill_dir_names_the_skill_by_its_folder_and_is_exclusive_with_skill(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    o = er.parse(["--skill-dir", str(folder), "--quick"])
+    assert (o["skill"], o["skill_dir"], o["quick"]) == ("demo", str(folder), True) and er.skill_folder(o) == str(folder)
+    with pytest.raises(SystemExit) as e:
+        er.parse(["--skill-dir", str(folder), "--skill", "demo"])
+    assert e.value.code == 2 and "exclusive" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("extra", [["--pass-env", "SOME_VARIABLE"], ["--harness", "h"], ["--platform", "net"], ["--routing", "--pack", "default"],
+                                   ["--regrade", "/x"], ["--resume", "/x"], ["--close", "/x"]])
+def test_what_a_skill_from_outside_never_takes_is_refused(tmp_path, tmp_path_factory, monkeypatch, capsys, extra):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    with pytest.raises(SystemExit) as e:
+        er.parse(["--skill-dir", str(folder), "--model", "m"] + extra)
+    assert e.value.code == 2 and "--skill-dir does not go with" in capsys.readouterr().err
+
+
+def test_a_folder_that_is_not_a_skill_a_misnamed_one_and_one_named_like_a_skill_of_the_repository_are_refused(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    home = tmp_path_factory.mktemp("home")
+    (home / "empty").mkdir()
+    (home / "Bad_Name").mkdir()
+    (home / "Bad_Name" / "SKILL.md").write_text("x\n")
+    for folder, why in ((home / "empty", "no SKILL.md"), (home / "Bad_Name", "lowercase")):
+        with pytest.raises(SystemExit):
+            er.parse(["--skill-dir", str(folder)])
+        assert why in capsys.readouterr().err
+    (tmp_path / "skills" / "demo").mkdir(parents=True)
+    taken = imported(tmp_path, tmp_path_factory)
+    with pytest.raises(SystemExit):
+        er.parse(["--skill-dir", str(taken)])
+    assert "name of a skill of the repository" in capsys.readouterr().err
+
+
+def test_a_folder_inside_the_checkout_is_refused(tmp_path, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    (tmp_path / "somewhere" / "demo").mkdir(parents=True)
+    (tmp_path / "somewhere" / "demo" / "SKILL.md").write_text("x\n")
+    with pytest.raises(SystemExit):
+        er.parse(["--skill-dir", str(tmp_path / "somewhere" / "demo")])
+    assert "inside the workbench checkout" in capsys.readouterr().err
+
+
+def test_allow_web_cases_goes_with_skill_dir_only(tmp_path, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    with pytest.raises(SystemExit):
+        er.parse(["--skill", "demo", "--allow-web-cases"])
+    assert "goes with --skill-dir" in capsys.readouterr().err
+
+
+# --- the real check of the cases of a fixture (the repository's own root, no model) --------------------------------------------
+
+def fixture_folder(tmp_path, name="eng-web-notes"):
+    folder = tmp_path / "home" / name
+    shutil.copytree(FIX / "web-notes", folder)
+    text = (folder / "SKILL.md").read_text().replace("name: web-notes", f"name: {name}")
+    (folder / "SKILL.md").write_text(text)
+    data = json.loads((FIX / "cases" / "evals.json").read_text())
+    data["skill_name"] = name
+    (folder / "evals").mkdir()
+    (folder / "evals" / "evals.json").write_text(json.dumps(data))
+    shutil.copytree(FIX / "cases" / "files", folder / "evals" / "files")
+    return folder
+
+
+def test_check_cases_and_dry_run_work_on_a_fixture_with_no_audit(tmp_path, capsys):
+    folder = fixture_folder(tmp_path)
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--check-cases")
+    assert code == 0, err
+    assert json.loads(out)["cases"] == 2 and json.loads(out)["errors"] == []
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "claude-sonnet-5-5", "--dry-run")
+    plan = json.loads(out)
+    assert code == 0, err
+    assert plan["evidence_home"]["home"] == "local" and plan["imported"]["kept_as"] == "imported/eng-web-notes"
+    assert any("no audit record" in why for why in plan["imported"]["refused"])  # a plan says what an event would be refused for
+    assert [r["case"] for r in plan["runs"]] == [1, 2] and all(r["variant"] == "with_skill" for r in plan["runs"])
+
+
+def test_a_case_that_copies_workbench_files_is_refused_even_in_a_plan(tmp_path, capsys):
+    folder = fixture_folder(tmp_path)
+    data = json.loads((folder / "evals" / "evals.json").read_text())
+    data["evals"][0]["workbench_files"] = ["contracts/state.md"]
+    (folder / "evals" / "evals.json").write_text(json.dumps(data))
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--check-cases")
+    assert code == 2 and "workbench_files is not allowed" in err
+    with pytest.raises(SystemExit) as e:
+        er.main(["--skill-dir", str(folder), "--quick", "--model", "claude-sonnet-5-5", "--dry-run"])
+    assert e.value.code == 2
+
+
+def test_a_web_case_needs_the_flag_and_the_preflight_leaves_the_gate_files_list_to_it(tmp_path, capsys):
+    folder = fixture_folder(tmp_path)
+    data = json.loads((folder / "evals" / "evals.json").read_text())
+    data["evals"][1]["allow_web"] = True
+    (folder / "evals" / "evals.json").write_text(json.dumps(data))
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--check-cases")
+    assert code == 2 and "web_cases" in err
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--check-cases", "--allow-web-cases")
+    assert code == 0, err
+
+
+# --- the refusals at the start of an event ----------------------------------------------------------------------------------
+
+def refused(capsys, folder, *extra):
+    with pytest.raises(SystemExit) as e:
+        er.main(["--skill-dir", str(folder), "--quick", "--model", "m"] + list(extra))
+    assert e.value.code == 2
+    return capsys.readouterr().err
+
+
+def test_an_event_is_refused_with_no_audit_record(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory, audit=False)
+    assert "no audit record" in refused(capsys, folder)
+    assert t.calls(tmp_path) == [] and not list(local_base().glob("**/*.jsonl"))
+
+
+def test_an_event_is_refused_with_a_verdict_of_do_not_install_and_after_a_change_that_voids_the_audit(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    bad = imported(tmp_path, tmp_path_factory, verdict="do not install")
+    assert "do not install" in refused(capsys, bad)
+    changed = imported(tmp_path, tmp_path_factory, name="demo")
+    (changed / "SKILL.md").write_text((changed / "SKILL.md").read_text() + "A line added after the audit.\n")
+    assert "audit is void" in refused(capsys, changed)
+    unknown = imported(tmp_path, tmp_path_factory, verdict="maybe")
+    assert "no verdict of" in refused(capsys, unknown)
+    assert t.calls(tmp_path) == []
+
+
+def test_an_event_is_refused_when_the_folder_holds_a_link_or_a_special_file(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    secret = tmp_path / "private.txt"
+    secret.write_text("not for a run\n")
+    os.symlink(secret, folder / "evals" / "private-link")
+    assert "symbolic link" in refused(capsys, folder)
+    os.remove(folder / "evals" / "private-link")
+    os.mkfifo(folder / "evals" / "pipe")
+    assert "special file" in refused(capsys, folder)
+    assert t.calls(tmp_path) == []
+
+
+def test_a_web_case_runs_only_with_the_flag_and_the_verdict_install(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    cases = [{"id": 1, "prompt": "p", "assertions": ["a"], "allow_web": True}, {"id": 2, "prompt": "q", "assertions": ["a"]}]
+    folder = imported(tmp_path, tmp_path_factory, cases=cases, verdict="install after changes")
+    assert "--allow-web-cases" in refused(capsys, folder)
+    assert "needs the verdict" in refused(capsys, folder, "--allow-web-cases")
+    folder = imported(tmp_path, tmp_path_factory, cases=cases, verdict="install")
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m", "--allow-web-cases", "--dry-run")
+    assert code == 0 and json.loads(out)["imported"]["refused"] == []
+    assert [r["allow_web"] for r in json.loads(out)["runs"]] == [True, False]
+
+
+# --- the stand-in quick event ---------------------------------------------------------------------------------------------------
+
+def test_a_quick_test_of_a_skill_from_outside_writes_local_evidence_under_imported_and_nothing_in_the_checkout(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")
+    assert code == 0, err
+    result = json.loads(out)
+    assert result["complete"] is True and result["evidence"]["written"] is True and result["evidence"]["home"] == "local"
+    files = sorted((local_base() / "imported" / "demo").glob("lab-*.jsonl"))
+    assert len(files) == 1 and result["evidence"]["path"] == str(files[0])
+    assert not (local_base() / "demo").exists()  # never beside the skills of the repository
+    lines = [json.loads(l) for l in files[0].read_text().splitlines()]
+    event, runs = lines[0], lines[1:]
+    assert event["imported"] is True and event["kind"] == "quick" and event["skill"] == "demo" and event["runs"] == 1 and event["complete"] is True
+    assert event["baseline"] == {"1": "none", "2": "none"} and "gate" not in event
+    assert {(l["case"], l["variant"], l["kind"], l["model"]) for l in runs} == {(c, "with", "quick", "m") for c in (1, 2)}
+    assert es.evidence_file_problems(str(files[0]), str(tmp_path), "demo") == []  # a person's local file is read by its own event line
+    assert sorted(t.calls(tmp_path)) == ["p with m", "q with m"]  # the skill was staged under its folder's name
+    assert not (tmp_path / "skills").exists()
+    assert not [p for p in tmp_path.glob("**/evidence/*.jsonl") if "evals-workspace" not in p.parts]  # only the run folder's own copy
+    assert "stays on this machine" in err and "--skill-dir" in err and "preliminary" in err
+
+
+def test_the_status_of_a_skill_from_outside_says_preliminary_quick_test_only_and_that_it_counts_on_this_machine_only(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    assert es.imported_status(str(tmp_path), str(folder), es.load_gate(str(tmp_path)), str(local_base()))["models"] == {}
+    assert run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")[0] == 0
+    status = es.imported_status(str(tmp_path), str(folder), es.load_gate(str(tmp_path)), str(local_base()))
+    assert status["imported"] is True and status["skill"] == "demo" and status["version"] == "0.3.0" and status["folder"] == str(folder)
+    figures = status["models"]["m"]
+    assert figures["preliminary"] == "preliminary: quick test only" and figures["kinds"] == ["quick"]
+    assert figures["scope"] == "your machine only, not checkable by others" and figures["cases"] == "measured against your own cases, which nobody else has read"
+    assert figures["runs"] == 2 and figures["mean"] == 1.0 and figures["tests"] == 1 and figures["last_full_test"] is None
+    assert figures["band"] == "needs a test"  # a quick test alone never moves the band
+    commands = [figures["command"]] + [c["command"] for c in figures["causes"]]
+    assert all("--skill-dir" in c and f"--skill {folder.name}" not in c for c in commands if c)
+    assert es.local_skill_evidence("demo", str(local_base())) == []  # nothing of it is the evidence of a skill named demo
+    # the command line prints the same
+    assert es.main(["status", "--skill-dir", str(folder)], root=str(tmp_path)) == 0
+    assert json.loads(capsys.readouterr().out)["models"]["m"]["preliminary"] == "preliminary: quick test only"
+
+
+def test_other_tests_than_quick_ones_are_preliminary_until_a_full_test_or_a_closed_pool_stands_behind_them(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    assert run_main(capsys, "--skill-dir", str(folder), "--model", "m", "--cases", "1")[0] == 0
+    figures = es.imported_status(str(tmp_path), str(folder), es.load_gate(str(tmp_path)), str(local_base()))["models"]["m"]
+    assert figures["preliminary"] == "preliminary: no full test and no closed pool yet" and figures["kinds"] == ["partial"]
+    assert run_main(capsys, "--skill-dir", str(folder), "--model", "m")[0] == 0
+    figures = es.imported_status(str(tmp_path), str(folder), es.load_gate(str(tmp_path)), str(local_base()))["models"]["m"]
+    assert figures["preliminary"] is None and figures["last_full_test"]["passed"] is True and figures["scope"].startswith("your machine only")
+    assert figures["kinds"] == ["full", "partial"]
+
+
+def test_a_second_event_after_a_hand_edit_names_the_lines_the_version_file_does_not_name(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    assert run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")[0] == 0
+    (folder / "SKILL.md").write_text((folder / "SKILL.md").read_text() + "An edit made by hand.\n")
+    # the audit is void now: the edit is refused until it is vetted again
+    assert "audit is void" in refused(capsys, folder)
+    content = es.content_hash(str(folder))
+    (folder / "evals" / "import" / "audit.json").write_text(json.dumps({"verdict": "install", "record": "r.md", "record_sha256": "0" * 64,
+                                                                         "content_sha256": content, "date": "2030-01-03"}))
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")
+    assert code == 0 and "unbumped edit" in err and "skill_import.py bump --name demo" in err and "not a refusal" in err
+    figures = es.imported_status(str(tmp_path), str(folder), es.load_gate(str(tmp_path)), str(local_base()))["models"]["m"]
+    assert figures["unnamed_lines"] == 2 and "skill_import.py bump" in figures["cause"]
+    assert all("eval_status.py bump" not in c["command"] for c in figures["causes"])
+
+
+# --- the evidence of a skill from outside never enters the repository ------------------------------------------------------------------
+
+def test_the_closed_form_of_the_marker(tmp_path):
+    root = tmp_path
+    folder = tb.skill(root)
+    tb.versions(folder, ("1.0.0", "new"))
+    path = tb.full(folder, score=0.9)
+    lines = [json.loads(l) for l in path.read_text().splitlines()]
+    assert es.evidence_file_problems(str(path), str(root), "core-demo") == []
+    lines[0]["imported"] = True
+    path.write_text("".join(json.dumps(l) + "\n" for l in lines))
+    assert es.evidence_file_problems(str(path), str(root), "core-demo") == []  # a person's local file carries it legally
+    lines[0]["imported"] = False
+    path.write_text("".join(json.dumps(l) + "\n" for l in lines))
+    assert any("imported must be true" in p for p in es.evidence_file_problems(str(path), str(root), "core-demo"))
+    assert "imported" in es.EVENT_OPTIONAL
+
+
+def test_the_validator_refuses_a_committed_evidence_file_that_carries_the_marker(tmp_path):
+    root = tmp_path
+    folder = tb.skill(root)
+    tb.versions(folder, ("1.0.0", "new"))
+    path = tb.full(folder, score=0.9)
+    found, checked = es.evidence_problems(str(root))
+    assert found == {} and checked == 1
+    lines = [json.loads(l) for l in path.read_text().splitlines()]
+    lines[0]["imported"] = True
+    path.write_text("".join(json.dumps(l) + "\n" for l in lines))
+    found, _ = es.evidence_problems(str(root))
+    (rel, problems), = found.items()
+    assert rel.endswith(path.name) and any("stays in the person's local evidence folder" in p for p in problems)
+
+
+# --- the warning of a full or a quick test on content the version file does not name (follow-up of package P11) ---------------------------------
+
+def bumped(skill):
+    """The version file names the skill's current content as its last line."""
+    skill_md = skill / "SKILL.md"
+    (skill / "evals" / "versions.jsonl").write_text(json.dumps({"version": "0.3.0", "content_sha256": es.content_hash(str(skill)), "class": "new",
+                                                               "date": "2030-01-01"}) + "\n")
+    return skill_md
+
+
+def test_a_full_and_a_quick_test_on_an_unbumped_edit_warn_on_stderr_and_still_run(tmp_path, monkeypatch, capsys):
+    skill = t.scores_demo(tmp_path, monkeypatch)
+    skill_md = bumped(skill)
+    code, out, err = run_main(capsys, "--skill", "demo", "--quick", "--scratch")
+    assert code == 0 and "unbumped edit" not in err  # the content is the last line of the version file
+    skill_md.write_text(skill_md.read_text() + "An edit that was not bumped.\n")
+    for argv in (["--quick", "--scratch"], ["--scratch"]):
+        code, out, err = run_main(capsys, "--skill", "demo", *argv)
+        assert code == 0 and "WARNING unbumped edit" in err
+        assert "python3 evals/eval_status.py bump --skill demo" in err and "not a refusal" in err and "no stored gate" in err
+        assert "complete" in out  # the test ran
+
+
+def test_a_partial_test_a_skill_with_no_version_file_and_a_resumed_event_print_no_such_warning(tmp_path, monkeypatch, capsys):
+    skill = t.scores_demo(tmp_path, monkeypatch)
+    code, out, err = run_main(capsys, "--skill", "demo", "--quick", "--scratch")
+    assert code == 0 and "unbumped edit" not in err  # no version file: the validator's to report
+    skill_md = bumped(skill)
+    skill_md.write_text(skill_md.read_text() + "An edit that was not bumped.\n")
+    code, out, err = run_main(capsys, "--skill", "demo", "--cases", "1", "--scratch")
+    assert code == 0 and "unbumped edit" not in err  # a partial test is not full or quick
+
+
+def test_the_warning_is_a_function_of_the_last_line_and_names_the_fix_for_each_kind_of_skill(tmp_path):
+    folder = tb.skill(tmp_path)
+    tb.versions(folder, ("1.0.0", "new"))
+    last = json.loads((folder / "evals" / "versions.jsonl").read_text().splitlines()[-1])
+    assert er.unbumped_warning(es, str(folder), "core-demo", last["content_sha256"]) is None
+    text = er.unbumped_warning(es, str(folder), "core-demo", "f" * 64)
+    assert text.startswith("WARNING unbumped edit") and "bump --skill core-demo" in text and "no stored gate" in text
+    assert "skill_import.py bump --name core-demo" in er.unbumped_warning(es, str(folder), "core-demo", "f" * 64, imported=True)
+    assert er.unbumped_warning(es, str(tmp_path / "no-such-skill"), "x", "f" * 64) is None
+
+
+def test_the_help_and_the_docs_say_it_is_a_warning_and_not_a_refusal():
+    doc = er.__doc__
+    assert "--skill-dir" in doc and "never into the checkout" in doc and "--allow-web-cases" in doc
+    assert "unbumped edit" in (REPO / "evals" / "README.md").read_text() and "not a refusal" in (REPO / "evals" / "README.md").read_text()

@@ -381,11 +381,26 @@ def test_a_block_that_never_closes_is_not_one_but_its_own_tag_lines_still_count(
 def test_a_loop_written_on_one_line_is_one_line_by_design_and_a_long_line_is_read_in_linear_time():
     import time
     one_line = "<invoke name=x/>" * 12500   # 200,000 characters, no newline
-    began = time.monotonic()
     assert measure.collapse_loop(one_line) is None  # one line, under the minimum of 20
     assert measure.collapse_loop("<invoke " * 25000) is None
     assert measure.collapse_loop("<function_calls>" * 12500 + "\n" + "\n".join(["<invoke name=x/>"] * 25)) is not None
-    assert time.monotonic() - began < 1.0
+
+    def cpu_seconds(n):
+        """The CPU time of the process for the three long inputs at size n, the least of three tries. CPU time and not the
+        wall clock, so another test running beside it (pytest -n auto) does not lengthen it."""
+        best = None
+        for _ in range(3):
+            began = time.process_time()
+            measure.collapse_loop("<invoke name=x/>" * n)
+            measure.collapse_loop("<invoke " * (2 * n))
+            measure.collapse_loop("<function_calls>" * n + "\n" + "\n".join(["<invoke name=x/>"] * 25))
+            spent = time.process_time() - began
+            best = spent if best is None else min(best, spent)
+        return best
+
+    # Linear work doubles when the input doubles (a ratio near 2); quadratic work quadruples (near 4). The bound sits between
+    # them with slack on both sides, and no absolute time is asserted: a loaded machine is slower, not quadratic.
+    assert cpu_seconds(12500) / cpu_seconds(6250) < 3.2
 
 
 def test_another_formats_parameter_tag_is_not_a_call():
