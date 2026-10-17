@@ -101,6 +101,8 @@ Rules for a script in that set:
 
 Every other provider (one that reaches the network or needs a dependency) declares the version it needs and is started through its declared runner, `uv run <script>`, never with the caller's interpreter. A provider that needs newer syntax stays out of the set above and is started that way.
 
+A provider started that way runs on the interpreter uv finds at each start, and the OS secret store trusts a binary, not a version. So a scheduled job pins it: `schedule` records the interpreter that `UV_PYTHON` names (an absolute path, resolved to the real binary; unset or a version such as `3.11` records nothing and the dry run warns), the approved digest covers it, every firing checks it (a changed interpreter refuses the job) and the command starts with `UV_PYTHON` set to it. `provider_environment` passes `UV_PYTHON`, so a provider started through the resolver keeps the pin (`providers/scheduler/README.md`).
+
 ## Verbs per class
 
 Every verb prints one JSON object on stdout. The "Prints" column names the keys of that object a caller may depend on: an implementation prints them under these names, whatever else it adds. A second implementation of a class is written against this column, never against the output of the first.
