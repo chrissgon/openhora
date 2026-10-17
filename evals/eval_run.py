@@ -10,6 +10,8 @@ Usage:
                       [--dry-run] [--check-cases [--with-setup]]
   python3 eval_run.py --skill <name> --platform <platform> [--cases <id>,...] [the model, run and check options above]
   python3 eval_run.py --skill <name> --quick [--model <id>]... [--jobs 4] [--timeout <seconds>] [--max-cost-usd <amount>]
+  python3 eval_run.py --skill-dir <folder of a skill from outside> [--quick] [--cases <id>,...] [--baseline] [--model <id>]...
+                      [--jobs 4] [--max-cost-usd <amount>] [--allow-web-cases] [--dry-run | --check-cases]
   python3 eval_run.py --resume <event folder> [--jobs 4]
   python3 eval_run.py --close <event folder>
   python3 eval_run.py --routing --pack <name> (--skill <name> | --prompts <file>) [--model <id>] [--jobs 4]
@@ -94,6 +96,31 @@ being written, run the quick test as a trial: --quick --scratch writes no eviden
 resumed (--resume) or closed (--close) first, evidence is written only at the configured values and in the eval container.
 --quick cannot be combined with --cases, --baseline, --baseline-on, --platform, --runs, --only or --ablate: it chooses
 nothing but the model.
+
+A skill from outside (--skill-dir; package IMPORT-CLI, scripts/skill_import.py). `eval_run.py --skill-dir <folder> [--quick]
+[--cases <ids>] [--model <id>]... [--dry-run | --check-cases]` tests a skill that is not in skills/: <folder> is its folder,
+whose name is the skill's and is not the name of a folder of skills/ (--skill-dir is exclusive with --skill). Staging does
+not change (the folder is copied into each run like any skill, without its evals/ and scripts/tests/), and the cases are
+the folder's own (<folder>/evals/evals.json, fixtures under <folder>/evals/files/), written by the person who imports it.
+Its evidence is always the person's own: it goes to <local evidence base>/imported/<name>/, never into the checkout, and
+its event line carries "imported": true (eval_status.py refuses a committed file that carries it). Refused: --pass-env and
+--harness (a model of the gate file runs through its entry's adapter and key proxy, and no variable of the person's reaches
+the run of a skill nobody has read), --platform, --routing and --regrade; a folder inside any checkout of the workbench; a
+folder that holds a symbolic link, a special file or a hard-linked file anywhere; a case with "workbench_files"; and, for a
+real event (not --dry-run, not --check-cases): an install marker or a cache name in the content (the content hash leaves such
+names out), no passing check (<folder>/evals/import/check.json, written by scripts/skill_import.py check, ok at the folder's
+current content hash), and no audit record (<folder>/evals/import/audit.json, written by scripts/skill_import.py audit) whose
+verdict is not "do not install" at that hash. The event runs from ONE COPY of the folder, made at its start without following
+a link into the system's temporary space (removed when the invocation ends): those checks are made on the copy, every run is
+staged from it, and a change of the folder while the event runs writes no evidence. A SIGKILL or a crash can leave the copy in the
+temporary folder (mode 0700, readable by its owner only). The next such event removes a copy only when it is the runner's own: a real
+folder of the same user, mode 0700, holding the runner's marker file (.eval-import-copy), older than a day, and whose lock file
+(.eval-import-lock) can be taken without blocking: an event holds that lock, exclusively, for its whole life. Before it writes evidence
+the event also checks the hash of its copy, so a run staged from a damaged copy writes none. `--resume <event folder>` alone resumes
+such an event (no --skill-dir; it keeps the options it started with) and checks the folder, the check and the audit again. A
+case with "allow_web" runs only with --allow-web-cases and an audit verdict of "install": the open network could hand the
+person's fixture files to any host. `eval_status.py status --skill-dir <folder>` shows the figures, and says that a quick
+test alone is preliminary.
 
 Tests per platform (--platform <platform>; the plan's decision 14c). The cases of one social platform live in
 skills/<name>/evals/platforms/<platform>.json (its top-level "platform", when present, names the same
@@ -509,6 +536,7 @@ import re
 import secrets
 import shutil
 import signal
+import stat
 import statistics
 import subprocess
 import sys
@@ -517,6 +545,11 @@ import threading
 import time
 import types
 import urllib.parse
+
+try:  # POSIX; the lock of a per-event copy needs it, and the repository's runs are on POSIX
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -678,13 +711,231 @@ def cap_local_jobs(opts):
         opts["jobs"] = local["parallel"]
 
 
+IMPORTED_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def skill_folder(o):
+    """The folder of the skill under test: the --skill-dir folder of a skill from outside, else skills/<name>."""
+    return o["skill_dir"] if o.get("skill_dir") else os.path.join(ROOT, "skills", o["skill"])
+
+
+def imported_options(opts):
+    """--skill-dir: the skill under test is a folder outside skills/ (a skill from outside, scripts/skill_import.py). Sets
+    opts["skill"] to the folder's name and opts["skill_dir"] to its absolute path, and refuses what such a test never takes:
+    --skill, a name that is a skill of the repository, a folder inside the checkout, --pass-env, --harness, --platform and
+    the modes that are not a test (--routing, --regrade, --resume, --close, --unpause)."""
+    folder = os.path.abspath(os.path.expanduser(opts["skill_dir"]))
+    name = os.path.basename(folder)
+    if opts["skill"]:
+        die("--skill-dir and --skill are exclusive: --skill names a skill of skills/, --skill-dir the folder of a skill from outside.", 2)
+    if not os.path.isfile(os.path.join(folder, "SKILL.md")):
+        die(f"--skill-dir {folder} is not a skill folder: it has no SKILL.md.", 2)
+    if not IMPORTED_NAME_RE.match(name) or len(name) > 64:
+        die(f"--skill-dir {folder}: the folder's name is the skill's, lowercase letters, digits and single hyphens ({name!r} is not).", 2)
+    if os.path.isdir(os.path.join(ROOT, "skills", name)):
+        die(f"--skill-dir {folder}: {name} is the name of a skill of the repository (skills/{name}); a skill from outside has a "
+            "name of its own, and its evidence would otherwise be mistaken for that skill's.", 2)
+    if load_status().inside_checkout(folder, ROOT) or load_status().enclosing_workbench(folder):
+        die(f"--skill-dir {folder} is inside a checkout of the workbench: a skill from outside lives outside every one "
+            "(scripts/skill_import.py puts it in its home folder).", 2)
+    clash = [flag for flag, on in (("--pass-env", opts["pass_env"]), ("--harness", opts["harness"]), ("--platform", opts["platform"]),
+                                   ("--routing", opts["routing"]), ("--regrade", opts["regrade"] is not None),
+                                   ("--resume", opts["resume"] is not None), ("--close", opts["close"] is not None),
+                                   ("--unpause", opts["unpause"])) if on]
+    if clash:
+        die(f"--skill-dir does not go with {', '.join(clash)}: a skill from outside is tested on the models of the gate file, "
+            "through their adapters and key proxies, with no variable of yours in the run.", 2)
+    opts["skill"], opts["skill_dir"] = name, folder
+
+
+AUDIT_REL = os.path.join("evals", "import", "audit.json")
+AUDIT_VERDICTS = ("do not install", "install after changes", "install")  # the verdicts of skills/core-security-audit's vetting
+
+
+def folder_links(folder):
+    """The paths (relative, "/" separators) of every symbolic link and every special file (device, pipe, socket) under `folder`,
+    all of evals/ included. Staging copies what a link points at, so a link to a private file would reach a run."""
+    found = []
+    for dp, dns, fns in os.walk(folder, followlinks=False):
+        for n in dns + fns:
+            path = os.path.join(dp, n)
+            mode = os.lstat(path).st_mode  # the entry itself, never what a link points at
+            if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                found.append(os.path.relpath(path, folder).replace(os.sep, "/"))
+    return sorted(found)
+
+
+def copy_imported(src, dst):
+    """Copy the folder of a skill from outside to `dst` and return `dst`, without following a link: every entry is looked at as it is
+    (lstat) and opened with O_NOFOLLOW, and a link, a device, a pipe, a socket or a hard-linked file ends the event (die). The event
+    runs from this copy, so what it staged is what it checked, whatever happens to the folder meanwhile."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    for dp, dns, fns in os.walk(src, followlinks=False):
+        target = os.path.join(dst, os.path.relpath(dp, src))
+        os.makedirs(target, exist_ok=True)
+        for n in dns + fns:
+            info = os.lstat(os.path.join(dp, n))
+            if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)) or (stat.S_ISREG(info.st_mode) and info.st_nlink > 1):
+                die(f"{os.path.relpath(os.path.join(dp, n), src)} in the folder of the skill is a link, a device, a pipe, a socket or a "
+                    "hard-linked file: staging would copy what it points at into a run, so none is allowed.", 2)
+        for n in fns:
+            try:
+                fd = os.open(os.path.join(dp, n), flags)
+            except OSError as e:
+                die(f"{os.path.join(dp, n)} cannot be opened as a plain file ({e.strerror}).", 2)
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
+                    die(f"{os.path.join(dp, n)} is not a plain file with one name.", 2)
+                with os.fdopen(fd, "rb", closefd=False) as source, open(os.path.join(target, n), "wb") as out:
+                    shutil.copyfileobj(source, out)
+            finally:
+                os.close(fd)
+            os.chmod(os.path.join(target, n), 0o755 if info.st_mode & 0o100 else 0o644)
+    return dst
+
+
+COPY_PREFIX = "eval-import-"
+COPY_MARKER = ".eval-import-copy"  # written by the runner into every copy it makes: what the sweep recognises as its own
+COPY_LOCK = ".eval-import-lock"  # held, exclusively, by the event that uses the copy for the whole of its life
+STALE_COPY_SECONDS = 24 * 3600
+
+
+def my_uid():
+    return os.getuid()
+
+
+def make_event_copy(src, name, base, hold):
+    """The per-event copy of a skill from outside: a new folder (mode 0700, made by mkdtemp) under `base` that holds the runner's marker,
+    a lock file locked exclusively for as long as the event lives (the descriptor goes into `hold`; closing it, or the end of the process
+    however it ends, releases the lock), and the copy of the skill at <folder>/<name>. Returns (folder, the copy's path)."""
+    folder = tempfile.mkdtemp(prefix=COPY_PREFIX, dir=base)
+    with open(os.path.join(folder, COPY_MARKER), "w", encoding="utf-8") as f:
+        json.dump({"made_by": "eval_run.py", "token": secrets.token_hex(8), "skill": name}, f)
+    if fcntl is not None:
+        lock = open(os.path.join(folder, COPY_LOCK), "w")
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        hold.append(lock)
+    return folder, copy_imported(src, os.path.join(folder, name))
+
+
+def sweep_stale_copies(folder, now=None):
+    """Remove the per-event copies of a skill from outside that a killed run left in `folder`, the system's temporary space (a SIGKILL, a
+    power cut or a crash ends an invocation without its cleanup). It removes only what the runner made, and only when ALL of these hold:
+    the name starts with eval-import-; it is a real folder (lstat, not a link); it belongs to the user running this (st_uid); its mode is
+    0700; it holds the runner's marker file with the runner's name in it; it is older than a day; and its lock file can be taken without
+    blocking (an event that is running holds it). Returns the names removed. Anything else is left alone."""
+    now = time.time() if now is None else now
+    removed = []
+    for name in sorted(os.listdir(folder)):
+        if not name.startswith(COPY_PREFIX):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            info = os.lstat(path)
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != my_uid() or stat.S_IMODE(info.st_mode) != 0o700:
+                continue
+            if now - info.st_mtime <= STALE_COPY_SECONDS:
+                continue
+            marker = os.path.join(path, COPY_MARKER)
+            if not stat.S_ISREG(os.lstat(marker).st_mode):
+                continue
+            with open(marker, encoding="utf-8") as f:
+                if json.load(f).get("made_by") != "eval_run.py":
+                    continue
+            lock_path = os.path.join(path, COPY_LOCK)
+            if fcntl is None or not stat.S_ISREG(os.lstat(lock_path).st_mode):
+                continue
+            with open(lock_path, "r") as lock:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:  # held by an event that is still running
+                    continue
+                shutil.rmtree(path, ignore_errors=True)  # removed while the lock is held: nobody can start using it meanwhile
+                removed.append(name)
+        except (OSError, ValueError):
+            continue
+    return removed
+
+
+def read_check(folder):
+    """The summary of the last `skill_import.py check` (<folder>/evals/import/check.json), or None."""
+    try:
+        with open(os.path.join(folder, "evals", "import", "check.json"), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def read_audit(folder):
+    """The audit record of a skill from outside (scripts/skill_import.py audit writes <folder>/evals/import/audit.json:
+    {"verdict", "record", "record_sha256", "content_sha256", "date"}), or None when there is none or it is unreadable."""
+    try:
+        with open(os.path.join(folder, AUDIT_REL), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def imported_case_problems(cases):
+    """Why a case of a skill from outside is refused whatever the audit: "workbench_files" copies files of this repository
+    into the case, which a skill from outside has no use for and no right to."""
+    return [f"case {c.get('id')}: workbench_files is not allowed in the cases of a skill from outside (it copies files of "
+            "this repository into the case folder)" for c in cases if "workbench_files" in c]
+
+
+def imported_event_problems(o, web_cases, folder=None):
+    """Why a real event of a skill from outside must not start, as a list of sentences ([] when it may). The checks are code,
+    not a prompt: a link anywhere in the folder; no audit record; a verdict of "do not install"; a folder whose content
+    changed since the audit (its hash is no longer the one the record names); and, for a case with "allow_web", the flag
+    --allow-web-cases together with the verdict "install" (the open network could hand the person's fixtures to any host); an
+    install marker or a cache name in the content (the content hash leaves such names out, a copy would keep them); and no passing
+    `check` at the folder's current content hash. `folder` is the copy the event runs from (the original in a plan)."""
+    folder, problems = folder or o["skill_dir"], []
+    status = load_status()
+    stray = status.stray_names(folder)
+    if stray:
+        problems.append(f"the content holds {len(stray)} install marker(s), cache name(s) or version-control entries ({', '.join(stray[:5])}): remove them")
+    links = folder_links(folder)
+    if links:
+        problems.append(f"the folder holds {len(links)} symbolic link(s) or special file(s) ({', '.join(links[:5])}"
+                        f"{', ...' if len(links) > 5 else ''}): staging copies what a link points at into a run, so none is allowed")
+    audit = read_audit(folder)
+    verdict = audit.get("verdict") if audit else None
+    if audit is None:
+        problems.append(f"there is no audit record ({AUDIT_REL.replace(os.sep, '/')}): vet the skill first, then "
+                        "python3 scripts/skill_import.py audit --name <name> --record <file>")
+    elif verdict not in AUDIT_VERDICTS:
+        problems.append(f"the audit record names no verdict of {', '.join(AUDIT_VERDICTS)}")
+    elif verdict == "do not install":
+        problems.append("the audit verdict is \"do not install\": a skill that failed its vetting is not run, not even in the container")
+    elif audit.get("content_sha256") != status.content_hash(folder):
+        problems.append("the folder changed since it was audited (the audit names another content hash): the audit is void; "
+                        "vet it again and record the new verdict")
+    checked = read_check(folder)
+    if not checked or checked.get("ok") is not True or checked.get("content_sha256") != status.content_hash(folder):
+        problems.append("the folder has not passed `python3 scripts/skill_import.py check --name <name>` at its current content: "
+                        "check it (and vet it again if the content changed)")
+    if web_cases:
+        if not o.get("allow_web_cases"):
+            problems.append(f"case(s) {', '.join(web_cases)} set \"allow_web\": a skill from outside runs on the open network only "
+                            "with --allow-web-cases")
+        elif verdict != "install":
+            problems.append(f"case(s) {', '.join(web_cases)} set \"allow_web\" and the audit verdict is {verdict!r}: the open "
+                            "network needs the verdict \"install\"")
+    return problems
+
+
 def parse(argv):
     opts = {"skill": None, "harness": None, "models": [], "grader": None, "cases": [],
             "threshold": None, "only": None, "grade": True, "dry": False, "pass_env": [], "ablate": None,
             "runs": None, "jobs": 4, "timeout": None, "max_cost": None, "check_cases": False, "retries": None,
             "early_rate": 0.15, "regrade": None, "scratch": False, "resume": None, "unpause": False, "at": None,
             "baseline": False, "baseline_on": [], "close": None, "with_setup": False,
-            "routing": False, "pack": None, "prompts": None, "platform": None, "quick": False}
+            "routing": False, "pack": None, "prompts": None, "platform": None, "quick": False,
+            "skill_dir": None, "allow_web_cases": False}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -702,6 +953,8 @@ def parse(argv):
         elif a == "--baseline-on": opts["baseline_on"].append(val()); i += 2
         elif a == "--platform": opts["platform"] = val(); i += 2
         elif a == "--quick": opts["quick"] = True; i += 1
+        elif a == "--skill-dir": opts["skill_dir"] = val(); i += 2
+        elif a == "--allow-web-cases": opts["allow_web_cases"] = True; i += 1
         elif a == "--close": opts["close"] = val(); i += 2
         elif a == "--threshold": opts["threshold"] = float(val()); i += 2
         elif a == "--only": opts["only"] = val(); i += 2
@@ -727,6 +980,11 @@ def parse(argv):
         elif a == "--at": opts["at"] = val(); i += 2
         elif a in ("--help", "-h"): print(__doc__); sys.exit(0)
         else: die(f"unknown option {a!r}. See --help.")
+    if opts["skill_dir"] is not None:
+        imported_options(opts)
+    elif opts["allow_web_cases"]:
+        die("--allow-web-cases goes with --skill-dir: the cases of a skill of skills/ run on the network the gate file's "
+            "web_cases lists.", 2)
     # What the command line leaves out comes from the eval gate configuration (evals/eval-gate.json).
     gate = {} if opts["check_cases"] else load_status().load_gate(ROOT)
     # The runs of a case, the limit of a run and the retries have one home, the gate file; a flag is for a
@@ -922,13 +1180,14 @@ def platform_case_names(skill):
                   if n.endswith(".json") and os.path.isfile(os.path.join(folder, n)))
 
 
-def load_evals(skill, platform=None):
+def load_evals(skill, platform=None, folder=None):
     """The skill's case file: evals/evals.json, or, with platform, that platform's case file,
-    evals/platforms/<platform>.json, whose top-level "platform", when it has one, names the same platform."""
+    evals/platforms/<platform>.json, whose top-level "platform", when it has one, names the same platform. folder is the
+    skill's folder when it is not skills/<skill> (a skill from outside, --skill-dir)."""
     rel = ("platforms", platform + ".json") if platform else ("evals.json",)
-    p = os.path.join(ROOT, "skills", skill, "evals", *rel)
+    p = os.path.join(folder or os.path.join(ROOT, "skills", skill), "evals", *rel)
     if not os.path.isfile(p):
-        die(f"no evals at {os.path.relpath(p, ROOT)}", 2)
+        die(f"no evals at {os.path.relpath(p, ROOT) if not folder else p}", 2)
     with open(p, encoding="utf-8") as f:
         data = json.load(f)
     if platform and isinstance(data, dict) and data.get("platform", platform) != platform:
@@ -1238,13 +1497,14 @@ def declared_side_effects(skill_dir):
     return [x.strip()[1:].strip().strip("\"'") for x in m.group(1).splitlines() if x.strip()] if m else []
 
 
-def preflight(skill_dir, cases, sources, setup=True, gate=None, warnings=None, platform=None):
+def preflight(skill_dir, cases, sources, setup=True, gate=None, warnings=None, platform=None, web_cases_ok=False):
     """Check every case before a model sees it. Returns (errors, unchecked): one line per problem.
 
     setup=False (--dry-run) runs no setup command, so cases that have one are not checked against their folder.
     gate is the loaded gate configuration: a case that sets "allow_web" must be among its "web_cases". warnings,
     a list, receives the problems of TRANSITIONAL rules instead of errors (see TRANSITIONAL). platform names the
-    platform whose case file the cases come from (None: evals/evals.json)."""
+    platform whose case file the cases come from (None: evals/evals.json). web_cases_ok (--allow-web-cases of a skill from
+    outside) leaves the web_cases check to the audit gate of the event, because a skill from outside is in no list."""
     errors, unchecked = [], []
     skill = os.path.basename(os.path.normpath(skill_dir))
     status = load_status()
@@ -1268,7 +1528,8 @@ def preflight(skill_dir, cases, sources, setup=True, gate=None, warnings=None, p
                                    else errors.append(f"case {cid}: {msg}"))
         for problem in dependency_problems(skill, skill_dir, c):
             later(problem, "skills")
-        if (c.get("allow_web") is True or top_web is True) and gate and not status.web_case_allowed(gate, skill, cid):
+        if ((c.get("allow_web") is True or top_web is True) and gate and not web_cases_ok
+                and not status.web_case_allowed(gate, skill, cid)):
             err('sets "allow_web" and is not in "web_cases" of evals/eval-gate.json: the network is opened for the '
                 "cases listed there and for no other")
         for rel, src in zip(c.get("files") or [], sources[cid]):
@@ -1853,12 +2114,12 @@ def check_cases_only(o):
     (with --platform, on that platform's file only). Prints {"skill", "cases", "errors", "unchecked"[,
     "platforms"][, "warnings"]}: the problems of a platform's file start with platforms/<name>.json. Exit 2 on
     errors. --cases filters the file the command names (evals/evals.json, or the --platform file)."""
-    skill_dir = os.path.join(ROOT, "skills", o["skill"])
+    skill_dir = skill_folder(o)
     gate = load_status().load_gate(ROOT)
-    files = [o["platform"]] if o["platform"] else [None] + platform_case_names(o["skill"])
+    files = [o["platform"]] if o["platform"] else [None] + ([] if o.get("skill_dir") else platform_case_names(o["skill"]))
     errors, unchecked, warnings, total = [], [], [], 0
     for platform in files:
-        data = load_evals(o["skill"], platform)
+        data = load_evals(o["skill"], platform, o.get("skill_dir"))
         cases = data.get("evals") or []
         if platform == files[0] and o["cases"]:
             cases = [c for c in cases if str(c.get("id")) in o["cases"]]
@@ -1870,8 +2131,9 @@ def check_cases_only(o):
         # needs no container, so such a case is listed as unchecked here and checked before the first model call.
         found = []
         errs, uncheck = preflight(skill_dir, cases, {c["id"]: case_files(skill_dir, c) for c in cases}, setup=o["with_setup"],
-                                  gate=gate, warnings=found, platform=platform)
-        errors += [label + line for line in (platform_problems(platform) if platform else []) + errs]
+                                  gate=gate, warnings=found, platform=platform, web_cases_ok=o["allow_web_cases"])
+        errors += [label + line for line in (platform_problems(platform) if platform else []) + errs
+                   + (imported_case_problems(cases) if o.get("skill_dir") else [])]
         unchecked += [label + line for line in uncheck]
         warnings += [label + line for line in found]
         total += len(cases)
@@ -2276,6 +2538,26 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
     return None
 
 
+def unbumped_warning(status, skill_dir, name, content_hash, imported=False):
+    """The warning a full or a quick test prints when the skill's content hash is not the last line of its version file (an
+    edit that was not bumped), or None. It is a warning and not a refusal: the test is a fair trial of the edit. What it
+    costs is said: status.gate_of sets aside the with-skill lines whose version and content hash the version file does not
+    name (since the pooled gate of package P11), so the lines of this test carry no weight in the gate, and a second lab
+    model would get no stored gate. A skill with no version file, or with a last line that is not of the form, is left to
+    the validator."""
+    lines, _, _ = status.read_versions(skill_dir)
+    last = lines[-1] if lines else None
+    if not isinstance(last, dict) or last.get("content_sha256") in (None, content_hash):
+        return None
+    fix = (f"python3 scripts/skill_import.py bump --name {name} (the version file of a skill from outside is written by that tool)"
+           if imported else f"python3 evals/eval_status.py bump --skill {name}")
+    return (f"WARNING unbumped edit: the content of {name} (sha256 {content_hash[:12]}) is not the last line of its version file "
+            f"(version {last.get('version')}, sha256 {str(last.get('content_sha256'))[:12]}). The test runs anyway (this is a warning, "
+            "not a refusal), but the gate sets aside the lines whose version and content hash the version file does not name, so "
+            "this test's lines carry no weight in the gate and a second lab model would get no stored gate. Fix: " + fix
+            + ", then test again.")
+
+
 def model_cfg(gate, model):
     """The gate configuration read for `model` (the internal key "subject_model"), also for a model the gate file does
     not list: it is then added to the list, under its own id, so that the evidence it leaves and the gate read back from
@@ -2295,7 +2577,12 @@ def evidence_home(o, gate, models, harness_for):
     The repository holds evidence of the gate file's "lab_models" only, each run through the adapter its entry
     names: a run of any other model, or of a listed model through another adapter, is a measurement of another pair,
     and it cannot enter the repository. A tree with no gate file configures nothing, and its evidence is the
-    repository's. models is [(slot, model)] and harness_for {slot: adapter}."""
+    repository's. models is [(slot, model)] and harness_for {slot: adapter}.
+
+    The evidence of a skill from outside (--skill-dir) is always local, whatever the models: it is measured against the
+    person's own cases and belongs to nobody else (imported/<name>/ under the local evidence folder)."""
+    if o.get("skill_dir"):
+        return "local", "a skill from outside: its tests are the person's own, measured against their own cases"
     if not gate:
         return "repository", None
     status = load_status()
@@ -2368,6 +2655,17 @@ def write_evidence(path, event_line, run_lines):
 
 
 def run(argv):
+    """One invocation. A skill from outside is copied once per event into a folder of the system's temporary space, which is removed
+    when the invocation ends, however it ends."""
+    cleanup = []
+    try:
+        return run_event(argv, cleanup)
+    finally:
+        for undo in cleanup:
+            undo()
+
+
+def run_event(argv, cleanup):
     o = parse(argv)
     if o["check_cases"]:
         return check_cases_only(o)
@@ -2401,8 +2699,16 @@ def run(argv):
     status = load_status()
     gate = status.load_gate(ROOT)
     control = status.event_config(gate)
-    skill_dir = os.path.join(ROOT, "skills", o["skill"])
-    evals = load_evals(o["skill"], o.get("platform"))
+    skill_dir = skill_folder(o)
+    origin_dir = o.get("skill_dir")  # the folder of a skill from outside as the person keeps it
+    if origin_dir and not o["dry"] and not closing:
+        # The event runs from one copy, made now: what the checks below read, what is staged and what is hashed are the same bytes.
+        sweep_stale_copies(temp_base())
+        held = []
+        copy_root, skill_dir = make_event_copy(origin_dir, o["skill"], temp_base(), held)
+        cleanup.append(lambda: shutil.rmtree(copy_root, ignore_errors=True))
+        cleanup.insert(0, lambda: [lock.close() for lock in held])
+    evals = load_evals(o["skill"], o.get("platform"), skill_dir if origin_dir else None)
     cases = evals.get("evals") or []
     if o["cases"]:
         cases = [c for c in cases if str(c.get("id")) in o["cases"]]
@@ -2426,6 +2732,15 @@ def run(argv):
             f"--cases <ids> (a partial test).", 2)
     # Only the cases the gate file lists run on the open network: nothing else opens it, whatever a case says.
     unlisted = [str(c["id"]) for c in cases if web[c["id"]] and not status.web_case_allowed(gate, o["skill"], c["id"])]
+    if o.get("skill_dir"):  # a skill from outside is in no list: its web cases are for the flag and the audit (imported_event_problems)
+        unlisted = []
+    imported_plan = None
+    if o.get("skill_dir"):
+        if imported_case_problems(cases):
+            die("; ".join(imported_case_problems(cases)), 2)
+        imported_plan = imported_event_problems(o, [str(c["id"]) for c in cases if web[c["id"]]], skill_dir)
+        if imported_plan and not o["dry"] and not closing:  # a plan (--dry-run) lists the problems; an event does not start
+            die("a skill from outside is not tested yet: " + "; ".join(imported_plan), 2)
     if unlisted:
         die(f"case(s) {', '.join(unlisted)} of {o['skill']} set \"allow_web\" and are not in \"web_cases\" of "
             "evals/eval-gate.json: the network is opened for the cases listed there and for no other.", 2)
@@ -2455,9 +2770,11 @@ def run(argv):
     # their configured adapters) or this person's own folder outside the checkout (evidence_home).
     home, home_reason = evidence_home(o, gate, models, harness_for)
     local_base = status.local_evidence_base() if home == "local" else None
-    if local_base and not o["dry"] and (problem := status.local_base_problem(local_base, ROOT, o["skill"])):
+    # The folder under the local evidence base that holds this skill's files: its name, or imported/<name> for a skill from outside.
+    kept_as = status.imported_evidence_name(o["skill"]) if o.get("skill_dir") else o["skill"]
+    if local_base and not o["dry"] and (problem := status.local_base_problem(local_base, ROOT, kept_as)):
         die(problem, 2)
-    local_events = status.local_skill_evidence(o["skill"], local_base) if local_base else None
+    local_events = status.local_skill_evidence(kept_as, local_base) if local_base else None
     # Where each model's harness discovers skills, which names carry its settings and how it words an exhausted
     # account: the adapter's own data. A plan (--dry-run) runs nothing and stages nothing, so it needs none of it.
     eval_for = {} if o["dry"] else {slot: adapter_eval(harness_for[slot]) for slot, _ in models}
@@ -2465,7 +2782,8 @@ def run(argv):
     settings = set() if o["dry"] else harness_settings()
     sources = {c["id"]: case_files(skill_dir, c) for c in cases}
     # Before anything is spent or written: a case that cites a file it does not ship measures nothing.
-    problems, unchecked = (preflight(skill_dir, cases, sources, setup=not o["dry"], gate=gate, platform=o.get("platform"))
+    problems, unchecked = (preflight(skill_dir, cases, sources, setup=not o["dry"], gate=gate, platform=o.get("platform"),
+                                     web_cases_ok=bool(o.get("skill_dir") and o.get("allow_web_cases")))
                            if resumed is None else ([], []))
     if o.get("platform") and resumed is None:
         problems = platform_problems(o["platform"]) + problems
@@ -2544,6 +2862,8 @@ def run(argv):
                           "grader_pass_env": o["grader_pass_env"], "pass_env": o["pass_env"],
                           "model_pass_env": {m: o["pass_envs"][m] for _, m in models},
                           "evidence_home": {"home": home, "why": home_reason, "folder": local_base},
+                          **({"imported": {"folder": o["skill_dir"], "kept_as": kept_as, "refused": imported_plan}}
+                             if o.get("skill_dir") else {}),
                           "cases": [{"case": c["id"], "files": c.get("files") or [], "skills": c.get("skills") or [],
                                      "setup": c.get("setup") or []} for c in cases],
                           "ablate": {"text": o["ablate"], "lines_removed": ablated_lines} if o["ablate"] else None,
@@ -2562,6 +2882,10 @@ def run(argv):
     kind = ("quick" if o.get("quick") else
             "full" if not o["cases"] and not o.get("platform") and len(cases) == len(all_cases)
             and "with_skill" in with_variants and LEAD_SLOT in slot_names and o["grade"] else "partial")
+    if resumed is None and kind in ("full", "quick"):  # a warning, never a refusal: the test runs, and says what it will not count for
+        unbumped = unbumped_warning(status, skill_dir, o["skill"], start_hash, imported=bool(o.get("skill_dir")))
+        if unbumped:
+            print(unbumped, file=sys.stderr)
     if resumed is None and not scratch:
         # No new event of a skill while one of its events that may write evidence is open.
         for other in sorted(glob.glob(os.path.join(ROOT, "evals-workspace", o["skill"], "iteration-*", "event.json"))):
@@ -2578,7 +2902,7 @@ def run(argv):
                     "one is open: a test that goes badly is not drawn again.", 2)
     if resumed is None:
         pass_no = 0
-        event = {"skill": o["skill"], "test": later_test_id(status, skill_dir, status.local_evidence_files(o["skill"], local_base) if local_base else ()),
+        event = {"skill": o["skill"], "test": later_test_id(status, skill_dir, status.local_evidence_files(kept_as, local_base) if local_base else ()),
                  "kind": kind,
                  "started": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
                  "content_sha256": start_hash, "version": version, "measurement_sha256": fingerprint, "cases": hashes,
@@ -3019,6 +3343,7 @@ def run(argv):
                   "web_cases": bench["web_cases"], "counts": line_counts, "extra_pass_env": o["extra_pass_env"],
                   "complete": bool(complete_ref), "complete_models": [model_ids[t] for t, _ in models if complete_by[t]],
                   **({"upstream": upstream} if upstream else {}),
+                  **({"imported": True} if o.get("skill_dir") else {}),
                   **({"local_model": event["local_model"]} if event.get("local_model") else {}),
                   **({"image_source": environment["image_source"]} if (environment or {}).get("image_source") else {})}
     gate_result = None
@@ -3069,8 +3394,10 @@ def run(argv):
         elif not complete_ref and not closing:
             evidence["reason"] = (f"the event is incomplete: resume it (--resume {os.path.relpath(it_dir, ROOT)}), or give it "
                                   f"up and keep its runs (--close {os.path.relpath(it_dir, ROOT)})")
-        elif status.content_hash(skill_dir) != start_hash and not closing:
+        elif status.content_hash(origin_dir or skill_dir) != start_hash and not closing:
             evidence["reason"] = "the skill folder changed during the event: its runs are of another content"
+        elif origin_dir and status.content_hash(skill_dir) != start_hash and not closing:
+            evidence["reason"] = "the copy of the skill the runs were staged from was damaged during the event: its runs are of another content"
         else:
             # A file about to enter a skill is new evidence: read strictly (the current gate file's models and runs). A
             # person's own file is read by its own event line: its models are not in the gate file's list.
@@ -3079,10 +3406,10 @@ def run(argv):
                 evidence["reason"] = "the evidence file is not valid: " + "; ".join(problems[:5])
             elif home == "local":
                 # Outside the checkout: nothing of it is committed, pulled over or seen by `git status`.
-                target = os.path.join(local_base, o["skill"], os.path.basename(in_run_folder))
+                target = os.path.join(local_base, kept_as, os.path.basename(in_run_folder))
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 # Checked again once the folder exists: the skill's folder may be a link into the checkout.
-                where = status.local_base_problem(local_base, ROOT, o["skill"])
+                where = status.local_base_problem(local_base, ROOT, kept_as)
                 if where or os.path.lexists(target):
                     evidence["reason"] = where or f"{target} exists: a local evidence file is never overwritten"
                 else:
@@ -3102,7 +3429,9 @@ def run(argv):
     print(f"EVIDENCE {o['skill']}: " + (
         f"{evidence['path']} written ({'an incomplete ' if not complete_ref else ''}{kind} test, {len(run_lines)} lines"
         + (f", gate {'passed' if gate_result['passed'] else 'failed'}" if gate_result else "")
-        + ("). It stays on this machine, outside the checkout (" + (home_reason or "a local test") + "); `eval_status.py status` shows it as local."
+        + ("). It stays on this machine, outside the checkout (" + (home_reason or "a local test") + "); "
+           + (f"`eval_status.py status --skill-dir {o['skill_dir']}` shows it, as preliminary until a full test or a closed pool stands behind it."
+              if o.get("skill_dir") else "`eval_status.py status` shows it as local.")
            if home == "local" else "). Commit it; it is never edited.")
         if evidence["written"] else f"nothing written into the skill ({evidence['reason']})"
         + (f"; the event's file is {evidence['scratch']}" if evidence["scratch"] else "")), file=sys.stderr)

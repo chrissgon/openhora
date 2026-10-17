@@ -89,6 +89,14 @@ a line with the skill for every case, on every model it is complete for. It alon
 only a pool of lines (eval_status.py, "The pooled gate") that has every case at the configured number of runs and a baseline
 in force is evaluated. Old files stay valid: nothing about a full or a partial test changed.
 
+A skill from outside (package IMPORT-CLI)
+-----------------------------------------
+An event line may carry "imported": true. The runner writes it for a test of a skill that is not in skills/ (eval_run.py
+--skill-dir <folder>); such evidence goes to the person's local evidence folder, under imported/<name>/, and nowhere else. The
+form is the same as any lab file's, so the status script reads it with the same rules. The repository holds none: the walk over
+skills/*/evals/evidence/ (`evidence_problems`) and a community file (`community_file_problems`) refuse an event line that carries
+the marker, so a person's file cannot enter the repository by a copy.
+
 The usage of a run
 ------------------
 A run line may carry "usage": {"input", "output", "cache_read", "cache_write"}, whole numbers of 0 or more, the
@@ -139,7 +147,10 @@ EVENT_REQUIRED = ("record", "skill", "test", "kind", "version", "content_sha256"
                   "adapter_sha256", "grader", "runs", "timeout_seconds", "retries", "measurement_version",
                   "measurement_sha256", "image_digest", "image_platform", "grading_template_sha256", "tools", "cases",
                   "baseline", "web_cases", "counts", "extra_pass_env", "complete")
-EVENT_OPTIONAL = ("gate", "upstream", "image_source", "complete_models", "source", "local_model")
+EVENT_OPTIONAL = ("gate", "upstream", "image_source", "complete_models", "source", "local_model", "imported")
+# "imported" is the closed marker of a test of a skill from outside (eval_run.py --skill-dir; scripts/skill_import.py): true, never
+# false, and no other value. A file that carries it is a person's own and stays in the local evidence folder; the validator refuses
+# it in skills/*/evals/evidence/, so an import's evidence cannot enter the repository by mistake.
 # "local_model" describes, for each model of a local-model test (an id local/<name>@<12 hex of the weights' sha256>), what served
 # it: {model id: {"weights_sha256", "file_type", "context", "accelerator", "server_image", "server_version",
 # "server_args_sha256"}}, each value in a closed form. The file types are llama.cpp's llama_ftype names, as
@@ -427,6 +438,8 @@ def event_line_problems(line, models=None):
     if "upstream" in line and not (isinstance(line["upstream"], dict) and all(
             is_named(k) and _is(TOOL_RE, v) for k, v in line["upstream"].items())):
         bad("upstream", "{model id the line names: the upstream provider the key proxy's route pins}")
+    if "imported" in line and line["imported"] is not True:
+        bad("imported", "true (the marker of a test of a skill from outside, which stays in the person's local evidence folder), or absent")
     if "local_model" in line:
         local = line["local_model"]
         if not (isinstance(local, dict) and local and all(is_named(k) and _local_model_ok(k, v) for k, v in local.items())):
@@ -759,6 +772,8 @@ def community_file_problems(path, root=None, skill=None, strict=None):
     if not first:
         if event.get("source") != "community":
             problems.append("line 1: source must be \"community\" in a community evidence file")
+        if "imported" in event:
+            problems.append(IMPORTED_TEXT)
         if skill is not None and event["skill"] != skill:
             problems.append(f"line 1: skill must be the folder's name, {skill}")
         if event.get("image_source") != "published":
@@ -796,6 +811,17 @@ def evidence_files(skill_dir):
     if not os.path.isdir(folder):
         return []
     return [os.path.join(folder, n) for n in sorted(os.listdir(folder)) if n.startswith("lab-") and n.endswith(".jsonl")]
+
+
+IMPORTED_TEXT = ("line 1: imported marks the evidence of a skill from outside, which stays in the person's local evidence folder "
+                 "(imported/<name>/): it is never committed to the repository")
+
+
+def imported_problems(path):
+    """[the refusal] when the event line of the evidence file at `path` carries the marker "imported", else []. Read apart from
+    the form of the file, which a local file passes: only a file under skills/ is refused for it."""
+    event, _, _ = read_evidence_file(path)
+    return [IMPORTED_TEXT] if isinstance(event, dict) and "imported" in event else []
 
 
 def evidence_problems(root=ROOT, only=None, field_problems=None, strict_for=None, community_problems=None,
@@ -839,6 +865,8 @@ def evidence_problems(root=ROOT, only=None, field_problems=None, strict_for=None
                 reading = strict_for(rel) if strict_for else None
                 problems = ([reading] if isinstance(reading, str)
                             else evidence_file_problems(os.path.join(folder, entry), root, name, reading))
+                if not isinstance(reading, str):
+                    problems += imported_problems(os.path.join(folder, entry))
             if problems:
                 found[rel] = problems
     return found, checked

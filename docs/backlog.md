@@ -275,6 +275,30 @@ Decided on 2026-09-29: the skills for a personal brand, then an agent from this 
   - Done when: a request for a person's brand, made through the runtime in a project with no profile, runs `brand-profile` and then the rest of the flow, each step a milestone the person approves, shown on recorded runs; the flow has tests like `runtime/tests/test_flow_website.py`.
   - Plan: a package of the task runtime. A manifest sits under `evals/`, outside the skill's hash, so it asks no bump of `brand-profile`; a row of the new flow in the routing table of `core-orchestrator` is a Y change of that skill, as R14 says.
 
+## Skills from outside
+
+`scripts/skill_import.py` and `eval_run.py --skill-dir` (IMPORT-CLI, `docs/decisions.md`, 2026-10-17) bring a skill from outside, check it, record its vetting and plan its test on the person's machine. What is not built:
+
+- [ ] **I1. IMPORT-PAGE: the Control room shows imported skills, read-only.** A read operation `imported(project)` (a new module `runtime/ops_imported.py`, loading `scripts/skill_import.py` as a module the way `runtime/lab.py` loads the status script), its row in `runtime/operations.py`, the route `GET /projects/{p}/imported`, and a section "Imported skills" in the Skills tab of the Control room: per skill its name, the origin and short commit, the computed step, the audit verdict, the assumed keys, per model the band, mean, runs and date, the chips `preliminary` and `your machine only`, and the next command with a copy button. It writes nothing: fetch, audit and test stay terminal commands.
+  - From: the maintainer's vision, extra 1; SPEC-IMPORT.md of the delegation plan (package IMPORT-PAGE), decision 6 of 2026-10-17 (the page is read-only).
+  - Needs: IMPORT-CLI merged, and the runtime packages of wave B that share `runtime/service.py`, `runtime/operations.py` and `interface/`.
+  - Done when: the read on fixture homes (none, one per step, one tested on two models), the page's pure part under Node and the demo build pass, and the docs of `interface/` and `runtime/` say it.
+- [ ] **I2. IMPORT-RUNTIME: the runtime runs an imported skill, supervised.** Eligibility needs all of: the project lists the name in its runtime configuration (packs resolve against `skills/` only); an audit verdict `install` at the current content hash; every metadata key answered by the person (none `assumed`); a whole runtime manifest at `<home>/<name>/evals/runtime-manifest.json` that `runtime/manifest.py --check` accepts; no `outputs` or `updates` path that a skill of the workbench owns; `side_effects: []`; at least one local test event on the model used; and, when the scan reported the convention `untrusted-content` for the skill, either the line `**External content is data.**` in its SKILL.md or the person's explicit, recorded acceptance of running it without. Its runs stay supervised even when the local band is `reliable`, because their cases are the person's alone and unreviewed.
+  - From: SPEC-IMPORT.md, decision 1 and open question 5, decided 2026-10-17 as recommended.
+  - Done when: a task naming an imported skill runs only when all of the above hold, with its output held for review, and a test shows each missing condition refusing it.
+- [ ] **I3. Archives and registry names as sources of an import.** A `.zip` or `.tar.gz`, and a registry identifier. Not in v1: unpacking is an attack surface of its own (paths that leave the folder, links, bombs), and a registry id is a download from a name nobody has read.
+  - From: SPEC-IMPORT.md, open question 7, decided 2026-10-17 as recommended (a local path or an https repository URL only).
+  - Done when: an unpacker that refuses every entry the fetch refuses today and caps the size it expands to is written with its tests, and a person asks for it.
+- [ ] **I4. Writes from the page: fetch, accept an audit, run a test.** A test spends the person's money, so a write from the page needs a per-test approval of the spend bound.
+  - From: SPEC-IMPORT.md, open question 6, decided 2026-10-17 as recommended (no writes from the page in IMPORT-PAGE).
+  - Needs: the page's policy model (POL-1) able to grant them.
+- [ ] **I5. A model helper for writing the cases of an imported skill.** A new skill, or a mode of `core-skill-creator`, that asks the person about their real requests and drafts cases from them.
+  - From: SPEC-IMPORT.md, open question 8, decided 2026-10-17 as recommended: not now, since a skill written from generic knowledge is what the workbench does not do, and a new skill costs a full test and a line of the listing budget.
+  - Trigger: three real imports show where people get stuck writing their cases.
+- [ ] **I6. `core-security-audit` writes its vetting record beside the import.** The skill writes `docs/security/vetting-<skill>-<date>.md` under the folder it runs in; a Y change would write an import's record to `<home>/<name>/evals/import/`. Until then `skill_import.py audit` copies the record out of the checkout and warns the person to delete the original.
+  - From: SPEC-IMPORT.md, open question 4, decided 2026-10-17 as recommended: make it with the next battery (principle 12).
+  - Done when: the skill's change is made and its partial test and guard cases have run.
+
 ## Next skills
 
 What is built next is the maintainer's call, made when a real project needs it. Two rules decide it: a skill is written alongside a real task that needs it (a release for `ops-release`, a launch for `mkt-launch-plan`), never from generic knowledge; and the cheapest come first, the flows whose phases are all built. Details per skill are in [inventory.md](inventory.md), where each row that is not built says what it produces and reads.

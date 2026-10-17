@@ -24,6 +24,8 @@ Where: **repo** is this repository, **work** is `evals-workspace/` of the checko
 | `evals/run_attempts.py` | repo | the control of one model run's attempts, shared by the runner and the runtime's facade | maintainers | `execution.load_attempts()` | infrastructure, not in the fingerprint | yes | no |
 | `evals/eval_status.py` | repo | the status script: hashes, evidence validation, gate, bands, versions, the measurement command, the snapshot | maintainers | maintainers, the validator, `runtime/lab.py` | infrastructure | yes | no |
 | `skills/<name>/evals/evidence/lab-<test id>.jsonl` | repo | one event line and one line per run, closed keys | the runner only, when an event ends complete or is closed | the status script, the validator, the runtime's proof | committed, never edited | yes | yes |
+| `<local evidence base>/imported/<name>/lab-<test id>.jsonl` | the person's machine | one event line (`"imported": true`) and one line per run | the runner, for a `--skill-dir` event | `eval_status.py status --skill-dir`, `skill_import.py status` | never committed, never edited; the validator refuses a committed file that carries the marker | no | yes |
+| `<import home>/<name>/` and its `evals/import/` | the person's machine | the skill folder as imported, the person's cases, `versions.jsonl`, and the record, snapshot, check, audit and case-origin files | `scripts/skill_import.py` | the runner (`--skill-dir`), the status script | outside the checkout; a change of the content voids the audit | no | partly |
 | `skills/<name>/evals/evidence/field-<id>.jsonl` | repo | `use` and `verdict` lines, closed keys, no free text, a week not a day | `scripts/evidence.py import` | the status script | one file per contribution | yes | yes |
 | `skills/<name>/evals/versions.jsonl` | repo | one line per version: version, content hash, class, date, Z characters | `eval_status.py bump` | the validator, the status script, `evidence.py` | append-only, one line per pull request | yes | yes |
 | `skills/<name>/evals/evals.json`, `platforms/<platform>.json`, `files/` | repo | the cases and their fixtures | maintainers, contributors | the runner, the preflight | each case has its own hash; changing one drops only its evidence | yes | no |
@@ -195,6 +197,8 @@ Each invariant with its guard. A test is in `evals/tests/` unless its path is gi
 | `--skill <name>` | a full test as the gate file configures it | yes |
 | `--skill <name> --cases <ids> [--baseline]` | a partial test; with `--baseline`, how an added or changed case enters the gate | yes |
 | `--skill <name> --platform <p> [--cases <ids>]` | a platform's cases, with the skill only | yes |
+| `--skill-dir <folder> [--quick \| --cases <ids> \| --baseline] [--allow-web-cases]` | a test of a skill from outside (IMPORT-CLI): the folder is the skill, the evidence is local under `imported/<name>/` with `"imported": true`; refused without a passing check and an audit record at the folder's content hash, with a link or a marker in the folder, with `--pass-env` or `--harness`; the event runs from one copy of the folder | yes |
+| `--skill-dir <folder> --check-cases` \| `--dry-run` | the preflight, or the plan with what an event would be refused for; no audit needed | no |
 | `--resume <event folder>` | the failed runs of an event, and only them | yes |
 | `--close <event folder>` | writes an abandoned full test as an incomplete event that keeps its lines | no |
 | `--regrade <run folder> [--grader <id>]` | grades stored replies again; writes no evidence | yes |
@@ -210,6 +214,7 @@ Trial options (`--runs`, `--timeout`, `--retries`, `--only`, `--ablate`, `--no-g
 | Verb | What it does |
 |---|---|
 | `status [--skill <name>]` | every skill's band, cause, command that clears it, score, mean, runs, gate, guards, field and per-model rows |
+| `status --skill-dir <folder>` | the local figures of a skill from outside, per model, with `preliminary`, `scope` and `cases` (it reads `<local evidence base>/imported/<name>/`; `eval_status.imported_status`) |
 | `hash --skill <name>` | the content hash, the version and each case's hash |
 | `evidence [--skill <name> \| --file <path>]` | validates evidence files |
 | `gate --skill <name>` | the gate computed again from the lines |
@@ -217,6 +222,8 @@ Trial options (`--runs`, `--timeout`, `--retries`, `--only`, `--ablate`, `--no-g
 | `measurement --kind grader\|execution\|infrastructure --cause "<why>" [--skills ...] [--models ...] [--date YYYY-MM-DD]`; `measurement --close --cause "<why>"` | commits a measurement change; prints the decisions entry |
 | `bump --skill <name> [--class x\|y\|z] [--date YYYY-MM-DD]` | raises the version and writes the version file's line |
 | `migrate-versions [--date YYYY-MM-DD]` | the first version line of every skill (run once) |
+
+**The import tool**, `python3 scripts/skill_import.py <verb>` (IMPORT-CLI): `fetch` (a local path or an https repository URL into a quarantine folder; nothing in it runs), `normalize`, `check` (the scan, the component list, `validate.py --foreign` and the preflight, in parallel), `audit --record` (the vetting that the person ran with `core-security-audit`), `cases-template`, `test` (the plan, the estimate of the spend, which is not a cap, and a yes, then one quick event), `status`, `refresh` and `bump`. The home is outside every checkout of the workbench; the tool executes no file of an imported skill. A clone is made with no checkout, and its listing and pack are judged against the caps (2,000 files, 20 MB) and for links before anything is checked out; the shallow pack itself is downloaded by then, so a server that sends more than the cap is not stopped while it sends. Its steps are computed from the folder and `evals/import/` (record, snapshot, check, audit, cases-origin), never stored as a word.
 
 **Field evidence**, `python3 scripts/evidence.py`: `record --start --skill-dir <dir> --project <dir> [--model <id>] [--adapter <name>]`, `record --verdict worked|corrected|failed --use <id> --project <dir>`, `record --check-report <file> --use <id> --project <dir>`, `export --project <dir> --out <file>`, `import --file <file>`.
 
@@ -242,6 +249,8 @@ Trial options (`--runs`, `--timeout`, `--retries`, `--only`, `--ablate`, `--no-g
 | The eval contract has no shared conformance suite: each eval adapter's tests check it their own way, and `evals/tests/test_executor_docker.py` lists the two eval adapters by name where it parametrizes over harnesses. Open, waiting for the next change of its layer | `docs/architecture/platform/review-2026-10-06.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`), finding 13 |
 | `evals/measure.py` says the refusal and account-limit texts are in `adapter.json`; they are in `eval.json` (waiting, since the file is in the fingerprint) | [backlog](../../backlog.md), T23 |
 | The pessimistic score is not a calibrated bound: the measured variance is 17% to 32% of what the formula assumes | [reliability model](../reliability-model-2026-10-02.md), section 6 |
+| An imported skill is measured against the person's own cases, which nobody has reviewed, on that person's machine, with their keys: the band is a standing for that person only, a quick test alone is preliminary, and the evidence never travels; the model reading of its vetting is the person's, run in their own tool (v1) | [reliability model](../reliability-model-2026-10-02.md), section 1; [evals/README.md](../../../evals/README.md), "An imported skill" |
+| An imported skill is not run by the runtime in this version; the page that shows imported skills, the runtime's eligibility rules and archives or registry names are not built | [backlog](../../backlog.md), IMPORT-PAGE, IMPORT-RUNTIME and archives |
 
 ## Changes
 
@@ -253,3 +262,4 @@ Trial options (`--runs`, `--timeout`, `--retries`, `--only`, `--ablate`, `--no-g
 - 2026-10-15: the published eval image (P2d): `image()` returns `source` and `setup`, the identity of a published image is its repo digest and never its id, the refusal for a missing image names `pull` or `ensure`, and `proof.checks` says that evidence measured in a locally built image holds on that machine only (D21, D39).
 - 2026-10-15: the published image is verified before it is used (P2d review): the setup step is `python3 scripts/image_lock.py pull` (provenance first, then the executor pulls), the lock is checked with its provenance on every change by `.github/workflows/image-lock.yml`, only the exact manifest reference counts, a malformed lock and a stopped Docker daemon are reported as such.
 - 2026-10-16: a model on the person's machine is tested in the container (N14): a model server per run on the run's internal network, the person's configuration and the weights' identity (`evals/local_models.py`), `local_model` on the event line, the runtime refuses a `local/` id, the orphan sweep removes the server. The measurement change was of kind infrastructure, proved by the golden tests.
+- 2026-10-17: a skill from outside (IMPORT-CLI): `eval_run.py --skill-dir`, local evidence under `imported/<name>/` with `"imported": true`, the runner's refusals in code, `eval_status.py status --skill-dir`, `scripts/skill_import.py`; the runner warns, never refuses, on an unbumped edit at the start of a full or a quick test. No fingerprinted file changed.
