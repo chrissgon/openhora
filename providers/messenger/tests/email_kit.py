@@ -24,6 +24,8 @@ class FakeInbox:
         self.messages = {}           # uid -> raw bytes
         self.sizes = {}              # uid -> a size to report instead of the real one
         self.refuse_login = False
+        self.login_answer = None     # the whole tagged answer to LOGIN, instead of a refusal ("NO [UNAVAILABLE] busy")
+        self.fail_fetch = False      # answer every body FETCH with NO (a transient failure between SIZE and FETCH)
         self.kill = False            # close every connection at its next command (a lost connection)
         self.commands, self.connections = [], 0
         self.lock = threading.Lock()
@@ -85,7 +87,9 @@ class FakeInbox:
                     elif verb == "LOGIN":
                         found = re.findall(r'"((?:[^"\\]|\\.)*)"|(\S+)', args)
                         values = [a or b for a, b in found]
-                        if outer.refuse_login or len(values) != 2 or values[1].replace("\\\\", "\\").replace('\\"', '"') != outer.password:
+                        if outer.login_answer:
+                            self.line(f"{tag} {outer.login_answer}")
+                        elif outer.refuse_login or len(values) != 2 or values[1].replace("\\\\", "\\").replace('\\"', '"') != outer.password:
                             self.line(f"{tag} NO [AUTHENTICATIONFAILED] login refused")
                         else:
                             self.line(f"{tag} OK logged in")
@@ -96,7 +100,9 @@ class FakeInbox:
                         self.line(f"{tag} OK [READ-ONLY] examined")
                     elif verb == "UID" and args.upper().startswith("SEARCH"):
                         found = re.search(r"UID (\d+):(\d+|\*)", args, re.I)
-                        if not found:
+                        if re.search(r"UID \*$", args, re.I):
+                            self.line("* SEARCH" + (f" {uids[-1]}" if uids else ""))
+                        elif not found:
                             self.line("* SEARCH " + " ".join(str(u) for u in uids) if uids else "* SEARCH")
                         else:
                             low = int(found.group(1))
@@ -117,6 +123,9 @@ class FakeInbox:
                         index = uids.index(uid) + 1
                         if item == "RFC822.SIZE":
                             self.line(f"* {index} FETCH (UID {uid} RFC822.SIZE {outer.sizes.get(uid, len(data))})")
+                        elif item == "BODY.PEEK[]" and outer.fail_fetch:
+                            self.line(f"{tag} NO [UNAVAILABLE] try again later")
+                            continue
                         elif item == "BODY.PEEK[]":
                             self.literal(f"* {index} FETCH (UID {uid} BODY[]", data)
                         elif item == "BODY.PEEK[HEADER]":

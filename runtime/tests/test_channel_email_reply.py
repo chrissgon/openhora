@@ -1,5 +1,5 @@
 """The one change the e-mail channel makes to the messaging bridge (package EMAIL-CHANNEL; runtime/messaging_provider.py, runtime/messaging_bridge.py):
-a platform that declares the optional capability `actions_need_reply` acts on a typed approve, reject or release only when the update is a reply to
+a platform that declares the optional capability `actions_need_reply` acts on a typed approve, reject, release or answer only when the update is a reply to
 the ledger's card of that very decision in that chat, and binds the action to the card replied to. The card's Message-ID is random and went only to
 the listed mailbox, so a message that is not a reply to it, or is a reply to another card, cannot act; and the reply is also the proof that the card
 reached the person. Offline, over the stand-in operations object and the stand-in messenger of test_messaging.py.
@@ -113,6 +113,22 @@ def test_a_reply_to_the_card_can_reject_a_plan_and_release_and_a_plan_needs_its_
     assert world.texts()[-1] == bridge.REPLY_TO_CARD and not world.calls("release")
     world.say("/release 2", reply_to=card_id(world, 2))
     assert wait_for(lambda: world.calls("release"))
+
+
+def test_a_typed_answer_needs_the_reply_to_its_question_card_too(world):
+    world.caps(**EMAIL_CAPS)
+    world.items[1] = decision("question", 1)
+    world.items[2] = decision("question", 2, title="Another question")
+    world.bridge.tick()
+    world.say("/answer 1 yes, all of them")
+    world.say("/answer 1 yes", reply_to=card_id(world, 2))
+    assert world.texts()[-1] == bridge.REPLY_TO_CARD and not world.calls("answer_proposing")
+    world.say("/answer 1 yes, all of them", reply_to=card_id(world, 1))
+    assert wait_for(lambda: world.calls("answer_proposing"))
+    assert world.calls("answer_proposing")[0][2]["text"] == "yes, all of them"
+    world.caps(actions_need_reply=False)
+    world.say("/answer 2 a plain platform needs no reply")
+    assert wait_for(lambda: len(world.calls("answer_proposing")) == 2)
 
 
 def test_everything_that_is_not_an_action_needs_no_reply_and_a_platform_without_the_capability_is_as_before(world):

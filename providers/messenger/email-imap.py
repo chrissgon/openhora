@@ -10,8 +10,8 @@ requires one). It works only in the listen mode (providers/messenger/README.md, 
 E-mail is hostile input: an address is trivial to forge, so the allowlist of the project never admits a message by itself. The provider
 emits an update only when ALL of these hold (each one is code):
   1. The topmost Authentication-Results header whose authserv-id is the configured one (the receiving server's own; any other, lower down,
-     is ignored, since anyone can add one) says dmarc=pass for the From domain (header.from, when it names one, equal to it), or no DMARC
-     result passes and none fails and a dkim=pass has header.d EQUAL to the From domain. SPF alone never admits. No such header: dropped.
+     is ignored, since anyone can add one) says dmarc=pass with a header.from EQUAL to the From domain (and no second DMARC result), or there
+     is no DMARC result and a dkim=pass has header.d EQUAL to the From domain. SPF alone never admits. No such header: dropped.
   2. One From address (no group, no encoded word in the address); Sender, when present, equal to it; no Resent-* header; never the
      mailbox's own address.
   3. Private: the mailbox's address is the only recipient in To and Cc.
@@ -19,8 +19,8 @@ emits an update only when ALL of these hold (each one is code):
   5. Under 1 MiB, and at most 30 updates for one sender in an hour.
 A message that fails is dropped with one log line by class and no reply (no backscatter); the log holds no address, subject or text.
 
-What an update is: the text/plain part, else the text of the HTML part (the quoted blocks of the HTML dropped, hidden text and invisible
-characters removed; HTML is never rendered, a link never followed, an attachment never opened). Quoted history is cut at the first `>` line,
+What an update is: the text/plain part, else the text of the HTML part (made by a child process with a 3 s budget; the quoted blocks dropped,
+hidden text and invisible characters removed; HTML is never rendered, a link never followed, an attachment never opened). Quoted history is cut at the first `>` line,
 a `-- ` signature line, or an attribution or forward marker of a closed list (English, Portuguese, Spanish), so only the sender's own words
 reach the bridge. When the first line is a command (`/approve 12`), that line alone is the text, so a signature a phone adds cannot turn it
 into a typed hash. At most 8,000 characters. `reply_to` is the In-Reply-To of the message, only when it is a Message-ID this provider sent to
@@ -61,6 +61,7 @@ import signal
 import smtplib
 import ssl
 import stat
+import subprocess
 import sys
 import threading
 import time
@@ -87,13 +88,20 @@ PER_WINDOW = 3600.0
 SENT_KEEP = 1000                   # Message-IDs remembered for each chat
 POLL_DEFAULT, POLL_MIN = 30, 15
 SUBJECT_MAX = 78
+HTML_MAX = 200_000                 # characters of an HTML part that are tried at all
+HTML_SECONDS = 3.0                 # the budget of the child that makes the text of an HTML part
+TEXT_PART_MAX = 200_000            # characters of a text part that are read
+ADDRESS_HEADER_MAX = 2000          # a From, Sender, To or Cc longer than this is dropped without being parsed
+SEARCH_WINDOW = 1000               # uids asked for at a time (a reply line over 1,000,000 bytes is an error of the IMAP library)
+SEEN_KEYS = 1000                   # senders remembered before the ones outside the hour are forgotten
 LINK_MAX = 512
 MAX_REQUEST_LINE = 1 << 20
 TIMEOUT = 30.0
 AUTHSERV = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?")
 CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")      # every control character but a tab and a line end
+EXTRA_INVISIBLE = re.compile("[\u180b-\u180d\u2800\ufe00-\ufe0f\U000e0000-\U000e007f\U000e0100-\U000e01ef]")      # tag characters, variation selectors, braille blank, Mongolian selectors
 AUTO_PRECEDENCE = ("bulk", "list", "junk", "auto_reply")
-SLASH_WHOLE = ("/answer",)         # a command that takes the rest of the message; every other command is its first line alone
+COMMANDS_ALONE = ("/approve", "/reject", "/release", "/pending", "/project", "/help", "/start")      # a command that is its first line alone; /answer takes the rest
 TYPED_LINE = re.compile(r"^Send (/(?:approve|reject|release) \d+)$", re.M)
 ALLOWED_IMAP = ("CAPABILITY", "LOGIN", "EXAMINE", "UID", "NOOP", "LOGOUT")      # what this file may ever cause to be sent to a mailbox
 
@@ -303,6 +311,8 @@ def strip_comments(text):
                 quoted = False
         elif c == "(":
             depth = 1
+        elif c == ")":
+            return None         # a closing parenthesis with no comment open: the header is not written as a server writes it
         else:
             if c == '"':
                 quoted = True
@@ -350,12 +360,13 @@ def parse_auth_results(raw: str):
         return None
     results = []
     for part in parts[1:]:
-        pairs = PAIR.findall(part)
-        if not pairs or "." in pairs[0][0]:
-            continue
-        method, result = pairs[0][0].split("/", 1)[0].lower(), pairs[0][1].strip('"').lower()
+        part = part.strip()
+        first = PAIR.match(part)
+        if not first or "." in first.group(1):
+            continue            # `none`, or anything that does not start with method=result: no entry (junk before a result admits nothing)
+        method, result = first.group(1).split("/", 1)[0].lower(), first.group(2).strip('"').lower()
         props = {}
-        for key, value in pairs[1:]:
+        for key, value in PAIR.findall(part[first.end():]):
             props.setdefault(key.lower(), value.strip('"').lower())
         results.append({"method": method, "result": result, "props": props})
     return head[0].lower(), results
@@ -367,24 +378,26 @@ def topmost_results(msg, authserv: str):
     for name, value in msg.raw_items():
         if name.lower() != "authentication-results":
             continue
-        head = " ".join(str(value).split()).split(";", 1)[0].split()
-        if not head or head[0].lower() != authserv:
-            continue
         found = parse_auth_results(str(value))
-        return found[1] if found else None
+        if found is None:
+            if authserv in str(value).lower():
+                return None     # a header that names our id and cannot be read admits nothing (and hides nothing below it)
+            continue
+        if found[0] == authserv:
+            return found[1]
     return None
 
 
 def authenticated(results, domain: str):
-    """(True, "") when `results` admit a From domain, else (False, the class). dmarc=pass admits (header.from, when given, equal to the
+    """(True, "") when `results` admit a From domain, else (False, the class). dmarc=pass admits (and names header.from, equal to the
     domain); a dmarc result that is not pass or none refuses; with no dmarc result or only none, a dkim=pass whose header.d EQUALS the domain
     admits. SPF never admits, and the organisational domain is never guessed."""
     if results is None:
         return False, "unauthenticated"
     dmarc = [r for r in results if r["method"] == "dmarc"]
-    if any(r["result"] not in ("pass", "none") for r in dmarc):
-        return False, "unauthenticated"
-    if any(r["result"] == "pass" and r["props"].get("header.from", domain) == domain for r in dmarc):
+    if len(dmarc) > 1 or any(r["result"] not in ("pass", "none") for r in dmarc):
+        return False, "unauthenticated"       # one DMARC result: a second one may be text a sender made the server echo
+    if any(r["result"] == "pass" and r["props"].get("header.from") == domain for r in dmarc):
         return True, ""
     if any(r["method"] == "dkim" and r["result"] == "pass" and r["props"].get("header.d") == domain for r in results) \
             and not any(r["result"] == "pass" for r in dmarc):
@@ -403,11 +416,31 @@ class QuoteFreeText(_text.HTMLText):
     SKIP = _text.HTMLText.SKIP | {"blockquote"}
 
 
-def html_text(html: str) -> str:
+class TooSlow(Exception):
+    """The text of an HTML part could not be made within its budget (or the part is too large to try)."""
+
+
+def html_text_here(html: str) -> str:
     parser = QuoteFreeText()
     parser.feed(html)
     parser.close()
     return parser.result()[0]
+
+
+def html_text(html: str) -> str:
+    """The text of an HTML part, made by a short-lived child process with a time budget: the standard library's HTML parser takes time that
+    grows with the square of the input on unclosed tags (`<a <a <a ...`), and the sender is a stranger who passed authentication for their
+    own domain. A part over HTML_MAX, or a child that runs over HTML_SECONDS, is TooSlow (the message is dropped); nothing else waits."""
+    if len(html) > HTML_MAX:
+        raise TooSlow()
+    try:
+        done = subprocess.run([sys.executable, "-I", os.path.abspath(__file__), "html-text"], input=html.encode("utf-8", "replace"),
+                              capture_output=True, timeout=HTML_SECONDS)
+    except subprocess.TimeoutExpired:
+        raise TooSlow() from None
+    if done.returncode != 0:
+        raise TooSlow()
+    return done.stdout.decode("utf-8", "replace")
 
 
 ATTRIBUTION = re.compile(
@@ -438,13 +471,14 @@ def strip_quoted(text: str) -> str:
 
 
 def command_only(text: str) -> str:
-    """When the first non-blank line is a command (starts with `/`), that line alone is the text, except /answer, which takes the rest: a
-    signature or a greeting after `/approve 12` must not become a typed hash (the bridge reads what follows the number as one)."""
+    """When the first non-blank line is one of the bridge's commands, that line alone is the text (/answer takes the rest, and a line that
+    merely starts with `/`, such as a path, is ordinary text): a signature or a greeting after `/approve 12` must not become a typed hash
+    (the bridge reads what follows the number as one)."""
     for line in text.split("\n"):
         if not line.strip():
             continue
         first = line.strip()
-        if first.startswith("/") and first.split(" ", 1)[0].lower().split("@", 1)[0] not in SLASH_WHOLE:
+        if first.split(" ", 1)[0].lower().split("@", 1)[0] in COMMANDS_ALONE:
             return first
         break
     return text
@@ -454,11 +488,11 @@ def message_text(msg) -> str:
     """The sender's own words: text/plain, else the HTML part's text; quoted history cut; controls removed; the first-line command alone;
     at most MAX_TEXT characters."""
     plain = msg.get_body(preferencelist=("plain",))
-    text = _text.clean_block(_text.part_text(plain), keep_blank_lines=True) if plain is not None else ""
+    text = _text.clean_block(_text.part_text(plain)[:TEXT_PART_MAX], keep_blank_lines=True) if plain is not None else ""
     if not text.strip():
         html = msg.get_body(preferencelist=("html",))
         text = _text.clean_block(html_text(_text.part_text(html)), keep_blank_lines=True) if html is not None else ""
-    text = command_only(strip_quoted(CONTROLS.sub("", text)))
+    text = command_only(strip_quoted(EXTRA_INVISIBLE.sub("", CONTROLS.sub("", text))))
     text = text.strip()
     return text[:MAX_TEXT].rstrip() + "\n" + CUT_LINE if len(text) > MAX_TEXT else text
 
@@ -507,17 +541,29 @@ def automatic(msg) -> bool:
 
 def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail):
     """(update, None) for a message that is admitted, else (None, the class of the refusal): size, unparsable, sender, self, not-private,
-    automatic, unauthenticated, empty. `sent_ids(chat)` is the set of Message-IDs this provider sent to that chat."""
+    automatic, unauthenticated, empty, slow. `sent_ids(chat)` is the set of Message-IDs this provider sent to that chat. The cheap checks
+    come first and the text last: a stranger who passed authentication for their own domain reaches nothing expensive before the sender is
+    known to be the one the server vouched for."""
     if len(raw) > MAX_SIZE:
         return None, "size"
     try:
         msg = message_from_bytes(raw, policy=policy.default)
+        if any("Header" in type(defect).__name__ or "Envelope" in type(defect).__name__ for defect in msg.defects):
+            return None, "unparsable"       # a line of the header block that is not a header ends the block: what follows it is not read as headers
+        long = {name.lower() for name, value in msg.raw_items() if len(str(value)) > ADDRESS_HEADER_MAX}
+        if long & {"from", "sender"}:
+            return None, "sender"
+        if long & {"to", "cc"}:
+            return None, "not-private"
         sender = one_address(msg, "From", mail)
         if sender is None:
             return None, "sender"
         key = mail.address_key(sender)
         if key == mail.address_key(own):
             return None, "self"
+        ok, why = authenticated(topmost_results(msg, authserv), mail.domain_of(key))
+        if not ok:
+            return None, why
         if any(name.lower().startswith("resent-") for name in msg.keys()):
             return None, "sender"
         if msg.get_all("Sender"):
@@ -528,9 +574,6 @@ def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail):
             return None, "not-private"
         if automatic(msg):
             return None, "automatic"
-        ok, why = authenticated(topmost_results(msg, authserv), mail.domain_of(key))
-        if not ok:
-            return None, why
         text = message_text(msg)
         if not text:
             return None, "empty"
@@ -540,11 +583,24 @@ def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail):
             reply_to = found.group(0)
         return {"sender": key, "chat": key, "private": True, "text": text, "action": None, "action_ref": None,
                 "reply_to": reply_to}, None
+    except TooSlow:
+        return None, "slow"
     except Exception:       # a message the parser cannot read admits nothing, and never ends the process
         return None, "unparsable"
 
 
 # --- the mailbox: read only ---------------------------------------------------------------------------------------------------------
+
+
+LOGIN_REFUSED = ("authenticationfailed", "authentication failed", "invalid credentials", "login failed", "invalid login", "bad credentials",
+                 "authorizationfailed", "username and password not accepted")
+
+
+def login_refused(text: str) -> bool:
+    """Whether an IMAP login error says the credentials are wrong (exit 3), and not that the server is busy or limited (a restart tries
+    again): `NO [UNAVAILABLE]` and `NO [LIMIT]` must not stop the bridge for good."""
+    lowered = text.lower()
+    return any(word in lowered for word in LOGIN_REFUSED)
 
 
 def connect_imap(settings: dict, mail, password: str):
@@ -559,9 +615,12 @@ def connect_imap(settings: dict, mail, password: str):
         imap.login(settings.get("username") or settings["address"], password)
     except mail.TlsError as e:
         raise ProviderError(e.reason, EXIT_NOT_CONFIGURED, "not-configured") from None
-    except imaplib.IMAP4.error:
-        raise ProviderError("the IMAP server refused the login: check the address and the app password", EXIT_NOT_CONFIGURED,
-                            "not-configured") from None
+    except imaplib.IMAP4.error as e:
+        if login_refused(" ".join(a.decode("latin-1") if isinstance(a, bytes) else str(a) for a in e.args)):
+            raise ProviderError("the IMAP server refused the login: check the address and the app password", EXIT_NOT_CONFIGURED,
+                                "not-configured") from None
+        raise ProviderError("the IMAP server did not take the login now (not a refusal of the password); the bridge tries again",
+                            EXIT_SERVICE) from None
     except (OSError, ssl.SSLError) as e:
         raise ProviderError(f"cannot reach the IMAP server ({e.__class__.__name__})", EXIT_SERVICE) from None
     return imap
@@ -582,8 +641,7 @@ class Mailbox:
         if validity is None:
             raise ProviderError("the IMAP server did not say its UIDVALIDITY")
         following = self._number("UIDNEXT")
-        highest = following - 1 if following else max(self.search("1:*") or [0])
-        return validity, highest
+        return validity, (following - 1 if following else self.highest())
 
     def _number(self, name: str):
         try:
@@ -601,19 +659,33 @@ class Mailbox:
             raise ProviderError("the IMAP search failed")
         return sorted(int(n) for n in (data[0] or b"").split() if n.isdigit())
 
-    def new_uids(self, after: int) -> list:
-        """The uids above `after`: a range `n:*` always includes the highest message, even below n, so it is filtered."""
-        return [uid for uid in self.search(f"{after + 1}:*") if uid > after]
+    def highest(self) -> int:
+        """The highest uid of the INBOX (0 when it is empty): `UID SEARCH UID *`."""
+        return max(self.search("*") or [0])
+
+    def new_uids(self, after: int, window: int = SEARCH_WINDOW) -> list:
+        """The uids above `after`, at most one window of them at a time: an unbounded `n:*` over a backlog is a reply line longer than the IMAP
+        library reads (and a range ending in `*` always matches the highest message, even below n)."""
+        top, low = self.highest(), after + 1
+        while low <= top:
+            found = [uid for uid in self.search(f"{low}:{min(low + window - 1, top)}") if uid > after]
+            if found:
+                return found
+            low += window
+        return []
 
     def size(self, uid: int):
+        """The size of a message, or None when the server has no such message any more; a failed command is an error, not a bad message."""
         typ, data = self.imap.uid("FETCH", str(uid), "(RFC822.SIZE)")
-        found = re.search(rb"RFC822\.SIZE (\d+)", b" ".join(x if isinstance(x, bytes) else x[0] for x in data if x)) if typ == "OK" else None
+        if typ != "OK":
+            raise ProviderError("the IMAP fetch failed")
+        found = re.search(rb"RFC822\.SIZE (\d+)", b" ".join(x if isinstance(x, bytes) else x[0] for x in data if x))
         return int(found.group(1)) if found else None
 
     def fetch(self, uid: int, part: str = "BODY.PEEK[]"):
         typ, data = self.imap.uid("FETCH", str(uid), f"({part})")
         if typ != "OK":
-            return None
+            raise ProviderError("the IMAP fetch failed")
         for item in data:
             if isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], bytes):
                 return item[1]
@@ -626,22 +698,29 @@ class Mailbox:
             pass
 
 
+def topmost_id(msg):
+    """The authserv-id of the topmost Authentication-Results header of a message, or None (no header, or one that does not start with an id:
+    some hosts write `spf=pass ...` first). Only the topmost counts: a header further down may be one the sender wrote."""
+    for name, value in msg.raw_items():
+        if name.lower() == "authentication-results":
+            found = parse_auth_results(str(value))
+            return found[0] if found and AUTHSERV.fullmatch(found[0]) else None
+    return None
+
+
 def authserv_ids_seen(box: Mailbox, count: int = 5):
-    """(the authserv-ids on the headers of the newest `count` messages, in the order first seen; one set of ids for each message looked
-    at)."""
-    ids, per_message = [], []
-    for uid in box.search("1:*")[-count:]:
+    """([the id of the topmost header of each of the newest `count` messages, in the order first seen], [that id or None for each message
+    looked at])."""
+    per_message = []
+    top = box.highest()
+    for uid in box.search(f"{max(1, top - 200)}:{max(1, top)}")[-count:]:
         head = box.fetch(uid, "BODY.PEEK[HEADER]")
-        if head is None:
-            continue
-        found = set()
-        for name, value in message_from_bytes(head, policy=policy.default).raw_items():
-            first = " ".join(str(value).split()).split(";", 1)[0].split() if name.lower() == "authentication-results" else []
-            if first:
-                found.add(first[0].lower())
-                if first[0].lower() not in ids:
-                    ids.append(first[0].lower())
-        per_message.append(found)
+        if head is not None:
+            per_message.append(topmost_id(message_from_bytes(head, policy=policy.default)))
+    ids = []
+    for found in per_message:
+        if found and found not in ids:
+            ids.append(found)
     return ids, per_message
 
 
@@ -663,10 +742,12 @@ def connect_smtp(settings: dict, mail, password: str):
         raise ProviderError(f"cannot reach the SMTP server ({e.__class__.__name__})", EXIT_SERVICE) from None
     try:
         server.login(settings.get("username") or settings["address"], password)
-    except smtplib.SMTPAuthenticationError:
+    except smtplib.SMTPAuthenticationError as e:
         close_smtp(server)
-        raise ProviderError("the SMTP server refused the login: check the address and the app password", EXIT_NOT_CONFIGURED,
-                            "not-configured") from None
+        if e.smtp_code in (530, 534, 535, 538):
+            raise ProviderError("the SMTP server refused the login: check the address and the app password", EXIT_NOT_CONFIGURED,
+                                "not-configured") from None
+        raise ProviderError(f"the SMTP server did not take the login now ({e.smtp_code}); not a refusal of the password", EXIT_SERVICE) from None
     except (OSError, smtplib.SMTPException) as e:
         close_smtp(server)
         raise ProviderError(f"the SMTP login failed ({e.__class__.__name__})", EXIT_SERVICE) from None
@@ -896,6 +977,8 @@ class Listener:
 
     def throttled(self, sender: str) -> bool:
         now = self.clock()
+        if len(self.seen) > SEEN_KEYS:      # senders are unlimited in number: forget those with nothing in the last hour
+            self.seen = {k: v for k, v in self.seen.items() if v and now - v[-1] <= PER_WINDOW}
         times = self.seen.setdefault(sender, collections.deque())
         while times and now - times[0] > PER_WINDOW:
             times.popleft()
@@ -930,13 +1013,14 @@ class Listener:
             last = self.cursor(validity, highest)
             self.out.write({"event": "ready"})
             while not self.stop.is_set():
-                for uid in box.new_uids(last):
+                batch = box.new_uids(last)
+                for uid in batch:
                     if self.stop.is_set():
                         break
                     try:
                         self.handle_uid(box, uid)
-                    except ProviderError:
-                        raise
+                    except (ProviderError, imaplib.IMAP4.error, OSError, EOFError):
+                        raise       # the connection, not the message: the cursor stays, and the bridge starts this again
                     except Exception as e:      # one message never ends the process
                         log(f"dropped a message: unreadable ({e.__class__.__name__})")
                     last = uid
@@ -944,6 +1028,8 @@ class Listener:
                         self.save(validity, last)
                     except OSError:
                         log("the cursor could not be written")
+                if batch:
+                    continue        # more may wait beyond this window of uids
                 if self.stop.wait(self.poll):
                     break
                 box.noop()
@@ -1057,11 +1143,12 @@ def cmd_check(args) -> int:
         ids, per_message = authserv_ids_seen(box)
     finally:
         box.logout()
-    looked, with_header = len(per_message), sum(1 for found in per_message if authserv in found)
-    if looked and not with_header:
-        raise ProviderError("this mailbox's server does not record sender authentication under the authserv-id " + authserv
-                            + (" (ids seen: " + ", ".join(ids) + ")" if ids else " (no Authentication-Results header on the newest messages)")
-                            + ": the e-mail channel cannot tell a forged sender", EXIT_NOT_CONFIGURED, "not-configured")
+    looked, with_header = len(per_message), sum(1 for found in per_message if found == authserv)
+    if looked and with_header < looked:
+        raise ProviderError(f"this mailbox's server does not record sender authentication under the authserv-id {authserv} at the top of each "
+                            f"of the newest messages ({with_header} of {looked} do"
+                            + ("; ids seen: " + ", ".join(ids) if ids else "; no Authentication-Results header leads them")
+                            + "): the e-mail channel cannot tell a forged sender", EXIT_NOT_CONFIGURED, "not-configured")
     print(json.dumps({"ok": True, "address": settings["address"], "authserv_id": authserv, "messages_checked": looked,
                       "with_authentication": with_header}))
     return EXIT_OK
@@ -1116,8 +1203,12 @@ def run(argv) -> int:
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv == ["html-text"]:       # the child that makes the text of an HTML part (html_text): HTML on stdin, text on stdout
+        sys.stdout.buffer.write(html_text_here(sys.stdin.buffer.read(HTML_MAX * 4).decode("utf-8", "replace")).encode("utf-8"))
+        return EXIT_OK
     try:
-        return run(sys.argv[1:] if argv is None else argv)
+        return run(argv)
     except ProviderError as e:
         print(f"error: {redact(e)}", file=sys.stderr)
         return e.code

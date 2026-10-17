@@ -35,7 +35,7 @@ ROOT = os.path.dirname(HERE)
 CAPABILITY_KEYS = {"max_text": int, "buttons": bool, "max_buttons": int, "max_button_label": int, "lists": bool,
                    "max_list_rows": int, "url_buttons": bool, "reply_context": bool, "documents": bool}
 OPTIONAL_KEYS = {"listen": bool, "actions_need_reply": bool}   # a capability a provider may leave out; absent is stored as False
-# actions_need_reply: the bridge acts on a typed approve, reject or release only when the update is a reply to the card of that decision
+# actions_need_reply: the bridge acts on a typed approve, reject, release or answer only when the update is a reply to the card of that decision
 # (e-mail: an address proves little, and a reply that names the card's random Message-ID also proves the card reached the person)
 SEND_SECONDS = 60
 MAX_LINE = 1 << 20                 # the longest line of the listen protocol, either way, without its newline

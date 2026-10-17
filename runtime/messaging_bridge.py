@@ -43,7 +43,7 @@ the card the person saw carried the whole text (the ledger's `whole`), the decis
 card's hash. Otherwise the reply is the command to run in the terminal (decision D8, the default). The approval runs in a job thread:
 an effect may take minutes.
 
-A platform that declares `actions_need_reply` (e-mail) acts on a typed approve, reject or release only when the update is a reply to the
+A platform that declares `actions_need_reply` (e-mail) acts on a typed approve, reject, release or answer only when the update is a reply to the
 ledger's card of that very decision in that chat, and the action is bound to that card, not to the newest one.
 
 Standard library only. Runs on Python 3.9.
@@ -355,7 +355,7 @@ class Bridge(shell_kit.Jobs):
             self.choose(sender, chat, listed, intent["name"])
         elif kind == "pending":
             self.listing(project, chat)
-        elif kind in ("approve", "reject", "release"):
+        elif kind in ("approve", "reject", "release", "answer"):
             replied = None
             if self.messenger.capabilities().get("actions_need_reply"):
                 replied = self.replied_card(sender, chat, update.get("reply_to"), intent["id"])
@@ -363,10 +363,11 @@ class Bridge(shell_kit.Jobs):
                     self.reply(chat, REPLY_TO_CARD)
                     return
                 project = replied[0]
-            self.act(project, chat, kind, intent["id"], card=replied[1] if replied else None, note=intent.get("note"),
-                     typed_hash=intent.get("sha256"))
-        elif kind == "answer":
-            self.act(project, chat, "answer", intent["id"], text=intent["text"])
+            if kind == "answer":
+                self.act(project, chat, "answer", intent["id"], text=intent["text"])
+            else:
+                self.act(project, chat, kind, intent["id"], card=replied[1] if replied else None, note=intent.get("note"),
+                         typed_hash=intent.get("sha256"))
         elif kind == "reply":
             card = self.ledger.by_message(chat, intent["reply_to"])
             if card and card["kind"] == "question":

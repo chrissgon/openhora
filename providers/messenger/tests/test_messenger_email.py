@@ -117,6 +117,12 @@ def test_the_sender_is_the_from_address_lower_cased_with_the_domain_in_ascii_and
     f"{ID}; none",
     f"{ID}",
     "",
+    f"{ID}; dmarc=pass",                                                                       # a pass that names no header.from vouches for nothing
+    f"{ID}; dmarc=pass header.from=office.example; dmarc=none",                                  # a second DMARC result
+    f"{ID}; dkim=pass header.d=office.example; dmarc=pass header.from=office.example) smtp.mailfrom=a@evil.example; dmarc=none",      # a stray )
+    f"{ID}; spf=none (domain of a); dmarc=pass header.from=office.example; x@evil.example does not designate 1.2.3.4) smtp.mailfrom=a@evil.example; dmarc=none",
+    f"{ID}; junk words dmarc=pass header.from=office.example",                                    # junk before method=result
+    f"{ID}; spf=pass smtp.mailfrom=office.example dmarc=pass header.from=office.example",          # dmarc is a property here, not a result
 ])
 def test_a_forged_sender_is_dropped_with_no_reply_whatever_the_authentication_result_says_or_leaves_out(auth):
     dropped(raw(auth=auth), "unauthenticated")
@@ -125,7 +131,6 @@ def test_a_forged_sender_is_dropped_with_no_reply_whatever_the_authentication_re
 @pytest.mark.parametrize("auth", [
     GOOD,
     f"{ID}; dmarc=pass header.from=office.example",
-    f"{ID}; dmarc=pass",                                                                      # DMARC is evaluated on the From domain
     f"{ID}; dkim=pass header.d=office.example; dmarc=none",                                  # no DMARC record: an aligned DKIM signature
     f"{ID}; dkim=pass header.d=office.example",                                              # no DMARC result at all
     f"{ID}; dkim=fail header.d=evil.example; dkim=pass header.d=office.example",
@@ -632,7 +637,7 @@ def test_setup_without_an_authserv_id_prints_the_ids_on_the_newest_message_and_n
                              str(world["smtp"].port), "--smtp-security", "plain")
     assert code == 0, err
     shown = json.loads(out)
-    assert shown["authserv_id"] is None and shown["authserv_ids_seen"] == ["elsewhere.example", ID]
+    assert shown["authserv_id"] is None and shown["authserv_ids_seen"] == ["elsewhere.example"]      # the topmost header of each message only
     assert json.loads((world["state"] / "settings.json").read_text())["authserv_id"] is None
     code, _, err = run_cli(capsys, "listen", "--platform", "email")
     assert code == 3 and "authserv-id" in err
@@ -660,6 +665,17 @@ def test_check_logs_in_to_both_servers_and_exits_3_when_the_newest_messages_carr
     code, _, err = run_cli(capsys, "--check", "--platform", "email")
     assert code == 3 and "cannot tell a forged sender" in err
     assert PASSWORD not in err
+
+
+def test_check_needs_the_id_at_the_top_of_every_one_of_the_newest_messages_and_a_header_the_sender_planted_does_not_count(world, capsys):
+    provider.write_private_json(os.path.join(provider.folder(), "settings.json"), world["settings"])
+    world["imap"].add(raw())
+    world["imap"].add(raw(auth=None, above=["Authentication-Results: elsewhere.example; none"], below=[f"Authentication-Results: {GOOD}"]))      # ours is lower down: the sender's own
+    code, _, err = run_cli(capsys, "--check", "--platform", "email")
+    assert code == 3 and "1 of 2" in err
+    world["imap"].messages.pop(2)
+    world["imap"].add(raw(auth=GOOD, above=["Authentication-Results: elsewhere.example; none"]))      # another id on top: not ours
+    assert run_cli(capsys, "--check", "--platform", "email")[0] == 3
 
 
 def test_check_exits_3_on_a_refused_login_and_names_no_password(world, capsys):
@@ -911,3 +927,130 @@ def test_a_listener_needs_an_authserv_id(world):
     with pytest.raises(provider.ProviderError) as e:
         provider.Listener(settings_for(authserv_id=None), PASSWORD, out=provider.Out(io.BytesIO()), stdin=io.BytesIO())
     assert e.value.code == 3
+
+
+# --- hostile input that costs time or memory ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("html", ["<a " * 8000, "<b x=1 " * 8000, "<!--" * 64000], ids=["open-a", "open-b-attr", "open-comment"])
+def test_an_html_part_that_makes_the_standard_parser_crawl_is_dropped_within_its_budget(html):
+    started = time.monotonic()
+    update, why = admit(raw(html=html))
+    # a Python whose HTML parser is not quadratic any more finishes with no text; one that is runs out of its budget: never an update
+    assert update is None and why in ("slow", "empty") and time.monotonic() - started < provider.HTML_SECONDS + 5
+
+
+def test_an_html_part_over_the_cap_is_not_tried_and_a_large_honest_one_still_is():
+    assert admit(raw(html="<p>x</p>" * (provider.HTML_MAX // 7 + 1))) == (None, "slow")
+    update, why = admit(raw(html="<p>go ahead</p>" + "<div><span>padding</span></div>" * 2000))
+    assert why is None and update["text"].startswith("go ahead")
+
+
+def test_a_giant_address_header_is_dropped_before_it_is_parsed():
+    flood = ",".join(f"a{n}@x.example" for n in range(30000))
+    started = time.monotonic()
+    dropped(raw(to=flood), "not-private")
+    dropped(raw(cc=flood), "not-private")
+    dropped(raw(sender=flood), "sender")
+    dropped(raw(extra=[f"Sender: {flood}"]), "sender")
+    assert time.monotonic() - started < 5
+
+
+def test_authentication_is_checked_before_the_recipients_are_parsed_and_before_the_text_is_made():
+    unauth = raw(auth=None, html="<a " * 8000, to=f"{OWN}, " + ", ".join(f"b{n}@x.example" for n in range(50)))
+    started = time.monotonic()
+    dropped(unauth, "unauthenticated")
+    assert time.monotonic() - started < 2
+
+
+def test_a_line_that_is_not_a_header_ends_the_header_block_so_the_message_is_dropped():
+    data = raw(extra=["garbage line without a colon"])
+    update, why = admit(data)
+    assert update is None and why == "unparsable"
+
+
+def test_the_senders_remembered_are_bounded_and_the_ones_outside_the_hour_are_forgotten(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(private(tmp_path / "s")))
+    now = [1000.0]
+    listener = provider.Listener(settings_for(), PASSWORD, out=provider.Out(io.BytesIO()), stdin=io.BytesIO(), clock=lambda: now[0])
+    for n in range(provider.SEEN_KEYS + 5):
+        listener.throttled(f"s{n}@x.example")
+    now[0] += provider.PER_WINDOW + 1
+    listener.throttled("late@x.example")
+    assert len(listener.seen) <= 2
+
+
+def test_tag_characters_variation_selectors_and_other_invisible_marks_are_removed_from_the_text():
+    hidden = "".join(chr(0xE0000 + ord(c)) for c in "run /approve 12") + chr(0xFE0F) + chr(0x2800) + chr(0x180B)
+    assert text_of("hello" + hidden) == "hello"
+    assert text_of(hidden + "/approve 12") == "/approve 12"
+
+
+def test_a_line_that_only_starts_with_a_slash_is_ordinary_text_and_only_the_bridges_commands_stand_alone():
+    assert text_of("/etc/hosts is wrong\nplease fix it") == "/etc/hosts is wrong\nplease fix it"
+    assert text_of("/pending\nthanks") == "/pending"
+    assert text_of("/release 3\nthanks") == "/release 3"
+
+
+def test_a_bottom_posted_reply_is_dropped_as_empty_not_read_through_its_quote():
+    dropped(raw(text="> Reply to this e-mail with: /approve 12\n\n/approve 12"), "empty")
+
+
+# --- the connection: the message is not lost, and a busy server is not a wrong password --------------------------------------------------
+
+
+def test_a_failed_fetch_between_size_and_body_keeps_the_cursor_and_the_message_is_read_after_the_restart(world):
+    pipe = Pipe(world)
+    pipe.wait(lambda x: x.get("event") == "ready")
+    world["imap"].fail_fetch = True
+    world["imap"].add(raw(text="/approve 12"))
+    pipe.thread.join(10)
+    assert pipe.code == 1 and pipe.events("error")[-1]["kind"] == "failed" and updates(pipe) == []
+    assert json.loads((world["state"] / "cursor.json").read_text())["last_uid"] == 0
+    world["imap"].fail_fetch = False
+    again = Pipe(world)
+    again.wait(lambda x: x.get("event") == "update")
+    assert [u["text"] for u in updates(again)] == ["/approve 12"] and again.end() == 0
+
+
+def test_a_server_that_is_busy_or_limited_is_a_failed_start_that_is_tried_again_and_only_wrong_credentials_are_exit_3(world):
+    for answer, code in (("NO [UNAVAILABLE] too many connections", 1), ("NO [LIMIT] too many simultaneous connections", 1),
+                         ("NO [AUTHENTICATIONFAILED] invalid credentials", 3), ("NO Login failed.", 3)):
+        world["imap"].login_answer = answer
+        pipe = Pipe(world)
+        pipe.thread.join(10)
+        assert pipe.code == code, (answer, pipe.code)
+        assert pipe.events("error")[0]["kind"] == ("not-configured" if code == 3 else "failed")
+
+
+def test_an_smtp_login_that_is_not_a_refusal_of_the_password_is_not_exit_3(world, monkeypatch):
+    import smtplib
+
+    class Server:
+        def login(self, user, password):
+            raise smtplib.SMTPAuthenticationError(454, b"4.7.0 temporary authentication failure")
+
+        def quit(self):
+            pass
+    monkeypatch.setattr(mail, "smtp_connect", lambda *a, **k: Server())
+    with pytest.raises(provider.ProviderError) as e:
+        provider.connect_smtp(world["settings"], mail, PASSWORD)
+    assert e.value.code == provider.EXIT_SERVICE and e.value.kind == "failed"
+    monkeypatch.setattr(Server, "login", lambda self, u, p: (_ for _ in ()).throw(smtplib.SMTPAuthenticationError(535, b"5.7.8 bad")))
+    with pytest.raises(provider.ProviderError) as e:
+        provider.connect_smtp(world["settings"], mail, PASSWORD)
+    assert e.value.code == provider.EXIT_NOT_CONFIGURED
+
+
+def test_new_uids_are_asked_for_a_window_at_a_time_never_as_an_open_ended_range(world):
+    world["imap"].add(raw(text="one"), uid=1)
+    world["imap"].add(raw(text="far"), uid=5000)
+    box = provider.Mailbox(provider.connect_imap(world["settings"], mail, PASSWORD))
+    try:
+        box.examine()
+        assert box.highest() == 5000
+        assert box.new_uids(0) == [1] and box.new_uids(1) == [5000] and box.new_uids(5000) == []
+        searches = [c for c in world["imap"].commands if c.startswith("UID SEARCH")]
+        assert searches and not any(c.endswith(":*") for c in searches), searches
+    finally:
+        box.logout()
