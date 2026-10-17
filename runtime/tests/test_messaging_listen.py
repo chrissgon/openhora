@@ -158,7 +158,7 @@ def rig(tmp_path, monkeypatch):
 def test_listen_is_optional_in_capabilities_false_when_absent_and_a_bool_when_present(rig):
     r = rig(caps={"listen": None})
     assert r.messenger.capabilities()["listen"] is False
-    assert set(r.messenger.capabilities()) == set(providers.CAPABILITY_KEYS) | {"listen"}
+    assert set(r.messenger.capabilities()) == set(providers.CAPABILITY_KEYS) | set(providers.OPTIONAL_KEYS)
     r.messenger.open_session()
     assert r.messenger.session is None and r.starts() == []   # nothing is started for a provider that does not listen
     r = rig(caps={"listen": "yes"})

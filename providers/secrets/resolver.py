@@ -252,6 +252,13 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "runtime, never the person's own mailbox; the provider sends it only over TLS and never prints it",
            ("providers/mailer/smtp.py",),
            store_username="mailer-smtp"),
+    Secret("MESSENGER_EMAIL_PASSWORD",
+           "receive the person's messages (IMAP, read only) and send the cards of the messaging bridge (SMTP) through the dedicated mailbox of the "
+           "e-mail channel",
+           "an app password (or the mailbox password where the host offers no app passwords) of a mailbox made for the bridge, never the person's "
+           "own; the provider sends it only over TLS and never prints it",
+           ("providers/messenger/email-imap.py",),
+           store_username="messenger-email"),
     Secret("OP_SERVICE_ACCOUNT_TOKEN",
            "let this resolver read the secrets mapped to 1Password on a machine with no desktop session (the manager's own sign-in)",
            "a 1Password service account with read access to only the vaults the mapping file names",
