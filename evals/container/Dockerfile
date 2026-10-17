@@ -1,6 +1,7 @@
 # The image every eval run executes in (evals/executor.py builds and names it).
 # Everything it installs is pinned: the base images by digest, the package index by a dated snapshot,
 # the two runners by a committed lock file (runners/package-lock.json), gh by version and checksum.
+# The PDF tools a run reaches for (pdftotext and pdftoppm from poppler-utils, python3-pypdf) come from the same snapshot.
 # Changing this folder changes what a run measures: it is an execution-side change of the measurement
 # (docs/architecture/reliability-model-2026-10-02.md, section 8), committed with a raised
 # measurement_version in evals/eval-gate.json.
@@ -24,6 +25,7 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
     && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-retries \
     && apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git python3 python3-venv chromium fonts-liberation jq less procps ripgrep file patch \
+      poppler-utils python3-pypdf \
     && rm -rf /var/lib/apt/lists/*
 
 # The code host's command-line tool, as a developer's machine has it, signed out: a model that

@@ -367,7 +367,8 @@ def skills(project: str) -> dict:
     the model `auto` would choose or None, "runs_here": <runs of it in this project's store>}], "checks":
     {"measurement": "ok" or why, "image": "ok" or why}, "models": [{"model", "adapter", "provider", "skills", "reliable",
     "community_only", "expected_cost", "band", "price"}] (one line for each model, for a picker), "default_model",
-    "recommended_model" (the cheapest model reliable for every skill in scope, else for the most; None when none)}. The proof is the entry runtime/proof.py keeps
+    "recommended_model" (the cheapest model reliable for every skill in scope, else for the most; None when none), "language" (the
+    project's `language` setting, None when not set: the request form's first language option)}. The proof is the entry runtime/proof.py keeps
     (proof.row), one pair for every model of the gate file, with the price of the one price table (runtime/prices.json)
     and its expected cost read now; never recomputed here. The measurement check is the
     status script's; the image check is made once for the machine: "ok" when the eval image is on it and is the image
@@ -401,7 +402,8 @@ def skills(project: str) -> dict:
         image = None
     summaries = _model_summaries(out)
     return {"skills": out, "checks": {"measurement": problem or "ok", "image": image or "ok"},
-            "models": summaries, "default_model": ctx["cfg"].get("default_model"), "recommended_model": ops_models.recommend(summaries)}
+            "models": summaries, "default_model": ctx["cfg"].get("default_model"), "recommended_model": ops_models.recommend(summaries),
+            "language": ctx["cfg"].get("language")}
 
 
 def _model_summaries(rows: list) -> list:

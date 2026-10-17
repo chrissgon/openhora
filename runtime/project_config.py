@@ -108,6 +108,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import autonomy  # noqa: E402  (the same folder: the check of the key "area_agents")
 import deps  # noqa: E402  (the same folder: the recipes and the check of the key "dependencies")
+import language  # noqa: E402  (the same folder: the rule of the key "language")
 import lease  # noqa: E402  (the same folder: a database or a lock is refused in a synced folder)
 import mail_address  # noqa: E402  (the same folder: the form of the outbox's sender)
 import operations  # noqa: E402  (the same folder: the groups and the ceilings the key "channels" is checked against)
@@ -337,26 +338,18 @@ def _default_model(value):
     return value
 
 
-LANGUAGE_RE = re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")
-_LANGUAGE_LOOSE = re.compile(r"^([a-zA-Z]{2})(?:[-_]([a-zA-Z]{2}))?$")
+LANGUAGE_RE = language.RULE        # one rule, kept in runtime/language.py (the line of a run, the request option and the router's line read it too)
 
 
 def _language(value):
     """The key "language": the language artifacts are written in, a tag of two lower-case letters and, optionally, a hyphen and
     two upper-case letters (pt-BR, en, en-US). None when absent (English). A tag in the wrong case, or with an underscore, is
-    refused with the right form, never rewritten. Nothing reads the value yet besides this check."""
+    refused with the right form, never rewritten. Runtime/language.py reads the value (the line of a run, the plan card)."""
     if value is None:
         return None
     if isinstance(value, str) and LANGUAGE_RE.fullmatch(value):
         return value
-    hint = ""
-    if isinstance(value, str):
-        loose = _LANGUAGE_LOOSE.fullmatch(value)
-        if loose:
-            canonical = loose.group(1).lower() + (("-" + loose.group(2).upper()) if loose.group(2) else "")
-            hint = f"; did you mean {canonical}?"
-    raise ConfigError("runtime.json language must be a language tag of two lower-case letters, optionally a hyphen and two upper-case "
-                      f"letters, such as en or pt-BR{hint}")
+    raise ConfigError(f"runtime.json language must be {language.SHAPE}{language.hint(value)}")
 
 
 def _price_max_age(raw: dict) -> int:

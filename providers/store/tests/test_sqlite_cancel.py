@@ -72,13 +72,13 @@ def test_a_store_at_14_migrates_to_15_keeps_every_row_and_admits_the_cancelled_s
     before = {t: [tuple(r) for r in old.execute(f"SELECT * FROM {t} ORDER BY 1")] for t in ("task_runs", "pending_decisions", "conversation_messages", "task_sources")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 14 and out["applied"] == [15] and out["schema_version"] == 15
+    assert out["migrated_from"] == 14 and out["applied"] == [15, 16] and out["schema_version"] == 16
     conn = store.open_db(path)
     for name, rows in before.items():
         assert [tuple(r) for r in conn.execute(f"SELECT * FROM {name} ORDER BY 1")] == rows, name
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == [] and conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert [r["name"] for r in conn.execute("PRAGMA table_info(task_runs)")][-4:] == ["error", "redactions", "billing", "autonomy"]
-    assert [r["name"] for r in conn.execute("PRAGMA table_info(tasks)")][-2:] == ["stop_requested_at", "stop_requested_by"]
+    assert [r["name"] for r in conn.execute("PRAGMA table_info(tasks)")][-3:] == ["stop_requested_at", "stop_requested_by", "language"]
     assert conn.execute("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'task_runs'").fetchone()[0] == "task_runs_by_task"
     with pytest.raises(sqlite3.DatabaseError, match="never deleted"):
         conn.execute("DELETE FROM task_runs WHERE id = 1")

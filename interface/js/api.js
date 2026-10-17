@@ -279,9 +279,9 @@ export function instructionsAdd(p, line, baseSha256, options = {}) {
   return send("POST", `/projects/${enc(p)}/instructions/add`, { body: { line, base_sha256: baseSha256 }, signal: options.signal });
 }
 
-/** POST /projects/{p}/requests: {text, flow?, title?, after?, model?}; `after` is the number of the request this one runs after, `model` a model id of the gate file or "auto". */
-export function request(p, text, { flow, title, after, model, signal } = {}) {
-  return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after, model }, signal });
+/** POST /projects/{p}/requests: {text, flow?, title?, after?, model?, language?}; `after` is the number of the request this one runs after, `model` a model id of the gate file or "auto", `language` a tag such as en or pt-BR (absent: the project's setting). */
+export function request(p, text, { flow, title, after, model, language, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after, model, language }, signal });
 }
 
 /** POST /projects/{p}/requests/{id}/route (job): {flow?, params?}; `params` is a list of "name=value" for the flow's parameters. */

@@ -286,26 +286,26 @@ const kids = (n) => n.children.map((c) => c.tagName + "." + (c.attrs.class || ""
 const labels = all(form.el, "label").map((l) => l.children[0].textContent);
 const selects = all(form.el, "select");
 out.form = { hiddenAtFirst: form.el.hidden, open: [form.isOpen()], root: form.el.cls(), head: kids(form.el), back: textOf(byClass(form.el, "wb-newreq-back")[0]), title: textOf(byClass(form.el, "wb-newreq-title")[0]), labels,
-  after: selects[2].children.map((o) => [o.attrs.value, textOf(o)]), hint: byClass(form.el, "wb-hint")[1].textContent, create: byClass(form.el, "pui-solid").map(textOf), details: all(form.el, "details").length, dialog: all(form.el, "dialog").length };
+  after: selects[3].children.map((o) => [o.attrs.value, textOf(o)]), hint: byClass(form.el, "wb-hint")[2].textContent, create: byClass(form.el, "pui-solid").map(textOf), details: all(form.el, "details").length, dialog: all(form.el, "dialog").length };
 form.open(true);
 out.form.shown = [form.el.hidden, form.isOpen()];
 click(byClass(form.el, "wb-newreq-back")[0]);
 out.form.backs = backs;
 const area = all(form.el, "textarea")[0];
 area.value = "Add a size guide";
-selects[2].value = "9";
+selects[3].value = "9";
 (all(form.el, "form")[0].listeners.submit || []).forEach((fn) => fn({ preventDefault() {} }));
-selects[2].value = "";
+selects[3].value = "";
 (all(form.el, "form")[0].listeners.submit || []).forEach((fn) => fn({ preventDefault() {} }));
 out.created = created;
 // a request that is no longer offered resets the choice to None; one still offered keeps it
-selects[2].value = "7";
+selects[3].value = "7";
 form.setRequests([{ id: 7, title: "Spring sale page", state: "running" }]);
-out.keptChoice = selects[2].value;
+out.keptChoice = selects[3].value;
 form.setRequests([{ id: 9, title: "Autumn", state: "planned" }]);
-out.droppedChoice = selects[2].value;
+out.droppedChoice = selects[3].value;
 form.reset();
-out.reset = [area.value, selects[2].value];
+out.reset = [area.value, selects[3].value];
 
 // the composer (R-44, R-45): Send first in the keyboard order, "New request" beside it, the one hint, the list over the field
 const sent = [];
@@ -402,7 +402,7 @@ def test_the_tabs_the_form_the_composer_the_request_block_and_the_plan_card_are_
     assert f["hiddenAtFirst"] is True and f["open"] == [False] and "wb-newreq" in f["root"], "R-44: a form of its own, hidden until New request"
     assert f["details"] == 0 and f["dialog"] == 0, "R-44: not a disclosure and not a modal"
     assert f["head"][0].endswith("wb-newreq-head") and f["title"] == "New request" and f["back"] == "Back to the conversation"
-    assert f["labels"] == ["What do you want done?", "Flow", "Model", "Title (optional)", "After request (optional)"] and f["create"] == ["Create request"], "R-44, R-46: the four fields, the one solid button"
+    assert f["labels"] == ["What do you want done?", "Flow", "Model", "Language", "Title (optional)", "After request (optional)"] and f["create"] == ["Create request"], "R-44, R-46: the four fields, the one solid button"
     assert f["after"] == [["", "None: it starts when it can"], ["7", "#7 Spring sale page · Running"], ["9", "#9 Autumn · Planned"]], "R-46: a select of the open requests"
     assert f["hint"] == "The request waits until the one you pick is done or cancelled. Only requests still open are listed."
     assert f["shown"] == [False, True] and f["backs"] == 1
@@ -504,20 +504,20 @@ const form = byClass(frame.main, "wb-newreq")[0];
 const state = () => ({ thread: !thread.hidden, footer: !footer.hidden, form: !form.hidden });
 out.start = state();
 out.title = [byClass(frame.main, "wb-panel-title")[0].textContent, byClass(frame.main, "wb-panel-sub")[0].textContent];
-out.options = all(form, "select")[2].children.map((o) => o.attrs.value);
+out.options = all(form, "select")[3].children.map((o) => o.attrs.value);
 out.commandsRead = sent.filter((s) => s.url === A("/commands")).length;
 click(byClass(frame.main, "wb-new-btn")[0]);
 out.opened = state();
 out.focusedField = document.activeElement === all(form, "textarea")[0];
 all(form, "textarea")[0].value = "Add a size guide";
-all(form, "select")[2].value = "5";
+all(form, "select")[3].value = "5";
 click(byClass(form, "wb-newreq-back")[0]);
 out.back = state();
 click(byClass(frame.main, "wb-new-btn")[0]);
-out.draft = [all(form, "textarea")[0].value, all(form, "select")[2].value];
+out.draft = [all(form, "textarea")[0].value, all(form, "select")[3].value];
 (all(form, "form")[0].listeners.submit || []).forEach((fn) => fn({ preventDefault() {} }));
 await wait(2500); await settle();
-out.created = { requests: sent.filter((s) => s.url === A("/requests")).map((s) => s.body), route: sent.filter((s) => s.url === A("/requests/20/route")).length, after: state(), fields: [all(form, "textarea")[0].value, all(form, "select")[2].value] };
+out.created = { requests: sent.filter((s) => s.url === A("/requests")).map((s) => s.body), route: sent.filter((s) => s.url === A("/requests/20/route")).length, after: state(), fields: [all(form, "textarea")[0].value, all(form, "select")[3].value] };
 view.dispose();
 
 // --- P-6: with the Inbox open every request's decisions are read and listed, a cancelled request's included ---

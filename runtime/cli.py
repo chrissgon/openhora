@@ -6,7 +6,7 @@
 """The terminal shell of the task runtime: one command per operation of runtime/ops.py, nothing else.
 
 Usage:
-  python3 runtime/cli.py request  --project <dir> [--flow <name>] (--text <text> | --text-file <file>) [--title <title>]
+  python3 runtime/cli.py request  --project <dir> [--flow <name>] (--text <text> | --text-file <file>) [--title <title>] [--language <tag>]
   python3 runtime/cli.py route    --project <dir> --request <request id> [--flow <name> [--param <name>=<value>]...]
   python3 runtime/cli.py route-queued --project <dir>
   python3 runtime/cli.py approve  --project <dir> --id <pending id> [--sha256 <plan hash> | --sha256 <effect hash>]
@@ -76,6 +76,9 @@ request   records what you want. With --flow, plans it from the flow file flows/
           dependencies the file writes; a task without a dependency is ready at once. Without --flow, the
           request waits for its route. A flow of the project, a flow with a step and a flow with parameters are not started
           this way: record the request, then route it (route --flow), so that you approve the plan by its hash.
+          --language <tag> (two lower-case letters, optionally a hyphen and two upper-case letters: en, pt-BR) is your choice of the
+          language its deliverables are written in; the plan shows it ("Language: en (requested)") and its hash covers it. Without
+          it the project's `language` setting decides (en when none is set); a language asked for in a message or an answer does not.
 route     plans a request that waits for its route. Without --flow: one run of the router skill, as it is, asked
           only for the route (it calls a model, like run-next; nothing it writes comes back); a route it gives
           becomes a plan for you to approve, a question it asks is answered with answer (then route again), and

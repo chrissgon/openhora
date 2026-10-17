@@ -58,7 +58,7 @@ def test_migration_12_adds_the_four_columns_and_a_store_at_11_migrates_and_keeps
         store.open_db(path)
     assert refused.value.code == store.EXIT_NOT_CONFIGURED
     out = store.init_db(path)
-    assert out["migrated_from"] == 11 and out["applied"] == [12, 13, 14, 15] and out["schema_version"] == 15
+    assert out["migrated_from"] == 11 and out["applied"] == [12, 13, 14, 15, 16] and out["schema_version"] == 16
     conn = store.open_db(path)
     names = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)")]
     assert all(c in names for c in COLUMNS)
@@ -68,7 +68,7 @@ def test_migration_12_adds_the_four_columns_and_a_store_at_11_migrates_and_keeps
 
 
 def test_the_version_row_and_the_migrations_table_name_the_step_task():
-    assert store.SCHEMA_VERSION == 15 and "step task" in store.MIGRATIONS[12][0] and "without the web" in store.MIGRATIONS[13][0]
+    assert store.SCHEMA_VERSION == 16 and "step task" in store.MIGRATIONS[12][0] and "without the web" in store.MIGRATIONS[13][0]
     assert store.STEP_OWNER == "runtime"
 
 

@@ -272,7 +272,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 <!-- generated: cli-verbs -->
 | Verb | Flags it reads | Operation |
 |---|---|---|
-| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` `[--model]` | `request` |
+| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` `[--model]` `[--language]` | `request` |
 | `route` | `--request` `[--flow]` `[--param]` | `route` |
 | `route-queued` | - | `route_queued` |
 | `status` | - | `status` |
@@ -485,3 +485,4 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 - 2026-10-15: the operation `run-step` (P5), and `set-mode` takes the agent `runtime` (the brake of step tasks); the held word `start it by hand`.
 - 2026-10-15: `run-step` takes `--unattended` (the dispatcher's flag), the `agents` read carries `steps` (the brake of the step tasks) and the Building's panel draws it (P5c).
 - 2026-10-15: five rows and seven routes for the sources (P4): `source-add`, `source-import`, `source-refresh`, `source-describe` (the terminal and the page; the upload follows the existing file route) and `sources` (also the MCP mode and messaging, in the group `sources`).
+- 2026-10-16: the language of a deliverable (LANGUAGE, runtime part): `request` takes `--language <tag>` (the terminal) and `language` (`POST /projects/{p}/requests`, the MCP mode); the request form has a language select beside the model select (the project's language first, then `en`, `pt-BR`, `es`, `fr`, `de`, and a field for another tag); the `skills` read carries the project's `language`; the plan card and the plan's text show one language line before approval (`interface/js/language.js`, `interface/js/cards/plan-rows.js`).

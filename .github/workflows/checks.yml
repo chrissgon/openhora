@@ -86,7 +86,7 @@ jobs:
         run: >-
           uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 pytest -q -n auto -o faulthandler_timeout=120 --durations=20
           scripts/tests/test_runtime_python39.py scripts/tests/test_provider_resolve.py
-          scripts/tests/test_runtime.py scripts/tests/test_runtime_vote.py
+          scripts/tests/test_runtime.py scripts/tests/test_runtime_vote.py scripts/tests/test_stage_skills.py
           skills/mkt-engage/scripts/tests skills/mkt-publish/scripts/tests
           skills/mkt-vote-round/scripts/tests skills/brand-identity/scripts/tests
           shared/scripts/tests

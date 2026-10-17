@@ -77,6 +77,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/routines.py", "runtime/ops_routines.py",
     # The person's standing instructions (package INSTRUCTIONS): the file and its checks, and the operations over it.
     "runtime/instructions.py", "runtime/ops_instructions.py", "runtime/ops_contained.py",
+    # The language the deliverables are written in (LANGUAGE): the rule, the order and the words; the operations that check a request's choice.
+    "runtime/language.py", "runtime/ops_language.py",
     # The project script (P9): the step kind, the provider's host side (it loads the two programs that run inside its image, which parse here too).
     "runtime/step_project_script.py", "providers/script/container.py", "providers/script/egress_proxy.py", "providers/script/_inner.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.

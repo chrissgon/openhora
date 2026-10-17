@@ -27,6 +27,8 @@ Schema version 9 adds the `billing` column of task_runs: how the credential a ru
 Schema version 10 adds the `model` column of tasks (a request or a task: a model id or `auto`, NULL for a row older than the column),
 and the `autonomy` column of task_runs (`proven`, `consent` or `supervised`: how the run's pair was released, NULL for a run older than the column).
 Schema version 15 adds a stop request to a request or a task (`stop_requested_at`, `stop_requested_by`) and the run status `cancelled`.
+Schema version 16 adds the `language` column of tasks (a request or a task: the language tag the person asked the deliverable in, NULL when
+not requested: the project's `language` setting decides then).
 
 Concurrency: the database runs in WAL mode (readers never block the writer) with a 10-second busy
 timeout, and every write is one BEGIN IMMEDIATE transaction, so several agents and overlapping
@@ -53,7 +55,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -530,6 +532,14 @@ MIGRATIONS = {
         "CREATE INDEX task_runs_by_task ON task_runs (task_id, id)",
         """CREATE TRIGGER task_runs_never_deleted BEFORE DELETE ON task_runs
             BEGIN SELECT RAISE(ABORT, 'a task run is never deleted'); END""",
+    ]),
+    # LANGUAGE: the language the person asked a deliverable to be written in (`request --language`, the page's language select, or the
+    # one the router proposed and the person saw on the plan card). A request carries it from the start; each task takes it from the plan
+    # when the plan is approved, as `model` is carried. NULL: not requested, so the project's `language` setting (runtime.json) decides.
+    # The tag has the shape runtime/language.py checks (two lower-case letters, optionally a hyphen and two upper-case letters).
+    16: ("the language a request or a task asks its deliverable in", [
+        "ALTER TABLE tasks ADD COLUMN language TEXT CHECK (language IS NULL OR language GLOB '[a-z][a-z]' "
+        "OR language GLOB '[a-z][a-z]-[A-Z][A-Z]')",
     ]),
 }
 
@@ -1272,6 +1282,18 @@ def _model_arg(value):
     return text_arg(value, "model", REF_MAX, required=False)
 
 
+LANGUAGE_RE = re.compile(r"[a-z]{2}(?:-[A-Z]{2})?")   # the rule of runtime/language.py (a test holds the two equal); migration 16 checks the column the same way
+
+
+def _language_arg(value):
+    """The language a request or a task carries: None (not requested), or a tag of two lower-case letters and, optionally, a hyphen and
+    two upper-case letters."""
+    value = text_arg(value, "language", LABEL_MAX, required=False)
+    if value is not None and not LANGUAGE_RE.fullmatch(value):
+        raise StoreError("language must be a language tag such as en or pt-BR", EXIT_USAGE)
+    return value
+
+
 SOURCE_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 SOURCE_TYPES = ("file", "notion", "drive")
 SOURCE_LABELS = ("import", "refresh", "changed-by-person")
@@ -1454,7 +1476,7 @@ def _refresh(conn: sqlite3.Connection, now: str) -> tuple[list, list]:
 
 def request_add(conn: sqlite3.Connection, *, title: str, text: str, flow: str | None = None,
                 tasks: list | None = None, after: int | None = None, waits: list | None = None,
-                model: str | None = None) -> dict:
+                model: str | None = None, language: str | None = None) -> dict:
     """Record a request and, when its plan is given, the tasks of the plan, in one transaction.
 
     Without tasks the request stays `requested` (the router has not answered yet). With tasks, a list of
@@ -1463,9 +1485,11 @@ def request_add(conn: sqlite3.Connection, *, title: str, text: str, flow: str | 
     become `ready`. A dependency names the key of a task earlier in the list, so the plan has no cycle.
     after is the request this one waits for (the person's override, kept on the request); waits are the waits the
     plan's tasks begin with, as _insert_waits reads them, so that no task is ever ready for a moment before its wait
-    exists. model is the model id (or `auto`) the person chose for the request, None when none was chosen.
+    exists. model is the model id (or `auto`) the person chose for the request, None when none was chosen. language is the tag
+    the person asked the deliverable in, None when not requested (the tasks of a plan carry their own, `language` of each item).
     Returns {"request": id, "state", "tasks": [{"id", "key", "skill", "state"}]}."""
     model = _model_arg(model)
+    language = _language_arg(language)
     title = text_arg(title, "title", TITLE_MAX)
     text = text_arg(text, "text", TEXT_MAX, multiline=True)
     flow = text_arg(flow, "flow", LABEL_MAX, required=False)
@@ -1474,17 +1498,18 @@ def request_add(conn: sqlite3.Connection, *, title: str, text: str, flow: str | 
         raise StoreError("a plan names its flow", EXIT_USAGE)
     now = iso(utcnow())
     with write(conn):
-        return _request_in(conn, title, text, flow, plan, after, waits, model, now)
+        return _request_in(conn, title, text, flow, plan, after, waits, model, now, language)
 
 
-def _request_in(conn: sqlite3.Connection, title: str, text: str, flow, plan: list, after, waits, model, now: str) -> dict:
+def _request_in(conn: sqlite3.Connection, title: str, text: str, flow, plan: list, after, waits, model, now: str,
+                language=None) -> dict:
     """Inside a write transaction: the request and its checked plan, as request_add makes them (a routine's fire makes its request
     in the transaction that writes the fire's row)."""
     after = _check_after(conn, None, after)
     request_id = conn.execute(
-        "INSERT INTO tasks (flow, title, text, state, after_request, model, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (flow, title, text, "planned" if plan else "requested", after, model, now,
-                                            now)).lastrowid
+        "INSERT INTO tasks (flow, title, text, state, after_request, model, language, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (flow, title, text, "planned" if plan else "requested", after, model, language, now,
+                                               now)).lastrowid
     ids = _insert_plan(conn, request_id, flow, plan, now)
     _insert_waits(conn, request_id, dict(zip([p["key"] for p in plan], ids)), waits or [], now)
     _refresh(conn, now)
@@ -1586,7 +1611,8 @@ def _plan_items(tasks, *, empty_text: bool = False, known=()) -> list:
         plan.append({"key": key, "skill": skill,
                      "title": text_arg(item.get("title"), "title", TITLE_MAX), "text": text,
                      "depends_on": list(depends), "milestone": 1 if item.get("milestone") else 0,
-                     "agent": agent, "model": _model_arg(item.get("model")), "sources": _sources_arg(item.get("sources")),
+                     "agent": agent, "model": _model_arg(item.get("model")), "language": _language_arg(item.get("language")),
+                     "sources": _sources_arg(item.get("sources")),
                      "web_off": 1 if item.get("web_off") else None, **step})
     return plan
 
@@ -1600,10 +1626,10 @@ def _insert_plan(conn: sqlite3.Connection, request_id: int, flow: str | None, pl
     for item in plan:
         ids[item["key"]] = conn.execute(
             "INSERT INTO tasks (parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, "
-            "model, sources, step_kind, step_args, step_footprint, web_off, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "model, language, sources, step_kind, step_args, step_footprint, web_off, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (request_id, flow, item["key"], item["skill"], item["agent"], item["title"], item["text"],
-             json.dumps([ids[d] for d in item["depends_on"]]), item["milestone"], item.get("model"),
+             json.dumps([ids[d] for d in item["depends_on"]]), item["milestone"], item.get("model"), item.get("language"),
              json.dumps(item["sources"]) if item["sources"] else None, item.get("step_kind"), item.get("step_args"),
              item.get("step_footprint"), item["web_off"], now, now)).lastrowid
         added.append(ids[item["key"]])
