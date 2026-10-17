@@ -377,7 +377,10 @@ def test_a_work_tenant_that_needs_its_admin_says_so_and_stops(case):
     assert code == 3 and "your Microsoft 365 admin must approve the app" in said
     case.fake.token_error = {"error": "interaction_required", "error_description": "AADSTS50076: multi-factor"}
     code, _, said = case.run("--check")
-    assert code == 3 and "admin must approve" in said
+    assert code == 3 and "multi-factor sign-in" in said and "conditional access" in said and "admin must approve" not in said
+    case.fake.token_error = {"error": "access_denied", "error_description": "AADSTS65004: The user declined to consent."}
+    code, _, said = case.run("--check")
+    assert code == 1 and "sign-in was declined" in said and "admin must approve" not in said
 
 
 def test_a_rejected_app_registration_is_not_configured_and_names_what_to_check(case):
@@ -448,6 +451,9 @@ def test_the_authorization_record_is_read_from_the_credentials_directory_as_the_
 # --- the rotation of the refresh token ---------------------------------------------------------------------------------------
 
 
+KEY = ("openhora", "onedrive-sources")
+
+
 class Store:
     """A stand-in secret store: set_password only (and a switch that makes it fail)."""
 
@@ -461,9 +467,20 @@ class Store:
 
 
 class StoreResolver:
-    """A stand-in resolver that finds the record where the real one finds it after `authorize`: in the OS secret store."""
+    """A stand-in resolver that finds the record where the real one finds it after `authorize`: in the OS secret store, as it is NOW."""
 
-    def __init__(self, record_json, where="secret store"):
+    def __init__(self, store):
+        self.store = store
+
+    def resolve(self, name, allow_store=True):
+        found = self.store.values.get(KEY)
+        return None if found is None else (found, "secret store")
+
+
+class FixedResolver:
+    """A stand-in resolver that finds the record somewhere else than the store."""
+
+    def __init__(self, record_json, where):
         self.record_json, self.where = record_json, where
 
     def resolve(self, name, allow_store=True):
@@ -474,24 +491,24 @@ class StoreResolver:
 def stored(case, monkeypatch):
     """The provider module pointed at the fake, with the record found in a stand-in store (so a rotation may be written back)."""
     store = Store()
+    store.values[KEY] = case.fake.record_json()
+    store.initial = dict(store.values)
     monkeypatch.setattr(od, "endpoints", lambda: (case.fake.base, case.fake.token_url, ("127.0.0.1",), False))
-    monkeypatch.setattr(od, "secret_resolver", lambda: StoreResolver(case.fake.record_json()))
+    monkeypatch.setattr(od, "secret_resolver", lambda: StoreResolver(store))
     monkeypatch.setattr(od, "keyring_module", lambda test_mode: store)
     return store
 
 
 def test_the_rotated_refresh_token_is_written_back_into_the_same_record(case, stored, capsys):
     assert od.main(["--check"]) == 0
-    record = json.loads(stored.values[("openhora", "onedrive-sources")])
+    record = json.loads(stored.values[KEY])
     assert record["refresh_token"] == "fake-refresh-token-1-not-real" != fake_graph.REFRESH_TOKEN
     assert {k: v for k, v in record.items() if k != "refresh_token"} == {k: v for k, v in case.fake.record().items() if k != "refresh_token"}
     assert json.loads(capsys.readouterr().out)["rotation"] == "stored"
     # the next call, from the stored record, refreshes with the new token (and rotates again)
-    od_resolver = StoreResolver(json.dumps(record))
-    od.secret_resolver = lambda: od_resolver
     assert od.main(["--check"]) == 0
     assert case.fake.token_forms[-1]["refresh_token"] == "fake-refresh-token-1-not-real"
-    assert json.loads(stored.values[("openhora", "onedrive-sources")])["refresh_token"] == "fake-refresh-token-2-not-real"
+    assert json.loads(stored.values[KEY])["refresh_token"] == "fake-refresh-token-2-not-real"
 
 
 def test_a_store_that_cannot_be_written_does_not_stop_the_call_and_the_old_token_is_kept(case, stored, capsys):
@@ -500,26 +517,55 @@ def test_a_store_that_cannot_be_written_does_not_stop_the_call_and_the_old_token
     out, err = capsys.readouterr()
     assert code == 0 and json.loads(out)["supported"] is True, "the call went through with the old token"
     assert "could not be stored" in err and "carrying on with the old one" in err and "RuntimeError" in err
-    assert stored.values == {} and "fake-refresh-token-1-not-real" not in err + out, "the new token is printed nowhere"
+    assert stored.values == stored.initial and "fake-refresh-token-1-not-real" not in err + out, "the new token is printed nowhere"
+
+
+def test_a_record_forgotten_while_the_call_ran_is_not_written_back(case, stored, capsys, monkeypatch):
+    original = od.refresh_access_token
+
+    def refresh_then_forget(token_url, record):
+        got = original(token_url, record)
+        del stored.values[KEY]   # `onedrive_auth.py forget` ran in another terminal meanwhile
+        return got
+
+    monkeypatch.setattr(od, "refresh_access_token", refresh_then_forget)
+    assert od.main(["--check"]) == 0
+    out, err = capsys.readouterr()
+    assert stored.values == {} and json.loads(out)["rotation"] == "not stored: the record changed meanwhile"
+    assert "changed (or was forgotten) while this ran" in err
+
+
+def test_a_record_authorized_again_while_the_call_ran_is_not_overwritten(case, stored, capsys, monkeypatch):
+    newer = case.fake.record_json(refresh_token="fake-refresh-token-newer-authorization")
+    original = od.refresh_access_token
+
+    def refresh_then_authorize(token_url, record):
+        got = original(token_url, record)
+        stored.values[KEY] = newer   # a concurrent `authorize` stored a new authorization
+        return got
+
+    monkeypatch.setattr(od, "refresh_access_token", refresh_then_authorize)
+    assert od.main(["--check"]) == 0
+    assert stored.values[KEY] == newer and json.loads(capsys.readouterr().out)["rotation"] == "not stored: the record changed meanwhile"
 
 
 def test_a_record_that_came_from_the_environment_or_the_credentials_directory_is_never_rewritten(case, stored, monkeypatch):
     for where in ("environment", "credentials directory"):
-        monkeypatch.setattr(od, "secret_resolver", lambda where=where: StoreResolver(case.fake.record_json(), where))
+        monkeypatch.setattr(od, "secret_resolver", lambda where=where: FixedResolver(case.fake.record_json(), where))
         assert od.main(["--check"]) == 0
-    assert stored.values == {}
+    assert stored.values == stored.initial
 
 
 def test_a_token_that_did_not_rotate_writes_nothing(case, stored, capsys):
     case.fake.rotate = False
     assert od.main(["--check"]) == 0
-    assert stored.values == {} and json.loads(capsys.readouterr().out)["rotation"] == "not rotated"
+    assert stored.values == stored.initial and json.loads(capsys.readouterr().out)["rotation"] == "not rotated"
 
 
 def test_a_token_that_fails_the_scope_check_is_not_stored(case, stored, capsys):
     case.fake.scope_granted = "Files.Read User.Read"
     assert od.main(["--check"]) == 3
-    assert stored.values == {}
+    assert stored.values == stored.initial
 
 
 def test_test_mode_never_reads_or_writes_the_store(case):
@@ -603,3 +649,87 @@ def test_the_helpers_agree_with_the_contract_the_resolver_enforces():
     assert od.SOURCES_ONLY is True and od.SCOPE == "Files.Read" and od.SECRET == "ONEDRIVE_SOURCES_TOKEN"
     assert od.REFRESH_SCOPE == "https://graph.microsoft.com/Files.Read offline_access"
     assert od.DEFAULT_API_BASE == "https://graph.microsoft.com/v1.0" and od.TOKEN_URL_TEMPLATE.startswith("https://login.microsoftonline.com/")
+
+
+# --- a credential never reaches an error ------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("junk", [" x", "\tx", "x y", "caf\u00e9", "\x7f"])
+def test_a_download_address_with_a_space_a_tab_or_a_non_ascii_character_is_refused_without_showing_it(case, junk):
+    case.fake.download_base = case.fake.root + "/" + junk
+    code, _, said = case.read(DOCX_ID)
+    assert code == 1 and "characters an address does not hold" in said and "nothing was fetched" in said
+    assert "Traceback" not in said and fake_graph.DOWNLOAD_TEMPAUTH not in said and fake_graph.DOWNLOAD_TICKET not in said
+    assert case.fake.downloads == [] and not (case.out / "content").exists()
+
+
+@pytest.mark.parametrize("token", ["tok\r\nX-Injected: 1", "tok en", "tok\tx", "tok\u00e9"])
+def test_an_access_token_that_could_not_be_sent_as_a_header_is_refused_without_showing_it(case, token):
+    case.fake.access_token = token
+    code, _, said = case.stat(DOCX_ID)
+    assert code == 1 and "will not send" in said and "Traceback" not in said and "X-Injected" not in said and "tok" not in said.replace("token", "")
+    assert case.fake.api_requests() == []
+    code, _, said = case.run("--check")
+    assert code == 1 and "will not send" in said
+
+
+def test_the_library_errors_that_quote_a_header_or_an_address_are_reduced_to_their_kind(case):
+    with pytest.raises(od.ProviderError) as refused:
+        od.http("GET", case.fake.base + "/x", {"Authorization": "Bearer a\r\nb"}, what="Microsoft Graph")
+    assert "ValueError" in str(refused.value) and "Bearer" not in str(refused.value) and refused.value.code == 1
+    with pytest.raises(od.ProviderError) as refused:
+        od.http("GET", case.fake.base + "/a b", {}, what="Microsoft Graph")
+    assert "InvalidURL" in str(refused.value) and "/a b" not in str(refused.value)
+
+
+# --- items of a shape this provider does not understand -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fields,fails", [
+    ({"file": "text/plain"}, ("stat", "read", "search", "children")), ({"file": ["x"]}, ("stat", "read", "search", "children")),
+    ({"parentReference": "x"}, ("search", "children")), ({"parentReference": ["x"]}, ("search", "children")),
+])
+def test_an_item_whose_file_or_parent_is_not_an_object_is_an_exit_1_and_not_a_traceback(case, fields, fails):
+    case.fake.add_malformed(DRIVE, "BAD1!801", "weird.txt", **fields)
+    for argv in (["stat", "--id", ident("BAD1!801"), "--as-source"], ["read", "--id", ident("BAD1!801"), "--as-source", "--out-dir", str(case.out)],
+                 ["search", "--query", "weird"], ["children", "--path", "/Documents"]):
+        code, _, said = case.run(*argv)
+        assert "Traceback" not in said, argv
+        if argv[0] in fails:
+            assert code == 1 and ("is not an object" in said or "does not understand" in said), (argv[0], said)
+        else:
+            assert code == 0, (argv[0], said)   # the verb never reads that field
+
+
+# --- an item without what a read needs ----------------------------------------------------------------------------------------------
+
+
+def test_a_folder_without_a_ctag_says_it_is_a_folder(case):
+    case.fake.add_folder(DRIVE, "FOLD1!201", "Reports")
+    case.fake.hidden = {"cTag"}
+    code, out, said = case.stat("FOLD1!201")
+    assert code == 0 and out["supported"] is False and "a folder is not a source" in out["reason"] and out["version"] == "", said
+    code, _, said = case.read("FOLD1!201")
+    assert code == 1 and "a folder is not a source" in said and "cTag" not in said
+
+
+def test_a_file_without_a_ctag_is_not_read(case):
+    case.fake.hidden = {"cTag"}
+    code, _, said = case.read(DOCX_ID)
+    assert code == 1 and "without a cTag" in said and case.fake.downloads == []
+
+
+def test_when_graph_omits_the_size_the_download_hosts_content_length_stands_in_for_it(case):
+    case.fake.hidden = {"size"}
+    code, out, said = case.read(DOCX_ID)
+    assert code == 0 and out["bytes"] == len(DOCX_BYTES), said
+
+
+def test_a_download_with_no_size_from_anyone_is_refused(case, monkeypatch):
+    case.fake.hidden = {"size"}
+    monkeypatch.setattr(od, "endpoints", lambda: (case.fake.base, case.fake.token_url, ("127.0.0.1",), True))
+    monkeypatch.setattr(od, "secret_resolver", lambda: FixedResolver(case.fake.record_json(), "environment"))
+    original = od.fetch_download
+    monkeypatch.setattr(od, "fetch_download", lambda url, limit: (original(url, limit)[0], {}))
+    code = od.main(["read", "--id", ident(DOCX_ID), "--as-source", "--out-dir", str(case.out)])
+    assert code == 1 and not (case.out / "content").exists()

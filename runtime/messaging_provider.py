@@ -47,7 +47,7 @@ START_WINDOW = 86400.0
 STDIN_WAIT, TERM_WAIT = 10.0, 5.0  # the stop: after stdin ends, then after SIGTERM, before SIGKILL
 UPDATE_QUEUE = 1000
 STDERR_TAIL = 300
-ERROR_KINDS = ("usage", "not-configured", "failed", "paused")
+ERROR_KINDS = ("usage", "not-configured", "failed", "paused", "skipped")   # "skipped" is not the state of the run: a message the provider gave up (ListenSession.take_unread)
 ANSWER_KINDS = ("usage", "not-configured", "failed", "deferred")   # "paused" is an error-event kind only: a send answer cannot be paused today; the kinds of a send that did not go out; "deferred" is not an error: the platform cannot take it yet and the bridge keeps the card
 PAUSED_WAIT = 300.0                # a provider that exits 3 after an error event of kind "paused" (its session is gone) is asked again after this
 PAUSED_REPEAT = 86400.0            # the line that says it is paused is written again this often while it stays paused
@@ -122,6 +122,11 @@ class Messenger:
     def close_session(self) -> None:
         if self.session is not None:
             self.session.close()
+
+    def take_unread(self) -> int:
+        """How many messages the provider gave up since the last call (error events of kind `skipped`), and forget them. 0 for a provider that
+        does not listen: a provider that is polled writes no events."""
+        return self.session.take_unread() if self.session is not None else 0
 
     def receive(self, offset: int, timeout: int) -> dict:
         if self.session is not None:
@@ -236,6 +241,8 @@ class ListenSession:
         self.inbox = deque()                     # the updates, bounded by queue_size
         self.inbox_cv = threading.Condition()    # its own lock: the reader takes it for an instant and never waits on it
         self.woken = False
+        self.skip_noted = False                  # one log line for a burst of skipped events, until the bridge takes the count
+        self.unread = 0                          # messages the provider gave up (error events of kind "skipped") and the bridge has not taken; under inbox_cv
         self.cv = threading.Condition()          # guards run, closing, fatal, generation
         self.run = None
         self.closing = threading.Event()
@@ -271,6 +278,12 @@ class ListenSession:
         with self.inbox_cv:
             self.woken = True
             self.inbox_cv.notify_all()
+
+    def take_unread(self) -> int:
+        """The number of messages the provider gave up since the last call, and reset it. Only the count: what the provider said of them is never kept."""
+        with self.inbox_cv:
+            found, self.unread, self.skip_noted = self.unread, 0, False
+            return found
 
     def send(self, chat: str, message: dict) -> str:
         with self.cv:
@@ -559,6 +572,12 @@ class ListenSession:
             elif not self.full_noted:
                 self.full_noted = True
                 self.log("the update queue is full; the newest updates are dropped")
+        elif event == "error" and found.get("kind") == "skipped":
+            with self.inbox_cv:      # a skip is not the state of the run: `kind` and `reason` stay as they were, and the reason is never stored, logged or forwarded
+                self.unread += 1
+                first, self.skip_noted = not self.skip_noted, True
+            if first:      # one line for a burst (a list of 200 given up at once), like full_noted
+                self.log("the messenger provider gave up a message it could not read (skipped)")
         elif event == "error":
             kind = found.get("kind") if found.get("kind") in ERROR_KINDS else "other"
             run.kind = kind

@@ -343,7 +343,9 @@ def test_an_error_callback_is_an_exit_not_a_code(fake, env, monkeypatch, capsys)
         seen["callback"] = callback(port_of(url), {"error": "access_denied", "error_description": "AADSTS65004: the user declined", "state": consent_query(url)["state"][0]})
 
     browser(monkeypatch, declined)
-    assert auth.main(["authorize"]) == 3, "AADSTS65004 is a consent code: the admin must approve"
+    assert auth.main(["authorize"]) == 1, "a declined sign-in is not a setup problem"
+    err = capsys.readouterr().err
+    assert "sign-in was declined" in err and "admin must approve" not in err
     assert env.values == {}
     browser(monkeypatch, lambda url, seen: seen.update(callback=callback(port_of(url), {"error": "access_denied", "error_description": "the user cancelled",
                                                                                          "state": consent_query(url)["state"][0]})))
@@ -420,3 +422,19 @@ def test_forget_reports_a_store_that_fails_without_hiding_it(env, monkeypatch, c
     monkeypatch.setattr(od, "keyring_module", lambda test_mode: Locked())
     assert auth.main(["forget"]) == 1
     assert "cannot delete from the OS secret store: RuntimeError" in capsys.readouterr().err
+
+
+def test_an_access_token_that_could_not_be_sent_as_a_header_stores_nothing_and_is_not_shown(fake, env, monkeypatch, capsys):
+    fake.access_token = "tok\r\nX-Injected: 1"
+    browser(monkeypatch, returns_with_the_code)
+    assert auth.main(["authorize"]) == 1
+    err = capsys.readouterr().err
+    assert env.values == {} and "will not send" in err and "X-Injected" not in err and "Traceback" not in err
+
+
+def test_a_step_the_command_cannot_take_is_told_apart_from_a_consent_the_admin_must_give(fake, env, monkeypatch, capsys):
+    browser(monkeypatch, lambda url, seen: seen.update(callback=callback(port_of(url), {
+        "error": "interaction_required", "error_description": "AADSTS50076: multi-factor", "state": consent_query(url)["state"][0]})))
+    assert auth.main(["authorize"]) == 3
+    err = capsys.readouterr().err
+    assert "multi-factor sign-in" in err and "admin must approve" not in err

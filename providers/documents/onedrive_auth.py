@@ -207,9 +207,9 @@ class CallbackServer:
             error = onedrive.one_line(query["error"][0], 80)
             description = onedrive.one_line(query.get("error_description", [""])[0], 200)
             detail = f"{error}: {description}" if description else error
-            if onedrive.consent_blocked(error, description):
-                self.outcome = {"error": f"Microsoft needs a consent this account has not given ({detail}): your Microsoft 365 admin must approve "
-                                         "the app; nothing stored", "exit": EXIT_NOT_CONFIGURED}
+            problem = onedrive.consent_problem(error, description)
+            if problem:
+                self.outcome = {"error": f"{problem[0]} ({detail}); nothing stored", "exit": problem[1]}
             else:
                 self.outcome = {"error": f"Microsoft returned {detail}; nothing stored", "exit": EXIT_SERVICE}
             return "refused"
@@ -285,7 +285,7 @@ def authorize(open_browser: bool) -> int:
     refresh = data.get("refresh_token")
     if onedrive.bad_text(refresh):
         raise ProviderError("Microsoft returned no refresh token (is offline_access on the registration?); nothing stored")
-    kind = account_kind(onedrive.Graph(base, data["access_token"], hosts, test_mode))
+    kind = account_kind(onedrive.Graph(base, onedrive.usable_access_token(data), hosts, test_mode))
     record = {"refresh_token": refresh, "client_id": given["client_id"], "tenant": given["tenant"], "scope": scope, "account_kind": kind,
               "obtained_at": now_iso()}
     try:

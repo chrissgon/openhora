@@ -83,6 +83,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from http.client import HTTPException   # not `import http.client`: this module has a function called http
 from pathlib import Path
 
 DEFAULT_API_BASE = "https://graph.microsoft.com/v1.0"
@@ -112,7 +113,7 @@ OUT_NAME = "content"
 REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 LEGACY_EXTENSIONS = (".doc", ".xls", ".ppt")
 LEGACY_TYPES = ("application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint")
-CONSENT_CODES = ("AADSTS65001", "AADSTS90094", "AADSTS65004")   # "not consented" / "admin consent required" (to verify live)
+ADMIN_CODES = ("AADSTS65001", "AADSTS90094")   # "not consented" / "admin consent required"; AADSTS65004 is "declined" (to verify live)
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 
 
@@ -228,8 +229,8 @@ OPENER = urllib.request.build_opener(NoRedirect)
 def http(method: str, url: str, headers: dict, body: bytes | None = None, limit: int = 1024 * 1024, *, what: str) -> tuple[int, object, bytes]:
     """One request; (status, headers, at most limit + 1 bytes of the body) for any HTTP answer, ProviderError otherwise. `what` names the
     request in an error (never the URL: the download address is a credential)."""
-    request = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
+        request = urllib.request.Request(url, data=body, method=method, headers=headers)
         with OPENER.open(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
             return response.status, response.headers, response.read(limit + 1)
     except urllib.error.HTTPError as exc:
@@ -243,6 +244,10 @@ def http(method: str, url: str, headers: dict, body: bytes | None = None, limit:
         raise ProviderError(f"{what} timed out after {HTTP_TIMEOUT_SECONDS} s") from None
     except OSError as exc:
         raise ProviderError(f"the connection to {what} failed: {type(exc).__name__}") from None
+    except (HTTPException, ValueError) as exc:
+        # The standard library puts the offending header or address into these messages, and one of them can be a credential: say the
+        # kind only.
+        raise ProviderError(f"the request to {what} could not be made or read ({type(exc).__name__})") from None
 
 
 def token_request(token_url: str, form: dict) -> dict:
@@ -258,9 +263,9 @@ def token_request(token_url: str, form: dict) -> dict:
     error = one_line(data.get("error"), 80) if isinstance(data, dict) else ""
     description = one_line(data.get("error_description"), 200) if isinstance(data, dict) else ""
     detail = f"{error}: {description}" if description else error or "no error code"
-    if consent_blocked(error, description):
-        raise ProviderError(f"Microsoft needs a consent this account has not given ({detail}): your Microsoft 365 admin must approve the app. "
-                            f"Ask them, then run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED, status)
+    problem = consent_problem(error, description)
+    if problem:
+        raise ProviderError(f"{problem[0]} ({detail})", problem[1], status)
     if error == "invalid_grant":
         if form.get("grant_type") == "refresh_token":
             raise ProviderError(f"Microsoft refused the refresh token ({detail}): the authorization expired (90 days unused), was revoked, "
@@ -275,9 +280,18 @@ def token_request(token_url: str, form: dict) -> dict:
     raise ProviderError(f"the Microsoft token endpoint returned {status} ({detail})", EXIT_SERVICE, status)
 
 
-def consent_blocked(error: str, description: str) -> bool:
-    """Whether an OAuth error means the account (or its tenant's admin) has not allowed the app: asked in the person's words."""
-    return error in ("consent_required", "interaction_required") or any(code in description for code in CONSENT_CODES)
+def consent_problem(error: str, description: str):
+    """(sentence, exit code) when an OAuth error is about the person's consent, in the words that tell them what to do; None otherwise.
+    A declined sign-in is not a setup problem (exit 1); a consent the admin must give, or a step the command cannot take, is (exit 3)."""
+    if "AADSTS65004" in description:
+        return f"the sign-in was declined, so nothing was stored: run `{AUTH_COMMAND}` again and accept the permission", EXIT_SERVICE
+    if error == "interaction_required":
+        return ("Microsoft asks for a step this command cannot take (a multi-factor sign-in, or a rule of your organisation's conditional access): "
+                f"sign in again with `{AUTH_COMMAND}`; if it keeps asking, your Microsoft 365 admin must allow this app"), EXIT_NOT_CONFIGURED
+    if error == "consent_required" or any(code in description for code in ADMIN_CODES):
+        return (f"Microsoft needs a consent this account has not given: your Microsoft 365 admin must approve the app. "
+                f"Ask them, then run `{AUTH_COMMAND}`"), EXIT_NOT_CONFIGURED
+    return None
 
 
 def scopes_of(granted) -> set:
@@ -303,6 +317,16 @@ def check_scope(granted) -> str:
     return SCOPE
 
 
+def usable_access_token(data: dict) -> str:
+    """The access token of a token response, when it is something this provider will put in a header: printable ASCII, no space. A value
+    with a line break could add a header, and the library would print it in an error; it is refused without being shown."""
+    token = data.get("access_token")
+    if bad_text(token) or any(not "!" <= ch <= "~" for ch in token):
+        raise ProviderError("the token response holds an access token this provider will not send (a space, a control character or a "
+                            "non-ASCII character in it); nothing was read")
+    return token
+
+
 def refresh_access_token(token_url: str, record: dict) -> tuple[str, str | None]:
     """(a new access token held in memory for this process, the refresh token Microsoft issued with it or None); checks the scope. The
     request names its scope so that the access token is no wider than asked, and sends no client secret: the app is a public client."""
@@ -310,7 +334,7 @@ def refresh_access_token(token_url: str, record: dict) -> tuple[str, str | None]
                                      "scope": REFRESH_SCOPE})
     check_scope(data.get("scope"))
     rotated = data.get("refresh_token")
-    return data["access_token"], rotated if isinstance(rotated, str) and not bad_text(rotated) else None
+    return usable_access_token(data), rotated if isinstance(rotated, str) and not bad_text(rotated) else None
 
 
 def store_rotation(record: dict, rotated: str | None, where: str, test_mode: bool) -> str:
@@ -322,7 +346,17 @@ def store_rotation(record: dict, rotated: str | None, where: str, test_mode: boo
     if test_mode or where != "secret store":
         return "not stored: the record comes from the environment or the credentials directory"
     try:
-        keyring_module(test_mode).set_password(KEYRING_SERVICE, KEYRING_USERNAME, json.dumps({**record, "refresh_token": rotated}))
+        # Write only into the record this process used: read it again through the resolver, and leave it alone when it is gone (forgotten)
+        # or holds another refresh token (a newer authorization, or another process that rotated first).
+        again = secret_resolver().resolve(SECRET, allow_store=True)
+        try:
+            current = json.loads(again[0]) if again and again[1] == "secret store" else None
+        except ValueError:
+            current = None
+        if not isinstance(current, dict) or current.get("refresh_token") != record["refresh_token"]:
+            log("note: the stored OneDrive authorization changed (or was forgotten) while this ran; the new refresh token was not stored")
+            return "not stored: the record changed meanwhile"
+        keyring_module(test_mode).set_password(KEYRING_SERVICE, KEYRING_USERNAME, json.dumps({**current, "refresh_token": rotated}))
     except Exception as exc:   # a locked or missing store, headless: the old token still works until it expires
         log(f"warning: Microsoft issued a new refresh token and it could not be stored ({type(exc).__name__}); carrying on with the old one, "
             f"which works until it expires. If a later call is refused, run: {AUTH_COMMAND}")
@@ -439,13 +473,27 @@ REFUSED = {
 }
 
 
+def facet_dict(meta: dict, key: str) -> dict:
+    """meta[key] when it is an object, {} when it is absent; ProviderError (exit 1) when Graph sent another kind of value."""
+    value = meta.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ProviderError(f"Graph answered an item whose {key} is not an object; this provider does not understand it")
+    return value
+
+
+def mime_of(meta: dict) -> str:
+    return str(facet_dict(meta, "file").get("mimeType") or "")
+
+
 def reading_plan(meta: dict) -> tuple[bool, str]:
     """(supported, reason): whether the item is read as a source, and why not when it is not."""
     kind = facet_kind(meta)
     if kind in REFUSED:
         return False, REFUSED[kind]
     name = str(meta.get("name") or "").lower()
-    mime = str((meta.get("file") or {}).get("mimeType") or "").lower()
+    mime = mime_of(meta).lower()
     if name.endswith(LEGACY_EXTENSIONS) or mime in LEGACY_TYPES:
         return False, "a legacy Office file (.doc, .xls, .ppt) is not read: save it as .docx, .xlsx or .pptx"
     return True, ""
@@ -463,7 +511,7 @@ def size_of(meta: dict):
 
 def described(meta: dict, drive: str, item: str) -> dict:
     supported, reason = reading_plan(meta)
-    out = {"id": f"{drive}/{item}", "name": one_line(meta.get("name"), 200), "mime_type": str((meta.get("file") or {}).get("mimeType") or ""),
+    out = {"id": f"{drive}/{item}", "name": one_line(meta.get("name"), 200), "mime_type": mime_of(meta),
            "version": version_of(meta), "etag": str(meta.get("eTag") or ""), "archived": facet_kind(meta) == "deleted",
            "supported": supported, "reason": reason}
     out["size"] = size_of(meta)
@@ -517,6 +565,8 @@ def checked_location(location: str, hosts: tuple, test_mode: bool) -> str:
     """The download address, when it is one this provider may fetch: https (http only to a loopback host in test mode), no user or
     password in it, the default port, and a host of the closed list or one of its subdomains. ProviderError otherwise, naming the host
     and never the rest of the address."""
+    if any(not "!" <= ch <= "~" for ch in location):   # a space, a control or a non-ASCII character: not an address a header may carry
+        raise ProviderError("Graph named a download address with characters an address does not hold; nothing was fetched")
     try:
         parsed = urllib.parse.urlparse(location)
         host, port = (parsed.hostname or "").lower(), parsed.port
@@ -533,17 +583,18 @@ def checked_location(location: str, hosts: tuple, test_mode: bool) -> str:
     return location
 
 
-def fetch_download(url: str, limit: int) -> bytes:
-    """GET the preauthenticated address with NO Authorization header and no cookie (this opener has no cookie handler), follow no
-    redirect, read at most limit + 1 bytes. Nothing in an error holds the address."""
-    status, _, body = http("GET", url, {"Accept": "*/*", "User-Agent": "openhora-documents-onedrive"}, limit=limit, what="the OneDrive download host")
+def fetch_download(url: str, limit: int) -> tuple[bytes, object]:
+    """(the bytes, the answer's headers): GET the preauthenticated address with NO Authorization header and no cookie (this opener has no
+    cookie handler), follow no redirect, read at most limit + 1 bytes. Nothing in an error holds the address."""
+    status, headers, body = http("GET", url, {"Accept": "*/*", "User-Agent": "openhora-documents-onedrive"}, limit=limit,
+                                 what="the OneDrive download host")
     if status in REDIRECT_STATUSES:
         raise ProviderError(f"the download host answered a {status} redirect; not followed")
     if status != 200:
         raise ProviderError(f"the download host answered {status}; the address may have expired: read the item again")
     if len(body) > limit:
         raise ProviderError(f"the file is over the {limit} bytes that one source may be: send the part you need")
-    return body
+    return body, headers
 
 
 def cmd_read(args: dict) -> int:
@@ -561,15 +612,22 @@ def cmd_read(args: dict) -> int:
     if size is not None and size > limit:
         raise ProviderError(f"the file is {size} bytes, over the {limit} that one source may be: send the part you need")
     url = checked_location(graph.content_location(drive, item), graph.hosts, graph.test_mode)
-    data = fetch_download(url, limit)
+    data, answer = fetch_download(url, limit)
     again = graph.meta(drive, item)   # the item as it is after the bytes arrived
-    if version_of(again) != version or (size is not None and len(data) != size):
+    expected = size   # what Graph reported, else what the download host announced: a cut-short download must not pass as a whole one
+    if expected is None:
+        announced = str((answer.get("Content-Length") if answer is not None else "") or "").strip()
+        expected = int(announced) if announced.isdigit() else None
+    if expected is None:
+        raise ProviderError("neither Graph nor the download host said how large the file is, so a cut-short download cannot be told from a whole "
+                            "one; nothing was kept")
+    if version_of(again) != version or len(data) != expected:
         raise ProviderError("the file changed while it was read: read it again")
     try:
         write_new(folder, OUT_NAME, data)
     except OSError as exc:
         raise ProviderError(f"the content cannot be written in --out-dir: {exc.strerror}", EXIT_SERVICE) from None
-    return emit({"id": f"{drive}/{item}", "name": one_line(meta.get("name"), 200), "mime_type": str((meta.get("file") or {}).get("mimeType") or ""),
+    return emit({"id": f"{drive}/{item}", "name": one_line(meta.get("name"), 200), "mime_type": mime_of(meta),
                  "version": version, "etag": str(meta.get("eTag") or ""), "content": "file", "exported_as": None, "bytes": len(data),
                  "sha256": hashlib.sha256(data).hexdigest(), "file": OUT_NAME, "as_source": True})
 
@@ -585,7 +643,7 @@ def top_of(args: dict, ceiling: int) -> int:
 
 def folder_of(meta: dict) -> str:
     """The folder path of an item, from its parentReference ("/drive/root:/Documents/Reports" -> "/Documents/Reports"), on one line."""
-    path = str((meta.get("parentReference") or {}).get("path") or "")
+    path = str(facet_dict(meta, "parentReference").get("path") or "")
     return one_line(path.split(":", 1)[1] if ":" in path else "", 300) or "/"
 
 
@@ -596,7 +654,9 @@ def listing(graph: Graph, path: str, top: int, what: str) -> int:
         raise ProviderError("Graph answered a list this provider does not understand")
     items = []
     for meta in entries[:top]:
-        drive = (meta.get("parentReference") or {}).get("driveId") if isinstance(meta, dict) else None
+        if not isinstance(meta, dict):
+            raise ProviderError("Graph answered a list this provider does not understand")
+        drive = facet_dict(meta, "parentReference").get("driveId")
         if not isinstance(drive, str) or not ID_PART.fullmatch(drive) or not isinstance(meta.get("id"), str) or not ID_PART.fullmatch(meta["id"]):
             continue
         supported, reason = reading_plan(meta)

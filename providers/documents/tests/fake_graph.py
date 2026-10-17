@@ -65,6 +65,8 @@ class FakeGraph:
         self.download_status = 200          # what the download path answers
         self.redirect_download = False      # the download path answers a 302 to elsewhere
         self.change_on_download = False     # a person edits the file right after its bytes were served
+        self.access_token = ACCESS_TOKEN    # what the token endpoint issues and Graph accepts
+        self.hidden = set()                 # fields Graph leaves out of every item description (e.g. {"cTag"}, {"size"})
         self.report_size = {}               # (drive, item) -> a size the metadata claims, different from the bytes
         self.lock = threading.Lock()
         owner = self
@@ -107,7 +109,7 @@ class FakeGraph:
                     return self._json(401, {"error": "invalid_client", "error_description": "AADSTS700016: Application not found."})
                 if "client_secret" in form:
                     return self._json(400, {"error": "invalid_client", "error_description": "a public client sends no secret"})
-                answer = {"access_token": ACCESS_TOKEN, "expires_in": 3599, "token_type": "Bearer", "scope": owner.scope_granted}
+                answer = {"access_token": owner.access_token, "expires_in": 3599, "token_type": "Bearer", "scope": owner.scope_granted}
                 if owner.omit_scope:
                     del answer["scope"]
                 if form.get("grant_type") == "refresh_token":
@@ -153,7 +155,7 @@ class FakeGraph:
                         owner.fail_next = None
                 if redirect:
                     return self._send(302, headers={"Location": "http://127.0.0.1:1/elsewhere"})
-                if auth != f"Bearer {ACCESS_TOKEN}":
+                if auth != f"Bearer {owner.access_token}":
                     return self._error(401, "InvalidAuthenticationToken", "Access token is empty or invalid.")
                 if failure:
                     status, headers, body = failure
@@ -256,6 +258,10 @@ class FakeGraph:
         """A change of metadata only (a share, a rename): the eTag moves, the cTag does not."""
         self.items[(drive, item)]["etag_extra"] += 1
 
+    def add_malformed(self, drive, item, name, **fields):
+        """An item Graph describes with values of the wrong kind (e.g. file="text", parentReference=["x"])."""
+        return self._add(drive, item, name, facets=fields, content=b"x", mime="text/plain")
+
     def lie_about_size(self, drive, item, size):
         self.report_size[(drive, item)] = size
 
@@ -272,6 +278,7 @@ class FakeGraph:
             full["size"] = self.report_size.get(key, len(item["content"]))
             full["file"] = {"mimeType": item["mime"]}
         full.update(item["facets"])
+        full = {k: v for k, v in full.items() if k not in self.hidden}
         if select:
             wanted = {"id", *select.split(",")}
             full = {k: v for k, v in full.items() if k in wanted}
