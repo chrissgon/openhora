@@ -372,3 +372,112 @@ def test_a_listed_sender_only_a_card_is_acted_on_in_its_own_chat_and_by_its_proj
     world.say(None, action=action, sender="9999", chat="9999")        # another account: dropped with no reply and no call
     world.say(None, action=action, chat="4243")                       # the sender's own id in a chat that is not theirs: dropped too
     assert approve_calls(world) == [] and len(world.sent()) == 1
+
+
+# --- the holes of the second review (regressions): a typed line approves only a card whose file arrived and that offered the approval --------
+
+
+def test_a_card_sent_before_the_grant_with_a_file_the_provider_did_not_confirm_is_not_whole_and_a_typed_line_approves_nothing(world):
+    grant(world, OPEN_POLICY)                           # not approvable now: the file travels inside the card's own message
+    world.caps(max_text=300, documents=True)
+    world.standin.joinpath("document_fail.json").write_text("true")
+    world.items[7] = effect(body="y" * 2000)
+    world.bridge.tick()
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["whole"] is False and entry["approvable"] is False, "the file did not arrive, so the text is not whole"
+    grant(world, GRANTED)                               # the person accepts the grant; before the next tick re-sends, they type /approve
+    world.fake.answers["approve"] = {"task_state": "done"}
+    world.say("/approve 7")
+    world.say(f"/approve 7 {HASH}")
+    assert approve_calls(world) == [] and any(t.startswith(bridge.TOO_LONG) for t in world.texts())
+
+
+def test_a_provider_that_never_says_whether_the_file_arrived_is_no_confirmation(world, monkeypatch):
+    grant(world, OPEN_POLICY)
+    world.caps(max_text=300, documents=True)
+    world.items[7] = effect(body="y" * 2000)
+    real = world.bridge.messenger.send
+    monkeypatch.setattr(world.bridge.messenger, "send", lambda chat, message: str(real(chat, message)))      # a plain str
+    world.bridge.tick()
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["whole"] is False
+    monkeypatch.setattr(world.bridge.messenger, "send", real)       # a provider that confirms: the same inline card is whole
+    fresh_bridge(world)
+    world.bridge.tick()
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["whole"] is True and entry["approvable"] is False
+
+
+def test_a_whole_card_that_did_not_offer_the_approval_is_not_approved_by_a_typed_line(world):
+    grant(world, OPEN_POLICY)
+    world.items[7] = effect()                           # short: whole, but no approval was offered
+    world.bridge.tick()
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["whole"] is True and entry["approvable"] is False
+    grant(world, GRANTED)
+    world.say("/approve 7")
+    assert approve_calls(world) == [] and world.texts()[-1] == bridge.NOT_OFFERED
+    # a plan card is the same when its entry says it offered nothing; an entry of before the field is as it was
+    world.items[1] = decision("plan", 1)
+    world.bridge.tick()
+    for entry in world.bridge.ledger.data["cards"]:
+        if entry["pending_id"] == 1:
+            entry["approvable"] = False
+    world.say("/approve 1")
+    assert approve_calls(world) == [] and world.texts()[-1] == bridge.NOT_OFFERED
+    for entry in world.bridge.ledger.data["cards"]:
+        if entry["pending_id"] == 1:
+            del entry["approvable"]
+    world.fake.answers["approve"] = {"approved": True}
+    world.say("/approve 1")
+    assert approve_calls(world)[0][2] == {"pending_id": 1, "sha256": "p" * 64, "channel": "messaging"}
+
+
+def test_a_networked_plan_card_from_before_the_grant_with_an_unconfirmed_file_approves_nothing_and_is_not_resent_for_ever(world):
+    grant(world, OPEN_POLICY)
+    world.caps(max_text=300, documents=True)
+    world.standin.joinpath("document_fail.json").write_text("true")
+    world.items[1] = decision("plan", 1, body="z" * 3000, plan_networked=True)
+    world.bridge.tick()
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["whole"] is False
+    grant(world, [*OPEN_POLICY, "approve-networked-plans"])
+    world.fake.answers["approve"] = {"approved": True}
+    world.bridge.tick()          # the grant is there: the plan gets a card that offers the approval, file first
+    world.say("/approve 1")
+    assert approve_calls(world) == [], "its file failed again: nothing is approved"
+    sent = len(world.sent())
+    for _ in range(4):
+        world.bridge.tick()
+    assert len(world.sent()) == sent, "and nothing is sent again"
+
+
+def test_a_file_that_keeps_failing_is_sent_once_with_its_card_and_not_again_on_every_tick(world):
+    grant(world)
+    world.caps(max_text=300, documents=True)
+    world.standin.joinpath("document_fail.json").write_text("true")
+    world.items[7] = effect(body="y" * 2000)
+    for _ in range(5):
+        world.bridge.tick()
+    assert len(world.sent()) == 2, "the file and the card without an approval, once"
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["blocked"] == "document" and entry["approvable"] is False and entry["whole"] is False
+    world.items[7] = effect(sha="9" * 64, body="y" * 2000)      # a changed content is a new card, with a new try
+    world.bridge.tick()
+    assert len(world.sent()) == 4
+    world.standin.joinpath("document_fail.json").unlink()
+    world.items[8] = effect(number=8, sha="8" * 64, body="y" * 2000)
+    world.bridge.tick()
+    assert LABEL in [a["label"] for a in world.sent()[-1]["message"]["actions"]], "a file that arrives gives the card its button"
+
+
+def test_a_hash_typed_with_approve_must_be_the_cards_for_an_acceptance_too(world):
+    grant(world)
+    world.items[3] = decision("acceptance", 3, body="Accept 2 deliveries.")
+    world.bridge.tick()
+    world.fake.answers["approve"] = {"accepted": True}
+    world.say(f"/approve 3 {'f' * 64}")
+    assert approve_calls(world) == [] and world.texts()[-1] == bridge.WRONG_HASH
+    card_hash = world.bridge.ledger.data["cards"][0]["content_sha256"]
+    world.say(f"/approve 3 {card_hash}")
+    assert approve_calls(world)[0][2] == {"pending_id": 3, "channel": "messaging"}

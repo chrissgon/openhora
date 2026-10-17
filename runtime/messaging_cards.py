@@ -112,8 +112,8 @@ def gated(item: dict) -> bool:
 def build(project_name: str, item: dict, caps: dict, policy, notices: str = "text", page_url=None, operations=None,
           effect_command: str | None = None, delivery: str | None = None, _blocked: str | None = None) -> dict:
     """The card of one open decision. Returns {"message": the neutral message without action ids (each action is
-    {"op", "label"}), "content_sha256", "kind", "pending_id", "whole", "approvable", "gated"} ("approvable": the card offers an approval, as a
-    button or a typed line; "gated": its approval needs the whole text). `operations` is the table module (operations.py);
+    {"op", "label"}), "content_sha256", "kind", "pending_id", "whole", "approvable", "gated", "blocked"} ("approvable": the card offers an approval, as a
+    button or a typed line; "gated": its approval needs the whole text; "blocked": "document" when its file did not arrive). `operations` is the table module (operations.py);
     `effect_command` is the exact command that approves an effect, spelled by the operations layer. `whole` is true when the
     message carries the decision's whole text: the body uncut, or the whole text as a document that was DELIVERED. The document of a
     card the approval of which needs it is sent first, as a message of its own (messaging_bridge.send_card), and `delivery` says what
@@ -202,7 +202,8 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     labels = dict(LABELS, approve=EFFECT_LABEL) if kind == "effect" else LABELS
     message = {"text": text, "actions": [{"op": op, "label": labels[op]} for op in shown], "link": link, "document": document}
     return {"message": message, "content_sha256": content_sha256(item), "kind": kind, "pending_id": pending_id, "whole": whole,
-            "approvable": "approve" in allowed, "gated": needs_whole}
+            "approvable": "approve" in allowed, "gated": needs_whole,
+            "blocked": "document" if (needs_whole and blocked == "document") else None}
 
 
 def document_message(project_name: str, item: dict, document: dict) -> dict:
