@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 import standin_tree as st
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
 from test_messaging import wait_for
@@ -33,7 +35,7 @@ def four(lab):  # noqa: F811
 
 
 def unread_texts(lab, chat):  # noqa: F811
-    return [t for t in lab.texts(chat) if "could not be read after several tries" in t]
+    return [t for t in lab.texts(chat) if "could not be read and" in t]
 
 
 def give(lab, *counts):  # noqa: F811
@@ -60,6 +62,17 @@ def test_skipped_is_an_error_kind_that_is_counted_once_each_and_leaves_the_run_a
     assert session.take_unread() == 2
     joined = " ".join(logged)
     assert "skipped" in joined and "4242" not in joined and "a1b2" not in joined and "/Users/someone" not in joined and "could not be read at" not in joined
+
+
+def test_a_burst_of_skipped_events_is_one_log_line_until_the_count_is_taken():
+    logged = []
+    session = providers.ListenSession(None, "chirp", None, None, log=logged.append)
+    run = providers.Run(None)
+    for _ in range(200):
+        session.take(run, event())
+    assert len([line for line in logged if "skipped" in line]) == 1 and session.take_unread() == 200
+    session.take(run, event())
+    assert len([line for line in logged if "skipped" in line]) == 2 and session.take_unread() == 1
 
 
 def test_a_failed_event_does_not_count_so_a_discord_retry_never_becomes_a_notice():
@@ -155,14 +168,69 @@ def test_a_deferred_line_keeps_its_count_and_the_next_tick_sends_it(lab):  # noq
     assert unread_texts(lab, OWNER) == [bridge.UNREAD_ONE] and lab.bridge.unread_waiting == {}
 
 
-def test_a_failed_send_is_logged_by_reply_and_not_tried_again_at_every_tick(lab):  # noqa: F811
+def test_a_failed_send_keeps_the_count_and_is_tried_again_an_hour_later_never_at_every_tick(lab, monkeypatch):  # noqa: F811
     configure(lab, [{"id": OWNER, "policy": "owner"}])
+    now = [1000.0]
+    monkeypatch.setattr(bridge.time, "monotonic", lambda: now[0])
     calls = []
     lab.bridge.reply = lambda chat, text: calls.append(text) or False
     give(lab, 1)
     for _ in range(3):
         lab.bridge.notify_unread()
-    assert len(calls) == 1 and lab.bridge.unread_waiting == {} and OWNER in lab.bridge.unread_told
+    assert len(calls) == 1 and lab.bridge.unread_waiting == {OWNER: 1} and lab.bridge.unread_told[OWNER] == 1000.0
+    now[0] += bridge.UNREAD_EVERY + 1
+    lab.bridge.notify_unread()
+    assert len(calls) == 2, "an hour later it is tried once more, with the count it kept"
+    del lab.bridge.reply
+    now[0] += bridge.UNREAD_EVERY + 1
+    lab.bridge.notify_unread()
+    assert unread_texts(lab, OWNER) == [bridge.UNREAD_ONE] and lab.bridge.unread_waiting == {}
+
+
+# --- 4b. the policy is read again when the line goes out -----------------------------------------------------------------------------------
+
+
+def staff_removed(lab):  # noqa: F811
+    configure(lab, [{"id": OWNER, "policy": "owner"}], policies=POLICIES)
+
+
+def staff_muted(lab):  # noqa: F811
+    configure(lab, [{"id": OWNER, "policy": "owner"}, {"id": STAFF, "policy": "mute"}], policies=POLICIES)
+
+
+def staff_actionable(lab):  # noqa: F811
+    configure(lab, [{"id": OWNER, "policy": "owner"}, {"id": STAFF, "policy": "watcher"}], policies=POLICIES)
+
+
+@pytest.mark.parametrize("narrow", [staff_removed, staff_muted, staff_actionable], ids=["removed", "muted", "actionable"])
+def test_a_line_held_back_for_the_hour_is_not_sent_to_a_sender_the_policy_has_since_closed(lab, monkeypatch, narrow):  # noqa: F811
+    configure(lab, [{"id": OWNER, "policy": "owner"}, {"id": STAFF, "policy": "staff"}], policies=POLICIES)
+    now = [1000.0]
+    monkeypatch.setattr(bridge.time, "monotonic", lambda: now[0])
+    give(lab, 1, 1)
+    lab.bridge.notify_unread()
+    assert unread_texts(lab, OWNER) == [bridge.UNREAD_ONE] and unread_texts(lab, STAFF) == [bridge.UNREAD_ONE]
+    lab.bridge.notify_unread()      # the second skip is taken now and waits for the hour
+    assert lab.bridge.unread_waiting == {OWNER: 1, STAFF: 1}
+    narrow(lab)
+    now[0] += bridge.UNREAD_EVERY + 1
+    lab.bridge.notify_unread()
+    assert unread_texts(lab, STAFF) == [bridge.UNREAD_ONE], "nothing more to the sender the policy closed"
+    assert unread_texts(lab, OWNER) == [bridge.UNREAD_ONE, bridge.UNREAD_ONE]
+    assert STAFF not in lab.bridge.unread_waiting
+
+
+def test_the_count_is_taken_only_after_the_hearers_are_read(lab):  # noqa: F811
+    configure(lab, [{"id": OWNER, "policy": "owner"}])
+    taken = []
+    lab.bridge.messenger.take_unread = lambda: taken.append(1) or 1
+
+    def broken():
+        raise RuntimeError("the settings could not be read")
+    lab.bridge.hearers = broken
+    with pytest.raises(RuntimeError):
+        lab.bridge.notify_unread()
+    assert taken == [], "an error while reading the hearers loses no count"
 
 
 # --- 5. nothing of the provider's words is sent ------------------------------------------------------------------------------------------
