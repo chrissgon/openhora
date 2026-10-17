@@ -574,7 +574,7 @@ def test_the_new_request_form_is_closed_by_default_in_the_drawn_order_and_report
     got = run_node(tmp_path, CARD)
     f = got["form"]
     assert f["open"] is False and f["summary"] == [] and f["hidden"] is True, "R-44: no disclosure; the form is hidden until New request"
-    assert f["labels"] == ["What do you want done?", "Flow", "Model", "Title (optional)", "After request (optional)"] and f["button"] == ["Back to the conversation", "Create request"]       # A-29: the field after the title; R-46: a select
+    assert f["labels"] == ["What do you want done?", "Flow", "Model", "Language", "Title (optional)", "After request (optional)"] and f["button"] == ["Back to the conversation", "Create request"]       # A-29: the field after the title; R-46: a select
     assert f["options"] == [["", "Let the planning agent route it"], ["brand", "Brand"], ["design", "Design"]]
     assert f["hint"] == "A flow plans the request from a predefined route. Without one, the planning agent routes it."
     assert got["created"] == [{"text": "Add a sale page, <b>please</b>", "flow": "design", "title": ""}], "the form reports the typed text, the chosen flow and the title"

@@ -90,7 +90,7 @@ def test_migration_5_adds_the_approvals_table_and_keeps_every_earlier_row(tmp_pa
               for table in ("tasks", "document_records")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 4 and out["applied"] == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] and out["schema_version"] == 15
+    assert out["migrated_from"] == 4 and out["applied"] == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] and out["schema_version"] == 16
     conn = store.open_db(path)
     for table, rows in before.items():
         assert kept([tuple(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY id")], rows)
@@ -243,5 +243,5 @@ def test_a_database_at_the_earlier_version_is_refused_until_init_migrates_it(tmp
     with pytest.raises(store.StoreError) as refused:
         store.open_db(path)
     assert refused.value.code == store.EXIT_NOT_CONFIGURED
-    assert store.init_db(path)["applied"] == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    assert store.init_db(path)["applied"] == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     assert store.approvals_list(store.open_db(path)) == []

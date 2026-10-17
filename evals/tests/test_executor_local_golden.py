@@ -162,6 +162,7 @@ def run_script(script: Path, tmp_path: Path, tag: str, model: str, env_extra: di
     timing = json.loads((out / "timing.json").read_text()) if (out / "timing.json").exists() else None
     if timing:
         timing.pop("duration_ms", None)  # a clock
+        timing.pop("skills_used", None)  # the one list the base's script does not write (R12, measurement version 10); adapters/agents-dir/tests test it
     return {"rc": r.returncode, "stderr": r.stderr.replace(str(tmp_path), "<TMP>"),
             "record": json.loads(record.read_text()) if record.exists() else None,
             "reply": (out / "response.md").read_text() if (out / "response.md").exists() else None, "timing": timing,

@@ -6,9 +6,16 @@
 #
 # Writes <out>/response.md, the assistant's last message (the reply the grader is given), <out>/timing.json,
 # <out>/stream.jsonl, the CLI's whole event stream (kept beside the reply, never shown to the grader), and
-# <out>/raw.json, the stream's result event. timing.json also names "skills_loaded": the skills of the case
-# folder the stream shows the model loading (the skill tool, or a read of a skill's SKILL.md), which the
-# runner reads as whether the skill under test was invoked. It installs nothing: the eval runner stages the
+# <out>/raw.json, the stream's result event. timing.json also names two lists of skills of the case folder:
+# "skills_loaded", the skills the stream shows the model loading (the skill tool, or any tool that reads a
+# skill's SKILL.md: Read, Grep or Bash naming the <skills folder>/<name>/SKILL.md of one skill), which the runner reads as
+# whether the skill under test was invoked; and "skills_used" (R12), every skill whose folder any tool input
+# names in a command, a path or a pattern (a script run by its path, a reference read, a listing of the folder; never a
+# Write's content or a subagent's prompt), a superset of "skills_loaded":
+# a follow-up run that ran a skill's script without reading its text is "used" and not "loaded". A name is
+# letters, digits, "." "_" "-" and does not start with a dot; the folder is followed by "/", whitespace, a quote, a
+# backtick, one of ; | ) & < > : or the end. One command or grep that names the SKILL.md of two skills loads neither
+# (an under-report: both are used). A subagent's tool calls count as the model's. It installs nothing: the eval runner stages the
 # skill under test and a case's dependency skills in <cwd>/.claude/skills/<name> before this script
 # starts ("skills_dir" of this adapter's eval.json names that folder; scripts/stage_skills.py copies them),
 # so they are discoverable at project scope. Settings are limited to the project scope; the runner
@@ -86,7 +93,7 @@ trap 'stop_runner; exit 143' TERM INT HUP
 START=$(python3 -c 'import time; print(int(time.time()*1000))')
 set +e
 if [[ -n "$NO_TOOLS" ]]; then
-  EXTRA=(--tools "")   # checked in `claude --help`, 2.1.283: "" disables every built-in tool
+  EXTRA=(--tools "")   # the flag is in the 2.1.284 binary (a search of the package on 2026-10-16, no run): "" disables every built-in tool
 else
   EXTRA=(--dangerously-skip-permissions)
   [[ -n "$WEB" ]] || EXTRA+=(--disallowedTools "WebSearch,WebFetch")
@@ -94,7 +101,7 @@ fi
 [[ -n "$MAX_COST" ]] && EXTRA+=(--max-budget-usd "$MAX_COST")
 # Connectors: https://code.claude.com/docs/en/mcp (read 2026-09-27): claude.ai connectors load when logged in
 # with a claude.ai account unless ENABLE_CLAUDEAI_MCP_SERVERS=false, and `claude -p` loads project servers
-# without asking unless --strict-mcp-config (checked in `claude --help`, 2.1.283).
+# without asking unless --strict-mcp-config (the flag is in the 2.1.284 binary, found by a search of the package on 2026-10-16).
 ( cd "$CWD" && export ENABLE_CLAUDEAI_MCP_SERVERS=false SLASH_COMMAND_TOOL_CHAR_BUDGET="${SLASH_COMMAND_TOOL_CHAR_BUDGET:-200000}" && exec "${OWN_SESSION[@]}" claude -p --model "$MODEL" \
     --setting-sources project,local --strict-mcp-config --output-format stream-json --verbose ${CLAUDE_EVAL_ARGS:-} ${EXTRA[@]+"${EXTRA[@]}"} ) \
   < "$PROMPT" > "$OUT/stream.jsonl" 2> "$OUT/stderr.log" &
@@ -127,24 +134,47 @@ if result is not None:
     json.dump(result, open(os.path.join(out, "raw.json"), "w"))
 else:
     open(os.path.join(out, "raw.json"), "w", encoding="utf-8").write(raw)
-# The skills the model loaded: the skill tool's input, or a read of <skills folder>/<name>/SKILL.md.
-loaded = []
+# The skills the model touched. Loaded: the skill tool's input, or a tool that reads <skills folder>/<name>/SKILL.md
+# (Read's file_path, Grep's path, Bash's command), when that one input names the SKILL.md of a single skill: a grep or
+# a command over several skills' SKILL.md loads none of them. Used: every skill whose folder a tool input that names
+# files names (a command, a path, a pattern: never a Write's content, an Edit's text or a subagent's prompt).
+NAME = r"([A-Za-z0-9][A-Za-z0-9._-]*)"   # never "." or ".."
+FOLDER_RE = re.compile(r"(?<![A-Za-z0-9._-])\.claude/skills/" + NAME + r"(?=[/\s'\"`;|)&<>:]|$)")
+SKILL_RE = re.compile(r"(?<![A-Za-z0-9._-])\.claude/skills/" + NAME + r"/SKILL\.md(?![A-Za-z0-9._-])")
+READS = {"Read": "file_path", "Grep": "path", "Bash": "command"}
+NAMING_FIELDS = ("command", "file_path", "path", "pattern", "glob", "notebook_path")
+
+
+def note(into, names):
+    for n in names:
+        if n not in into:
+            into.append(n)
+
+
+loaded, used = [], []
 for e in events:
     content = (e.get("message") or {}).get("content") if e.get("type") == "assistant" else None
     for block in content if isinstance(content, list) else []:
         if not isinstance(block, dict) or block.get("type") != "tool_use":
             continue
         args = block.get("input") or {}
-        name = None
-        if block.get("name") == "Skill":
+        names = []
+        if block.get("name") == "Skill" and isinstance(args, dict):
             name = args.get("skill") or args.get("command") or args.get("name")
-        elif block.get("name") == "Read":
-            m = re.search(r"\.claude/skills/([^/]+)/SKILL\.md$", str(args.get("file_path") or ""))
-            name = m.group(1) if m else None
-        if isinstance(name, str) and name.strip("/") and name.strip("/") not in loaded:
-            loaded.append(name.strip("/"))
+            if isinstance(name, str) and name.strip("/"):
+                names.append(name.strip("/"))
+        field = READS.get(block.get("name"))
+        chunk = args.get(field) if field and isinstance(args, dict) else None
+        targets = {m.group(1) for m in SKILL_RE.finditer(chunk)} if isinstance(chunk, str) else set()
+        names += sorted(targets) if len(targets) == 1 else []
+        note(loaded, names)
+        note(used, names)
+        for field in NAMING_FIELDS if isinstance(args, dict) else ():
+            chunk = args.get(field)
+            if isinstance(chunk, str):
+                note(used, [m.group(1) for m in FOLDER_RE.finditer(chunk)])
 open(os.path.join(out, "response.md"), "w", encoding="utf-8").write(text if isinstance(text, str) else json.dumps(text))
 json.dump({"total_tokens": tokens, "duration_ms": dur, "cost_usd": cost, "exit_code": rc,
-           **({"skills_loaded": loaded} if events else {})}, open(os.path.join(out, "timing.json"), "w"))
+           **({"skills_loaded": loaded, "skills_used": used} if events else {})}, open(os.path.join(out, "timing.json"), "w"))
 sys.exit(0 if rc == 0 else 1)
 PY

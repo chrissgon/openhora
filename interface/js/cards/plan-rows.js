@@ -70,6 +70,30 @@ export function limitsLine(item) {
   return parts.join(" ");
 }
 
+/**
+ * The language line of a plan, before the person approves: "Language: pt-BR" (the project's setting, which the plan's `project_language` states) when no task
+ * asks for one, "Language: en (requested)" when every task that runs a skill asks for the same, else the groups ("Language: pt-BR for tasks 1, 3; en (requested)
+ * for task 2"). The tasks' `language` is part of what the hash covers. "" for a plan that predates the field (no `project_language`). The rule is the operation's
+ * (runtime/language.py plan_line); this only words what the payload holds.
+ */
+export function languageLine(item) {
+  const payload = payloadOf(item);
+  if (typeof payload.project_language !== "string" || !payload.project_language) return "";
+  const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+  const groups = new Map();
+  tasks.forEach((t, i) => {
+    if (!t || t.step) return;
+    const tag = typeof t.language === "string" && t.language ? t.language : "";
+    groups.set(tag, [...(groups.get(tag) || []), i + 1]);
+  });
+  if (groups.size <= 1) {
+    const tag = groups.size ? [...groups.keys()][0] : "";
+    return tag ? `Language: ${tag} (requested)` : `Language: ${payload.project_language}`;
+  }
+  const parts = [...groups].map(([tag, at]) => `${tag ? `${tag} (requested)` : payload.project_language} for ${at.length === 1 ? "task" : "tasks"} ${at.join(", ")}`);
+  return `Language: ${parts.join("; ")}`;
+}
+
 /** The hash shown and sent: `payload.plan_sha256`, or "" when the decision carries none (the card then offers no approval). */
 export function planHash(item) {
   const hash = payloadOf(item).plan_sha256;

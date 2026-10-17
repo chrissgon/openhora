@@ -149,7 +149,8 @@ that applies:
                 alone; or the pessimistic score is under 0.70; or three or more Y changes (the version file)
                 since the version the newest complete full test ran on; or a case changed after the newest
                 full test waits for its runs; or the baseline has fewer runs per case than "runs" and is
-                within "baseline_margin" of the mean with the skill; or the field signal is on
+                closer than "baseline_margin" to the mean with the skill (exactly the margin is not thin, with
+                the gate's float slack); or the field signal is on
   reliable      otherwise
 The same band, cause and gate are computed for every other model that has evidence of the skill, by the same rules
 on that model's lines (as_subject: the configuration read for that model), and on that model's tests: the
@@ -464,6 +465,20 @@ MODEL_ENTRY_KEYS = {"aliases": list, "adapter": str, "pass_env": list, "route": 
 MODEL_ENTRY_OPTIONAL = {"web_pass_env": list}
 
 
+def _token_var(name):
+    """The rule of the execution kit (evals/execution.py token_var), read from it so that it has one home: the git-host
+    and npm tokens and the password manager's OP_ family never reach a run, so a gate-file entry that names one is an
+    error here and not a name the runner drops without a word."""
+    import importlib.util
+    key = "workbench_eval_execution_tokens"
+    if key not in sys.modules:
+        spec = importlib.util.spec_from_file_location(key, os.path.join(os.path.dirname(os.path.abspath(__file__)), "execution.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[key] = module
+    return sys.modules[key].token_var(name)
+
+
 def model_entry_problems(entry):
     """Why an object-shaped entry of the gate file's "models" is outside its form; [] when it is valid. The entry
     is what a run of the model needs and the key proxy of its run is started from: {"aliases", "adapter" (the
@@ -489,6 +504,9 @@ def model_entry_problems(entry):
     for key in ("pass_env", "web_pass_env"):
         if key in entry and not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in entry[key]):
             out.append(f"{key} must list variable names")
+        elif key in entry:
+            out += [f"{key} names {v}, a token variable that never reaches a run (git hosts, npm, the password manager: evals/execution.py token_var)"
+                    for v in entry[key] if _token_var(v)]
     if entry["route"] is not None and not NAME_RE.fullmatch(entry["route"]):
         out.append("route must be the name of a route file, or null")
     if entry["route"] is None and (entry["provider_pin"] is not None or entry["pass_env"]):
@@ -2358,8 +2376,10 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
                           f"python3 evals/eval_run.py --skill {skill} --cases {','.join(waiting)} --baseline"))
         control = event_config(cfg)
         margin = control.get("baseline_margin")
+        # Under the margin by more than the slack the gate uses (FLOAT_SLACK): a distance of exactly the margin in
+        # decimals is not thin, whatever the floats give (0.19999999999999996 on one Python, 0.20000000000000007 on another).
         if (margin is not None and gate.get("computed") and gate.get("baseline_runs", control["runs"]) < control["runs"]
-                and gate["with"] - gate["baseline"] < margin):
+                and gate["with"] - gate["baseline"] < margin - load_measure().FLOAT_SLACK):
             every = ",".join(sorted(cases, key=_case_key))
             watch.append(("thin baseline", f"the baseline ({gate['baseline']:.3f}) is within {margin:.2f} of the mean with the skill "
                           f"({gate['with']:.3f}) and has fewer than {control['runs']} runs per case",

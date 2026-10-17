@@ -889,7 +889,7 @@ def test_every_route_the_adjustments_send_exists_and_the_sends_are_the_shapes_th
     client = (JS / "api.js").read_text(encoding="utf-8")
     routes = {(r["method"], r["pattern"]) for r in service.ROUTES}
     assert ("POST", "/projects/{p}/tasks/{id}/go-ahead") in routes and "/tasks/${enc(id)}/go-ahead" in client
-    assert "go_ahead: goAhead" in client and "drop_after: dropAfter ? true : undefined" in client and "{ body: { text, flow, title, after, model }" in client
+    assert "go_ahead: goAhead" in client and "drop_after: dropAfter ? true : undefined" in client and "{ body: { text, flow, title, after, model, language }" in client
     ops = st.load("operations")
     approve = ops.by_name("approve")
     assert {"go_ahead"} <= {a["name"] for a in approve["args"]} and {a["name"]: a["kind"] for a in approve["args"]}["go_ahead"] == "list"
