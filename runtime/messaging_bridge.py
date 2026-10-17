@@ -54,6 +54,12 @@ chat it was sent to (the ledger's `chat` must be the acting sender's); the opera
 A platform that declares `actions_need_reply` (e-mail) acts on a typed approve, reject, release or answer only when the update is a reply to the
 ledger's card of that very decision in that chat, and the action is bound to that card, not to the newest one.
 
+Unread messages. A provider that gives up a message it could not read (the e-mail provider, after the server refused it for an hour) writes an error
+event of kind `skipped`; the listen session only counts them (`take_unread`). At the end of each tick (`notify_unread`) the bridge sends the senders
+the "N more waiting" line goes to (`hears_count`) one fixed sentence of its own, never the provider's reason, a uid, a Message-ID, an address or a
+subject, at most once an hour to a chat, and only to a sender who still hears the count when the line goes out (the policy is read again then); the count of what
+a chat has not been told lives in memory, so a restart forgets it (the provider's log line stays). A line that failed to send is tried again an hour later.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -92,6 +98,9 @@ WRONG_HASH = "The hash you typed is not the one of the card you saw. Send /pendi
 NOT_OPEN = "Pending decision {number} is {status}, not open."
 NOT_OFFERED = "That card did not offer an approval. Send /pending for the current one."
 REPLY_TO_CARD = "Reply to the card of this decision to act on it."
+UNREAD_ONE = "A message sent to this channel could not be read and was set aside: nothing was done with it. If it was yours, send it again."
+UNREAD_MANY = "{n} messages sent to this channel could not be read and were set aside: nothing was done with them. If one was yours, send it again."
+UNREAD_EVERY = 3600.0   # seconds between two such lines to one chat
 
 
 def home_folders() -> list:
@@ -163,6 +172,8 @@ class Bridge(shell_kit.Jobs):
         self.skipped = {}                     # project id -> why it is skipped now (absent: served)
         self.deferred = {}                    # (project id, pending id, chat) -> when it was last logged as deferred
         self.deferred_chats = set()           # chats with a card kept for later: an update from one asks for a notice at once
+        self.unread_waiting = {}              # chat -> how many skipped messages it has not been told of (memory only)
+        self.unread_told = {}                 # chat -> time.monotonic() of the last line about skipped messages
 
     # --- the projects and their settings ---------------------------------------------------------------------
 
@@ -437,6 +448,48 @@ class Bridge(shell_kit.Jobs):
                     self.more.pop(key, None)
                 elif self.more.get(key) != left and self.reply(chat, cards.MORE_LINE.format(n=left)) is not None:
                     self.more[key] = left      # a deferred line is not recorded: it is tried again at the next notice period
+        self.notify_unread()
+
+    def hearers(self) -> set:
+        """The chats that may be told about a skipped message NOW: for every served project, the senders `hears_count` returns under the accepted
+        settings read at this moment. A project whose settings cannot be read adds none."""
+        heard = set()
+        for project in self.projects:
+            try:
+                settings = self.settings(project)
+            except self.ops.OpsError:
+                continue
+            for chat in (self.hears_count(settings, c) for c in (settings["senders"] if settings else [])):
+                if chat is not None:
+                    heard.add(chat)
+        return heard
+
+    def notify_unread(self) -> None:
+        """Tell the senders who hear the count that the provider gave up a message (`UNREAD_ONE`, `UNREAD_MANY`). The hearers are read first, and
+        only then is the count taken from the messenger (an error while reading them loses nothing). A skip adds its count to the chats that hear now;
+        a chat that no longer hears (removed from the list, narrowed to `actionable`, no longer permitted to read) loses what it was owed, so a line
+        held back for the hour is never sent to a sender the policy has since closed. A chat is told at most once in `UNREAD_EVERY`, the count carrying
+        the rest; a deferred reply is tried again at the next tick, and a failed one (logged by `reply`) is tried again an hour later, never at every tick.
+        Nothing of the provider's reason is used."""
+        heard = self.hearers()
+        taker = getattr(self.messenger, "take_unread", None)      # as `session` in serve_loop: a messenger object that counts nothing has nothing unread
+        found = taker() if taker is not None else 0
+        if found > 0:
+            for chat in heard:
+                self.unread_waiting[chat] = self.unread_waiting.get(chat, 0) + found
+        for chat in [c for c in self.unread_waiting if c not in heard]:
+            del self.unread_waiting[chat]
+        now = time.monotonic()
+        for chat, count in list(self.unread_waiting.items()):
+            last = self.unread_told.get(chat)
+            if last is not None and now - last < UNREAD_EVERY:
+                continue
+            sent = self.reply(chat, UNREAD_ONE if count == 1 else UNREAD_MANY.format(n=count))
+            if sent is None:
+                continue
+            self.unread_told[chat] = now
+            if sent:
+                del self.unread_waiting[chat]
 
     # --- updates in ------------------------------------------------------------------------------------------
 
