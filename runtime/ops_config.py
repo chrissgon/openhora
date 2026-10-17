@@ -82,7 +82,7 @@ def _read(path: str):
         return None
 
 
-def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool = True, adopt: bool = False) -> dict:
+def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool = True, adopt: bool = False, record: bool = True) -> dict:
     """Record sha256 as the accepted hash of cfg's file, and who accepted it, and rewrite the state file's Checkpoints
     line. The one writer of the accepted hash: accept_config (the person, in the terminal) and set_mode (code, for a
     move down the order of the modes, which widens nothing; the person, for a move up, with `accept` from the terminal)
@@ -105,7 +105,8 @@ def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool 
             raise core.OpsError(f"the configuration was not accepted: the sources folder is refused ({e}){more}", 1) from None
     previous = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
     core._stored(ctx, ctx["store"].cursor_set, ACCEPTED_BY, by)
-    core._stored(ctx, ctx["store"].cursor_set, policy_widening.EFFECTIVE, policy_widening.dump(policy_widening.snapshot(cfg)))   # POL-1/POL-2: what the file accepted now effectively has is what the next acceptance compares with
+    if record:   # only accept_config, and a mode change when a record exists already: nothing else ends the unknown state of a project accepted before the record
+        core._stored(ctx, ctx["store"].cursor_set, policy_widening.EFFECTIVE, policy_widening.dump(policy_widening.snapshot(cfg)))   # POL-1/POL-2: what the file accepted now effectively has is what the next acceptance compares with
     core._stored(ctx, ctx["store"].cursor_set, project_config.ACCEPTED, sha256)
     done = {"previous": previous, "checkpoints": write_checkpoints(cfg)}
     if adopted:
@@ -220,7 +221,8 @@ def _change_agent(ctx: dict, cfg: dict, project: str, agent: str, edit, unchange
                 raise core.OpsError(str(e), 3) from None
             if written["sha256"] == new:  # nothing else changed the file between the write and this read
                 by = "code:narrowing" if narrowing else person
-                done = _record_acceptance(ctx, written, new, by, folder=not narrowing)
+                has_record = policy_widening.parse(core._stored(ctx, ctx["store"].cursor_get, policy_widening.EFFECTIVE)) is not None
+                done = _record_acceptance(ctx, written, new, by, folder=not narrowing, record=has_record)
                 out.update(accepted=True, by=by, next=None, checkpoints=done["checkpoints"])
             else:  # the file is not the one this call wrote: nothing is accepted, and the hash to read and accept is the file's
                 out.update(config_sha256=written["sha256"],

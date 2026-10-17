@@ -2153,6 +2153,7 @@ def approve(project: str, pending_id: int, sha256: str | None = None, channel: s
     sender (POL-2): who acted when the channel is a messaging app, `<platform>:<sender id>` (operations.sender_key), set by the bridge from the update the
     provider authenticated. The policy is asked for THAT sender (the profile the loaded configuration gives them, at this call), and the store records the
     actor with the decision (ops_actor.label)."""
+    ops_actor.require(channel, sender)
     ctx = core.context(project)
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
     facts = ops_grants.effect_facts(ctx, item) if item["kind"] == "effect" else None   # the effect's word and whether all of it fits on a card

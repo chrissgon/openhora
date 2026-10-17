@@ -72,7 +72,7 @@ def test_a_post_with_an_image_is_not_approvable_on_messaging_even_with_the_group
         with pytest.raises(ops.OpsError):
             approve(world, item, channel)
     for channel in ("messaging", "chat"):
-        assert ops.say(world["path"], f"/approve {item['id']} {item['payload_sha256']}", channel=channel)["reply"].startswith("error: ")
+        assert ops.say(world["path"], f"/approve {item['id']} {item['payload_sha256']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"].startswith("error: ")
     assert posts(world) == [] and ops.pending(world["path"], item["id"])["status"] == "open"
     done = approve(world, item, "terminal")
     assert done["task_state"] == "done" and len(posts(world)) == 1

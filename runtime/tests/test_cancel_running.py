@@ -418,12 +418,12 @@ def test_messaging_cancels_and_stops_only_when_the_group_brakes_is_granted_and_t
     assert "cancel is done in the terminal or on the page" in ops.say(real["path"], f"/cancel {rid}", channel="mcp")["reply"]
     assert child.poll() is None
     assert not operations.permitted("stop-task", "messaging", None) and not operations.permitted("cancel", "messaging", None)   # closed by default
-    assert "not enabled for this channel" in ops.say(real["path"], f"/stop-task {ids['a']}", channel="messaging")["reply"] and child.poll() is None
+    assert "not enabled for this channel" in ops.say(real["path"], f"/stop-task {ids['a']}", channel="messaging", sender="telegram:4242")["reply"] and child.poll() is None
     raw = json.loads(open(real["path"] + "/docs/workbench/runtime.json").read())
     raw["channels"] = {"messaging": ["read", "talk", "answer", "routine-brakes", "brakes"]}      # the person grants the group, and accepts the file
     open(real["path"] + "/docs/workbench/runtime.json", "w").write(json.dumps(raw))
     ops.accept_config(real["path"], ops.project_config.load(real["path"])["sha256"], widen=ops.config(real["path"])["widening_sha256"])
-    stopped = json.loads(ops.say(real["path"], f"/stop-task {ids['a']}", channel="messaging")["reply"])
+    stopped = json.loads(ops.say(real["path"], f"/stop-task {ids['a']}", channel="messaging", sender="telegram:4242")["reply"])
     assert stopped["stopped"][0]["state"] == "cancelled"
     until(lambda: child.poll() is not None)
     assert real["store"].task_get(real["conn"], ids["a"])["state"] == "blocked"

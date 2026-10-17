@@ -92,7 +92,7 @@ def test_limit_36_a_plan_that_holds_a_networked_step_is_approved_only_from_the_t
     assert ops_waits.networked_steps(item) == [("report", "project-script")]
     for channel in ("messaging", "mcp", "chat", "bogus", None):          # no channel at all fails closed too
         with pytest.raises(ops.OpsError) as refused:
-            ops.approve(world["path"], opened["pending_id"], digest, channel=channel)
+            ops.approve(world["path"], opened["pending_id"], digest, channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
         assert "terminal or on the page by default" in str(refused.value) and "Nothing was approved" in str(refused.value) and "report" in str(refused.value)
     # whatever the messaging policy grants: the rule is before the policy
     generous = {"messaging": ["read", "approve-plans", "go-ahead"]}

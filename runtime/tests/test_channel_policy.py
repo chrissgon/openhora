@@ -325,7 +325,7 @@ def test_a_typed_approve_on_the_page_follows_the_page_policy_and_never_approves_
     assert reply.startswith("error: an effect is approved in the terminal, with its hash") and provider_calls(tree) == []
     assert ops.pending(path, effect["id"])["status"] == "open"
     for channel in ("terminal", "mcp", "messaging", None):
-        said = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel=channel)["reply"]
+        said = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"]
         assert said.startswith("error: ") and provider_calls(tree) == [], channel
     ops.say(path, f"/approve {accept_id}", channel="page")
     assert ops.pending(path, accept_id)["status"] == "resolved"

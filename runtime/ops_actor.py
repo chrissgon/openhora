@@ -15,20 +15,25 @@ mode have no person identity; they record their own name.
                                  (the id last: it is the only part that may hold a colon); None for a call that named no channel
   public(label)                  the same without the sender id, for what a person or a versioned file reads: `<profile> on <platform>`, or the channel
   profile_of(cfg, sender)        the profile name of a sender (project_config.DEFAULT_PROFILE for a sender with none of their own and no profile for the channel)
+  require(channel, sender)       a call from a messaging app names its sender (code 1 otherwise: the policy is asked for a person, never for the channel alone)
   guard(ctx, op, channel, sender, kind)   refuse, as the bridge does, an act of a messaging sender whose profile does not cover it (code 1)
+  carried_by(channel)            a context in which a command typed into a line is done as `chat` but recorded as the channel that carried the line
   shown(item)                    a pending decision as a shell reads it: the actor replaced by its public form (the id stays in the store)
 
 It is a sibling of runtime/ops.py. The names every module of the layer shares are read as `core.<name>`. Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import operations  # noqa: E402
 import ops_core as core  # noqa: E402
 
+_CARRIER = threading.local()
 DEFAULT_PROFILE = "default"   # project_config.DEFAULT_PROFILE (that module is not imported here: it needs nothing else of it)
 MESSAGING = "messaging"
 
@@ -53,7 +58,27 @@ def label(cfg: dict, channel, sender=None):
         platform, ident = split(sender)
         if platform:
             return f"{MESSAGING}:{platform}:{profile_of(cfg, sender)}:{ident}"
+    if channel == "chat" and getattr(_CARRIER, "channel", None):
+        return _CARRIER.channel        # a command typed on the page or through the MCP mode is done as `chat` (the operation's own rules) and was the page's or the client's
     return channel or None
+
+
+@contextlib.contextmanager
+def carried_by(channel):
+    """While it lasts, an act done as `chat` is recorded as `channel` (the page or the MCP mode that carried the typed line)."""
+    before = getattr(_CARRIER, "channel", None)
+    _CARRIER.channel = channel if channel in ("page", "mcp", "terminal") else None
+    try:
+        yield
+    finally:
+        _CARRIER.channel = before
+
+
+def require(channel, sender) -> None:
+    """A call from a messaging app names the sender who acted: without one the policy would be asked for the channel alone, and a sender with a
+    narrower profile than the channel's would get the channel's wider set. The bridge always names it; a call that does not is refused."""
+    if channel == MESSAGING and not (isinstance(sender, str) and split(sender)[0]):
+        raise core.OpsError("a call from a messaging app names the sender who acts (<platform>:<id>); nothing was done", 1)
 
 
 def public(actor) -> str | None:
@@ -66,6 +91,7 @@ def guard(ctx: dict, op: str, channel, sender, kind=None) -> None:
     (and the kind of decision). Other channels are checked where they always were. The policy is the configuration loaded for this call."""
     if channel != MESSAGING:
         return
+    require(channel, sender)
     refused = operations.refusal(op, MESSAGING, ctx["cfg"]["channels"], kind, sender=sender)
     if refused:
         raise core.OpsError(refused, 1)

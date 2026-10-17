@@ -32,6 +32,7 @@ project_config = st.load("project_config")
 progress = st.load("progress")
 
 OWNER = "55119000000001"
+AGENTS_FOR_MODE = {"planning": {"pack": "planning", "mode": "supervised"}}
 STAFF = "55119000000002"
 OWNER_KEY = f"telegram:{OWNER}"
 STAFF_KEY = f"telegram:{STAFF}"
@@ -164,12 +165,14 @@ def test_every_refusal_of_the_schema_names_what_is_wrong():
     assert "messaging.senders.telegram: profile 'owner': the group 'approve-effects' is valid on the page only" in text
     assert "channels.page: profile 'p': must list the group 'read'" in refusal({"p": ["talk"]}, {"page": "p"})
     assert "profile 'q': 'approve-networked-plans' needs 'approve-plans' beside it" in refusal({"q": ["approve-networked-plans"]}, {"messaging": "q"})
-    # a sender id listed twice on one platform, in either form
-    assert "a sender is listed once on a platform" in refusal(ok, None, {"senders": {"telegram": [OWNER, OWNER]}})
-    assert "a sender is listed once on a platform" in refusal(ok, None, {"senders": {"telegram": [OWNER, {"id": OWNER, "policy": "p"}]}})
+    # the same entry twice is one entry, as it always was; two different entries for one id are a refusal
+    assert loaded(ok, None, {"senders": {"telegram": [OWNER, OWNER, {"id": STAFF, "policy": "p"}, {"id": STAFF, "policy": "p"}]}})[1]["senders"] == {"telegram": [OWNER, STAFF]}
+    assert "has two different entries" in refusal(ok, None, {"senders": {"telegram": [OWNER, {"id": OWNER, "policy": "p"}]}})
+    assert "has two different entries" in refusal({**ok, "q": ["read"]}, None, {"senders": {"telegram": [{"id": OWNER, "policy": "p"}, {"id": OWNER, "policy": "q"}]}})
     assert loaded(ok, None, {"senders": {"telegram": [OWNER], "whatsapp": [OWNER]}}), "the same id on another platform is another sender"
+    assert loaded(ok, None, {"senders": {"email": ["x" * 240 + "@mail.example"]}}), "an e-mail address fits an id (254 characters)"
     # an id that is not a string without spaces, an entry object with other keys
-    for bad in (5, "", " ", "55 11", None, {"id": 5, "policy": "p"}, "x" * 65):
+    for bad in (5, "", " ", "55 11", None, {"id": 5, "policy": "p"}, "x" * 255, "a\x07b"):
         assert "must list sender ids" in refusal(ok, None, {"senders": {"telegram": [bad]}}), bad
     for bad in ({"id": OWNER}, {"id": OWNER, "policy": "p", "extra": 1}, {"policy": "p"}, {}):
         assert "an entry object has the keys id and policy, and no other" in refusal(ok, None, {"senders": {"telegram": [bad]}}), bad
@@ -279,42 +282,58 @@ def test_a_project_accepted_before_the_record_of_what_a_file_has_confirms_what_i
     ctx["store"].cursor_set(ctx["conn"], project_config.ACCEPTED, project_config.load(path)["sha256"])
     shown = ops.config(path)
     assert shown["accepted"] is True, "the file stays in force: a record that was never written cannot take an accepted file away"
-    assert lines_of(shown) == ["messaging:read", "messaging:talk", "messaging:answer", "messaging:release", "messaging:retry"], \
+    assert [line for line in lines_of(shown) if line.startswith("messaging:")] == \
+        ["messaging:read", "messaging:talk", "messaging:answer", "messaging:release", "messaging:retry"], \
         "the grant was confirmed once (POL-1); nothing else was: what an older file gave is not known, so the entry is listed whole"
+    assert "page:read" in lines_of(shown) and "mcp:read" in lines_of(shown), "and so is every channel, whether or not it has an entry: the page and the MCP mode hold their ceiling"
     # the person runs accept-config with --widen, once, on the same hash
     done = ops.accept_config(path, shown["sha256"], widen=shown["widening_sha256"])
-    assert [w["group"] for w in done["widened"]] == ["read", "talk", "answer", "release", "retry"] and ops.config(path)["widening"] == []
+    assert [w["group"] for w in done["widened"] if w["place"] == "messaging"] == ["read", "talk", "answer", "release", "retry"] and ops.config(path)["widening"] == []
     # with no record at all, a file accepted before: only what the file lists is compared, and all of it is listed
     ctx = ops_core.context(path, check_config=False)
     with ctx["conn"]:
         ctx["conn"].execute("DELETE FROM cursors WHERE name IN (?, ?)", (policy_widening.EFFECTIVE, policy_widening.LEGACY))
-    assert lines_of(ops.config(path)) == ["messaging:read", "messaging:talk", "messaging:answer", "messaging:release", "messaging:approve-effect-write",
-                                          "messaging:retry"]
+    assert [l for l in lines_of(ops.config(path)) if l.startswith("messaging:")] == ["messaging:read", "messaging:talk", "messaging:answer", "messaging:release",
+                                                                                      "messaging:approve-effect-write", "messaging:retry"]
 
 
 def test_a_file_accepted_before_the_record_cannot_be_widened_on_the_page_or_the_mcp_mode_or_by_a_new_sender_unseen(tree):  # noqa: F811
     path = str(tree["project"])
-    write_config(path, channels={"page": ["read"], "messaging": ["read", "approve-effect-write"]}, messaging={"senders": {"telegram": [OWNER]}})
+    write_config(path, channels={"page": ["read"], "mcp": ["read"], "messaging": ["read"]}, messaging={"senders": {"telegram": [OWNER]}})
     ctx = ops_core.context(path, check_config=False)
     ctx["store"].cursor_set(ctx["conn"], project_config.ACCEPTED, project_config.load(path)["sha256"])      # accepted by an older version: no record
-    assert "page:read" in lines_of(ops.config(path)), "an older acceptance said nothing of what the page was given: its entry is listed whole"
-    # the page's entry is then widened by an edit: listed, and refused without the hash
-    write_config(path, channels={"page": ["read", "approve-effects", "dispatch", "set-mode"], "messaging": ["read", "approve-effect-write"]})
-    assert {"page:approve-effects", "page:dispatch", "page:set-mode"} <= set(lines_of(ops.config(path)))
-    with pytest.raises(ops.OpsError):
-        ops.accept_config(path, ops.config(path)["sha256"])
-    write_config(path, channels={"messaging": ["read", "approve-effect-write"]})         # no page entry: no change to the page, nothing to confirm for it
-    assert not any(line.startswith("page:") for line in lines_of(ops.config(path)))
-    accept(path)
-    # a person newly allowed to write is compared with the restrictive default, though no profile is involved
-    write_config(path, messaging={"senders": {"telegram": [OWNER, STAFF]}})
-    assert lines_of(ops.config(path)) == [f"{STAFF_KEY}:approve-effect-write"], "read is in the default; the grant is not"
-    with pytest.raises(ops.OpsError):
-        ops.accept_config(path, ops.config(path)["sha256"])
-    # under the default policy a new plain sender asks for nothing
+    assert {"page:read", "mcp:read", "messaging:read", f"{OWNER_KEY}:read"} <= set(lines_of(ops.config(path))), "an older acceptance said nothing of what anyone was given"
+    # the three entries are removed by an edit (so each channel holds its default or its ceiling): listed whole, and refused without the hash
     write_config(path, channels=None)
+    unseen = lines_of(ops.config(path))
+    assert "page:set-mode" in unseen and "page:approve-effects" in unseen and "messaging:talk" in unseen and "mcp:request" in unseen
+    with pytest.raises(ops.OpsError):
+        ops.accept_config(path, ops.config(path)["sha256"])
+    # a mode change by code (a narrowing) or by the person (set-mode --accept) does not end the unknown state: nothing was confirmed
+    write_config(path, area_agents=AGENTS_FOR_MODE)
+    ctx = ops_core.context(path, check_config=False)
+    ctx["store"].cursor_set(ctx["conn"], project_config.ACCEPTED, project_config.load(path)["sha256"])
+    moved = ops.set_mode(path, "planning", "stopped", channel="terminal")
+    assert moved["accepted"] is True and moved["by"] == "code:narrowing"
+    assert policy_widening.parse(ops_core.context(path)["store"].cursor_get(ops_core.context(path)["conn"], policy_widening.EFFECTIVE)) is None
+    assert "page:set-mode" in lines_of(ops.config(path)), "still unknown: the page's ceiling is listed"
+    ops.set_mode(path, "planning", "supervised", accept=True, channel="terminal")
+    assert policy_widening.parse(ops_core.context(path)["store"].cursor_get(ops_core.context(path)["conn"], policy_widening.EFFECTIVE)) is None
+    assert "page:set-mode" in lines_of(ops.config(path))
+    # only accept-config, with the hash, ends it
     accept(path)
-    write_config(path, messaging={"senders": {"telegram": [OWNER, STAFF, "55119000000009"]}})
+    assert ops.config(path)["widening"] == [] and policy_widening.parse(ops_core.context(path)["store"].cursor_get(ops_core.context(path)["conn"], policy_widening.EFFECTIVE))
+    ops.set_mode(path, "planning", "stopped", channel="terminal")            # and now a mode change keeps the record up to date
+    assert ops.config(path)["widening"] == []
+    # a person newly allowed to write is compared with nothing: the channel's whole set is listed once, plain entry or not
+    write_config(path, channels={"messaging": ["read", "approve-effect-write"]}, messaging={"senders": {"telegram": [OWNER]}})
+    accept(path)
+    write_config(path, messaging={"senders": {"telegram": [OWNER, STAFF]}})
+    assert lines_of(ops.config(path)) == [f"{STAFF_KEY}:read", f"{STAFF_KEY}:approve-effect-write"]
+    with pytest.raises(ops.OpsError):
+        ops.accept_config(path, ops.config(path)["sha256"])
+    # a sender already listed asks for nothing when the file is edited around it
+    write_config(path, messaging={"senders": {"telegram": [OWNER]}})
     assert ops.config(path)["widening"] == []
 
 
@@ -324,11 +343,11 @@ def test_a_sender_moved_to_a_wider_profile_or_listed_with_one_is_a_widening_aske
     # a new sender listed with a profile that is not a subset of the channel's groups
     write_config(path, messaging={"senders": {"telegram": [STAFF, {"id": OWNER, "policy": "owner"}]}})
     shown = ops.config(path)
-    # a person newly allowed to write is compared with the restrictive default (read, talk, answer, the routine brakes): the rest of the profile is listed
-    assert lines_of(shown) == [f"{OWNER_KEY}:{g}" for g in operations.GROUPS if g in POLICIES["owner"] and g not in ("read", "talk", "answer", "routine-brakes")]
+    # a person newly allowed to write is compared with nothing (a restrictive default the person widens by choice): the whole profile is listed
+    assert lines_of(shown) == [f"{OWNER_KEY}:{g}" for g in operations.GROUPS if g in POLICIES["owner"]]      # compared with nothing: the whole profile, once
     assert all(w["place"] == OWNER_KEY and w["channel"] == "messaging" for w in shown["widening"])
     assert f"{OWNER_KEY}:approve-effect-write" in lines_of(shown) and f"{OWNER_KEY}:release" in lines_of(shown)
-    assert f"{OWNER_KEY}:talk" not in lines_of(shown), "a group the channel already gave is not a widening"
+    assert f"{OWNER_KEY}:talk" in lines_of(shown), "a group the channel already gave to others is still new for a person newly allowed"
     with pytest.raises(ops.OpsError) as refused:
         ops.accept_config(path, shown["sha256"])
     assert OWNER_KEY + ":approve-effect-write" in str(refused.value) and "--widen " + shown["widening_sha256"] in str(refused.value)
@@ -525,10 +544,17 @@ def test_nothing_a_sender_sends_names_a_profile_the_profile_is_read_from_the_acc
         params = set(inspect.signature(getattr(ops, row["call"])).parameters)
         assert not params & {"profile", "profiles", "groups"}, row["name"]
     # a sender key that carries a profile name is only a key nobody is listed under: the channel's groups answer
-    for forged in (f"telegram:{STAFF}:owner", f"telegram:{OWNER}:staff", "owner", "telegram:", ":", "", f"telegram:{OWNER} ", "telegram:owner"):
+    for forged in (f"telegram:{STAFF}:owner", f"telegram:{OWNER}:staff", f"telegram:{OWNER} ", "telegram:owner"):
         with pytest.raises(ops.OpsError) as refused:
             ops.approve(path, plan_id, digest, channel="messaging", sender=forged)
         assert "is not enabled for this channel" in str(refused.value), forged
+    for unnamed in ("owner", "telegram:", ":", "", None):          # no sender at all is refused outright: the policy is never asked for the channel alone
+        with pytest.raises(ops.OpsError) as refused:
+            ops.approve(path, plan_id, digest, channel="messaging", sender=unnamed)
+        assert "names the sender who acts" in str(refused.value), unnamed
+        with pytest.raises(ops.OpsError) as refused:
+            ops.say(path, "hello", channel="messaging", sender=unnamed)
+        assert "names the sender who acts" in str(refused.value), unnamed
     assert ops.pending(path, plan_id)["status"] == "open"
     # the text of a line is not read as a profile: a command with the profile's name is a command that is checked for the sender
     reply = ops.say(path, f"/approve {plan_id} {digest} profile owner", channel="messaging", sender=STAFF_KEY)["reply"]
@@ -633,3 +659,37 @@ def test_a_group_that_holds_another_is_one_line_and_the_pairs_are_the_tables():
     assert [w["group"] for w in policy_widening.widening(old, {"channels": {"page": ["read", "approve-effects"]}, "senders": {}})] == ["approve-effects"]
     held = {"channels": {"page": ["read", "approve-effects"]}, "senders": {}}
     assert policy_widening.widening(held, {"channels": {"page": ["read", "approve-effect-write"]}, "senders": {}}) == []
+
+
+# --- a call names its sender; the state is read; the carrier of a typed line ---------------------------------------------------
+
+
+def test_a_profile_that_reads_nothing_is_not_told_the_state_by_a_plain_line_and_one_that_reads_is(tree):  # noqa: F811
+    path = str(tree["project"])
+    accept(path, policies={**POLICIES, "mute": ["talk"]}, channels={"messaging": "staff"},
+           messaging={"senders": {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": STAFF, "policy": "mute"}]}})
+    refused = ops.say(path, "what is the status?", channel="messaging", sender=STAFF_KEY)["reply"]
+    assert "is not enabled for this channel" in refused
+    told = ops.say(path, "what is the status?", channel="messaging", sender=OWNER_KEY)["reply"]
+    assert "is not enabled" not in told and ops.say(path, "what is the status?", channel="messaging", sender="telegram:55119000000099")["reply"]
+
+
+def test_a_command_typed_into_a_line_is_never_done_from_a_messaging_app_by_an_operation_that_cannot_be_told_who_acts(tree, monkeypatch):  # noqa: F811
+    path = str(tree["project"])
+    accept(path, policies={**POLICIES, "owner": [*POLICIES["owner"], "routine-edit"]}, channels={"messaging": "staff"},
+           messaging={"senders": {"telegram": [{"id": OWNER, "policy": "owner"}]}})
+    row = operations.by_name("routine-create")
+    assert "messaging" in row["channels"] and row.get("channel_arg") and "sender" not in inspect.signature(ops.routine_create).parameters
+    monkeypatch.setattr(ops.ops_say.operations, "parse_chat", lambda line: ("routine-create", {"name": "weekly"}))
+    reply = ops.say(path, "/routine-create weekly", channel="messaging", sender=OWNER_KEY)["reply"]
+    assert reply == "error: /routine-create is not done from a messaging app"
+
+
+def test_a_command_typed_on_the_page_is_recorded_as_the_page_and_a_decision_resolved_in_the_terminal_as_the_terminal(tree):  # noqa: F811
+    path, plan_id, digest, accept_id, effect = decisions(tree)
+    ctx = ops_core.context(path)
+    reply = ops.say(path, f"/reject {accept_id}", channel="page")["reply"]
+    assert "error" not in reply and ctx["store"].pending_get(ctx["conn"], accept_id)["actor"] == "page"
+    ops.reject(path, plan_id, channel="terminal")
+    assert ctx["store"].pending_get(ctx["conn"], plan_id)["actor"] == "terminal"
+    assert ops_actor.label({}, "chat") == "chat", "typed in the conversation itself, it is the conversation's"

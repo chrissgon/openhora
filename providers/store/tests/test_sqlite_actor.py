@@ -137,3 +137,27 @@ def test_the_actor_is_a_bounded_text_and_a_store_that_is_asked_nothing_records_n
     store.pending_resolve(conn, case["pending"], resolution="rejected", by="user", answer="no")
     assert store.pending_get(conn, case["pending"])["actor"] is None
     assert store.ACTOR_MAX >= len("messaging:") + 32 + 1 + 32 + 1 + 64, "a platform, a profile and an id at their longest fit"
+
+
+def test_the_rebuilt_trigger_keeps_every_rule_of_the_old_one_for_a_row_that_was_there_before_the_migration(tmp_path):
+    path = tmp_path / "sixteen.sqlite"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, description TEXT NOT NULL)")
+    for version in range(1, 17):
+        for statement in store.MIGRATIONS[version][1]:
+            old.execute(statement)
+        old.execute("INSERT INTO schema_version VALUES (?, '2026-10-15T00:00:00.000000Z', 'x')", (version,))
+    old.execute("INSERT INTO approvals (scope, what, policy_sha256, bounds, approved_at, approved_by, status) "
+                "VALUES ('standing', 'x', ?, '{}', '2026-01-01T00:00:00Z', 'user', 'active')", (HASH,))
+    old.commit()
+    old.close()
+    store.init_db(path)
+    conn = sqlite3.connect(path)
+    assert conn.execute("SELECT actor FROM approvals").fetchall() == [(None,)], "a row older than the column has no actor"
+    for statement in ("UPDATE approvals SET actor = 'messaging:telegram:owner:1' WHERE id = 1", "UPDATE approvals SET what = 'y' WHERE id = 1"):
+        with pytest.raises(sqlite3.DatabaseError, match="only moves forward"):
+            conn.execute(statement)
+    conn.execute("UPDATE approvals SET status = 'revoked' WHERE id = 1")          # a status still moves forward
+    with pytest.raises(sqlite3.DatabaseError, match="only moves forward"):
+        conn.execute("UPDATE approvals SET status = 'active' WHERE id = 1")
+    assert [r[1] for r in conn.execute("PRAGMA table_info(pending_decisions)")][-1] == "actor"

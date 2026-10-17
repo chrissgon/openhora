@@ -319,6 +319,7 @@ def test_typed_commands_are_bound_to_the_last_card_and_approve_needs_one(world):
     world.say("/reject 1 not now")
     assert world.calls("reject")[0][2] == {"pending_id": 1, "note": "not now", "channel": "messaging"}
     world.items[2] = decision("review", 2)
+    world.bridge.tick()
     world.fake.answers["release"] = {"released": True}
     world.say("/release 2")
     assert wait_for(lambda: world.calls("release")) and world.calls("release")[0][2] == {"pending_id": 2, "channel": "messaging"}

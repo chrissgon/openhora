@@ -272,7 +272,7 @@ PROFILE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")   # a profile's name: lower
 PROFILE_KEYS = ("groups", "notices")
 PROFILE_NOTICES = ("all", "actionable")
 DEFAULT_PROFILE = "default"                            # the label of a sender who has no profile (the channel's own groups); not a name a project may use
-SENDER_ID_MAX = 64
+SENDER_ID_MAX = 254                                    # an e-mail address fits (the longest a mailbox name and a domain make)
 PLATFORM_MAX = 32                                      # the actor label the store keeps ("messaging:<platform>:<profile>:<id>") must fit its bound
 SENDERS_MAX = 100                                      # senders listed in all (policy_widening keeps a record of them in a cursor of 4 KiB)
 
@@ -421,7 +421,7 @@ def _messaging(value, policies=None) -> dict:
     """The key "messaging" (the messaging bridge, runtime/messaging.py; absent means no sender and the defaults), checked:
     {"senders": {"<platform>": ["<sender id>" or {"id": "<sender id>", "policy": "<profile>"}, ...]}, "notices": "text" or "count"
     (default "text"), "page_url": an http:// or https:// URL, or null}. A platform is lowercase words joined by hyphens, a sender id is non-empty
-    text without a space; an id is listed once on a platform. A sender's profile (POL-2) replaces the channel's groups for that sender, and is checked
+    text without a space; an id is listed once on a platform (the same entry twice is one). A sender's profile (POL-2) replaces the channel's groups for that sender, and is checked
     against the messaging channel here: a profile that lists a group the channel does not take is refused with the profile's name. Returns
     "senders" {platform: [ids]} (the ids alone, as every reader of the bridge expects) and "sender_profiles" {platform: {id: profile}}, the
     entries that name one. Nothing in it is a secret (the bot's token is read from the secret store), and, as every key of
@@ -447,8 +447,10 @@ def _messaging(value, policies=None) -> dict:
         for entry in entries:
             sender, profile = _sender_entry(platform, entry, policies)
             if sender in ids:
-                raise ConfigError(f"runtime.json messaging.senders.{platform}: a sender is listed once on a platform, and one is listed twice "
-                                  "(a sender's profile is the one entry's)")
+                if named.get(sender) != profile:     # the same entry twice was always dropped silently; two different entries for one id are a refusal
+                    raise ConfigError(f"runtime.json messaging.senders.{platform}: a sender is listed once on a platform, and one has two different entries "
+                                      "(a sender's profile is the one entry's)")
+                continue
             ids.append(sender)
             if profile:
                 named[sender] = profile

@@ -237,9 +237,13 @@ def test_a_profile_with_notices_actionable_is_sent_a_card_only_for_a_decision_it
     assert kinds(CLERK) == ["acceptance"], "the clerk can accept; a plan and an effect are not theirs to act on"
     assert kinds(STAFF) == [], "the watcher can answer questions only: no open question, no card"
     assert kinds(OTHER) == ["acceptance", "effect", "plan"], "a plain sender gets the channel's profile, whose notices are all"
-    # /pending lists what waits for a sender who may read, whatever their notices: the card rule is about unprompted cards
+    # /pending lists to a profile that is sent only what it can act on only that; the owner is listed everything
     lab.say(CLERK, "/pending")
-    assert f"#{lab.plan} plan" in lab.texts(CLERK)[-1]
+    assert f"#{lab.acceptance} acceptance" in lab.texts(CLERK)[-1] and f"#{lab.plan} plan" not in lab.texts(CLERK)[-1]
+    lab.say(STAFF, "/pending")
+    assert lab.texts(STAFF)[-1] == "northwind-shop: nothing waits for you to act on."
+    lab.say(OWNER, "/pending")
+    assert any(t.startswith("northwind-shop: #") and f"#{lab.plan} plan" in t for t in lab.texts(OWNER))
 
 
 def test_a_sender_whose_profile_cannot_read_what_waits_is_sent_no_card(lab):
@@ -304,3 +308,38 @@ def test_the_bridge_never_calls_an_operation_that_cannot_be_told_who_acts_and_th
               policies={**POLICIES_ALL, "mute": ["talk"]})
     settings = lab.bridge.settings(lab.bridge.projects[0])
     assert [lab.bridge.hears_count(settings, c) for c in (OWNER, STAFF, CLERK)] == [OWNER, None, None]
+
+
+def test_a_reject_a_release_and_an_answer_typed_by_id_need_the_card_the_sender_was_sent_as_an_approval_does(lab):
+    two(lab)
+    for line in (f"/reject {lab.plan}", f"/release {lab.plan}", f"/answer {lab.plan} yes"):
+        lab.say(OWNER, line)
+        assert lab.texts(OWNER)[-1] == bridge.NO_CARD, line
+    assert lab.status(lab.plan) == "open"
+    lab.bridge.tick()
+    lab.say(OWNER, f"/reject {lab.acceptance}")
+    assert lab.texts(OWNER)[-1] == f"Rejected #{lab.acceptance}." and lab.status(lab.acceptance) == "resolved"
+    assert lab.who(lab.acceptance) == f"messaging:telegram:owner:{OWNER}"
+    # the card is the sender's own: the owner's card does not let the clerk reject, whatever their profile lists
+    configure(lab, [{"id": OWNER, "policy": "owner"}, {"id": CLERK, "policy": "rejecter"}], policies={**POLICIES_ALL, "rejecter": ["read-limited", "reject-cancel"]})
+    lab.say(CLERK, f"/reject {lab.plan}")
+    assert lab.texts(CLERK)[-1] == bridge.NO_CARD and lab.status(lab.plan) == "open"
+
+
+def test_the_log_says_which_refusal_of_the_configuration_stopped_the_bridge_and_never_an_id(lab):
+    two(lab)
+    write_config(lab.path, messaging={"senders": {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": OWNER, "policy": "staff"}]}, "notices": "text"})
+    lab.bridge.recheck()
+    skipped = [line for line in lab.log if line.startswith("skipping")]
+    assert skipped and "its configuration cannot be read: runtime.json messaging.senders.telegram: a sender is listed once on a platform" in skipped[-1]
+    assert OWNER not in " ".join(lab.log)
+    assert bridge.reason_of(Exception("runtime.json messaging.senders: 55119000000001 is odd")) == ": runtime.json messaging.senders: <digits> is odd"
+    assert bridge.reason_of(Exception("/private/path/runtime.json is odd")) == ""
+
+
+def test_the_bridge_asks_the_policy_for_a_sender_never_for_the_channel_alone(lab):
+    two(lab)
+    project = {"id": "x", "path": lab.path, "name": "n"}
+    for call in (lambda: lab.bridge.allow(project, "pending"), lambda: lab.bridge.run_op(project, "pending")):
+        with pytest.raises(RuntimeError, match="never for the channel alone"):
+            call()

@@ -230,12 +230,12 @@ def test_an_instruction_to_skip_the_gate_changes_nothing_about_the_effect_gate(e
     policy = {"messaging": list(operations.GROUPS), "mcp": list(operations.GROUPS)}
     for channel in ("messaging", "mcp", "chat", None):
         with pytest.raises(ops.OpsError, match="terminal"):
-            ops.approve(path, item["id"], item["payload_sha256"], channel=channel)
+            ops.approve(path, item["id"], item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
         if channel in policy:
             assert operations.refusal("approve", channel, policy, "effect")
     assert provider_calls(effects_tree) == [] and ops.pending(path, item["id"])["status"] == "open"
     for channel in ("messaging", "mcp"):
-        typed = ops.say(path, f"/approve {item['id']}", channel=channel)["reply"]
+        typed = ops.say(path, f"/approve {item['id']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"]
         assert typed.startswith("error:") and provider_calls(effects_tree) == []
     # without the hash the page does not execute it either; with the hash it does, and only then
     with pytest.raises(ops.OpsError):
@@ -368,7 +368,7 @@ def test_a_line_that_starts_a_request_or_is_short_is_not_proposed_and_messaging_
     reply(chat_tree, ASKING)
     other = ops.say(str(chat_tree["project"]), "/new Another invented request about pricing.")
     assert other["request_id"] != new["request_id"]
-    on_messaging = ops.say(str(chat_tree["project"]), LINE, channel="messaging")
+    on_messaging = ops.say(str(chat_tree["project"]), LINE, channel="messaging", sender="telegram:4242")
     assert on_messaging["instruction_proposal"]["line"] == LINE
     assert "accept it on the page (Building > Instructions) or in the terminal" in on_messaging["reply"]
     assert not (chat_tree["project"] / PATH).exists()
@@ -438,7 +438,7 @@ def test_an_answer_through_the_page_or_a_messaging_reply_proposes_nothing_and_sp
     ops.request(path, REQUEST, "demo")
     first = ops.run_next(path)
     assert first["ending"] == "question"
-    done = ops.answer_proposing(path, first["pending_id"], LINE, channel=channel)
+    done = ops.answer_proposing(path, first["pending_id"], LINE, channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
     assert "instruction_proposal" not in done, "the page's inbox and a messaging reply show 'Answered #N.' and nothing of the result"
     ctx = ops_core.context(path)
     request = ops_instructions._request_of(ctx, ops.pending(path, first["pending_id"])["task_id"])

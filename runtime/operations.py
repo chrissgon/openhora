@@ -459,7 +459,7 @@ GRANT_TEXT = {
 }
 GROUP_TEXT = {
     "read": "reads everything the channel shows: the state of the work, what waits, the spend, the agents' caps and the connections",
-    "read-limited": "reads what the work is and what waits for the person, never the spend (costs, agents, a run's cost in task and progress), the connections or the configuration",
+    "read-limited": "reads what the work is and what waits for the person, never the spend (costs, agents, a run's cost in task and progress), the connections or the config operation",
     "talk": "writes a line to the planning agent (a new request, or the answer to its question)",
     "answer": "answers a question a task asked",
     "release": "releases a delivery (it stays a draft)",

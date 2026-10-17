@@ -145,10 +145,11 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     that may not approve, reject, retry or cancel cannot do it by typing the command here either. `sender` (POL-2) is the messaging sender who typed the
     line (`<platform>:<sender id>`, operations.sender_key): a command in it is checked against THAT sender's profile and done as that sender.
     Returns {"reply", "request_id", "pending_id", "ran", "queued"}."""
+    channel = channel or "chat"
+    ops_actor.require(channel, sender)
     ctx = core.context(project)
     said = core._text(text, "the line")
     store = ctx["store"]
-    channel = channel or "chat"
     if _turn_routes(said) and not asks_state(ctx, said):
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
         # router is free again; a shell that drains nothing is refused while the router answers another request.
@@ -176,6 +177,8 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
         return (*_say_command(project, ctx, said, channel, line_id, sender), None)
     asked = _router_question(ctx, _last_request(ctx))
     if asked is None and state_question(said):
+        if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
+            return f"error: {operations.not_enabled('status', channel)}", None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
         return state_reply(project), None, None, False, None, None
     out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender)
     offered = importlib.import_module("ops_instructions").proposal(ctx, out[1], said, channel) if asked is not None else None
@@ -553,10 +556,13 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
     function = getattr(_ops(), row["call"])
     if row.get("channel_arg"):
         found = dict(found, channel=channel if channel == "messaging" else "chat")  # a messaging app's own rule (ops_waits) narrows approve
-        if channel == "messaging" and "sender" in inspect.signature(function).parameters:
+        if channel == "messaging":
+            if "sender" not in inspect.signature(function).parameters:       # an operation that cannot be told who acts would be asked for the channel alone
+                return f"error: /{name} is not done from a messaging app", None, None, False, None
             found["sender"] = sender       # the operation asks the policy, and records the actor, for THIS sender
     try:
-        out = function(project, **found)
+        with ops_actor.carried_by(channel):
+            out = function(project, **found)
     except core.OpsError as e:
         return f"error: {e}", None, None, False, None
     if row.get("chat_reply"):
