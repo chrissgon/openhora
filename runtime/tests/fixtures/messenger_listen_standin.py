@@ -21,6 +21,8 @@ script.json (optional) is {"1": step, "2": step, "default": step}: the step for 
   stderr         text written to stderr before anything else
   die            an exit code: exit at once, before the ready event
   paused         a reason: write an error event of kind "paused" with it and exit 3 at once, before the ready event
+  skipped_after_ready  a number n: after ready and the emitted lines, write n error events of kind "skipped" (a reason that names a uid, a
+                 Message-ID and a home path, which the bridge must never forward) and keep running
   paused_after_ready  a reason: after ready and the emitted lines, write that event and exit 3 (a session lost while connected)
 A send to the chat "crash-1" makes the first start deliver it (it is recorded) and exit 1 without answering, "exit-3" writes the error event and exits 3,
 "exit-2" does the same with 2, "silent" is never answered, "fail-usage", "fail-failed" and "fail-deferred" are answered ok:false
@@ -109,6 +111,8 @@ def listen(platform) -> int:
         write({"event": "ready"})
     for item in step.get("emit", []):
         emit(item)
+    for _ in range(int(step.get("skipped_after_ready") or 0)):
+        write({"event": "error", "kind": "skipped", "reason": "uid 4242 <a1b2@mail.example> could not be read at /Users/someone/Mail/x"})
     if step.get("paused_after_ready") is not None:
         write({"event": "error", "kind": "paused", "reason": step["paused_after_ready"]})
         return 3
