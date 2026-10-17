@@ -166,3 +166,21 @@ def test_a_local_pair_with_one_full_test_is_gated_as_before(croot, crepo, tmp_pa
     found = es.local_status(str(croot), "core-demo", CFG, str(base))["s-model"]
     assert found["band"] == "reliable" and found["gate"]["passed"] is True and found["gate"]["note"] is None
     assert "pool" not in found
+
+
+def test_in_the_community_source_three_y_changes_are_cleared_by_a_closed_pool_not_by_one_forks_full_test(croot, crepo):
+    fork(crepo, "ana", 1, "2030-01-01")
+    fork(crepo, "bo", 1, "2030-01-02")
+    assert community_row(croot)["band"] == "reliable"  # a pool of 1.0 closed with two forks
+    tb.skill(croot, version="1.3.0")
+    tb.versions(crepo, ("1.0.0", "new"), ("1.1.0", "y"), ("1.2.0", "y"), ("1.3.0", "y"))
+    fork(crepo, "ana", 2, "2030-02-01", version="1.3.0")  # one fork's full test of 1.3: no pool of 1.3 closes
+    one = community_row(croot)
+    assert one["pool"]["xy"] == "1.3" and one["pool"]["closed"] is False
+    assert (one["band"], one["kind"]) == ("watch", "y changes")
+    assert one["cause"] == "3 Y changes since the newest closed pool"
+    assert one["command"] == "python3 evals/eval_run.py --skill core-demo --quick"  # fill the pool; a full test does not clear it
+    fork(crepo, "bo", 2, "2030-02-02", version="1.3.0")  # a second fork's run closes the pool of 1.3
+    two = community_row(croot)
+    assert two["pool"]["closed"] is True and two["pool"]["xy"] == "1.3" and two["band"] == "reliable"
+    assert "y changes" not in [c["kind"] for c in two["causes"]]

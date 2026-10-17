@@ -113,6 +113,7 @@ A community file that is edited, deleted or renamed after it is merged is refuse
 
 What the design cannot remove, stated and not hidden:
 
+- The community pool's own baseline, used for the cases the lab has none for, may come from a single fork's full test: the two-contributor rule covers the lines with the skill, not the baseline.
 - Running a model several times and submitting one run (the gaps in run numbers flag it; the cap and the score limit it), or re-running one run and submitting the best attempt (the gaps in attempts flag it).
 - A new fork resets the numbering: a contributor who abandons a fork with unfavourable runs and starts another begins at run 1 again with nothing to compare. Several accounts and several forks of one person are several contributors to the cap.
 - The contributor controls both accounts, the model's provider account and the grader's, and their account-level settings (what the provider serves, rate limits, a cheaper model behind an alias). The provider's honesty about the model it served is not checkable, and is published as such.

@@ -61,7 +61,7 @@ import lab  # noqa: E402  (the same folder)
 import prices as price_table  # noqa: E402  (the same folder)
 
 FILE = "proof.json"
-VERSION = 4
+VERSION = 5  # 5: the community source counts a full test only through its pool (a proof.json of 4 is recomputed)
 RELIABLE = "reliable"
 AUTO = "auto"
 UNTESTED = {"band": "needs a test", "cause": "no evidence on this model", "score": None, "mean": None, "runs": 0,

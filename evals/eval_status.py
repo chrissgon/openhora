@@ -2751,7 +2751,10 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, 
         reset_at += [p["version"] for p in route["closed"]] if route else []  # a closed pool resets the count like a full test
         y = y_changes_since(skill_dir, max(reset_at, key=_vkey)) if reset_at else 0
         if y >= Y_CHANGES_FOR_FULL:
-            watch.append(("y changes", f"{y} Y changes since the newest full test", run_full))
+            # In the community source only a closed pool resets the count, and a full test of one fork cannot close a pool:
+            # the way back is to fill the pool (run_next), not a full test.
+            watch.append(("y changes", f"{y} Y changes since the newest " + ("closed pool" if community else "full test"),
+                          run_next if community else run_full))
         waiting = [c for c in gate.get("changed") or [] if c in (gate.get("pending") or [])]
         if waiting:
             lost = "; ".join(f"case {c} had {gate['dropped'][c]['runs']} run(s)"
