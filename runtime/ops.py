@@ -1570,7 +1570,7 @@ def execute_under_policy(project: str, policy: str, effect_file: str, replay_log
 
 
 def status(project: str) -> dict:
-    """{"config": {"path", "sha256"}, "requests": [{"id", "title", "flow", "state", "model" (the model id or "auto" the person chose for the request, or None), "tasks": [{"id", "key", "title",
+    """{"config": {"file", "sha256"} (the configuration's file name and hash, never its path: a reply to a messaging app carries no home folder; `config` has the path), "requests": [{"id", "title", "flow", "state", "model" (the model id or "auto" the person chose for the request, or None), "tasks": [{"id", "key", "title",
     "agent", "skill", "state", "note", "waiting_for"}], "after", "routing"}], "pending": [... each with "agent" and "actions"], "documents": [{"path", "status", "note", "on_platform"}],
     "board": {"left_out_final"} or None, "held": [{"task_id", "agent", "reason", "at", "next"}]}: everything from the
     store's records. A task's "holds_slot" says whether it holds a slot of its agent now (running, waiting for the person, or
@@ -1594,7 +1594,7 @@ def status(project: str) -> dict:
                             "holds_slot": t["id"] in holders}
                            for t in rows if t["parent_id"] == r["id"]]}
                 for r in rows if r["parent_id"] is None]
-    return {"config": {"path": ctx["cfg"]["path"], "sha256": ctx["cfg"]["sha256"]}, "requests": ops_reads.with_routing(ctx, ops_waits.in_status(ctx, requests, rows)),
+    return {"config": {"file": os.path.basename(ctx["cfg"]["path"]), "sha256": ctx["cfg"]["sha256"]}, "requests": ops_reads.with_routing(ctx, ops_waits.in_status(ctx, requests, rows)),
             "pending": [_listed(item, ctx["store"], agents) for item in core._stored(ctx, ctx["store"].pending_list)],
             "documents": [{"path": d["path"], "status": d["status"], "note": d["note"], "on_platform": bool(d["remote_id"])}
                           for d in core._stored(ctx, ctx["store"].documents_list)],

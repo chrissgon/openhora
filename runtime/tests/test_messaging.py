@@ -310,7 +310,7 @@ def test_an_acceptance_whose_content_changed_after_its_card_is_not_approved_and_
 def test_typed_commands_are_bound_to_the_last_card_and_approve_needs_one(world):
     world.items[1] = decision("plan", 1)
     world.say("/approve 1")
-    assert world.texts() == ["Send /pending first, so you see what you approve."] and world.calls("approve") == []
+    assert world.texts() == ["Act on the card sent to you (send /pending)."] and world.calls("approve") == []
     world.bridge.tick()
     world.fake.answers["approve"] = {"approved": True}
     world.say("/approve 1")

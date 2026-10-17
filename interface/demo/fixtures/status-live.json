@@ -1,6 +1,6 @@
 {
   "config": {
-    "path": "/home/demo/northwind-shop/docs/workbench/runtime.json",
+    "file": "runtime.json",
     "sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4"
   },
   "requests": [

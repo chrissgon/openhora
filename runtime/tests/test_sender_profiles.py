@@ -12,6 +12,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -659,6 +660,20 @@ def test_a_group_that_holds_another_is_one_line_and_the_pairs_are_the_tables():
     assert [w["group"] for w in policy_widening.widening(old, {"channels": {"page": ["read", "approve-effects"]}, "senders": {}})] == ["approve-effects"]
     held = {"channels": {"page": ["read", "approve-effects"]}, "senders": {}}
     assert policy_widening.widening(held, {"channels": {"page": ["read", "approve-effect-write"]}, "senders": {}}) == []
+
+
+def test_no_reply_to_a_messaging_app_carries_an_absolute_path_and_status_names_the_file_not_its_place(tree):  # noqa: F811
+    path = str(tree["project"])
+    accept(path, policies=POLICIES, channels={"messaging": "staff"}, messaging={"senders": SENDERS})
+    shown = ops.status(path)["config"]
+    assert set(shown) == {"file", "sha256"} and shown["file"] == "runtime.json", "the status names the configuration's file and hash, never its place"
+    assert ops.config(path)["path"].startswith(path), "`config` (the terminal and the page) keeps the full path"
+    home = os.path.expanduser("~")
+    for sender in (OWNER_KEY, STAFF_KEY):
+        for line in ("/status", "/progress", "/pending", "/skills", "/artifacts", "/routines", "/instructions", "what is the status?"):
+            reply = ops.say(path, line, channel="messaging", sender=sender)["reply"]
+            assert path not in reply and home not in reply and tree["tree"].as_posix() not in reply, (sender, line)
+            assert not re.search(r"(?<![\w.:/])/(Users|home|private|var|tmp|opt|root)/", reply), (sender, line, reply[:200])
 
 
 # --- a call names its sender; the state is read; the carrier of a typed line ---------------------------------------------------

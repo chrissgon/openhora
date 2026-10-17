@@ -71,6 +71,13 @@ def test_an_old_project_that_gives_a_sender_a_profile_lists_the_whole_profile_fo
     assert listed(known, new)["telegram:111"] == {"read", "talk", "answer"}
 
 
+def test_a_new_sender_added_in_the_first_edit_after_the_upgrade_inherits_no_grant_unseen():
+    base = policy_widening.baseline(None, json.dumps(["messaging:approve-effect-write"]), accepted_before=True)
+    new = load({"channels": {"messaging": ["read", "approve-effect-write"]}, "messaging": {"senders": {"telegram": ["111", "999"]}}})
+    assert operations.permitted("approve", "messaging", new["channels"], "effect:write", "telegram:999")
+    assert listed(base, new)["telegram:999"] == {"read", "approve-effect-write"}, "the new id names the grant as well as the read"
+
+
 # --- the differential fuzz --------------------------------------------------------------------------------------------------
 
 
@@ -137,9 +144,9 @@ def places(cfg):
     return out
 
 
-def misses(old, new, base, fresh=False, unknown=False):
-    """(place, operation, kind) that the new file can do, that the old could not, and that no line of the widening list covers. When the old file's
-    baseline is unknown nobody can say who was listed, so a sender is compared with the grants POL-1 confirmed for the channel and nothing else."""
+def misses(old, new, base, fresh=False):
+    """(place, operation, kind) that the new file can do, that the old could not, and that no line of the widening list covers. The oracle is strict
+    for a sender the old file did not list (nothing); because nobody can tell who an old file listed, the list may name more, never less."""
     lines = listed(base, new)
     old_places = places(old)
     found = []
@@ -148,10 +155,8 @@ def misses(old, new, base, fresh=False, unknown=False):
         before = capability(channel, old, old_places[place][1]) if place in old_places and not fresh else set()
         if sender is None and fresh:
             before = capability(channel, load({}), None)
-        if unknown and sender is not None:
-            before = capability("messaging", {"channels": {"messaging": [g for c, g in operations.grants(old["channels"]) if c == "messaging"]}}, None)
         groups = set(lines.get(place, ()))
-        if sender is not None and place in old_places and not unknown:
+        if sender is not None and place in old_places:
             plain_new = sender not in (new["channels"].get(operations.SENDERS_KEY) or {})
             plain_old = sender not in (old["channels"].get(operations.SENDERS_KEY) or {})
             if plain_new and plain_old:
@@ -186,7 +191,7 @@ def run(mode, seed, rounds):
             base = policy_widening.baseline(None, grants, True)
         else:
             base, old = policy_widening.baseline(None, None, False), load({})
-        found = misses(old, new, base, fresh=(mode == "fresh"), unknown=(mode == "unknown"))
+        found = misses(old, new, base, fresh=(mode == "fresh"))
         assert found == [], (mode, a, b, found[:5])
         checked += 1
     return checked

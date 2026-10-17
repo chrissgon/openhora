@@ -57,7 +57,7 @@ export function instructions() {
 
 export function status(P) {
   return fill(F.status, {
-    config: { path: `${P.folder}/docs/workbench/runtime.json`, sha256: P.configSha },
+    config: { file: "runtime.json", sha256: P.configSha },
     requests: requestsOf(P).map((r) => requestRow(P, r)), pending: openItems(P).map(listRow), documents: [], board: null, held: heldRows(P),
   });
 }

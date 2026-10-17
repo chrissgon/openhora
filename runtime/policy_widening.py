@@ -171,7 +171,7 @@ def widening(old: dict, new: dict) -> list:
     itself (an absent entry is what the channel holds with no entry: its default or its ceiling). A sender that `old` listed is compared with the groups
     it had (its profile, else the channel's); a sender it did not list (a person newly allowed to write) is compared with NOTHING: a restrictive default
     the person widens by choice, so adding an id to an edited file gives it nothing unseen. When `old` is unknown (a file accepted before the record
-    existed, of which only POL-1's grants were confirmed) every channel and every sender is compared with those grants alone."""
+    existed, of which only POL-1's grants were confirmed) every channel is compared with those grants alone and every sender with nothing."""
     out = []
     unknown = bool(old.get("unknown"))
     for channel in ORDER:
@@ -188,7 +188,7 @@ def widening(old: dict, new: dict) -> list:
         if listed_before and mine is None and had is None:
             continue
         if unknown:
-            before = old_channel
+            before = set()      # nobody can tell who the old file listed: a sender is compared with nothing, so a new id inherits no grant unseen
         else:
             before = concrete("messaging", had) if had is not None else (old_channel if listed_before else set())
         after = concrete("messaging", mine) if mine is not None else new_channel
