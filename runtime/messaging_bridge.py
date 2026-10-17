@@ -51,6 +51,9 @@ a profile or change one: a profile changes only by accept-config in the terminal
 chat it was sent to (the ledger's `chat` must be the acting sender's); the operations layer is told the sender and records it with the decision
 (ops_actor); and a profile with `notices: actionable` is sent a card only for a decision it can act on or answer.
 
+A platform that declares `actions_need_reply` (e-mail) acts on a typed approve, reject, release or answer only when the update is a reply to the
+ledger's card of that very decision in that chat, and the action is bound to that card, not to the newest one.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -88,6 +91,7 @@ TOO_LONG = "Too long to approve here: approve it on the page or in the terminal,
 WRONG_HASH = "The hash you typed is not the one of the card you saw. Send /pending."
 NOT_OPEN = "Pending decision {number} is {status}, not open."
 NOT_OFFERED = "That card did not offer an approval. Send /pending for the current one."
+REPLY_TO_CARD = "Reply to the card of this decision to act on it."
 
 
 def home_folders() -> list:
@@ -118,6 +122,12 @@ def scrub_message(message: dict) -> dict:
     """A neutral message as it goes out: the text and the file (name and text) scrubbed; buttons and the link are the bridge's own and carry no path."""
     out = dict(message)
     out["text"] = scrub(out.get("text"))
+    footer = out.get("footer")
+    if isinstance(footer, list):      # the lines a card ends with, handed over beside the text (e-mail): scrubbed with it, so that the text still ends with them
+        out["footer"] = [scrub(line) for line in footer]
+        tail = "\n\n" + "\n".join(out["footer"])
+        if not (out["footer"] and isinstance(out["text"], str) and out["text"].endswith(tail)):
+            del out["footer"]         # a footer the text no longer ends with is not handed over (the provider would not move it)
     document = out.get("document")
     if isinstance(document, dict):
         out["document"] = {**document, "name": scrub(document.get("name")), "text": scrub(document.get("text"))}
@@ -451,10 +461,19 @@ class Bridge(shell_kit.Jobs):
             self.choose(sender, chat, listed, intent["name"])
         elif kind == "pending":
             self.listing(project, chat)
-        elif kind in ("approve", "reject", "release"):
-            self.act(project, chat, kind, intent["id"], note=intent.get("note"), typed_hash=intent.get("sha256"))
-        elif kind == "answer":
-            self.act(project, chat, "answer", intent["id"], text=intent["text"])
+        elif kind in ("approve", "reject", "release", "answer"):
+            replied = None
+            if self.messenger.capabilities().get("actions_need_reply"):
+                replied = self.replied_card(sender, chat, update.get("reply_to"), intent["id"])
+                if replied is None:
+                    self.reply(chat, REPLY_TO_CARD)
+                    return
+                project = replied[0]
+            if kind == "answer":
+                self.act(project, chat, "answer", intent["id"], text=intent["text"])
+            else:
+                self.act(project, chat, kind, intent["id"], card=replied[1] if replied else None, note=intent.get("note"),
+                         typed_hash=intent.get("sha256"))
         elif kind == "reply":
             card = self.ledger.by_message(chat, intent["reply_to"])
             if card and card["kind"] == "question":
@@ -467,6 +486,15 @@ class Bridge(shell_kit.Jobs):
                 self.say(project, chat, intent["text"])
         else:
             self.say(project, chat, intent["text"])
+
+    def replied_card(self, sender: str, chat: str, reply_to, pending_id: int):
+        """(project, card) when `reply_to` names the ledger's card of decision `pending_id` in this chat and the card's project lists the
+        sender; else None. Only a platform that declares `actions_need_reply` asks."""
+        card = self.ledger.by_message(chat, reply_to) if isinstance(reply_to, str) and reply_to else None
+        if card is None or card["pending_id"] != pending_id:
+            return None
+        target = next((p for p in self.projects if p["id"] == card["project"]), None)
+        return (target, card) if target is not None and self.listed_in(target, sender) else None
 
     def tapped(self, chat: str, action_id: str, action_ref) -> None:
         if action_ref:

@@ -273,7 +273,7 @@ def test_the_bridge_passes_the_sender_to_every_operation_that_asks_the_policy_or
         assert "sender" in inspect.signature(getattr(ops, row["call"])).parameters, name
 
 
-def test_limit_45_an_act_from_a_messaging_app_is_checked_against_the_profile_of_the_sender_who_acted_when_they_act_and_only_in_the_chat_of_its_card(lab):
+def test_limit_46_an_act_from_a_messaging_app_is_checked_against_the_profile_of_the_sender_who_acted_when_they_act_and_only_in_the_chat_of_its_card(lab):
     two(lab)
     lab.bridge.tick()
     button = lab.action(OWNER, "Approve")
@@ -390,6 +390,18 @@ def test_no_message_the_bridge_sends_carries_the_home_folder_whatever_it_is_and_
     assert home not in blob and lab.path not in blob and str(lab.tmp / "checkout") not in blob, "no message carries the home folder"
     assert blob.count("~/") >= 4, "the commands are still there, spelled from the home folder (an unquoted `~/x` is expanded by the shell)"
     assert "runtime/cli.py" in blob and "approve --project ~/" in blob
+
+
+def test_the_footer_a_card_hands_over_is_scrubbed_with_its_text_and_stays_an_exact_suffix_of_it(monkeypatch):
+    monkeypatch.setattr(bridge, "home_folders", lambda: ["/Users/zed"])
+    footer = ["Approve it on the page or in the terminal:", "`python3 /Users/zed/co/runtime/cli.py approve --project '/Users/zed/my proj' --id 7`"]
+    message = {"text": "co · effect #7\n\nbody\n\n" + "\n".join(footer), "actions": [], "link": None, "document": None, "footer": footer}
+    sent = bridge.scrub_message(message)
+    assert "/Users/zed" not in sent["text"] and sent["footer"] == [bridge.scrub(line) for line in footer]
+    assert sent["text"].endswith("\n\n" + "\n".join(sent["footer"])), "the provider moves the footer by this suffix"
+    assert message["footer"] == footer, "the caller's message is not changed"
+    broken = bridge.scrub_message({**message, "footer": ["not the end of the text"]})
+    assert "footer" not in broken, "a footer the text does not end with is not handed over"
 
 
 def test_the_filter_keeps_a_quoted_path_runnable_and_touches_nothing_that_is_not_the_home_folder():

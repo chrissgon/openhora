@@ -676,6 +676,21 @@ def test_status_names_the_file_not_its_place_and_the_reads_a_messaging_line_can_
             assert not re.search(r"(?<![\w.:/])/(Users|home|private|var|tmp|opt|root)/", reply), (sender, line, reply[:200])
 
 
+def test_an_e_mail_address_is_a_sender_id_and_a_profile_works_for_the_email_platform(tree):  # noqa: F811
+    path = str(tree["project"])
+    owner, staff = "owner@office.example", "x" * 240 + "@mail.example"          # an address up to 254 characters fits an id
+    assert len(staff) <= project_config.SENDER_ID_MAX
+    accept(path, policies=POLICIES, channels={"messaging": "staff"}, messaging={"senders": {"email": [{"id": owner, "policy": "owner"}, staff]}})
+    cfg = project_config.load(path)
+    assert cfg["messaging"]["senders"] == {"email": [owner, staff]} and cfg["messaging"]["sender_profiles"] == {"email": {owner: "owner"}}
+    owner_key, staff_key = operations.sender_key("email", owner), operations.sender_key("email", staff)
+    assert owner_key == "email:owner@office.example" and operations.effective_groups("messaging", cfg["channels"], owner_key) == tuple(POLICIES["owner"])
+    assert operations.effective_groups("messaging", cfg["channels"], staff_key) == tuple(POLICIES["staff"]), "a plain address gets the channel's profile"
+    assert ops_actor.label(cfg, "messaging", owner_key) == f"messaging:email:owner:{owner}" and ops_actor.public(ops_actor.label(cfg, "messaging", owner_key)) == "owner on email"
+    assert operations.permitted("approve", "messaging", cfg["channels"], "plan", owner_key) and not operations.permitted("approve", "messaging", cfg["channels"], "plan", staff_key)
+    assert len(policy_widening.dump(policy_widening.snapshot(cfg)).encode()) < 4096
+
+
 # --- a call names its sender; the state is read; the carrier of a typed line ---------------------------------------------------
 
 

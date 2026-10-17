@@ -42,6 +42,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `sender:email` | `mailer/` | `smtp.py` | `--check`, `send`, `resolve`, `lookup`, `setup` |
 | `reader:email` | `mailbox/` | `gmail.py` | `--check`, `search`, `get`, `read-eml` |
 | `messenger:<platform>` | `messenger/` | `discord.py` (PLATFORMS: discord) | `--check`, `capabilities`, `listen`, `receive`, `send`, `ack` |
+| `messenger:<platform>` | `messenger/` | `email-imap.py` (PLATFORMS: email) | `--check`, `capabilities`, `listen`, `receive`, `send`, `ack`, `whoami`, `setup` |
 | `messenger:<platform>` | `messenger/` | `telegram.py` (PLATFORMS: telegram) | `--check`, `capabilities`, `receive`, `send`, `ack` |
 | `messenger:<platform>` | `messenger/` | `whatsapp.py` (PLATFORMS: whatsapp) | `capabilities`, `build`, `status`, `listen`, `receive`, `send`, `ack`, `pair`, `whoami` |
 | `messenger:<platform>` | `messenger/` | `whatsapp-cloud.py` (PLATFORMS: whatsapp-cloud) | `capabilities`, `listen`, `receive`, `send`, `ack`, `setup`, `whoami` |
@@ -93,15 +94,16 @@ A candidate is an implementation shipped in the class's folder and, for `publish
 **The messenger class and its two modes.** `messenger:<platform>` (folder `providers/messenger/`, variables `MESSENGER_<PLATFORM>_PROVIDER` then `MESSENGER_PROVIDER`) is a class the task runtime uses and a skill may not require, so it is on purpose not in the class table of `contracts/environment.md`; its only caller is the messaging bridge (`runtime/messaging_provider.py`). A messenger moves messages between a messaging app and the bridge and decides nothing. It works in one of two modes, declared by the optional capability `listen`: **per-call verbs** (Telegram: `capabilities`, `receive`, `send`, `ack`, one JSON object per process, started with `resolve.call`) or **a listen session** (Discord and the three WhatsApp providers: one long-lived process, started with `resolve.start`, speaking JSON lines on its standard input and output, with the answer kinds `deferred` and the error-event kind `paused` that no other class has). Its capabilities, read from the providers' text, are:
 
 <!-- generated: messenger-capabilities -->
-`yes` and `no` are booleans; a key a provider leaves out is `no` (`listen` is optional); `configured` is a value the provider computes from its saved settings, not a constant.
+`yes` and `no` are booleans; a key a provider leaves out is `no` (`listen` and `actions_need_reply` are optional); `configured` is a value the provider computes from its saved settings, not a constant.
 
-| Platform | Provider | `max_text` | `buttons` | `max_buttons` | `max_button_label` | `lists` | `max_list_rows` | `url_buttons` | `reply_context` | `documents` | `listen` |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| `discord` | `discord.py` | 1900 | yes | 5 | 80 | no | 0 | yes | yes | yes | yes |
-| `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no |
-| `whatsapp` | `whatsapp.py` | 4096 | no | 0 | 0 | no | 0 | no | yes | yes | yes |
-| `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes |
-| `whatsapp-twilio` | `whatsapp-twilio.py` | 1600 | configured | 3 if configured, else 0 | 20 if configured, else 0 | no | 0 | no | yes | no | yes |
+| Platform | Provider | `max_text` | `buttons` | `max_buttons` | `max_button_label` | `lists` | `max_list_rows` | `url_buttons` | `reply_context` | `documents` | `listen` | `actions_need_reply` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `discord` | `discord.py` | 1900 | yes | 5 | 80 | no | 0 | yes | yes | yes | yes | no |
+| `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes |
+| `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no | no |
+| `whatsapp` | `whatsapp.py` | 4096 | no | 0 | 0 | no | 0 | no | yes | yes | yes | no |
+| `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes | no |
+| `whatsapp-twilio` | `whatsapp-twilio.py` | 1600 | configured | 3 if configured, else 0 | 20 if configured, else 0 | no | 0 | no | yes | no | yes | no |
 <!-- /generated -->
 
 The protocol, the neutral message, the state machine of the session, the kinds and the platforms are on [messaging.md](messaging.md), "Abstractions". What is particular to the class: a messenger's `send` has neither `--confirmed` nor an idempotency key, because the bridge is its only caller, sends only to a chat of the project's accepted `messaging.senders` list and keeps the ledger; a provider refuses a message beyond its capabilities (exit 2); a provider of the listen mode must exit within 5 s of the end of its standard input; and `providers/messenger/whatsapp_meta.py` is a module two providers load by path, never an implementation.
@@ -282,7 +284,7 @@ Every provider takes `--help` and `--check`. Side-effect verbs take `--dry-run` 
 | No contract suite for a class with one implementation (`integration:vcs`, `publisher:<platform>`, `reader:email`): a second implementation has nothing to run against | "Business rules" above |
 | The systemd scheduler was written on a machine without systemd and is tested against a fake `systemctl` | [providers/scheduler/README.md](../../../providers/scheduler/README.md), "Not verified yet" |
 | The platform's comment endpoint for a member is an undocumented path; its behaviour may change | [providers/publisher/README.md](../../../providers/publisher/README.md), "To verify on first use" |
-| No test runs one contract over every messenger implementation: each provider has its own suite, and only the two WhatsApp renderers share a corpus; none of the five has been run against its live platform for every verb (the unofficial WhatsApp client and the Meta Cloud API not at all) | [messaging.md](messaging.md), "Known limits and improvements"; `providers/messenger/README.md` |
+| No test runs one contract over every messenger implementation: each provider has its own suite, and only the two WhatsApp renderers share a corpus; none of the six has been run against its live platform for every verb (the unofficial WhatsApp client and the Meta Cloud API not at all) | [messaging.md](messaging.md), "Known limits and improvements"; `providers/messenger/README.md` |
 | `sender:email` has one implementation, over SMTP with a password; the Gmail API (OAuth, `gmail.send` on a token of its own) is a later second one, and a host that forbids password logins (Microsoft 365 by default) needs it | [providers/mailer/README.md](../../../providers/mailer/README.md) |
 | `generator:*`, `search:web` and `integration:design-tool` have no implementation | [providers/CONTRACT.md](../../../providers/CONTRACT.md), "Verbs per class" |
 | The store's task functions are the task runtime's own persistence, not a substitutable class; no second backend is promised and no suite checks one (decision D2); the first runtime still calls the verbs through the command line | [providers/store/README.md](../../../providers/store/README.md), first paragraph; [providers/CONTRACT.md](../../../providers/CONTRACT.md), "Functions of the store" |
@@ -303,8 +305,5 @@ Every provider takes `--help` and `--check`. Side-effect verbs take `--dry-run` 
 - 2026-10-14: the messenger verbs moved from the table "From a class to a folder" into "Verbs per class" of `providers/CONTRACT.md`, in the form of the other classes (MSG-15): the generated `provider-classes` block shows the five `messenger:<platform>` rows, with the verbs the generator now also reads from `add_parser(...)` calls, and the known limit that the block had no messenger row is removed.
 - 2026-10-15: the class `converter:document` (P4), a role like the messenger and not a listed class: one implementation, `providers/converter/container.py`, adopted tools in a container with no network ([sources.md](sources.md)); `read --as-source` of the Notion documents provider with the read-only secret `NOTION_SOURCES_TOKEN`; `provider_environment` moved to `providers/resolve.py` (the runtime builds a provider's environment through the resolver) and `providers/_container.py` `run(stdout_cap=)`.
 - 2026-10-15: `documents/gdrive.py` (P7), the third implementation of `integration:documents` and the first that is sources only (`SOURCES_ONLY = True`; its write verbs exit 2): the files a person picked in Google Drive, scope `drive.file`, the secret `GDRIVE_SOURCES_TOKEN`; its helpers `gdrive_auth.py` and `gdrive_picker.py` (the one-shot loopback page that runs Google's Picker) are not implementations ([sources.md](sources.md), `providers/documents/README.md`).
-<<<<<<< HEAD
 - 2026-10-16: the task board's native status (R13, package CANCEL-BOARD): `task_board.native_status` in `providers/issue-tracker/notion.py`, the mapping of the nine states to the groups of the base's status property, and the stand-in service's status property with groups.
-=======
 - 2026-10-16: the outbox (EMAIL-SEND): `sender:email` has its first implementation, `providers/mailer/smtp.py`, with the shared `providers/_email.py`, the secret `MAILER_SMTP_PASSWORD`, the state folder `<state>/mailer-smtp/` and a fake SMTP and IMAP server for its tests; exit code 4 for an outcome that is not known.
->>>>>>> origin/feature/delegation-platform
