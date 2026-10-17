@@ -177,10 +177,87 @@ def test_in_the_community_source_three_y_changes_are_cleared_by_a_closed_pool_no
     fork(crepo, "ana", 2, "2030-02-01", version="1.3.0")  # one fork's full test of 1.3: no pool of 1.3 closes
     one = community_row(croot)
     assert one["pool"]["xy"] == "1.3" and one["pool"]["closed"] is False
-    assert (one["band"], one["kind"]) == ("watch", "y changes")
-    assert one["cause"] == "3 Y changes since the newest closed pool"
-    assert one["command"] == "python3 evals/eval_run.py --skill core-demo --quick"  # fill the pool; a full test does not clear it
+    assert one["band"] == "watch" and [c["kind"] for c in one["causes"]] == ["no current run", "y changes"]
+    y = one["causes"][1]
+    assert y["cause"] == "3 Y changes since the newest closed pool"
+    assert y["command"] == "python3 evals/eval_run.py --skill core-demo --quick"  # fill the pool; a full test does not clear it
     fork(crepo, "bo", 2, "2030-02-02", version="1.3.0")  # a second fork's run closes the pool of 1.3
     two = community_row(croot)
     assert two["pool"]["closed"] is True and two["pool"]["xy"] == "1.3" and two["band"] == "reliable"
     assert "y changes" not in [c["kind"] for c in two["causes"]]
+
+
+# --- the current set of a new X.Y or a new era needs two contributors too ----------------------------------------------------
+
+EPOCH = {**CFG, "epochs": [{"date": "2030-06-01", "models": "all", "skills": "all", "cause": "a hosted model changed"}]}
+FEWER = "come from 1 of 2 contributors"
+
+
+def closed_pool_of_1_0(croot, crepo):
+    fork(crepo, "ana", 1, "2030-01-01")
+    fork(crepo, "bo", 1, "2030-01-02")
+    assert community_row(croot)["band"] == "reliable"
+
+
+def test_one_forks_full_test_of_a_new_x_y_does_not_bring_a_pair_back_to_reliable(croot, crepo):
+    closed_pool_of_1_0(croot, crepo)
+    tb.skill(croot, version="1.1.0")
+    tb.versions(crepo, ("1.0.0", "new"), ("1.1.0", "y"))
+    nothing = community_row(croot)
+    assert (nothing["band"], nothing["kind"]) == ("watch", "no current run")  # nothing of 1.1 yet
+    fork(crepo, "cy", 1, "2030-02-01", version="1.1.0")
+    one = community_row(croot)
+    assert one["pool"]["xy"] == "1.1" and one["pool"]["closed"] is False and one["pool"]["contributors"] == 1
+    assert (one["band"], one["kind"]) == ("watch", "no current run") and FEWER in one["cause"]
+    assert one["community_only"] is False
+    assert one["command"] == "python3 evals/eval_run.py --skill core-demo --quick"
+    fork(crepo, "bo", 2, "2030-02-02", version="1.1.0")  # a second, balanced contributor: the pool closes and the current set is enough
+    two = community_row(croot)
+    assert two["pool"]["closed"] is True and (two["band"], two["community_only"]) == ("reliable", True)
+
+
+def test_one_forks_full_test_of_a_new_era_does_not_bring_a_pair_back_to_reliable(croot, crepo):
+    closed_pool_of_1_0(croot, crepo)
+    fork(crepo, "cy", 1, "2030-06-02")  # its own baseline, dated in the new era
+    tc.commit(croot)
+    one = tc.es.community_section(str(croot), ["core-demo"], EPOCH, tc.es.evidence_authors(str(croot)),
+                                  tc.es.all_status(str(croot), "core-demo")["skills"])["skills"]["core-demo"]["old-model"]
+    assert one["gate"]["note"] == "pooled, baseline expired"
+    assert (one["band"], one["kind"]) == ("watch", "no current run") and FEWER in one["cause"] and one["community_only"] is False
+    fork(crepo, "bo", 2, "2030-06-03")
+    tc.commit(croot)
+    two = tc.es.community_section(str(croot), ["core-demo"], EPOCH, tc.es.evidence_authors(str(croot)),
+                                  tc.es.all_status(str(croot), "core-demo")["skills"])["skills"]["core-demo"]["old-model"]
+    assert two["pool"]["closed"] is True and (two["band"], two["community_only"]) == ("reliable", True)
+
+
+def test_a_contributor_above_two_thirds_of_the_current_runs_keeps_the_pair_in_watch(croot, crepo):
+    closed_pool_of_1_0(croot, crepo)
+    tb.skill(croot, version="1.1.0")
+    tb.versions(crepo, ("1.0.0", "new"), ("1.1.0", "y"))
+    fork(crepo, "cy", 1, "2030-02-01", version="1.1.0")
+    fork(crepo, "bo", 2, "2030-02-02", version="1.1.0", kind="partial", cases=(1,))  # two contributors, but cy holds 6 of the 7
+    found = community_row(croot)
+    assert found["pool"]["closed"] is False and found["pool"]["contributors"] == 2
+    assert (found["band"], found["kind"]) == ("watch", "no current run")
+    assert "come from 2 of 2 contributors, the largest holding 86%" in found["cause"]
+    assert found["community_only"] is False
+
+
+def test_the_lab_and_the_local_sources_never_ask_for_contributors_of_the_current_set(croot, crepo, tmp_path, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("current_contributors is the community source's alone")
+    monkeypatch.setattr(es, "current_contributors", refuse)
+    tb.full(crepo, score=0.9)
+    tb.skill(croot, version="1.1.0")
+    tb.versions(crepo, ("1.0.0", "new"), ("1.1.0", "y"))
+    tb.event(crepo, "partial", "1.1.0", "2030-02-01", [(c, "with", 0.9, None) for c in (1, 2, 3) for _ in range(3)])
+    lab = tb.band(croot, crepo)  # one source, no contributors: the lab's lines of a new X.Y clear `no current run` as before
+    assert lab["band"] == "reliable"
+    path = tb.event(crepo, "partial", "1.1.0", "2030-02-02", [(1, "with", 0.9, None)])
+    base = tmp_path / "local-evidence"
+    target = base / "core-demo" / path.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(path.read_text())
+    path.unlink()
+    assert es.local_status(str(croot), "core-demo", CFG, str(base))["s-model"]["band"] == "needs a test"  # computed from the local lines alone, no refusal

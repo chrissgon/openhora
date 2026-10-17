@@ -310,7 +310,8 @@ where it is on, the newest closed pool that holds a quick line decides the gate 
 that lists the model (a tie stays with the full test), and the gate carries "note": "pooled". IN THE COMMUNITY SOURCE THE ROUTE
 IS ALWAYS ON AND A FULL TEST COUNTS ONLY THROUGH THE POOL (community_rule): one fork's full test fills at most floor(runs x 2/3)
 of the counted lines of each case, so it never closes a pool alone, and the gate is the newest closed pool's, never the newest
-full test's. A row, a model's figures and a local or community figure gain "pool": {"xy", "runs", "cases", "cases_at_runs", "baseline_cases", "lines", "counted", "tests",
+full test's. The current set of the community source needs the same contributors: `no current run` clears only with lines from
+POOL_MIN_CONTRIBUTORS contributors counted by the pool's per-case rule (current_contributors). A row, a model's figures and a local or community figure gain "pool": {"xy", "runs", "cases", "cases_at_runs", "baseline_cases", "lines", "counted", "tests",
 "quick_lines", "contributors" (None outside the community source), "closed", "pending", "changed", "gate_cases", "from", "to",
 "progress" ("pool of 1.2: 7 of 12 cases at 3 runs; baseline in force for 12; lines from 2030-01-01 to 2030-01-09"), "gate" (of
 the current X.Y's pool once closed), "deciding" (the newest closed pool: {"xy", "test", "frozen", "gate"})} only then; the
@@ -2337,7 +2338,8 @@ def y_changes_since(skill_dir, version):
 #
 # In the community source (community_rule) the route is always on, and a full test counts ONLY through the pool: one fork's full
 # test fills at most floor(runs x 2/3) of the counted lines of each case, so it never closes a pool alone, and the gate is the
-# newest closed pool's, never the newest full test's. No fork alone ranks a pair; a pair needs lines of a second contributor.
+# newest closed pool's, never the newest full test's. No fork alone ranks a pair; a pair needs lines of a second contributor. The
+# same holds for the current set after a Y change or an epoch (skill_band's `no current run`, current_contributors).
 
 POOL_MIN_CONTRIBUTORS = 2  # contributors whose lines a community pool needs to close
 POOL_MAX_SHARE = 2 / 3  # the share of the counted lines one contributor may hold in a community pool
@@ -2426,6 +2428,43 @@ def pool_entries(root, skill_dir, cfg, events, needs_quick=True):
     return kept, now
 
 
+def count_by_contributor(items, case_of, name_of, runs, cap=None):
+    """([counted items], {case id: [counted items]}) of `items` in time order: the one counting rule of the pool and of the
+    community's current set. Per case the first `runs` count; an item with a contributor (name_of is not None) is also skipped
+    (it counts for the score alone) when that contributor already holds floor(runs x 2/3) of the case's counted items, and when
+    it already has `cap` counted items in all. An item is counted or not by the items before it alone."""
+    limit = (runs * 2) // 3
+    counted, per_case, per_who, per_case_who = [], {}, {}, {}
+    for item in items:
+        cid, name = case_of(item), name_of(item)
+        if len(per_case.setdefault(cid, [])) >= runs:
+            continue
+        if name is not None and (per_case_who.get((cid, name), 0) >= limit or (cap is not None and per_who.get(name, 0) >= cap)):
+            continue
+        per_case[cid].append(item)
+        counted.append(item)
+        if name is not None:
+            per_who[name] = per_who.get(name, 0) + 1
+            per_case_who[(cid, name)] = per_case_who.get((cid, name), 0) + 1
+    return counted, per_case
+
+
+def current_contributors(lines, rule, runs):
+    """(contributors, largest share, ok) of the lines of a community current set, counted by the pool's rule (count_by_contributor,
+    per case): ok when the counted lines come from at least POOL_MIN_CONTRIBUTORS contributors, none above POOL_MAX_SHARE of
+    them. The pool's own check, asked of the current set; a lab or a local source has no contributors and never asks."""
+    who = rule["who"]
+    ordered = [l for _, l in sorted(enumerate(lines), key=lambda t: (str(t[1].get("test")), t[0]))]
+    name_of = lambda line: who.get(line.get("test"))
+    counted, _ = count_by_contributor(ordered, lambda line: str(line["case"]), name_of, runs, rule.get("cap"))
+    shares = {}
+    for line in counted:
+        if name_of(line) is not None:
+            shares[name_of(line)] = shares.get(name_of(line), 0) + 1
+    top = max(shares.values()) / len(counted) if shares and counted else 0
+    return len(shares), top, len(shares) >= POOL_MIN_CONTRIBUTORS and top <= POOL_MAX_SHARE + 1e-9
+
+
 def pool_of(xy, era, now, entries, hashes, baselines, cfg, rule):
     """One pool (an X.Y in an era): its figures, whether it is closed and, when it is, its gate. entries are the pool's entries
     (pool_entries) in time order."""
@@ -2443,21 +2482,8 @@ def pool_of(xy, era, now, entries, hashes, baselines, cfg, rule):
     # and when the contributor already has `cap` counted lines in the pool: so every case needs lines of at least two
     # contributors, none above two thirds, and one fork that fills a case first cannot block the others. A line is counted or
     # not by the lines before it alone, so a later line never changes an earlier one.
-    per_case_limit = (runs * 2) // 3
-    counted, per_case, per_who, per_case_who = [], {}, {}, {}
-    for e in weighing:
-        cid = str(e["line"]["case"])
-        name = who.get(e["event"]["test"]) if who is not None else None
-        if len(per_case.setdefault(cid, [])) >= runs:
-            continue
-        if name is not None and (per_case_who.get((cid, name), 0) >= per_case_limit
-                                 or (cap is not None and per_who.get(name, 0) >= cap)):
-            continue
-        per_case[cid].append(e)
-        counted.append(e)
-        if name is not None:
-            per_who[name] = per_who.get(name, 0) + 1
-            per_case_who[(cid, name)] = per_case_who.get((cid, name), 0) + 1
+    counted, per_case = count_by_contributor(weighing, lambda e: str(e["line"]["case"]),
+                                             lambda e: who.get(e["event"]["test"]) if who is not None else None, runs, cap)
     # What the pool covered when it closed, as the full and quick events it counted list their cases (a partial test lists
     # only the ones it ran): a case that is not there, or whose hash is not one of those there, was added or changed since; it
     # is pending, as for a full test, only when the cases it replaced had been run the whole `runs`.
@@ -2744,6 +2770,16 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, 
             watch.append(("no current run", f"no lab run with the skill in the current set of {xy}", partial))
         elif all(guard_only(cases.get(str(l["case"]), {})) for l in ref_current):
             watch.append(("guard cases only", f"only guard cases have run in the current set of {xy}", partial))
+        # In the community source the current set clears `no current run` only with lines from at least POOL_MIN_CONTRIBUTORS
+        # contributors, none above POOL_MAX_SHARE of the counted lines (the pool's per-case rule): one fork's lines of a new X.Y or
+        # a new era cannot return a pair to `reliable` while the pool of that X.Y is open. A closed pool of the current X.Y
+        # has satisfied the same rule already.
+        if community and ref_current and not (route and route["current"]["closed"]):
+            n, top, enough = current_contributors(ref_current, pool_rule, event_config(cfg)["runs"])
+            if not enough:
+                watch.append(("no current run", f"the current runs of {xy} come from {n} of {POOL_MIN_CONTRIBUTORS} contributors, "
+                              f"the largest holding {top:.0%} of the counted lines (at most {POOL_MAX_SHARE:.0%}): a community test "
+                              "counts only with lines from at least 2 contributors, none above two thirds", run_next))
         if ref_score["score"] < RELIABLE_AT:
             watch.append(("score", f"the pessimistic score {ref_score['score']:.2f} is under {RELIABLE_AT:.2f}", partial))
         newest_full = complete_fulls[-1] if complete_fulls and not community else None  # in the community source only a closed pool resets
@@ -2934,7 +2970,8 @@ def imported_status(root, folder, config, base):
 # A community FULL test counts only through the pool (community_rule; the reliability model, section 2): the pooled route is
 # always on in this source, one fork's full test fills at most floor(runs x 2/3) of the counted lines of each case, so it never
 # closes a pool alone, and a community pair is gated by its newest closed pool, with lines from at least POOL_MIN_CONTRIBUTORS
-# contributors, none above POOL_MAX_SHARE of them. No one fork ranks a pair, however many full tests it submits.
+# contributors, none above POOL_MAX_SHARE of them. No one fork ranks a pair, however many full tests it submits, and none brings it
+# back from `watch` after a Y change or an epoch: the current set clears `no current run` only with the same contributors.
 
 COMMUNITY_NO_POOL = ("no closed community pool: a community test counts only through the pool, with lines from at least "
                      f"{POOL_MIN_CONTRIBUTORS} contributors, none above two thirds")
