@@ -505,27 +505,123 @@ def test_a_folder_inside_an_older_checkout_or_behind_a_link_to_one_is_refused(tm
         assert e.value.code == 2 and "inside a checkout of the workbench" in capsys.readouterr().err
 
 
-def test_a_per_event_copy_left_by_a_killed_run_is_removed_after_a_day_and_nothing_else_is(tmp_path):
+DAY = 86400
+
+
+def stale_copy(base, name="eval-import-stale", age=3 * DAY, mode=0o700, marker=True, lock=True, content="made by the runner"):
+    """A per-event copy as a killed run leaves it: a folder with the runner's marker, a lock file and a file of the copy, `age` seconds old."""
+    import time
+    folder = Path(base) / name
+    folder.mkdir()
+    (folder / "demo").mkdir()
+    (folder / "demo" / "SKILL.md").write_text(content)
+    if marker:
+        (folder / er.COPY_MARKER).write_text(json.dumps({"made_by": "eval_run.py", "token": "00ff"}))
+    if lock:
+        (folder / er.COPY_LOCK).write_text("")
+    os.chmod(folder, mode)
+    os.utime(folder, (time.time() - age,) * 2)
+    return folder
+
+
+def test_a_per_event_copy_left_by_a_killed_run_is_removed_when_it_is_the_runners_own_old_unlocked_and_nothing_else_is(tmp_path):
     import time
     now = time.time()
-    for name, age in (("eval-import-old", 3 * 86400), ("eval-import-new", 60), ("eval-other-old", 3 * 86400)):
-        (tmp_path / name).mkdir()
-        (tmp_path / name / "f").write_text("x")
-        os.utime(tmp_path / name, (now - age, now - age))
+    stale_copy(tmp_path, "eval-import-old")
+    stale_copy(tmp_path, "eval-import-new", age=60)
+    (tmp_path / "eval-other-old").mkdir()
+    os.utime(tmp_path / "eval-other-old", (now - 3 * DAY,) * 2)
     (tmp_path / "eval-import-file").write_text("not a folder")
-    os.utime(tmp_path / "eval-import-file", (now - 3 * 86400, now - 3 * 86400))
     assert er.sweep_stale_copies(str(tmp_path), now=now) == ["eval-import-old"]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["eval-import-file", "eval-import-new", "eval-other-old"]
 
 
-def test_an_event_sweeps_the_stale_copies_and_the_docs_say_a_sigkill_can_leave_one(tmp_path, tmp_path_factory, monkeypatch, capsys):
+def test_the_sweep_leaves_a_copy_of_another_user_a_copy_with_the_wrong_mode_and_a_folder_that_is_not_the_runners(tmp_path, monkeypatch):
     import time
+    now = time.time()
+    other_user = stale_copy(tmp_path, "eval-import-other-user")
+    monkeypatch.setattr(er, "my_uid", lambda: os.getuid() + 1)  # the folder is then another user's
+    assert er.sweep_stale_copies(str(tmp_path), now=now) == [] and other_user.exists()
+    monkeypatch.undo()
+    shutil.rmtree(other_user)  # a valid copy of this user's: the checks below are about what is not
+    for name, mode in (("eval-import-open", 0o755), ("eval-import-group", 0o770), ("eval-import-read", 0o500)):
+        stale_copy(tmp_path, name, mode=mode)
+    stale_copy(tmp_path, "eval-import-no-marker", marker=False)
+    wrong = stale_copy(tmp_path, "eval-import-wrong-marker")
+    (wrong / er.COPY_MARKER).write_text(json.dumps({"made_by": "somebody else"}))
+    bad = stale_copy(tmp_path, "eval-import-bad-marker")
+    (bad / er.COPY_MARKER).write_text("not json")
+    stale_copy(tmp_path, "eval-import-no-lock", lock=False)
+    target = tmp_path / "somewhere-else"
+    target.mkdir()
+    (target / "keep").write_text("a folder the sweep must not touch")
+    os.symlink(target, tmp_path / "eval-import-link")
+    assert er.sweep_stale_copies(str(tmp_path), now=now) == []
+    assert (target / "keep").exists() and (tmp_path / "eval-import-link").is_symlink()
+    for name in ("eval-import-open", "eval-import-group", "eval-import-read", "eval-import-no-marker", "eval-import-wrong-marker",
+                 "eval-import-bad-marker", "eval-import-no-lock"):
+        assert (tmp_path / name).exists(), name
+        os.chmod(tmp_path / name, 0o700)
+
+
+def test_the_sweep_never_removes_a_copy_that_a_live_event_holds_locked(tmp_path):
+    import fcntl
+    import time
+    folder = stale_copy(tmp_path, "eval-import-live")
+    holder = open(folder / er.COPY_LOCK, "w")
+    fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)  # what the running event holds for its whole life
+    try:
+        assert er.sweep_stale_copies(str(tmp_path), now=time.time()) == [] and (folder / "demo" / "SKILL.md").exists()
+    finally:
+        holder.close()
+    assert er.sweep_stale_copies(str(tmp_path), now=time.time()) == ["eval-import-live"] and not folder.exists()
+
+
+def test_an_event_holds_the_lock_of_its_copy_for_its_whole_life_and_releases_it_at_the_end(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    import fcntl
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    seen, real = [], er.stage_run
+
+    def spy(case_dir, eval_cfg, variant_dir, deps, case, platform=None):
+        if variant_dir:
+            root = Path(variant_dir).parent
+            with open(root / er.COPY_LOCK, "w") as probe:
+                try:
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    seen.append("free")
+                except OSError:
+                    seen.append("held")
+            seen.append(json.loads((root / er.COPY_MARKER).read_text())["made_by"])
+            seen.append(oct(os.stat(root).st_mode & 0o777))
+        return real(case_dir, eval_cfg, variant_dir, deps, case, platform)
+    monkeypatch.setattr(er, "stage_run", spy)
+    assert run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")[0] == 0
+    assert set(seen[0::3]) == {"held"} and set(seen[1::3]) == {"eval_run.py"} and set(seen[2::3]) == {"0o700"}
+
+
+def test_a_copy_damaged_during_the_event_writes_no_evidence(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    start, real = es.content_hash(str(folder)), er.stage_run
+
+    def spy(case_dir, eval_cfg, variant_dir, deps, case, platform=None):
+        if variant_dir:  # the copy the runs are staged from is changed under the event; the original folder is not
+            (Path(variant_dir) / "SKILL.md").write_text((Path(variant_dir) / "SKILL.md").read_text() + "damaged\n")
+        return real(case_dir, eval_cfg, variant_dir, deps, case, platform)
+    monkeypatch.setattr(er, "stage_run", spy)
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")
+    result = json.loads(out)
+    assert es.content_hash(str(folder)) == start  # the original is as it was
+    assert result["evidence"]["written"] is False and "copy" in result["evidence"]["reason"] and "damaged" in result["evidence"]["reason"]
+    assert not list((local_base() / "imported" / "demo").glob("lab-*.jsonl")) if (local_base() / "imported").exists() else True
+
+
+def test_an_event_sweeps_the_stale_copies_and_the_docs_say_a_sigkill_can_leave_one(tmp_path, tmp_path_factory, monkeypatch, capsys):
     standin(tmp_path, monkeypatch)
     folder = imported(tmp_path, tmp_path_factory)
     base = Path(er.temp_base())
-    stale = base / ("eval-import-stale-" + tmp_path.name[:12])
-    stale.mkdir()
-    os.utime(stale, (time.time() - 3 * 86400,) * 2)
+    stale = stale_copy(base, "eval-import-stale-" + tmp_path.name[:12])
     code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")
     assert code == 0 and not stale.exists()
     assert "SIGKILL" in er.__doc__ and "SIGKILL" in (REPO / "evals" / "README.md").read_text()

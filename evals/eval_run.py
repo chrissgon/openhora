@@ -113,7 +113,10 @@ current content hash), and no audit record (<folder>/evals/import/audit.json, wr
 verdict is not "do not install" at that hash. The event runs from ONE COPY of the folder, made at its start without following
 a link into the system's temporary space (removed when the invocation ends): those checks are made on the copy, every run is
 staged from it, and a change of the folder while the event runs writes no evidence. A SIGKILL or a crash can leave the copy in the
-temporary folder (mode 0700, readable by its owner only); the next such event removes copies older than a day. `--resume <event folder>` alone resumes
+temporary folder (mode 0700, readable by its owner only). The next such event removes a copy only when it is the runner's own: a real
+folder of the same user, mode 0700, holding the runner's marker file (.eval-import-copy), older than a day, and whose lock file
+(.eval-import-lock) can be taken without blocking: an event holds that lock, exclusively, for its whole life. Before it writes evidence
+the event also checks the hash of its copy, so a run staged from a damaged copy writes none. `--resume <event folder>` alone resumes
 such an event (no --skill-dir; it keeps the options it started with) and checks the folder, the check and the audit again. A
 case with "allow_web" runs only with --allow-web-cases and an audit verdict of "install": the open network could hand the
 person's fixture files to any host. `eval_status.py status --skill-dir <folder>` shows the figures, and says that a quick
@@ -543,6 +546,11 @@ import time
 import types
 import urllib.parse
 
+try:  # POSIX; the lock of a per-event copy needs it, and the repository's runs are on POSIX
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # The execution kit (evals/execution.py): the container run of one attempt, shared with the runtime's lab facade.
@@ -788,24 +796,65 @@ def copy_imported(src, dst):
 
 
 COPY_PREFIX = "eval-import-"
+COPY_MARKER = ".eval-import-copy"  # written by the runner into every copy it makes: what the sweep recognises as its own
+COPY_LOCK = ".eval-import-lock"  # held, exclusively, by the event that uses the copy for the whole of its life
 STALE_COPY_SECONDS = 24 * 3600
 
 
+def my_uid():
+    return os.getuid()
+
+
+def make_event_copy(src, name, base, hold):
+    """The per-event copy of a skill from outside: a new folder (mode 0700, made by mkdtemp) under `base` that holds the runner's marker,
+    a lock file locked exclusively for as long as the event lives (the descriptor goes into `hold`; closing it, or the end of the process
+    however it ends, releases the lock), and the copy of the skill at <folder>/<name>. Returns (folder, the copy's path)."""
+    folder = tempfile.mkdtemp(prefix=COPY_PREFIX, dir=base)
+    with open(os.path.join(folder, COPY_MARKER), "w", encoding="utf-8") as f:
+        json.dump({"made_by": "eval_run.py", "token": secrets.token_hex(8), "skill": name}, f)
+    if fcntl is not None:
+        lock = open(os.path.join(folder, COPY_LOCK), "w")
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        hold.append(lock)
+    return folder, copy_imported(src, os.path.join(folder, name))
+
+
 def sweep_stale_copies(folder, now=None):
-    """Remove the per-event copies of a skill from outside (eval-import-*) older than a day from `folder`, the system's temporary space: a
-    SIGKILL, a power cut or a crash ends an invocation without its cleanup, and such a copy is left in a folder only its owner can read
-    (mode 0700). Returns the names removed. A copy younger than a day may belong to an event that is running, and is left alone."""
+    """Remove the per-event copies of a skill from outside that a killed run left in `folder`, the system's temporary space (a SIGKILL, a
+    power cut or a crash ends an invocation without its cleanup). It removes only what the runner made, and only when ALL of these hold:
+    the name starts with eval-import-; it is a real folder (lstat, not a link); it belongs to the user running this (st_uid); its mode is
+    0700; it holds the runner's marker file with the runner's name in it; it is older than a day; and its lock file can be taken without
+    blocking (an event that is running holds it). Returns the names removed. Anything else is left alone."""
     now = time.time() if now is None else now
     removed = []
     for name in sorted(os.listdir(folder)):
+        if not name.startswith(COPY_PREFIX):
+            continue
         path = os.path.join(folder, name)
         try:
             info = os.lstat(path)
-        except OSError:
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != my_uid() or stat.S_IMODE(info.st_mode) != 0o700:
+                continue
+            if now - info.st_mtime <= STALE_COPY_SECONDS:
+                continue
+            marker = os.path.join(path, COPY_MARKER)
+            if not stat.S_ISREG(os.lstat(marker).st_mode):
+                continue
+            with open(marker, encoding="utf-8") as f:
+                if json.load(f).get("made_by") != "eval_run.py":
+                    continue
+            lock_path = os.path.join(path, COPY_LOCK)
+            if fcntl is None or not stat.S_ISREG(os.lstat(lock_path).st_mode):
+                continue
+            with open(lock_path, "r") as lock:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:  # held by an event that is still running
+                    continue
+                shutil.rmtree(path, ignore_errors=True)  # removed while the lock is held: nobody can start using it meanwhile
+                removed.append(name)
+        except (OSError, ValueError):
             continue
-        if name.startswith(COPY_PREFIX) and stat.S_ISDIR(info.st_mode) and now - info.st_mtime > STALE_COPY_SECONDS:
-            shutil.rmtree(path, ignore_errors=True)
-            removed.append(name)
     return removed
 
 
@@ -2655,9 +2704,10 @@ def run_event(argv, cleanup):
     if origin_dir and not o["dry"] and not closing:
         # The event runs from one copy, made now: what the checks below read, what is staged and what is hashed are the same bytes.
         sweep_stale_copies(temp_base())
-        copy_root = tempfile.mkdtemp(prefix=COPY_PREFIX, dir=temp_base())
+        held = []
+        copy_root, skill_dir = make_event_copy(origin_dir, o["skill"], temp_base(), held)
         cleanup.append(lambda: shutil.rmtree(copy_root, ignore_errors=True))
-        skill_dir = copy_imported(origin_dir, os.path.join(copy_root, o["skill"]))
+        cleanup.insert(0, lambda: [lock.close() for lock in held])
     evals = load_evals(o["skill"], o.get("platform"), skill_dir if origin_dir else None)
     cases = evals.get("evals") or []
     if o["cases"]:
@@ -3346,6 +3396,8 @@ def run_event(argv, cleanup):
                                   f"up and keep its runs (--close {os.path.relpath(it_dir, ROOT)})")
         elif status.content_hash(origin_dir or skill_dir) != start_hash and not closing:
             evidence["reason"] = "the skill folder changed during the event: its runs are of another content"
+        elif origin_dir and status.content_hash(skill_dir) != start_hash and not closing:
+            evidence["reason"] = "the copy of the skill the runs were staged from was damaged during the event: its runs are of another content"
         else:
             # A file about to enter a skill is new evidence: read strictly (the current gate file's models and runs). A
             # person's own file is read by its own event line: its models are not in the gate file's list.
