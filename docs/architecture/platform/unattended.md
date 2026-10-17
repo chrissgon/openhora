@@ -97,6 +97,15 @@ For LinkedIn the file is `LINKEDIN_ACCESS_TOKEN` (field `access_token`), with th
 
 The consent page of the Picker (`gdrive_auth.py pick`) also needs a browser; the files it picks are then read by the server with the record alone. A refresh token of a Google project in "Testing" expires after seven days (the provider's `auth.py` cites the source): a server that runs for weeks needs the project published, or a weekly consent. The runtime never runs the consent itself.
 
+**Google Calendar as a source** (`GOOGLE_CALENDAR_TOKEN`) is the same shape: its consent is `uv run <workbench>/providers/calendar/google_auth.py authorize`, on a machine with a browser, and the secret is **one JSON record** (refresh token, the Desktop app client, the two scopes, the account and the date) under the store username `calendar-google`. It is a record of its own, not the Gmail one: copy the whole record, not a field of it.
+
+```sh
+( umask 077; uv run --with keyring==25.7.0 keyring get openhora calendar-google \
+    | ssh deploy@runtime-host.example 'umask 077; cat > ~/.config/openhora/credentials/GOOGLE_CALENDAR_TOKEN' )
+```
+
+The same seven-day expiry of a project left in "Testing" applies; `google_auth.py check` says whether a record is found without calling Google, and `google_auth.py forget` removes the local record (it does not tell Google: the app's access is also removed in the Google Account).
+
 ## Retention (I6)
 
 Two keys of `runtime.json`, both optional, accepted in the terminal like every key of the file:

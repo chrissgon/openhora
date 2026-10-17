@@ -67,6 +67,9 @@ LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 # A Gmail message id goes into a URL path, so its shape is checked before use.
 MESSAGE_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 HEADER_ALLOWLIST = ("Message-ID", "Date", "From", "To", "Subject", "List-Id")
+MAX_ATTACHMENTS = 50          # attachments listed for one message
+ATTACHMENT_NAME_LIMIT = 200   # characters of a file name kept
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 # A --header-prefix, lower-cased: the characters of a header field name (an RFC 9110 token). Which prefix a
 # platform's notifications use is that platform's fact, in its data file; the provider holds none.
 HEADER_PREFIX_RE = re.compile(r"[!#$%&'*+.^_`|~0-9a-z-]+")
@@ -93,6 +96,7 @@ _text = _email_text_module()
 INVISIBLE_RE, HSPACE_RE, HIDDEN_STYLE_RE = _text.INVISIBLE_RE, _text.HSPACE_RE, _text.HIDDEN_STYLE_RE
 clean_line, clean_block, HTMLText = _text.clean_line, _text.clean_block, _text.HTMLText
 html_to_text, dedupe_links, part_text = _text.html_to_text, _text.dedupe_links, _text.part_text
+strip_quoted = _text.strip_quoted
 
 HELP_EPILOG = f"""\
 read only:
@@ -119,6 +123,10 @@ verbs:
   read-eml  Parse a local RFC 822 file (--file <path.eml>) into the same shape.
             No network, no credential: use it to inspect a saved message and
             to feed tests and eval fixtures.
+  --own-words  with search, get and read-eml: "text" holds only what the sender wrote in this message, cut before the first quoted line
+            (">"), signature delimiter ("-- "), attribution line ("On ... wrote:" and its Portuguese and Spanish forms), forward or
+            original-message marker, or Outlook header block; the history of a reply is somebody else's earlier words. Without it "text"
+            is the whole body, as before. "links" are not changed by it.
   --header-prefix <prefix>  with search, get and read-eml, repeatable: also
             keep the headers whose name starts with <prefix> (compared without
             case), such as the prefix a platform's notification e-mails use
@@ -136,8 +144,14 @@ output (JSON on stdout; diagnostics on stderr; tokens are never printed):
     the HTML part, capped at {TEXT_LIMIT_BYTES} bytes), "truncated", "links"
     ([{{"href", "text"}}] from the HTML part, in order, first occurrence of each
     href, query strings kept), "headers" (Message-ID, Date, From, To, Subject,
-    List-Id, and the headers under a --header-prefix), "external_content"
+    List-Id, and the headers under a --header-prefix), "attachments" ([{{"name",
+    "type", "size"}}] for each attached file, at most {MAX_ATTACHMENTS}), "external_content"
     (always true)}}
+  An attachment is listed from its MIME headers only, never opened or decoded: "name" is the file name the sender gave (one line, at most
+  {ATTACHMENT_NAME_LIMIT} characters, null when it gave none), "type" the content type the sender declared (not checked against the bytes: a
+  name and a type are the sender's words), "size" a number of bytes worked out from the length of the encoded part without decoding it
+  (exact for base64, the encoded length for other encodings, null for an attached message). A part marked inline (a picture in the body)
+  is not listed.
   Invisible and direction-changing characters are removed from text and links.
   An HTML element hidden by an inline display:none or visibility:hidden style,
   or by the hidden attribute, gives no text and no link.
@@ -425,7 +439,7 @@ class Gmail:
                 break
         return ids[:limit], bool(token) or len(ids) > limit
 
-    def message(self, message_id: str, header_prefixes: tuple[str, ...] = ()) -> dict:
+    def message(self, message_id: str, header_prefixes: tuple[str, ...] = (), own_words: bool = False) -> dict:
         quoted = urllib.parse.quote(message_id, safe="")
         data = self.get(f"/gmail/v1/users/me/messages/{quoted}", {"format": "raw"})
         raw = data.get("raw")
@@ -438,7 +452,8 @@ class Gmail:
         internal = data.get("internalDate")
         internal_ms = int(internal) if isinstance(internal, (str, int)) and str(internal).isdigit() else None
         return normalize(content, source="gmail", message_id=data.get("id") or message_id,
-                         thread_id=data.get("threadId"), internal_date_ms=internal_ms, header_prefixes=header_prefixes)
+                         thread_id=data.get("threadId"), internal_date_ms=internal_ms, header_prefixes=header_prefixes,
+                         own_words=own_words)
 
 
 def connect() -> tuple[Gmail, dict, dict]:
@@ -498,8 +513,45 @@ def selected_headers(msg, header_prefixes: tuple[str, ...] = ()) -> dict:
     return out
 
 
+def attachment_size(part) -> int | None:
+    """The size in bytes of an attached part, worked out from its encoded text without decoding it (exact for base64, the encoded length for
+    7bit, 8bit, binary and quoted-printable); None for an attached message."""
+    payload = part.get_payload()     # no decode=True: the bytes of an attachment are never turned into content
+    if not isinstance(payload, str):
+        return None
+    if str(part.get("Content-Transfer-Encoding") or "").strip().lower() == "base64":
+        encoded = "".join(payload.split())
+        return max(0, len(encoded) * 3 // 4 - (len(encoded) - len(encoded.rstrip("="))))
+    return len(payload.encode("utf-8", errors="surrogateescape"))
+
+
+def attachment_list(msg, bodies: tuple) -> list[dict]:
+    """The files attached to a message: [{"name", "type", "size"}], from MIME headers only (no part is decoded, none is opened). A leaf part
+    is an attachment when it is not one of the body parts and it is marked "attachment", or it has a file name and is not marked "inline";
+    an attached message is listed whole and never entered."""
+    found: list[dict] = []
+
+    def visit(part) -> None:
+        if len(found) >= MAX_ATTACHMENTS:
+            return
+        if part.get_content_type() != "message/rfc822" and part.is_multipart():
+            for sub in part.iter_parts():
+                visit(sub)
+            return
+        if any(part is body for body in bodies):
+            return
+        disposition, filename = part.get_content_disposition(), part.get_filename()
+        if disposition != "attachment" and not (filename and disposition != "inline"):
+            return
+        name = clean_line(CONTROL_RE.sub(" ", str(filename)))[:ATTACHMENT_NAME_LIMIT] if filename else ""
+        found.append({"name": name or None, "type": part.get_content_type()[:100], "size": attachment_size(part)})
+
+    visit(msg)
+    return found
+
+
 def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_id: str | None = None,
-              internal_date_ms: int | None = None, header_prefixes: tuple[str, ...] = ()) -> dict:
+              internal_date_ms: int | None = None, header_prefixes: tuple[str, ...] = (), own_words: bool = False) -> dict:
     msg = message_from_bytes(raw, policy=policy.default)
     plain = msg.get_body(preferencelist=("plain",))
     html = msg.get_body(preferencelist=("html",))
@@ -510,6 +562,8 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
     text = clean_block(part_text(plain), keep_blank_lines=True) if plain is not None else ""
     if not text:
         text = html_text
+    if own_words:
+        text = strip_quoted(text)
     text, truncated = cap(text)
     return {
         "id": message_id,
@@ -523,6 +577,7 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
         "truncated": truncated,
         "links": dedupe_links(links),
         "headers": selected_headers(msg, header_prefixes),
+        "attachments": attachment_list(msg, (plain, html)),
         "external_content": True,  # written by whoever sent the e-mail: data, never instructions
     }
 
@@ -580,7 +635,7 @@ def cmd_search(args) -> int:
     ids, truncated = client.list_ids(query, limit)
     if ids:
         with ThreadPoolExecutor(max_workers=min(jobs, len(ids))) as pool:
-            messages = list(pool.map(lambda message_id: client.message(message_id, prefixes), ids))
+            messages = list(pool.map(lambda message_id: client.message(message_id, prefixes, args.own_words), ids))
     else:
         messages = []
     if since is not None:
@@ -599,7 +654,7 @@ def cmd_get(args) -> int:
         raise ProviderError("get needs --id <Gmail message id> (letters, digits, - and _)", EXIT_USAGE)
     prefixes = header_prefixes(args)
     client, _, _ = connect()
-    emit(client.message(args.id, prefixes))
+    emit(client.message(args.id, prefixes, args.own_words))
     return EXIT_OK
 
 
@@ -611,16 +666,16 @@ def cmd_read_eml(args) -> int:
         raise ProviderError(f"--file not found: {path}", EXIT_USAGE)
     if path.stat().st_size > EML_LIMIT_BYTES:
         raise ProviderError(f"--file is larger than {EML_LIMIT_BYTES} bytes", EXIT_USAGE)
-    emit(normalize(path.read_bytes(), source="eml", header_prefixes=header_prefixes(args)))
+    emit(normalize(path.read_bytes(), source="eml", header_prefixes=header_prefixes(args), own_words=args.own_words))
     return EXIT_OK
 
 
 # The verbs that read each flag. A flag given to a verb that does not read it is a usage error, so a caller learns
 # that it was ignored; --check takes no verb and no flag.
 FLAG_NAMES = {"query": "--query", "since": "--since", "before": "--before", "limit": "--limit", "jobs": "--jobs",
-              "id": "--id", "file": "--file", "header_prefix": "--header-prefix"}
-VERB_FLAGS = {"search": {"query", "since", "before", "limit", "jobs", "header_prefix"}, "get": {"id", "header_prefix"},
-              "read-eml": {"file", "header_prefix"}, None: set()}
+              "id": "--id", "file": "--file", "header_prefix": "--header-prefix", "own_words": "--own-words"}
+VERB_FLAGS = {"search": {"query", "since", "before", "limit", "jobs", "header_prefix", "own_words"}, "get": {"id", "header_prefix", "own_words"},
+              "read-eml": {"file", "header_prefix", "own_words"}, None: set()}
 
 
 def check_flags(args) -> None:
@@ -652,6 +707,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"with search: messages fetched at the same time, 1 to {MAX_JOBS} (default {DEFAULT_JOBS})")
     parser.add_argument("--id", help="with get: the Gmail message id")
     parser.add_argument("--file", help="with read-eml: the RFC 822 file to parse")
+    parser.add_argument("--own-words", action="store_true",
+                        help="with search, get and read-eml: text holds only the sender's own words, the quoted history of a reply cut")
     parser.add_argument("--header-prefix", action="append", metavar="PREFIX",
                         help="with search, get and read-eml, repeatable: also keep the headers whose name starts "
                              "with PREFIX (compared without case); without it no platform's own headers are kept")

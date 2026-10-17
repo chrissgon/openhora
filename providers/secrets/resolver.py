@@ -181,6 +181,18 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "the Desktop app client's secret",
            ("providers/mailbox/auth.py", "providers/mailbox/gmail.py"),
            store_username="gmail-client-secret"),
+    Secret("GOOGLE_CALENDAR_TOKEN",
+           "read the events and the list of calendars of the person's Google Calendar, for the calendar sources they chose (and nothing else)",
+           "OAuth scopes https://www.googleapis.com/auth/calendar.events.readonly and "
+           "https://www.googleapis.com/auth/calendar.calendarlist.readonly only (providers/calendar/google_auth.py): they read every event of "
+           "every calendar the account can see and the list of calendars, and change nothing; the narrowing to a calendar and a window is the "
+           "runtime's, not the service's",
+           ("providers/calendar/google.py", "providers/calendar/google_auth.py"),
+           store_username="calendar-google",
+           set_local="uv run providers/calendar/google_auth.py authorize (writes the record after the browser consent)",
+           note="one JSON record (refresh_token, client_id, client_secret, scope, account, obtained_at) written by "
+                "providers/calendar/google_auth.py; the Desktop app client travels with the refresh token so that this is the only entry, "
+                "and it is a record of its own, apart from the Gmail one; from the environment, the same JSON text"),
     Secret("NOTION_TOKEN",
            "read and write the task board and the documents of a project on Notion",
            "an internal integration with read content, update content, insert content and read comments, "
