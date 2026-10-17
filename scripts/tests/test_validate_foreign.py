@@ -99,6 +99,11 @@ def test_a_gate_heading_is_required_when_an_effect_is_declared_and_a_guard_is_re
 
 def test_a_guard_is_asked_for_when_the_skill_has_stop_rules_a_gate_or_reads_external_content(tmp_path):
     folder = skill(tmp_path, gate=False)
+    data = json.loads((folder / "evals" / "evals.json").read_text())
+    for case in data["evals"]:  # the fixture's cases carry a guard; this test is about cases that do not
+        case["assertions"] = [a if isinstance(a, str) else a["text"] for a in case["assertions"]]
+        case.pop("tags", None)
+    (folder / "evals" / "evals.json").write_text(json.dumps(data))
     (folder / "SKILL.md").write_text((folder / "SKILL.md").read_text() + "\n## Stop rules\n\n1. No page, no notes: stop and ask.\n")
     seal(folder)
     code, report = foreign(folder)
@@ -198,3 +203,15 @@ def test_the_normal_run_is_unchanged_and_documents_the_new_option():
     assert "--foreign <folder>" in doc and "The normal run, with no --foreign, is unchanged" in doc
     done = subprocess.run([sys.executable, str(REPO / "scripts" / "validate.py"), "--bogus"], capture_output=True, text=True, cwd=REPO)
     assert done.returncode == 2 and "unknown option" in done.stderr
+
+
+def test_the_validator_closes_a_frontmatter_on_a_line_that_is_exactly_three_dashes(tmp_path):
+    path = tmp_path / "SKILL.md"
+    path.write_text("---\nname: a\n---: x\nmodel: m\n---\n\nbody\n")
+    assert v.split_frontmatter(str(path)) == ("name: a\n---: x\nmodel: m", "\n\nbody\n")
+    path.write_text("---\nname: a\n---   \nbody\n")
+    assert v.split_frontmatter(str(path)) == ("name: a", "\nbody\n")
+    path.write_text("---\nname: a\n---x\nbody\n")
+    assert v.split_frontmatter(str(path)) == (None, "---\nname: a\n---x\nbody\n")
+    path.write_text("plain\n")
+    assert v.split_frontmatter(str(path)) == (None, "plain\n")

@@ -105,12 +105,18 @@ the folder's own (<folder>/evals/evals.json, fixtures under <folder>/evals/files
 Its evidence is always the person's own: it goes to <local evidence base>/imported/<name>/, never into the checkout, and
 its event line carries "imported": true (eval_status.py refuses a committed file that carries it). Refused: --pass-env and
 --harness (a model of the gate file runs through its entry's adapter and key proxy, and no variable of the person's reaches
-the run of a skill nobody has read), --platform, --routing and --regrade; a folder that holds a symbolic link anywhere; a
-case with "workbench_files"; and, for a real event (not --dry-run, not --check-cases), a folder with no audit record
-(<folder>/evals/import/audit.json, written by scripts/skill_import.py audit) whose verdict is not "do not install" at the
-folder's current content hash. A case with "allow_web" runs only with --allow-web-cases and an audit verdict of "install": the
-open network could hand the person's fixture files to any host. `eval_status.py status --skill-dir <folder>` shows the
-figures, and says that a quick test alone is preliminary.
+the run of a skill nobody has read), --platform, --routing and --regrade; a folder inside any checkout of the workbench; a
+folder that holds a symbolic link, a special file or a hard-linked file anywhere; a case with "workbench_files"; and, for a
+real event (not --dry-run, not --check-cases): an install marker or a cache name in the content (the content hash leaves such
+names out), no passing check (<folder>/evals/import/check.json, written by scripts/skill_import.py check, ok at the folder's
+current content hash), and no audit record (<folder>/evals/import/audit.json, written by scripts/skill_import.py audit) whose
+verdict is not "do not install" at that hash. The event runs from ONE COPY of the folder, made at its start without following
+a link into the system's temporary space (removed when the invocation ends): those checks are made on the copy, every run is
+staged from it, and a change of the folder while the event runs writes no evidence. `--resume <event folder>` alone resumes
+such an event (no --skill-dir; it keeps the options it started with) and checks the folder, the check and the audit again. A
+case with "allow_web" runs only with --allow-web-cases and an audit verdict of "install": the open network could hand the
+person's fixture files to any host. `eval_status.py status --skill-dir <folder>` shows the figures, and says that a quick
+test alone is preliminary.
 
 Tests per platform (--platform <platform>; the plan's decision 14c). The cases of one social platform live in
 skills/<name>/evals/platforms/<platform>.json (its top-level "platform", when present, names the same
@@ -720,8 +726,8 @@ def imported_options(opts):
     if os.path.isdir(os.path.join(ROOT, "skills", name)):
         die(f"--skill-dir {folder}: {name} is the name of a skill of the repository (skills/{name}); a skill from outside has a "
             "name of its own, and its evidence would otherwise be mistaken for that skill's.", 2)
-    if load_status().inside_checkout(folder, ROOT):
-        die(f"--skill-dir {folder} is inside the workbench checkout: a skill from outside lives outside it "
+    if load_status().inside_checkout(folder, ROOT) or load_status().enclosing_workbench(folder):
+        die(f"--skill-dir {folder} is inside a checkout of the workbench: a skill from outside lives outside every one "
             "(scripts/skill_import.py puts it in its home folder).", 2)
     clash = [flag for flag, on in (("--pass-env", opts["pass_env"]), ("--harness", opts["harness"]), ("--platform", opts["platform"]),
                                    ("--routing", opts["routing"]), ("--regrade", opts["regrade"] is not None),
@@ -750,6 +756,46 @@ def folder_links(folder):
     return sorted(found)
 
 
+def copy_imported(src, dst):
+    """Copy the folder of a skill from outside to `dst` and return `dst`, without following a link: every entry is looked at as it is
+    (lstat) and opened with O_NOFOLLOW, and a link, a device, a pipe, a socket or a hard-linked file ends the event (die). The event
+    runs from this copy, so what it staged is what it checked, whatever happens to the folder meanwhile."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    for dp, dns, fns in os.walk(src, followlinks=False):
+        target = os.path.join(dst, os.path.relpath(dp, src))
+        os.makedirs(target, exist_ok=True)
+        for n in dns + fns:
+            info = os.lstat(os.path.join(dp, n))
+            if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)) or (stat.S_ISREG(info.st_mode) and info.st_nlink > 1):
+                die(f"{os.path.relpath(os.path.join(dp, n), src)} in the folder of the skill is a link, a device, a pipe, a socket or a "
+                    "hard-linked file: staging would copy what it points at into a run, so none is allowed.", 2)
+        for n in fns:
+            try:
+                fd = os.open(os.path.join(dp, n), flags)
+            except OSError as e:
+                die(f"{os.path.join(dp, n)} cannot be opened as a plain file ({e.strerror}).", 2)
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
+                    die(f"{os.path.join(dp, n)} is not a plain file with one name.", 2)
+                with os.fdopen(fd, "rb", closefd=False) as source, open(os.path.join(target, n), "wb") as out:
+                    shutil.copyfileobj(source, out)
+            finally:
+                os.close(fd)
+            os.chmod(os.path.join(target, n), 0o755 if info.st_mode & 0o100 else 0o644)
+    return dst
+
+
+def read_check(folder):
+    """The summary of the last `skill_import.py check` (<folder>/evals/import/check.json), or None."""
+    try:
+        with open(os.path.join(folder, "evals", "import", "check.json"), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def read_audit(folder):
     """The audit record of a skill from outside (scripts/skill_import.py audit writes <folder>/evals/import/audit.json:
     {"verdict", "record", "record_sha256", "content_sha256", "date"}), or None when there is none or it is unreadable."""
@@ -768,12 +814,18 @@ def imported_case_problems(cases):
             "this repository into the case folder)" for c in cases if "workbench_files" in c]
 
 
-def imported_event_problems(o, web_cases):
+def imported_event_problems(o, web_cases, folder=None):
     """Why a real event of a skill from outside must not start, as a list of sentences ([] when it may). The checks are code,
     not a prompt: a link anywhere in the folder; no audit record; a verdict of "do not install"; a folder whose content
     changed since the audit (its hash is no longer the one the record names); and, for a case with "allow_web", the flag
-    --allow-web-cases together with the verdict "install" (the open network could hand the person's fixtures to any host)."""
-    folder, problems = o["skill_dir"], []
+    --allow-web-cases together with the verdict "install" (the open network could hand the person's fixtures to any host); an
+    install marker or a cache name in the content (the content hash leaves such names out, a copy would keep them); and no passing
+    `check` at the folder's current content hash. `folder` is the copy the event runs from (the original in a plan)."""
+    folder, problems = folder or o["skill_dir"], []
+    status = load_status()
+    stray = status.stray_names(folder)
+    if stray:
+        problems.append(f"the content holds {len(stray)} install marker(s), cache name(s) or version-control entries ({', '.join(stray[:5])}): remove them")
     links = folder_links(folder)
     if links:
         problems.append(f"the folder holds {len(links)} symbolic link(s) or special file(s) ({', '.join(links[:5])}"
@@ -787,9 +839,13 @@ def imported_event_problems(o, web_cases):
         problems.append(f"the audit record names no verdict of {', '.join(AUDIT_VERDICTS)}")
     elif verdict == "do not install":
         problems.append("the audit verdict is \"do not install\": a skill that failed its vetting is not run, not even in the container")
-    elif audit.get("content_sha256") != load_status().content_hash(folder):
+    elif audit.get("content_sha256") != status.content_hash(folder):
         problems.append("the folder changed since it was audited (the audit names another content hash): the audit is void; "
                         "vet it again and record the new verdict")
+    checked = read_check(folder)
+    if not checked or checked.get("ok") is not True or checked.get("content_sha256") != status.content_hash(folder):
+        problems.append("the folder has not passed `python3 scripts/skill_import.py check --name <name>` at its current content: "
+                        "check it (and vet it again if the content changed)")
     if web_cases:
         if not o.get("allow_web_cases"):
             problems.append(f"case(s) {', '.join(web_cases)} set \"allow_web\": a skill from outside runs on the open network only "
@@ -2527,6 +2583,17 @@ def write_evidence(path, event_line, run_lines):
 
 
 def run(argv):
+    """One invocation. A skill from outside is copied once per event into a folder of the system's temporary space, which is removed
+    when the invocation ends, however it ends."""
+    cleanup = []
+    try:
+        return run_event(argv, cleanup)
+    finally:
+        for undo in cleanup:
+            undo()
+
+
+def run_event(argv, cleanup):
     o = parse(argv)
     if o["check_cases"]:
         return check_cases_only(o)
@@ -2561,7 +2628,13 @@ def run(argv):
     gate = status.load_gate(ROOT)
     control = status.event_config(gate)
     skill_dir = skill_folder(o)
-    evals = load_evals(o["skill"], o.get("platform"), o.get("skill_dir"))
+    origin_dir = o.get("skill_dir")  # the folder of a skill from outside as the person keeps it
+    if origin_dir and not o["dry"] and not closing:
+        # The event runs from one copy, made now: what the checks below read, what is staged and what is hashed are the same bytes.
+        copy_root = tempfile.mkdtemp(prefix="eval-import-", dir=temp_base())
+        cleanup.append(lambda: shutil.rmtree(copy_root, ignore_errors=True))
+        skill_dir = copy_imported(origin_dir, os.path.join(copy_root, o["skill"]))
+    evals = load_evals(o["skill"], o.get("platform"), skill_dir if origin_dir else None)
     cases = evals.get("evals") or []
     if o["cases"]:
         cases = [c for c in cases if str(c.get("id")) in o["cases"]]
@@ -2591,7 +2664,7 @@ def run(argv):
     if o.get("skill_dir"):
         if imported_case_problems(cases):
             die("; ".join(imported_case_problems(cases)), 2)
-        imported_plan = imported_event_problems(o, [str(c["id"]) for c in cases if web[c["id"]]])
+        imported_plan = imported_event_problems(o, [str(c["id"]) for c in cases if web[c["id"]]], skill_dir)
         if imported_plan and not o["dry"] and not closing:  # a plan (--dry-run) lists the problems; an event does not start
             die("a skill from outside is not tested yet: " + "; ".join(imported_plan), 2)
     if unlisted:
@@ -3247,7 +3320,7 @@ def run(argv):
         elif not complete_ref and not closing:
             evidence["reason"] = (f"the event is incomplete: resume it (--resume {os.path.relpath(it_dir, ROOT)}), or give it "
                                   f"up and keep its runs (--close {os.path.relpath(it_dir, ROOT)})")
-        elif status.content_hash(skill_dir) != start_hash and not closing:
+        elif status.content_hash(origin_dir or skill_dir) != start_hash and not closing:
             evidence["reason"] = "the skill folder changed during the event: its runs are of another content"
         else:
             # A file about to enter a skill is new evidence: read strictly (the current gate file's models and runs). A

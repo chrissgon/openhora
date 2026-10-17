@@ -1140,6 +1140,42 @@ def inside_checkout(path, root=ROOT):
         here = parent
 
 
+def enclosing_workbench(path):
+    """The root of a checkout of the workbench that `path` is inside (any checkout, not only this one), or None: the first ancestor
+    of its real path that holds both evals/eval-gate.json and scripts/skill_import.py. A skill from outside never lives in one."""
+    here = os.path.realpath(path)
+    while True:
+        if (os.path.isfile(os.path.join(here, "evals", "eval-gate.json"))
+                and os.path.isfile(os.path.join(here, "scripts", "skill_import.py"))):
+            return here
+        parent = os.path.dirname(here)
+        if parent == here:
+            return None
+        here = parent
+
+
+def stray_names(folder):
+    """The paths (relative, "/" separators) of a skill's content that carry an install marker or a cache name: the content hash and a
+    staged copy leave such names out or keep them, and a skill from outside is refused until they are gone. Everything under the
+    top-level evals/ is the person's own and is not read here. Names are compared without regard to case. Version-control metadata
+    counts as stray too: a .git, .hg or .svn entry, and a folder shaped like a git directory (HEAD, objects/, refs/), whose
+    configuration a command run in or under it would obey."""
+    marks = {m.casefold() for m in INSTALL_MARKERS}
+    caches = {c.casefold() for c in CACHE_DIRS} | {".ds_store"}
+    control = {".git", ".hg", ".svn"}
+    found = []
+    for dp, dns, fns in os.walk(folder):
+        top = os.path.relpath(dp, folder) == "."
+        dns[:] = sorted(d for d in dns if not (top and d.casefold() == EVALS_REL))
+        if "head" in {f.casefold() for f in fns} and {"objects", "refs"} <= {d.casefold() for d in dns}:
+            found.append(os.path.relpath(dp, folder).replace(os.sep, "/"))
+        for n in dns + fns:
+            low = n.casefold()
+            if low in marks or low in caches or low in control or low.endswith(".pyc"):
+                found.append(os.path.relpath(os.path.join(dp, n), folder).replace(os.sep, "/"))
+    return sorted(found)
+
+
 def local_base_problem(base, root=ROOT, skill=None):
     """Why `base` (and, given a skill, <base>/<skill>, the folder its files go to) cannot hold a person's local evidence:
     it is the checkout or inside it, by any route (inside_checkout), where a pull and a commit would meet it. None

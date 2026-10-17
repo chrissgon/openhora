@@ -78,6 +78,13 @@ def write_cases(folder, name):
     shutil.copy(FIX / "cases" / "cases-origin.json", folder / "evals" / "import" / "cases-origin.json")
 
 
+def passed(capsys, folder):
+    """The folder has passed check at its current content (what an audit needs)."""
+    code, out = call(capsys, "check", "--name", folder.name)
+    assert code == 0, out
+    return folder
+
+
 def vetting(tmp_path, name, verdict="install", filename="vetting.md", extra=""):
     path = tmp_path / filename
     path.write_text(f"# Security vetting of {name}, 2030-01-02\n\nVerdict: {verdict}, since the scan and the reading found nothing else.\n{extra}")
@@ -246,7 +253,7 @@ def test_the_clone_is_planned_shallow_with_no_hook_no_link_no_submodule_no_crede
     monkeypatch.setenv("SOME_TOKEN", "inherited-value")
     plan = si.git_plan("https://code.example/dana/tinykv", "v1.0", "/q/raw", "/q/home")
     argv = plan["argv"]
-    assert argv[0] == "git" and argv[argv.index("clone"):] == ["clone", "--depth", "1", "--no-tags", "--no-recurse-submodules",
+    assert argv[0] == "git" and argv[argv.index("clone"):] == ["clone", "--depth", "1", "--no-tags", "--no-recurse-submodules", "--no-checkout",
                                                               "--branch", "v1.0", "--", "https://code.example/dana/tinykv", "/q/raw"]
     config = [argv[i + 1] for i, a in enumerate(argv) if a == "-c"]
     assert config == ["core.hooksPath=/dev/null", "core.symlinks=false", "credential.helper=", "protocol.allow=never",
@@ -256,7 +263,11 @@ def test_the_clone_is_planned_shallow_with_no_hook_no_link_no_submodule_no_crede
     assert env["GIT_TERMINAL_PROMPT"] == "0" and env["GIT_LFS_SKIP_SMUDGE"] == "1" and env["GIT_ALLOW_PROTOCOL"] == "https"
     assert set(env) == {"PATH", "HOME", "LANG", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT", "GIT_LFS_SKIP_SMUDGE",
                         "GIT_ALLOW_PROTOCOL"}  # nothing of the caller's environment travels
-    assert plan["ls_files"][-4:] == ["-C", "/q/raw", "ls-files", "-s"] and plan["rev_parse"][-4:] == ["-C", "/q/raw", "rev-parse", "HEAD"]
+    assert plan["ls_tree"][-7:] == ["-C", "/q/raw", "ls-tree", "-r", "-l", "-z", "HEAD"]
+    assert plan["count_objects"][-4:] == ["-C", "/q/raw", "count-objects", "-v"] and plan["rev_parse"][-4:] == ["-C", "/q/raw", "rev-parse", "HEAD"]
+    assert plan["checkout"][-5:] == ["-C", "/q/raw", "checkout", "-q", "-f", "HEAD"][-5:]
+    for key in ("ls_tree", "count_objects", "checkout", "rev_parse"):  # every later command runs under the same safe configuration
+        assert plan[key][:len(plan["argv"][:plan["argv"].index("clone")])] == plan["argv"][:plan["argv"].index("clone")]
     without_ref = si.git_plan("https://code.example/dana/tinykv", None, "/q/raw", "/q/home")["argv"]
     assert "--branch" not in without_ref
 
@@ -297,22 +308,30 @@ def test_a_refused_url_stops_the_fetch_before_any_question(capsys, monkeypatch, 
     assert code == 1 and "refused" in out
 
 
-def fake_git(monkeypatch, files, links=(), commit="a" * 40):
-    """Replace the commands of a clone: the clone writes `files` and a .git folder into its destination, ls-files lists `links`."""
+def fake_git(monkeypatch, files, links=(), commit="a" * 40, pack_kib=3):
+    """Replace the commands of a clone: the clone writes a .git folder only (no checkout), ls-tree lists `files` (with their sizes) and
+    `links` ([(path, mode)]), count-objects gives the pack, and the checkout writes the files."""
     seen = []
 
     def run(argv, cwd=None, env=None, timeout=900):
         seen.append((argv, env))
         if "clone" in argv:
             dest = Path(argv[-1])
+            (dest / ".git").mkdir(parents=True)
+            (dest / ".git" / "config").write_text("[core]\n")
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+        if "ls-tree" in argv:
+            rows = [f"100644 blob {'0' * 40} {len(text):>7}\t{rel}" for rel, text in files.items()]
+            rows += [f"{mode} {'commit' if mode == '160000' else 'blob'} {'0' * 40} {'-' if mode == '160000' else 4:>7}\t{path}" for path, mode in links]
+            return types.SimpleNamespace(returncode=0, stderr="", stdout="".join(r + "\0" for r in rows))
+        if "count-objects" in argv:
+            return types.SimpleNamespace(returncode=0, stderr="", stdout=f"count: 0\nsize: 0\nin-pack: 5\npacks: 1\nsize-pack: {pack_kib}\n")
+        if "checkout" in argv:
+            dest = Path(argv[argv.index("-C") + 1])
             for rel, text in files.items():
                 (dest / rel).parent.mkdir(parents=True, exist_ok=True)
                 (dest / rel).write_text(text)
-            (dest / ".git").mkdir()
-            (dest / ".git" / "config").write_text("[core]\n")
             return types.SimpleNamespace(returncode=0, stdout="", stderr="")
-        if "ls-files" in argv:
-            return types.SimpleNamespace(returncode=0, stderr="", stdout="".join(f"{mode} {'0' * 40} 0\t{path}\n" for path, mode in links))
         if "rev-parse" in argv:
             return types.SimpleNamespace(returncode=0, stdout=commit + "\n", stderr="")
         pytest.fail(f"unexpected command {argv}")
@@ -320,25 +339,43 @@ def fake_git(monkeypatch, files, links=(), commit="a" * 40):
     return seen
 
 
-def test_a_confirmed_clone_drops_dot_git_records_the_commit_and_keeps_the_tree(capsys, monkeypatch):
-    seen = fake_git(monkeypatch, {"SKILL.md": (FIX / "web-notes" / "SKILL.md").read_text(), "references/style.md": "x\n"}, [("SKILL.md", "100644")])
+def test_a_confirmed_clone_is_read_before_it_is_checked_out_drops_dot_git_records_the_commit_and_keeps_the_tree(capsys, monkeypatch):
+    seen = fake_git(monkeypatch, {"SKILL.md": (FIX / "web-notes" / "SKILL.md").read_text(), "references/style.md": "x\n"})
     code, out = call(capsys, "fetch", "--from", "https://code.example/dana/tinykv", "--ref", "main", "--yes")
     assert code == 0 and out["origin"]["kind"] == "git" and out["origin"]["commit"] == "a" * 40 and out["origin"]["ref"] == "main"
     tree = Path(out["quarantine"]) / "tree"
     assert (tree / "SKILL.md").is_file() and not (tree / ".git").exists() and not (Path(out["quarantine"]) / "raw").exists()
     assert not [p for p in Path(out["quarantine"]).iterdir() if p.name.startswith("home-")]
-    assert "clone" in seen[0][0] and seen[0][1]["GIT_TERMINAL_PROMPT"] == "0"
+    order = [next(a for a in argv if a in ("clone", "ls-tree", "count-objects", "rev-parse", "checkout")) for argv, _ in seen]
+    assert order == ["clone", "ls-tree", "count-objects", "rev-parse", "checkout"]  # nothing is written before the listing is judged
+    assert "--no-checkout" in seen[0][0] and seen[0][1]["GIT_TERMINAL_PROMPT"] == "0"
 
 
-def test_a_clone_whose_listing_holds_a_link_is_refused_and_leaves_nothing(capsys, monkeypatch):
-    fake_git(monkeypatch, {"SKILL.md": "x\n", "docs/key": "../../private\n"}, [("SKILL.md", "100644"), ("docs/key", "120000")])
+def test_a_clone_whose_listing_holds_a_link_is_refused_before_the_checkout_and_leaves_nothing(capsys, monkeypatch):
+    seen = fake_git(monkeypatch, {"SKILL.md": "x\n"}, [("docs/key", "120000"), ("vendor", "160000")])
     code, out = call(capsys, "fetch", "--from", "https://code.example/dana/tinykv", "--yes")
-    assert code == 3 and out["refused"] == [{"path": "docs/key", "why": "a symbolic link"}]
+    assert code == 3 and out["refused"] == [{"path": "docs/key", "why": "a symbolic link"}, {"path": "vendor", "why": "a submodule"}]
+    assert not any("checkout" in argv for argv, _ in seen)
     assert not list((Path(os.environ["WB_IMPORT_HOME"]) / ".quarantine").iterdir())
 
 
-def test_the_listing_of_a_clone_gives_links_and_submodules():
-    assert si.clone_links("100644 a 0\tok.md\n120000 b 0\tlink\n160000 c 0\tvendor\n") == [("link", "a symbolic link"), ("vendor", "a submodule")]
+def test_a_clone_over_the_caps_is_refused_before_the_checkout(capsys, monkeypatch):
+    monkeypatch.setattr(si, "CAP_FILES", 1)
+    seen = fake_git(monkeypatch, {"SKILL.md": "x\n", "a.md": "y\n"})
+    code, out = call(capsys, "fetch", "--from", "https://code.example/dana/tinykv", "--yes")
+    assert code == 3 and "over the caps" in out["stopped"] and not any("checkout" in argv for argv, _ in seen)
+    monkeypatch.setattr(si, "CAP_FILES", 2000)
+    monkeypatch.setattr(si, "CAP_BYTES", 2048)
+    seen = fake_git(monkeypatch, {"SKILL.md": "x\n"}, pack_kib=4)  # a pack of 4 KiB says the tree is over 2 KiB whatever the listing says
+    code, out = call(capsys, "fetch", "--from", "https://code.example/dana/tinykv", "--yes")
+    assert code == 3 and "over the caps" in out["stopped"] and not any("checkout" in argv for argv, _ in seen)
+
+
+def test_the_listing_of_a_clone_gives_links_submodules_files_and_bytes():
+    nul = "\x00"
+    listing = nul.join(["100644 blob a      12\tok.md", "120000 blob b       3\tlink", "160000 commit c       -\tvendor", "100755 blob d      30\tscripts/run", ""])
+    refused, files, total = si.clone_listing(listing, "count: 0\nsize: 1\nsize-pack: 2\n")
+    assert refused == [("link", "a symbolic link"), ("vendor", "a submodule")] and files == 2 and total == 3 * 1024
 
 
 @pytest.mark.skipif(not os.environ.get("SKILL_IMPORT_NETWORK_TEST_URL"), reason="a real clone needs the network: set SKILL_IMPORT_NETWORK_TEST_URL to a https repository")
@@ -414,7 +451,7 @@ def test_one_markdown_file_is_wrapped_and_a_missing_description_stops_with_the_f
     assert code == 0, out
     folder = Path(out["folder"])
     front, body = si.split_text((folder / "SKILL.md").read_text())
-    assert body == (FIX / "single-note.md").read_text()  # the whole file is the body
+    assert body == "\n" + (FIX / "single-note.md").read_text()  # the whole file is the body, after the line end of the fence
     assert si.validate_module().load_yaml(front)["metadata"]["area"] == "core"
     assert json.loads((folder / "evals" / "import" / "record.json").read_text())["shape"] == "single-markdown-file"
 
@@ -613,7 +650,7 @@ def test_check_refuses_a_folder_that_holds_a_link(capsys, tmp_path):
     folder = normalized(capsys)
     os.symlink(tmp_path, folder / "references" / "up")
     code, out = call(capsys, "check", "--name", folder.name)
-    assert code == 1 and "links" in out["refused"]
+    assert code == 1 and "must not" in out["refused"] and any("a symbolic link" in e for e in out["entries"])
 
 
 def test_check_reports_a_leftover_marker_a_missing_origin_a_single_case_and_an_all_guard_set(capsys):
@@ -660,8 +697,19 @@ def test_a_language_assertion_is_a_warning(capsys):
 
 # --- audit -----------------------------------------------------------------------------------------------------------------
 
-def test_an_audit_is_recorded_with_the_verdict_the_record_hash_and_the_content_hash_and_a_change_voids_it(capsys, tmp_path):
+def test_an_audit_needs_a_check_that_passed_at_the_current_content(capsys, tmp_path):
     folder = normalized(capsys)
+    record = vetting(tmp_path, folder.name)
+    code, out = call(capsys, "audit", "--name", folder.name, "--record", str(record))
+    assert code == 3 and out["questions"][0]["key"] == "check" and not (folder / "evals" / "import" / "audit.json").exists()
+    passed(capsys, folder)
+    (folder / "references" / "style.md").write_text("A new layout, after the check.\n")
+    code, out = call(capsys, "audit", "--name", folder.name, "--record", str(record))
+    assert code == 3 and out["questions"][0]["key"] == "check"
+
+
+def test_an_audit_is_recorded_with_the_verdict_the_record_hash_and_the_content_hash_and_a_change_voids_it(capsys, tmp_path):
+    folder = passed(capsys, normalized(capsys))
     record = vetting(tmp_path, folder.name, "install after changes")
     code, out = call(capsys, "audit", "--name", folder.name, "--record", str(record))
     assert code == 0 and out["verdict"] == "install after changes" and out["may_test"] is True and out["web_cases_need"] == "the verdict install"
@@ -677,7 +725,7 @@ def test_an_audit_is_recorded_with_the_verdict_the_record_hash_and_the_content_h
 @pytest.mark.parametrize("line, verdict", [("Verdict: do not install", "do not install"), ("**Verdict:** install", "install"),
                                            ("- Verdict: Install after changes: rename the script", "install after changes")])
 def test_the_verdict_is_read_from_its_line(capsys, tmp_path, line, verdict):
-    folder = normalized(capsys)
+    folder = passed(capsys, normalized(capsys))
     record = tmp_path / "record.md"
     record.write_text(f"# Vetting of {folder.name}\n\n{line}\n")
     code, out = call(capsys, "audit", "--name", folder.name, "--record", str(record))
@@ -685,7 +733,7 @@ def test_the_verdict_is_read_from_its_line(capsys, tmp_path, line, verdict):
 
 
 def test_a_record_with_no_single_verdict_stops(capsys, tmp_path):
-    folder = normalized(capsys)
+    folder = passed(capsys, normalized(capsys))
     record = tmp_path / "record.md"
     for text in ("# Vetting of eng-web-notes\n\nNo verdict here.\n",
                  "# Vetting of eng-web-notes\n\nVerdict: do not install | install after changes | install, and why in one line.\n",
@@ -697,17 +745,19 @@ def test_a_record_with_no_single_verdict_stops(capsys, tmp_path):
 
 
 def test_a_record_that_does_not_name_the_skill_stops(capsys, tmp_path):
-    folder = normalized(capsys)
+    folder = passed(capsys, normalized(capsys))
     record = tmp_path / "record.md"
     record.write_text("# Vetting of a different thing\n\nVerdict: install\n")
     code, out = call(capsys, "audit", "--name", folder.name, "--record", str(record))
     assert code == 3 and out["questions"][0]["key"] == "record"
+    record.write_text("# Vetting of eng-web-notes-two and web-notes_two\n\nVerdict: install\n")  # a longer name is not this name
+    assert call(capsys, "audit", "--name", folder.name, "--record", str(record))[0] == 3
     record.write_text("# Vetting of web-notes\n\nVerdict: install\n")  # the origin's own name counts
     assert call(capsys, "audit", "--name", folder.name, "--record", str(record))[0] == 0
 
 
 def test_a_record_inside_the_checkout_is_copied_and_the_original_is_to_be_deleted(capsys, tmp_path, monkeypatch):
-    folder = normalized(capsys)
+    folder = passed(capsys, normalized(capsys))
     record = vetting(tmp_path, folder.name)
     real = es.inside_checkout
     monkeypatch.setattr(es, "inside_checkout", lambda path, root=None: str(path).endswith("vetting.md") or real(path, root or si.ROOT))
@@ -716,7 +766,7 @@ def test_a_record_inside_the_checkout_is_copied_and_the_original_is_to_be_delete
 
 
 def test_a_second_audit_keeps_the_first_record(capsys, tmp_path):
-    folder = normalized(capsys)
+    folder = passed(capsys, normalized(capsys))
     call(capsys, "audit", "--name", folder.name, "--record", str(vetting(tmp_path, folder.name)))
     call(capsys, "audit", "--name", folder.name, "--record", str(vetting(tmp_path, folder.name, "do not install", "second.md")))
     records = sorted(p.name for p in (folder / "evals" / "import").glob("vetting-*.md"))
@@ -785,13 +835,13 @@ def test_a_test_is_refused_with_a_verdict_of_do_not_install_and_after_a_change_t
 
 
 def test_a_test_needs_a_check_at_the_current_content_and_cases(capsys, tmp_path):
-    folder = normalized(capsys)
+    folder = passed(capsys, normalized(capsys))
     call(capsys, "audit", "--name", folder.name, "--record", str(vetting(tmp_path, folder.name)))
     code, out = call(capsys, "test", "--name", folder.name, "--max-cost-usd", "0.5")
-    assert code == 3 and out["questions"][0]["key"] == "check"
-    call(capsys, "check", "--name", folder.name)
+    assert code == 3 and out["questions"][0]["key"] == "cases"  # no cases yet
+    write_cases(folder, folder.name)  # cases written after the check
     code, out = call(capsys, "test", "--name", folder.name, "--max-cost-usd", "0.5")
-    assert code == 3 and out["questions"][0]["key"] == "cases"
+    assert code == 3 and out["questions"][0]["key"] == "check" and "cases changed" in out["stopped"]
 
 
 @pytest.mark.parametrize("flag", [["--pass-env", "SOME_KEY"], ["--harness", "other"]])
@@ -814,16 +864,19 @@ def test_a_web_case_needs_the_verdict_install_and_the_flag(capsys, tmp_path):
     assert code == 1 and "--allow-web-cases" in out["refused"]
 
 
-def test_a_test_needs_a_spend_limit_and_prints_the_plan_and_the_bound_before_anything_runs(capsys, tmp_path, monkeypatch):
+def test_a_test_needs_a_spend_limit_and_prints_the_plan_and_the_estimate_before_anything_runs(capsys, tmp_path, monkeypatch):
     folder = ready(capsys, tmp_path)
     monkeypatch.setattr(si, "run_streaming", lambda *a, **k: pytest.fail("the event started without a yes"))
     code, out = call(capsys, "test", "--name", folder.name, "--model", "claude-sonnet-5-5")
     assert code == 3 and out["questions"][0]["key"] == "max-cost-usd"
     code, out = call(capsys, "test", "--name", folder.name, "--model", "claude-sonnet-5-5", "--max-cost-usd", "0.5")
-    assert code == 3 and "wait for your yes" in out["stopped"]
+    assert code == 3 and "estimate wait for your yes" in out["stopped"]
     plan = out["plan"]
     assert plan["runs"] == 2 and plan["models"] == ["claude-sonnet-5-5"] and plan["evidence_home"]["home"] == "local"
-    assert plan["spend"]["bound_usd"] == 2.0 and plan["spend"]["grading_calls"] == 2 and plan["spend"]["max_cost_usd_per_run"] == 0.5
+    spend = plan["spend"]
+    assert spend["estimate_usd"] == 2.0 and spend["grading_calls"] == 2 and spend["max_cost_usd_per_run"] == 0.5
+    assert spend["worst_case_usd"] > spend["estimate_usd"] and "not a cap" in spend["what_they_are"] and len(spend["leaves_out"]) >= 3
+    assert "bound_usd" not in spend and "estimate" in out["questions"][0]["question"] and "not a cap" in out["questions"][0]["question"]
     assert "your key for the grader" in plan["spend"]["paid_by"] and "reach the model provider and the grader" in plan["reaches"]
     assert plan["result"].startswith("preliminary: your machine only")
 
@@ -843,6 +896,13 @@ def test_with_the_yes_one_quick_event_runs_for_all_the_models_with_the_spend_lim
     assert argv[2:6] == ["--skill-dir", str(folder), "--quick", "--model"] and argv.count("--model") == 2
     assert argv[-4:] == ["--jobs", "2", "--max-cost-usd", "0.25"]
     assert "--pass-env" not in argv and "--harness" not in argv and "--allow-web-cases" not in argv
+
+
+def test_any_other_extra_of_the_test_verb_is_a_usage_error(capsys, tmp_path):
+    folder = ready(capsys, tmp_path)
+    with pytest.raises(SystemExit) as e:
+        si.main(["test", "--name", folder.name, "--max-cost-usd", "0.5", "--bogus"])
+    assert e.value.code == 2 and "unrecognized arguments: --bogus" in capsys.readouterr().err
 
 
 def test_a_failed_event_is_reported_and_exits_one(capsys, tmp_path, monkeypatch):
@@ -910,7 +970,8 @@ def test_an_applied_refresh_raises_the_version_by_the_class_appends_one_line_voi
     source = copy_source(tmp_path)
     folder = normalized(capsys, source)
     write_cases(folder, folder.name)
-    call(capsys, "audit", "--name", folder.name, "--record", str(vetting(tmp_path, folder.name)))
+    passed(capsys, folder)
+    assert call(capsys, "audit", "--name", folder.name, "--record", str(vetting(tmp_path, folder.name)))[0] == 0
     assert si.audit_state(str(folder))["current"] is True
     (source / "SKILL.md").write_text((source / "SKILL.md").read_text().replace("five bullets at most", "six bullets at most"))
     code, out = call(capsys, "refresh", "--name", folder.name, "--apply")

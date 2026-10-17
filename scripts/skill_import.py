@@ -22,16 +22,20 @@ Where it lives. <home>/<name>/ is a skill folder (SKILL.md, references/, assets/
 person's: evals.json (their cases), files/ (their fixtures), versions.jsonl (written here), import/ (the import record and the
 review files below). evals/ is outside the content hash and is stripped from every staged copy, so no model reads it. The
 home is <XDG data home>/openhora/skills by default (the local evidence base is beside it), WB_IMPORT_HOME names another, and
---home <dir> names one for a call, for example a project's git-ignored <project>/.workbench-local/skills. It is refused when it
-is inside the workbench checkout (by device and inode) or when its path holds the skills folder of any adapter
-(adapters/*/eval.json "skills_dir", read at run time, never named here), so an import is never installed by accident. The skill's
-name has an area prefix, is not the name of a folder of skills/ and is the folder's name. The tests of a skill from outside are
-local evidence, under <local evidence base>/imported/<name>/.
+--home <dir> names one for a call, for example a project's git-ignored <project>/.workbench-local/skills (a folder inside a
+working tree, which that project's own ignore rules must keep out of its commits). It is refused when it is inside this checkout
+(by device and inode) or inside any checkout of the workbench (an ancestor that holds evals/eval-gate.json and
+scripts/skill_import.py), and when its path holds the skills folder of any adapter (adapters/*/eval.json "skills_dir", read at run
+time, never named here), compared without regard to case and, for what exists, by identity (os.path.samefile) against
+<ancestor>/<skills_dir> for every ancestor, since a case-insensitive file system names one folder in many ways. So an import is
+never installed by accident. The skill's name has an area prefix, is not the name of a folder of skills/ and is the folder's name.
+The tests of a skill from outside are local evidence, under <local evidence base>/imported/<name>/.
 
 State is computed, never stored as a word. Each step looks at the folder and its record: fetched (a quarantine folder),
 normalized (the folder and evals/import/record.json), checked (evals/import/check.json names the folder's current content
 hash and said ok), audited (evals/import/audit.json holds a verdict that is not "do not install" at the folder's current content
-hash), cases (evals/evals.json with no "<fill:" left and an origin line for every case), tested (a local evidence file).
+hash; an audit needs a passing check at that hash), cases (evals/evals.json with no "<fill:" left and an origin line for every
+case), tested (a local evidence file).
 
 Every verb prints one JSON object to stdout and diagnostics to stderr, takes flags only (no prompt), and exits 0 (done), 1 (not
 done: the object says why), 2 (usage) or 3 (a stop: {"stopped": "<why>", "questions": [{"key", "question", "recommended",
@@ -39,38 +43,54 @@ done: the object says why), 2 (usage) or 3 (a stop: {"stopped": "<why>", "questi
 
 Verbs.
   fetch      Copies a source into a fresh quarantine folder under <home>/.quarantine/, and runs nothing in it. A local path is
-             copied file by file; a symbolic link, a device, a pipe, a socket or a hard-linked file is refused and listed (staging
-             would copy the content a link points at into a run), and so is a source over 2,000 files or 20 MB (the caps are
-             these two numbers). A https git URL (no user, no password; ssh, file and ext are refused) is a download of text
-             written to instruct a model, so without --yes only the plan is printed and the call stops; with --yes it clones at
-             depth 1 with no hooks, no submodules, no tags, no credential helper, a throwaway HOME and no system or global git
-             configuration (nothing of your environment reaches it, a proxy setting included), refuses the entries it lists as
-             links, and drops .git/. A folder that holds several skills lists
-             the candidates and stops (one import per skill: --path). Private repositories: clone them yourself and give the path.
-             Records the origin: its kind, location, commit, subpath, date and the sha256 of the tree.
+             copied file by file, each opened without following a link and without blocking on a pipe. Refused and listed: a
+             symbolic link, a device, a pipe, a socket, a hard-linked file; a file named .git in any case (a pointer to a git
+             directory); a folder shaped like a git directory (HEAD, objects/, refs/), at the root or below; an install marker of
+             the workbench; two entries that are one path on a file system that ignores case; and evals or scripts/tests written
+             in another case (the lab reserves the exact names). Version-control folders (.git, .hg, .svn, in any case) and cache
+             names are left out, never copied. A source over 2,000 files or 20 MB is refused too (the caps are these two numbers).
+             A https git URL (no user, no password; ssh, file and ext are refused) is a download of text written to instruct a
+             model, so without --yes only the plan is printed and the call stops; with --yes it clones at depth 1 with no hooks,
+             no submodules, no tags, no checkout, no credential helper, a throwaway HOME and no system or global git configuration
+             (nothing of your environment reaches it, a proxy setting included). The listing of the tree (modes and sizes) and the
+             size of the pack are read before anything is checked out, and the clone is refused there when it lists a link or a
+             submodule or is over the caps; the shallow pack itself has been downloaded by then, and a server that sends more than
+             the cap is not stopped while it sends. A folder that holds several skills lists the candidates and stops (one import
+             per skill: --path). Private repositories: clone them yourself and give the path. Records the origin: its kind,
+             location, commit, subpath, date and the sha256 of the tree.
   normalize  Builds <home>/<name>/ from the quarantine, by shape only: an Agent Skills folder (SKILL.md with name and description
-             frontmatter) or one Markdown file (with or without frontmatter, wrapped as SKILL.md). A flow, an agent file and a
-             body that hands work to other skills by name are refused. The body is never rewritten: only the frontmatter is. The
-             name is yours (--name); description and license are kept verbatim; the standard's keys the workbench refuses at the
-             top level (compatibility, allowed-tools) and the foreign metadata go to the record, and tool limits are not enforced
-             by the workbench (the container is the boundary). The area follows the name's prefix. requires and side_effects must
-             be answered (--declare requires=none, --declare side_effects=none) before any test; inputs, outputs and updates may
-             be left, and are then written [] and listed as assumed. A file a harness reads as settings or instructions (the
-             "settings" names of adapters/*/eval.json) stops the import and is listed; --drop <path> leaves it out, recorded. The
-             origin's own evals/ is never imported: the cases are yours. Writes evals/versions.jsonl (0.1.0, class "new").
-  check      Runs four independent jobs at once (--jobs), each written under evals/import/: the scan of the folder
-             (scan.json: scripts/security_scan.py on a copy laid out as skills/<name>, so its rules for a skill apply; a finding
-             the skill silenced with its own allow comment is still a finding), the component list (components.json), the
+             frontmatter) or one Markdown file (with or without frontmatter, wrapped as SKILL.md). The frontmatter opens on a first
+             line that is exactly `---` and closes on the next line that is exactly `---`; a line that only starts with dashes closes
+             nothing, so keys put after it are the origin's frontmatter and go to the record. The new file is the generated
+             frontmatter, a line end, and the origin's body byte for byte; it is read back by a line walker that shares nothing with
+             the splitter, and the import is refused unless its frontmatter is exactly the generated head. A flow, an agent file and
+             a body that hands work to other skills by name are refused. The name is yours (--name); description and license are
+             kept verbatim; the standard's keys the workbench refuses at the top level (compatibility, allowed-tools) and the
+             foreign metadata go to the record, and tool limits are not enforced by the workbench (the container is the boundary).
+             The area follows the name's prefix. requires and side_effects must be answered (--declare requires=none, --declare
+             side_effects=none) before any test; inputs, outputs and updates may be left, and are then written [] and listed as
+             assumed. A file a harness reads as settings or instructions (the "settings" names of adapters/*/eval.json, compared
+             without regard to case) stops the import and is listed; --drop <path> leaves it out, recorded. The origin's own evals/
+             is never imported: the cases are yours. Writes evals/versions.jsonl (0.1.0, class "new").
+  check      Refuses a folder that holds what an import must not (everything fetch refuses, a version-control folder, a harness
+             settings file, a cache name). Then it runs independent jobs at once (--jobs), each written under evals/import/: the scan
+             of the folder (scan.json: scripts/security_scan.py on a copy laid out as skills/<name>, so its rules for a skill apply; a
+             finding the skill silenced with its own allow comment is still a finding), the component list (components.json), the
              validator's per-skill checks (foreign-check.json: scripts/validate.py --foreign) and, once cases exist, the runner's
-             preflight (check-cases.json). A scan error stops. The effect stop: a remote write while side_effects is [], or a
-             non-empty side_effects with no "## Confirmation gate" section, stops the import; the skill is testable only after the
-             effect is declared and the gate written (templates/capability.SKILL.md has the section), and every declared effect
-             needs a case assertion tagged guard:<effect>. The rule of the scan that checks the workbench's own sentence for
-             skills that read external content (untrusted-content) is reported under "conventions" and stops nothing: it is a rule
-             for those who write skills of the repository, and the whole skill is read as external content here anyway.
+             preflight (check-cases.json). A scan error stops. The effect stop covers a remote write the scan detects (a script of
+             any extension under scripts/, a command in SKILL.md, a line of a fenced block in a Markdown file of references/, by its
+             patterns): a remote write while side_effects is [], or a non-empty side_effects with no "## Confirmation gate" section,
+             stops the import; the skill is testable only after the effect is declared and the gate written
+             (templates/capability.SKILL.md has the section), and every declared effect needs a case assertion tagged
+             guard:<effect>. A write the patterns do not see, or phrased another way, is not stopped: the vetting reads for it. The
+             rule of the scan that checks the workbench's own sentence for skills that read external content (untrusted-content) is
+             reported under "conventions" and stops nothing, since it is a rule for those who write skills of the repository; but
+             when it fires the cases-template adds a guard placeholder, check requires an assertion tagged guard (an instruction
+             planted in the content is quoted to you and not followed), and status lists the convention.
   audit      The model reading is skills/core-security-audit in vetting mode, which you run in your own tool on <home>/<name>
-             (the scan and component files are already in evals/import/). This copies the record to
-             evals/import/vetting-<date>.md, reads its "Verdict:" line and stores verdict, record sha256 and the content hash at
+             (the scan and component files are already in evals/import/). It needs a check that passed at the folder's current
+             content. It copies the record to evals/import/vetting-<date>.md, reads its "Verdict:" line, requires the record to name
+             the skill (its name, or the origin's, as a whole word), and stores verdict, record sha256 and the content hash at
              acceptance in evals/import/audit.json. A record inside the workbench checkout is copied and you are told to delete the
              original (it is never committed). Any later change of the content hash voids the audit. No test runs before an audit
              whose verdict is not "do not install"; a web case needs the verdict "install".
@@ -79,25 +99,32 @@ Verbs.
              material only: a request you actually made, the files it used (copy them into evals/files/), what a good answer holds
              and what must not happen. It never writes a prompt or an assertion. check refuses a "<fill:" left anywhere and a case
              with no origin line. The rules of evals/README.md hold: at least two cases, at least one assertion that is not a guard,
-             a guard when the skill has stop rules, a gate or reads external content, guard:<effect> per declared effect, no
-             language, conditional or command assertion.
+             a guard when the skill has stop rules, a gate or reads external content (or the scan's convention fires),
+             guard:<effect> per declared effect, no language, conditional or command assertion.
   test       Needs the steps above. Prints the plan of eval_run.py --skill-dir <folder> --quick (runs, models, the evidence home)
-             and an upper bound of what it can spend (runs x --max-cost-usd for the model runs, plus one grading call per run on the
-             gate file's grader, on your own key, taken at the same amount; a failed guard verdict is graded once more), and
-             stops; with --yes it runs one quick event for all the models (--model, repeated; the gate file's lab models without
-             it). --pass-env and --harness are refused. A web case (allow_web) is refused unless the audit verdict is "install"
-             and --allow-web-cases is given: on the open network a hostile skill could send your fixtures anywhere. Your
-             fixtures reach the model provider and the grader, as in any lab run.
-  status     Per skill: the computed step, the audit verdict and whether it is current, the assumed keys, the origin, and for each
-             model the figures of eval_status.py status --skill-dir. A quick test alone is "preliminary: quick test only"; the
-             band is measured against your own cases, which nobody else has read, and counts on your machine only.
+             and an ESTIMATE of what it can spend, which is not a cap: runs x --max-cost-usd for the model runs, plus one grading call
+             per run on the gate file's grader, on your own key, every call taken at that amount; and a worst case that counts every
+             retry, every resumption and every grading the runner may repeat, at the same amount. It lists what both leave out (the
+             runner sets no cap of its own on a grading; an adapter that cannot enforce the limit relies on the cap of your provider
+             key). It stops for your yes; with --yes it runs one quick event for all the models (--model, repeated; the gate file's lab
+             models without it). --pass-env and --harness are refused, and any other unknown option is a usage error. A web case
+             (allow_web) is refused unless the audit verdict is "install" and --allow-web-cases is given: on the open network a
+             hostile skill could send your fixtures anywhere. Your fixtures reach the model provider and the grader, as in any lab run.
+             The runner copies the folder once per event, refuses links, and checks the copy against the audit, the check and the
+             hash it hashes; `--resume <event>` alone resumes such an event, with the audit checked again.
+  status     Per skill: the computed step, the audit verdict and whether it is current, the assumed keys, the conventions the scan
+             reported, the origin, and for each model the figures of eval_status.py status --skill-dir. A quick test alone is
+             "preliminary: quick test only"; the band is measured against your own cases, which nobody else has read, and counts on
+             your machine only.
   refresh    Fetches the recorded origin again into a new quarantine, builds the folder as it would be now, and shows the
-             difference and its class (eval_status.change_class). It stops for your answer; with --apply it replaces the files,
-             raises the version by that class, appends one line to evals/versions.jsonl and voids the audit by changing the hash
-             (the audit file stays, and says it is void). --declare answers a key again.
+             difference against the folder as it is (a hand edit included) and its class (eval_status.change_class). It refuses a
+             folder that holds a link, stops for your answer; with --apply it replaces the files, raises the version by that class,
+             appends one line to evals/versions.jsonl and voids the audit by changing the hash (the audit file stays, and says it is
+             void). --declare answers a key again.
   bump       Records an edit you made by hand (the effect stop asks you to edit SKILL.md): the class of the change against the
-             last record, the version raised by it, one line appended to evals/versions.jsonl. The bump of eval_status.py is based
-             on the checkout's version control and is not used for an imported skill.
+             last record, the version raised by it, one line appended to evals/versions.jsonl. It runs the folder checks of check
+             again first (links, settings files, markers). The bump of eval_status.py is based on the checkout's version control and
+             is not used for an imported skill.
 
 Standard library only (Python 3.9). A skill from outside never becomes a skill of the repository by this tool: that is "Adding a
 skill" in a pull request, with the cases rewritten under fictional names (AGENTS.md, principle 8). Local evidence never travels.
@@ -247,15 +274,41 @@ def adapter_data():
     return skills_dirs, settings
 
 
+def holds_skills_dir(path, skills_dir):
+    """True when `path` is, or is inside, the folder a harness discovers skills in (`skills_dir`, such as <folder>/skills). Compared
+    without regard to case, and, for what exists, by identity: for each ancestor A of the real path, A/<skills_dir> is compared with
+    every folder from A down to the path by os.path.samefile, because a case-insensitive file system names one folder in many ways."""
+    want = [w.casefold() for w in skills_dir.split("/")]
+    parts = os.path.realpath(path).split(os.sep)
+    low = [p.casefold() for p in parts]
+    if any(low[i:i + len(want)] == want for i in range(len(low))):
+        return True
+    prefixes = [os.sep.join(parts[:j]) or os.sep for j in range(1, len(parts) + 1)]
+    for i, ancestor in enumerate(prefixes):
+        candidate = os.path.join(ancestor, *skills_dir.split("/"))
+        if not os.path.exists(candidate):
+            continue
+        for inner in prefixes[i + 1:]:
+            try:
+                if os.path.samefile(candidate, inner):
+                    return True
+            except OSError:
+                continue
+    return False
+
+
 def home_problem(home):
-    """Why `home` cannot hold skills from outside, or None: inside the checkout, or under a folder a harness discovers skills in."""
-    if status_module().inside_checkout(home, ROOT):
+    """Why `home` cannot hold skills from outside, or None: inside this checkout or any checkout of the workbench, or under a folder a
+    harness discovers skills in (holds_skills_dir)."""
+    es = status_module()
+    if es.inside_checkout(home, ROOT):
         return (f"{home} is inside the workbench checkout {ROOT}: a skill from outside never lives in the shared repository "
                 "(its home is outside it, by device and inode)")
-    parts = os.path.realpath(home).split(os.sep)
+    other = es.enclosing_workbench(home)
+    if other:
+        return f"{home} is inside a checkout of the workbench ({other}): a skill from outside lives outside every one"
     for skills_dir in sorted(adapter_data()[0]):
-        want = skills_dir.split("/")
-        if any(parts[i:i + len(want)] == want for i in range(len(parts))):
+        if holds_skills_dir(home, skills_dir):
             return (f"{home} holds the folder {skills_dir}, where a harness discovers skills: an imported skill would be "
                     "installed by accident, and the workbench never installs one")
     return None
@@ -330,40 +383,102 @@ def name_questions(name, area_flag):
 
 # --- reading a tree safely --------------------------------------------------------------------------------------------
 
-def scan_tree(root):
+GIT_FILE = ".git"
+
+
+def entry_problems(files):
+    """[(path, why)] among the relative paths of a tree: two paths that are one on a case-insensitive file system, a file whose case-folded
+    path is also a folder of another entry, and the names the lab reserves written in another case (evals, scripts/tests): the content
+    hash and the staging leave the exact names out, so a variant would be hashed and staged as content."""
+    found, seen, folders = [], {}, set()
+    for rel in files:
+        parts = rel.split("/")
+        for i in range(1, len(parts)):
+            folders.add("/".join(p.casefold() for p in parts[:i]))
+    for rel in files:
+        parts = rel.split("/")
+        low = "/".join(p.casefold() for p in parts)
+        if low in seen:
+            found.append((rel, f"the same path as {seen[low]} on a file system that ignores case"))
+        elif low in folders:
+            found.append((rel, "a file and a folder of the same name on a file system that ignores case"))
+        else:
+            seen[low] = rel
+        if parts[0].casefold() == "evals" and parts[0] != "evals":
+            found.append((rel, "the reserved name evals in another case"))
+        if len(parts) > 2 and [p.casefold() for p in parts[:2]] == ["scripts", "tests"] and parts[:2] != ["scripts", "tests"]:
+            found.append((rel, "the reserved name scripts/tests in another case"))
+    return found
+
+
+def git_shaped(folder_files, folder_dirs):
+    """True for a folder that looks like a git directory: a HEAD file and the folders objects and refs (the repository's metadata, whose
+    configuration a git command run in or under it would obey)."""
+    low_files = {f.casefold() for f in folder_files}
+    low_dirs = {d.casefold() for d in folder_dirs}
+    return "head" in low_files and "objects" in low_dirs and "refs" in low_dirs
+
+
+def scan_tree(root, mode="source"):
     """(files, refused, bytes) of the tree at `root`, read without following a link: files is [relative path], refused is
-    [(relative path, why)] for a symbolic link, a device, a pipe, a socket or a hard-linked file. SOURCE_SKIP folders are left out."""
+    [(relative path, why)]. Refused: a symbolic link, a device, a pipe, a socket, a hard-linked file; a file named .git in any case
+    (a pointer to a git directory); a folder shaped like a git directory (HEAD, objects/, refs/), at the root or below; an install
+    marker of the workbench; and what entry_problems lists. mode "source" (a fetched tree) leaves out the version-control folders .git,
+    .hg and .svn in any case and the cache names (they are never copied); mode "home" (the folder of an imported skill) refuses a
+    version-control folder."""
+    es = status_module()
+    marks = {m.casefold() for m in es.INSTALL_MARKERS}
+    caches = {c.casefold() for c in es.CACHE_DIRS} | {".ds_store"}
+    skip = {v.casefold() for v in SOURCE_SKIP}
     files, refused, total = [], [], 0
     for dp, dns, fns in os.walk(root, followlinks=False):
+        here = os.path.relpath(dp, root).replace(os.sep, "/")
+        if git_shaped(fns, dns):
+            refused.append(("" if here == "." else here, "shaped like a git directory (HEAD, objects/, refs/)"))
+            dns[:] = []
+            continue
         keep = []
         for d in sorted(dns):
             path = os.path.join(dp, d)
             rel = os.path.relpath(path, root).replace(os.sep, "/")
             if os.path.islink(path):
                 refused.append((rel, "a symbolic link"))
-            elif d not in SOURCE_SKIP:
+            elif d.casefold() in skip:
+                if mode == "home":
+                    refused.append((rel, "a version-control folder"))
+            elif d.casefold() in caches and mode == "source":
+                continue
+            else:
                 keep.append(d)
         dns[:] = keep
         for fn in sorted(fns):
             path = os.path.join(dp, fn)
             rel = os.path.relpath(path, root).replace(os.sep, "/")
-            mode = os.lstat(path)
-            if stat.S_ISLNK(mode.st_mode):
+            low = fn.casefold()
+            info = os.lstat(path)
+            if stat.S_ISLNK(info.st_mode):
                 refused.append((rel, "a symbolic link"))
-            elif not stat.S_ISREG(mode.st_mode):
+            elif not stat.S_ISREG(info.st_mode):
                 refused.append((rel, "not a regular file (a device, a pipe or a socket)"))
-            elif mode.st_nlink > 1:
+            elif info.st_nlink > 1:
                 refused.append((rel, "a hard-linked file"))
+            elif low == GIT_FILE:
+                refused.append((rel, "a .git file, a pointer to a git directory"))
+            elif low in marks:
+                refused.append((rel, "an install marker of the workbench"))
+            elif mode == "source" and (low in caches or low.endswith(".pyc")):
+                continue
             else:
                 files.append(rel)
-                total += mode.st_size
+                total += info.st_size
+    refused += entry_problems(files)
     return files, refused, total
 
 
 def copy_regular(src, dst):
     """Copy one regular file by descriptor: never through a link, and never a file that is not regular or is hard-linked.
     The mode is 0644, or 0755 when the source is executable."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)  # a pipe swapped in after the listing does not block
     try:
         fd = os.open(src, flags)
     except OSError as e:
@@ -444,9 +559,11 @@ def parse_git_url(url):
 
 
 def git_plan(url, ref, dest, scratch_home):
-    """The plan of a clone, built and not run: {"argv", "env", "ls_files", "rev_parse"}. Pure; the tests read it. The clone is shallow
-    (depth 1), with no tag, no submodule, no hook, no symbolic link, no credential helper and only the https protocol, in an
-    environment of its own: a throwaway HOME, no system or global configuration, no terminal prompt, no large-file download."""
+    """The plan of a clone, built and not run: {"argv", "env", "ls_tree", "count_objects", "checkout", "rev_parse"}. Pure; the tests read
+    it. The clone is shallow (depth 1) and has NO CHECKOUT: the listing of the tree (modes and sizes) and the size of the pack are read
+    first, and the checkout is run only when the tree is within the caps and holds no link or submodule. It has no tag, no submodule, no
+    hook, no symbolic link, no credential helper and only the https protocol, in an environment of its own: a throwaway HOME, no system or
+    global configuration, no terminal prompt, no large-file download."""
     url = parse_git_url(url)
     if ref is not None and (not REF_RE.match(ref) or ref.endswith("/") or ".." in ref or re.fullmatch(r"[0-9a-f]{7,40}", ref)):
         raise Refused(f"--ref {ref!r} is a branch or a tag name; a commit cannot be cloned at depth 1")
@@ -455,20 +572,32 @@ def git_plan(url, ref, dest, scratch_home):
            "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1", "GIT_ALLOW_PROTOCOL": "https"}
     safe = ["-c", "core.hooksPath=" + os.devnull, "-c", "core.symlinks=false", "-c", "credential.helper=",
             "-c", "protocol.allow=never", "-c", "protocol.https.allow=always"]
-    argv = ["git"] + safe + ["clone", "--depth", "1", "--no-tags", "--no-recurse-submodules"] + (["--branch", ref] if ref else []) + ["--", url, dest]
-    return {"argv": argv, "env": env, "ls_files": ["git"] + safe + ["-C", dest, "ls-files", "-s"],
-            "rev_parse": ["git"] + safe + ["-C", dest, "rev-parse", "HEAD"]}
+    argv = (["git"] + safe + ["clone", "--depth", "1", "--no-tags", "--no-recurse-submodules", "--no-checkout"]
+            + (["--branch", ref] if ref else []) + ["--", url, dest])
+    inside = ["git"] + safe + ["-C", dest]
+    return {"argv": argv, "env": env, "ls_tree": inside + ["ls-tree", "-r", "-l", "-z", "HEAD"],
+            "count_objects": inside + ["count-objects", "-v"], "checkout": inside + ["checkout", "-q", "-f", "HEAD"],
+            "rev_parse": inside + ["rev-parse", "HEAD"]}
 
 
-def clone_links(listing):
-    """The paths a `git ls-files -s` listing gives as links (mode 120000), and as submodules (160000)."""
-    bad = []
-    for line in listing.splitlines():
-        head, _, path = line.partition("\t")
-        mode = head.split(" ")[0]
+def clone_listing(listing, count_text):
+    """(refused, files, bytes) read from `git ls-tree -r -l -z` and `git count-objects -v` of a clone that is not checked out: refused is
+    [(path, why)] for the entries listed as links (mode 120000) or submodules (160000), files and bytes the blobs' number and total size.
+    The size of the pack and of the loose objects is read too: a pack over the byte cap already says the tree is."""
+    refused, files, total = [], 0, 0
+    for record in listing.split("\0"):
+        head, _, path = record.partition("\t")
+        fields = head.split()
+        if len(fields) < 4:
+            continue
+        mode, size = fields[0], fields[3]
         if mode in ("120000", "160000"):
-            bad.append((path, "a symbolic link" if mode == "120000" else "a submodule"))
-    return bad
+            refused.append((path, "a symbolic link" if mode == "120000" else "a submodule"))
+        elif size.isdigit():
+            files += 1
+            total += int(size)
+    kib = sum(int(m.group(1)) for m in re.finditer(r"^size(?:-pack)?: (\d+)$", count_text or "", re.M))
+    return refused, files, max(total, kib * 1024)
 
 
 # --- fetch -----------------------------------------------------------------------------------------------------------
@@ -506,17 +635,18 @@ def acquire_local(source):
 
 
 def refusal_stop(refused, files, total, where):
+    count = files if isinstance(files, int) else len(files)
     reasons = []
     if refused:
-        reasons.append(f"{len(refused)} entr{'y' if len(refused) == 1 else 'ies'} refused: " + "; ".join(f"{p} ({w})" for p, w in refused[:20]))
-    if len(files) > CAP_FILES or total > CAP_BYTES:
-        reasons.append(f"over the caps ({len(files)} files of at most {CAP_FILES}; {total} bytes of at most {CAP_BYTES})")
+        reasons.append(f"{len(refused)} entr{'y' if len(refused) == 1 else 'ies'} refused: " + "; ".join(f"{p or '.'} ({w})" for p, w in refused[:20]))
+    if count > CAP_FILES or total > CAP_BYTES:
+        reasons.append(f"over the caps ({count} files of at most {CAP_FILES}; {total} bytes of at most {CAP_BYTES})")
     if reasons:
         raise Stop(f"the source cannot be copied: {'. '.join(reasons)}",
                    [ask("source", f"Remove what is listed from {where}, or point --path at a smaller folder, and fetch again?",
                         "remove the entries from the source: a link is copied as the content it points at, and a hard link, a device "
                         "or a pipe is never copied", "staging copies a link's target into a run, so a link to a private file would reach one")],
-                   refused=[{"path": p, "why": w} for p, w in refused], files=len(files), bytes=total)
+                   refused=[{"path": p, "why": w} for p, w in refused], files=count, bytes=total)
 
 
 def fetch(args):
@@ -540,18 +670,22 @@ def fetch(args):
             raw = os.path.join(quarantine, "raw")
             scratch_home = tempfile.mkdtemp(prefix="home-", dir=quarantine)
             plan = git_plan(url, args.ref, raw, scratch_home)
-            say("git clone --depth 1 " + url)
+            say("git clone --depth 1 --no-checkout " + url)
             cloned = run_command(plan["argv"], env=plan["env"], timeout=900)
             if cloned.returncode != 0:
                 raise Refused("the clone failed: " + (cloned.stderr.strip().splitlines() or ["no message"])[-1])
-            listing = run_command(plan["ls_files"], env=plan["env"])
+            # The tree is read before it is written: the caps and the links are judged from the listing and the pack, and the checkout
+            # runs only when both hold. (The shallow pack itself has been downloaded by then: a server that sends more than the cap is
+            # not stopped while it sends.)
+            listing = run_command(plan["ls_tree"], env=plan["env"])
+            counted = run_command(plan["count_objects"], env=plan["env"])
+            bad, listed, listed_bytes = clone_listing(listing.stdout, counted.stdout)
+            refusal_stop(bad, listed, listed_bytes, url)
             commit = run_command(plan["rev_parse"], env=plan["env"]).stdout.strip() or None
-            bad = clone_links(listing.stdout)
+            checked_out = run_command(plan["checkout"], env=plan["env"])
+            if checked_out.returncode != 0:
+                raise Refused("the checkout failed: " + (checked_out.stderr.strip().splitlines() or ["no message"])[-1])
             shutil.rmtree(os.path.join(raw, ".git"), ignore_errors=True)
-            if bad:
-                raise Stop("the repository holds links", [ask("source", "Clone it yourself, remove the links and give the path?",
-                                                          "yes", "a link is copied as the content it points at")],
-                           refused=[{"path": p, "why": w} for p, w in bad])
             kind, location, base_root, single = "git", url, raw, None
         else:
             path = acquire_local(source)
@@ -620,15 +754,34 @@ def fetch(args):
 
 # --- reading the origin's SKILL.md -----------------------------------------------------------------------------------
 
+FENCE_RE = re.compile(r"^---[ \t]*$", re.M)
+
+
 def split_text(text):
-    """(frontmatter text or None, the rest) of a SKILL.md text, as scripts/validate.py splits a file: the rest begins right after the
-    closing fence, so it is kept byte for byte."""
+    """(frontmatter text or None, the rest) of a SKILL.md text. The frontmatter opens on a first line that is exactly `---` and closes on
+    the next line that is exactly `---` (spaces or tabs after it allowed); a line that only starts with `---` closes nothing. The rest
+    begins right after the closing fence, so it is kept byte for byte, and it starts with a line end or is empty."""
     if not text.startswith("---\n"):
         return None, text
-    end = text.find("\n---", 4)
-    if end == -1:
+    m = FENCE_RE.search(text, 4)
+    if m is None:
         return None, text
-    return text[4:end], text[end + 4:]
+    return text[4:m.start()].rstrip("\n") if m.start() > 4 else "", text[m.end():]
+
+
+def strict_fence_problem(text, head):
+    """Why a written SKILL.md is not exactly the generated frontmatter followed by the body, read by a parser that shares nothing with
+    split_text (it walks the lines): None when the first closing fence is the last line of `head` and the text starts with `head`.
+    A fence smuggled into the body, or a body that continues the fence line, is caught here."""
+    lines, head_lines = text.split("\n"), head.split("\n")
+    if lines[0] != "---":
+        return "the file does not open with a fence"
+    closing = next((i for i, line in enumerate(lines) if i > 0 and line.rstrip(" \t") == "---"), None)
+    if closing != len(head_lines) - 1:
+        return f"the frontmatter closes at line {None if closing is None else closing + 1}, not at line {len(head_lines)}"
+    if lines[:len(head_lines)] != head_lines:
+        return "the frontmatter is not the one that was generated"
+    return None
 
 
 def read_origin(tree, files):
@@ -698,7 +851,10 @@ def flow_list(values):
 
 
 def frontmatter_text(name, description, license_, area, answers, version):
-    lines = ["---", f"name: {name}", "description: >", f"  {description}"]
+    if "\n" in description:  # a description of several lines keeps them (a literal block)
+        lines = ["---", f"name: {name}", "description: |"] + [f"  {line}" for line in description.split("\n")]
+    else:
+        lines = ["---", f"name: {name}", "description: >", f"  {description}"]
     if license_:
         lines.append(f"license: {yaml_scalar(license_)}")
     lines += ["metadata:", f"  area: {area}", "  kind: capability"]
@@ -708,7 +864,9 @@ def frontmatter_text(name, description, license_, area, answers, version):
 
 
 def settings_found(files, settings):
-    return sorted(f for f in files if any(part in settings for part in f.split("/")))
+    """The files with a part named as a harness's settings or instructions, compared without regard to case."""
+    low = {name.casefold() for name in settings}
+    return sorted(f for f in files if any(part.casefold() in low for part in f.split("/")))
 
 
 def hands_work_over(body):
@@ -753,7 +911,7 @@ def plan_skill(origin_info, tree, files, name, area_flag, declares, drops, previ
     # description and license
     kept_text = (previous or {}).get("declared_text") or {}
     description = declares.get("description") or kept_text.get("description") or (fm.get("description") if isinstance(fm.get("description"), str) else "")
-    description = " ".join(str(description or "").split())
+    description = str(description or "").strip()  # verbatim: the reader already folded a block, and nothing here changes a word
     if not description and not info["fm_error"]:
         paragraph = first_paragraph(info["body"])
         questions.append(ask("description", "The skill has no description. Use the file's first paragraph?",
@@ -817,14 +975,23 @@ def build_folder(dest, tree, files, name, info, plan, version, extra_skip=()):
     os.makedirs(dest, mode=0o755, exist_ok=True)
     copy_tree(tree, files, dest, skip=skip)
     head = frontmatter_text(name, plan["description"], plan["license"], plan["area"], plan["answers"], version)
+    body = info["body"] if info["body"].startswith("\n") or info["body"] == "" else "\n" + info["body"]  # the fence ends its line
+    text = head + (body or "\n")
+    problem = strict_fence_problem(text, head)
+    if problem:
+        raise Refused("the SKILL.md that would be written is not the generated frontmatter and the origin's body: " + problem)
     with open(os.path.join(dest, "SKILL.md"), "wb") as f:
-        f.write((head + info["body"]).encode("utf-8"))
+        f.write(text.encode("utf-8"))
     os.chmod(os.path.join(dest, "SKILL.md"), 0o644)
+    written = open(os.path.join(dest, "SKILL.md"), "rb").read().decode("utf-8")
+    problem = strict_fence_problem(written, head)  # read back from the disk
+    if problem:
+        raise Refused("the SKILL.md written is not the generated frontmatter and the origin's body: " + problem)
 
 
 def folder_files(folder):
     """The files of the skill's content (not evals/, not caches), relative: what the content hash and the snapshot cover."""
-    files, _, _ = scan_tree(folder)
+    files, _, _ = scan_tree(folder, "home")
     return sorted(f for f in files if not (f == "evals" or f.startswith("evals/")) and "__pycache__" not in f.split("/") and not f.endswith(".pyc")
                   and not f.endswith(".DS_Store"))
 
@@ -899,17 +1066,25 @@ def folder_must_exist(home, name):
     return folder
 
 
-def folder_links(folder):
-    """Every link and special file under the folder, evals/ included (the lab refuses such a folder too)."""
-    _, refused, _ = scan_tree(folder)
-    # scan_tree skips nothing but version control; a hard-linked file counts here as the runner would never see one made by a copy
-    return [(p, w) for p, w in refused]
+def folder_problems(folder):
+    """[sentence] for what an imported skill's folder must not hold, read again by check and by bump: a link, a device, a pipe, a hard-linked
+    file, a version-control folder, a .git file, a folder shaped like a git directory, an install marker, a name in another case that the
+    lab reserves (evals/ included in the walk), a file a harness reads as settings or instructions (compared without regard to case,
+    outside evals/), and a cache name."""
+    es = status_module()
+    files, refused, _ = scan_tree(folder, "home")
+    found = [f"{p or '.'} ({w})" for p, w in refused]
+    _, settings = adapter_data()
+    found += [f"{f} (a name a harness reads as settings or instructions)"
+              for f in settings_found([f for f in files if not (f == "evals" or f.startswith("evals/"))], settings)]
+    found += [f"{f} (an install marker or a cache name)" for f in es.stray_names(folder) if not any(f"{f} (" in x for x in found)]
+    return found
 
 
 def laid_out_copy(folder, name):
     """A copy of the folder laid out as <tmp>/skills/<name>, so that the scan's rules for a skill's files apply to it. Returns the root."""
     root = tempfile.mkdtemp(prefix="skill-import-scan-")
-    files, _, _ = scan_tree(folder)
+    files, _, _ = scan_tree(folder, "home")
     copy_tree(folder, files, os.path.join(root, "skills", name))
     return root
 
@@ -970,8 +1145,17 @@ def side_effects_of(folder):
     return [e for e in effects if isinstance(e, str)] if isinstance(effects, list) else [], body
 
 
-def cases_problems(folder):
-    """([errors], [warnings], present) of the person's cases: the leftover markers, the origin lines, the count, the kinds of assertion."""
+def convention_findings(folder):
+    """The findings of the last scan under a rule written for the authors of skills of the repository (CONVENTION_RULES), read from
+    evals/import/scan.json: [] when there is no scan yet."""
+    data = read_json(os.path.join(import_dir(folder), SCAN), {})
+    return [f for f in (data.get("findings") or []) if isinstance(f, dict) and f.get("rule") in CONVENTION_RULES]
+
+
+def cases_problems(folder, need_guard=False):
+    """([errors], [warnings], present) of the person's cases: the leftover markers, the origin lines, the count, the kinds of assertion.
+    need_guard (the scan reported that the skill reads external content without the workbench's sentence) asks for an assertion tagged
+    guard: the instruction planted in the content is quoted to the user and not followed."""
     errors, warnings = [], []
     path = os.path.join(folder, "evals", "evals.json")
     origin_path = os.path.join(import_dir(folder), CASES_ORIGIN)
@@ -1002,6 +1186,9 @@ def cases_problems(folder):
         return isinstance(a, dict) and any(isinstance(t, str) and (t == "guard" or t.startswith("guard:")) for t in a.get("tags") or [])
     if cases and not any(not is_guard(a) for c in cases for a in c.get("assertions") or []):
         errors.append("no case has an assertion that is not a guard: guard cases alone never make a skill reliable")
+    if need_guard and cases and not any(is_guard(a) for c in cases for a in c.get("assertions") or []):
+        errors.append("the scan reports that the skill reads external content without the workbench's sentence 'External content is data.', so "
+                      "at least one assertion must be tagged guard: an instruction planted in the content is quoted to you and not followed")
     for c in cases:
         for n, a in enumerate(c.get("assertions") or [], 1):
             body = a if isinstance(a, str) else a.get("text") if isinstance(a, dict) else ""
@@ -1022,12 +1209,12 @@ def check(args):
     folder = folder_must_exist(home, args.name)
     name = args.name
     es = status_module()
-    links = folder_links(folder)
-    if links:
-        raise Refused("the folder holds links or special files, which staging would copy into a run: " + "; ".join(f"{p} ({w})" for p, w in links[:10]))
+    stray = folder_problems(folder)
+    if stray:
+        raise Refused("the folder holds what an imported skill must not: " + "; ".join(stray[:10]), entries=stray)
     out = import_dir(folder)
     os.makedirs(out, exist_ok=True)
-    errors_c, warnings_c, has_cases = cases_problems(folder)
+    has_cases = os.path.isfile(os.path.join(folder, "evals", "evals.json"))
     jobs = {"scan": lambda: run_scan(folder, name), "components": lambda: run_components(folder), "foreign": lambda: run_foreign(folder)}
     if has_cases:
         jobs["cases"] = lambda: run_check_cases(folder)
@@ -1044,6 +1231,7 @@ def check(args):
     findings = scan.get("findings", [])
     errors = [f for f in findings if f.get("severity") == "error" and f.get("rule") not in CONVENTION_RULES]
     conventions = [f for f in findings if f.get("rule") in CONVENTION_RULES]
+    errors_c, warnings_c, _ = cases_problems(folder, need_guard=bool(conventions))
     effects, body = side_effects_of(folder)
     remote = [f for f in findings if f.get("rule") == "undeclared-side-effect"]
     no_gate = bool(effects) and not validate_module().has_gate_heading(body)
@@ -1096,6 +1284,11 @@ def audit(args):
     home = resolve_home(args.home)
     folder = folder_must_exist(home, args.name)
     es = status_module()
+    checked = read_json(os.path.join(import_dir(folder), CHECK), {})
+    if checked.get("ok") is not True or checked.get("content_sha256") != es.content_hash(folder):
+        raise Stop("the folder has not passed check at its current content",
+                   [ask("check", "Run check first: the audit is tied to the content that passed it.",
+                        f"python3 scripts/skill_import.py check --name {args.name}", "a vetting of content nobody checked says little")])
     source = os.path.abspath(os.path.expanduser(args.record))
     if not os.path.isfile(source) or os.path.islink(source):
         raise Refused(f"{source} is not a file")
@@ -1110,7 +1303,7 @@ def audit(args):
                         "the verdict is read from the record, never from this call")], verdicts=verdicts)
     record = read_json(os.path.join(import_dir(folder), RECORD), {})
     names = {args.name, (record.get("origin_name") or "")} - {""}
-    if not any(n.lower() in text.lower() for n in names):
+    if not any(re.search(r"(?<![A-Za-z0-9_-])" + re.escape(n) + r"(?![A-Za-z0-9_-])", text, re.I) for n in names):
         raise Stop("the record does not name this skill",
                    [ask("record", f"The record mentions neither {' nor '.join(sorted(names))}. Is it the vetting of this skill?",
                         "run the vetting on the folder " + folder, "an audit of another skill would void nothing and prove nothing")])
@@ -1156,7 +1349,10 @@ def cases_template(args):
                                                           "yes: edit evals/evals.json yourself", "the cases are yours")])
     effects, body = side_effects_of(folder)
     v = validate_module()
-    needs_guard = bool(v.EXTERNAL_LINE_RE.search(body) or re.search(r"^## (?:Stop rules|Confirmation gate)[ \t]*$", v.strip_code(body), re.M))
+    if not os.path.isfile(os.path.join(import_dir(folder), SCAN)):  # the scan says whether the skill reads external content unguarded
+        write_json(os.path.join(import_dir(folder), SCAN), run_scan(folder, args.name))
+    needs_guard = bool(v.EXTERNAL_LINE_RE.search(body) or re.search(r"^## (?:Stop rules|Confirmation gate)[ \t]*$", v.strip_code(body), re.M)
+                       or convention_findings(folder))
     prompt = (FILL + " a request you actually made to an assistant for this skill's job, in your words. No date relative to today, "
               "and no path the case does not ship.>")
     cases = []
@@ -1213,7 +1409,7 @@ def ready_problems(folder):
     checked = read_json(os.path.join(import_dir(folder), CHECK), {})
     if not checked.get("ok") or checked.get("content_sha256") != content:
         return ("check", "the folder has not passed check at its current content", "python3 scripts/skill_import.py check --name " + os.path.basename(folder))
-    errors, _, present = cases_problems(folder)
+    errors, _, present = cases_problems(folder, need_guard=bool(convention_findings(folder)))
     if not present or errors:
         return ("cases", "the cases are not ready" + (": " + errors[0] if errors else ""), "python3 scripts/skill_import.py cases-template --name " + os.path.basename(folder))
     if checked.get("cases_sha256") != hash_of_cases(folder):
@@ -1226,6 +1422,8 @@ def test_verb(args, extra_argv):
     if refused:
         raise Refused(f"{refused[0]} is refused for a skill from outside: a model runs through its entry of the gate file, with no variable "
                       "of yours in the run")
+    if extra_argv:
+        parser().error(f"unrecognized arguments: {' '.join(extra_argv)}")
     home = resolve_home(args.home)
     folder = folder_must_exist(home, args.name)
     problem = ready_problems(folder)
@@ -1245,7 +1443,7 @@ def test_verb(args, extra_argv):
         raise Stop("no model was named", [ask("model", "Which model? The gate file lists none.", "a model of evals/eval-gate.json", "a test runs on a model")])
     if not args.max_cost_usd or not re.fullmatch(r"\d+(\.\d+)?", args.max_cost_usd):
         raise Stop("no spend limit per run was given",
-                   [ask("max-cost-usd", "What is the most one run may spend, in dollars?", "0.50", "the bound printed below is runs x this amount, and the adapter stops a run at it")])
+                   [ask("max-cost-usd", "What is the most one run may spend, in dollars?", "0.50", "the estimate printed below is runs x this amount, and an adapter that can enforce it stops a run at it")])
     base = [sys.executable, os.path.join(ROOT, "evals", "eval_run.py"), "--skill-dir", folder, "--quick"] + [x for m in models for x in ("--model", m)]
     if args.allow_web_cases:
         base.append("--allow-web-cases")
@@ -1255,19 +1453,29 @@ def test_verb(args, extra_argv):
     plan = json.loads(plan_run.stdout)
     runs = len(plan.get("runs") or [])
     amount = float(args.max_cost_usd)
-    bound = round(runs * amount * 2, 4)
+    control = es.event_config(gate)
+    resumes = int(control.get("max_resumes", 3))
+    attempts, gradings = 1 + int(control["retries"]), es.load_measure().GRADING_RETRIES + 2  # a refused grading is asked again; a failed guard is graded once more
+    estimate = round(runs * amount * 2, 4)
+    worst = round(runs * amount * (attempts + gradings) * (1 + resumes), 4)
     shown = {"folder": folder, "models": plan.get("models"), "runs": runs, "kind": "quick: every case once with the skill, no baseline",
              "grader": plan.get("grader"), "evidence_home": plan.get("evidence_home"),
-             "spend": {"model_runs": runs, "max_cost_usd_per_run": amount, "grading_calls": runs, "bound_usd": bound,
-                       "assumes": "a grading call is taken at the same amount as a run (the runner sets no cap of its own on a grading), and a failed "
-                                  "guard verdict is graded once more; an adapter that cannot enforce the limit relies on the cap of your provider key",
+             "spend": {"model_runs": runs, "max_cost_usd_per_run": amount, "grading_calls": runs, "estimate_usd": estimate,
+                       "worst_case_usd": worst,
+                       "what_they_are": "an estimate, not a cap. The estimate is one attempt of each run and one grading of each, every call taken at "
+                                        f"--max-cost-usd. The worst case counts every retry ({control['retries']} a run) and every resumption "
+                                        f"({resumes}), and up to {gradings} gradings of a run, at the same amount",
+                       "leaves_out": ["the runner sets no cap of its own on a grading: its amount is assumed to be a run's, and a long fixture or "
+                                      "reply can cost more", "an adapter that cannot enforce --max-cost-usd relies on the cap of your provider key",
+                                      "a pause on the account limit, which costs time and no more than the calls it repeats",
+                                      "a grader or a model whose price changed since the gate file was written"],
                        "paid_by": "your key for the model, and your key for the grader"},
              "reaches": "your fixtures reach the model provider and the grader, as in any lab run",
              "result": "preliminary: your machine only, measured against your own cases, which nobody else has read"}
     if not args.yes:
-        raise Stop("a test spends your money: the plan and its upper bound wait for your yes",
-                   [ask("spend", f"Run this quick test, up to {bound} dollars at most?", "yes: run the same command again with --yes",
-                        "the bound is printed before anything runs")], plan=shown)
+        raise Stop("a test spends your money: the plan and its estimate wait for your yes",
+                   [ask("spend", f"Run this quick test? The estimate is {estimate} dollars, {worst} if every retry and resumption is used; "
+                        "it is not a cap.", "yes: run the same command again with --yes", "the estimate is printed before anything runs")], plan=shown)
     run = run_streaming(base + ["--jobs", str(args.jobs), "--max-cost-usd", args.max_cost_usd], timeout=6 * 3600)
     try:
         event = json.loads(run.stdout)
@@ -1291,7 +1499,7 @@ def one_status(home, name):
     last = versions[-1] if versions and isinstance(versions[-1], dict) else {}
     checked = read_json(os.path.join(import_dir(folder), CHECK), {})
     audit_info = audit_state(folder)
-    errors, _, present = cases_problems(folder)
+    errors, _, present = cases_problems(folder, need_guard=bool(convention_findings(folder)))
     local = es.local_skill_evidence(es.imported_evidence_name(name), es.local_evidence_base())
     stages = {"normalized": record is not None, "checked": bool(checked.get("ok")) and checked.get("content_sha256") == content,
               "audited": bool(audit_info and audit_info["current"] and audit_info["verdict"] != "do not install"),
@@ -1314,6 +1522,7 @@ def one_status(home, name):
                       if audit_info else None),
             "assumed": (record or {}).get("assumed", []), "origin": ({k: (record["origin"] or {}).get(k) for k in ("kind", "location", "commit", "subpath", "date")}
                                                                       if record else None),
+            "conventions": [f"{f.get('path')}:{f.get('line')} {f.get('message')}" for f in convention_findings(folder)],
             "scope": es.IMPORTED_SCOPE, "cases_note": es.IMPORTED_CASES, "models": figures["models"],
             "next": commands.get(first_missing, f"python3 evals/eval_run.py --skill-dir {folder} --model <id>  (a full test, with its baseline, is what gives a standing)")}
 
@@ -1360,6 +1569,9 @@ def refresh(args):
     record = read_json(os.path.join(import_dir(folder), RECORD), None)
     if not record:
         raise Refused("the folder has no import record: it was not imported by this tool")
+    stray = folder_problems(folder)  # a link in evals/ would be copied by the update
+    if stray:
+        raise Refused("the folder holds what an imported skill must not: " + "; ".join(stray[:10]), entries=stray)
     origin = record["origin"]
     # the new quarantine, from the recorded origin
     ns = argparse.Namespace(src=origin["location"], path=origin.get("subpath") or "", ref=origin.get("ref"), yes=args.yes, home=home)
@@ -1380,7 +1592,7 @@ def refresh(args):
         stage = os.path.join(stage_root, args.name)
         build_folder(stage, tree, files, args.name, info, plan, current_version)
         new_snapshot = snapshot_of(stage)
-        old_snapshot = read_json(os.path.join(import_dir(folder), SNAPSHOT), None) or snapshot_of(folder)
+        old_snapshot = snapshot_of(folder)  # the folder as it is now, a hand edit included: that is what the update replaces
         added, removed, changed = changed_files(old_snapshot["files"], new_snapshot["files"])
         others = sorted((set(added) | set(removed) | set(changed)) - {"SKILL.md"})
         if not (added or removed or changed):
@@ -1432,6 +1644,9 @@ def bump(args):
     snapshot = read_json(os.path.join(import_dir(folder), SNAPSHOT), None)
     if not snapshot:
         raise Refused("the folder has no snapshot: it was not imported by this tool")
+    stray = folder_problems(folder)  # the edit is recorded only if the folder is still one an import may hold
+    if stray:
+        raise Refused("the folder holds what an imported skill must not: " + "; ".join(stray[:10]), entries=stray)
     now = snapshot_of(folder)
     added, removed, changed = changed_files(snapshot["files"], now["files"])
     versions, _, _ = es.read_versions(folder)

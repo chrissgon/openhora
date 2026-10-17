@@ -399,15 +399,20 @@ def load_yaml(text):
     return parse_yaml_subset(text)
 
 
+FRONTMATTER_FENCE_RE = re.compile(r"^---[ \t]*$", re.M)
+
+
 def split_frontmatter(path):
     with open(path, encoding="utf-8") as f:
         content = f.read()
     if not content.startswith("---\n"):
         return None, content
-    end = content.find("\n---", 4)
-    if end == -1:
+    # The frontmatter closes on a line that is exactly `---` (spaces or tabs after it allowed); a line that only starts with `---`
+    # (`---: x`, `---x`) closes nothing, so a body cannot carry keys into the frontmatter.
+    m = FRONTMATTER_FENCE_RE.search(content, 4)
+    if m is None:
         return None, content
-    return content[4:end], content[end + 4:]
+    return (content[4:m.start()].rstrip("\n") if m.start() > 4 else ""), content[m.end():]
 
 
 # --- checks ------------------------------------------------------------------------

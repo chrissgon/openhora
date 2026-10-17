@@ -34,9 +34,12 @@ file when --root is not a git repository), or only PATH arguments (files or fold
   rm-unguarded          warning  rm -r on a path that starts with a variable not guarded by ${VAR:?}
   world-writable        warning  chmod 777 or o+w
   sudo                  warning  sudo inside a script
-  undeclared-side-effect error   a skill's script, or a command in its SKILL.md, writes to a remote (push,
-                                 publish, a request with a body or a writing method, in a string or in an
-                                 argument list) while the skill declares side_effects: [] (inline or block)
+  undeclared-side-effect error   a skill's script (any file under its scripts/, whatever its extension), a command in its
+                                 SKILL.md or a line of a fenced block in a Markdown file of its references/ writes to a
+                                 remote (push, publish, a request with a body or a writing method, Ruby's Net::HTTP
+                                 writing calls, wget's body options, in a string or in an argument list) while the skill
+                                 declares side_effects: [] (inline or block). It sees what its patterns see: a write
+                                 phrased another way, or in a file of another place, is not detected
   unpinned-dependency   warning  an inline script dependency (on one line or over several) or a requirement
                                  without an exact version
   untrusted-content     error    a skill or agent that reads content written by others (it requires a
@@ -162,7 +165,9 @@ REMOTE_WRITE_RE = re.compile(
     r"\b(?:urlopen|Request)\s*\([^\n]*\bdata\s*=(?!\s*None\b)|"
     # The writing calls of the HTTP libraries.
     r"\b(?:requests|httpx|aiohttp|urllib3|axios|got|superagent|ky)\.(?:post|put|patch|delete)\s*\(|"
-    r"\b(?:session|client)\.(?:post|put|patch)\s*\(")
+    r"\b(?:session|client)\.(?:post|put|patch)\s*\(|"
+    # Ruby's HTTP client and wget's body options.
+    r"\bNet::HTTP(?:\.(?:post|post_form|put|patch|delete)\b|::(?:Post|Put|Patch|Delete)\b)|\bwget\b[^\n|;]*\s--(?:post-data|post-file|body-data|body-file)\b")
 # ["git", "push"]: the argument-list form of a command reads as the command once the separators are spaces.
 ARG_LIST_SEP_RE = re.compile(r"[\"']\s*,\s*[\"']")
 # In SKILL.md a command is what a step shows as code: an inline span or a line of a fenced block.
@@ -250,9 +255,10 @@ def frontmatter_list(head, key):
 
 
 def skill_side_effects(root, rel, cache):
-    """Return (skill name, declared side_effects) when rel is a skill's SKILL.md or inside its scripts/."""
+    """Return (skill name, declared side_effects) when rel is a skill's SKILL.md, a file inside its scripts/ or a Markdown file of
+    its references/ (whose fenced blocks are read for a remote write)."""
     parts = rel.split("/")
-    if parts[0] != "skills" or not (len(parts) >= 4 and parts[2] == "scripts" or parts[2:] == ["SKILL.md"]):
+    if parts[0] != "skills" or not (len(parts) >= 4 and parts[2] in ("scripts", "references") or parts[2:] == ["SKILL.md"]):
         return None, None
     name = parts[1]
     if name not in cache:
@@ -310,11 +316,14 @@ def scan_file(root, path, cache):
     is_python = ext == ".py" or (text.startswith("#!") and "python" in text.split("\n", 1)[0])
     skill, declared = skill_side_effects(root, rel, cache)
     is_skill_md = bool(skill) and rel.endswith("/SKILL.md")
+    parts_of = rel.split("/")
+    in_scripts = bool(skill) and parts_of[2] == "scripts"  # any file there is a script to the effect rule, whatever its extension
+    in_reference = bool(skill) and parts_of[2] == "references" and ext == ".md"
     lines = text.split("\n")
     in_fence = False
 
     for i, line in enumerate(lines, 1):
-        if is_skill_md and FENCE_RE.match(line):
+        if (is_skill_md or in_reference) and FENCE_RE.match(line):
             in_fence = not in_fence
         for label, rx in TOKEN_RES:
             if rx.search(line):
@@ -352,8 +361,11 @@ def scan_file(root, path, cache):
                 add("sudo", i, "scripts must not escalate privileges; tell the user to run it", line)
         if is_script and CHMOD_RE.search(line):
             add("world-writable", i, "grant the narrowest permission that works", line)
-        if skill and declared == [] and not is_skill_md and is_script and remote_write(line):
+        if skill and declared == [] and not is_skill_md and not in_reference and (is_script or in_scripts) and remote_write(line):
             add("undeclared-side-effect", i, f"skill '{skill}' writes to a remote but declares side_effects: []", line)
+        if in_reference and declared == [] and in_fence and remote_write(line):
+            add("undeclared-side-effect", i, f"a command in a fenced block of the reference of skill '{skill}' writes to a remote but "
+                "the skill declares side_effects: []", line)
         if is_skill_md and declared == [] and any(
                 remote_write(code) for code in ([line] if in_fence else CODE_SPAN_RE.findall(line))):
             add("undeclared-side-effect", i, f"a command in the steps of skill '{skill}' writes to a remote but the "

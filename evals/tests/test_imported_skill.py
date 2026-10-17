@@ -55,9 +55,9 @@ def standin(tmp_path, monkeypatch, runner=None):
     t.configure_gate(tmp_path, tolerance=0.05, runs=3)
 
 
-def imported(tmp_path, tmp_path_factory, name="demo", cases=None, verdict="install", audit=True):
-    """A skill folder outside the root (named like the skill the stand-in adapter looks for), with its version file, its cases and
-    an audit record at its current content."""
+def imported(tmp_path, tmp_path_factory, name="demo", cases=None, verdict="install", audit=True, check=True):
+    """A skill folder outside the root (named like the skill the stand-in adapter looks for), with its version file, its cases, a check
+    that passed and an audit record, both at its current content."""
     folder = tmp_path_factory.mktemp("home") / name
     (folder / "evals" / "import").mkdir(parents=True)
     (folder / "SKILL.md").write_text(t.SKILL_MD.replace("name: demo", f"name: {name}"))
@@ -68,7 +68,17 @@ def imported(tmp_path, tmp_path_factory, name="demo", cases=None, verdict="insta
     if audit:
         (folder / "evals" / "import" / "audit.json").write_text(json.dumps(
             {"verdict": verdict, "record": "vetting-2030-01-02.md", "record_sha256": "0" * 64, "content_sha256": content, "date": "2030-01-02"}))
+    if check:
+        (folder / "evals" / "import" / "check.json").write_text(json.dumps({"ok": True, "content_sha256": content, "date": "2030-01-02"}))
     return folder
+
+
+def reseal(folder, verdict="install"):
+    """A check and an audit at the content the folder has now (what a person does after an edit)."""
+    content = es.content_hash(str(folder))
+    (folder / "evals" / "import" / "audit.json").write_text(json.dumps(
+        {"verdict": verdict, "record": "r.md", "record_sha256": "0" * 64, "content_sha256": content, "date": "2030-01-03"}))
+    (folder / "evals" / "import" / "check.json").write_text(json.dumps({"ok": True, "content_sha256": content, "date": "2030-01-03"}))
 
 
 def run_main(capsys, *argv):
@@ -122,7 +132,21 @@ def test_a_folder_inside_the_checkout_is_refused(tmp_path, monkeypatch, capsys):
     (tmp_path / "somewhere" / "demo" / "SKILL.md").write_text("x\n")
     with pytest.raises(SystemExit):
         er.parse(["--skill-dir", str(tmp_path / "somewhere" / "demo")])
-    assert "inside the workbench checkout" in capsys.readouterr().err
+    assert "inside a checkout of the workbench" in capsys.readouterr().err
+
+
+def test_a_folder_inside_another_checkout_of_the_workbench_is_refused(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    other = tmp_path_factory.mktemp("elsewhere")
+    for rel in ("evals/eval-gate.json", "scripts/skill_import.py"):
+        (other / rel).parent.mkdir(parents=True, exist_ok=True)
+        (other / rel).write_text("")
+    folder = other / "imports" / "demo"
+    (folder).mkdir(parents=True)
+    (folder / "SKILL.md").write_text(t.SKILL_MD)
+    with pytest.raises(SystemExit) as e:
+        er.parse(["--skill-dir", str(folder)])
+    assert e.value.code == 2 and "inside a checkout of the workbench" in capsys.readouterr().err
 
 
 def test_allow_web_cases_goes_with_skill_dir_only(tmp_path, monkeypatch, capsys):
@@ -217,10 +241,10 @@ def test_an_event_is_refused_when_the_folder_holds_a_link_or_a_special_file(tmp_
     secret = tmp_path / "private.txt"
     secret.write_text("not for a run\n")
     os.symlink(secret, folder / "evals" / "private-link")
-    assert "symbolic link" in refused(capsys, folder)
+    assert "evals/private-link" in refused(capsys, folder)
     os.remove(folder / "evals" / "private-link")
     os.mkfifo(folder / "evals" / "pipe")
-    assert "special file" in refused(capsys, folder)
+    assert "a pipe" in refused(capsys, folder)
     assert t.calls(tmp_path) == []
 
 
@@ -234,6 +258,54 @@ def test_a_web_case_runs_only_with_the_flag_and_the_verdict_install(tmp_path, tm
     code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m", "--allow-web-cases", "--dry-run")
     assert code == 0 and json.loads(out)["imported"]["refused"] == []
     assert [r["allow_web"] for r in json.loads(out)["runs"]] == [True, False]
+
+
+def test_an_event_is_refused_without_a_check_that_passed_at_the_current_content(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory, check=False)
+    assert "has not passed" in refused(capsys, folder)
+    (folder / "evals" / "import" / "check.json").write_text(json.dumps({"ok": False, "content_sha256": es.content_hash(str(folder))}))
+    assert "has not passed" in refused(capsys, folder)
+    (folder / "evals" / "import" / "check.json").write_text(json.dumps({"ok": True, "content_sha256": "0" * 64}))
+    assert "has not passed" in refused(capsys, folder)
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m", "--dry-run")  # a plan says so without refusing
+    assert code == 0 and any("has not passed" in why for why in json.loads(out)["imported"]["refused"])
+    assert t.calls(tmp_path) == []
+
+
+@pytest.mark.parametrize("name", [".installed-by-openhora", "__pycache__", ".DS_Store", ".git", ".GIT"])
+def test_an_event_is_refused_when_the_content_holds_an_install_marker_or_a_cache_name(tmp_path, tmp_path_factory, monkeypatch, capsys, name):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    target = folder / "scripts" / name
+    target.parent.mkdir(exist_ok=True)
+    if name == "__pycache__":
+        target.mkdir()
+    else:
+        target.write_text("a marker that the content hash leaves out\n")
+    assert name in refused(capsys, folder) and "install marker" in refused(capsys, folder)
+    assert t.calls(tmp_path) == []
+
+
+def test_the_event_runs_from_one_copy_made_at_its_start_and_a_change_of_the_folder_meanwhile_is_not_evidence(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    start = es.content_hash(str(folder))
+    seen, real = [], er.stage_run
+
+    def spy(case_dir, eval_cfg, variant_dir, deps, case, platform=None):
+        if variant_dir:
+            seen.append((variant_dir, es.content_hash(variant_dir)))
+        (folder / "SKILL.md").write_text((folder / "SKILL.md").read_text() + "An edit made while the event runs.\n")
+        return real(case_dir, eval_cfg, variant_dir, deps, case, platform)
+    monkeypatch.setattr(er, "stage_run", spy)
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")
+    result = json.loads(out)
+    assert seen and all(path != str(folder) for path, _ in seen)  # every run was staged from the copy
+    assert {h for _, h in seen} == {start}  # the copy is the content that was checked and audited, whatever happened to the folder
+    assert not os.path.exists(seen[0][0])  # the copy is removed when the invocation ends
+    assert result["evidence"]["written"] is False and "changed during the event" in result["evidence"]["reason"]
+    assert es.content_hash(str(folder)) != start
 
 
 # --- the stand-in quick event ---------------------------------------------------------------------------------------------------
@@ -258,6 +330,26 @@ def test_a_quick_test_of_a_skill_from_outside_writes_local_evidence_under_import
     assert not (tmp_path / "skills").exists()
     assert not [p for p in tmp_path.glob("**/evidence/*.jsonl") if "evals-workspace" not in p.parts]  # only the run folder's own copy
     assert "stays on this machine" in err and "--skill-dir" in err and "preliminary" in err
+
+
+def test_resume_alone_resumes_an_imported_event_and_the_audit_is_checked_again(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    standin(tmp_path, monkeypatch)
+    folder = imported(tmp_path, tmp_path_factory)
+    t.mark(tmp_path, "down-q-with-m")  # the run of case 2 fails in its adapter: the event stays open
+    code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")
+    assert code == 1
+    event = tmp_path / json.loads(out)["iteration_dir"]
+    audit = folder / "evals" / "import" / "audit.json"
+    good = audit.read_text()
+    audit.write_text(json.dumps({**json.loads(good), "verdict": "do not install"}))
+    with pytest.raises(SystemExit) as e:
+        er.main(["--resume", str(event)])
+    assert e.value.code == 2 and "do not install" in capsys.readouterr().err  # the audit is read again at the resumption
+    audit.write_text(good)
+    t.mark(tmp_path, "down-q-with-m", on=False)
+    code, out, err = run_main(capsys, "--resume", str(event))  # no --skill-dir: the event keeps the options it started with
+    assert code == 0 and json.loads(out)["evidence"]["written"] is True
+    assert len(list((local_base() / "imported" / "demo").glob("lab-*.jsonl"))) == 1
 
 
 def test_the_status_of_a_skill_from_outside_says_preliminary_quick_test_only_and_that_it_counts_on_this_machine_only(tmp_path, tmp_path_factory, monkeypatch, capsys):
@@ -299,9 +391,7 @@ def test_a_second_event_after_a_hand_edit_names_the_lines_the_version_file_does_
     (folder / "SKILL.md").write_text((folder / "SKILL.md").read_text() + "An edit made by hand.\n")
     # the audit is void now: the edit is refused until it is vetted again
     assert "audit is void" in refused(capsys, folder)
-    content = es.content_hash(str(folder))
-    (folder / "evals" / "import" / "audit.json").write_text(json.dumps({"verdict": "install", "record": "r.md", "record_sha256": "0" * 64,
-                                                                         "content_sha256": content, "date": "2030-01-03"}))
+    reseal(folder)
     code, out, err = run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")
     assert code == 0 and "unbumped edit" in err and "skill_import.py bump --name demo" in err and "not a refusal" in err
     figures = es.imported_status(str(tmp_path), str(folder), es.load_gate(str(tmp_path)), str(local_base()))["models"]["m"]
