@@ -24,14 +24,16 @@ hidden text and invisible characters removed; HTML is never rendered, a link nev
 a `-- ` signature line, or an attribution or forward marker of a closed list (English, Portuguese, Spanish), so only the sender's own words
 reach the bridge. When the first line is a command (`/approve 12`), that line alone is the text, so a signature a phone adds cannot turn it
 into a typed hash. At most 8,000 characters. `reply_to` is the In-Reply-To of the message, only when it is a Message-ID this provider sent to
-that chat. `action` and `action_ref` are null, `private` is true.
+that chat. `action` and `action_ref` are null, `private` is true. Hidden text is removed only when an inline style `display:none` or
+`visibility:hidden`, or the `hidden` attribute, hides it: text hidden by size, colour, opacity, position or a style sheet is read as text,
+which is why a command is honoured only as the first line of a message and the bridge still needs the reply to the card for any act.
 
 The mailbox is never changed: IMAP EXAMINE (read only), UID SEARCH, UID FETCH with BODY.PEEK and RFC822.SIZE, NOOP, LOGOUT; no flag, move,
 copy or delete, ever. TLS is code: IMAP 993 from the first byte, SMTP 465 or 587 with a required STARTTLS, the certificate verified, no
 password before TLS (providers/_email.py); plain only to a loopback host with the test variable set.
 
 Cards. One text/plain message, no HTML, no attachment (the capabilities say `documents` false: the whole text of a decision travels in the
-body, and a card that does not fit is cut and cannot be approved here). `Auto-Submitted: auto-generated`, a random Message-ID that is
+body, and a card that does not fit is cut; a decision whose approval needs its whole text then cannot be approved here). `Auto-Submitted: auto-generated`, a random Message-ID that is
 returned to the bridge and remembered (sent.json, the last 1,000 for each chat). `actions_need_reply` is true: the bridge acts on a typed
 approve, reject or release only in reply to the card of that decision, and that reply also proves the card reached the person's mailbox.
 
@@ -77,7 +79,7 @@ FOLDER = "messenger-email"
 SETTINGS, CURSOR, SENT, LOCK = "settings.json", "cursor.json", "sent.json", "listen.lock"
 STATE_ENV = "OPENHORA_STATE_DIR"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
-CAPABILITIES = {"max_text": 20000, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False,
+CAPABILITIES = {"max_text": 8000, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False,
                 "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": False, "listen": True,
                 "actions_need_reply": True}
 MAX_SIZE = 1 << 20                 # a message over this is skipped without being fetched
@@ -92,6 +94,10 @@ HTML_MAX = 200_000                 # characters of an HTML part that are tried a
 HTML_SECONDS = 3.0                 # the budget of the child that makes the text of an HTML part
 TEXT_PART_MAX = 200_000            # characters of a text part that are read
 ADDRESS_HEADER_MAX = 2000          # a From, Sender, To or Cc longer than this is dropped without being parsed
+HEADER_VALUE_MAX = 16 * 1024       # any header longer than this, or a header block longer than HEADER_BLOCK_MAX, is dropped before a header is read
+HEADER_BLOCK_MAX = 64 * 1024
+PER_DOMAIN = 120                   # attempts for one From domain in an hour (counted before the text is made: a domain's staff is a few people)
+ATTEMPTS = 3                       # starts that may fail on one uid before it is skipped with a log line
 SEARCH_WINDOW = 1000               # uids asked for at a time (a reply line over 1,000,000 bytes is an error of the IMAP library)
 SEEN_KEYS = 1000                   # senders remembered before the ones outside the hour are forgotten
 LINK_MAX = 512
@@ -345,6 +351,7 @@ def split_semicolons(text) -> list:
     return parts
 
 
+METHOD_TOKEN = re.compile(r"(?i)(?<![A-Za-z0-9._-])(dkim|dmarc)(?:/\d+)?\s*=")
 PAIR = re.compile(r'([A-Za-z][A-Za-z0-9-]*(?:/\d+)?(?:\.[A-Za-z0-9_-]+)?)\s*=\s*("(?:[^"\\]|\\.)*"|[^\s;"]*)')
 
 
@@ -369,12 +376,18 @@ def parse_auth_results(raw: str):
         for key, value in PAIR.findall(part[first.end():]):
             props.setdefault(key.lower(), value.strip('"').lower())
         results.append({"method": method, "result": result, "props": props})
+    # Under RFC 5322 a quote inside a comment is plain text, so a MAIL FROM such as "x) ; dkim=pass header.d=office.example ; (y"@evil.example,
+    # echoed by a server into a comment, could end that comment for a reader that counts quotes and start a result of its own. A header that
+    # holds more dkim or dmarc results than were parsed out of it is not written the way a server writes it: it is not read.
+    if len(METHOD_TOKEN.findall(" ".join(raw.split()))) > sum(1 for r in results if r["method"] in ("dkim", "dmarc")):
+        return None
     return head[0].lower(), results
 
 
 def topmost_results(msg, authserv: str):
     """The results of the topmost Authentication-Results header whose authserv-id is `authserv`, as parse_auth_results gives them: None
     when there is no such header or it cannot be read. Headers of other ids, and every one below the first of this id, are ignored."""
+    ours = None
     for name, value in msg.raw_items():
         if name.lower() != "authentication-results":
             continue
@@ -384,8 +397,10 @@ def topmost_results(msg, authserv: str):
                 return None     # a header that names our id and cannot be read admits nothing (and hides nothing below it)
             continue
         if found[0] == authserv:
-            return found[1]
-    return None
+            if ours is not None:
+                return None     # two headers of our id: a server writes one, so one of them is a sender's, and the topmost is not known to be the server's
+            ours = found[1]
+    return ours
 
 
 def authenticated(results, domain: str):
@@ -531,23 +546,31 @@ def recipient_set(msg, mail):
     return found
 
 
-def automatic(msg) -> bool:
+def automatic(msg, sender_key: str = "") -> bool:
     names = {name.lower() for name in msg.keys()}
     auto = str(msg.get("Auto-Submitted") or "").strip().lower().split(";", 1)[0].strip()
     precedence = str(msg.get("Precedence") or "").strip().lower()
-    return bool(auto and auto != "no") or precedence in AUTO_PRECEDENCE or "list-id" in names or "list-unsubscribe" in names \
-        or msg.get_content_type() == "multipart/report" or str(msg.get("Return-Path") or "").strip() == "<>"
+    return bool(auto and auto != "no") or precedence in AUTO_PRECEDENCE \
+        or bool(names & {"list-id", "list-unsubscribe", "list-post", "x-autoreply", "x-autorespond"}) \
+        or msg.get_content_type() == "multipart/report" or "".join(str(msg.get("Return-Path") or "").split()) == "<>" \
+        or sender_key.split("@", 1)[0] in ("mailer-daemon", "postmaster")
 
 
-def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail):
+def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail, allow=None):
     """(update, None) for a message that is admitted, else (None, the class of the refusal): size, unparsable, sender, self, not-private,
-    automatic, unauthenticated, empty, slow. `sent_ids(chat)` is the set of Message-IDs this provider sent to that chat. The cheap checks
+    automatic, unauthenticated, empty, slow. `sent_ids(chat)` is the set of Message-IDs this provider sent to that chat. `allow(sender, domain)`, when given, is asked just before the
+    text is made (the expensive part) and says whether the rate allows another attempt. The cheap checks
     come first and the text last: a stranger who passed authentication for their own domain reaches nothing expensive before the sender is
     known to be the one the server vouched for."""
     if len(raw) > MAX_SIZE:
         return None, "size"
+    block = re.search(rb"\r?\n\r?\n", raw)
+    if (block.start() if block else len(raw)) > HEADER_BLOCK_MAX:
+        return None, "unparsable"       # a header block this long is not a message a person wrote, and the library takes time on it
     try:
         msg = message_from_bytes(raw, policy=policy.default)
+        if any(len(str(value)) > HEADER_VALUE_MAX for _, value in msg.raw_items()):
+            return None, "unparsable"
         if any("Header" in type(defect).__name__ or "Envelope" in type(defect).__name__ for defect in msg.defects):
             return None, "unparsable"       # a line of the header block that is not a header ends the block: what follows it is not read as headers
         long = {name.lower() for name, value in msg.raw_items() if len(str(value)) > ADDRESS_HEADER_MAX}
@@ -572,8 +595,10 @@ def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail):
                 return None, "sender"
         if recipient_set(msg, mail) != {mail.address_key(own)}:
             return None, "not-private"
-        if automatic(msg):
+        if automatic(msg, key):
             return None, "automatic"
+        if allow is not None and not allow(key, mail.domain_of(key)):
+            return None, "rate"
         text = message_text(msg)
         if not text:
             return None, "empty"
@@ -773,9 +798,24 @@ def subject_of(text: str, mail) -> str:
     return mail.header_text(line, "the subject")
 
 
+APPROVES_LINE = re.compile(r"^Approving applies exactly the text above \((sha256 [0-9a-f]{64})\)\.$")
+
+
 def render_body(message: dict) -> str:
-    """The body: the card's text with the typed lines turned into what an e-mail reply says, and the link as a line."""
-    body = TYPED_LINE.sub(lambda m: "Reply to this e-mail with: " + m.group(1), message["text"])
+    """The body: the card's text with the lines that say how to act (the typed commands, turned into what an e-mail reply says, and the
+    hash the approval is of) moved up under its first line, where a mail client's preview and a clipped message still show them, and the
+    link as a line."""
+    lines = message["text"].split("\n")
+    moved, rest = [], []
+    for line in lines[1:]:
+        typed, approves = TYPED_LINE.match(line), APPROVES_LINE.match(line)
+        if typed:
+            moved.append("Reply to this e-mail with: " + typed.group(1))
+        elif approves:
+            moved.append(f"Approving applies exactly the text below ({approves.group(1)}).")
+        else:
+            rest.append(line)
+    body = "\n".join([lines[0], "", *moved, *rest]).rstrip("\n") if moved else message["text"]
     link = message.get("link")
     if link:
         label, url = str(link.get("label") or "Link"), str(link.get("url") or "")
@@ -972,17 +1012,34 @@ class Listener:
         write_private_json(self.cursor_path, {"uidvalidity": validity, "last_uid": highest})
         return highest
 
-    def save(self, validity: int, last: int) -> None:
-        write_private_json(self.cursor_path, {"uidvalidity": validity, "last_uid": last})
+    def save(self, validity: int, last: int, attempt=None) -> None:
+        found = {"uidvalidity": validity, "last_uid": last}
+        if attempt:
+            found["attempt"] = attempt      # {"uid", "n"}: the uid being handled and how many starts it has had
+        write_private_json(self.cursor_path, found)
 
-    def throttled(self, sender: str) -> bool:
+    def attempt(self, validity: int, last: int, uid: int) -> bool:
+        """Count a start on this uid (kept in the cursor file); False when it has had ATTEMPTS starts already, so that one message that
+        always fails cannot block the channel: it is skipped with a log line."""
+        saved = read_json(self.cursor_path, {}).get("attempt") or {}
+        count = saved.get("n", 0) + 1 if saved.get("uid") == uid and isinstance(saved.get("n"), int) else 1
+        if count > ATTEMPTS:
+            return False
+        self.save(validity, last, {"uid": uid, "n": count})
+        return True
+
+    def permit(self, sender: str, domain: str) -> bool:
+        """Whether the rate allows another attempt for this sender and this From domain (counted before the text of the message is made)."""
+        return not self.throttled(sender) and not self.throttled("@" + domain, PER_DOMAIN)
+
+    def throttled(self, sender: str, limit: int = PER_SENDER) -> bool:
         now = self.clock()
         if len(self.seen) > SEEN_KEYS:      # senders are unlimited in number: forget those with nothing in the last hour
             self.seen = {k: v for k, v in self.seen.items() if v and now - v[-1] <= PER_WINDOW}
         times = self.seen.setdefault(sender, collections.deque())
         while times and now - times[0] > PER_WINDOW:
             times.popleft()
-        if len(times) >= PER_SENDER:
+        if len(times) >= limit:
             return True
         times.append(now)
         return False
@@ -996,11 +1053,9 @@ class Listener:
         if raw is None:
             log("dropped a message: unreadable")
             return
-        update, why = inspect_message(raw, self.own, self.authserv, self.sent.ids, self.mail)
+        update, why = inspect_message(raw, self.own, self.authserv, self.sent.ids, self.mail, allow=self.permit)
         if update is None:
             log(f"dropped a message: {why}")
-        elif self.throttled(update["sender"]):
-            log("dropped a message: rate")
         else:
             self.out.write({"event": "update", "update": update})
 
@@ -1017,6 +1072,11 @@ class Listener:
                 for uid in batch:
                     if self.stop.is_set():
                         break
+                    if not self.attempt(validity, last, uid):
+                        log("dropped a message: poison (it failed every start)")
+                        last = uid
+                        self.save(validity, last)
+                        continue
                     try:
                         self.handle_uid(box, uid)
                     except (ProviderError, imaplib.IMAP4.error, OSError, EOFError):
@@ -1205,6 +1265,11 @@ def run(argv) -> int:
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv == ["html-text"]:       # the child that makes the text of an HTML part (html_text): HTML on stdin, text on stdout
+        try:
+            import resource
+            resource.setrlimit(resource.RLIMIT_CPU, (int(HTML_SECONDS) + 2, int(HTML_SECONDS) + 2))      # the parent's timeout is the first bound
+        except (ImportError, ValueError, OSError):
+            pass
         sys.stdout.buffer.write(html_text_here(sys.stdin.buffer.read(HTML_MAX * 4).decode("utf-8", "replace")).encode("utf-8"))
         return EXIT_OK
     try:

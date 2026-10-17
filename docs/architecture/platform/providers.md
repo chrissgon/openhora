@@ -99,7 +99,7 @@ A candidate is an implementation shipped in the class's folder and, for `publish
 | Platform | Provider | `max_text` | `buttons` | `max_buttons` | `max_button_label` | `lists` | `max_list_rows` | `url_buttons` | `reply_context` | `documents` | `listen` | `actions_need_reply` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `discord` | `discord.py` | 1900 | yes | 5 | 80 | no | 0 | yes | yes | yes | yes | no |
-| `email` | `email-imap.py` | 20000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes |
+| `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes |
 | `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no | no |
 | `whatsapp` | `whatsapp.py` | 4096 | no | 0 | 0 | no | 0 | no | yes | yes | yes | no |
 | `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes | no |

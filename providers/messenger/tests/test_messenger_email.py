@@ -438,7 +438,10 @@ def world(tmp_path, monkeypatch):
     imap.stop()
 
 
-def card(text="acme-office · effect #12\n\nSend the invoice to the client.\n\nSend /approve 12\nApproving applies exactly the text above (sha256 abc).",
+HASH = "ab12" * 16
+
+
+def card(text="acme-office · effect #12\n\nSend the invoice to the client.\n\nSend /approve 12\nApproving applies exactly the text above (sha256 " + HASH + ").",
          **over):
     return {"text": text, "actions": [], "link": None, "document": None, **over}
 
@@ -464,7 +467,7 @@ def test_a_card_is_one_plain_text_message_to_the_chat_with_a_random_message_id_t
     assert message["Subject"] == "acme-office · effect #12"
     body = message.get_content()
     assert "Reply to this e-mail with: /approve 12" in body and "\nSend /approve 12" not in body
-    assert "Send the invoice to the client." in body and "sha256 abc" in body
+    assert "Send the invoice to the client." in body and f"sha256 {HASH}" in body
     assert ledger.ids(OWNER) == {message_id}
     assert json.loads((world["state"] / "sent.json").read_text())["chats"] == {OWNER: [message_id]}
     other, _ = send(world)
@@ -520,7 +523,7 @@ def test_the_subject_is_the_first_line_cut_to_78_characters_and_an_encoded_word_
 def test_a_message_beyond_the_capabilities_is_refused_with_nothing_sent(world):
     for message, word in ((card(actions=[{"id": "1:approve", "label": "Approve"}]), "buttons"),
                           (card(document={"name": "effect-12.txt", "text": "the whole text"}), "document"),
-                          (card(text="x" * 20001), "20000"), (card(text="   "), "text"), ("text", "message")):
+                          (card(text="x" * 8001), "8000"), (card(text="   "), "text"), ("text", "message")):
         with pytest.raises(provider.ProviderError) as e:
             send(world, message=message)
         assert e.value.code == provider.EXIT_USAGE
@@ -573,7 +576,7 @@ def run_cli(capsys, *argv):
 
 
 def test_the_capabilities_declare_no_attachment_and_that_an_action_needs_a_reply():
-    assert provider.CAPABILITIES == {"max_text": 20000, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False,
+    assert provider.CAPABILITIES == {"max_text": 8000, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False,
                                      "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": False, "listen": True,
                                      "actions_need_reply": True}
 
@@ -949,10 +952,9 @@ def test_an_html_part_over_the_cap_is_not_tried_and_a_large_honest_one_still_is(
 def test_a_giant_address_header_is_dropped_before_it_is_parsed():
     flood = ",".join(f"a{n}@x.example" for n in range(30000))
     started = time.monotonic()
-    dropped(raw(to=flood), "not-private")
-    dropped(raw(cc=flood), "not-private")
-    dropped(raw(sender=flood), "sender")
-    dropped(raw(extra=[f"Sender: {flood}"]), "sender")
+    for data in (raw(to=flood), raw(cc=flood), raw(sender=flood), raw(extra=[f"Sender: {flood}"])):
+        update, why = admit(data)
+        assert update is None and why in ("unparsable", "not-private", "sender")      # over 16 KiB, or over 2,000 characters in an address header
     assert time.monotonic() - started < 5
 
 
@@ -1054,3 +1056,236 @@ def test_new_uids_are_asked_for_a_window_at_a_time_never_as_an_open_ended_range(
         assert searches and not any(c.endswith(":*") for c in searches), searches
     finally:
         box.logout()
+
+
+# --- the card puts how to act at the top -------------------------------------------------------------------------------------------
+
+
+def test_the_typed_commands_and_the_hash_come_right_under_the_first_line_where_a_preview_or_a_clipped_message_still_shows_them():
+    body = provider.render_body(card(text="acme-office \u00b7 effect #12\n\nLine one of the text.\n\nLine two.\n\nSend /approve 12\nSend /reject 12\n"
+                                          f"Approving applies exactly the text above (sha256 {HASH}).\nApprove it on the page or in the terminal:\n`cmd`"))
+    lines = body.split("\n")
+    assert lines[0] == "acme-office \u00b7 effect #12" and lines[1] == ""
+    assert lines[2:5] == ["Reply to this e-mail with: /approve 12", "Reply to this e-mail with: /reject 12",
+                          f"Approving applies exactly the text below (sha256 {HASH})."]
+    assert "Line one of the text.\n\nLine two." in body and body.endswith("`cmd`") and body.count("/approve 12") == 1
+    plain = "northwind \u00b7 question #3\n\nWhat now?\n\nReply to this message to answer."
+    assert provider.render_body(card(text=plain)) == plain      # nothing to move: the text is untouched
+
+
+# --- ported from the independent review of the pull request (its fixtures: attack.py, slow.py, fix_probe.py) ------------------------
+
+SPF_ECHO = ("{id}; dkim=pass header.i=@evil.example header.d=evil.example; spf=pass ({id}: domain of {lp}@evil.example designates 192.0.2.1 as "
+            "permitted sender) smtp.mailfrom={lp}@evil.example{tail}")
+QUOTED_LOCAL = '"x) ; dkim=pass header.d=office.example ; (y"'
+
+
+@pytest.mark.parametrize("tail", ["; dmarc=none", ""], ids=["A1-dmarc-none", "A2-no-dmarc"])
+def test_a_quote_inside_a_comment_cannot_inject_a_dkim_result_so_such_a_header_is_not_read(tail):
+    """A quoted MAIL FROM echoed by the server into a spf comment: under RFC 5322 a quote inside a comment is plain text, so a reader that
+    counts quotes would end the comment at the first `)` and read the `dkim=pass header.d=office.example` the sender wrote."""
+    value = SPF_ECHO.format(id=ID, lp=QUOTED_LOCAL, tail=tail)
+    assert provider.parse_auth_results(value) is None
+    dropped(raw(auth=value), "unauthenticated")
+
+
+def test_the_count_guard_still_reads_the_headers_gmail_and_fastmail_write():
+    gmail_like = (f"{ID};\r\n       dkim=pass header.i=@office.example header.s=s1 header.b=AbC+/d;\r\n       spf=pass ({ID}: domain of "
+                  "owner@office.example designates 192.0.2.1 as permitted sender) smtp.mailfrom=owner@office.example;\r\n       dmarc=pass "
+                  "(p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=office.example")
+    fastmail_like = (f"{ID} 1; dkim=pass (2048-bit rsa key sha256) header.d=office.example header.i=@office.example header.b=x "
+                     "header.a=rsa-sha256 header.s=fm1 x-bits=2048; dmarc=pass policy.published-domain-policy=none (p=none,d=none) "
+                     "header.from=office.example; spf=pass smtp.mailfrom=owner@office.example smtp.helo=out.example")
+    for value in (gmail_like, fastmail_like):
+        assert admit(raw(auth=value))[1] is None
+
+
+def test_a_server_that_strips_the_quotes_from_an_echoed_address_is_a_residual_risk_the_readme_names():
+    """Fixture B of the review: a server that writes the echoed address WITHOUT its quotes puts the sender's `dkim=pass` into the header as a
+    result of its own, and nothing in the header tells it from a real one. It is documented ("What an address proves"), checked by hand
+    on first use ("To verify"), and this test fails the day the provider can tell (then the README line goes)."""
+    value = f"{ID}; dkim=pass header.i=x; dkim=pass header.d=office.example z@evil.example header.d=evil.example; dmarc=none"
+    assert admit(raw(auth=value))[0] is not None
+    assert "residual" in (PROVIDERS / "messenger" / "README.md").read_text(encoding="utf-8").lower()
+
+
+def test_two_headers_with_our_id_are_refused_whatever_they_say():
+    good = f"Authentication-Results: {GOOD}"
+    dropped(raw(auth=GOOD, below=[good]), "unauthenticated")
+    dropped(raw(auth=f"{ID}; dmarc=fail header.from=office.example", below=[good]), "unauthenticated")
+    dropped(raw(auth=None, extra=[good], below=[good]), "unauthenticated")
+    update, why = admit(raw(auth=GOOD, above=["Authentication-Results: elsewhere.example; dmarc=pass header.from=office.example"]))
+    assert why is None
+
+
+AR_TABLE = [
+    ("A. no server header, the sender planted one with our id (the residual risk of a host that annotates some mail only)", dict(auth=None, extra=[f"Authentication-Results: {GOOD}"]), True),
+    ("D. folded and upper case", dict(auth="MX.OFFICE.EXAMPLE;\r\n\tDKIM=PASS header.d=Office.Example;\r\n dmarc=PASS header.from=OFFICE.EXAMPLE"), True),
+    ("E1 dmarc pass for the parent, From a subdomain", dict(sender="owner@sub.office.example", auth=f"{ID}; dmarc=pass header.from=office.example"), False),
+    ("E2 dkim d=parent, From a subdomain, no dmarc", dict(sender="owner@sub.office.example", auth=f"{ID}; dkim=pass header.d=office.example"), False),
+    ("E3 dmarc pass for a subdomain, From the parent", dict(auth=f"{ID}; dmarc=pass header.from=sub.office.example"), False),
+    ("F. arc=pass only", dict(auth=f"{ID}; arc=pass (i=1); dmarc=fail header.from=office.example"), False),
+    ("F2 ARC-Authentication-Results passes, the real one fails", dict(auth=f"{ID}; dmarc=fail header.from=office.example", above=[f"ARC-Authentication-Results: i=1; {GOOD}"]), False),
+    ("G. header name in lower case", dict(auth=None, above=[f"authentication-results: {GOOD}"]), True),
+    ("I. id with a version", dict(auth=f"{ID} 1; dmarc=pass header.from=office.example"), True),
+    ("J. dmarc pass for another domain, dkim pass for ours", dict(auth=f"{ID}; dkim=pass header.d=office.example; dmarc=pass header.from=evil.example"), False),
+    ("K. dmarc=none with a policy property", dict(auth=f"{ID}; dkim=pass header.d=office.example; dmarc=none policy.dmarc=none"), True),
+    ("L. header.d quoted", dict(auth=f'{ID}; dkim=pass header.d="office.example"'), True),
+    ("M. header.d with a trailing dot", dict(auth=f"{ID}; dkim=pass header.d=office.example."), False),
+    ("N. dkim/1", dict(auth=f"{ID}; dkim/1=pass header.d=office.example"), True),
+    ("P. two header.d in one result", dict(auth=f"{ID}; dkim=pass header.d=evil.example header.d=office.example"), False),
+    ("Q. header.from with a comment", dict(auth=f"{ID}; dmarc=pass header.from=office.example(x)"), True),
+]
+
+
+@pytest.mark.parametrize("label,kwargs,admitted", AR_TABLE, ids=[row[0].split(" ")[0] for row in AR_TABLE])
+def test_authentication_results_shapes_from_the_review(label, kwargs, admitted):
+    update, why = admit(raw(**kwargs))
+    assert (update is not None) is admitted, (label, update, why)
+
+
+FROM_TABLE = [
+    ('"Owner" <owner@office.example>', OWNER), ('"ceo@office.example" <owner@office.example>', OWNER),
+    ("owner@office.example <attacker@evil.example>", None), ("owner@office.example, attacker@evil.example", None),
+    ("=?utf-8?q?Owner?= <owner@office.example>", OWNER), ("=?utf-8?b?b3duZXJAb2ZmaWNlLmV4YW1wbGU=?=", None),
+    ("=?utf-8?q?owner?=@office.example", None), ("OWNER@OFFICE.EXAMPLE", OWNER), ("owner+x@office.example", "owner+x@office.example"),
+    ("\u043ewner@office.example", None),                # a Cyrillic o in the local part
+    ("owner@\u043effice.example", None),               # an international domain is refused: the A-label form is the way
+    ("owner@xn--ffice-3ve.example", "unauthenticated"), ("<@relay.example:owner@office.example>", None),
+    ("owner@office.example.", None), ("grp: owner@office.example;", None), ("owner\\@office.example", None),
+]
+
+
+@pytest.mark.parametrize("sender,expected", FROM_TABLE)
+def test_from_shapes_from_the_review(sender, expected):
+    update, why = admit(raw(sender=sender))
+    if expected is None:
+        assert update is None and why in ("sender", "unparsable"), (update, why)
+    elif expected == "unauthenticated":
+        assert update is None and why == expected      # a valid address of a domain the server did not vouch for
+    else:
+        assert update is not None and update["sender"] == expected
+
+
+@pytest.mark.parametrize("header", [
+    "Auto-Submitted: auto-replied", "Auto-Submitted: auto-generated; owner-email=x", "Precedence: bulk", "Precedence: Auto_Reply",
+    "List-Id: <l.example>", "List-Post: <mailto:l@x>", "X-Autoreply: yes", "X-Autorespond: yes", "Return-Path: <>", "Return-Path: < >",
+    "List-Unsubscribe: <mailto:out@office.example>"])
+def test_automatic_headers_from_the_review(header):
+    dropped(raw(extra=[header]), "automatic")
+
+
+def test_a_bounce_from_the_mailer_daemon_without_a_report_part_is_automatic_and_a_normal_or_suppress_header_is_not():
+    dropped(raw(sender="MAILER-DAEMON@office.example", subject="Undelivered Mail Returned to Sender"), "automatic")
+    dropped(raw(sender="postmaster@office.example"), "automatic")
+    assert admit(raw(extra=["Auto-Submitted: No"]))[1] is None and admit(raw(extra=["X-Auto-Response-Suppress: All"]))[1] is None
+
+
+def test_the_binding_in_reply_to_reads_the_first_message_id_and_ignores_references():
+    assert admit(raw(in_reply_to=SENT), sent=[SENT])[0]["reply_to"] == SENT
+    assert admit(raw(in_reply_to=f"<a@b.example> {SENT}"), sent=[SENT])[0]["reply_to"] is None
+    assert admit(raw(extra=[f"References: {SENT}"]), sent=[SENT])[0]["reply_to"] is None
+    assert admit(raw(in_reply_to=SENT), sent=[])[0]["reply_to"] is None
+
+
+def test_text_shapes_from_the_review():
+    top = "/approve 12\r\n\r\nOn Sat, Oct 17, 2026 at 9:00 AM Assistant <assistant@office.example> wrote:\r\n> Reply to this e-mail with: /approve 12"
+    assert admit(raw(text=top))[0]["text"] == "/approve 12"
+    dropped(raw(text="On Sat, Oct 17, 2026 at 9:00 AM Assistant wrote:\r\n> card\r\n\r\n/approve 12"), "empty")
+    dropped(raw(text="> /approve 12"), "empty")
+    assert admit(raw(text="thanks\r\n > /approve 12"))[0]["text"] == "thanks"
+    assert admit(raw(text="ok\r\n\r\nFrom: Assistant\r\nDate: today\r\n/approve 12"))[0]["text"] == "ok"
+    assert admit(raw(text="\uff0fapprove 12"))[0]["text"] == "\uff0fapprove 12"      # a full-width slash is not a command to the bridge
+    alt = "--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n/approve 12\r\n--b\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>no thanks</p>\r\n--b--"
+    data = raw(text=alt).replace(b"Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit", b'Content-Type: multipart/alternative; boundary="b"', 1)
+    assert admit(data)[0]["text"] == "/approve 12"      # the plain part wins, as the sender's own
+    for kind in ("text/calendar", "text/enriched"):
+        dropped(raw(text="/approve 12").replace(b"Content-Type: text/plain", f"Content-Type: {kind}".encode(), 1), "empty")
+
+
+def test_html_hidden_text_by_display_none_or_the_hidden_attribute_is_removed_and_the_other_hiding_forms_are_a_documented_limit():
+    removed = '<div>hello</div><div style="DISPLAY : NONE">/approve 12</div><div hidden>x</div><span style="visibility:hidden">y</span>'
+    assert admit(raw(html=removed))[0]["text"] == "hello"
+    read = '<div>hello</div><span style="font-size:0">/approve 13</span><font color="#ffffff">white</font><div style="opacity:0">op</div>'
+    text = admit(raw(html=read))[0]["text"]
+    assert "hello" in text and "white" in text      # read as text: the limit the module docstring and the README state
+
+
+SLOW_SHAPES = {
+    "content-type params": lambda: raw().replace(b"Content-Type: text/plain; charset=utf-8", b"Content-Type: text/plain; " + "; ".join(f"a{i}=b" for i in range(60000)).encode()),
+    "content-type comments": lambda: raw().replace(b"Content-Type: text/plain; charset=utf-8", b"Content-Type: text/plain " + b"(" * 20000 + b")" * 20000),
+    "in-reply-to huge": lambda: raw(in_reply_to="<a@b> " * 150000),
+    "in-reply-to encoded words": lambda: raw(in_reply_to="=?utf-8?q?a?= " * 60000),
+    "auto-submitted huge": lambda: raw(extra=["Auto-Submitted: " + "no " * 300000]),
+    "precedence encoded": lambda: raw(extra=["Precedence: " + "=?utf-8?b?YQ==?= " * 50000]),
+    "return-path comments": lambda: raw(extra=["Return-Path: " + "(" * 30000 + ")" * 30000]),
+    "auth-results long": lambda: raw(auth=GOOD + "; " + "; ".join("dkim=fail header.d=x.example" for _ in range(25000))),
+    "auth-results nested comments": lambda: raw(auth=GOOD + " " + "(" * 200000 + ")" * 200000),
+    "header block of many small headers": lambda: raw(extra=[f"X-H{i}: v" for i in range(12000)]),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SLOW_SHAPES))
+def test_a_huge_header_is_dropped_as_unparsable_before_any_structured_header_is_read(name):
+    data = SLOW_SHAPES[name]()
+    if len(data) > provider.MAX_SIZE:
+        data = data[:provider.MAX_SIZE - 10]
+    started = time.monotonic()
+    update, why = admit(data)
+    assert update is None and why in ("unparsable", "size") and time.monotonic() - started < 5, (why, time.monotonic() - started)
+
+
+def test_a_header_just_under_the_cap_and_deep_structures_cost_little_time_and_never_an_update_by_accident():
+    nested = "".join(f'Content-Type: multipart/mixed; boundary="b{i}"\r\n\r\n--b{i}\r\n' for i in range(8000))
+    data = raw().replace(b"Content-Type: text/plain; charset=utf-8", nested.split("\r\n\r\n", 1)[0].encode(), 1)
+    data = data.split(b"\r\n\r\n", 1)[0] + b"\r\n\r\n" + nested.split("\r\n\r\n", 1)[1].encode() + b"Content-Type: text/plain\r\n\r\nhi"
+    started = time.monotonic()
+    update, why = admit(data)
+    assert update is None and time.monotonic() - started < 10
+    big_but_allowed = raw().replace(b"Content-Type: text/plain; charset=utf-8", b"Content-Type: text/plain; " + "; ".join(f"a{i}=b" for i in range(1500)).encode())
+    started = time.monotonic()
+    admit(big_but_allowed)
+    assert time.monotonic() - started < 5
+    lines = raw(text="a\r\n" + "x\r\n" * 300000)
+    started = time.monotonic()
+    assert admit(lines)[1] is None and time.monotonic() - started < 10
+
+
+def test_the_rate_is_asked_before_the_text_is_made_so_a_refused_sender_never_reaches_the_html_child(monkeypatch):
+    monkeypatch.setattr(provider.subprocess, "run", lambda *a, **k: pytest.fail("the HTML child was started for a sender over its rate"))
+    asked = []
+    update, why = provider.inspect_message(raw(html="<p>hi</p>"), OWN, ID, lambda chat: set(), mail,
+                                           allow=lambda sender, domain: asked.append((sender, domain)) or False)
+    assert (update, why) == (None, "rate") and asked == [(OWNER, "office.example")]
+    update, why = provider.inspect_message(raw(auth=None, html="<p>hi</p>"), OWN, ID, lambda chat: set(), mail,
+                                           allow=lambda *a: pytest.fail("asked for an unauthenticated message"))
+    assert why == "unauthenticated"
+
+
+def test_the_listener_counts_a_domain_as_well_as_a_sender(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(private(tmp_path / "s")))
+    listener = provider.Listener(settings_for(), PASSWORD, out=provider.Out(io.BytesIO()), stdin=io.BytesIO(), clock=lambda: 1000.0)
+    allowed = sum(1 for n in range(provider.PER_DOMAIN + 40) if listener.permit(f"p{n}@office.example", "office.example"))
+    assert allowed == provider.PER_DOMAIN
+    assert listener.permit("a@other.example", "other.example")
+    assert sum(1 for _ in range(provider.PER_SENDER + 5) if listener.permit("same@other.example", "other.example")) == provider.PER_SENDER
+
+
+def test_one_message_that_fails_every_start_is_skipped_after_three_starts_and_the_next_one_is_read(world):
+    world["imap"].fail_fetch = True
+    pipe = Pipe(world)
+    pipe.wait(lambda x: x.get("event") == "ready")
+    world["imap"].add(raw(text="poison"))
+    world["imap"].add(raw(text="second"))
+    pipe.thread.join(10)
+    assert pipe.code == 1
+    for _ in range(2):
+        again = Pipe(world)
+        again.thread.join(10)
+        assert again.code == 1
+    assert json.loads((world["state"] / "cursor.json").read_text())["attempt"] == {"n": 3, "uid": 1}
+    world["imap"].fail_fetch = False
+    last = Pipe(world)
+    last.wait(lambda x: x.get("event") == "update")
+    assert [u["text"] for u in updates(last)] == ["second"] and last.end() == 0
+    assert json.loads((world["state"] / "cursor.json").read_text()) == {"last_uid": 2, "uidvalidity": 1000}

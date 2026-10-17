@@ -15,7 +15,7 @@ import pytest
 
 import standin_tree as st
 from test_channel_grants_cards import GRANTED, HASH, approve_calls, effect, grant  # noqa: F401
-from test_messaging import OPEN_POLICY, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
+from test_messaging import OPEN_POLICY, SENDER, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 
 bridge = st.load("messaging_bridge")
 providers = st.load("messaging_provider")
@@ -189,4 +189,22 @@ def test_limit_45_an_e_mail_update_is_served_only_when_the_receiving_servers_aut
     assert only_refused(world)
     world.fake.answers["approve"] = {"task_state": "done"}
     world.say("/approve 7", reply_to=card_id(world))
+    assert wait_for(lambda: len(approve_calls(world)) == 1)
+
+
+def test_a_listed_sender_cannot_act_with_the_card_that_went_to_another_listed_sender(world):
+    """Two listed senders each get their own card of the decision, with their own Message-ID: B's reply to A's card names no card of B's chat."""
+    other = "555"
+    world.config["messaging"]["senders"]["telegram"] = [SENDER, other]
+    grant(world)
+    world.caps(**EMAIL_CAPS)
+    world.items[7] = effect()
+    world.bridge.tick()
+    mine = next(c["message_id"] for c in world.bridge.ledger.data["cards"] if c["chat"] == SENDER)
+    theirs = next(c["message_id"] for c in world.bridge.ledger.data["cards"] if c["chat"] == other)
+    assert mine != theirs
+    world.say("/approve 7", sender=other, chat=other, reply_to=mine)
+    assert approve_calls(world) == [] and world.texts()[-1] == bridge.REPLY_TO_CARD
+    world.fake.answers["approve"] = {"task_state": "done"}
+    world.say("/approve 7", sender=other, chat=other, reply_to=theirs)
     assert wait_for(lambda: len(approve_calls(world)) == 1)
