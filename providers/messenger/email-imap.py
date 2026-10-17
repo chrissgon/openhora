@@ -1049,7 +1049,7 @@ class Listener:
 
     def retry_pending(self, box: Mailbox, validity: int, last: int) -> None:
         """Try again the messages the server would not give. One that has failed ATTEMPTS times over RETRY_SPAN seconds is skipped, and the
-        skip is logged by the bridge (an error event of the provider, not only a line on stderr). A NOOP after each refusal raises when the connection is gone: that
+        skip is an error event of kind `skipped` (not only a line on stderr): the bridge counts it and tells the listed senders, with a sentence of its own. A NOOP after each refusal raises when the connection is gone: that
         failure is the server's, is never counted against a message, and the bridge starts this again."""
         for uid in sorted(int(k) for k in self.retry):
             if self.stop.is_set():
@@ -1064,7 +1064,7 @@ class Listener:
                 if entry["n"] >= ATTEMPTS and self.wall() - entry["first"] >= RETRY_SPAN:
                     del self.retry[str(uid)]
                     log("dropped a message: unreadable (refused by the server on every try)")
-                    self.error_event("failed", f"a message in the mailbox could not be read after {entry['n']} tries over "
+                    self.error_event("skipped", f"a message in the mailbox could not be read after {entry['n']} tries over "
                                                f"{int((self.wall() - entry['first']) // 60)} minutes and was skipped; look at it in the mailbox")
             except (ProviderError, imaplib.IMAP4.error, OSError, EOFError):
                 raise       # the connection, not the message
@@ -1132,6 +1132,8 @@ class Listener:
                             oldest = min(self.retry, key=lambda k: (self.retry[k]["first"], int(k)))
                             del self.retry[oldest]
                             log("dropped a message: unreadable (the list of messages to try again was full; the oldest is given up)")
+                            self.error_event("skipped", "a message in the mailbox could not be read and was given up because the list of messages "
+                                                        "to try again was full; look at it in the mailbox")
                     except (ProviderError, imaplib.IMAP4.error, OSError, EOFError):
                         raise       # the connection, not the message: the cursor stays, and the bridge starts this again
                     except Exception as e:      # one message never ends the process
