@@ -50,7 +50,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email import message_from_bytes, policy
 from email.utils import parsedate_to_datetime
-from html.parser import HTMLParser
 from pathlib import Path
 
 DEFAULT_API_BASE = "https://gmail.googleapis.com"
@@ -71,18 +70,29 @@ HEADER_ALLOWLIST = ("Message-ID", "Date", "From", "To", "Subject", "List-Id")
 # A --header-prefix, lower-cased: the characters of a header field name (an RFC 9110 token). Which prefix a
 # platform's notifications use is that platform's fact, in its data file; the provider holds none.
 HEADER_PREFIX_RE = re.compile(r"[!#$%&'*+.^_`|~0-9a-z-]+")
-# Invisible and direction-changing characters: e-mail preheaders pad with them, and they can hide
-# text from a human reader. They are removed from every text the provider returns.
-INVISIBLE_RE = re.compile("[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e"
-                          "\u2060-\u2064\u2066-\u2069\u3164\ufeff\uffa0]")
-HSPACE_RE = re.compile(r"[^\S\n]+")
-# An inline style that hides an element from a reader. Hidden text is a way to put words before a model that the
-# person never sees, so it is not message text.
-HIDDEN_STYLE_RE = re.compile(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!\s*important\s*)?(?:;|$)",
-                             re.I)
 AUTH_COMMAND = "uv run providers/mailbox/auth.py --provider gmail"
 
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
+
+
+def _email_text_module():
+    """providers/_email_text.py, by path: next to this folder's parent first (the workbench), then next to this file (a copy)."""
+    here = Path(__file__).resolve()
+    path = next((c for c in (here.parents[1] / "_email_text.py", here.parent / "_email_text.py") if c.is_file()), None)
+    if path is None:
+        raise SystemExit("error: providers/_email_text.py is not next to this script's folder")
+    spec = importlib.util.spec_from_file_location("providers_email_text", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# The text helpers are shared with the e-mail channel (providers/messenger/email-imap.py): they live in providers/_email_text.py.
+_text = _email_text_module()
+INVISIBLE_RE, HSPACE_RE, HIDDEN_STYLE_RE = _text.INVISIBLE_RE, _text.HSPACE_RE, _text.HIDDEN_STYLE_RE
+clean_line, clean_block, HTMLText = _text.clean_line, _text.clean_block, _text.HTMLText
+html_to_text, dedupe_links, part_text = _text.html_to_text, _text.dedupe_links, _text.part_text
 
 HELP_EPILOG = f"""\
 read only:
@@ -441,131 +451,6 @@ def connect() -> tuple[Gmail, dict, dict]:
 
 
 # --- normalization -----------------------------------------------------------
-
-
-def clean_line(line: str) -> str:
-    return HSPACE_RE.sub(" ", INVISIBLE_RE.sub("", line)).strip()
-
-
-def clean_block(text: str, keep_blank_lines: bool) -> str:
-    lines = [clean_line(line) for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
-    if not keep_blank_lines:
-        return "\n".join(line for line in lines if line)
-    out: list[str] = []
-    for line in lines:
-        if line or (out and out[-1]):
-            out.append(line)
-    return "\n".join(out).strip("\n")
-
-
-class HTMLText(HTMLParser):
-    """Text and links of an HTML body, with the standard library parser (no script is run). An element hidden by an
-    inline display:none or visibility:hidden style, or by the hidden attribute, gives no text and no link."""
-
-    SKIP = {"script", "style", "head", "title", "template", "noscript"}
-    BLOCK = {"p", "div", "br", "tr", "li", "ul", "ol", "table", "h1", "h2", "h3", "h4", "h5", "h6",
-             "blockquote", "section", "article", "header", "footer", "hr", "td", "th"}
-
-    VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
-
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.parts: list[str] = []
-        self.links: list[dict] = []
-        self.skip_depth = 0
-        self.anchor: dict | None = None
-        # The hidden element being skipped: its tag, and how many elements of that tag are open inside it.
-        self.hidden_tag: str | None = None
-        self.hidden_depth = 0
-
-    @staticmethod
-    def hidden(attrs: dict) -> bool:
-        return "hidden" in attrs or bool(HIDDEN_STYLE_RE.search(attrs.get("style") or ""))
-
-    def handle_starttag(self, tag, attrs):
-        if self.hidden_tag is not None:
-            if tag != self.hidden_tag:
-                return
-            if tag != "p":  # a <p> cannot hold another one: a new <p> closes the hidden one
-                self.hidden_depth += 1
-                return
-            self.hidden_tag, self.hidden_depth = None, 0
-        if tag in self.SKIP:
-            self.skip_depth += 1
-            return
-        attrs = dict(attrs)
-        if self.hidden(attrs):
-            if tag not in self.VOID:
-                self.hidden_tag, self.hidden_depth = tag, 1
-            return
-        if tag in self.BLOCK:
-            self.parts.append("\n")
-        if tag == "a":
-            self._close_anchor()
-            href = (attrs.get("href") or "").strip()
-            self.anchor = {"href": href, "text": []} if href else None
-        elif tag == "img" and self.anchor is not None and attrs.get("alt"):
-            self.anchor["text"].append(" " + attrs["alt"] + " ")
-
-    def handle_endtag(self, tag):
-        if self.hidden_tag is not None:
-            if tag == self.hidden_tag:
-                self.hidden_depth -= 1
-                if self.hidden_depth == 0:
-                    self.hidden_tag = None
-            return
-        if tag in self.SKIP:
-            self.skip_depth = max(0, self.skip_depth - 1)
-            return
-        if tag == "a":
-            self._close_anchor()
-        if tag in self.BLOCK:
-            self.parts.append("\n")
-
-    def handle_data(self, data):
-        if self.skip_depth or self.hidden_tag is not None:
-            return
-        self.parts.append(data)
-        if self.anchor is not None:
-            self.anchor["text"].append(data)
-
-    def _close_anchor(self):
-        if self.anchor is not None:
-            href = INVISIBLE_RE.sub("", self.anchor["href"])
-            if not href.lower().startswith(("javascript:", "data:")):
-                self.links.append({"href": href, "text": clean_line(" ".join("".join(self.anchor["text"]).split()))})
-            self.anchor = None
-
-    def result(self) -> tuple[str, list[dict]]:
-        self._close_anchor()
-        return clean_block("".join(self.parts), keep_blank_lines=False), self.links
-
-
-def html_to_text(html: str) -> tuple[str, list[dict]]:
-    parser = HTMLText()
-    parser.feed(html)
-    parser.close()
-    return parser.result()
-
-
-def dedupe_links(links: list[dict]) -> list[dict]:
-    seen: dict[str, dict] = {}
-    for link in links:
-        existing = seen.get(link["href"])
-        if existing is None:
-            seen[link["href"]] = dict(link)
-        elif not existing["text"] and link["text"]:
-            existing["text"] = link["text"]
-    return list(seen.values())
-
-
-def part_text(part) -> str:
-    try:
-        content = part.get_content()
-    except (LookupError, UnicodeError, ValueError):  # an unknown or wrong charset
-        payload = part.get_payload(decode=True) or b""
-        content = payload.decode("utf-8", errors="replace")
-    return content if isinstance(content, str) else ""
 
 
 def cap(text: str) -> tuple[str, bool]:
