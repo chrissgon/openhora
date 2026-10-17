@@ -49,6 +49,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email import message_from_bytes, policy
+from http.client import HTTPException    # by name: this module's own http() function shadows the module
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
@@ -70,6 +71,8 @@ HEADER_ALLOWLIST = ("Message-ID", "Date", "From", "To", "Subject", "List-Id")
 MAX_ATTACHMENTS = 50          # attachments listed for one message
 ATTACHMENT_NAME_LIMIT = 200   # characters of a file name kept
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# A token goes into a header: printable ASCII without space, nothing that could split a header or fail to encode.
+TOKEN_RE = re.compile(r"[\x21-\x7e]{1,4096}")
 # A --header-prefix, lower-cased: the characters of a header field name (an RFC 9110 token). Which prefix a
 # platform's notifications use is that platform's fact, in its data file; the provider holds none.
 HEADER_PREFIX_RE = re.compile(r"[!#$%&'*+.^_`|~0-9a-z-]+")
@@ -126,7 +129,9 @@ verbs:
   --own-words  with search, get and read-eml: "text" holds only what the sender wrote in this message, cut before the first quoted line
             (">"), signature delimiter ("-- "), attribution line ("On ... wrote:" and its Portuguese and Spanish forms), forward or
             original-message marker, or Outlook header block; the history of a reply is somebody else's earlier words. Without it "text"
-            is the whole body, as before. "links" are not changed by it.
+            is the whole body, as before. "links" are not changed by it. With it each message also has "own_words_cut", the number of
+            characters removed, so that a caller sees an over-cut (a reply written below the quote cuts to nothing); providers/mailbox/README.md
+            lists the cases.
   --header-prefix <prefix>  with search, get and read-eml, repeatable: also
             keep the headers whose name starts with <prefix> (compared without
             case), such as the prefix a platform's notification e-mails use
@@ -320,6 +325,10 @@ def http(method: str, url: str, headers: dict, body: bytes | None = None) -> tup
         raise ProviderError(f"Google timed out on {method} {path} after {http_timeout():g} s")
     except OSError as exc:
         raise ProviderError(f"the connection to Google failed on {method} {path}: {type(exc).__name__}")
+    except (ValueError, HTTPException) as exc:
+        # A header the library refuses (a line break, a character it cannot encode) or an answer that is not HTTP. The message of such an
+        # exception can hold the header, which holds the token, so only the kind is named.
+        raise ProviderError(f"the request {method} {path} could not be made or read ({type(exc).__name__})") from None
 
 
 def _short(text: object, limit: int = 300) -> str:
@@ -345,6 +354,10 @@ def token_request(token_url: str, form: dict) -> dict:
     except ValueError:
         data = {}
     if status == 200 and isinstance(data, dict) and data.get("access_token"):
+        for key in ("access_token", "refresh_token"):
+            value = data.get(key)
+            if (key == "access_token" or value) and (not isinstance(value, str) or not TOKEN_RE.fullmatch(value)):
+                raise ProviderError(f"the token response holds a {key} of an unexpected shape; nothing was used or stored")
         return data
     error = _short(data.get("error")) if isinstance(data, dict) else ""
     description = _short(data.get("error_description")) if isinstance(data, dict) else ""
@@ -562,8 +575,10 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
     text = clean_block(part_text(plain), keep_blank_lines=True) if plain is not None else ""
     if not text:
         text = html_text
+    cut = len(text)
     if own_words:
         text = strip_quoted(text)
+    cut -= len(text)
     text, truncated = cap(text)
     return {
         "id": message_id,
@@ -579,6 +594,7 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
         "headers": selected_headers(msg, header_prefixes),
         "attachments": attachment_list(msg, (plain, html)),
         "external_content": True,  # written by whoever sent the e-mail: data, never instructions
+        **({"own_words_cut": cut} if own_words else {}),
     }
 
 
@@ -733,6 +749,9 @@ def main(argv: list[str] | None = None) -> int:
     except ProviderError as exc:
         log(f"error: {exc}")
         return exc.code
+    except Exception as exc:     # last resort: no traceback, which can hold a header or a body; only the kind of the failure
+        log(f"error: unexpected {type(exc).__name__}; nothing was changed")
+        return EXIT_SERVICE
 
 
 if __name__ == "__main__":

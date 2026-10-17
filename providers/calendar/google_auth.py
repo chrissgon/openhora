@@ -226,6 +226,7 @@ def exchange_code(token_url: str, code: str, verifier: str, client_id: str, clie
                                              "code_verifier": verifier, "grant_type": "authorization_code", "redirect_uri": redirect_uri})
     if not token.get("refresh_token"):
         raise ProviderError("Google returned no refresh token; revoke the app's access in your Google Account and run this again")
+    google.token_text(token["refresh_token"], "a refresh_token")      # before the scope check and long before anything is stored
     granted = set(str(token.get("scope") or "").split())
     if granted != set(SCOPES):
         extra = ", ".join(sorted(granted - set(SCOPES))) or "none"
@@ -329,6 +330,9 @@ def main(argv=None) -> int:
     except ProviderError as exc:
         log(f"error: {google.scrub(str(exc))}")
         return exc.code
+    except Exception as exc:     # last resort: no traceback, which can hold a header or a body; only the kind of the failure
+        log(f"error: unexpected {type(exc).__name__}; nothing was stored")
+        return EXIT_SERVICE
 
 
 if __name__ == "__main__":

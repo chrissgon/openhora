@@ -135,7 +135,7 @@ def test_events_asks_for_single_events_ordered_by_start_with_rfc3339_bounds_and_
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d", query["timeMin"]), "RFC 3339 with an offset"
     assert query["maxResults"] == "250"
     mask = query["fields"]
-    for banned in ("description", "attachments", "entryPoints", "attendees(email", "creator"):
+    for banned in ("description", "attachments", "entryPoints", "attendees(email", "creator", "hangoutLink"):
         assert banned not in mask
     assert "organizer(email,self)" in mask and "attendees(self,responseStatus)" in mask
 
@@ -197,6 +197,7 @@ def test_max_is_one_to_250_and_bad_arguments_are_a_usage_error_before_any_reques
            ["events", "--calendar", PRIMARY, "--from", "2026-10-17", "--to", "2026-10-18"],              # dates, no zone
            ["events", "--calendar", PRIMARY, "--from", "2026-10-18T00:00:00-03:00", "--to", "2026-10-17T00:00:00-03:00"],  # backwards
            ["events", "--calendar", PRIMARY, "--from", "soon", "--to", "later"],
+           ["events", "--calendar", PRIMARY, "--from", "2026-10-17T00:00:00+05:30:15", "--to", "2026-10-18T00:00:00+05:30:15"],  # an offset with seconds
            ["events", *WINDOW],                                                                          # no calendar
            ["calendars", "--calendar", PRIMARY],                                                         # a flag the verb does not read
            ["--check", "calendars"], ["send"], ["create"], ["delete"], [])
@@ -218,7 +219,7 @@ def test_a_calendar_id_with_a_hash_is_percent_encoded_and_a_bad_id_is_exit_2(cas
     assert path == "/calendar/v3/calendars/en.usa%23holiday%40group.v.calendar.google.com/events"
     assert "#" not in path and "/" not in path[len("/calendar/v3/calendars/"):-len("/events")]
     case.fake.requests.clear()
-    for bad in ("../../users/me/calendarList", "a b", "a/b", "a?x=1", "", "x" * 255, "caf\u00e9@example.com", "a\nb", "primary&x=1"):
+    for bad in (".", "..", "...", "../../users/me/calendarList", "a b", "a/b", "a?x=1", "", "x" * 255, "caf\u00e9@example.com", "a\nb", "primary&x=1"):
         assert case.run("events", "--calendar", bad, *WINDOW)[0] == 2, repr(bad)
     assert case.fake.requests == []
 
@@ -337,3 +338,72 @@ def test_the_calendar_list_is_read_page_by_page_and_a_cut_list_says_so(case):
     code, out, text = case.run("calendars")
     assert code == 0 and out["truncated"] is True and len(out["calendars"]) == google.MAX_CALENDAR_PAGES
     assert len(case.fake.api_requests()) == google.MAX_CALENDAR_PAGES
+
+
+# --- a token or an answer the library cannot carry never leaves a traceback ------------------------------------------------
+
+
+BAD_TOKENS = ["good\r\nX-Injected: yes", "tök€n-non-latin1", "has a space", "x" * 5000, "tab\there"]
+
+
+@pytest.mark.parametrize("token", BAD_TOKENS)
+def test_a_malformed_access_token_is_refused_with_no_traceback_and_no_token_in_the_output(case, token):
+    case.fake.access_token = token
+    for argv in (["--check"], ["calendars"], ["events", "--calendar", PRIMARY, *WINDOW]):
+        code, out, text = case.run(*argv)
+        assert code == 1 and out is None and "unexpected shape" in text, argv
+        assert "Traceback" not in text and "Injected" not in text and token[:12] not in text and "non-latin1" not in text
+    assert case.fake.api_requests() == [], "the token was never sent anywhere"
+
+
+def test_http_names_only_the_kind_of_a_header_the_library_refuses():
+    for headers in ({"Authorization": "Bearer abc\r\nX-Injected: 1"}, {"Authorization": "Bearer tök€n"}):
+        with pytest.raises(google.ProviderError) as refused:
+            google.http("GET", "http://127.0.0.1:1/x", headers)
+        message = str(refused.value)
+        assert "ValueError" in message or "UnicodeEncodeError" in message
+        assert "Injected" not in message and "abc" not in message and "tök" not in message
+
+
+def test_an_answer_that_is_not_http_or_is_too_deep_is_exit_1_with_the_kind_and_no_traceback(case):
+    case.fake.raw_next = b"this is not an HTTP answer\r\n\r\n"
+    code, out, text = case.run("calendars")
+    assert code == 1 and "BadStatusLine" in text and "Traceback" not in text
+    case.fake.body_next = b"[" * 200000 + b"]" * 200000
+    code, out, text = case.run("calendars")
+    assert code == 1 and "RecursionError" in text and "Traceback" not in text
+
+
+def test_the_last_resort_prints_the_kind_of_an_unexpected_failure_and_never_its_message(monkeypatch, capsys):
+    def explode(args):
+        raise RuntimeError(f"holds {fake_gcal.ACCESS_TOKEN}")
+    monkeypatch.setattr(google, "cmd_calendars", explode)
+    assert google.main(["calendars"]) == 1
+    err = capsys.readouterr().err
+    assert "unexpected RuntimeError" in err and fake_gcal.ACCESS_TOKEN not in err and "Traceback" not in err
+
+
+def test_malformed_shapes_inside_an_event_or_an_error_are_read_as_absent(case):
+    case.fake.add_event(PRIMARY, fake_gcal.event("odd1", "Odd one", "2026-10-17T21:00:00-03:00", "2026-10-17T21:30:00-03:00",
+                                                  attendees="not a list", organizer="not an object", conferenceData="no"))
+    case.fake.add_event(PRIMARY, fake_gcal.event("odd2", "Odd two", "2026-10-17T22:00:00-03:00", "2026-10-17T22:30:00-03:00",
+                                                  attendees={"self": True}, conferenceData={"conferenceId": ["x"]}, status=["x"]))
+    case.fake.add_event(PRIMARY, fake_gcal.event("odd3", "Odd three", "2026-10-17T23:00:00-03:00", "2026-10-17T23:30:00-03:00",
+                                                  attendees=["x", 1, None, {"self": True, "responseStatus": ["x"]}]))
+    code, out, text = case.events()
+    assert code == 0, text
+    odd = {e["id"]: e for e in out["events"] if e["id"].startswith("odd")}
+    assert odd["odd1"]["response"] is None and odd["odd1"]["online_meeting"] is False and odd["odd1"]["organizer_self"] is False
+    assert odd["odd2"]["status"] == "unknown" and odd["odd3"]["response"] is None
+    calendar = google.Calendar("http://127.0.0.1:1", "t")
+    for body in (b'{"error": {"errors": "oops", "message": "m"}}', b'{"error": {"errors": {"reason": "x"}}}', b'{"error": "x"}', b"[1]"):
+        assert isinstance(calendar.failure(403, body, "", "/calendar/v3/users/me/calendarList"), google.ProviderError)
+
+
+def test_online_meeting_comes_from_the_conference_id_alone_and_no_link_is_asked_for(case):
+    case.fake.add_event(PRIMARY, fake_gcal.event("link", "Only a link", "2026-10-17T21:00:00-03:00", "2026-10-17T21:30:00-03:00",
+                                                  hangoutLink="https://meet.example/zzz"))
+    code, out, text = case.events()
+    by_id = {e["id"]: e for e in out["events"]}
+    assert by_id["link"]["online_meeting"] is False and by_id["dentist"]["online_meeting"] is True
+    assert "meet.example" not in text and "hangoutLink" not in case.fake.api_requests()[0][2]["fields"]

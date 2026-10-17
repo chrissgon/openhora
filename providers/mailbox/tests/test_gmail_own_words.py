@@ -237,3 +237,38 @@ def test_the_size_of_a_base64_part_is_exact_without_decoding_it():
         msg.set_content("x")
         msg.add_attachment(b"z" * n, maintype="application", subtype="octet-stream", filename="blob.bin")
         assert gmail.normalize(msg.as_bytes(), source="eml")["attachments"][0]["size"] == n, n
+
+
+# --- own_words_cut and the cases where the cut is too much or too little ------------------------------------------------------
+
+
+def test_own_words_cut_counts_the_characters_removed_and_is_absent_without_the_flag():
+    body = "Please send it.\n\nOn Fri, Oct 16, 2026, Assistant wrote:\n> the old card"
+    own = gmail.normalize(plain(body), source="eml", own_words=True)
+    whole = gmail.normalize(plain(body), source="eml")
+    assert "own_words_cut" not in whole
+    assert own["own_words_cut"] == len(whole["text"]) - len(own["text"]) > 0
+    assert gmail.normalize(plain("Nothing quoted here."), source="eml", own_words=True)["own_words_cut"] == 0
+
+
+def test_an_inline_reply_below_a_quote_is_cut_to_nothing_and_the_cut_says_so():
+    """The known over-cut: a reply written between the quoted lines. The text is cut at the first quoted line, so the answers are lost."""
+    inline = "> Can you come on Monday?\nYes, Monday works.\n> And the invoice?\nI will send it today."
+    out = gmail.normalize(plain(inline), source="eml", own_words=True)
+    assert out["text"] == "" and out["own_words_cut"] == len(gmail.normalize(plain(inline), source="eml")["text"])
+    below = "Hello,\n\n> Can you come on Monday?\nYes, Monday works."
+    out = gmail.normalize(plain(below), source="eml", own_words=True)
+    assert out["text"] == "Hello," and "Yes, Monday works." not in out["text"]
+
+
+@pytest.mark.parametrize("line,cut", [
+    ("On the call you wrote:", True),                      # begins with On and ends with wrote:, though it introduces nothing quoted
+    ("--------------------", True),                        # ten or more dashes, underscores or equals: a separator, not a marker
+    ("From: Ana Lima <ana@clinic.example>\nDate: Friday", True),   # a header-like pair in the body
+    ("-- ", True),                                         # a signature delimiter
+    ("Here is what Ana wrote:", False),                    # not an attribution form: a quote introduced this way is kept (too little)
+])
+def test_the_cases_where_a_line_of_the_body_cuts_the_text_are_pinned(line, cut):
+    out = gmail.normalize(plain(f"Mine.\n\n{line}\nand more after it"), source="eml", own_words=True)
+    assert (out["text"] == "Mine.") is cut, out["text"]
+    assert (out["own_words_cut"] > 0) is cut

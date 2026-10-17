@@ -350,3 +350,27 @@ def test_the_account_is_the_primary_calendar_even_when_it_is_on_a_later_page(fak
     assert len(fake.api_requests()) == 2, "reading stopped at the page that held the primary calendar"
     fake.calendars.pop(fake_gcal.ACCOUNT)
     assert auth.primary_account(fake.base, fake_gcal.ACCESS_TOKEN) is None
+
+
+@pytest.mark.parametrize("field,value", [("access_token", "good\r\nX-Injected: yes"), ("access_token", "tök€n-non-latin1"),
+                                         ("issued_refresh", "refresh\r\nX-Injected: yes"), ("issued_refresh", "réfresh€-non-latin1"),
+                                         ("issued_refresh", "has a space")])
+def test_a_malformed_token_in_the_exchange_stores_nothing_and_leaves_no_traceback(fake, monkeypatch, capsys, field, value):
+    store, seen = Store(), {}
+    configure(fake, monkeypatch, store)
+    setattr(fake, field, value)
+    monkeypatch.setattr(auth.webbrowser, "open", browser(fake, seen))
+    assert auth.main(["authorize"]) == 1
+    seen["thread"].join(10)
+    out, err = capsys.readouterr()
+    assert store.values == {} and "unexpected shape" in err and fake.api_requests() == []
+    for text in (out, err):
+        assert "Traceback" not in text and "Injected" not in text and "non-latin1" not in text and "has a space" not in text
+
+
+def test_the_last_resort_of_authorize_prints_the_kind_and_not_the_message(fake, monkeypatch, capsys):
+    configure(fake, monkeypatch, Store())
+    monkeypatch.setattr(auth, "client_inputs", lambda: (_ for _ in ()).throw(RuntimeError("holds " + fake_gcal.CLIENT_SECRET)))
+    assert auth.main(["authorize"]) == 1
+    err = capsys.readouterr().err
+    assert "unexpected RuntimeError" in err and fake_gcal.CLIENT_SECRET not in err

@@ -77,6 +77,10 @@ class FakeGoogleCalendar:
         self.redirect_next = False
         self.fail_next = None                # (status, body dict, headers) answered once to the next API call
         self.fail_always = None              # the same, to every API call
+        self.access_token = ACCESS_TOKEN     # what the token endpoint hands out (a test may set a malformed one)
+        self.issued_refresh = REFRESH_TOKEN  # what the authorization-code exchange hands out
+        self.raw_next = None                 # bytes written to the next API call's socket as they are (not HTTP at all, for instance)
+        self.body_next = None                # bytes sent as the body of a 200 to the next API call
         self.page_cap = None                 # a page never holds more than this many items, whatever maxResults says
         self.lock = threading.Lock()
         owner = self
@@ -116,7 +120,7 @@ class FakeGoogleCalendar:
                 if form.get("grant_type") == "refresh_token":
                     if form.get("refresh_token") != REFRESH_TOKEN:
                         return self._json(400, {"error": "invalid_grant", "error_description": "Bad Request"})
-                    answer = {"access_token": ACCESS_TOKEN, "expires_in": 3599, "scope": owner.scope_granted, "token_type": "Bearer"}
+                    answer = {"access_token": owner.access_token, "expires_in": 3599, "scope": owner.scope_granted, "token_type": "Bearer"}
                     if owner.omit_scope:
                         del answer["scope"]
                     return self._json(200, answer)
@@ -125,7 +129,7 @@ class FakeGoogleCalendar:
                     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
                     if form.get("code") != owner.code or not verifier or (owner.expected_challenge and challenge != owner.expected_challenge):
                         return self._json(400, {"error": "invalid_grant", "error_description": "Malformed auth code."})
-                    return self._json(200, {"access_token": ACCESS_TOKEN, "refresh_token": REFRESH_TOKEN, "expires_in": 3599,
+                    return self._json(200, {"access_token": owner.access_token, "refresh_token": owner.issued_refresh, "expires_in": 3599,
                                             "scope": owner.scope_granted, "token_type": "Bearer"})
                 return self._json(400, {"error": "unsupported_grant_type"})
 
@@ -151,7 +155,20 @@ class FakeGoogleCalendar:
                         self.end_headers()
                         return
                     failure, owner.fail_next = owner.fail_next or owner.fail_always, None
-                if auth != f"Bearer {ACCESS_TOKEN}":
+                    raw, owner.raw_next = owner.raw_next, None
+                    body, owner.body_next = owner.body_next, None
+                if raw is not None:
+                    self.wfile.write(raw)
+                    self.wfile.flush()
+                    return
+                if body is not None:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                if auth != f"Bearer {owner.access_token}":
                     return self._error(401, "authError", "Invalid Credentials")
                 if failure:
                     return self._error(failure[0], failure[1], f"injected {failure[0]}", failure[2] if len(failure) > 2 else None)

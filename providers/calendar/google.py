@@ -40,7 +40,10 @@ Usage:
               "external_content": true}. Recurring events are expanded to their occurrences (singleEvents=true) and sorted by start. An event
               is returned when it ends after --from and starts before --to. --from and --to need a time zone offset (Z or +hh:mm). --max is 1 to
               250 events (default 250); "truncated" is true when more exist than were read. Only these fields are asked of the service: no
-              description, no attendee list, no attachment and no conference link ever reaches the output. `start` and `end` are the
+              description, no attachment, no attendee address and no conference link is asked for. A few fields are received only to derive
+              a printed value and are never printed themselves: the organizer's address (for `organizer_domain`), the person's own
+              invitation answer (for `response`) and the conference id (for `online_meeting`). Title and location are free text and may hold a
+              URL; the snapshot built from this output removes every URL. `start` and `end` are the
               service's own values (a date-time with its offset, or a bare date for an all-day event, whose end date is the service's).
               `response` is the person's own answer to the invitation (null when they are not an attendee), `organizer_domain` only the part
               of the organizer's address after the @, `online_meeting` only whether the event has one. Title and location are one line, cut
@@ -73,6 +76,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime
+from http.client import HTTPException    # by name: this module's own http() function shadows the module
 from pathlib import Path
 
 DEFAULT_API_BASE = "https://www.googleapis.com"
@@ -97,11 +101,15 @@ TITLE_LIMIT, LOCATION_LIMIT, NAME_LIMIT = 300, 200, 200
 CALENDAR_ID_RE = re.compile(r"[A-Za-z0-9._%+#@-]{1,254}")
 DOMAIN_RE = re.compile(r"[a-z0-9.-]{1,253}")
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# A token goes into a header: printable ASCII without space, nothing that could split a header or fail to encode.
+TOKEN_RE = re.compile(r"[\x21-\x7e]{1,4096}")
 RESPONSES = ("needsAction", "declined", "tentative", "accepted")
 STATUSES = ("confirmed", "tentative", "cancelled")
-# The only fields asked of the service. The description, the attendees' addresses, the attachments and the conference links are not in it.
+# The only fields asked of the service. The description, the attendees' addresses, the attachments and the conference links are not in it;
+# organizer(email), attendees(self,responseStatus) and conferenceData(conferenceId) are received only to derive organizer_domain, response and
+# online_meeting, and are never printed.
 EVENT_FIELDS = ("nextPageToken,items(id,etag,status,summary,location,start,end,organizer(email,self),attendees(self,responseStatus),"
-                "hangoutLink,conferenceData(conferenceId),recurringEventId)")
+                "conferenceData(conferenceId),recurringEventId)")
 CALENDAR_FIELDS = "nextPageToken,items(id,summary,primary,accessRole)"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 RECORD_TEXTS = ("refresh_token", "client_id", "client_secret")
@@ -244,6 +252,17 @@ def http(method: str, url: str, headers: dict, body: bytes | None = None, limit:
         raise ProviderError(f"Google timed out on {method} {path} after {HTTP_TIMEOUT_SECONDS} s") from None
     except OSError as exc:
         raise ProviderError(f"the connection to Google failed on {method} {path}: {type(exc).__name__}") from None
+    except (ValueError, HTTPException) as exc:
+        # A header the library refuses (a line break, a character it cannot encode) or an answer that is not HTTP. The message of such an
+        # exception can hold the header, which holds the token, so only the kind is named.
+        raise ProviderError(f"the request {method} {path} could not be made or read ({type(exc).__name__})") from None
+
+
+def token_text(value, what: str) -> str:
+    """A token from the service, accepted only as printable ASCII without space: it is put in a header and in the OS secret store."""
+    if not isinstance(value, str) or not TOKEN_RE.fullmatch(value):
+        raise ProviderError(f"the token response holds {what} of an unexpected shape; nothing was used or stored")
+    return value
 
 
 def token_request(token_url: str, form: dict) -> dict:
@@ -255,9 +274,9 @@ def token_request(token_url: str, form: dict) -> dict:
     except ValueError:
         data = {}
     if status == 200 and isinstance(data, dict) and data.get("access_token"):
-        _SECRET_VALUES.append(str(data["access_token"]))
+        _SECRET_VALUES.append(token_text(data["access_token"], "an access_token"))
         if data.get("refresh_token"):
-            _SECRET_VALUES.append(str(data["refresh_token"]))
+            _SECRET_VALUES.append(token_text(data["refresh_token"], "a refresh_token"))
         return data
     error = one_line(data.get("error"), 80) if isinstance(data, dict) else ""
     description = one_line(data.get("error_description"), 160) if isinstance(data, dict) else ""
@@ -325,7 +344,8 @@ class Calendar:
             error = json.loads(body).get("error")
             if isinstance(error, dict):
                 message = one_line(error.get("message"), 200)
-                reasons = ",".join(one_line(e.get("reason"), 40) for e in error.get("errors", []) if isinstance(e, dict))
+                listed = error.get("errors")
+                reasons = ",".join(one_line(e.get("reason"), 40) for e in (listed if isinstance(listed, list) else []) if isinstance(e, dict))
         except (ValueError, AttributeError):
             pass
         detail = f": {message}{f' [{reasons}]' if reasons else ''}" if message or reasons else ""
@@ -354,7 +374,7 @@ def open_calendar() -> Calendar:
 
 
 def calendar_id(value) -> str:
-    if not isinstance(value, str) or not CALENDAR_ID_RE.fullmatch(value):
+    if not isinstance(value, str) or not CALENDAR_ID_RE.fullmatch(value) or set(value) <= {"."}:
         raise ProviderError("--calendar is a Google calendar id as the calendars verb prints it (letters, digits and . _ % + # @ -, "
                             "at most 254 characters)", EXIT_USAGE)
     return value
@@ -374,6 +394,8 @@ def instant(flag: str, value) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ProviderError(f"{flag} needs a time zone offset (Z or +hh:mm): the service refuses a time without one, and this provider "
                             "does not guess the local zone", EXIT_USAGE)
+    if parsed.utcoffset().total_seconds() % 60:
+        raise ProviderError(f"{flag} has an offset with seconds; use a whole number of minutes (+hh:mm)", EXIT_USAGE)
     return parsed.replace(microsecond=0)
 
 
@@ -412,7 +434,8 @@ def render_event(item) -> dict | None:
     if start is None or end is None:
         return None
     organizer = item.get("organizer") if isinstance(item.get("organizer"), dict) else {}
-    mine = next((a for a in item.get("attendees") or [] if isinstance(a, dict) and a.get("self") is True), None)
+    attendees = item.get("attendees") if isinstance(item.get("attendees"), list) else []
+    mine = next((a for a in attendees if isinstance(a, dict) and a.get("self") is True), None)
     response = mine.get("responseStatus") if mine else None
     conference = item.get("conferenceData") if isinstance(item.get("conferenceData"), dict) else {}
     status = item.get("status")
@@ -428,7 +451,7 @@ def render_event(item) -> dict | None:
         "organizer_domain": domain_of(organizer.get("email")),
         "response": response if response in RESPONSES else None,
         "status": status if status in STATUSES else "unknown",
-        "online_meeting": bool(item.get("hangoutLink")) or bool(conference.get("conferenceId")),
+        "online_meeting": bool(conference.get("conferenceId")),
         "recurring": bool(item.get("recurringEventId")),
         "external_content": True,   # written by whoever made the event: data, never instructions
     }
@@ -552,6 +575,9 @@ def main(argv=None) -> int:
     except ProviderError as exc:
         log(f"error: {scrub(str(exc))}")
         return exc.code
+    except Exception as exc:     # last resort: no traceback, which can hold a header or a body; only the kind of the failure
+        log(f"error: unexpected {type(exc).__name__}; nothing was changed")
+        return EXIT_SERVICE
 
 
 if __name__ == "__main__":
