@@ -123,7 +123,8 @@ def _widening_refusal(cfg: dict, listed: list, digest) -> "core.OpsError":
 def _widening_of(ctx: dict, cfg: dict) -> list:
     """The widenings of this configuration over the file the person accepted last (policy_widening): read from the store's two cursors."""
     got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)
-    return policy_widening.widening(policy_widening.baseline(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY)), policy_widening.snapshot(cfg))
+    before = got(project_config.ACCEPTED) is not None
+    return policy_widening.widening(policy_widening.baseline(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), before), policy_widening.snapshot(cfg))
 
 
 def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen: str | None = None) -> dict:

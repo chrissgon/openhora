@@ -7,6 +7,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_sender_profiles_bridg
 """
 from __future__ import annotations
 
+import inspect
 import json
 import shutil
 import threading
@@ -149,16 +150,26 @@ def test_a_tap_of_the_employee_on_a_card_sent_to_the_owner_is_refused_by_the_led
     # the ledger finds a card by chat and action: the employee's chat has no such action
     lab.say(STAFF, action=owners_button)
     assert lab.texts(STAFF)[-1] == bridge.STALE and lab.status(lab.plan) == "open"
-    # and were the ledger to answer with the owner's card anyway, the bridge checks that the card's chat is the acting sender
+
+
+def test_a_sender_who_may_approve_still_cannot_act_on_a_card_that_was_sent_to_another_chat(lab, monkeypatch):
+    """The policy alone would let this sender approve a plan (their profile lists approve-plans); only the rule that a card is acted on in its own
+    chat stops them when the ledger, or a bug, answers with the owner's card."""
+    configure(lab, [{"id": OWNER, "policy": "owner"}, {"id": CLERK, "policy": "approver"}],
+              policies={**POLICIES_ALL, "approver": ["read-limited", "talk", "answer", "approve-plans"]})
+    lab.bridge.tick()
     owners_card = next(c for c in lab.bridge.ledger.data["cards"] if c["chat"] == OWNER and c["kind"] == "plan")
-    monkeypatch.setattr(lab.bridge.ledger, "by_action", lambda chat, action_id: owners_card)
-    before = len(lab.texts(STAFF))
-    lab.say(STAFF, action=owners_button)
-    assert lab.texts(STAFF)[before:] == [bridge.STALE] and lab.status(lab.plan) == "open" and lab.who(lab.plan) is None
-    # a typed approval binds to the sender's own newest card, never to another chat's
-    monkeypatch.setattr(lab.bridge.ledger, "last_card", lambda project, pending_id, chat: owners_card)
-    lab.say(STAFF, f"/approve {lab.plan} {owners_card['content_sha256']}")
-    assert lab.status(lab.plan) == "open", "an employee with approve-plans would still have no card of their own to approve"
+    owners_button = lab.action(OWNER, "Approve")
+    with monkeypatch.context() as patched:
+        patched.setattr(lab.bridge.ledger, "by_action", lambda chat, action_id: owners_card)
+        before = len(lab.texts(CLERK))
+        lab.say(CLERK, action=owners_button)
+        assert lab.texts(CLERK)[before:] == [bridge.STALE] and lab.status(lab.plan) == "open" and lab.who(lab.plan) is None
+        patched.setattr(lab.bridge.ledger, "last_card", lambda project, pending_id, chat: owners_card)
+        lab.say(CLERK, f"/approve {lab.plan} {owners_card['content_sha256']}")
+        assert lab.texts(CLERK)[-1] == bridge.NO_CARD and lab.status(lab.plan) == "open", "a typed approval binds to the sender's own card, never another chat's"
+    lab.say(CLERK, f"/approve {lab.plan} {lab.digest}")                      # with their own card, the same sender may
+    assert lab.status(lab.plan) == "resolved" and lab.who(lab.plan).endswith(f":approver:{CLERK}")
 
 
 def test_a_typed_approval_of_the_owner_needs_the_owners_own_card_and_the_hash_of_it(lab):
@@ -250,7 +261,6 @@ def test_approving_an_effect_for_the_owner_alone_the_card_is_built_for_the_sende
 
 
 def test_the_bridge_passes_the_sender_to_every_operation_that_asks_the_policy_or_records_who_acted():
-    import inspect
     for name in ("answer", "release", "approve", "reject", "retry", "cancel", "stop-task", "say"):
         row = operations.by_name(name)
         assert row.get("channel_arg") is True, name
@@ -281,3 +291,16 @@ def test_limit_45_an_act_from_a_messaging_app_is_checked_against_the_profile_of_
     assert lab.who(lab.plan) == f"messaging:telegram:owner:{OWNER}"
     state = (Path(lab.path) / "docs" / "workbench" / "state.md").read_text()
     assert OWNER not in state and STAFF not in state
+
+
+def test_the_bridge_never_calls_an_operation_that_cannot_be_told_who_acts_and_the_count_of_waiting_decisions_goes_only_to_those_who_read_and_get_every_notice(lab):
+    configure(lab, [{"id": OWNER, "policy": "owner"}], policies={**POLICIES_ALL, "owner": [*POLICIES["owner"], "routine-edit"]})
+    row = operations.by_name("routine-create")
+    assert row.get("channel_arg") and "sender" not in inspect.signature(getattr(ops, row["call"])).parameters
+    with pytest.raises(RuntimeError, match="takes no sender"):
+        lab.bridge.run_op({"id": "x", "path": lab.path, "name": "n"}, "routine-create", sender=OWNER)
+    # twelve open decisions would make "And 2 more waiting": a profile with actionable notices, or one that cannot read, is not told
+    configure(lab, [{"id": OWNER, "policy": "owner"}, {"id": STAFF, "policy": "watcher"}, {"id": CLERK, "policy": "mute"}],
+              policies={**POLICIES_ALL, "mute": ["talk"]})
+    settings = lab.bridge.settings(lab.bridge.projects[0])
+    assert [lab.bridge.hears_count(settings, c) for c in (OWNER, STAFF, CLERK)] == [OWNER, None, None]

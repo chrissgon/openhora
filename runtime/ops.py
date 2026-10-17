@@ -1618,7 +1618,7 @@ def config(project: str) -> dict:
     return {"path": cfg["path"], "sha256": cfg["sha256"], "accepted": accepted == cfg["sha256"],
             "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"], "policies": cfg["policies"],
             "channel_profiles": cfg["channel_profiles"],
-            **policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg)}   # POL-1/POL-2: grants, widening, its hash, warnings
+            **policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None)}   # POL-1/POL-2: grants, widening, its hash, warnings
 
 
 def task(project: str, task_id: int) -> dict:

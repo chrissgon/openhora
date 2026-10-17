@@ -273,6 +273,7 @@ PROFILE_KEYS = ("groups", "notices")
 PROFILE_NOTICES = ("all", "actionable")
 DEFAULT_PROFILE = "default"                            # the label of a sender who has no profile (the channel's own groups); not a name a project may use
 SENDER_ID_MAX = 64
+PLATFORM_MAX = 32                                      # the actor label the store keeps ("messaging:<platform>:<profile>:<id>") must fit its bound
 SENDERS_MAX = 100                                      # senders listed in all (policy_widening keeps a record of them in a cursor of 4 KiB)
 
 
@@ -411,7 +412,7 @@ def _sender_entry(platform: str, entry, policies: dict) -> tuple:
         entry, profile = entry["id"], entry["policy"]
         if not isinstance(profile, str) or profile not in policies:
             raise ConfigError(f"runtime.json {where}: {profile!r} is not a profile of policies (known: {', '.join(policies) or 'none'})")
-    if not isinstance(entry, str) or not entry.strip() or any(c.isspace() for c in entry) or len(entry) > SENDER_ID_MAX:
+    if not isinstance(entry, str) or not entry.strip() or any(c.isspace() or not c.isprintable() for c in entry) or len(entry) > SENDER_ID_MAX:
         raise ConfigError(f"runtime.json {where} must list sender ids, each non-empty text without a space of at most {SENDER_ID_MAX} characters")
     return entry, profile
 
@@ -438,8 +439,8 @@ def _messaging(value, policies=None) -> dict:
     policies = policies or {}
     out_senders, out_profiles, checked = {}, {}, set()
     for platform, entries in senders.items():
-        if not isinstance(platform, str) or not PLATFORM_NAME.fullmatch(platform):
-            raise ConfigError(f"runtime.json messaging.senders: {platform!r} is not a platform name (lowercase words joined by hyphens)")
+        if not isinstance(platform, str) or not PLATFORM_NAME.fullmatch(platform) or len(platform) > PLATFORM_MAX:
+            raise ConfigError(f"runtime.json messaging.senders: {platform!r} is not a platform name (lowercase words joined by hyphens, at most {PLATFORM_MAX} characters)")
         if not isinstance(entries, list):
             raise ConfigError(f"runtime.json messaging.senders.{platform} must be a list of sender ids, each non-empty text without a space")
         ids, named = [], {}

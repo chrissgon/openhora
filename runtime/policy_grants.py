@@ -14,7 +14,7 @@ operations.GRANTS and also a group inside a channel's ceiling; a place is a chan
   grants(cfg)        the grants the file lists, as [{"channel", "group", "means"}] in the order of operations.GRANTS, then those the profiles of
                      the listed senders hold, each with "sender" (`<platform>:<sender id>`)
   warnings(cfg)      sentences `config` shows beside the grants (never a refusal)
-  view(effective, legacy, cfg)   what `config` adds to its answer: {"grants", "widening", "widening_sha256", "warnings"} for the file as it is,
+  view(effective, legacy, cfg, accepted_before)   what `config` adds to its answer: {"grants", "widening", "widening_sha256", "warnings"} for the file as it is,
                      accepted or not; the two texts are the store's cursors (policy_widening.EFFECTIVE and LEGACY)
 
 No module here calls the store or a provider: ops_config and ops hand in the text of the cursors. Standard library only. Runs on Python 3.9.
@@ -57,10 +57,10 @@ def warnings(cfg: dict) -> list:
     return out
 
 
-def view(effective_text, legacy_text, cfg: dict) -> dict:
+def view(effective_text, legacy_text, cfg: dict, accepted_before: bool = False) -> dict:
     """What `config` adds to its answer: {"grants", "widening", "widening_sha256", "warnings"} for the file as it is, accepted or not.
-    The texts are the cursors of the store (policy_widening.EFFECTIVE and LEGACY)."""
-    wide = policy_widening.widening(policy_widening.baseline(effective_text, legacy_text), policy_widening.snapshot(cfg))
+    The texts are the cursors of the store (policy_widening.EFFECTIVE and LEGACY); `accepted_before` says that a file was accepted at some time."""
+    wide = policy_widening.widening(policy_widening.baseline(effective_text, legacy_text, accepted_before), policy_widening.snapshot(cfg))
     return {"grants": grants(cfg), "widening": wide, "widening_sha256": policy_widening.widening_sha256(wide), "warnings": warnings(cfg)}
 
 

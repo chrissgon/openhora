@@ -104,6 +104,7 @@
       "created_at": "2026-10-01T09:00:00Z",
       "resolved_at": "2026-10-01T09:00:00Z",
       "resolved_by": "user",
+      "acted_by": null,
       "agent": null,
       "actions": []
     }

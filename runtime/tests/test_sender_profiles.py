@@ -279,15 +279,43 @@ def test_a_project_accepted_before_the_record_of_what_a_file_has_confirms_what_i
     ctx["store"].cursor_set(ctx["conn"], project_config.ACCEPTED, project_config.load(path)["sha256"])
     shown = ops.config(path)
     assert shown["accepted"] is True, "the file stays in force: a record that was never written cannot take an accepted file away"
-    assert lines_of(shown) == ["messaging:release", "messaging:retry"], "the grant was confirmed once (POL-1); the groups inside the ceiling were not"
+    assert lines_of(shown) == ["messaging:read", "messaging:talk", "messaging:answer", "messaging:release", "messaging:retry"], \
+        "the grant was confirmed once (POL-1); nothing else was: what an older file gave is not known, so the entry is listed whole"
     # the person runs accept-config with --widen, once, on the same hash
     done = ops.accept_config(path, shown["sha256"], widen=shown["widening_sha256"])
-    assert [w["group"] for w in done["widened"]] == ["release", "retry"] and ops.config(path)["widening"] == []
-    # with no record at all: the defaults, so every group beyond them is listed
+    assert [w["group"] for w in done["widened"]] == ["read", "talk", "answer", "release", "retry"] and ops.config(path)["widening"] == []
+    # with no record at all, a file accepted before: only what the file lists is compared, and all of it is listed
     ctx = ops_core.context(path, check_config=False)
     with ctx["conn"]:
         ctx["conn"].execute("DELETE FROM cursors WHERE name IN (?, ?)", (policy_widening.EFFECTIVE, policy_widening.LEGACY))
-    assert lines_of(ops.config(path)) == ["messaging:release", "messaging:approve-effect-write", "messaging:retry"]
+    assert lines_of(ops.config(path)) == ["messaging:read", "messaging:talk", "messaging:answer", "messaging:release", "messaging:approve-effect-write",
+                                          "messaging:retry"]
+
+
+def test_a_file_accepted_before_the_record_cannot_be_widened_on_the_page_or_the_mcp_mode_or_by_a_new_sender_unseen(tree):  # noqa: F811
+    path = str(tree["project"])
+    write_config(path, channels={"page": ["read"], "messaging": ["read", "approve-effect-write"]}, messaging={"senders": {"telegram": [OWNER]}})
+    ctx = ops_core.context(path, check_config=False)
+    ctx["store"].cursor_set(ctx["conn"], project_config.ACCEPTED, project_config.load(path)["sha256"])      # accepted by an older version: no record
+    assert "page:read" in lines_of(ops.config(path)), "an older acceptance said nothing of what the page was given: its entry is listed whole"
+    # the page's entry is then widened by an edit: listed, and refused without the hash
+    write_config(path, channels={"page": ["read", "approve-effects", "dispatch", "set-mode"], "messaging": ["read", "approve-effect-write"]})
+    assert {"page:approve-effects", "page:dispatch", "page:set-mode"} <= set(lines_of(ops.config(path)))
+    with pytest.raises(ops.OpsError):
+        ops.accept_config(path, ops.config(path)["sha256"])
+    write_config(path, channels={"messaging": ["read", "approve-effect-write"]})         # no page entry: no change to the page, nothing to confirm for it
+    assert not any(line.startswith("page:") for line in lines_of(ops.config(path)))
+    accept(path)
+    # a person newly allowed to write is compared with the restrictive default, though no profile is involved
+    write_config(path, messaging={"senders": {"telegram": [OWNER, STAFF]}})
+    assert lines_of(ops.config(path)) == [f"{STAFF_KEY}:approve-effect-write"], "read is in the default; the grant is not"
+    with pytest.raises(ops.OpsError):
+        ops.accept_config(path, ops.config(path)["sha256"])
+    # under the default policy a new plain sender asks for nothing
+    write_config(path, channels=None)
+    accept(path)
+    write_config(path, messaging={"senders": {"telegram": [OWNER, STAFF, "55119000000009"]}})
+    assert ops.config(path)["widening"] == []
 
 
 def test_a_sender_moved_to_a_wider_profile_or_listed_with_one_is_a_widening_asked_by_the_hash_of_the_list(tree):  # noqa: F811
@@ -296,8 +324,8 @@ def test_a_sender_moved_to_a_wider_profile_or_listed_with_one_is_a_widening_aske
     # a new sender listed with a profile that is not a subset of the channel's groups
     write_config(path, messaging={"senders": {"telegram": [STAFF, {"id": OWNER, "policy": "owner"}]}})
     shown = ops.config(path)
-    # the channel gave read-limited, talk and answer; the owner's profile adds `read` (which holds read-limited), and the rest of its groups
-    assert lines_of(shown) == [f"{OWNER_KEY}:{g}" for g in operations.GROUPS if g in POLICIES["owner"] and g not in ("talk", "answer")]
+    # a person newly allowed to write is compared with the restrictive default (read, talk, answer, the routine brakes): the rest of the profile is listed
+    assert lines_of(shown) == [f"{OWNER_KEY}:{g}" for g in operations.GROUPS if g in POLICIES["owner"] and g not in ("read", "talk", "answer", "routine-brakes")]
     assert all(w["place"] == OWNER_KEY and w["channel"] == "messaging" for w in shown["widening"])
     assert f"{OWNER_KEY}:approve-effect-write" in lines_of(shown) and f"{OWNER_KEY}:release" in lines_of(shown)
     assert f"{OWNER_KEY}:talk" not in lines_of(shown), "a group the channel already gave is not a widening"
@@ -587,6 +615,15 @@ def test_the_record_of_what_a_file_gives_fits_a_cursor_for_as_many_senders_as_a_
     old = policy_widening.parse(policy_widening.dump({"channels": {}, "senders": {OWNER_KEY: ["read-limited"]}}))
     new = {"channels": {}, "senders": {OWNER_KEY: ["read"]}}
     assert [(w["place"], w["group"]) for w in policy_widening.widening(old, new)] == [(OWNER_KEY, "read")], "read holds read-limited: one line"
+
+
+def test_the_record_keeps_a_margin_under_the_cursor_limit_in_the_worst_case_of_every_group_and_every_sender():
+    everything = list(operations.GROUPS)
+    snap = {"channels": {c: list(everything) for c in operations.POLICY_CHANNELS},
+            "senders": {f"{'p' * 32}:{n:064d}": list(everything) for n in range(project_config.SENDERS_MAX)}}
+    size = len(policy_widening.dump(snap).encode())
+    assert size < 3600, f"the record is {size} bytes of the 4096 a cursor holds: it must keep room for the groups that will be added (about 15)"
+    assert size < 4 * 1024 - 15 * (len("approve-effect-publish") + 4)
 
 
 def test_a_group_that_holds_another_is_one_line_and_the_pairs_are_the_tables():

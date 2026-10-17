@@ -17,18 +17,21 @@ that a place has in the file being accepted and did not effectively have in the 
     reject-cancel, retry, brakes, routine-edit, ...), since the default is the restrictive rule and the person may widen it, knowing what they widen;
   * a group added to a profile that is assigned somewhere (the places that use it have more);
   * a sender moved to a profile whose groups are not a subset of the groups that sender had;
-  * a new sender listed with a profile that is not a subset of the channel's groups;
+  * a new sender (an id the earlier file did not list), with a profile or without: compared with the restrictive default, so that an id added to
+    an edited file gives nobody the channel's powers unseen;
   * a channel's entry removed, when the channel then holds more than it did (the page's whole ceiling).
 
 What the earlier file effectively had is a record of the store, written when a configuration is accepted (the cursor `config:effective`, a JSON
-snapshot; outside git, since it names senders). A project accepted before this record existed has only the grants of POL-1 (the cursor
-`config:grants`) or nothing: the missing record is read as the defaults plus those grants, so a group it lists beyond them is a widening, confirmed
-once with `accept-config --widen` (`config` shows the list). The hash proves no reading: whoever can run accept-config can compute it. It binds
+snapshot; outside git, and it names no sender). A project accepted before this record existed has only the grants of POL-1 (the cursor
+`config:grants`) or nothing, and cannot say what its accepted file gave: the baseline is then "unknown", read as "only those grants were confirmed", so
+every group an entry lists beyond them is listed by `config` and confirmed once with `accept-config --widen`, and an edit made after that old
+acceptance cannot widen a page or an MCP entry unseen (a channel with no entry in the new file is no change). A project that never accepted a file
+has the defaults. The hash proves no reading: whoever can run accept-config can compute it. It binds
 exactly the list that was shown, and nobody types a phone number.
 
   snapshot(cfg)              the record of a loaded configuration: {"channels": {channel: [groups] or None}, "senders": {key: [groups] or None}}
   dump(snapshot), parse(text)   the cursor's text, and the snapshot it holds (None when the text is not one)
-  baseline(effective, grants) the snapshot the next acceptance compares with, from the two cursors' texts
+  baseline(effective, grants, accepted_before)   the snapshot the next acceptance compares with, from the two cursors' texts
   widening(old, new)         [{"place", "channel", "group", "means"}], channels in the order of ORDER, then senders by key
   widening_sha256(list)      the sha256 of the list written one `<place>:<group>` per line, a newline after each; None for an empty list
 
@@ -119,23 +122,31 @@ def parse(text):
 
 
 def _legacy(text) -> dict:
-    """The snapshot that POL-1's record of grants stands for: each channel with a grant holds its defaults plus those grants. Text that is not that list is nothing."""
+    """The grants POL-1 recorded, {channel: [groups]}. Text that is not that list is nothing."""
     try:
         found = json.loads(text) if text else []
     except ValueError:
-        return {"channels": {}, "senders": {}}
+        return {}
     held = {}
     for entry in found if isinstance(found, list) else []:
         channel, _, group = entry.partition(":") if isinstance(entry, str) else ("", "", "")
         if group in operations.GRANTS.get(channel, ()):
             held.setdefault(channel, []).append(group)
-    return {"channels": {c: list(operations.default_groups(c)) + gs for c, gs in held.items()}, "senders": {}}
+    return held
 
 
-def baseline(effective_text, legacy_text) -> dict:
-    """What the next acceptance compares with: the snapshot of the file accepted last; else what POL-1 recorded of its grants; else the defaults."""
+def baseline(effective_text, legacy_text, accepted_before: bool = False) -> dict:
+    """What the next acceptance compares with: the snapshot of the file accepted last. A project that has never accepted a file has the defaults
+    (nothing recorded, nothing accepted). A project that accepted a file before the record existed has no way to say what that file gave (POL-1
+    kept its grants alone, or nothing): the baseline is then `unknown`, which widening() reads as "only the grants POL-1 recorded were confirmed",
+    so that every group an entry lists beyond them is listed once, and a file edited after that acceptance cannot widen a page or an MCP entry
+    unseen. The file stays in force; only the next acceptance asks."""
     found = parse(effective_text)
-    return found if found is not None else _legacy(legacy_text)
+    if found is not None:
+        return found
+    if not accepted_before:
+        return {"channels": {}, "senders": {}}
+    return {"channels": _legacy(legacy_text), "senders": {}, "unknown": True}
 
 
 def concrete(channel: str, listed) -> set:
@@ -155,22 +166,32 @@ def _items(place: str, channel: str, groups) -> list:
 
 def widening(old: dict, new: dict) -> list:
     """The widenings of `new` over `old` (two snapshots): [{"place", "channel", "group", "means"}], deterministic. A channel is compared with
-    itself (an absent entry is what the channel holds with no entry); a listed sender with the groups it had in `old` (its profile, else the
-    channel's), or, for a sender `old` did not list, with what the channel had; a sender that follows the channel in both files is the channel's line."""
+    itself (an absent entry is what the channel holds with no entry; when `old` is unknown, an entry is compared with the grants alone and an absent
+    entry is no change). A sender that `old` listed is compared with the groups it had (its profile, else the channel's); a sender it did not list
+    (a person newly allowed to write) is compared with the restrictive default, so that adding an id to an edited file gives it nothing unseen."""
     out = []
+    unknown = bool(old.get("unknown"))
     for channel in ORDER:
-        before = concrete(channel, old["channels"].get(channel))
-        after = concrete(channel, new["channels"].get(channel))
-        out += _items(channel, channel, after - before)
-    old_channel = concrete("messaging", old["channels"].get("messaging"))
+        listed = new["channels"].get(channel)
+        if unknown:
+            if listed is None:
+                continue
+            before = concrete(channel, old["channels"].get(channel) or [])
+        else:
+            before = concrete(channel, old["channels"].get(channel))
+        out += _items(channel, channel, concrete(channel, listed) - before)
+    old_channel = concrete("messaging", old["channels"].get("messaging")) if not unknown else concrete("messaging", old["channels"].get("messaging") or [])
     new_channel = concrete("messaging", new["channels"].get("messaging"))
+    restrictive = concrete("messaging", None)
     recorded = dict(old.get("sender_ids") or {})
     recorded.update({place_id(k): v for k, v in old["senders"].items()})
     for key in sorted(new["senders"]):
-        mine, had = new["senders"][key], recorded.get(place_id(key))
-        if mine is None and had is None:
+        mine = new["senders"][key]
+        listed_before = place_id(key) in recorded
+        had = recorded.get(place_id(key))
+        if listed_before and mine is None and had is None:
             continue
-        before = concrete("messaging", had) if had is not None else old_channel
+        before = concrete("messaging", had) if had is not None else (old_channel if listed_before else restrictive)
         after = concrete("messaging", mine) if mine is not None else new_channel
         out += _items(key, "messaging", after - before)
     return out

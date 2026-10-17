@@ -50,6 +50,20 @@ Rules for an implementation:
 
 The stand-in used by the tests is `runtime/tests/fixtures/messenger_listen_standin.py`. The listen providers are `discord.py`, `whatsapp.py`, `whatsapp-cloud.py` and `whatsapp-twilio.py` (below); a provider whose dependencies matter commits a hash lock (`providers/CONTRACT.md`).
 
+## Who a sender is, and how far to trust it
+
+The bridge compares `sender`, the id the provider printed in an update, with the project's `messaging.senders.<platform>`, and a listed sender may have a profile of their own (`policies`, `docs/architecture/platform/messaging.md`): the owner's phone may approve and an employee's may only read and answer. What an id proves is whoever controls that account at that moment, and nothing more.
+
+| Platform | The id the bridge compares | Set by | Another user can forge it? | Weak points |
+|----------|----------------------------|--------|----------------------------|-------------|
+| Telegram | the numeric user id (`from.id`) | Telegram's servers | no | the account itself (a SIM swap, an open session) |
+| Discord | the user's id (a snowflake), in a direct message | Discord's gateway | no | the account itself, an open client |
+| WhatsApp, linked device | the phone digits of the sender as the linked device sees them (`whoami` prints them); a hidden address (LID) is resolved to the digits, and a message whose sender cannot be resolved is dropped (`providers/messenger/whatsapp/inbound.go`, `senderDigits`) | WhatsApp, read by the person's own device | no | the phone |
+| WhatsApp Cloud API | phone digits; a business-scoped id mapped to digits (`identities.json`) and dropped when it is not mapped | Meta, signed by HMAC | no | the phone |
+| WhatsApp through Twilio | the `From` digits; a business-scoped id (a username) is mapped to digits through the pairs the provider learned, and dropped when it is not | Twilio, signed (`X-Twilio-Signature`) | no | the phone |
+
+A shared or unlocked phone, a stolen session file, a SIM swap or a phone number a carrier gave to someone else all inherit the profile, and code cannot see any of them. Give a profile with effect grants only to an account on a phone with a lock and an app lock, and remove a person's entry the day they leave. The id stays on the rows of the store that were written while the entry was there, and in no file of the project.
+
 ## Adding a platform
 
 Add one file, `providers/messenger/<impl>.py`, that declares `PLATFORMS` and implements the four subcommands as above, and register its credential in `providers/secrets/resolver.py` and `contracts/secrets.md`. Nothing in the bridge changes: the platform's name goes in `runtime.json` (`messaging.senders.<platform>`) and on the bridge's `--platform` flag. Tests are offline, in `providers/messenger/tests/`, with the network patched out.

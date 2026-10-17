@@ -142,6 +142,14 @@ class Bridge(shell_kit.Jobs):
                             operations=operations, sender=key)
         return bool(built["actionable"])
 
+    def hears_count(self, settings: dict, sender: str):
+        """The sender, when the "N more waiting" line may go to them: their profile reads what waits and sends them every notice (a count of decisions
+        they are not sent a card for would tell a profile what it may not know)."""
+        named = settings["sender_profiles"].get(sender) or settings["channel_profile"]
+        if (settings["profiles"].get(named) or {}).get("notices") == "actionable":
+            return None
+        return sender if self.ops.operations.permitted("pending", CHANNEL, settings["policy"], None, self.key(sender)) else None
+
     def recheck(self) -> None:
         """Look at every project again: serve those with an accepted configuration that lists a sender for the platform,
         skip the others. One log line when a project's state changes, none otherwise."""
@@ -221,8 +229,12 @@ class Bridge(shell_kit.Jobs):
         function = getattr(self.ops, row["call"])
         if row.get("channel_arg"):
             args["channel"] = CHANNEL
-            if sender is not None and "sender" in inspect.signature(function).parameters:
-                args["sender"] = self.key(sender)
+            if sender is not None:
+                params = inspect.signature(function).parameters.values()
+                if any(p.name == "sender" for p in params):
+                    args["sender"] = self.key(sender)
+                elif not any(p.kind == p.VAR_KEYWORD for p in params):      # a real operation that cannot be told who acts would be asked for the channel alone: never
+                    raise RuntimeError(f"the operation {op} takes no sender: the bridge does not call it")
         return function(project["path"], **args)
 
     def send_card(self, project: dict, settings: dict, item: dict, chat: str) -> bool:
@@ -357,7 +369,9 @@ class Bridge(shell_kit.Jobs):
             except self.ops.OpsError as e:
                 self.log(f"a project could not be read for notices ({e.__class__.__name__})")
                 continue
-            for chat in (settings["senders"] if settings else []):
+            for chat in (self.hears_count(settings, c) for c in (settings["senders"] if settings else [])):
+                if chat is None:
+                    continue
                 key = (project["id"], chat)
                 if not left:
                     self.more.pop(key, None)

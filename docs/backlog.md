@@ -118,6 +118,9 @@ The workbench is a set of instructions that models execute with a terminal, file
   - Done when: each row above is a grant or is recorded as staying code, with its reason, and the decision and the contract say so.
   - Plan: a package of the task runtime after POL-1 and POL-2 (policies per person, which fills `operations.effective_groups`).
 
+- [ ] **T43. What policies per person leave out (POL-2).** Built on 2026-10-17 (package POL-2, `SPEC-POLICIES` addendum): profiles for a channel and for each listed sender, `read-limited`, `notices: actionable`, the actor in the store, the widening of any group. Left out on purpose: (a) a retry records no actor, since the task row has no column for it and a column there would be a third table; a later package that touches `tasks` can add `retry_by`; (b) an `until` date on a sender entry, after which the sender falls back to the channel's groups, for employees who expire (the addendum's P6); (c) a finer read split than `read` and `read-limited` (per decision kind, per agent), when a real case needs it; (d) per-person policies on the page and the MCP mode, which need sign-in and belong to the hosting project (the profile model is ready: `channels.page: "owner"`); (e) the page shows which profile each sender has (today `config` lists them and the page draws one line of what the file widens).
+  - Done when: each item is built or is recorded as staying out, with its reason.
+
 ## Agent runtime
 
 Status note, 2026-10-15: the runtime is generic and lives in `runtime/`, with the per-agent parts behind a handler; it asks `providers/resolve.py` for the store, the mailbox, the publisher, the scheduler and the vcs provider by class. What remains of the first runtime (`scripts/runtime.py`, `runtime_vote.py`, `vote_job.py`) is CONS-2b.

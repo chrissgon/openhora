@@ -286,9 +286,12 @@ def test_the_widening_list_its_hash_and_the_warning_for_notices_that_carry_no_te
     back = policy_widening.parse(policy_widening.dump(snap))        # the record holds the groups as a mask over GROUPS, and no sender
     assert {c: set(g) for c, g in back["channels"].items()} == {c: set(g) for c, g in snap["channels"].items()} and back["senders"] == {} == back["sender_ids"]
     assert policy_widening.parse(None) is policy_widening.parse("not json") is policy_widening.parse('{"v": 1}') is None
-    # a record POL-1 wrote (the grants alone) stands for the defaults plus those grants; nothing recorded is the defaults
-    assert policy_widening.baseline(None, '["messaging:approve-effect-write"]') == held
-    assert policy_widening.baseline(None, None) == {"channels": {}, "senders": {}} == policy_widening.baseline(None, "not json")
+    # a project that never accepted a file has the defaults; one that accepted a file before the record existed has only the grants POL-1 recorded,
+    # and its baseline is "unknown": every group an entry lists beyond them is listed once
+    assert policy_widening.baseline(None, '["messaging:approve-effect-write"]') == policy_widening.baseline(None, None) == {"channels": {}, "senders": {}}
+    assert policy_widening.baseline(None, '["messaging:approve-effect-write"]', True) == {"channels": {"messaging": ["approve-effect-write"]}, "senders": {},
+                                                                                       "unknown": True}
+    assert policy_widening.baseline(None, "not json", True) == {"channels": {}, "senders": {}, "unknown": True}
     assert policy_grants.warnings(cfg) == []
     count = {**cfg, "messaging": {"notices": "count"}}
     [warning] = policy_grants.warnings(count)
