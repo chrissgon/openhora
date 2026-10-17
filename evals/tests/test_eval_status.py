@@ -551,7 +551,7 @@ def test_a_well_formed_evidence_file_is_valid_and_changes_no_status(root, capsys
     ({"model": "a-private-model"}, "model is not one of the event's models"),
     ({"model": "unknown"}, "model is not one of the event's models"),
     ({"adapter": "../h"}, "adapter must be an adapter's folder name"),
-    ({"kind": "smoke"}, "kind must be full or partial"),
+    ({"kind": "smoke"}, "kind must be full, partial or quick"),
     ({"date": "2030-13-01"}, "date must be YYYY-MM-DD"),
     ({"date": "02/01/2030"}, "date must be YYYY-MM-DD"),
     ({"measurement_version": "5"}, "measurement_version must be a whole number"),

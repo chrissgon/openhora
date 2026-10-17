@@ -7,6 +7,7 @@ A contributor can test a skill on a model the maintainer has not tested, with th
 - It is **evidence of the same kind as a lab test**, in a column of its own: `python3 evals/eval_status.py status` prints a `community` section, per skill and model, with the runs, the mean, the pessimistic score, the band and its cause, computed by the same rules on the community lines alone. It is never added to a lab figure, a band or a gate.
 - It **ranks**: the runtime reads it for a person's choice of a model and for `auto`.
 - It **never releases unattended work by itself** (decision D36). A pair that is `reliable` in the community column and not in the lab's carries `"community_only": true` in that section. The runtime chooses and uses such a pair, and holds its output for review, until the person's own tests or the lab prove it.
+- A **quick test** (`quick: true`) is the cheap way to contribute: every case once with the skill, no baseline, about a third of the with-skill cost of a full test. Alone it is preliminary: it moves the community score and never the band or the gate. Many of them add up to a pool (below).
 - It is **demoted** like any pair: three `failed` field verdicts on the current version put the pair in `watch`.
 - It is **not** a way to run the maintainer's tests for the maintainer: the maintainer's tests stay lab evidence. They may move to the same attested workflow later.
 
@@ -16,6 +17,16 @@ A contributor can test a skill on a model the maintainer has not tested, with th
 - The **keys as secrets of the fork** (Settings, Secrets and variables, Actions): the key of the model's provider, and the token of the grader's account, because every run is graded by the configured grader. The gate file (`evals/eval-gate.json`) names them: `pass_env` of the model's entry and `pass_env` of the grader's own entry. The workflow declares `OPENROUTER_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`; a key never enters a run, each run's key proxy holds it. A request for a key that is not set is refused before anything runs, and only the name is printed.
 - A **model of the gate file with a route**: a community run tests a listed model whose key a key proxy holds. A model that is not listed is added to the gate file in a pull request first.
 - A **commit of this repository's `main`**: the workflow is referenced by its full commit sha. A commit that is not in the history of `main` is refused by the workflow and, later, by the check.
+
+## Quick tests and the pool
+
+A full test is the cost of 3 runs of every case with the skill and, when no baseline is in force, a baseline. A **quick test** runs every case once with the skill and no baseline, so a person can give a third of that, and several people together can give a full test's worth. This is how, and its limits:
+
+1. **Run it.** `gh workflow run openhora-community.yml -f skill=<name> -f model=<id> -f quick=true` in your fork. `quick`, `full` and `cases` are exclusive: the workflow refuses a request that gives more than one, or none. The evidence file is a community file like any other (`"kind": "quick"`, `"runs": 1`, a baseline of `none` for every case), attested and verified the same way.
+2. **Submit every completed run.** A quick test is cheap, so the temptation to submit only the runs that came out well is the greater, and it is exactly what the rule on gaps shows: a run number that no file carries, and an attempt below the highest one submitted that no file carries, are flagged in the pull request and counted in the status (`gaps`). Submit them all, with every attempt, from the one caller file.
+3. **What they add up to.** The with-skill lines of one skill and one model in the community column, from full, partial and quick tests together, in the current set (the same `X.Y`, since the newest epoch or measurement floor), form the community **pool**. **The gate reads, per case, only the first 3 lines of the pool in time order**; lines made later count for the score and nowhere else. So extra quick tests of the same version cannot rescue a pool that failed: only a fix (a new `X.Y`) can. The pool **closes** when every current case of the skill has 3 counted lines, a baseline is in force, and the counted lines come from **at least 2 contributors** (the owners of the attested forks the manifests name), none holding **more than two thirds** of them (exactly two thirds is allowed). In one case a contributor's lines count up to 2 of the 3 (floor of 3 x 2/3): a third line of the same fork in that case counts for the score and not for the gate, so one person cannot close a pool alone, whatever the number of quick tests, and a fork that came first cannot block a later one, whose lines fill the slots that remain; several accounts or forks of one person are several contributors, a limit stated below. The baseline is the lab's, in force, for that model, when there is one, else the community's own (a community full test of the model, or a partial test with `--baseline`). When the pool closes, the gate is computed on it by the same rule as for a lab pair (the mean with the skill, per case, at 0.8 or more and not below the baseline's mean by more than 0.05), and a passing pool counts as a passing full test of the pair, frozen like one (a case added or changed after it closed is `pending`; an epoch leaves its result standing and the pair `watch`). The status shows it: the `pool` of the pair in the `community` section says how many cases have 3 counted lines, for how many a baseline is in force, how many contributors it has, the largest share and the dates of its lines (`pool of 1.2: 7 of 12 cases at 3 runs; baseline in force for 12; 2 of 2 contributors, the largest holding 67% of the counted lines (at most 67%); lines from 2030-01-01 to 2030-01-09`), and the gate carries the note `pooled`.
+4. **What it does not change.** The per-contributor cap (`COMMUNITY_CAP`, 30 lines with the skill) still applies: the score column keeps the newest 30 of a contributor's lines, and the pool counts a contributor's first 30 lines, read before that window, so a contributor cannot push an earlier line out of the pool and draw again. A community pair is ranked and used with its output reviewed; it is never released unattended by this evidence, pooled or not (decision D36), and `community_only` stays true while the lab's band for the pair is not `reliable`. The pool restarts for a new `X.Y` and after an epoch, and a changed case loses its lines, as for any evidence.
+5. **What it costs, and what it gives up.** It spreads the cost of a full test over several people and keeps the baseline from running again; it does not reduce the runs a gate needs. The risk that lines from different machines meet in one mean is answered by the attested, digest-pinned eval image and the key proxy's pinned route. What it cannot remove is the same as above: a contributor cannot re-draw a pool that closed by running more (the gate reads the first 3 lines of each case), but can decline to submit the runs that came out badly before it closed (the gaps flag the runs not submitted), and can begin with a fork of their own.
 
 ## The caller
 
@@ -38,6 +49,10 @@ on:
         description: "A full test: every case"
         type: boolean
         default: false
+      quick:
+        description: "A quick test: every case once with the skill, no baseline (give one of cases, full or quick)"
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -55,12 +70,13 @@ jobs:
       model: ${{ inputs.model }}
       cases: ${{ inputs.cases }}
       full: ${{ inputs.full }}
+      quick: ${{ inputs.quick }}
     secrets:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
-The workflow's other input is `arch` (`amd64`, the default, or `arm64`; evidence from either is accepted) and `adapter`, which only makes the run refuse an adapter other than the one the model's entry names. You can run it from the Actions tab, or with `gh workflow run openhora-community.yml -f skill=<name> -f model=<id> -f full=true`.
+The workflow's other input is `arch` (`amd64`, the default, or `arm64`; evidence from either is accepted) and `adapter`, which only makes the run refuse an adapter other than the one the model's entry names. You can run it from the Actions tab, or with `gh workflow run openhora-community.yml -f skill=<name> -f model=<id> -f full=true` (or `-f quick=true`, or `-f cases=1,2`: exactly one of the three).
 
 ## What the workflow does
 

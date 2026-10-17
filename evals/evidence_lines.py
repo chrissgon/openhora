@@ -78,6 +78,17 @@ first model of a list header), so callers never branch. A complete event is comp
 counts in a model's selection (its newest full test, X.Y, Y count, stored gate: eval_status.py) only when it is complete
 for that model; an abandoned event (not complete) keeps its lead model's lines, as it always did.
 
+Quick tests, the third kind of event (package P11)
+--------------------------------------------------
+An event line's "kind" is "full", "partial" or "quick". A quick test (eval_run.py --skill <name> --quick) runs every case once
+with the skill on its models and nothing else, so its event line says "runs": 1 (the strict reading of a new file expects 1 for a
+quick test and the gate file's number for the others), has "none" for every case of "baseline", carries no "gate", and its run
+lines are all with the skill: a line without it is an error. Its "complete" is true when every run with the skill on the lead
+model was graded, and "complete_models" lists the models whose runs were all graded, as for the others; a complete quick test has
+a line with the skill for every case, on every model it is complete for. It alone moves the score and never a band or the gate:
+only a pool of lines (eval_status.py, "The pooled gate") that has every case at the configured number of runs and a baseline
+in force is evaluated. Old files stay valid: nothing about a full or a partial test changed.
+
 The usage of a run
 ------------------
 A run line may carry "usage": {"input", "output", "cache_read", "cache_write"}, whole numbers of 0 or more, the
@@ -121,7 +132,8 @@ CASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}")
 VARIABLE_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 TOOL_RE = re.compile(r"[A-Za-z0-9 ._()/+:,-]{1,80}")
-KINDS, VARIANT_NAMES, OUTCOMES, BASELINES = ("full", "partial"), ("with", "without"), ("graded", "timeout"), ("run", "reused", "none")
+KINDS, VARIANT_NAMES, OUTCOMES, BASELINES = (("full", "partial", "quick"), ("with", "without"), ("graded", "timeout"),
+                                              ("run", "reused", "none"))
 COUNT_KEYS = ("retries", "refusals", "timeouts", "pauses", "early_ends", "resumes")
 EVENT_REQUIRED = ("record", "skill", "test", "kind", "version", "content_sha256", "date", "models", "adapters",
                   "adapter_sha256", "grader", "runs", "timeout_seconds", "retries", "measurement_version",
@@ -317,7 +329,7 @@ def event_line_problems(line, models=None):
     if not _is(TEST_ID_RE, line["test"]):
         bad("test", "a test id (YYYYMMDDTHHMMSSZ-8 hex)")
     if line["kind"] not in KINDS:
-        bad("kind", "full or partial")
+        bad("kind", "full, partial or quick")
     if not _is(VERSION_RE, line["version"]):
         bad("version", "X.Y.Z")
     for key in ("content_sha256", "measurement_sha256", "grading_template_sha256"):
@@ -358,6 +370,13 @@ def event_line_problems(line, models=None):
     if not (isinstance(line["baseline"], dict) and set(line["baseline"]) == set(cases or line["baseline"])
             and all(v in BASELINES for v in line["baseline"].values())):
         bad("baseline", "run, reused or none for each case of cases")
+    if line["kind"] == "quick":
+        # A quick test runs every case once with the skill and nothing else: no baseline, run or reused (the pool the status
+        # builds takes the baseline from the evidence in force), and no gate (below).
+        if _count(line["runs"], 1) and line["runs"] != 1:
+            bad("runs", "1 in a quick test: it runs each case once")
+        if isinstance(line["baseline"], dict) and any(v != "none" for v in line["baseline"].values()):
+            bad("baseline", "none for every case of a quick test: it runs no baseline and reuses none")
     if not (isinstance(line["web_cases"], list) and all(_case_id(v) and str(v) in (cases or {str(v): 1}) for v in line["web_cases"])):
         bad("web_cases", "a list of ids of cases")
     # A key of "counts" or "upstream" is a model id the line itself names (the header, the grader, "unknown").
@@ -389,7 +408,7 @@ def event_line_problems(line, models=None):
         g = line["gate"]
         keyed = isinstance(line["models"], list)  # a list header carries a gate for each model, an old one a single gate
         if line["kind"] != "full":
-            out.append("gate belongs to a full test only: a partial test never evaluates the gate")
+            out.append("gate belongs to a full test only: a partial test and a quick test never evaluate the gate")
         elif keyed and not (isinstance(g, dict) and g and all(is_named(k) and (named is None or k in {m for m, _ in pairs})
                                                                and (not isinstance(line.get("complete_models"), list)
                                                                     or k in line["complete_models"])
@@ -450,7 +469,7 @@ def run_line_problems(line, event=None, models=None):
     if not _is(NAME_RE, line["adapter"]):
         bad("adapter", "an adapter's folder name")
     if line["kind"] not in KINDS:
-        bad("kind", "full or partial")
+        bad("kind", "full, partial or quick")
     if not _is(TEST_ID_RE, line["test"]):
         bad("test", "a test id")
     if not _date(line["date"]):
@@ -489,6 +508,8 @@ def run_line_problems(line, event=None, models=None):
         bad("platform", "a platform name")
     elif "platform" in line and (line["kind"] != "partial" or line["variant"] != "with"):
         out.append("a line of a platform's case runs in a partial test, with the skill only")
+    if line["kind"] == "quick" and line["variant"] == "without":
+        out.append("a quick test runs with the skill only: it has no line without it")
     if "guard_failed" in line:
         failed = line["guard_failed"]
         if not (isinstance(failed, list) and failed and all(_count(v, 1) for v in failed) and len(set(failed)) == len(failed)
@@ -571,10 +592,10 @@ def evidence_file_problems(path, root=None, skill=None, strict=None):
         if "source" in event:
             problems.append("line 1: source belongs to a community evidence file (community-<run id>.jsonl) only: a lab file, "
                             "and a person's local file, never carries it")
-        if strict and event["runs"] != strict["runs"]:
-            problems.append(f"line 1: runs is {event['runs']}, and the configured number is {strict['runs']} "
-                            "(\"runs\" of evals/eval-gate.json): a new evidence file comes only from an event that used the "
-                            "configured number; another number is a trial, and writes no evidence")
+        if strict and event["runs"] != configured_runs(event, strict):
+            problems.append(f"line 1: runs is {event['runs']}, and the configured number is {configured_runs(event, strict)} "
+                            f"({RUNS_SOURCE[event.get('kind') == 'quick']}): a new evidence file comes only from an event that "
+                            "used the configured number; another number is a trial, and writes no evidence")
     for n, line in runs:
         problems += [f"line {n}: {p}" for p in run_line_problems(line, None if first else event, models)]
     if not first and not problems:
@@ -582,9 +603,19 @@ def evidence_file_problems(path, root=None, skill=None, strict=None):
     return problems
 
 
+RUNS_SOURCE = {False: "\"runs\" of evals/eval-gate.json", True: "a quick test runs each case once"}  # keyed by: is the event quick
+
+
+def configured_runs(event, strict):
+    """The "runs" a new event line must carry: the gate file's configured number, and 1 for a quick test, which runs each case
+    once whatever the gate file configures."""
+    return 1 if event.get("kind") == "quick" else strict["runs"]
+
+
 def run_count_problems(event, runs):
     """Why the number of run lines of a case disagrees with the event's own "runs": a case has at most that many
-    lines on one model and one adapter in one variant, with the skill or without it (a baseline never has more)."""
+    lines on one model and one adapter in one variant, with the skill or without it (a baseline never has more). A
+    complete quick test also has a line with the skill for every case of the event, on every model it is complete for."""
     out, seen = [], {}
     for line in runs:
         key = (str(line["case"]), line["model"], line["adapter"], line["variant"])
@@ -593,6 +624,13 @@ def run_count_problems(event, runs):
         if n > event["runs"]:
             out.append(f"case {case} has {n} lines {variant} the skill on {model} ({adapter}), more than the event's "
                        f"\"runs\", {event['runs']}")
+    if event.get("kind") == "quick" and event.get("complete") is True and isinstance(event.get("cases"), dict):
+        have = {(line["model"], str(line["case"])) for line in runs if line["variant"] == "with"}
+        for model in event_complete_models(event):
+            lacking = sorted(str(c) for c in event["cases"] if (model, str(c)) not in have)
+            if lacking:
+                out.append(f"a complete quick test has a line with the skill for every case of the event: {model} has none for "
+                           f"case(s) {', '.join(lacking)}")
     return out
 
 
@@ -739,9 +777,9 @@ def community_file_problems(path, root=None, skill=None, strict=None):
             elif strict["entries"][model] != adapter:
                 problems.append(f"line 1: {model} ran through the adapter {adapter}, and the one its entry in the gate file "
                                 f"names is {strict['entries'][model]}")
-        if strict and event["runs"] != strict["runs"]:
-            problems.append(f"line 1: runs is {event['runs']}, and the configured number is {strict['runs']} "
-                            "(\"runs\" of evals/eval-gate.json)")
+        if strict and event["runs"] != configured_runs(event, strict):
+            problems.append(f"line 1: runs is {event['runs']}, and the configured number is {configured_runs(event, strict)} "
+                            f"({RUNS_SOURCE[event.get('kind') == 'quick']})")
     for n, line in runs:
         found = run_line_problems(line, None if first else event, models)
         problems += [f"line {n}: {p}" for p in found]

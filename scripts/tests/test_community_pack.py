@@ -92,6 +92,11 @@ def test_a_request_for_a_listed_model_with_its_keys_set_passes(capsys):
     assert preflight(["--skill", "biz-icp-positioning", "--model", "deepseek-v4.1-flash", "--full", "--adapter", "agents-dir"]) == 0  # an alias
 
 
+def test_a_quick_request_for_a_listed_model_passes_and_says_so(capsys):
+    assert preflight(["--skill", "biz-icp-positioning", "--model", FLASH, "--quick"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"ok": True, "skill": "biz-icp-positioning", "model": FLASH, "full": False, "quick": True}
+
+
 @pytest.mark.parametrize("args, said", [
     (["--skill", "no-such-skill", "--model", FLASH, "--full"], "is not a skill"),
     (["--skill", "../x", "--model", FLASH, "--full"], "skill must be a skill name"),
@@ -100,6 +105,8 @@ def test_a_request_for_a_listed_model_with_its_keys_set_passes(capsys):
     (["--skill", "biz-icp-positioning", "--model", FLASH, "--full", "--adapter", "claude-code"], "runs through the adapter agents-dir"),
     (["--skill", "biz-icp-positioning", "--model", FLASH], "exactly one of full"),
     (["--skill", "biz-icp-positioning", "--model", FLASH, "--full", "--cases", "1"], "exactly one of full"),
+    (["--skill", "biz-icp-positioning", "--model", FLASH, "--quick", "--full"], "exactly one of full"),
+    (["--skill", "biz-icp-positioning", "--model", FLASH, "--quick", "--cases", "1"], "exactly one of full"),
     (["--skill", "biz-icp-positioning", "--model", FLASH, "--cases", "1;rm -rf /"], "cases must be case ids"),
 ])
 def test_a_request_the_workflow_must_not_run_is_refused(args, said, capsys):
@@ -158,6 +165,25 @@ def test_the_packed_files_pass_the_validators_the_pull_request_check_uses(tree, 
     (folder / "community-111-222-1.sigstore.json").write_text(json.dumps(ce.BUNDLE))
     complete = folder / "community-111-222-1.manifest.json"
     complete.write_text(json.dumps({**data, "run_runner_group": es.EVIDENCE_LINES.RUNNER_GROUP}, indent=2, sort_keys=True))
+    assert es.community_file_problems(str(folder / "community-111-222-1.jsonl"), str(root), "core-demo", strict=True) == []
+
+
+def test_a_quick_test_is_packed_like_the_others_and_the_trio_is_valid_read_strictly(tree, tmp_path, capsys):
+    root, repo, commit, local = tree
+    lab_file(repo, local, kind="quick", per_case=1, extra_event={"runs": 1})
+    out = tmp_path / "out"
+    assert pack(root, local, commit, out) == 0
+    result = json.loads(capsys.readouterr().out)
+    packed = [json.loads(l) for l in (out / result["files"][0]).read_text().splitlines()]
+    assert packed[0]["kind"] == "quick" and packed[0]["runs"] == 1 and packed[0]["source"] == "community"
+    assert {l["variant"] for l in packed[1:]} == {"with"}
+    folder = repo / "evals" / "evidence"
+    for name in result["files"]:
+        (folder / name).write_bytes((out / name).read_bytes())
+    (folder / "community-111-222-1.sigstore.json").write_text(json.dumps(ce.BUNDLE))
+    data = json.loads((folder / "community-111-222-1.manifest.json").read_text())
+    (folder / "community-111-222-1.manifest.json").write_text(
+        json.dumps({**data, "run_runner_group": es.EVIDENCE_LINES.RUNNER_GROUP}, indent=2, sort_keys=True))
     assert es.community_file_problems(str(folder / "community-111-222-1.jsonl"), str(root), "core-demo", strict=True) == []
 
 

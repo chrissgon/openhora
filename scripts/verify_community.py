@@ -11,7 +11,8 @@ folder: community-<repository id>-<run id>-<attempt>.jsonl (the evidence), .mani
 failure of a file:
   1. the shape: the file's name, manifest and bundle agree, the lines pass the evidence validators read strictly (a
      listed model with a route, its entry's adapter, the configured number of runs, the published image), and the
-     skill's version file gives the event's content hash for its version (eval_status.py community_file_problems);
+     skill's version file gives the event's content hash for its version (eval_status.py community_file_problems). A quick test's
+     file (kind "quick", package P11) is checked the same way, with 1 as the configured number of runs, the one it carries;
   2. the commit of the manifest is in the history of main (git merge-base --is-ancestor <commit> <main ref>): the
      official workflow that signed is a reviewed one; and, when the BASE commit's evals/community.json names a
      "min_signing_commit", the signing commit is on main's first-parent line at that commit or after it (a workflow
