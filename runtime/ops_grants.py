@@ -85,8 +85,9 @@ def effect_refusal(ctx: dict, item: dict, channel, facts: dict):
         return ("an effect is approved in the terminal, with its hash: " + command
                 + (f" (or on the page; a messaging app approves it only when the project's configuration grants it {group})" if group else ""))
     if not facts.get("on_cards"):
-        return ("this effect carries more than a card can show (a file or an image the hash covers), so it is not approved from a card: "
-                "approve it in the terminal or on the page, with its hash: " + command)
+        return ("this effect carries more than a card can show (the hash covers something the card does not carry: a file, an image, every row of "
+                "a table, or the code of a change), so it is not approved from a card: approve it in the terminal or on the page, with its hash: "
+                + command)
     return None
 
 

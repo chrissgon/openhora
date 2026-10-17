@@ -251,6 +251,17 @@ def test_the_answers_of_the_provider_map_to_the_kinds_and_a_missing_message_id_i
     r.finish()
 
 
+def test_a_send_answer_carries_whether_the_document_went_out_and_the_id_is_still_a_string(tmp_path, monkeypatch, rig):
+    r = rig()
+    r.messenger.open_session(r.log.append)
+    assert wait_for(r.messenger.session.is_ready)
+    plain = {"text": "x", "actions": [], "link": None, "document": {"name": "d.txt", "text": "whole"}}
+    ok, failed = r.messenger.send("somebody", plain), r.messenger.send("doc-failed", plain)
+    assert isinstance(ok, str) and isinstance(failed, str) and ok.startswith("m") and failed.startswith("m")
+    assert ok.document_failed is False and failed.document_failed is True
+    r.finish()
+
+
 def test_a_send_that_is_never_answered_fails_after_send_seconds(tmp_path, monkeypatch, rig):
     r = rig(options={"send_seconds": 0.3})
     r.messenger.open_session(r.log.append)

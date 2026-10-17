@@ -58,8 +58,11 @@ type Answer struct {
 	ID        json.RawMessage `json:"id"`
 	OK        bool            `json:"ok"`
 	MessageID string          `json:"message_id,omitempty"`
-	Kind      string          `json:"kind,omitempty"`
-	Reason    string          `json:"reason,omitempty"`
+	// DocumentFailed is true when the text went out and the document that was to follow it did not: the send is still ok (the
+	// text must not be sent twice), and the bridge reads this to know that the whole text was not delivered.
+	DocumentFailed bool   `json:"document_failed,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+	Reason         string `json:"reason,omitempty"`
 }
 
 // Sender is what a send needs from the WhatsApp client. The program's client implements it; the tests use a fake.
@@ -167,6 +170,7 @@ func Handle(ctx context.Context, s Sender, req Request) Answer {
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
 	messageID := ""
+	documentFailed := false
 	if text != "" {
 		id, err := s.SendText(ctx, to, text)
 		if err != nil {
@@ -181,11 +185,12 @@ func Handle(ctx context.Context, s Sender, req Request) Answer {
 				return Answer{ID: req.ID, Kind: kindFailed, Reason: failureSentence(err)}
 			}
 			logf("a document could not be sent after its text (%s)", failureClass(err))
+			documentFailed = true
 		} else if messageID == "" {
 			messageID = id
 		}
 	}
-	return Answer{ID: req.ID, OK: true, MessageID: messageID}
+	return Answer{ID: req.ID, OK: true, MessageID: messageID, DocumentFailed: documentFailed}
 }
 
 func failureClass(err error) string {

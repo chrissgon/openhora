@@ -125,8 +125,8 @@ def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen:
     operation that accepts any change of it (set_mode accepts a move down the order of the modes, and, for the person
     in the terminal, the one move up it sets), and the only one that runs on a configuration that was not accepted.
     A file that lists a grant (operations.GRANTS: a channel widened) that the accepted file did not list is accepted only
-    with `widen`, the sha256 of the widening list that `config` shows (policy_grants.widening_sha256): it binds exactly the
-    list the person read, and a file someone else edited cannot widen a channel through an acceptance made without reading.
+    with `widen`, the sha256 of the widening list that `config` shows (policy_grants.widening_sha256): without it the call
+    stops and prints the list and the command (the hash proves no reading: whoever can run accept-config can compute it, and it covers GRANTS alone).
     Returns {"accepted", "previous", "path", "checkpoints", "widened"}: "widened" lists the grants this acceptance gave away."""
     ctx = core.context(project, check_config=False)
     cfg = ctx["cfg"]

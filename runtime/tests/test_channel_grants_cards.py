@@ -19,6 +19,7 @@ operations = st.load("operations")
 bridge = st.load("messaging_bridge")
 cards = st.load("messaging_cards")
 inbound = st.load("messaging_inbound")
+providers = st.load("messaging_provider")
 
 HASH = "e" * 64
 GRANTED = [*OPEN_POLICY, "approve-effect-write"]
@@ -100,19 +101,117 @@ def test_a_card_cut_on_a_platform_without_documents_draws_no_approve_and_says_so
     assert approve_calls(world) == [] and world.texts()[-1].startswith(bridge.TOO_LONG) and HASH in world.texts()[-1]
 
 
-def test_the_same_long_effect_on_a_platform_with_documents_is_whole_as_the_attached_document_and_is_approved(world):
+def test_the_same_long_effect_on_a_platform_with_documents_sends_the_file_first_and_the_card_after_it_is_confirmed(world):
     grant(world)
     world.caps(max_text=300, documents=True)
     world.items[7] = effect(body="y" * 2000)
     world.bridge.tick()
-    [card] = world.sent()
-    message = card["message"]
-    assert LABEL in [a["label"] for a in message["actions"]] and message["document"]["text"].endswith("y" * 2000)
-    assert message["document"]["name"] == "effect-7.txt" and len(message["text"]) <= 300
+    first, second = world.sent()
+    assert first["message"]["document"]["text"].endswith("y" * 2000) and first["message"]["document"]["name"] == "effect-7.txt"
+    assert first["message"]["actions"] == [] and cards.DOCUMENT_NOTE in first["message"]["text"], "the file goes alone, with no button"
+    message = second["message"]
+    assert message["document"] is None and cards.WHOLE_ABOVE in message["text"] and len(message["text"]) <= 300
+    assert LABEL in [a["label"] for a in message["actions"]]
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["whole"] is True and entry["approvable"] is True
     world.fake.answers["approve"] = {"task_state": "done"}
     world.say(None, action=approve_action(world))
     assert wait_for(lambda: approve_calls(world))
     assert approve_calls(world)[0][2] == {"pending_id": 7, "sha256": HASH, "channel": "messaging"}
+
+
+def test_a_file_that_the_provider_says_did_not_arrive_makes_a_card_with_no_approval_that_says_so(world):
+    grant(world)
+    world.caps(max_text=300, documents=True)
+    world.standin.joinpath("document_fail.json").write_text("true")
+    world.items[7] = effect(body="y" * 2000)
+    world.bridge.tick()
+    first, second = world.sent()
+    assert first["message"]["document"] is not None
+    message = second["message"]
+    assert [a["label"] for a in message["actions"]] == ["Reject"] and message["document"] is None
+    assert cards.DOCUMENT_LINE in message["text"] and "Approve it on the page or in the terminal:" in message["text"]
+    [entry] = world.bridge.ledger.data["cards"]
+    assert entry["whole"] is False and entry["approvable"] is False
+    world.say("/approve 7")
+    world.say(f"/approve 7 {HASH}")
+    assert approve_calls(world) == [] and any(t.startswith(bridge.TOO_LONG) for t in world.texts()), "the reply is split to the platform's 300 characters"
+    assert any("not delivered" in line for line in world.log)
+
+
+def test_a_file_that_cannot_be_sent_or_cannot_be_told_to_have_arrived_is_not_delivered_and_a_deferred_one_is_tried_again(world, monkeypatch):
+    grant(world)
+    world.caps(max_text=300, documents=True)
+    world.items[7] = effect(body="y" * 2000)
+    real = world.bridge.messenger.send
+
+    def raising(kind):
+        def send(chat, message):
+            if message.get("document"):
+                raise providers.MessengerError(kind, "refused")
+            return real(chat, message)
+        return send
+
+    monkeypatch.setattr(world.bridge.messenger, "send", raising("failed"))
+    world.bridge.tick()
+    [card] = world.sent()
+    assert [a["label"] for a in card["message"]["actions"]] == ["Reject"] and cards.DOCUMENT_LINE in card["message"]["text"]
+    fresh_bridge(world)
+    monkeypatch.setattr(world.bridge.messenger, "send", raising("deferred"))
+    world.bridge.tick()
+    assert world.sent() == [] and world.bridge.ledger.data["cards"] == [], "nothing is recorded: the card is tried again"
+    # a provider that answers with a plain id (it never reported the file) is treated as a file not delivered
+    fresh_bridge(world)
+    monkeypatch.setattr(world.bridge.messenger, "send", lambda chat, message: str(real(chat, message)))      # a plain str: no status came with it
+    world.bridge.tick()
+    assert [a["label"] for a in world.sent()[-1]["message"]["actions"]] == ["Reject"]
+
+
+def test_a_plan_with_a_networked_step_is_approved_off_the_terminal_only_from_a_whole_card_and_with_the_cards_hash(world):
+    grant(world, [*OPEN_POLICY, "approve-networked-plans"])
+    world.items[1] = decision("plan", 1, plan_networked=True)
+    world.bridge.tick()
+    [card] = world.sent()
+    assert "Approve" in [a["label"] for a in card["message"]["actions"]]
+    action = card["message"]["actions"][0]["id"]
+    world.say(f"/approve 1 {'f' * 64}")
+    assert world.texts()[-1] == bridge.WRONG_HASH and approve_calls(world) == [], "a typed hash is the card's, for a plan as for an effect"
+    world.fake.answers["approve"] = {"approved": True}
+    world.say(None, action=action)
+    assert approve_calls(world)[0][2] == {"pending_id": 1, "sha256": "p" * 64, "channel": "messaging"}
+    # without the grant the card has no button: it says where to approve
+    grant(world, OPEN_POLICY)
+    fresh_bridge(world)
+    world.bridge.tick()
+    assert [a["label"] for a in world.sent()[0]["message"]["actions"]] == ["Reject"] and cards.PAGE_LINE in world.sent()[0]["message"]["text"]
+
+
+def test_a_networked_plan_card_that_was_cut_or_whose_file_failed_approves_nothing(world):
+    grant(world, [*OPEN_POLICY, "approve-networked-plans"])
+    world.caps(max_text=1600, documents=False)
+    world.items[1] = decision("plan", 1, body="z" * 3000, plan_networked=True)
+    world.bridge.tick()
+    [card] = world.sent()
+    assert [a["label"] for a in card["message"]["actions"]] == ["Reject"] and cards.TOO_LONG_LINE in card["message"]["text"]
+    world.say("/approve 1")
+    assert approve_calls(world) == [] and world.texts()[-1].startswith(bridge.TOO_LONG)
+    fresh_bridge(world)
+    world.caps(max_text=300, documents=True)
+    world.standin.joinpath("document_fail.json").write_text("true")
+    world.bridge.tick()
+    assert [a["label"] for a in world.sent()[-1]["message"]["actions"]] == ["Reject"] and cards.DOCUMENT_LINE in world.sent()[-1]["message"]["text"]
+    world.say("/approve 1")
+    assert approve_calls(world) == []
+    # a card of before the flag, forced whole in the ledger by an old entry: a plan that reaches the network still needs `whole`
+    for entry in world.bridge.ledger.data["cards"]:
+        entry.pop("whole", None)
+    world.say("/approve 1")
+    assert approve_calls(world) == []
+    # and a plan that reaches no network is as it always was, a cut card included
+    world.items[2] = decision("plan", 2, body="z" * 3000, plan_networked=False, plan_sha256="s" * 64)
+    world.caps(max_text=1600, documents=False)
+    world.bridge.tick()
+    assert "Approve" in [a["label"] for a in world.sent()[-1]["message"]["actions"]]
 
 
 def test_an_effect_that_cannot_be_on_a_card_draws_no_button_and_no_card_or_typed_line_approves_it_even_with_the_group_granted(world):

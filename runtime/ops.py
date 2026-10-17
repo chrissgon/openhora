@@ -1096,7 +1096,8 @@ def pending(project: str, pending_id: int | None = None) -> dict:
         item = core._stored(ctx, ctx["store"].pending_get, pending_id)
         known = ops_grants.effect_facts(ctx, item) if item["kind"] == "effect" else None   # POL-1: the word the policy is asked about, and whether a card can hold all of it
         return {**item, "agent": agents.get(item["task_id"]), "actions": _actions(ctx["store"], item),
-                **({"effect_word": known["word"], "effect_on_cards": known["on_cards"]} if known else {})}
+                **({"effect_word": known["word"], "effect_on_cards": known["on_cards"]} if known else {}),
+                **({"plan_networked": bool(ops_waits.networked_steps(item))} if item["kind"] == "plan" else {})}   # a plan with a networked step needs a whole card to be approved off the terminal and the page
     return {"pending": [_listed(item, ctx["store"], agents) for item in core._stored(ctx, ctx["store"].pending_list)]}
 
 

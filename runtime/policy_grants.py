@@ -8,14 +8,13 @@ words, and the hash a person types to accept it.
 
 A channel restriction is a policy: the default is today's restrictive rule, and the person may widen it in the project's
 configuration, one grant at a time (operations.GRANTS: a group a channel reaches only when the project's own entry lists it). Narrowing
-needs no ceremony; widening does, because a configuration someone else edited must not widen a channel through an acceptance made
-without reading. So:
+needs no ceremony; a widening needs one step more: accept-config stops, prints the list and takes its hash. The hash is not a proof of
+reading (whoever can run accept-config can compute it) and covers GRANTS alone: a group inside a channel's ceiling is added by listing it. So:
 
   grants(channels)            the grants the file lists, as [{"channel", "group", "means"}] in the order of operations.GRANTS
   widening(recorded, channels)  those the last accepted file did not list (what accept-config is about to give away)
   widening_sha256(list)       the sha256 of the widening list written one `<channel>:<group>` per line, a newline after each: what
-                              `config` shows next to the list and `accept-config --widen` takes. `printf '<line>\\n' | shasum -a 256`
-                              gives it by hand for one grant. An empty list has no hash (None): nothing to confirm.
+                              `config` shows next to the list and `accept-config --widen` takes. An empty list has no hash (None): nothing to confirm.
   parse(text), dump(pairs)    the cursor `config:grants` of the store, where the accepted file's grants are recorded when it is accepted
   warnings(cfg)               sentences `config` shows beside the grants (never a refusal)
 

@@ -197,8 +197,18 @@ class Bridge(shell_kit.Jobs):
         if item["kind"] == "effect":
             command = operations.command_line("approve", project["path"], checkout=ROOT, pending_id=item["id"],
                                               sha256=item.get("payload_sha256"))
-        card = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"],
+        caps = self.messenger.capabilities()
+        card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"],
                            settings["page_url"], operations=operations, effect_command=command)
+        document = card["message"]["document"]
+        if document and card["gated"] and card["approvable"]:
+            # An approval needs the whole text DELIVERED: the file goes first, as a message of its own, and the card with the buttons only after
+            # the provider confirmed it. A file that failed (or a send that could not be told) makes a card with no approval that says so.
+            state = self.send_document(project, item, chat, document)
+            if state is None:
+                return False
+            card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"], settings["page_url"],
+                               operations=operations, effect_command=command, delivery=state)
         seq = self.ledger.next_seq()
         message = dict(card["message"])
         made = {f"{seq}:{a['op']}": a["op"] for a in message["actions"]}
@@ -221,6 +231,25 @@ class Bridge(shell_kit.Jobs):
         except OSError as e:  # the card went out and the process keeps the record in memory; it is not sent again
             self.log(f"the ledger could not be written ({e.__class__.__name__})")
         return True
+
+    def send_document(self, project: dict, item: dict, chat: str, document: dict):
+        """The whole text of a decision as a file, before its card. "sent" when the provider confirmed the document, "failed" when it did not
+        (a document that failed after the text, or a send that raised), None when the platform deferred it (nothing is recorded; it is tried
+        again). A provider that cannot tell is "failed": the card is then not approvable here."""
+        try:
+            sent = self.messenger.send(chat, cards.document_message(project["name"], item, document))
+        except provider.MessengerError as e:
+            if e.kind == "deferred":
+                self.defer(project, item, chat)
+                return None
+            self.log(f"the file of a card could not be sent ({e.kind})")
+            if e.kind == "not-configured":
+                raise Fatal(e.reason) from None
+            return "failed"
+        if getattr(sent, "document_failed", True) is not False:
+            self.log("the file of a card was not delivered: its card has no approval")
+            return "failed"
+        return "sent"
 
     def defer(self, project: dict, item: dict, chat: str) -> None:
         """The platform cannot take this card now: keep it (nothing is recorded), remember the chat, and say so once a day."""
@@ -418,6 +447,17 @@ class Bridge(shell_kit.Jobs):
         if card is None:
             self.reply(chat, NO_CARD)
             return
+        if kind == "plan":
+            if typed_hash is not None and typed_hash != card["content_sha256"]:
+                self.reply(chat, WRONG_HASH)         # a hash typed with /approve is the card's, for a plan as for an effect
+                return
+            if item.get("plan_networked") is True:       # a plan that reaches the network: its destinations must have been shown, whole
+                self.allow(project, "approve", "plan:networked")
+                if card.get("whole") is not True or self.settings(project)["notices"] != "text":
+                    command = self.ops.operations.command_line("approve", project["path"], checkout=ROOT, pending_id=number,
+                                                               sha256=card["content_sha256"])
+                    self.reply(chat, f"{TOO_LONG}\n{command}")
+                    return
         if kind == "acceptance" and cards.content_sha256(item) != card["content_sha256"]:
             self.reply(chat, CHANGED)
             self.renew(project, chat, number, card)

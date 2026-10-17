@@ -25,7 +25,7 @@ script.json (optional) is {"1": step, "2": step, "default": step}: the step for 
 A send to the chat "crash-1" makes the first start deliver it (it is recorded) and exit 1 without answering, "exit-3" writes the error event and exits 3,
 "exit-2" does the same with 2, "silent" is never answered, "fail-usage", "fail-failed" and "fail-deferred" are answered ok:false
 (the kind is the rest of the chat's name), "defer-first-<n>" is answered the same way for its first n sends, "defer-once" is answered ok:false, kind "deferred", the first time it is sent to
-(then runs after_send "1" as a send does) and as any chat after, "no-id" is answered ok:true without a message_id. Records, one JSON object per line, in STANDIN_DIR: starts.jsonl (pid, pgid,
+(then runs after_send "1" as a send does) and as any chat after, "no-id" is answered ok:true without a message_id, "doc-failed" ok:true with a message_id and document_failed:true. Records, one JSON object per line, in STANDIN_DIR: starts.jsonl (pid, pgid,
 the arguments), requests.jsonl (every line it read), sent.jsonl (chat and message of each send it answered). No network.
 """
 from __future__ import annotations
@@ -149,6 +149,11 @@ def listen(platform) -> int:
             continue
         if chat == "no-id":
             write({"id": request["id"], "ok": True})
+            continue
+        if chat == "doc-failed":      # the text went out and its document did not: ok, with the id, and the flag the bridge reads
+            sends += 1
+            count = append("sent.jsonl", {"chat": chat, "message": request["message"]})
+            write({"id": request["id"], "ok": True, "message_id": f"m{count}", "document_failed": True})
             continue
         sends += 1
         sent = {"chat": chat, "message": request["message"]}

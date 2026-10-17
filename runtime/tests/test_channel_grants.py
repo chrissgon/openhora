@@ -483,7 +483,13 @@ def test_the_effects_word_and_whether_it_fits_on_a_card_come_from_the_document_r
     assert ops_grants.effect_facts({}, made("b", {"effect": "send", "attachments": [{"name": "invoice.pdf"}]})) == {"word": "send", "on_cards": False}
     assert ops_grants.effect_facts({}, made("c", {"effect": "publish", "image": {"path": "docs/outputs/photo.png"}})) == {"word": "publish", "on_cards": False}
     assert ops_grants.effect_facts({}, made("d", {"effect": "publish", "image": None})) == {"word": "publish", "on_cards": True}
-    assert ops_grants.effect_facts({}, made("e", {"effect": "write"})) == {"word": "write", "on_cards": True}, "a kind with no on_cards fits"
+    assert ops_grants.effect_facts({}, made("e", {"effect": "write", "content": "# Plan\n"})) == {"word": "write", "on_cards": True}, "a page is on a card"
+    assert ops_grants.effect_facts({}, made("e2", {"effect": "write", "operation": "create_page", "content": "# New\n"})) == {"word": "write", "on_cards": True}
+    for operation in ("create_table", "append_rows"):       # a table's card is a preview (20 rows, the last 3, cells cut at 60): the hash covers every row
+        assert ops_grants.effect_facts({}, made("t" + operation, {"effect": "write", "operation": operation, "content": {"columns": [], "rows": []}})) \
+            == {"word": "write", "on_cards": False}, operation
+    assert ops_grants.effect_facts({}, made("e3", {"effect": "write"})) == {"word": "write", "on_cards": False}, "a document without its content is not on a card"
+    assert ops_grants.effect_facts({}, made("e4", {"effect": "create"})) == {"word": "create", "on_cards": False}, "a pull request card shows paths and hashes, not the code"
     # what cannot be read is no word and not on a card: a file edited after the gate, a word no kind has, no file, no hash
     edited = made("f", {"effect": "write"})
     Path(edited["payload"]["effect_file"]).write_text("{}")
@@ -494,10 +500,10 @@ def test_the_effects_word_and_whether_it_fits_on_a_card_come_from_the_document_r
     assert ops_grants.effect_kind({"word": "send"}) == "effect:send" and ops_grants.effect_kind({"word": None}) == "effect" and ops_grants.effect_kind(None) == "effect"
 
 
-def test_a_pull_request_effect_carries_its_word_and_a_messaging_grant_of_create_approves_it_once(tree):  # noqa: F811
+def test_a_pull_request_effect_carries_its_word_and_no_card_approves_it_even_with_create_granted_the_terminal_and_the_page_do(tree):  # noqa: F811
     path, plan_id, digest, accept_id, effect = decisions(tree)
     full = ops.pending(path, effect["id"])
-    assert full["effect_word"] == "create" and full["effect_on_cards"] is True
+    assert full["effect_word"] == "create" and full["effect_on_cards"] is False, "the card shows paths and hashes, not the code the hash covers"
     assert "effect_word" not in ops.pending(path)["pending"][0], "the list does not read every effect document"
     # the default: refused before anything executes, and the sentence is the one it always was
     with pytest.raises(ops.OpsError) as no:
@@ -508,12 +514,16 @@ def test_a_pull_request_effect_carries_its_word_and_a_messaging_grant_of_create_
         ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging")
     assert provider_calls(tree) == [] and ops.pending(path, effect["id"])["status"] == "open"
     accept(path, {"messaging": ["read", "approve-effect-create"]})
-    done = ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging")
+    with pytest.raises(ops.OpsError) as no:      # the grant is there and approves nothing yet: a card does not show the change
+        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging")
+    assert "more than a card can show" in str(no.value) and "the code of a change" in str(no.value)
+    assert provider_calls(tree) == [] and ops.pending(path, effect["id"])["status"] == "open"
+    done = ops.approve(path, effect["id"], effect["payload_sha256"], channel="terminal")
     assert done["pull_request"] and ops.pending(path, effect["id"])["status"] == "resolved"
     assert any(call for call in provider_calls(tree)), "the provider was called, once, by code"
     calls_after = len(provider_calls(tree))
     with pytest.raises(ops.OpsError):
-        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging")
+        ops.approve(path, effect["id"], effect["payload_sha256"], channel="terminal")
     assert len(provider_calls(tree)) == calls_after
 
 

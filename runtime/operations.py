@@ -334,7 +334,7 @@ OPERATIONS = (
               {"name": "providers", "kind": "list", "flag": "provider"}, {"name": "window_seconds", "kind": "int", "flag": "window-seconds"},
               {"name": "consent", "kind": "flag"}, {"name": "warning_sha256", "kind": "str", "flag": "warning-sha256"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
-     "help": "create a routine as a draft: --flow a flow, --param name=value its fixed arguments, --every day|week|minutes with --at HH:MM, --weekday, --minutes, --model (an id, auto, or the project's default), --provider (the approved set for auto), --window-seconds (the catch-up window, default its period), --consent (terminal; the page sends the hash of the warning) for a fixed model with no evidence; nothing fires until routine-approve; from messaging only when the project grants it, and never for a flow with a networked script or one a standing policy covers"},
+     "help": "create a routine as a draft: --flow a flow, --param name=value its fixed arguments, --every day|week|minutes with --at HH:MM, --weekday, --minutes, --model (an id, auto, or the project's default), --provider (the approved set for auto), --window-seconds (the catch-up window, default its period), --consent (terminal; the page sends the hash of the warning) for a fixed model with no evidence; nothing fires until routine-approve; from messaging only when the project's `channels.messaging` lists routine-edit, and never for a flow with a networked script or one a standing policy covers"},
     {"name": "routine-change", "call": "routine_change",
      "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"}, {"name": "flow", "kind": "str"}, {"name": "params", "kind": "list", "flag": "param"},
               {"name": "every", "kind": "choice", "choices": ("day", "week", "minutes")}, {"name": "at", "kind": "str"},
@@ -385,14 +385,14 @@ GROUPS = {
     "approve-networked-plans": {"operations": ("approve",), "kind": "plan:networked"},    # a plan that holds a step reaching the network (P9, limit L36): on top of approve-plans
     "go-ahead": {"operations": ("go-ahead",), "kind": None},
     "reject-cancel": {"operations": ("reject", "cancel"), "kind": None},
-    "brakes": {"operations": ("cancel", "stop-task"), "kind": None},   # R18: end what runs, a grant for messaging (in no default); `cancel` is also in reject-cancel, so a written policy stays valid
+    "brakes": {"operations": ("cancel", "stop-task"), "kind": None},   # R18: end what runs, turned on for messaging by listing it (in no default); `cancel` is also in reject-cancel, so a written policy stays valid
     "retry": {"operations": ("retry",), "kind": None},
     "set-mode": {"operations": ("set-mode", "set-model"), "kind": None},
     "consent": {"operations": ("give-consent",), "kind": None},   # the page's consent for an autonomous agent (D38): a group of its own, so granting set-mode never grants it
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
     "flow-write": {"operations": ("flow-save", "stage-file"), "kind": None},   # saving a flow of the project, and handing a file over for the plan of one (not `flows`, the read operation of the group `read`)
-    # routines (P6b): the brakes reach the messaging channel by default; making and changing one is a grant of `channels.messaging`
+    # routines (P6b): the brakes reach the messaging channel by default; making and changing one is turned on by `channels.messaging` listing `routine-edit`
     # (and never for a flow that holds a networked script or that a standing policy covers: ROUTINE_LOCAL_CHANNELS); approving one
     # (by the hash of its content) and resuming it are the terminal's and the page's
     "routine-brakes": {"operations": ("routine-pause", "routine-cancel"), "kind": None},
@@ -417,10 +417,13 @@ ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whos
 BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
 
 # Grants (POL-1). A channel restriction is a policy: the default is today's rule, and the person may widen it in the project's
-# configuration. Narrowing is what `channels.<channel>` does to a ceiling. WIDENING is only ever one of the groups below, and
-# only when the project's OWN entry for that channel lists it (never through DEFAULT_POLICY, never through "no entry keeps the
-# ceiling"). It is the one list of widenings the configuration can ask for; accept-config shows what each one gives away and
-# takes the hash of that list (--widen) before it accepts a file that adds one. An effect is approved by the exact hash on every
+# configuration. "Grant" means one thing here: a group of GRANTS below, which goes BEYOND the ceiling of a channel (an effect on a
+# messaging app, a networked plan, and the operations the MCP mode's rows do not list), and which a channel reaches only when the
+# project's OWN entry for it lists it (never through DEFAULT_POLICY, never through "no entry keeps the ceiling"). accept-config shows
+# what each grant gives away and takes the hash of that list (--widen) before it accepts a file that adds one. The other groups
+# (approve-plans, release, reject-cancel, retry, brakes, routine-edit, ...) are inside a channel's ceiling: a project turns them on
+# by listing them, and a runtime.json edited to list one is accepted by accept-config WITHOUT --widen, because --widen covers GRANTS
+# alone; the person reads the file before accepting it, as for every other key. An effect is approved by the exact hash on every
 # channel; a grant changes where, never whether. The MCP mode (a model client) is granted no effect, no networked plan and no consent.
 EFFECT_APPROVAL_WORDS = ("create", "write", "send", "publish")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
@@ -428,8 +431,8 @@ GRANTS = {
     "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
 }
 GRANT_TEXT = {
-    "messaging:approve-effect-create": "a messaging app may approve a pull request, from a card that carries the whole text, with its hash",
-    "messaging:approve-effect-write": "a messaging app may approve a write to your documents platform, from a card that carries the whole text, with its hash",
+    "messaging:approve-effect-create": "a messaging app may approve a pull request, with its hash; today its card shows the files and their hashes and not the code, so no pull request is approved from a card yet and this grant approves nothing until a card shows the change",
+    "messaging:approve-effect-write": "a messaging app may approve the write of a page of your documents platform (never a table: its card is a preview), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-send": "a messaging app may approve an e-mail sent from your outbox (never one with an attachment), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-publish": "a messaging app may approve a post to a social platform (never one with an image), from a card that carries the whole text, with its hash",
     "messaging:approve-networked-plans": "a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash",

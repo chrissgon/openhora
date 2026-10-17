@@ -109,5 +109,5 @@
     "rejected"
   ],
   "effect_word": "create",
-  "effect_on_cards": true
+  "effect_on_cards": false
 }

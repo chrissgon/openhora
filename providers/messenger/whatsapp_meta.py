@@ -81,6 +81,17 @@ class ApiError(ProviderError):
         self.status, self.error_code = status, error_code
 
 
+class SentId(str):
+    """The id of the message a send answered, with whether the document that was to follow it did not go out (`document_failed`): the text is
+    delivered, so the send does not fail (the bridge would send the text twice), and the answer to the bridge says so, which a card that
+    needs its whole text delivered (an effect to approve) reads."""
+
+    def __new__(cls, value, document_failed: bool = False):
+        found = super().__new__(cls, value)
+        found.document_failed = bool(document_failed)
+        return found
+
+
 class Deferred(Exception):
     """The window is closed: the card is kept by the bridge and sent again after the person writes."""
 
@@ -1107,7 +1118,8 @@ class Listener:
         except ProviderError as e:
             self.answer(rid, False, kind=e.kind, reason=redact(e, self.known))
         else:
-            self.answer(rid, True, message_id=message_id)
+            self.answer(rid, True, message_id=str(message_id),
+                        **({"document_failed": True} if getattr(message_id, "document_failed", False) else {}))
         if pause:
             self.stop.wait(self.rate_wait)
 

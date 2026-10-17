@@ -83,8 +83,20 @@ func TestADocumentIsSentAfterTheTextWithItsNameAndMime(t *testing.T) {
 func TestAFailedDocumentAfterTheTextStillAnswersOkBecauseTheCardWasDelivered(t *testing.T) {
 	f := &fakeSender{docErr: errors.New("boom")}
 	req := request(t, `{"id": 8, "op": "send", "chat": "5511900000000", "message": {"text": "A plan.", "document": {"name": "p.txt", "text": "x"}}}`)
-	if a := Handle(context.Background(), f, req); !a.OK {
-		t.Fatalf("%+v", a)
+	a := Handle(context.Background(), f, req)
+	if !a.OK || !a.DocumentFailed {
+		t.Fatalf("the send is ok and says the document did not go out: %+v", a)
+	}
+	line, _ := json.Marshal(a)
+	if !strings.Contains(string(line), `"document_failed":true`) {
+		t.Fatalf("the answer line carries the flag the bridge reads: %s", line)
+	}
+	ok := Handle(context.Background(), &fakeSender{}, req)
+	if !ok.OK || ok.DocumentFailed {
+		t.Fatalf("a document that arrived is not flagged: %+v", ok)
+	}
+	if line, _ := json.Marshal(ok); strings.Contains(string(line), "document_failed") {
+		t.Fatalf("an answer without a failure does not mention it: %s", line)
 	}
 }
 
