@@ -1075,7 +1075,7 @@ def test_a_message_the_server_refuses_for_three_tries_over_an_hour_is_skipped_wi
     assert pipe.events("error") == [] and pipe.code is None
     clock[0] += provider.RETRY_SPAN + 1
     pipe.wait(lambda x: x.get("event") == "error")
-    assert pipe.events("error")[0]["kind"] == "failed" and "skipped" in pipe.events("error")[0]["reason"]
+    assert pipe.events("error")[0]["kind"] == "skipped" and "skipped" in pipe.events("error")[0]["reason"]
     deadline = time.monotonic() + 5
     while "retry" in json.loads((world["state"] / "cursor.json").read_text()) and time.monotonic() < deadline:
         time.sleep(0.05)
@@ -1463,6 +1463,26 @@ def test_the_list_of_messages_to_try_again_is_capped_and_the_oldest_is_given_up_
     assert saved["last_uid"] == provider.RETRY_MAX + 5 and len(saved["retry"]) <= provider.RETRY_MAX
     assert "1" not in saved["retry"] and str(provider.RETRY_MAX + 5) in saved["retry"]      # the oldest went, the newest stayed
     assert capfd.readouterr().err.count("the list of messages to try again was full") >= 5
+    gave_up = [e for e in pipe.events("error") if e["kind"] == "skipped"]
+    assert len(gave_up) >= 5 and all("list of messages to try again was full" in e["reason"] for e in gave_up)      # each give-up reaches the bridge
+    assert pipe.end() == 0
+
+
+def test_an_unexpected_error_on_a_first_read_is_a_log_line_with_no_event_and_the_channel_goes_on(world, monkeypatch, capfd):
+    real = provider.Listener.handle_uid
+
+    def handle(self, box, uid):
+        if uid == 1:
+            raise KeyError("a surprise")
+        return real(self, box, uid)
+    monkeypatch.setattr(provider.Listener, "handle_uid", handle)
+    pipe = Pipe(world)
+    pipe.wait(lambda x: x.get("event") == "ready")
+    world["imap"].add(raw(text="poison"))
+    world["imap"].add(raw(text="second"))
+    pipe.wait(lambda x: x.get("event") == "update")
+    assert "unreadable (KeyError)" in capfd.readouterr().err
+    assert pipe.events("error") == [], "a stranger who passes DMARC for their own domain can craft a message that raises: never a message to the person"
     assert pipe.end() == 0
 
 
@@ -1479,7 +1499,8 @@ def test_the_cursor_is_written_once_for_a_pass_over_the_retry_list_not_once_for_
 
 def test_an_unexpected_error_on_a_message_to_try_again_is_logged_and_the_pass_goes_on(tmp_path, monkeypatch, capfd):
     monkeypatch.setenv("OPENHORA_STATE_DIR", str(private(tmp_path / "s")))
-    listener = provider.Listener(settings_for(), PASSWORD, out=provider.Out(io.BytesIO()), stdin=io.BytesIO())
+    out = io.BytesIO()
+    listener = provider.Listener(settings_for(), PASSWORD, out=provider.Out(out), stdin=io.BytesIO())
     listener.retry = {"1": {"n": 1, "first": 1.0}, "2": {"n": 1, "first": 1.0}}
     seen = []
 
@@ -1491,6 +1512,7 @@ def test_an_unexpected_error_on_a_message_to_try_again_is_logged_and_the_pass_go
     monkeypatch.setattr(listener, "save", lambda *a: None)
     listener.retry_pending(object(), 1000, 2)
     assert seen == [1, 2] and listener.retry == {} and "unreadable (KeyError)" in capfd.readouterr().err
+    assert out.getvalue() == b"", "an exception on one message is a log line only: a stranger's message never becomes a message to the person"
     listener.retry = {"1": {"n": 1, "first": 1.0}}
     monkeypatch.setattr(listener, "handle_uid", lambda box, uid: (_ for _ in ()).throw(OSError("connection")))
     with pytest.raises(OSError):
