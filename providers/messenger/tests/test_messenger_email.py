@@ -120,6 +120,10 @@ def test_the_sender_is_the_from_address_lower_cased_with_the_domain_in_ascii_and
     f"{ID}; dmarc=pass",                                                                       # a pass that names no header.from vouches for nothing
     f"{ID}; dmarc=pass header.from=office.example; dmarc=none",                                  # a second DMARC result
     f"{ID}; dkim=pass header.d=office.example; dmarc=pass header.from=office.example) smtp.mailfrom=a@evil.example; dmarc=none",      # a stray )
+    f"{ID}; dkim=pass header.d=office.example; dmarc=none",                                    # the DKIM-only path was dropped: a DMARC pass or nothing
+    f"{ID}; dkim=pass header.d=office.example",                                                # no DMARC result at all
+    f"{ID}; dkim=fail header.d=evil.example; dkim=pass header.d=office.example",
+    f"{ID.upper()}; DKIM=PASS header.d=OFFICE.EXAMPLE",
     f"{ID}; spf=none (domain of a); dmarc=pass header.from=office.example; x@evil.example does not designate 1.2.3.4) smtp.mailfrom=a@evil.example; dmarc=none",
     f"{ID}; junk words dmarc=pass header.from=office.example",                                    # junk before method=result
     f"{ID}; spf=pass smtp.mailfrom=office.example dmarc=pass header.from=office.example",          # dmarc is a property here, not a result
@@ -131,10 +135,7 @@ def test_a_forged_sender_is_dropped_with_no_reply_whatever_the_authentication_re
 @pytest.mark.parametrize("auth", [
     GOOD,
     f"{ID}; dmarc=pass header.from=office.example",
-    f"{ID}; dkim=pass header.d=office.example; dmarc=none",                                  # no DMARC record: an aligned DKIM signature
-    f"{ID}; dkim=pass header.d=office.example",                                              # no DMARC result at all
-    f"{ID}; dkim=fail header.d=evil.example; dkim=pass header.d=office.example",
-    f"{ID.upper()}; DKIM=PASS header.d=OFFICE.EXAMPLE",
+    f"{ID.upper()}; DKIM=PASS header.d=OFFICE.EXAMPLE; DMARC=PASS header.from=OFFICE.EXAMPLE",
     f"{ID} 1; dmarc=pass header.from=office.example",                                          # with a version
     f"{ID}; (a comment) dmarc=pass (p=none) header.from=office.example",
 ])
@@ -662,7 +663,8 @@ def test_check_logs_in_to_both_servers_and_exits_3_when_the_newest_messages_carr
     provider.write_private_json(os.path.join(provider.folder(), "settings.json"), world["settings"])
     code, out, err = run_cli(capsys, "--check", "--platform", "email")
     assert code == 0, err
-    assert json.loads(out) == {"ok": True, "address": OWN, "authserv_id": ID, "messages_checked": 1, "with_authentication": 1}
+    assert json.loads(out) == {"ok": True, "address": OWN, "authserv_id": ID, "messages_checked": 1, "with_authentication": 1,
+                               "with_dmarc_pass": 1}
     world["imap"].add(raw(auth=None))
     world["imap"].messages = {k: v for k, v in world["imap"].messages.items() if b"Authentication-Results" not in v}
     code, _, err = run_cli(capsys, "--check", "--platform", "email")
@@ -679,6 +681,27 @@ def test_check_needs_the_id_at_the_top_of_every_one_of_the_newest_messages_and_a
     world["imap"].messages.pop(2)
     world["imap"].add(raw(auth=GOOD, above=["Authentication-Results: elsewhere.example; none"]))      # another id on top: not ours
     assert run_cli(capsys, "--check", "--platform", "email")[0] == 3
+
+
+def test_check_and_setup_say_when_the_newest_messages_carry_no_dmarc_result_and_why_the_channel_will_refuse_them(world, capsys):
+    provider.write_private_json(os.path.join(provider.folder(), "settings.json"), world["settings"])
+    only_dkim = f"{ID}; dkim=pass header.d=office.example"
+    world["imap"].add(raw(auth=only_dkim))
+    code, out, err = run_cli(capsys, "--check", "--platform", "email")
+    assert code == 3 and "DMARC result" in err and "refused" in err and PASSWORD not in err      # a host that writes none cannot be used
+    world["imap"].add(raw(auth=GOOD))
+    code, out, err = run_cli(capsys, "--check", "--platform", "email")
+    shown = json.loads(out)
+    assert code == 0 and shown["with_dmarc_pass"] == 1 and shown["messages_checked"] == 2 and "carry no single dmarc=pass" in shown["note"]
+    base = ["setup", "--platform", "email", "--address", OWN, "--imap-host", "127.0.0.1", "--imap-port", str(world["imap"].port), "--imap-security",
+            "plain", "--smtp-host", "127.0.0.1", "--smtp-port", str(world["smtp"].port), "--smtp-security", "plain"]
+    world["imap"].messages = {1: raw(auth=only_dkim)}
+    code, out, err = run_cli(capsys, *base)
+    shown = json.loads(out)
+    assert code == 0 and shown["authserv_ids_seen"] == [ID] and shown["dmarc_results_seen"] == [] and "no DMARC result" in shown["note"]
+    world["imap"].add(raw(auth=GOOD))
+    shown = json.loads(run_cli(capsys, *base)[1])
+    assert shown["dmarc_results_seen"] == ["pass"] and "note" not in shown
 
 
 def test_check_exits_3_on_a_refused_login_and_names_no_password(world, capsys):
@@ -940,7 +963,7 @@ def test_an_html_part_that_makes_the_standard_parser_crawl_is_dropped_within_its
     started = time.monotonic()
     update, why = admit(raw(html=html))
     # a Python whose HTML parser is not quadratic any more finishes with no text; one that is runs out of its budget: never an update
-    assert update is None and why in ("slow", "empty") and time.monotonic() - started < provider.HTML_SECONDS + 5
+    assert update is None and why in ("slow", "empty") and time.monotonic() - started < provider.TEXT_SECONDS + 5
 
 
 def test_an_html_part_over_the_cap_is_not_tried_and_a_large_honest_one_still_is():
@@ -954,7 +977,7 @@ def test_a_giant_address_header_is_dropped_before_it_is_parsed():
     started = time.monotonic()
     for data in (raw(to=flood), raw(cc=flood), raw(sender=flood), raw(extra=[f"Sender: {flood}"])):
         update, why = admit(data)
-        assert update is None and why in ("unparsable", "not-private", "sender")      # over 16 KiB, or over 2,000 characters in an address header
+        assert (update, why) == (None, "size")      # over 16 KiB, or over 2,000 characters in an address header: its own class
     assert time.monotonic() - started < 5
 
 
@@ -1001,18 +1024,58 @@ def test_a_bottom_posted_reply_is_dropped_as_empty_not_read_through_its_quote():
 # --- the connection: the message is not lost, and a busy server is not a wrong password --------------------------------------------------
 
 
-def test_a_failed_fetch_between_size_and_body_keeps_the_cursor_and_the_message_is_read_after_the_restart(world):
+def test_a_fetch_the_server_refuses_is_tried_again_at_each_poll_while_the_next_messages_are_read(world):
     pipe = Pipe(world)
     pipe.wait(lambda x: x.get("event") == "ready")
     world["imap"].fail_fetch = True
     world["imap"].add(raw(text="/approve 12"))
+    time.sleep(0.5)
+    assert pipe.code is None and updates(pipe) == []      # no exit: the connection is alive, so the failure is the message's
+    saved = json.loads((world["state"] / "cursor.json").read_text())
+    assert saved["last_uid"] == 1 and saved["retry"]["1"]["n"] >= 1
+    world["imap"].fail_fetch = False
+    pipe.wait(lambda x: x.get("event") == "update")
+    assert [u["text"] for u in updates(pipe)] == ["/approve 12"] and pipe.end() == 0
+    assert json.loads((world["state"] / "cursor.json").read_text()) == {"last_uid": 1, "uidvalidity": 1000}
+
+
+def test_a_lost_connection_is_never_counted_against_a_message_and_the_message_is_read_after_the_restart(world):
+    pipe = Pipe(world)
+    pipe.wait(lambda x: x.get("event") == "ready")
+    world["imap"].fail_fetch = True
+    world["imap"].kill = True       # the server drops the connection at the next command, the NOOP that follows the refused fetch included
+    world["imap"].add(raw(text="/approve 12"))
     pipe.thread.join(10)
     assert pipe.code == 1 and pipe.events("error")[-1]["kind"] == "failed" and updates(pipe) == []
-    assert json.loads((world["state"] / "cursor.json").read_text())["last_uid"] == 0
+    saved = json.loads((world["state"] / "cursor.json").read_text())
+    assert saved["last_uid"] == 0 and "retry" not in saved
+    world["imap"].kill = False
     world["imap"].fail_fetch = False
     again = Pipe(world)
     again.wait(lambda x: x.get("event") == "update")
     assert [u["text"] for u in updates(again)] == ["/approve 12"] and again.end() == 0
+
+
+def test_a_message_the_server_refuses_for_three_tries_over_an_hour_is_skipped_with_an_error_event_and_the_channel_goes_on(world):
+    clock = [1_000_000.0]
+    pipe = Pipe(world, wall=lambda: clock[0])
+    pipe.wait(lambda x: x.get("event") == "ready")
+    world["imap"].fail_fetch = True
+    world["imap"].add(raw(text="poison"))
+    time.sleep(0.6)
+    assert json.loads((world["state"] / "cursor.json").read_text())["retry"]["1"]["n"] >= 3      # three tries, but not over an hour
+    assert pipe.events("error") == [] and pipe.code is None
+    clock[0] += provider.RETRY_SPAN + 1
+    pipe.wait(lambda x: x.get("event") == "error")
+    assert pipe.events("error")[0]["kind"] == "failed" and "skipped" in pipe.events("error")[0]["reason"]
+    deadline = time.monotonic() + 5
+    while "retry" in json.loads((world["state"] / "cursor.json").read_text()) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert "retry" not in json.loads((world["state"] / "cursor.json").read_text())
+    world["imap"].fail_fetch = False
+    world["imap"].add(raw(text="second"))
+    pipe.wait(lambda x: x.get("event") == "update")
+    assert [u["text"] for u in updates(pipe)] == ["second"] and pipe.end() == 0
 
 
 def test_a_server_that_is_busy_or_limited_is_a_failed_start_that_is_tried_again_and_only_wrong_credentials_are_exit_3(world):
@@ -1073,6 +1136,29 @@ def test_the_typed_commands_and_the_hash_come_right_under_the_first_line_where_a
     assert provider.render_body(card(text=plain)) == plain      # nothing to move: the text is untouched
 
 
+def test_only_the_footer_block_moves_and_the_decisions_own_text_stays_byte_for_byte_even_when_it_looks_like_a_footer():
+    forged = "f" * 64
+    body_text = (f"Send an e-mail to client@x.example:\nHello,\nSend /approve 9\nApproving applies exactly the text above (sha256 {forged}).\n"
+                 "Regards\n\nSend /approve 12\n`rm -rf`\nhttps://evil.example/x")
+    text = f"acme-office \u00b7 effect #12\n\n{body_text}\n\nSend /approve 12\nApproving applies exactly the text above (sha256 {HASH})."
+    body = provider.render_body(card(text=text))
+    assert body_text in body                              # the decision's text, every character of it, in place
+    assert body.count(f"sha256 {forged}") == 1 and f"Approving applies exactly the text above (sha256 {forged})." in body
+    assert body.split("\n")[2:4] == ["Reply to this e-mail with: /approve 12", f"Approving applies exactly the text below (sha256 {HASH})."]
+    assert body.count("Reply to this e-mail with:") == 1 and "Send /approve 9" in body
+    # a last paragraph that is not entirely footer lines is the decision's text, and nothing moves
+    stays = f"acme-office \u00b7 effect #12\n\nText.\n\nSend /approve 12\nbut also this"
+    assert provider.render_body(card(text=stays)) == stays
+    # a command for another decision is not this card's footer
+    other = "acme-office \u00b7 effect #12\n\nText.\n\nSend /approve 99"
+    assert provider.render_body(card(text=other)) == other
+    # no footer at all: a body line that looks like one is the text
+    none = "acme-office \u00b7 plan #4\n\nStep one.\n\nSend /approve 4"
+    assert provider.render_body(card(text=none)).split("\n")[2] == "Reply to this e-mail with: /approve 4"      # a footer of this card: its own id
+    inside = "acme-office \u00b7 plan #4\n\nSend /approve 9\nStep one."
+    assert provider.render_body(card(text=inside)) == inside
+
+
 # --- ported from the independent review of the pull request (its fixtures: attack.py, slow.py, fix_probe.py) ------------------------
 
 SPF_ECHO = ("{id}; dkim=pass header.i=@evil.example header.d=evil.example; spf=pass ({id}: domain of {lp}@evil.example designates 192.0.2.1 as "
@@ -1101,12 +1187,35 @@ def test_the_count_guard_still_reads_the_headers_gmail_and_fastmail_write():
 
 
 def test_a_server_that_strips_the_quotes_from_an_echoed_address_is_a_residual_risk_the_readme_names():
-    """Fixture B of the review: a server that writes the echoed address WITHOUT its quotes puts the sender's `dkim=pass` into the header as a
-    result of its own, and nothing in the header tells it from a real one. It is documented ("What an address proves"), checked by hand
-    on first use ("To verify"), and this test fails the day the provider can tell (then the README line goes)."""
-    value = f"{ID}; dkim=pass header.i=x; dkim=pass header.d=office.example z@evil.example header.d=evil.example; dmarc=none"
-    assert admit(raw(auth=value))[0] is not None
+    """Fixture B of the review, now that only one dmarc=pass aligned to the domain admits: a server that writes the echoed address WITHOUT its
+    quotes, and wrote no DMARC result of its own, puts the sender's `dmarc=pass` into the header as a result of its own, and nothing in the
+    header tells it from a real one. It is documented ("What an address proves"), checked by hand on first use ("To verify"), and this test
+    fails the day the provider can tell (then the README line goes). With a DMARC result of the server's own, the injected one is a second
+    one and the header is refused."""
+    injected = f"{ID}; dkim=pass header.i=x; dmarc=pass header.from=office.example z@evil.example header.d=evil.example"
+    assert admit(raw(auth=injected))[0] is not None
+    dropped(raw(auth=injected + "; dmarc=none"), "unauthenticated")
     assert "residual" in (PROVIDERS / "messenger" / "README.md").read_text(encoding="utf-8").lower()
+
+
+def test_a_quote_in_a_comment_is_refused_wherever_the_comment_is_and_a_legitimate_comment_is_read():
+    """Round two of the review: the echo can sit in a comment alone (the A1 variant), and a count of method tokens refused legitimate comments
+    (an ARC summary, reason="dkim=ok", (dmarc=p:reject)). The rule is the RFC 5322 reading: a double quote inside a comment makes the header
+    unreadable."""
+    lp = QUOTED_LOCAL
+    only_comment = f"{ID}; spf=pass ({ID}: domain of {lp}@evil.example designates 192.0.2.1) smtp.mailfrom=evil.example; dmarc=none"
+    assert provider.parse_auth_results(only_comment) is None
+    dropped(raw(auth=only_comment), "unauthenticated")
+    dropped(raw(auth=only_comment.replace("dmarc=none", "dmarc=pass header.from=office.example")), "unauthenticated")      # a pass beside it is not read either
+    dropped(raw(auth=f"{ID}; dkim=pass header.d=evil.example; spf=none (helo a) ; dkim=pass header.d=office.example ; (b) smtp.helo=evil.example; dmarc=none"), "unauthenticated")
+    arc = (f"{ID};\r\n       dkim=pass header.i=@office.example header.s=s1 header.b=AbCdEfGh;\r\n"
+           "       arc=pass (i=1 spf=pass spfdomain=office.example dkim=pass dkdomain=office.example dmarc=pass fromdomain=office.example);\r\n"
+           f"       spf=pass ({ID}: domain of owner@office.example designates 192.0.2.1 as permitted sender) smtp.mailfrom=owner@office.example;\r\n"
+           "       dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=office.example")
+    for value in (arc, f'{ID}; dkim=pass reason="dkim=ok" header.d=office.example; dmarc=pass header.from=office.example',
+                  f"{ID}; dkim=pass header.d=office.example; dmarc=pass (dmarc=p:reject) header.from=office.example",
+                  f"{ID}; dkim=pass header.d=office.example header.b=Ab+dkim=; dmarc=pass header.from=office.example"):
+        assert admit(raw(auth=value))[1] is None, value
 
 
 def test_two_headers_with_our_id_are_refused_whatever_they_say():
@@ -1129,10 +1238,12 @@ AR_TABLE = [
     ("G. header name in lower case", dict(auth=None, above=[f"authentication-results: {GOOD}"]), True),
     ("I. id with a version", dict(auth=f"{ID} 1; dmarc=pass header.from=office.example"), True),
     ("J. dmarc pass for another domain, dkim pass for ours", dict(auth=f"{ID}; dkim=pass header.d=office.example; dmarc=pass header.from=evil.example"), False),
-    ("K. dmarc=none with a policy property", dict(auth=f"{ID}; dkim=pass header.d=office.example; dmarc=none policy.dmarc=none"), True),
-    ("L. header.d quoted", dict(auth=f'{ID}; dkim=pass header.d="office.example"'), True),
+    ("K. dmarc=none with a policy property (no DKIM-only path)", dict(auth=f"{ID}; dkim=pass header.d=office.example; dmarc=none policy.dmarc=none"), False),
+    ("L. header.d quoted, no DMARC", dict(auth=f'{ID}; dkim=pass header.d="office.example"'), False),
+    ("L2 header.from quoted", dict(auth=f'{ID}; dmarc=pass header.from="office.example"'), True),
     ("M. header.d with a trailing dot", dict(auth=f"{ID}; dkim=pass header.d=office.example."), False),
-    ("N. dkim/1", dict(auth=f"{ID}; dkim/1=pass header.d=office.example"), True),
+    ("N. dkim/1, no DMARC", dict(auth=f"{ID}; dkim/1=pass header.d=office.example"), False),
+    ("N2 dmarc/1", dict(auth=f"{ID}; dmarc/1=pass header.from=office.example"), True),
     ("P. two header.d in one result", dict(auth=f"{ID}; dkim=pass header.d=evil.example header.d=office.example"), False),
     ("Q. header.from with a comment", dict(auth=f"{ID}; dmarc=pass header.from=office.example(x)"), True),
 ]
@@ -1271,21 +1382,52 @@ def test_the_listener_counts_a_domain_as_well_as_a_sender(tmp_path, monkeypatch)
     assert sum(1 for _ in range(provider.PER_SENDER + 5) if listener.permit("same@other.example", "other.example")) == provider.PER_SENDER
 
 
-def test_one_message_that_fails_every_start_is_skipped_after_three_starts_and_the_next_one_is_read(world):
-    world["imap"].fail_fetch = True
-    pipe = Pipe(world)
-    pipe.wait(lambda x: x.get("event") == "ready")
-    world["imap"].add(raw(text="poison"))
-    world["imap"].add(raw(text="second"))
-    pipe.thread.join(10)
-    assert pipe.code == 1
-    for _ in range(2):
-        again = Pipe(world)
-        again.thread.join(10)
-        assert again.code == 1
-    assert json.loads((world["state"] / "cursor.json").read_text())["attempt"] == {"n": 3, "uid": 1}
-    world["imap"].fail_fetch = False
-    last = Pipe(world)
-    last.wait(lambda x: x.get("event") == "update")
-    assert [u["text"] for u in updates(last)] == ["second"] and last.end() == 0
-    assert json.loads((world["state"] / "cursor.json").read_text()) == {"last_uid": 2, "uidvalidity": 1000}
+# --- round two of the review: part headers, the domain rate, size classes -------------------------------------------------------------
+
+
+def multipart(part_head, part_body="hi"):
+    return raw(text=f"--b\r\n{part_head}\r\n\r\n{part_body}\r\n--b--").replace(
+        b"Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit", b'Content-Type: multipart/mixed; boundary="b"', 1)
+
+
+@pytest.mark.parametrize("head", [
+    "Content-Type: text/plain; " + "; ".join(f"a{i}=b" for i in range(60000)),
+    "Content-Type: text/html; charset=utf-8\r\nContent-Disposition: inline; " + "; ".join(f"a{i}=b" for i in range(60000)),
+    "Content-Type: text/plain " + "(" * 20000 + ")" * 20000,
+], ids=["part-content-type", "part-content-disposition", "part-comments"])
+def test_a_hostile_header_inside_a_part_costs_one_budget_not_the_reader(head):
+    """The headers of the parts are not capped by the header caps (they are in the body): the structure of the body is parsed in the child with
+    a time and CPU budget, and the parent reads the headers of the message only."""
+    data = multipart(head)
+    assert len(data) < provider.MAX_SIZE
+    started = time.monotonic()
+    update, why = admit(data)
+    assert update is None and why in ("slow", "unparsable") and time.monotonic() - started < provider.TEXT_SECONDS + 5, (why, time.monotonic() - started)
+
+
+def test_a_part_with_ordinary_headers_is_read_in_the_child():
+    update, why = admit(multipart("Content-Type: text/plain; charset=utf-8\r\nContent-Disposition: inline", "go ahead"))
+    assert why is None and update["text"] == "go ahead"
+
+
+def test_the_headers_of_the_message_are_read_without_parsing_its_body(monkeypatch):
+    seen = []
+    real = provider.BytesParser.parsebytes
+    monkeypatch.setattr(provider.BytesParser, "parsebytes", lambda self, data, headersonly=False: seen.append(headersonly) or real(self, data, headersonly=headersonly))
+    assert admit(raw())[1] is None and seen == [True]
+
+
+def test_strangers_at_a_shared_domain_cannot_use_up_the_owners_share_but_the_address_limit_holds_for_everyone(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(private(tmp_path / "s")))
+    listener = provider.Listener(settings_for(), PASSWORD, out=provider.Out(io.BytesIO()), stdin=io.BytesIO(), clock=lambda: 1000.0)
+    listener.sent.add("owner@webmail.example", SENT)        # the provider has written to the owner: a person, not a stranger
+    assert sum(1 for n in range(provider.PER_DOMAIN + 50) if listener.permit(f"stranger{n}@webmail.example", "webmail.example")) == provider.PER_DOMAIN
+    assert listener.permit("another-stranger@webmail.example", "webmail.example") is False
+    assert listener.permit("owner@webmail.example", "webmail.example") is True      # still permitted after 120 strangers
+    assert sum(1 for _ in range(provider.PER_SENDER + 10) if listener.permit("owner@webmail.example", "webmail.example")) == provider.PER_SENDER - 1
+
+
+def test_an_oversized_header_or_block_is_logged_with_the_class_size_and_not_unparsable():
+    assert admit(raw(extra=["X-Big: " + "a" * (provider.HEADER_VALUE_MAX + 10)])) == (None, "size")
+    assert admit(raw(extra=[f"X-H{i}: " + "v" * 100 for i in range(700)])) == (None, "size")        # a block over 64 KiB in headers under 16 KiB
+    assert admit(raw(to="a@x.example, " * 400))[1] == "size"
