@@ -304,11 +304,13 @@ of `needs a test`, it can be rule (c) with the cause "the pooled gate of X.Y fai
 It is frozen like a full test's gate: a case added after it closed is pending; a case changed after it closed, once, is
 pending with the band `watch` ("case pending", the old lines shown as "dropped"), changed again makes the pool unable to be
 computed (`needs a test`); an epoch leaves its result standing with the note "pooled, baseline expired" and `watch`, until a
-pool of the new era closes. The route is on only for a model whose evidence of the source holds a quick line that weighs
-(pooled_state is None otherwise, and nothing about a skill tested by full and partial tests changes); where it is on, the
-newest closed pool that holds a quick line decides the gate when its newest counted test is newer than the newest full test
-that lists the model (a tie stays with the full test), and the gate carries "note": "pooled". A row, a model's figures and a
-local or community figure gain "pool": {"xy", "runs", "cases", "cases_at_runs", "baseline_cases", "lines", "counted", "tests",
+pool of the new era closes. In the lab and local sources the route is on only for a model whose evidence of the source holds
+a quick line that weighs (pooled_state is None otherwise, and nothing about a skill tested by full and partial tests changes);
+where it is on, the newest closed pool that holds a quick line decides the gate when its newest counted test is newer than the newest full test
+that lists the model (a tie stays with the full test), and the gate carries "note": "pooled". IN THE COMMUNITY SOURCE THE ROUTE
+IS ALWAYS ON AND A FULL TEST COUNTS ONLY THROUGH THE POOL (community_rule): one fork's full test fills at most floor(runs x 2/3)
+of the counted lines of each case, so it never closes a pool alone, and the gate is the newest closed pool's, never the newest
+full test's. A row, a model's figures and a local or community figure gain "pool": {"xy", "runs", "cases", "cases_at_runs", "baseline_cases", "lines", "counted", "tests",
 "quick_lines", "contributors" (None outside the community source), "closed", "pending", "changed", "gate_cases", "from", "to",
 "progress" ("pool of 1.2: 7 of 12 cases at 3 runs; baseline in force for 12; lines from 2030-01-01 to 2030-01-09"), "gate" (of
 the current X.Y's pool once closed), "deciding" (the newest closed pool: {"xy", "test", "frozen", "gate"})} only then; the
@@ -2329,12 +2331,23 @@ def y_changes_since(skill_dir, version):
 # case's old lines leave it and the band is `watch`: gate_of's rule, once), and an epoch after it leaves its result standing
 # with the note "baseline expired" (`watch`), until a pool of the new era closes.
 #
-# The route is on only for a model whose evidence of the source holds a weighing quick line, so a skill tested by full and
-# partial tests alone is gated exactly as before. When it is on, the newest closed pool decides the gate when its newest
-# counted test is newer than the newest full test that lists the model; a tie stays with the full test.
+# In the lab and local sources the route is on only for a model whose evidence of the source holds a weighing quick line, so a
+# skill tested by full and partial tests alone is gated exactly as before. When it is on, the newest closed pool decides the
+# gate when its newest counted test is newer than the newest full test that lists the model; a tie stays with the full test.
+#
+# In the community source (community_rule) the route is always on, and a full test counts ONLY through the pool: one fork's full
+# test fills at most floor(runs x 2/3) of the counted lines of each case, so it never closes a pool alone, and the gate is the
+# newest closed pool's, never the newest full test's. No fork alone ranks a pair; a pair needs lines of a second contributor.
 
 POOL_MIN_CONTRIBUTORS = 2  # contributors whose lines a community pool needs to close
 POOL_MAX_SHARE = 2 / 3  # the share of the counted lines one contributor may hold in a community pool
+
+
+def community_rule(rule):
+    """True for the pool rule of the community source (it carries "who", the fork owner of each test): the one predicate for what
+    differs in that source, used by pool_of (the contributors), pooled_state (the route is always on) and skill_band (a full test
+    counts only through the pool). A lab or a local pool has no "who", and a rule of None is the lab's."""
+    return bool(rule) and rule.get("who") is not None
 
 
 def era_of(cfg, skill, model, date):
@@ -2379,17 +2392,18 @@ def pool_baselines(skill_dir, cfg, events, rule, era):
     return {cid: first.get(cid) or second.get(cid) for cid in set(first) | set(second) if first.get(cid) or second.get(cid)}
 
 
-def pool_entries(root, skill_dir, cfg, events):
+def pool_entries(root, skill_dir, cfg, events, needs_quick=True):
     """([entry], current era): the with-skill lines of the subject model in `events` (one source) that the pool may read, in time
     order (test id, then the order in the file), each {"event", "line", "xy", "era", "weighs"}; "weighs" says the case still has
     the line's hash. A line is kept when its measurement version is at or above the floor, its major version is the current one
     and its version and content hash are a line of the version file; a line of the current X.Y in the current era also needs the
-    configured grader and the current context (lab_view's current set). A line of a platform's case is never read. [] when the
-    model's evidence holds no quick line (the usual case, and the cheap one: nothing else is computed)."""
+    configured grader and the current context (lab_view's current set). A line of a platform's case is never read. With
+    needs_quick (the lab and local sources), [] when the model's evidence holds no quick line (the usual case, and the cheap one:
+    nothing else is computed); the community source passes False and reads full and partial lines alone as well."""
     skill = os.path.basename(os.path.normpath(skill_dir))
     version = skill_version(skill_dir)
     ref, floor = subject_model(cfg), cfg.get("measurement_floor", 1)
-    if version is None or not any(line.get("kind") == "quick" for _, runs in model_events(events, ref) for line in runs):
+    if version is None or (needs_quick and not any(line.get("kind") == "quick" for _, runs in model_events(events, ref) for line in runs)):
         return [], 0
     hashes, cases = case_hashes(skill_dir), skill_cases(skill_dir)
     grader = model_id(cfg, cfg["grader"]) if cfg.get("grader") else None
@@ -2417,7 +2431,7 @@ def pool_of(xy, era, now, entries, hashes, baselines, cfg, rule):
     (pool_entries) in time order."""
     runs = event_config(cfg)["runs"]
     case_ids = sorted(hashes, key=_case_key)
-    who = rule.get("who") if rule else None
+    who = rule["who"] if community_rule(rule) else None
     cap = (rule or {}).get("cap")
     weighing = [e for e in entries if e["weighs"]]
     stale = {}
@@ -2512,8 +2526,10 @@ def pool_of(xy, era, now, entries, hashes, baselines, cfg, rule):
 
 
 def pooled_state(root, skill_dir, cfg, events, rule=None):
-    """The pooled route of one skill on the subject model, from one source's events, or None when the route is off (the model's
-    evidence holds no weighing quick line: the skill is gated by its full tests alone, exactly as before). Otherwise {"xy": the
+    """The pooled route of one skill on the subject model, from one source's events, or None when the route is off. In the lab
+    and local sources it is off when the model's evidence holds no weighing quick line: the skill is gated by its full tests
+    alone, exactly as before. In the community source (community_rule) it is always on while the source has a weighing line: a
+    community full test counts only through its pool, which needs lines of POOL_MIN_CONTRIBUTORS contributors. Otherwise {"xy": the
     current X.Y, "era": the current era, "current": the pool of the current X.Y in the current era (empty when nothing of it
     ran), "closed": the closed pools that hold a quick line, oldest first, "deciding": the newest of them or None}. rule
     describes the source: {"baseline_events": the events whose baselines the source may use besides its own, "baseline_first":
@@ -2524,7 +2540,8 @@ def pooled_state(root, skill_dir, cfg, events, rule=None):
     if version is None:
         return None
     source = (rule or {}).get("pool_events", events)
-    entries, now = pool_entries(root, skill_dir, cfg, source)
+    community = community_rule(rule)
+    entries, now = pool_entries(root, skill_dir, cfg, source, needs_quick=not community)
     if not entries:
         return None
     hashes, current = case_hashes(skill_dir), _xy(version)
@@ -2535,9 +2552,10 @@ def pooled_state(root, skill_dir, cfg, events, rule=None):
     pools = {}
     for (xy, era), group in groups.items():
         pools[(xy, era)] = pool_of(xy, era, now, group, hashes, pool_baselines(skill_dir, cfg, source, rule, era), cfg, rule)
-    if not any(p["quick_lines"] and (p["era"] == now or p["closed"]) for p in pools.values()):
+    holds = lambda p: p["lines"] if community else p["quick_lines"]  # what turns the route on: a weighing line (a quick one outside the community)
+    if not any(holds(p) and (p["era"] == now or p["closed"]) for p in pools.values()):
         return None
-    closed = sorted((p for p in pools.values() if p["closed"] and p["quick_lines"]), key=lambda p: p["test"])
+    closed = sorted((p for p in pools.values() if p["closed"] and holds(p)), key=lambda p: p["test"])
     return {"xy": current, "era": now, "current": pools[(current, now)], "closed": closed, "deciding": closed[-1] if closed else None}
 
 
@@ -2645,11 +2663,16 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, 
                                                                       "cases": []}
     floor = cfg.get("measurement_floor", 1)
     major, xy = (_major(version), _xy(version)) if version else (None, None)
-    # The pooled route (package P11): on only when the model's evidence holds a quick line. A closed pool whose newest test is
-    # newer than the newest full test decides the gate in its place; the cause texts show the pool's progress while it is open.
+    # The pooled route (package P11): in the lab and local sources on only when the model's evidence holds a quick line. A closed
+    # pool whose newest test is newer than the newest full test decides the gate in its place; the cause texts show the pool's
+    # progress while it is open. In the community source (community_rule) a full test counts only through the pool: the route is
+    # always on, the newest full test never decides, and the gate is the newest closed pool's, else it cannot be computed.
+    community = community_rule(pool_rule)
     route = pooled_state(root, skill_dir, cfg, events, pool_rule) if version else None
     decided = (route["deciding"] if route and route["deciding"]
-               and (gate.get("test") is None or route["deciding"]["test"] > gate["test"]) else None)
+               and (community or gate.get("test") is None or route["deciding"]["test"] > gate["test"]) else None)
+    if community:
+        gate = {"computed": False, "passed": None, "pending": [], "note": None, "cause": COMMUNITY_NO_POOL, "cases": []}
     if decided:
         # Frozen like a full test's gate: after an epoch the pool's result stands with the note, computed no more; a case added
         # or changed after it closed is pending on its lines (gate_of's rule).
@@ -2679,6 +2702,8 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, 
                            f"{decided['gate']['with']:.3f}, baseline {decided['gate']['baseline']:.3f}; the first {decided['runs']} "
                            f"lines of each case, {decided['counted']} of {decided['lines']}, dated {decided['from']} to {decided['to']}"
                            + (", baseline expired" if decided["frozen"] else "") + ")", f"after the fix: {run_next}"))
+    elif community:
+        causes.append(("no passing full test", COMMUNITY_NO_POOL + progress, run_next))
     elif not measured_fulls:
         why = (f"no full test of version {major}.x at or above the measurement floor {floor}" if fulls
                else f"no full test of version {major}.x")
@@ -2721,7 +2746,7 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, 
             watch.append(("guard cases only", f"only guard cases have run in the current set of {xy}", partial))
         if ref_score["score"] < RELIABLE_AT:
             watch.append(("score", f"the pessimistic score {ref_score['score']:.2f} is under {RELIABLE_AT:.2f}", partial))
-        newest_full = complete_fulls[-1] if complete_fulls else None
+        newest_full = complete_fulls[-1] if complete_fulls and not community else None  # in the community source only a closed pool resets
         reset_at = [newest_full["version"]] if newest_full else []
         reset_at += [p["version"] for p in route["closed"]] if route else []  # a closed pool resets the count like a full test
         y = y_changes_since(skill_dir, max(reset_at, key=_vkey)) if reset_at else 0
@@ -2902,7 +2927,14 @@ def imported_status(root, folder, config, base):
 # ranks (it is evidence for choosing a model) and it never releases unattended work by itself (D36): a pair
 # that is reliable only through it carries "community_only": true, and the runtime holds such a pair's output for
 # review.
+#
+# A community FULL test counts only through the pool (community_rule; the reliability model, section 2): the pooled route is
+# always on in this source, one fork's full test fills at most floor(runs x 2/3) of the counted lines of each case, so it never
+# closes a pool alone, and a community pair is gated by its newest closed pool, with lines from at least POOL_MIN_CONTRIBUTORS
+# contributors, none above POOL_MAX_SHARE of them. No one fork ranks a pair, however many full tests it submits.
 
+COMMUNITY_NO_POOL = ("no closed community pool: a community test counts only through the pool, with lines from at least "
+                     f"{POOL_MIN_CONTRIBUTORS} contributors, none above two thirds")
 COMMUNITY_CAP = 30  # with-skill run lines one contributor adds to the community column of one skill and one model (the newest)
 COMMUNITY_ROW_KEYS = LOCAL_ROW_KEYS + ("last_full_test",)
 
@@ -3075,7 +3107,9 @@ def community_pool(root, skill_dir, authors):
 def community_status(root, name, config, authors):
     """({model id: figures}, {model id: info}) of one skill's community evidence, or ({}, {}) when it has none. Each model's figures are the ones a
     lab model gets (skill_band on that model's lines, by the same rules, field signal included: three `failed` verdicts
-    on the pair demote it here as they do a lab pair), computed from the community lines alone."""
+    on the pair demote it here as they do a lab pair), computed from the community lines alone. The one difference from the
+    lab: a community full test counts only through the pool (community_rule), so the gate is the newest closed pool's and a
+    pair with no closed pool needs a test, whatever full tests one fork has submitted."""
     skill_dir = os.path.join(root, "skills", name)
     pool, info = community_pool(root, skill_dir, authors)
     found = {}
