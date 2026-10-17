@@ -277,4 +277,4 @@ def test_a_proof_file_of_an_earlier_version_is_recomputed(facade, cfg):
     entry = proof.row(cfg, "demo")
     assert facade["calls"] == 1 and "web_measured" not in entry
     assert [pair["web_measured"] for pair in entry["pairs"]] == [False, True]
-    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 4 == proof.VERSION
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 5 == proof.VERSION

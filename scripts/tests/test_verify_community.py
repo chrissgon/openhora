@@ -131,10 +131,12 @@ def test_a_file_with_a_valid_attestation_is_accepted_and_shown_in_the_community_
     path = world.run_files(run_number=1)
     code, summary, err, gh = world.verify(path)
     assert code == 0 and summary["refused"] == {} and len(summary["verified"]) == 1, err
+    # A community full test counts only through its pool, which needs a second contributor: bo's fork submits one too.
+    world.run_files(run_number=1, repo_id=222, date="2030-01-02", manifest_extra={"repository": "bo/openhora"})  # not verified here: the column is what is tested
     git(world.root, "add", "-A")
     git(world.root, "commit", "-q", "-m", "community evidence")
     figures = es.all_status(str(world.root), "core-demo")["community"]["skills"]["core-demo"][FLASH]
-    assert figures["runs"] == 9 and figures["gaps"] == 0 and figures["band"] == "reliable"
+    assert figures["runs"] == 18 and figures["gaps"] == 0 and figures["band"] == "reliable" and figures["contributors"] == 2
 
 
 def test_a_quick_test_file_is_verified_like_the_others_with_the_same_attestation_and_checks(world):
