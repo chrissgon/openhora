@@ -18,7 +18,7 @@ import pytest
 import standin_tree as st
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
 from test_messaging import wait_for
-from test_sender_profiles import OWNER, STAFF, accept
+from test_sender_profiles import OWNER, STAFF, accept, write_config
 from test_sender_profiles_bridge import NOT_ENABLED, POLICIES_ALL, configure, lab  # noqa: F401  (the lab fixture)
 
 bridge = st.load("messaging_bridge")
@@ -460,3 +460,172 @@ def test_the_text_of_a_queued_line_is_in_memory_only_never_logged_never_in_the_l
                 seen.append(path.read_bytes())
     assert seen and not any(marker.encode() in blob for blob in seen), "no file written by the bridge or the messenger carries it"
     assert not any(marker in text for text in lab.texts(STAFF)), "and no reply echoes it"
+
+
+# --- the review of BQ-1 --------------------------------------------------------------------------------------------------------------------
+
+
+def test_a_line_that_comes_while_the_oldest_is_being_started_goes_behind_it(lab, planner, monkeypatch):  # noqa: F811
+    """The oldest stays in the list, marked, until its run begins: a line that arrives between the choice and the start is kept behind it."""
+    two(lab)
+    project = lab.bridge.projects[0]
+    assert lab.bridge.keep(project, STAFF, "old")
+    real, state = lab.bridge.start_job, {}
+
+    def wrapped(*args, **kwargs):
+        if "thread" not in state:
+            state["thread"] = threading.Thread(target=lab.say, args=(OWNER, "new"), daemon=True)
+            state["thread"].start()
+            assert wait_for(lambda: [e["text"] for e in lab.bridge.waiting] == ["old", "new"]), "the new line is kept behind the one being started"
+        return real(*args, **kwargs)
+    monkeypatch.setattr(lab.bridge, "start_job", wrapped)
+    lab.bridge.drain()
+    state["thread"].join(WAIT)
+    assert settle(lab)
+    assert planner.texts() == ["old", "new"] and not lab.bridge.waiting
+
+
+def test_a_stop_between_the_choice_and_the_start_loses_no_line(lab, planner, monkeypatch):  # noqa: F811
+    two(lab)
+    project = lab.bridge.projects[0]
+    assert lab.bridge.keep(project, STAFF, "old")
+
+    def stopping(*args, **kwargs):
+        raise bridge.shell_kit.Stopping()
+    monkeypatch.setattr(lab.bridge, "start_job", stopping)
+    lab.bridge.drain()
+    assert lab.texts(STAFF) == [bridge.QUEUE_STOPPED] and not lab.bridge.waiting and planner.texts() == []
+
+
+def test_the_stop_messages_have_a_total_deadline_and_a_hanging_provider_holds_nothing_back(lab, planner, monkeypatch):  # noqa: F811
+    ids = many(lab, 6)
+    project = lab.bridge.projects[0]
+    for chat in ids[:5]:
+        assert lab.bridge.keep(project, chat, "x")
+    hang, tried = threading.Event(), []
+    monkeypatch.setattr(bridge, "QUEUE_STOP_WAIT", 0.5)
+
+    def send(chat, message):
+        tried.append(chat)
+        hang.wait(WAIT)
+    monkeypatch.setattr(lab.bridge.messenger, "send", send)
+    started = time.monotonic()
+    try:
+        lab.bridge.close_queue()
+        assert time.monotonic() - started < 5, "five hanging sends take the deadline, not five times the hang"
+        assert wait_for(lambda: sorted(tried) == sorted(ids[:5])) and not lab.bridge.waiting
+        assert any("not out in" in line for line in lab.log) and not any("x" == line for line in lab.log)
+    finally:
+        hang.set()
+
+
+def test_a_job_end_starts_the_next_line_through_the_kits_hook(lab, planner):  # noqa: F811
+    assert "job_ended" in vars(bridge.Bridge) and "_run_job" not in vars(bridge.Bridge) and "end_runs" not in vars(bridge.Bridge)
+    two(lab)
+    planner.hold = {0}
+    lab.say(OWNER, "first")
+    assert planner.reached(0).wait(WAIT)
+    lab.say(STAFF, "second")
+    planner.gate(0).set()
+    assert settle(lab) and planner.texts() == ["first", "second"]
+
+
+def polled(lab, monkeypatch, polls=3):  # noqa: F811
+    """The `timeout` of each receive of a polling loop that ends after `polls` of them."""
+    timeouts, stop = [], threading.Event()
+
+    def receive(offset, timeout):
+        timeouts.append(timeout)
+        if len(timeouts) >= polls:
+            stop.set()
+        return {"updates": [], "next_offset": offset}
+    monkeypatch.setattr(lab.bridge.messenger, "receive", receive)
+    lab.bridge.serve_loop(stop, 60, 25)
+    lab.bridge.stopping.clear()
+    return timeouts
+
+
+def test_a_polling_loop_looks_again_soon_only_while_a_line_waits_out_a_router_pause(lab, planner, monkeypatch):  # noqa: F811
+    two(lab)
+    clocked(lab)
+    project = lab.bridge.projects[0]
+    lab.bridge.exclusive[project["id"]] = "job x"            # the slot is held by something that ends on its own: its end drains
+    assert lab.bridge.keep(project, STAFF, "held")
+    assert polled(lab, monkeypatch) == [25, 25, 25], "a held slot is looked at when its job ends, not by shortening the poll"
+    assert lab.bridge.keep(project, STAFF, "paused", retry=True)
+    assert max(polled(lab, monkeypatch)) <= bridge.QUEUE_POLL, "a pause of the router has no job to end it: look again soon"
+    del lab.bridge.exclusive[project["id"]]
+
+
+class Session:
+    """A listen session the test drives: ready or not, and a count of the loop's iterations."""
+    fatal, generation = None, 0
+
+    def __init__(self, ready):
+        self.ready, self.polls, self.stop = ready, 0, threading.Event()
+
+    def is_ready(self):
+        return self.ready
+
+    def take_unread(self):
+        return 0
+
+    def next_update(self, wait):
+        self.polls += 1
+        self.stop.wait(min(wait, 0.02))
+        return None
+
+
+def test_a_listen_provider_that_is_not_ready_starts_no_line_and_the_line_runs_when_it_is(lab, planner):  # noqa: F811
+    two(lab)
+    session = Session(ready=False)
+    assert lab.bridge.keep(lab.bridge.projects[0], OWNER, "wait for the provider")
+    runner = threading.Thread(target=lab.bridge.listen_loop, args=(session.stop, 60, session, 1), daemon=True)
+    runner.start()
+    try:
+        assert wait_for(lambda: session.polls >= 5)
+        assert planner.texts() == [] and len(lab.bridge.waiting) == 1
+        session.ready = True
+        assert wait_for(lambda: "Answer 0" in lab.texts(OWNER))
+        assert planner.texts() == ["wait for the provider"]
+    finally:
+        session.stop.set()
+        runner.join(WAIT)
+
+
+def test_an_expired_line_is_dropped_even_while_the_provider_is_not_ready(lab, planner):  # noqa: F811
+    two(lab)
+    now = clocked(lab)
+    session = Session(ready=False)
+    assert lab.bridge.keep(lab.bridge.projects[0], OWNER, "too late")
+    now[0] += bridge.QUEUE_WAIT
+    runner = threading.Thread(target=lab.bridge.listen_loop, args=(session.stop, 60, session, 1), daemon=True)
+    runner.start()
+    try:
+        assert wait_for(lambda: bridge.QUEUE_EXPIRED in lab.texts(OWNER))
+    finally:
+        session.stop.set()
+        runner.join(WAIT)
+    assert planner.texts() == []
+
+
+def test_a_project_that_became_unaccepted_while_a_line_waits_drops_it_with_no_reply(lab, planner):  # noqa: F811
+    two(lab)
+    planner.hold = {0}
+    lab.say(OWNER, "first")
+    assert planner.reached(0).wait(WAIT)
+    lab.say(STAFF, LINE)
+    write_config(lab.path, channels={"messaging": "owner"})        # a changed file that nobody accepted
+    planner.gate(0).set()
+    assert settle(lab)
+    assert planner.texts() == ["first"] and lab.texts(STAFF) == [bridge.QUEUED] and bridge.DROPPED in lab.log
+
+
+def test_a_second_line_of_a_chat_that_waits_out_a_router_pause_gets_the_routers_sentence(lab, planner):  # noqa: F811
+    two(lab)
+    planner.refusals = 1
+    lab.say(OWNER, "x")
+    assert wait_for(lambda: lab.texts(OWNER) == [bridge.QUEUED])
+    assert settle(lab)
+    lab.say(OWNER, "x again")
+    assert lab.texts(OWNER) == [bridge.QUEUED, bridge.RUN_BUSY], "the slot is free: the sentence that fits is the router's"

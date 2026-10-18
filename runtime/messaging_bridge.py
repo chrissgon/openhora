@@ -122,7 +122,8 @@ QUEUE_WAIT = 1800     # seconds a line may wait for the project
 QUEUE_PER_CHAT = 1    # waiting lines of one chat
 QUEUE_PER_PROJECT = 5
 QUEUE_RETRY = 1.0     # seconds before a line that met `RunBusy` is started again
-QUEUE_POLL = 2        # seconds a polling loop waits for the messenger while a line waits (so that the slot is looked at soon)
+QUEUE_POLL = 2        # seconds a polling loop waits for the messenger while a line waits out a `RunBusy` pause (a held slot is looked at when its job ends)
+QUEUE_STOP_WAIT = 10.0   # seconds, in all, the stop messages may take (they go out together); the runs end after that
 QUEUE_COMMANDS = ("new", "ask")   # the slash commands that may wait: the ones that run the planning agent or the answer run; the others are not lines but acts
 
 
@@ -215,7 +216,7 @@ class Bridge(shell_kit.Jobs):
         self.ticket = 0
         self.queue_lock = threading.Lock()    # guards `waiting` and `ticket`
         self.drain_lock = threading.Lock()    # one drain at a time, so that lines start in order
-        self._run_job = self.finish_job       # the kit starts each job thread with `self._run_job`: this one drains the waiting lines when a job ends
+        self.session_ready = None             # a listen provider: whether its session is ready (the loop sets it); no waiting line starts while it is not
 
     # --- the projects and their settings ---------------------------------------------------------------------
 
@@ -793,31 +794,40 @@ class Bridge(shell_kit.Jobs):
 
     def say(self, project: dict, chat: str, text: str) -> None:
         """A free line to the planning agent. A line that may wait (`queueable`) and meets a project that is busy is kept (`keep`) and answered `QUEUED`;
-        a line that comes while others wait goes behind them, so that the lines start in the order they came."""
+        a line that comes while others wait goes behind them (also one that is being started), so that the lines start in the order they came."""
         if not queueable(text):
             self.start(project, chat, "say", self.line(project, chat, text, None))
             return
         with self.queue_lock:
-            behind = any(e["project"]["id"] == project["id"] for e in self.waiting)
-        if not behind:
+            mine = [e for e in self.waiting if e["project"]["id"] == project["id"]]
+        held = False
+        if not mine:
             try:
                 self.start_job(project["id"], "say", self.line(project, chat, text, None))
                 return
             except shell_kit.Busy:
-                pass
+                held = True
             except shell_kit.Stopping:
                 return
-        self.keep_or_refuse(project, chat, text, STILL_WORKING)
+        # beyond the caps the line gets the sentence it always got: the router's when the lines only wait out a `RunBusy` pause, else the slot's
+        busy_elsewhere = bool(mine) and not held and all(e["after"] for e in mine)
+        self.keep_or_refuse(project, chat, text, RUN_BUSY if busy_elsewhere else STILL_WORKING)
         self.drain()      # the job that held the slot may have ended between the refusal and the keeping
 
     def line(self, project: dict, chat: str, text: str, entry):
-        """The call that runs one line through `say`. `entry` is the kept line this run answers (None: the line has just come). The policy is read
-        by `run_op` now; a kept line also needs its sender to be still listed in the project (else it is dropped, as an update from an unlisted sender is)."""
+        """The call that runs one line through `say`. `entry` is the kept line this run answers (None: the line has just come); it leaves the waiting
+        list when the run begins. The policy is read by `run_op` now; a kept line also needs the project to be accepted and its sender still listed in
+        it, else it is dropped with no reply, as an update from an unlisted sender is."""
         def call():
+            if entry is not None:
+                self.leave(entry)
             try:
                 if entry is not None:
-                    settings = self.settings(project)
-                    if settings is not None and chat not in settings["senders"]:
+                    try:
+                        settings = self.settings(project)
+                    except self.ops.OpsError:
+                        settings = None
+                    if settings is None or chat not in settings["senders"]:
                         self.log(DROPPED)
                         return
                 result = self.run_op(project, "say", sender=chat, text=text)
@@ -835,6 +845,13 @@ class Bridge(shell_kit.Jobs):
                 else:
                     self.reply(chat, QUEUED)
         return call
+
+    def leave(self, entry: dict) -> None:
+        """A kept line whose run has begun is no longer waiting (until then it stays in the list, marked `starting`, so that a line that comes meanwhile
+        goes behind it)."""
+        with self.queue_lock:
+            self.waiting = [e for e in self.waiting if e is not entry]
+            entry["starting"] = False
 
     def keep_or_refuse(self, project: dict, chat: str, text: str, refusal: str) -> None:
         """Keep the line and say so, or say `refusal` (the sentence the line always got when the project was busy). A sender whose policy refuses the
@@ -861,7 +878,7 @@ class Bridge(shell_kit.Jobs):
                         or sum(1 for e in self.waiting if e["project"]["id"] == project["id"]) >= QUEUE_PER_PROJECT:
                     return False
                 self.ticket += 1
-                entry = {"n": self.ticket, "project": project, "chat": chat, "text": text, "since": self.monotonic(), "after": 0.0}
+                entry = {"n": self.ticket, "project": project, "chat": chat, "text": text, "since": self.monotonic(), "after": 0.0, "starting": False}
             if retry:
                 entry["after"] = self.monotonic() + QUEUE_RETRY
             self.waiting.append(entry)
@@ -869,32 +886,36 @@ class Bridge(shell_kit.Jobs):
         return True
 
     def drain(self) -> None:
-        """Drop the lines that waited QUEUE_WAIT seconds (each chat is told) and start the oldest line of every project whose slot is free. Called at each
-        iteration of the loops and at the end of each job. One drain at a time: the lines of a project start in the order they were kept."""
+        """Drop the lines that waited QUEUE_WAIT seconds (each chat is told) and start the oldest line of every project whose slot is free (a listen
+        provider whose session is not ready starts none). Called at each iteration of the loops and at the end of each job. One drain at a time: the lines
+        of a project start in the order they were kept. A line being started stays in the list, marked, until its run begins."""
         if not self.waiting:
             return
         told = []
         with self.drain_lock:
             now = self.monotonic()
             with self.queue_lock:
-                self.waiting, expired = [e for e in self.waiting if now - e["since"] < QUEUE_WAIT], [e for e in self.waiting if now - e["since"] >= QUEUE_WAIT]
+                expired = [e for e in self.waiting if not e["starting"] and now - e["since"] >= QUEUE_WAIT]
+                self.waiting = [e for e in self.waiting if not any(e is x for x in expired)]
             told += [(e["chat"], QUEUE_EXPIRED) for e in expired]
+            ready = self.session_ready is None or self.session_ready()
             seen = []
-            while True:
+            while ready:
                 with self.queue_lock:
                     oldest = next((e for e in self.waiting if e["project"]["id"] not in seen), None)
                     if oldest is None:
                         break
                     seen.append(oldest["project"]["id"])
-                    if oldest["after"] > now:         # it met a busy router a moment ago: the lines behind it wait too
+                    if oldest["starting"] or oldest["after"] > now:     # being started, or it met a busy router a moment ago: the lines behind it wait too
                         continue
-                    self.waiting.remove(oldest)
+                    oldest["starting"] = True
                 try:
                     self.start_job(oldest["project"]["id"], "say", self.line(oldest["project"], oldest["chat"], oldest["text"], oldest))
                 except shell_kit.Busy:
-                    if not self.keep(oldest["project"], oldest["chat"], oldest["text"], entry=oldest):
-                        told.append((oldest["chat"], QUEUE_STOPPED))
+                    with self.queue_lock:
+                        oldest["starting"] = False
                 except shell_kit.Stopping:
+                    self.leave(oldest)
                     told.append((oldest["chat"], QUEUE_STOPPED))
         if expired:
             self.log(f"{len(expired)} waiting line(s) dropped after {QUEUE_WAIT // 60} minutes")
@@ -907,24 +928,32 @@ class Bridge(shell_kit.Jobs):
         except Exception:  # the loop goes on; the class says what failed, never the content
             self.log("the waiting lines could not be looked at: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
 
+    def job_ended(self, job: dict) -> None:
+        """The kit calls this when a job ended and its slot is free: the oldest waiting line of the project is started."""
+        self.drain_safely()
+
+    def tell_stopped(self, chat: str) -> None:
+        try:
+            self.reply(chat, QUEUE_STOPPED)
+        except Exception:  # best effort: the stop goes on, and the class says what failed, never the content
+            self.log("a waiting line's chat could not be told of the stop: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
+
     def close_queue(self) -> None:
         """At a stop (the end of `serve_loop`, before the runs end and the provider closes): every chat that has a line waiting is told QUEUE_STOPPED
-        (best effort) and the lines are forgotten."""
+        (best effort) and the lines are forgotten. The messages go out together and the stop waits QUEUE_STOP_WAIT seconds for all of them, so that a
+        provider that does not answer cannot hold back the end of the runs. A line already being started runs: its job began before the stop."""
         with self.queue_lock:
-            left, self.waiting = self.waiting, []
-        for entry in left:
-            try:
-                self.reply(entry["chat"], QUEUE_STOPPED)
-            except Exception:  # best effort: the stop goes on, and the class says what failed, never the content
-                self.log("a waiting line's chat could not be told of the stop: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
+            left = [e for e in self.waiting if not e["starting"]]
+            self.waiting = [e for e in self.waiting if e["starting"]]
+        senders = [threading.Thread(target=self.tell_stopped, args=(e["chat"],), daemon=True) for e in left]
+        for thread in senders:
+            thread.start()
+        end = time.monotonic() + QUEUE_STOP_WAIT
+        for thread in senders:
+            thread.join(max(0.0, end - time.monotonic()))
+        late = sum(1 for thread in senders if thread.is_alive())
         if left:
-            self.log(f"stopped with {len(left)} waiting line(s): their chats were told")
-
-    def finish_job(self, job: dict, call, exclusive: bool) -> None:
-        """A job of the shell kit, and then, its slot being free, the oldest waiting line of the project is started. The kit owns `_run_job` (no shell
-        defines it), so the bridge binds this one beside it, in `__init__`, as the function every job thread runs."""
-        shell_kit.Jobs._run_job(self, job, call, exclusive)
-        self.drain_safely()
+            self.log(f"stopped with {len(left)} waiting line(s): their chats were told" + (f" ({late} message(s) not out in {QUEUE_STOP_WAIT:g} s)" if late else ""))
 
     def start(self, project: dict, chat: str, op: str, call) -> None:
         """A call that may take minutes runs in a thread; a model call takes the project's slot, one at a time."""
@@ -961,6 +990,7 @@ class Bridge(shell_kit.Jobs):
         is not touched. Notices wait until the provider is ready (a card is never sent to one that is not) and are looked
         at again at once when it becomes ready, so a card that failed to go out is sent after a restart."""
         due, seen = 0.0, 0
+        self.session_ready = session.is_ready      # no waiting line starts while the provider is not ready
         while not stop.is_set():
             if session.fatal:
                 raise Fatal(session.fatal)
@@ -1006,7 +1036,7 @@ class Bridge(shell_kit.Jobs):
                 due = time.monotonic() + notice_every
             wait = max(1, min(poll, int(due - time.monotonic())))
             self.drain_safely()
-            if self.waiting:
+            if any(e["after"] for e in list(self.waiting)):      # a line waits out a `RunBusy` pause: look again soon (a held slot is looked at when its job ends)
                 wait = min(wait, QUEUE_POLL)
             try:
                 self.poll_once(wait)
