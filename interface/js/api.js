@@ -279,7 +279,26 @@ export function instructionsAdd(p, line, baseSha256, options = {}) {
   return send("POST", `/projects/${enc(p)}/instructions/add`, { body: { line, base_sha256: baseSha256 }, signal: options.signal });
 }
 
-/** POST /projects/{p}/requests: {text, flow?, title?, after?, model?, language?}; `after` is the number of the request this one runs after, `model` a model id of the gate file or "auto", `language` a tag such as en or pt-BR (absent: the project's setting). */
+/**
+ * GET /projects/{p}/attachments: the files people sent through a messaging app: {held: [{id, platform, profile, name, kind, bytes, target, label, status, created_at,
+ * expires_at}] (oldest first), recent: [the latest decisions, newest first], today: {files, bytes}, limits}. A row never carries who sent it. Refused (409) while the page's policy does not list
+ * `add-sources`.
+ */
+export function attachments(p, options = {}) {
+  return send("GET", `/projects/${enc(p)}/attachments`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/attachments/{id}/add: add a held file as a source (or the next version of the source it names): {added, imported, source, version, warnings, reply}. */
+export function attachmentAdd(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/attachments/${enc(id)}/add`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/attachments/{id}/discard: delete a held file without adding it. */
+export function attachmentDiscard(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/attachments/${enc(id)}/discard`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/requests: {text, flow?, title?, after?, model?, language?};`after` is the number of the request this one runs after, `model` a model id of the gate file or "auto", `language` a tag such as en or pt-BR (absent: the project's setting). */
 export function request(p, text, { flow, title, after, model, language, signal } = {}) {
   return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after, model, language }, signal });
 }

@@ -57,7 +57,7 @@ def test_a_store_at_13_with_a_drive_row_migrates_to_the_type_and_the_bare_id_and
     before = {t: old.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("source_versions", "task_sources")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 13 and out["applied"] == [14, 15, 16, 17] and out["schema_version"] == 17
+    assert out["migrated_from"] == 13 and out["applied"] == [14, 15, 16, 17, 18] and out["schema_version"] == 18
     conn = store.open_db(path)
     rows = {r["id"]: r for r in store.sources_list(conn)}
     assert (rows["notes"]["type"], rows["notes"]["origin"]) == ("drive", DOC)
@@ -66,7 +66,7 @@ def test_a_store_at_13_with_a_drive_row_migrates_to_the_type_and_the_bare_id_and
     assert (rows["trick"]["type"], rows["trick"]["origin"]) == ("file", "drive-notes.md"), "only the prefix `drive:` marks a Drive row"
     assert rows["notes"]["description"] == "a description" and rows["notes"]["created_at"] == "2026-10-15T00:00:00.000000Z"
     after = {t: conn.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("source_versions", "task_sources")}
-    assert [tuple(r) for r in after["source_versions"]] == [tuple(r) for r in before["source_versions"]]
+    assert [tuple(r)[:18] for r in after["source_versions"]] == [tuple(r) for r in before["source_versions"]] and all(r[18] is None for r in after["source_versions"]), "migration 18 adds a trailing provenance, empty on an older version"
     assert [tuple(r) for r in after["task_sources"]] == [tuple(r) for r in before["task_sources"]]
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == [] and conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert store.source_latest(conn, "notes")["version"] == 1
@@ -76,7 +76,7 @@ def test_a_store_at_13_with_a_drive_row_migrates_to_the_type_and_the_bare_id_and
         conn.execute("UPDATE sources SET origin = 'x' WHERE id = 'notes'")
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute("UPDATE sources SET type = 'ftp' WHERE id = 'plain'")
-    conn.execute("INSERT INTO source_versions VALUES (" + ", ".join("?" * 18) + ")", version_row("notes", 2))     # the foreign key still holds
+    conn.execute("INSERT INTO source_versions VALUES (" + ", ".join("?" * 19) + ")", (*version_row("notes", 2), None))     # the foreign key still holds
     assert store.source_add(conn, source_id="more", source_type="drive", origin=DOC)["type"] == "drive"
 
 

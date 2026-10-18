@@ -531,3 +531,72 @@ def test_upkeep_leaves_a_step_tasks_drop_folder_and_its_task_lock_alone_and_a_st
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# --- held attachments (ATT-1, limit L48) -----------------------------------------------------------------------------------------
+
+
+def hold_row(case, number: int, days: float, now: float, kept: bool = True) -> dict:
+    """A held attachment `days` old at `now`, with the file in its folder (or without, for a crash that left a row and no file)."""
+    import datetime
+    attachments = st.load("attachments")
+    made = attachments.iso(datetime.datetime.fromtimestamp(now - days * DAY, datetime.timezone.utc))
+    digest = f"{number:064x}"
+    row = case.ctx["store"].attachment_add(case.ctx["conn"], platform="telegram", ref_sha256=digest, sender="4242424242", profile="staff", name=f"plan-{number}.pdf",
+                                           declared_type=None, declared_bytes=None, kind="pdf", sha256=digest, size=10, target=f"plan-{number}", label="import",
+                                           created_at=made)
+    if kept:
+        _, folder = attachments.make_incoming(case.cfg["data_dir"])
+        Path(folder, ".incoming-x.part").write_bytes(b"%PDF-1.4 held")
+        attachments.keep_held(case.cfg["data_dir"], row["id"], folder, ".incoming-x.part")
+        shutil.rmtree(folder)
+    return row
+
+
+def test_a_held_attachment_that_waited_seven_days_is_deleted_and_the_leftovers_of_a_crash_go_with_it(case):
+    attachments = st.load("attachments")
+    now = time.time()
+    store, conn = case.ctx["store"], case.ctx["conn"]
+    young, old = hold_row(case, 1, 6.5, now), hold_row(case, 2, 7.5, now)
+    lost = hold_row(case, 3, 8, now, kept=False)             # a row whose file is already gone
+    base = case.data / "attachments"
+    _, fresh = attachments.make_incoming(case.cfg["data_dir"])                  # a fetch in progress today
+    _, stale = attachments.make_incoming(case.cfg["data_dir"])
+    Path(stale, "content").write_bytes(b"left by a crash")
+    age(Path(stale), 2, now)
+    (base / "held" / "99").mkdir()                                              # a folder no row names, a day and a half old
+    (base / "held" / "99" / "original").write_bytes(b"x")
+    age(base / "held" / "99", 1.5, now)
+    (base / "held" / "98").mkdir()                                              # and one made a minute ago
+    outside = case.tmp / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("not ours")
+    os.symlink(outside, base / "held" / "97")                                   # a link is removed as itself and never followed
+    os.utime(base / "held" / "97", (now - 3 * DAY, now - 3 * DAY), follow_symlinks=False)
+    first = upkeep.sweep_attachments(case.ctx, now=now, dry_run=True)
+    assert first["expired"] == [2, 3] and (base / "held" / "2" / "original").is_file() and store.attachment_get(conn, 2)["status"] == "held"
+    out = upkeep.sweep_attachments(case.ctx, now=now)
+    assert out["expired"] == [2, 3] and out["problem"] is None
+    assert not (base / "held" / "2").exists() and (base / "held" / str(young["id"]) / "original").is_file(), "only what waited seven days goes"
+    assert [store.attachment_get(conn, n)["status"] for n in (1, 2, 3)] == ["held", "expired", "expired"], "the row stays, decided once"
+    assert Path(fresh).is_dir() and not Path(stale).exists(), "an incoming folder goes after a day, not before"
+    assert not (base / "held" / "99").exists() and (base / "held" / "98").is_dir(), "a folder no row names goes after a day"
+    assert not (base / "held" / "97").is_symlink() and (outside / "keep.txt").read_text() == "not ours"
+    assert sorted(out["removed"]) == sorted([f"incoming/{Path(stale).name}", "held/97", "held/99"]) and old["id"] == 2 and lost["id"] == 3
+    assert upkeep.sweep_attachments(case.ctx, now=now) == {"expired": [], "removed": [], "kept": [], "problem": None}
+
+
+def test_the_pass_that_runs_every_hour_includes_the_attachments_and_an_add_in_progress_is_not_interrupted(case):
+    attachments = st.load("attachments")
+    now = time.time()
+    hold_row(case, 1, 8, now)
+    with sources.intake.Lock(attachments.lock_path(case.cfg)):         # someone is adding or discarding
+        out = upkeep.sweep_attachments(case.ctx, now=now)
+    assert out["problem"] and out["expired"] == [] and (case.data / "attachments" / "held" / "1" / "original").is_file()
+    done = upkeep.run(case.ctx, now=now, force=True, tool=None)
+    assert done["attachments"]["expired"] == [1]
+    assert json.loads((case.data / "upkeep.json").read_text())["attachments"]["expired"] == 1
+
+
+def test_a_project_that_never_held_a_file_has_nothing_to_sweep(case):
+    assert upkeep.sweep_attachments(case.ctx, now=time.time()) == {"expired": [], "removed": [], "kept": [], "problem": None}
