@@ -53,9 +53,9 @@ def test_a_store_at_18_migrates_to_19_keeps_every_source_and_version_and_admits_
     before = {t: old.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("sources", "source_versions", "task_sources")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 18 and out["applied"] == [19, 21] and out["schema_version"] == 21
+    assert out["migrated_from"] == 18 and out["applied"] == [19, 20, 21] and out["schema_version"] == 21
     conn = store.open_db(path)
-    assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables, "no table is added and none is left over"
+    assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables | {"reminders"}, "migration 19 adds no table and leaves none over (migration 20 adds the reminders)"
     assert [r[1] for r in conn.execute("PRAGMA table_info(sources)")] == columns
     assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'sources'")} == triggers
     after = {t: conn.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("sources", "source_versions", "task_sources")}

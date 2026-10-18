@@ -490,7 +490,7 @@ def copies_for(ctx: dict, task: dict, prepared_dir: str, unattended: bool, clock
     "records": [...], "lines": [the prompt's lines]}. The newest version of each id the plan chose; a version changed outside
     the runtime, or the person's version in a task that starts on its own, is refused (SourcesRefused). Nothing of the sources
     folder enters a run but these copies of converted text (limit L26). A mail or calendar snapshot older than 26 hours is refused to a
-    task that starts on its own (limit LS2; code `stale`), and every copy of one begins with a line that says how old it is."""
+    task that starts on its own (limit L53; code `stale`), and every copy of one begins with a line that says how old it is."""
     if not task.get("sources"):
         return {"files": [], "records": [], "lines": []}
     try:

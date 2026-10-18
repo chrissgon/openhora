@@ -97,7 +97,7 @@ import lease  # noqa: E402  (the same folder: one host writes the folder at a ti
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 TYPES = ("file", "notion", "drive", "onedrive", "mail", "calendar")   # the words of the registry's CHECK (providers/store/sqlite.py, migration 21); a new type is a migration that rebuilds it
 SNAPSHOT_TYPES = ("mail", "calendar")            # a window of the person's mailbox or calendar, read as a dated snapshot (runtime/sources_mail.py)
-SNAPSHOT_MAX_AGE = 26 * 3600                     # limit LS2: seconds; a snapshot older than this is never handed to a task that starts on its own (a daily refresh always qualifies)
+SNAPSHOT_MAX_AGE = 26 * 3600                     # limit L53 (LS2): seconds; a snapshot older than this is never handed to a task that starts on its own (a daily refresh always qualifies)
 MARKER = ".openhora-sources"
 INCOMING = ".incoming"                           # inside the folder: where a version is assembled before the rename that puts it in place
 STAGING = "sources-staging"                      # inside data_dir: where the bytes of an import are received and converted
@@ -1538,7 +1538,7 @@ def task_copies(ctx, task: dict, prepared_dir: str, *, unattended: bool, evidenc
     (limit L26). Returns {"files": [(path, rel)], "records": [{"source", "version", "sha256", "name"}]}; the caller records
     the rows once the run exists.
 
-    Limit LS2. A mail or calendar snapshot (type `mail` or `calendar`, read by runtime/sources_mail.py) older than SNAPSHOT_MAX_AGE is never
+    Limit L53 (LS2). A mail or calendar snapshot (type `mail` or `calendar`, read by runtime/sources_mail.py) older than SNAPSHOT_MAX_AGE is never
     handed to a task that starts on its own: SourcesError (code `stale`) says when it was read and how to refresh it. A task the person
     starts receives it, and every copy of a snapshot, attended or not, begins with one line that says when it was read and how old it is
     (the record still names the version and the hash of its text: the line is not part of the version). `clock` is a seam for tests."""

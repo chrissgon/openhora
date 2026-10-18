@@ -60,7 +60,7 @@ def test_migration_10_keeps_every_earlier_row_and_leaves_the_new_columns_empty(t
     old.commit()
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 9 and out["applied"] == [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21] and out["schema_version"] == 21
+    assert out["migrated_from"] == 9 and out["applied"] == [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21] and out["schema_version"] == 21
     conn = store.open_db(path)
     task = conn.execute("SELECT id, title, model FROM tasks").fetchone()
     assert tuple(task) == (1, "Request", None), "an old request names no model"

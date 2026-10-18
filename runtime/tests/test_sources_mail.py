@@ -617,7 +617,7 @@ def test_an_ingest_step_with_only_a_source_id_refreshes_both_types_unattended(tm
     assert run("inbox", "e")["version"] == 3 and "Read at 2026-10-18T10:12:00Z" in desk.text("inbox")
 
 
-def test_limit_51_an_ingest_step_takes_a_source_id_and_no_query_box_window_or_calendar():
+def test_limit_52_an_ingest_step_takes_a_source_id_and_no_query_box_window_or_calendar():
     ingest = st.load("step_ingest")
     assert ingest.check({"source": "inbox"}) == {"source": "inbox"}
     for extra in ({"query": "from:boss"}, {"box": "inbox"}, {"days": 3}, {"max": 5}, {"calendar": "primary"}, {"origin": GMAIL}, {"mailbox": "gmail"}, {"since": "2026-10-01"}):
@@ -626,10 +626,10 @@ def test_limit_51_an_ingest_step_takes_a_source_id_and_no_query_box_window_or_ca
         assert refused.value.code == "bad_args"
 
 
-# --- limit L51 (LS1 of the spec) -------------------------------------------------------------------------------------------------------------------------------
+# --- limit L52 (LS1 of the spec) -------------------------------------------------------------------------------------------------------------------------------
 
 
-def test_limit_51_the_providers_of_mail_and_calendar_are_named_only_by_the_one_module_that_calls_them():
+def test_limit_52_the_providers_of_mail_and_calendar_are_named_only_by_the_one_module_that_calls_them():
     quoted = re.compile(r"""["'](reader:email|integration:calendar)["']""")
     found = {}
     for path in sorted(st.RUNTIME.glob("*.py")) + sorted((st.RUNTIME / "handlers").glob("*.py")):
@@ -641,7 +641,7 @@ def test_limit_51_the_providers_of_mail_and_calendar_are_named_only_by_the_one_m
     assert found["reader:email"] == {"sources_mail.py", "handlers/social.py"}, found
 
 
-def test_limit_51_the_one_caller_sends_only_the_verbs_that_read_a_window_and_only_to_the_four_implementations(desk):
+def test_limit_52_the_one_caller_sends_only_the_verbs_that_read_a_window_and_only_to_the_four_implementations(desk):
     for cls, implementation, verb in (("reader:email", "gmail", "get"), ("reader:email", "gmail", "read-eml"), ("reader:email", "outlook", "calendars"),
                                       ("integration:calendar", "google", "calendars"), ("integration:calendar", "google", "search"),
                                       ("integration:calendar", "outlook", "send"), ("reader:email", "imap", "search"), ("reader:email", "auto", "search"),
@@ -654,7 +654,7 @@ def test_limit_51_the_one_caller_sends_only_the_verbs_that_read_a_window_and_onl
     assert sorted(sources_mail.SECRETS) == [("integration:calendar", "google"), ("integration:calendar", "outlook"), ("reader:email", "gmail"), ("reader:email", "outlook")]
 
 
-def test_limit_51_no_run_calls_a_provider_of_mail_or_calendar_and_a_run_gets_only_the_text_of_the_version_its_plan_chose(desk):
+def test_limit_52_no_run_calls_a_provider_of_mail_or_calendar_and_a_run_gets_only_the_text_of_the_version_its_plan_chose(desk):
     desk.mail("inbox")
     calls = len(desk.providers.calls)
     prepared = desk.tmp / "prepared"
@@ -668,14 +668,14 @@ def test_limit_51_no_run_calls_a_provider_of_mail_or_calendar_and_a_run_gets_onl
         assert "sources_mail" not in source and "reader:email" not in source and "integration:calendar" not in source, module
 
 
-# --- limit L52 (LS2 of the spec) -------------------------------------------------------------------------------------------------------------------------------
+# --- limit L53 (LS2 of the spec) -------------------------------------------------------------------------------------------------------------------------------
 
 
 def copies(desk, *, unattended, at):
     return ops_sources.copies_for(desk.ctx, {"id": 1, "sources": ["inbox"]}, str(desk.tmp / "prepared"), unattended, clock=lambda: at)
 
 
-def test_limit_52_a_snapshot_older_than_26_hours_is_never_given_to_a_task_that_starts_on_its_own(desk):
+def test_limit_53_a_snapshot_older_than_26_hours_is_never_given_to_a_task_that_starts_on_its_own(desk):
     desk.mail("inbox")
     assert sources.SNAPSHOT_MAX_AGE == 26 * 3600
     ok = copies(desk, unattended=True, at=NOW + datetime.timedelta(hours=25, minutes=59))
@@ -689,7 +689,7 @@ def test_limit_52_a_snapshot_older_than_26_hours_is_never_given_to_a_task_that_s
         assert "the snapshot of inbox is from 2026-10-17T10:12:00Z; refresh it (source-refresh) or start the task yourself" in str(refused.value)
 
 
-def test_limit_52_a_task_the_person_starts_receives_an_old_snapshot_with_its_age_in_the_first_line(desk):
+def test_limit_53_a_task_the_person_starts_receives_an_old_snapshot_with_its_age_in_the_first_line(desk):
     desk.mail("inbox")
     got = copies(desk, unattended=False, at=NOW + datetime.timedelta(hours=27, minutes=30))
     [(path, rel)] = got["files"]
@@ -702,7 +702,7 @@ def test_limit_52_a_task_the_person_starts_receives_an_old_snapshot_with_its_age
         "the record names the version and the hash of its text; the line is not part of the version"
 
 
-def test_limit_52_a_fresh_snapshot_carries_its_age_too_in_minutes_or_hours(desk):
+def test_limit_53_a_fresh_snapshot_carries_its_age_too_in_minutes_or_hours(desk):
     desk.mail("inbox")
     assert "(0 minutes old" in Path(copies(desk, unattended=True, at=NOW)["files"][0][0]).read_text().splitlines()[0]
     assert "(1 minute old" in Path(copies(desk, unattended=True, at=NOW + datetime.timedelta(minutes=1))["files"][0][0]).read_text().splitlines()[0]
@@ -711,7 +711,7 @@ def test_limit_52_a_fresh_snapshot_carries_its_age_too_in_minutes_or_hours(desk)
     assert "(0 minutes old" in Path(copies(desk, unattended=True, at=NOW - datetime.timedelta(hours=1))["files"][0][0]).read_text().splitlines()[0], "a clock behind counts as zero"
 
 
-def test_limit_52_a_file_source_is_not_aged_and_a_refreshed_snapshot_qualifies_again(desk, tmp_path):
+def test_limit_53_a_file_source_is_not_aged_and_a_refreshed_snapshot_qualifies_again(desk, tmp_path):
     desk.mail("inbox")
     (tmp_path / "survey.csv").write_text("a,b\n1,2\n")
     sources.import_version(desk.ctx, sources.register(desk.ctx, "survey", "file", "survey.csv"), str(tmp_path / "survey.csv"), convert=standin_convert)
@@ -724,7 +724,7 @@ def test_limit_52_a_file_source_is_not_aged_and_a_refreshed_snapshot_qualifies_a
     assert ok["records"][0]["version"] == 2
 
 
-def test_limit_52_a_run_next_receives_an_old_snapshot_and_the_dispatcher_does_not(tmp_path, monkeypatch):
+def test_limit_53_a_run_next_receives_an_old_snapshot_and_the_dispatcher_does_not(tmp_path, monkeypatch):
     monkeypatch.setenv("WB_LOCAL_EVIDENCE_DIR", str(tmp_path / "evidence"))
     built = st.build(tmp_path, monkeypatch, lab)
     monkeypatch.setattr(ops_core, "ROOT", str(built["tree"]))

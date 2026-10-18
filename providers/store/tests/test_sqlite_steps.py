@@ -58,7 +58,7 @@ def test_migration_12_adds_the_four_columns_and_a_store_at_11_migrates_and_keeps
         store.open_db(path)
     assert refused.value.code == store.EXIT_NOT_CONFIGURED
     out = store.init_db(path)
-    assert out["migrated_from"] == 11 and out["applied"] == [12, 13, 14, 15, 16, 17, 18, 19, 21] and out["schema_version"] == 21
+    assert out["migrated_from"] == 11 and out["applied"] == [12, 13, 14, 15, 16, 17, 18, 19, 20, 21] and out["schema_version"] == 21
     conn = store.open_db(path)
     names = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)")]
     assert all(c in names for c in COLUMNS)

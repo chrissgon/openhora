@@ -633,8 +633,49 @@ MIGRATIONS = {
             WHEN NEW.id IS NOT OLD.id OR NEW.type IS NOT OLD.type OR NEW.origin IS NOT OLD.origin OR NEW.created_at IS NOT OLD.created_at
             BEGIN SELECT RAISE(ABORT, 'a source keeps its id, type and origin: only its description changes'); END""",
     ]),
-    # RT-1: a mail window and a calendar window as sources. Number 20 is the reminders package's (RM-1, not merged when this one was written; a store
-    # never skips a migration it has not applied, so whichever of the two reaches a store second still runs). The sources table is rebuilt to admit
+    # Migration 20 (RM-1, reminders; after O2's 19). A reminder is a stored one-shot notice that the messaging bridge sends to the chat that
+    # made it, with the person's own words, at a moment: a notice and never an effect. `text` is the person's own words (never logged, never in an export,
+    # a card or a catalog), `platform` and `chat` the one place it may be sent (a private chat whose id is a listed sender's), `created_by` the actor as
+    # POL-2 records it, `due_local` the wall time as it was asked and `zone` its name, `due_utc` the instant (fixed-width UTC, so that times compare as
+    # text). A reminder is `open`, claimed as `sending` by the one tick that sends it (a crash in between leaves it `sending`; after a while it is open
+    # again, so a line may go twice and never zero times), then `sent`; or it ends `cancelled` (the person forgot it), `missed` (it was later than the late
+    # window when a bridge looked: why `late`) or `dropped` (the sender was removed or narrowed before it fired: why `sender removed` or `not permitted`).
+    # A send that failed gives the claim back (`attempts` counts the failures, `retry_after` is the earliest next try: 1, 2, 4, 8 ... minutes).
+    # A row is never deleted; what it was asked and for whom never changes; an ended row stays as it ended.
+    20: ("reminders, the one-shot notices the messaging bridge sends", [
+        """CREATE TABLE reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            due_local TEXT NOT NULL,
+            due_utc TEXT NOT NULL,
+            zone TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            chat TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('open', 'sending', 'sent', 'cancelled', 'missed', 'dropped')),
+            why TEXT CHECK (why IS NULL OR why IN ('late', 'sender removed', 'not permitted')),
+            created_at TEXT NOT NULL,
+            claimed_at TEXT,
+            ended_at TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            retry_after TEXT,
+            CHECK ((status IN ('missed', 'dropped')) = (why IS NOT NULL)))""",
+        "CREATE INDEX reminders_by_status ON reminders (status, due_utc)",
+        "CREATE INDEX reminders_by_chat ON reminders (platform, chat, id)",
+        """CREATE TRIGGER reminders_never_deleted BEFORE DELETE ON reminders
+            BEGIN SELECT RAISE(ABORT, 'the record of a reminder is never deleted'); END""",
+        """CREATE TRIGGER reminders_fixed BEFORE UPDATE ON reminders
+            WHEN NEW.id IS NOT OLD.id OR NEW.text IS NOT OLD.text OR NEW.due_local IS NOT OLD.due_local OR NEW.due_utc IS NOT OLD.due_utc
+              OR NEW.zone IS NOT OLD.zone OR NEW.platform IS NOT OLD.platform OR NEW.chat IS NOT OLD.chat OR NEW.created_by IS NOT OLD.created_by
+              OR NEW.created_at IS NOT OLD.created_at
+            BEGIN SELECT RAISE(ABORT, 'what a reminder says, when and to whom never changes'); END""",
+        """CREATE TRIGGER reminders_move BEFORE UPDATE ON reminders
+            WHEN OLD.status IN ('sent', 'cancelled', 'missed', 'dropped')
+              OR (OLD.status = 'open' AND NEW.status NOT IN ('open', 'sending', 'cancelled', 'missed', 'dropped'))
+              OR (OLD.status = 'sending' AND NEW.status NOT IN ('sending', 'sent', 'open', 'missed', 'dropped'))
+            BEGIN SELECT RAISE(ABORT, 'a reminder that ended stays as it ended, and is sent only after it was claimed'); END""",
+    ]),
+    # RT-1: a mail window and a calendar window as sources. Number 20 is the reminders package's (RM-1). The sources table is rebuilt to admit
     # `mail` and `calendar` exactly as migrations 14 and 19 rebuilt it: the same columns, the same two triggers, every row copied as it is (no row is
     # rewritten, and the versions are not touched).
     21: ("the mail and calendar source types", [
@@ -981,8 +1022,32 @@ def private_files(path: Path) -> None:
             pass
 
 
+# The columns that a migration which was changed before it merged defines (a dev store that applied the earlier shape passes the version check and
+# then fails on a raw column error): {table: columns in order}. Only a table whose migration was reworded after a store could have applied it is listed.
+EXPECTED_COLUMNS = {"reminders": ("id", "text", "due_local", "due_utc", "zone", "platform", "chat", "created_by", "status", "why", "created_at",
+                                  "claimed_at", "ended_at", "attempts", "retry_after")}
+UNMERGED = "this store applied an unmerged migration {number} (the table {table} has other columns than this script defines); delete the test store or re-create it"
+
+
+def shape_problem(conn: sqlite3.Connection) -> str | None:
+    """The sentence that refuses a store whose table of EXPECTED_COLUMNS has other columns than the migration of this script defines, else None."""
+    for table, columns in EXPECTED_COLUMNS.items():
+        found = tuple(r[1] for r in conn.execute(f"PRAGMA table_info({table})"))
+        if found and found != columns:
+            return UNMERGED.format(number=20, table=table)
+    return None
+
+
+def missing_migrations(conn: sqlite3.Connection) -> list:
+    """The numbers of MIGRATIONS that the store has not applied, ascending (all of them when it has no version table)."""
+    found = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'").fetchone()
+    have = {r[0] for r in conn.execute("SELECT version FROM schema_version")} if found else set()
+    return sorted(set(MIGRATIONS) - have)
+
+
 def open_ready(args) -> sqlite3.Connection:
-    """A connection to an existing database at the current schema version."""
+    """A connection to an existing database at the current schema version: the highest applied number is the script's, and none of the script's
+    migrations is missing (a number below the highest that was never applied is a gap, and init fills it)."""
     path = db_path(args)
     if not path.is_file():
         raise StoreError(f"no database at {path}: run init first", EXIT_NOT_CONFIGURED)
@@ -994,6 +1059,12 @@ def open_ready(args) -> sqlite3.Connection:
     if version > SCHEMA_VERSION:
         raise StoreError(f"{path} is at schema version {version}, newer than this script ({SCHEMA_VERSION}): "
                          "update the workbench", EXIT_ERROR)
+    problem = shape_problem(conn)
+    if problem:
+        raise StoreError(f"{path}: {problem}", EXIT_NOT_CONFIGURED)
+    gaps = missing_migrations(conn)
+    if gaps:
+        raise StoreError(f"{path} has not applied migration {', '.join(map(str, gaps))} of this script: run init to migrate", EXIT_NOT_CONFIGURED)
     return conn
 
 
@@ -1051,8 +1122,14 @@ def _init(path: Path) -> dict:
         current = conn.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
         if current > SCHEMA_VERSION:
             raise StoreError(f"{path} is at schema version {current}, newer than this script ({SCHEMA_VERSION})")
+        # Every number the script knows that the store lacks, ascending: not only those above the highest applied. A store that reached 20 before 19
+        # was merged (two packages took neighbouring numbers) gets 19 applied now, and `open_ready` refuses it until then.
+        have = {r[0] for r in conn.execute("SELECT version FROM schema_version")}
+        problem = shape_problem(conn)
+        if problem:
+            raise StoreError(f"{path}: {problem}", EXIT_NOT_CONFIGURED)
         for version in sorted(MIGRATIONS):
-            if version <= current:
+            if version in have:
                 continue
             description, statements = MIGRATIONS[version]
             for statement in statements:
@@ -3917,6 +3994,133 @@ def attachments_since(conn: sqlite3.Connection, since: str) -> dict:
     were fetched). The runtime asks for the start of the UTC day."""
     row = conn.execute("SELECT COUNT(*) AS files, COALESCE(SUM(bytes), 0) AS bytes FROM attachments WHERE created_at >= ?", (since,)).fetchone()
     return {"files": row["files"], "bytes": row["bytes"]}
+
+
+# --- reminders (migration 20; runtime/ops_reminders.py is the one caller) -----------------------------------------------------------
+# The table is not in the export: the text of a reminder is the person's own words and leaves the store through the operations alone.
+
+REMINDER_STATUSES = ("open", "sending", "sent", "cancelled", "missed", "dropped")
+REMINDER_WHYS = ("late", "sender removed", "not permitted")
+REMINDER_TEXT_BYTES = 1280      # 300 characters of any script, with a margin; the runtime holds the 300 characters
+REMINDER_LIST_MAX = 500
+REMINDER_OPEN_FULL = "too many reminders wait in this project"
+REMINDER_DAY_FULL = "too many reminders were made for this chat today"
+REMINDER_CHAT_FULL = "too many reminders wait for this chat"
+REMINDER_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z")
+
+
+def reminder_add(conn: sqlite3.Connection, *, text: str, due_local: str, due_utc: str, zone: str, platform: str, chat: str, created_by: str,
+                 max_open: int, max_day: int, day_since: str, max_open_chat: int | None = None, created_at: str | None = None) -> dict:
+    """Record one reminder, `open`, if the project holds fewer than `max_open` that wait (open or being sent), this platform and chat fewer than
+    `max_open_chat` (when given: one chat cannot fill the project), and fewer than `max_day` were made for
+    this platform and chat since `day_since` (an ISO time): both counted in the transaction that writes, so two callers cannot both pass the last
+    place. `due_utc` is a fixed-width UTC time (iso); `due_local` the wall time as asked. Returns the row."""
+    text = text_arg(text, "text", REMINDER_TEXT_BYTES)
+    due_local = text_arg(due_local, "due_local", LABEL_MAX)
+    zone = text_arg(zone, "zone", LABEL_MAX)
+    platform = text_arg(platform, "platform", LABEL_MAX)
+    chat = text_arg(chat, "chat", ACTOR_MAX)
+    created_by = text_arg(created_by, "created_by", ACTOR_MAX)
+    if not (isinstance(due_utc, str) and REMINDER_TIME.fullmatch(due_utc)):
+        raise StoreError("due_utc must be a fixed-width UTC time (iso)", EXIT_USAGE)
+    now = created_at or iso(utcnow())
+    with write(conn):
+        waiting = conn.execute("SELECT COUNT(*) AS n FROM reminders WHERE status IN ('open', 'sending')").fetchone()["n"]
+        if waiting >= int(max_open):
+            raise StoreError(REMINDER_OPEN_FULL, EXIT_ERROR)
+        if max_open_chat is not None and conn.execute("SELECT COUNT(*) AS n FROM reminders WHERE status IN ('open', 'sending') AND platform = ? AND chat = ?",
+                                                      (platform, chat)).fetchone()["n"] >= int(max_open_chat):
+            raise StoreError(REMINDER_CHAT_FULL, EXIT_ERROR)
+        today = conn.execute("SELECT COUNT(*) AS n FROM reminders WHERE platform = ? AND chat = ? AND created_at >= ?",
+                             (platform, chat, day_since)).fetchone()["n"]
+        if today >= int(max_day):
+            raise StoreError(REMINDER_DAY_FULL, EXIT_ERROR)
+        row_id = conn.execute(
+            "INSERT INTO reminders (text, due_local, due_utc, zone, platform, chat, created_by, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+            (text, due_local, due_utc, zone, platform, chat, created_by, now)).lastrowid
+    return reminder_get(conn, row_id)
+
+
+def reminder_get(conn: sqlite3.Connection, reminder_id: int) -> dict:
+    row = conn.execute("SELECT * FROM reminders WHERE id = ?", (reminder_id,)).fetchone()
+    if row is None:
+        raise StoreError(f"no reminder {reminder_id}")
+    return row_dict(row)
+
+
+def reminders_list(conn: sqlite3.Connection, statuses=None, platform: str | None = None, chat: str | None = None,
+                   ended_since: str | None = None, limit: int = REMINDER_LIST_MAX) -> list:
+    """The reminders in `statuses` (default all), of a platform and a chat when given: the waiting ones (open, sending) by the time they are due, the
+    others newest first; `ended_since` keeps an ended one only if it ended at or after that ISO time."""
+    wanted = tuple(statuses) if statuses else REMINDER_STATUSES
+    if not all(s in REMINDER_STATUSES for s in wanted):
+        raise StoreError(f"a reminder's status is one of {', '.join(REMINDER_STATUSES)}", EXIT_USAGE)
+    marks = ", ".join("?" for _ in wanted)
+    query, args = f"SELECT * FROM reminders WHERE status IN ({marks})", list(wanted)
+    if platform is not None:
+        query += " AND platform = ?"
+        args.append(platform)
+    if chat is not None:
+        query += " AND chat = ?"
+        args.append(chat)
+    if ended_since is not None:
+        query += " AND (ended_at IS NULL OR ended_at >= ?)"
+        args.append(ended_since)
+    waiting = all(s in ("open", "sending") for s in wanted)
+    query += " ORDER BY " + ("due_utc, id" if waiting else "id DESC") + " LIMIT ?"
+    args.append(min(int(limit), REMINDER_LIST_MAX))
+    return [row_dict(r) for r in conn.execute(query, args).fetchall()]
+
+
+def reminders_due(conn: sqlite3.Connection, platform: str, until: str, limit: int = REMINDER_LIST_MAX) -> list:
+    """The open reminders of a platform whose time is at or before `until` (an ISO time) and that are not waiting out the pause after a failed send
+    (`retry_after`), oldest due first."""
+    return [row_dict(r) for r in conn.execute(
+        "SELECT * FROM reminders WHERE status = 'open' AND platform = ? AND due_utc <= ? AND (retry_after IS NULL OR retry_after <= ?) "
+        "ORDER BY due_utc, id LIMIT ?", (platform, until, until, min(int(limit), REMINDER_LIST_MAX))).fetchall()]
+
+
+def reminder_claim(conn: sqlite3.Connection, reminder_id: int, at: str | None = None) -> bool:
+    """Take an open reminder to send it: `open` becomes `sending`. True for the one caller that took it, False when it is not open any more."""
+    with write(conn):
+        changed = conn.execute("UPDATE reminders SET status = 'sending', claimed_at = ? WHERE id = ? AND status = 'open'",
+                               (at or iso(utcnow()), reminder_id)).rowcount
+    return changed == 1
+
+
+def reminder_release(conn: sqlite3.Connection, reminder_id: int, retry_after: str | None = None) -> bool:
+    """Give a claimed reminder back (the send failed or was deferred): `sending` becomes `open`, one more failure is counted, and it is not offered
+    again before `retry_after` (an ISO time; none: at once). False when it was not `sending`."""
+    if retry_after is not None and not (isinstance(retry_after, str) and REMINDER_TIME.fullmatch(retry_after)):
+        raise StoreError("retry_after must be a fixed-width UTC time (iso)", EXIT_USAGE)
+    with write(conn):
+        changed = conn.execute("UPDATE reminders SET status = 'open', claimed_at = NULL, attempts = attempts + 1, retry_after = ? WHERE id = ? AND status = 'sending'",
+                               (retry_after, reminder_id)).rowcount
+    return changed == 1
+
+
+def reminders_reclaim(conn: sqlite3.Connection, before: str) -> int:
+    """Open again every reminder claimed at or before `before` (an ISO time) and still `sending`: the bridge that claimed it stopped. Returns how many."""
+    with write(conn):
+        return conn.execute("UPDATE reminders SET status = 'open', claimed_at = NULL WHERE status = 'sending' AND claimed_at <= ?", (before,)).rowcount
+
+
+def reminder_end(conn: sqlite3.Connection, reminder_id: int, status: str, *, why: str | None = None, at: str | None = None) -> dict:
+    """End a reminder: `sent` (it was `sending`), `cancelled` (it was `open`), `missed` or `dropped` (open, or sending that was given up), the last two with
+    their `why`. An ended reminder is final; a second end is a StoreError."""
+    if status not in ("sent", "cancelled", "missed", "dropped"):
+        raise StoreError("a reminder ends sent, cancelled, missed or dropped", EXIT_USAGE)
+    if (status in ("missed", "dropped")) != (why is not None) or (why is not None and why not in REMINDER_WHYS):
+        raise StoreError(f"a missed or dropped reminder carries one of: {', '.join(REMINDER_WHYS)}", EXIT_USAGE)
+    came_from = {"sent": ("sending",), "cancelled": ("open",), "missed": ("open", "sending"), "dropped": ("open", "sending")}[status]
+    with write(conn):
+        row = conn.execute("SELECT status FROM reminders WHERE id = ?", (reminder_id,)).fetchone()
+        if row is None:
+            raise StoreError(f"no reminder {reminder_id}")
+        if row["status"] not in came_from:
+            raise StoreError(f"reminder {reminder_id} is {row['status']}, not {' or '.join(came_from)}", EXIT_ERROR)
+        conn.execute("UPDATE reminders SET status = ?, why = ?, ended_at = ? WHERE id = ?", (status, why, at or iso(utcnow()), reminder_id))
+    return reminder_get(conn, reminder_id)
 
 
 def build_parser() -> argparse.ArgumentParser:

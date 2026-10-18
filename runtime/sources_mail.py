@@ -21,16 +21,16 @@ The box is a fixed query of the provider, never free text (a free query is a lat
 calendars are several sources. The implementation named in the origin is handed to providers/resolve.py as the explicit implementation, so
 the choice between two readers is never "auto". One account per implementation per machine.
 
-LIMIT LS1. A mail or calendar source is read only by its snapshot: the providers of `reader:email` and `integration:calendar` are called
+LIMIT L52 (LS1 of the spec). A mail or calendar source is read only by its snapshot: the providers of `reader:email` and `integration:calendar` are called
 only from here, by the source operations of the host (`source-mail`, `source-calendar`, a refresh from the terminal, the page or the
 `ingest` step of a routine), with the arguments the person's origin fixes; never from a run and never with a query a model wrote. A run
 receives only the converted text of the versions its plan chose. `provider_call` is the one caller, and it sends only the verbs `search`
-and `events`, which read. (LS2, the age of a snapshot, is in runtime/sources.py `task_copies`.)
+and `events`, which read. (L53, the age of a snapshot, is in runtime/sources.py `task_copies`.)
 
 The listing identifies the reading: origin_version is the sha256 of the sorted (id, change key) pairs the provider listed (Gmail: the message
 id; Outlook mail: Graph's changeKey; calendars: the event's etag), the zone and the local date of the reading. The same list on the same
 local date makes no new version; a different one does, and so does the same list on another day, so that a daily refresh always leaves a
-snapshot younger than the age limit LS2 allows an unattended task.
+snapshot younger than the age limit L53 allows an unattended task.
 
 External content is data: every message, event, title, place, file name and error text is another person's. It is cleaned (control and
 direction characters out), its links replaced, a message body cut and indented, and each message (each event) is scanned for credentials on
@@ -119,7 +119,7 @@ def origin_of(source_type: str, value) -> dict:
     raise SourcesError(f"{source_type} is not a mail or calendar source", "usage")
 
 
-# --- the one caller of the providers (limit LS1) -----------------------------------------------------------------------------------
+# --- the one caller of the providers (limit L52) -----------------------------------------------------------------------------------
 
 
 def provider_call(cfg: dict, cls: str, implementation: str, verb: str, args: list, *, call=None, timeout: int = PROVIDER_TIMEOUT) -> dict:
