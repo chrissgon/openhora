@@ -51,6 +51,10 @@ type Request struct {
 	Op      string          `json:"op"`
 	Chat    *string         `json:"chat"`
 	Message *Neutral        `json:"message"`
+	// The three fields of the op `fetch` (fetch.go).
+	Ref      *string `json:"ref"`
+	Out      *string `json:"out"`
+	MaxBytes *int64  `json:"max_bytes"`
 }
 
 // Answer is the provider's answer to a request.
@@ -63,6 +67,9 @@ type Answer struct {
 	DocumentFailed bool   `json:"document_failed,omitempty"`
 	Kind           string `json:"kind,omitempty"`
 	Reason         string `json:"reason,omitempty"`
+	// Bytes and SHA256 answer a fetch. Bytes is a pointer because a file of 0 bytes is still an answer.
+	Bytes  *int64 `json:"bytes,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // Sender is what a send needs from the WhatsApp client. The program's client implements it; the tests use a fake.
@@ -83,7 +90,7 @@ func ParseRequest(line []byte) (req Request, answer *Answer, ok bool) {
 		return Request{}, nil, false
 	}
 	if err := dec.Decode(&req); err != nil {
-		return req, &Answer{ID: probe.ID, Kind: kindUsage, Reason: "the request is not a valid send request"}, true
+		return req, &Answer{ID: probe.ID, Kind: kindUsage, Reason: "the request is not a valid request"}, true
 	}
 	req.ID = probe.ID
 	return req, nil, true
@@ -100,7 +107,7 @@ type document struct {
 func Validate(req Request) (to types.JID, text string, doc *document, bad *Answer) {
 	usage := func(reason string) *Answer { return &Answer{ID: req.ID, Kind: kindUsage, Reason: reason} }
 	if req.Op != "send" {
-		return to, "", nil, usage("the only request is send")
+		return to, "", nil, usage("the requests are send and fetch")
 	}
 	if req.Chat == nil || !chatRe.MatchString(*req.Chat) {
 		return to, "", nil, usage(sentenceChat)

@@ -12,9 +12,12 @@ The runtime's wiring to named skills is one file, not a constant in four modules
   subtask        the skill a product-backlog task runs in (runtime/plan.py)
   code_areas     the skill areas whose tasks change versioned files (runtime/workcopy.py)
   packs_in_use   the packs whose skills must have a whole runtime manifest (runtime/manifest.py)
+  answer         (optional) the skill that answers a question from the project's sources (runtime/ops_ask.py); a checkout
+                 that has none says so, and `ask` replies that no skill answers yet. Checked only when it is present: a
+                 folder of skills/ with a SKILL.md, like the other skill keys
 
 Bringing another router, another pack or another code area into the runtime edits that file and no step of any
-module. The file has exactly these keys; each skill is a folder of skills/ with a SKILL.md, each area is one of
+module. The file has exactly these keys (and `answer` when a skill answers); each skill is a folder of skills/ with a SKILL.md, each area is one of
 AREAS (the closed list of the frontmatter contract of AGENTS.md; a test binds it to scripts/validate.py), each
 pack is a file of packs/. A problem is a RolesError that names the key.
 
@@ -38,6 +41,7 @@ ROOT = os.path.dirname(HERE)
 FILE = os.path.join(HERE, "roles.json")
 SKILL_KEYS = ("router", "brief", "subtask")
 KEYS = SKILL_KEYS + ("code_areas", "packs_in_use")
+OPTIONAL_SKILL_KEYS = ("answer",)   # present only when a skill of the checkout answers from the sources (AQ-1 reads it; the skill is AQ-2)
 AREAS = ("business", "product", "brand", "design", "engineering", "delivery", "marketing", "ai", "core", "assistant")
 
 
@@ -73,9 +77,9 @@ def load(root=None, file=None) -> dict:
         if key not in data:
             raise RolesError(f"roles: missing key `{key}`")
     for key in data:
-        if key not in KEYS:
-            raise RolesError(f"roles: unknown key `{key}` (the keys are {', '.join(KEYS)})")
-    for key in SKILL_KEYS:
+        if key not in KEYS + OPTIONAL_SKILL_KEYS:
+            raise RolesError(f"roles: unknown key `{key}` (the keys are {', '.join(KEYS + OPTIONAL_SKILL_KEYS)})")
+    for key in SKILL_KEYS + tuple(k for k in OPTIONAL_SKILL_KEYS if k in data):
         name = data[key]
         if not isinstance(name, str) or not os.path.isfile(os.path.join(root, "skills", str(name), "SKILL.md")):
             raise RolesError(f"roles: `{key}` is {name!r}, which is not a folder of skills/ with a SKILL.md")
@@ -92,6 +96,11 @@ def load(root=None, file=None) -> dict:
     if default:
         _CACHE["default"] = dict(data)
     return data
+
+
+def answer(root=None, file=None):
+    """The skill that answers a question from the sources (the optional key `answer`), or None when roles.json names none."""
+    return load(root, file).get("answer")
 
 
 def main(argv=None) -> int:
