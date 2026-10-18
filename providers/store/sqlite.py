@@ -58,7 +58,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -563,6 +563,51 @@ MIGRATIONS = {
                     (OLD.status = 'pending-execution' AND NEW.status IN ('executed', 'revoked'))
                  OR (OLD.status = 'active' AND NEW.status IN ('expired', 'revoked'))))
             BEGIN SELECT RAISE(ABORT, 'an approval only moves forward: its status, never its content'); END""",
+    ]),
+    # ATT-1: a file a listed sender sent through a messaging app. `attachments` is the record of one file from the moment its bytes are held in
+    # <data_dir>/attachments/held/ until a person decides: it ends `added` (a source version, with its source id and number), `discarded`, `expired`
+    # (a week without an answer) or `refused` (a rule of the intake or a refusal of the conversion). It keeps the sender's id (the only place that
+    # does: a source version, its manifest and the catalog carry the platform and the profile name, never the id), the platform's reference only
+    # as a hash (the reference is what the platform fetches the file by), the sniffed kind and the file's own sha256. The bytes of a refused,
+    # discarded or expired file are deleted; the row stays. Nothing is deleted from this table, and a row leaves `held` once: its decision is final.
+    # `source_versions.provenance` is how a version says where it came from ({"channel", "platform", "profile", "attachment"} as JSON; NULL for
+    # a version a person added in the terminal or on the page).
+    18: ("held attachments, and the provenance of a source version", [
+        """CREATE TABLE attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            platform TEXT NOT NULL,
+            ref_sha256 TEXT NOT NULL,
+            sender TEXT NOT NULL,
+            profile TEXT,
+            name TEXT NOT NULL,
+            declared_type TEXT,
+            declared_bytes INTEGER,
+            kind TEXT,
+            sha256 TEXT,
+            bytes INTEGER NOT NULL,
+            target TEXT,
+            label TEXT CHECK (label IS NULL OR label IN ('import', 'refresh')),
+            direct INTEGER NOT NULL DEFAULT 0 CHECK (direct IN (0, 1)),
+            status TEXT NOT NULL CHECK (status IN ('held', 'added', 'refused', 'discarded', 'expired')),
+            code TEXT,
+            source_id TEXT,
+            version INTEGER,
+            created_at TEXT NOT NULL,
+            decided_at TEXT)""",
+        "CREATE UNIQUE INDEX attachments_one_held ON attachments (platform, ref_sha256) WHERE status = 'held'",
+        "CREATE INDEX attachments_by_status ON attachments (status, id)",
+        "CREATE INDEX attachments_by_day ON attachments (created_at)",
+        "ALTER TABLE source_versions ADD COLUMN provenance TEXT",
+        """CREATE TRIGGER attachments_never_deleted BEFORE DELETE ON attachments
+            BEGIN SELECT RAISE(ABORT, 'the record of an attachment is never deleted'); END""",
+        """CREATE TRIGGER attachments_decided_once BEFORE UPDATE ON attachments
+            WHEN OLD.status != 'held' OR NEW.status = 'held'
+              OR NEW.id IS NOT OLD.id OR NEW.platform IS NOT OLD.platform OR NEW.ref_sha256 IS NOT OLD.ref_sha256
+              OR NEW.sender IS NOT OLD.sender OR NEW.profile IS NOT OLD.profile OR NEW.name IS NOT OLD.name
+              OR NEW.declared_type IS NOT OLD.declared_type OR NEW.declared_bytes IS NOT OLD.declared_bytes OR NEW.kind IS NOT OLD.kind
+              OR NEW.sha256 IS NOT OLD.sha256 OR NEW.bytes IS NOT OLD.bytes OR NEW.target IS NOT OLD.target OR NEW.label IS NOT OLD.label
+              OR NEW.direct IS NOT OLD.direct OR NEW.created_at IS NOT OLD.created_at
+            BEGIN SELECT RAISE(ABORT, 'an attachment leaves held once: its decision is final and the rest of the row never changes'); END""",
     ]),
 }
 
@@ -3512,9 +3557,10 @@ def source_describe(conn: sqlite3.Connection, source_id: str, description: str |
 def source_version_add(conn: sqlite3.Connection, *, source_id: str, version: int, label: str, by: str, kind: str,
                        original_name: str, original_sha256: str, original_bytes: int, converted_name: str,
                        converted_sha256: str, converted_bytes: int, converter: str, converter_version: str | None,
-                       warnings, catalog: dict, origin_version: str | None, imported_at: str, hidden_text=None) -> dict:
+                       warnings, catalog: dict, origin_version: str | None, imported_at: str, hidden_text=None, provenance=None) -> dict:
     """Record one imported version, whole and final (no column of it is ever written again). The version must be the next
-    number of the source. Returns the row, with warnings and catalog as objects."""
+    number of the source. `provenance` (ATT-1) is where the version came from, a small object stored as JSON, or None for a version a
+    person added in the terminal or on the page. Returns the row, with warnings, catalog and provenance as objects."""
     if label not in SOURCE_LABELS or by not in SOURCE_BYS:
         raise StoreError("an unknown label or author of a source version", EXIT_USAGE)
     for name, digest in (("original_sha256", original_sha256), ("converted_sha256", converted_sha256)):
@@ -3530,23 +3576,26 @@ def source_version_add(conn: sqlite3.Connection, *, source_id: str, version: int
     described = json.dumps(catalog, sort_keys=True)
     if len(described.encode("utf-8")) > PAYLOAD_MAX or len(warned.encode("utf-8")) > PAYLOAD_MAX:
         raise StoreError("the catalog entry is too large", EXIT_USAGE)
+    if provenance is not None and (not isinstance(provenance, dict) or len(json.dumps(provenance).encode("utf-8")) > NOTE_MAX):
+        raise StoreError("the provenance of a version is a small object", EXIT_USAGE)
+    came = json.dumps(provenance, sort_keys=True) if provenance is not None else None
     with write(conn):
         if _source_row(conn, source_id) is None:
             raise StoreError(f"no source {source_id}")
-        top = conn.execute("SELECT COALESCE(MAX(version), 0) AS top FROM source_versions WHERE source_id = ?", (source_id,)).fetchone()["top"]
+        top =conn.execute("SELECT COALESCE(MAX(version), 0) AS top FROM source_versions WHERE source_id = ?", (source_id,)).fetchone()["top"]
         if version != top + 1:
             raise StoreError(f"the next version of {source_id} is {top + 1}, not {version}")
         conn.execute("INSERT INTO source_versions (source_id, version, label, by, kind, original_name, original_sha256, original_bytes, "
                      "converted_name, converted_sha256, converted_bytes, converter, converter_version, hidden_text, warnings, catalog, "
-                     "origin_version, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     "origin_version, imported_at, provenance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                      (source_id, version, label, by, kind, original_name, original_sha256, int(original_bytes), converted_name,
                       converted_sha256, int(converted_bytes), converter, converter_version, hidden_text, warned, described,
-                      origin_version, imported_at))
+                      origin_version, imported_at, came))
     return source_version_get(conn, source_id, version)
 
 
 def _version_dict(row) -> dict:
-    return row_dict(row, ("warnings", "catalog"))
+    return row_dict(row, ("warnings", "catalog", "provenance"))
 
 
 def source_version_get(conn: sqlite3.Connection, source_id: str, version: int) -> dict:
@@ -3594,6 +3643,116 @@ def task_sources_of(conn: sqlite3.Connection, task_id: int) -> list:
     """The sources every run of a task received, oldest first: {"run_id", "source_id", "version", "sha256", "copied_at"}."""
     return [row_dict(r, drop=("task_id",)) for r in conn.execute(
         "SELECT * FROM task_sources WHERE task_id = ? ORDER BY run_id, source_id", (task_id,))]
+
+
+# --- held attachments (migration 18; runtime/ops_attachments.py is the one caller) ---------------------------------------------
+
+ATTACHMENT_STATUSES = ("held", "added", "refused", "discarded", "expired")
+ATTACHMENT_DECISIONS = ("added", "refused", "discarded", "expired")
+ATTACHMENT_LABELS = ("import", "refresh")
+ATTACHMENT_LIST_MAX = 500
+
+
+def _attachment(row) -> dict:
+    out = row_dict(row)
+    out["direct"] = bool(out["direct"])
+    return out
+
+
+def attachment_add(conn: sqlite3.Connection, *, platform: str, ref_sha256: str, sender: str, profile: str | None, name: str,
+                   declared_type: str | None, declared_bytes: int | None, kind: str | None, sha256: str | None, size: int,
+                   target: str | None, label: str | None, direct: bool = False, status: str = "held", code: str | None = None,
+                   created_at: str | None = None) -> dict:
+    """Record one file of a messaging app that reached the hold. `status` is `held` (it waits for a person, or for the add that follows at
+    once when `direct`) or `refused` (a rule refused it after its bytes arrived: `code` says which; it still counts against the day's
+    limit, because its bytes were fetched). A held file whose platform reference is already held is refused (StoreError, code 1; a refused record may repeat a reference): delivery is at
+    least once. `ref_sha256` is the hash of the reference, never the reference. Returns the row."""
+    if status not in ("held", "refused"):
+        raise StoreError("an attachment is recorded held or refused", EXIT_USAGE)
+    if not isinstance(ref_sha256, str) or not SHA256_RE.fullmatch(ref_sha256):
+        raise StoreError("ref_sha256 must be 64 hexadecimal characters", EXIT_USAGE)
+    if sha256 is not None and (not isinstance(sha256, str) or not SHA256_RE.fullmatch(sha256)):
+        raise StoreError("sha256 must be 64 hexadecimal characters", EXIT_USAGE)
+    platform = text_arg(platform, "platform", LABEL_MAX)
+    sender = text_arg(sender, "sender", ACTOR_MAX)
+    profile = text_arg(profile, "profile", LABEL_MAX, required=False)
+    name = text_arg(name, "name", REF_MAX)
+    declared_type = text_arg(declared_type, "declared_type", LABEL_MAX, required=False)
+    kind = text_arg(kind, "kind", LABEL_MAX, required=False)
+    code = text_arg(code, "code", LABEL_MAX, required=False)
+    if target is not None and not (isinstance(target, str) and SOURCE_ID_RE.fullmatch(target)):
+        raise StoreError("an attachment's target is a source id", EXIT_USAGE)
+    if label is not None and label not in ATTACHMENT_LABELS:
+        raise StoreError(f"an attachment's label is one of {', '.join(ATTACHMENT_LABELS)}", EXIT_USAGE)
+    if status == "refused" and not code:
+        raise StoreError("a refused attachment carries the code of its refusal", EXIT_USAGE)
+    now = created_at or iso(utcnow())
+    with write(conn):
+        if status == "held" and conn.execute("SELECT 1 FROM attachments WHERE platform = ? AND ref_sha256 = ? AND status = 'held'",
+                                             (platform, ref_sha256)).fetchone():
+            raise StoreError("this file is already held", EXIT_ERROR)
+        row_id = conn.execute(
+            "INSERT INTO attachments (platform, ref_sha256, sender, profile, name, declared_type, declared_bytes, kind, sha256, bytes, "
+            "target, label, direct, status, code, created_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (platform, ref_sha256, sender, profile, name, declared_type, declared_bytes, kind, sha256, int(size), target, label,
+             1 if direct else 0, status, code, now, now if status == "refused" else None)).lastrowid
+    return attachment_get(conn, row_id)
+
+
+def attachment_get(conn: sqlite3.Connection, attachment_id: int) -> dict:
+    row = conn.execute("SELECT * FROM attachments WHERE id = ?", (attachment_id,)).fetchone()
+    if row is None:
+        raise StoreError(f"no attachment {attachment_id}")
+    return _attachment(row)
+
+
+def attachments_list(conn: sqlite3.Connection, statuses=None, limit: int = ATTACHMENT_LIST_MAX, older_than: str | None = None) -> list:
+    """The attachments, oldest first, the newest `limit` of them: those in `statuses` (default all) and, when `older_than` (an ISO time) is
+    given, made before it."""
+    wanted = tuple(statuses) if statuses else ATTACHMENT_STATUSES
+    if not all(s in ATTACHMENT_STATUSES for s in wanted):
+        raise StoreError(f"an attachment's status is one of {', '.join(ATTACHMENT_STATUSES)}", EXIT_USAGE)
+    marks = ", ".join("?" for _ in wanted)
+    query = f"SELECT * FROM attachments WHERE status IN ({marks})" + (" AND created_at < ?" if older_than else "") + " ORDER BY id DESC LIMIT ?"
+    args = (*wanted, *((older_than,) if older_than else ()), min(int(limit), ATTACHMENT_LIST_MAX))
+    return [_attachment(r) for r in reversed(conn.execute(query, args).fetchall())]
+
+
+def attachment_held_by_ref(conn: sqlite3.Connection, platform: str, ref_sha256: str):
+    """The held attachment of a platform reference (by its hash), or None."""
+    row = conn.execute("SELECT * FROM attachments WHERE platform = ? AND ref_sha256 = ? AND status = 'held'", (platform, ref_sha256)).fetchone()
+    return _attachment(row) if row is not None else None
+
+
+def attachment_decide(conn: sqlite3.Connection, attachment_id: int, status: str, *, code: str | None = None, source_id: str | None = None,
+                      version: int | None = None, decided_at: str | None = None) -> dict:
+    """End the hold of a file: `added` (with the source and the version it became), `refused` (with the code), `discarded` or `expired`. Only
+    a held attachment can be decided, and once (a second decision is a StoreError); the rest of the row never changes."""
+    if status not in ATTACHMENT_DECISIONS:
+        raise StoreError(f"an attachment's decision is one of {', '.join(ATTACHMENT_DECISIONS)}", EXIT_USAGE)
+    code = text_arg(code, "code", LABEL_MAX, required=False)
+    if status == "refused" and not code:
+        raise StoreError("a refused attachment carries the code of its refusal", EXIT_USAGE)
+    if status == "added" and not (isinstance(source_id, str) and SOURCE_ID_RE.fullmatch(source_id)
+                                  and isinstance(version, int) and not isinstance(version, bool) and version >= 1):
+        raise StoreError("an added attachment names the source and the version it became", EXIT_USAGE)
+    with write(conn):
+        row = conn.execute("SELECT status FROM attachments WHERE id = ?", (attachment_id,)).fetchone()
+        if row is None:
+            raise StoreError(f"no attachment {attachment_id}")
+        if row["status"] != "held":
+            raise StoreError(f"attachment {attachment_id} is {row['status']}, not held", EXIT_ERROR)
+        conn.execute("UPDATE attachments SET status = ?, code = ?, source_id = ?, version = ?, decided_at = ? WHERE id = ?",
+                     (status, code, source_id if status == "added" else None, version if status == "added" else None,
+                      decided_at or iso(utcnow()), attachment_id))
+    return attachment_get(conn, attachment_id)
+
+
+def attachments_since(conn: sqlite3.Connection, since: str) -> dict:
+    """What the messaging apps brought since an ISO time: {"files", "bytes"} of every row recorded from then (refused ones too: their bytes
+    were fetched). The runtime asks for the start of the UTC day."""
+    row = conn.execute("SELECT COUNT(*) AS files, COALESCE(SUM(bytes), 0) AS bytes FROM attachments WHERE created_at >= ?", (since,)).fetchone()
+    return {"files": row["files"], "bytes": row["bytes"]}
 
 
 def build_parser() -> argparse.ArgumentParser:

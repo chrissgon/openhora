@@ -260,7 +260,8 @@ def test_a_container_that_fails_or_prints_the_wrong_thing_leaves_nothing_in_the_
         out = make_out(tmp_path, "out-" + "".join(c if c.isalnum() else "-" for c in why))
         with pytest.raises(container.ProviderError) as refused:
             container.convert(path, "pdf", out, run=run, image=image)
-        assert why in str(refused.value) and refused.value.code == container.EXIT_FAILED
+        # the program's own exit 3 is the file being refused (exit 4: a caller that holds the file for a person tells it from a machine that failed)
+        assert why in str(refused.value) and refused.value.code == (container.EXIT_REFUSED if run.code == 3 else container.EXIT_FAILED)
         assert os.listdir(out) == []
 
 

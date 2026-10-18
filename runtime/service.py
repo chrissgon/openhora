@@ -336,6 +336,9 @@ ROUTES = (
     _route("POST", "/projects/{p}/sources/{name}/refresh", "source-refresh", bind={"source_id": "name"}, take=(), hidden=("file",)),
     _route("POST", "/projects/{p}/sources/{name}/refresh/files", "source-refresh", bind={"source_id": "name"}, hidden=("file",), upload=True),
     _route("POST", "/projects/{p}/sources/{name}/description", "source-describe", bind={"source_id": "name"}, take=("description",)),
+    _route("GET", "/projects/{p}/attachments", "attachments", take=()),
+    _route("POST", "/projects/{p}/attachments/{id}/add", "attachment-add", bind={"attachment_id": "id"}),
+    _route("POST", "/projects/{p}/attachments/{id}/discard", "attachment-discard", bind={"attachment_id": "id"}),
     _route("POST", "/projects/{p}/dispatch", "dispatch", take=()),
     _route("GET", "/jobs/{id}", own="job"),
 )

@@ -33,6 +33,8 @@ export const OPS = Object.freeze({
   routineResume: "routine-resume",
   instructionsSet: "instructions-set",
   instructionsAdd: "instructions-add",
+  attachmentAdd: "attachment-add",
+  attachmentDiscard: "attachment-discard",
   verdict: "verdict",
   say: "say",
   giveConsent: "give-consent",
@@ -53,7 +55,7 @@ export const EXEMPT = Object.freeze({
 /** Every plain name and pair that the controls ask about (the redraw key of a part is built from these). */
 export const ASKED = Object.freeze([
   ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["verdict"], ["say"], ["request"], ["route"], ["give-consent"],
-  ["stage-file"], ["flow-save"], ["routine-create"], ["routine-change"], ["routine-approve"], ["routine-resume"], ["instructions-set"], ["instructions-add"],
+  ["stage-file"], ["flow-save"], ["routine-create"], ["routine-change"], ["routine-approve"], ["routine-resume"], ["instructions-set"], ["instructions-add"], ["attachments"], ["attachment-add"], ["attachment-discard"],
   ["approve", "plan"], ["approve", "acceptance"], ["approve", "effect"], ["approve", "go-ahead"],
   ["approve", "effect:create"], ["approve", "effect:write"], ["approve", "effect:send"], ["approve", "effect:publish"],
 ]);
