@@ -137,7 +137,7 @@ class FakeMicrosoft:
                 if failure:
                     status, headers, body = failure
                     return self.json(status, body, headers)
-                if not path.startswith(GRAPH_PREFIX + "/"):
+                if not path.lower().startswith(GRAPH_PREFIX + "/"):   # the service reads the version segment without case
                     return self.error(404, "notFound", "not served")
                 owner.route(self, path[len(GRAPH_PREFIX):], query)
 
@@ -165,7 +165,7 @@ class FakeMicrosoft:
         return json.dumps(self.record(**over))
 
     def api_requests(self):
-        return [r for r in self.requests if r["path"].startswith(GRAPH_PREFIX + "/")]
+        return [r for r in self.requests if r["path"].lower().startswith(GRAPH_PREFIX + "/")]
 
     def close(self):
         self.server.shutdown()

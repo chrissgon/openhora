@@ -268,7 +268,7 @@ def test_no_browser_prints_the_url_and_opens_nothing(fake, env, monkeypatch, cap
     assert opened == [] and seen["url"].startswith("https://login.microsoftonline.com/common/")
 
 
-@pytest.mark.parametrize("bad", ["rt\r\nX-Injected: 1", "rt with space", "rtő€", "rt\x00nul", "rt\tx"])
+@pytest.mark.parametrize("bad", ["zq9\r\nX-Injected: 1", "zq9 with space", "zq9" + chr(0x151) + chr(0x20AC), "zq9\x00nul", "zq9\tx"])
 def test_a_refresh_token_that_is_not_printable_ascii_stores_nothing_and_is_not_shown(fake, env, monkeypatch, capsys, bad):
     browser(monkeypatch, returns_with_the_code)
     real = auth.msgraph.token_request

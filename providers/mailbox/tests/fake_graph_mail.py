@@ -68,8 +68,16 @@ class FakeGraphMail(fake_microsoft.FakeMicrosoft):
             full.pop("internetMessageHeaders", None)
         return full
 
+    @staticmethod
+    def spelled(rest):
+        """The path as the service reads it: without case, `mailFolders('Inbox')` as `mailFolders/inbox`, `/users/<id>/` as `/me/`, no trailing slash."""
+        low = rest.lower().replace("('inbox')", "/inbox").rstrip("/")
+        if low.startswith("/users/"):
+            low = "/me/" + low.split("/", 3)[3]
+        return low
+
     def route(self, handler, rest, query):
-        if rest == INBOX:
+        if self.spelled(rest) == INBOX.lower():
             return self.listing(handler, rest, query)
         if rest.startswith(MESSAGE_PREFIX):
             parts = rest[len(MESSAGE_PREFIX):].split("/")

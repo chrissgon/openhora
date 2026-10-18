@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.9"
 # dependencies = ["keyring==25.7.0"]
 # ///
 """Calendar provider for Outlook (Microsoft 365 and outlook.com): an implementation of the class integration:calendar. It lists the person's
@@ -60,8 +60,9 @@ Test overrides (tests only, loopback URLs only, both set together; the secret st
   INTEGRATION_CALENDAR_OUTLOOK_TOKEN_URL   replaces https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token
 
 Only GET is sent to Graph; the token endpoint is the one POST. No redirect is followed with a credential, and a next-page address is
-followed only when it is the request's own (same scheme, host, port and path). A verb never retries: a 429 or 503 is reported with its
-Retry-After. Prints one JSON object on stdout; diagnostics on stderr. Exit codes: 0 ok, 1 failed (Graph answered an error or could not be
+followed only when it names the request's scheme, host and port and a path inside /v1.0/ (otherwise the pages read so far are returned,
+"truncated": true, with a note on stderr). A verb never retries: a 429 or 503 is reported with its
+Retry-After. Every calendarView request, on every page, asks `Prefer: outlook.timezone="UTC"`. Prints one JSON object on stdout; diagnostics on stderr. Exit codes: 0 ok, 1 failed (Graph answered an error or could not be
 reached), 2 usage (a bad flag or id, a verb the provider does not have), 3 not configured (no authorization, one that expired or was revoked,
 a rejected app registration, a tenant that needs its admin's approval, a token with a scope other than Calendars.ReadBasic).
 """
@@ -109,6 +110,7 @@ PROFILE = msgraph.Profile(
 REFRESH_SCOPE = PROFILE.refresh_scope
 DEFAULT_API_BASE, TOKEN_URL_TEMPLATE = msgraph.DEFAULT_GRAPH_BASE, msgraph.TOKEN_URL_TEMPLATE
 ENV_BASE, ENV_TOKEN_URL = PROFILE.env_base, PROFILE.env_token_url
+PREFER_UTC = 'outlook.timezone="UTC"'   # the times of a calendarView are asked in UTC, on every page; an event that still comes in another zone is counted in `skipped`
 PAGE_BYTES = 4 * 1024 * 1024        # one page of events; a larger answer is refused
 DEFAULT_MAX, MAX_EVENTS = 250, 250
 PAGE_SIZE, MAX_PAGES = 50, 30       # events asked for in one page; a bound on the loop (a service may answer short pages)
@@ -289,13 +291,13 @@ def cmd_check(args) -> int:
     return EXIT_OK
 
 
-def read_pages(client: Graph, path: str, params: dict, what: str, wanted: int, max_pages: int) -> tuple:
+def read_pages(client: Graph, path: str, params: dict, what: str, wanted: int, max_pages: int, extra: dict | None = None) -> tuple:
     """(entries, truncated): the pages of a list, each next-page address checked against the first request's own, until `wanted` entries."""
     first = client.url_for(path, params)
     items, url, pages = [], first, 0
     while url:
         pages += 1
-        data = client.json_url(url, what, PAGE_BYTES)
+        data = client.json_url(url, what, PAGE_BYTES, extra)
         items.extend(as_list(data.get("value")))
         link = data.get("@odata.nextLink")
         if len(items) > wanted:
@@ -304,7 +306,9 @@ def read_pages(client: Graph, path: str, params: dict, what: str, wanted: int, m
             return items, False
         if len(items) == wanted or pages >= max_pages:
             return items, True
-        url = msgraph.checked_next_link(link, first)
+        url = msgraph.next_page(link, first)
+        if url is None:
+            return items, True
     return items, False
 
 
@@ -348,7 +352,7 @@ def cmd_events(args) -> int:
     client = connect()
     params = {"startDateTime": utc_text(start), "endDateTime": utc_text(end), "$select": EVENT_FIELDS, "$orderby": "start/dateTime",
               "$top": str(min(PAGE_SIZE, limit))}
-    items, truncated = read_pages(client, path, params, "calendar view", limit, MAX_PAGES)
+    items, truncated = read_pages(client, path, params, "calendar view", limit, MAX_PAGES, {"Prefer": PREFER_UTC})
     events, skipped = [], 0
     for item in items:
         event = event_of(item)

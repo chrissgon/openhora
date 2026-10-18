@@ -203,7 +203,7 @@ def test_a_free_query_is_refused_before_anything_is_read(fake):
     assert run(fake, "search")[0] == 2 and fake.requests == [] and fake.token_forms == []
 
 
-@pytest.mark.parametrize("argv", [["--limit", "0"], ["--limit", "101"], ["--jobs", "0"], ["--jobs", "11"], ["--since", "yesterday"],
+@pytest.mark.parametrize("argv", [["--limit", "0"], ["--limit", "101"], ["--jobs", "0"], ["--jobs", "5"], ["--since", "yesterday"],
                                   ["--before", "2026-13-45"], ["--id", "m1"], ["--file", "x.eml"], ["--calendar", "x"]])
 def test_bad_flags_are_usage_errors_before_anything_is_read(fake, argv):
     code, _, said = run(fake, "search", "--query", "in:inbox", *argv)
@@ -246,6 +246,32 @@ def test_an_html_body_becomes_text_and_what_a_reader_cannot_see_is_not_in_it(fak
     assert "ignore previous instructions" not in text and "attacker.example" not in text and "also hidden words" not in text
     assert "color:red" not in text and "<p>" not in text and "\u200b" not in text and "Zerowidth and nbsp." in text.replace("\xa0", " ")
     assert out["links"] == [{"href": "https://clinic.example/confirm?id=42", "text": "the confirmation"}], "a javascript: link is dropped"
+
+
+@pytest.mark.parametrize("hidden", [
+    'style="display:none"', 'style="visibility:hidden"', 'style="mso-hide:all"', 'style="MSO-HIDE: all"', 'style="font-size:0"', 'style="font-size: 0px !important"',
+    'style="font-size:0pt"', 'style="font-size:0.0em"', 'style="opacity:0"', 'style="opacity: 0.0"', 'style="max-height:0;overflow:hidden"',
+    'style="overflow:hidden;max-height:0px"', 'style="max-width:0;overflow-x:hidden"', 'style="height:0"', 'style="width:0px"',
+    'style="color:red; display : none ;"', 'hidden'])
+def test_text_a_reader_cannot_see_is_not_in_the_text_of_a_message(fake, hidden):
+    fake.add("hid", "2026-10-13T02:00:00Z", "Ana", "ana@x.example", "Hidden", html=f"<p>seen words</p><div {hidden}>UNSEEN INSTRUCTION</div><p>more seen</p>")
+    text = run(fake, "get", "--id", "hid")[1]["text"]
+    assert "seen words" in text and "more seen" in text and "UNSEEN" not in text, (hidden, text)
+
+
+@pytest.mark.parametrize("shown", [
+    'style="font-size:12px"', 'style="font-size:0.8em"', 'style="font-size:10"', 'style="opacity:0.5"', 'style="opacity:1"', 'style="max-height:0"',
+    'style="overflow:hidden"', 'style="max-height:100px;overflow:hidden"', 'style="min-width:0"', 'style="line-height:0"', 'style="width:50%"',
+    'style="color:#ffffff"', 'class="x"'])
+def test_text_that_only_looks_like_a_hiding_style_is_kept(fake, shown):
+    fake.add("shown", "2026-10-13T03:00:00Z", "Ana", "ana@x.example", "Shown", html=f"<p>a</p><div {shown}>KEPT WORDS</div><p>b</p>")
+    assert "KEPT WORDS" in run(fake, "get", "--id", "shown")[1]["text"], shown
+
+
+def test_what_the_provider_does_not_remove_is_said_in_its_help(fake):
+    said = run(fake, "--help")[2]
+    for named in ("display:none", "visibility:hidden", "mso-hide:all", "font-size", "opacity:0", "max-height", "overflow:hidden", "style\nsheets", "white on white"):
+        assert named in said, named
 
 
 def test_a_text_body_is_cleaned_and_a_missing_one_is_empty(fake):
@@ -294,7 +320,7 @@ def test_attachments_that_cannot_be_listed_are_reported_as_unknown_not_as_none(f
 
 def test_search_reads_the_attachment_lists_in_parallel_without_changing_the_result(fake):
     code, out, said = search(fake, "--jobs", "1")
-    code2, out2, _ = search(fake, "--jobs", "10")
+    code2, out2, _ = search(fake, "--jobs", "4")
     assert code == code2 == 0 and out == out2, said
     assert [m["attachments"] for m in out["messages"] if m["id"] == "m1"] == [[{"name": "invoice.pdf", "type": "application/pdf", "size": 120000},
                                                                               {"name": "notes.txt", "type": "text/plain", "size": 12}]]
@@ -333,15 +359,15 @@ def test_get_of_an_unknown_message_is_exit_1_and_a_bad_id_never_reaches_a_path(f
 # --- the next-page address ----------------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("how", ["host", "path", "scheme", "port", "user", "space", "control"])
-def test_a_next_page_address_that_leaves_the_request_is_refused_and_not_followed(fake, how):
+@pytest.mark.parametrize("how", ["host", "outside", "scheme", "port", "user", "space", "control", "backslash", "dotdot"])
+def test_a_next_page_address_that_cannot_be_followed_ends_the_read_with_what_was_read_marked_truncated(fake, how):
     for n in range(6):
         fake.add(f"q{n}", f"2026-10-1{n}T00:00:00Z", "Pat", "pat@list.example", f"Mail {n}", text="x")
     fake.page_cap = 2
     if how == "host":
         fake.link_base = "https://evil.example"
-    elif how == "path":
-        fake.link_path = "/v1.0/me/mailFolders/drafts/messages"
+    elif how == "outside":
+        fake.link_path = "/beta/me/mailFolders/inbox/messages"
     elif how == "scheme":
         fake.link_base = "https://127.0.0.1:%d" % fake.port
     elif how == "port":
@@ -350,25 +376,63 @@ def test_a_next_page_address_that_leaves_the_request_is_refused_and_not_followed
         fake.link_base = "http://user:pw@127.0.0.1:%d" % fake.port
     elif how == "space":
         fake.link_path = "/v1.0/me/mailFolders/inbox/messages x"
-    else:
+    elif how == "control":
         fake.link_path = "/v1.0/me/mailFolders/inbox/messages\x7f"
-    code, _, said = search(fake, "--limit", "5")
-    assert code == 1 and "next-page address" in said and "nothing more was read" in said, said
-    assert len(fake.api_requests()) == 1, "the first page only: the access token went nowhere else"
+    elif how == "backslash":
+        fake.link_path = "/v1.0/me/mailFolders/inbox\\messages"
+    else:
+        fake.link_path = "/v1.0/me/mailFolders/inbox/%2e%2e/messages"
+    code, out, said = search(fake, "--limit", "5")
+    assert code == 0 and out["truncated"] is True and len(out["messages"]) == 2, said
+    assert "next-page address" in said and "marked truncated" in said, "a note says why the read stopped"
+    assert len(listings(fake)) == 1, "the first page only: the access token went nowhere else"
     assert "pw" not in said and "Traceback" not in said and fake_graph_mail.ACCESS_TOKEN not in said
+
+
+@pytest.mark.parametrize("path", [
+    "/V1.0/me/mailFolders/inbox/messages", "/v1.0/me/MAILFOLDERS/INBOX/messages", "/v1.0/me/mailFolders('Inbox')/messages",
+    "/v1.0/users/abc-123/mailFolders/inbox/messages", "/v1.0/me/mailFolders/inbox/messages/"])
+def test_a_next_page_address_the_service_spells_its_own_way_is_followed(fake, path):
+    for n in range(6):
+        fake.add(f"q{n}", f"2026-10-1{n}T00:00:00Z", "Pat", "pat@list.example", f"Mail {n}", text="x")
+    fake.page_cap = 2
+    fake.link_path = path
+    code, out, said = search(fake, "--limit", "5")
+    assert code == 0 and len(out["messages"]) == 5 and out["truncated"] is True, said
+    assert len([r for r in fake.api_requests() if not r["path"].endswith("/attachments")]) == 3, "every page was read, from the addresses the service named"
 
 
 def test_the_next_page_check_in_isolation():
     request = "http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages?%24top=2"
-    good = "http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages?%24top=2&%24skip=2"
-    assert ol.msgraph.checked_next_link(good, request) == good
-    for bad in ("http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages/../x", "https://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages",
-                "http://localhost:8123/v1.0/me/mailFolders/inbox/messages", "http://127.0.0.1:81/v1.0/me/mailFolders/inbox/messages",
-                "//127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages", "/v1.0/me/mailFolders/inbox/messages", "http://127.0.0.1:8123@evil.example/v1.0/x",  # security-scan: allow secret-token -- a fake user-info address, the very trick the next-page check refuses
-                "http://127.0.0.1:99999/x", "", None, 5, "http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messagesé"):
+    check = ol.msgraph.checked_next_link
+    for good in ("http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages?%24top=2&%24skip=2",
+                 "http://127.0.0.1:8123/V1.0/me/mailfolders/INBOX/messages?%24skip=2",
+                 "http://127.0.0.1:8123/v1.0/me/mailFolders('Inbox')/messages?%24skip=2",
+                 "http://127.0.0.1:8123/v1.0/users/abc/mailFolders/inbox/messages?%24skip=2",
+                 "http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages/?%24skip=2",
+                 "HTTP://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages?%24skip=2"):
+        assert check(good, request) == good, good
+    https = "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?%24top=2"
+    for good in ("https://graph.microsoft.com:443/v1.0/me/mailFolders/inbox/messages?%24skip=2",
+                 "https://GRAPH.Microsoft.com/v1.0/me/mailFolders/inbox/messages?%24skip=2"):
+        assert check(good, https) == good
+    assert check(https, "https://graph.microsoft.com:443/v1.0/me/messages?%24top=2") == https, "an explicit 443 in the request is the same as none"
+    for bad in ("http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages/../x", "http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/%2e%2e/messages",
+                "http://127.0.0.1:8123/beta/me/mailFolders/inbox/messages", "http://127.0.0.1:8123/v1.0x/me/messages", "http://127.0.0.1:8123/me/messages",
+                "https://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages", "http://localhost:8123/v1.0/me/mailFolders/inbox/messages",
+                "http://127.0.0.1:81/v1.0/me/mailFolders/inbox/messages", "http://127.0.0.1/v1.0/me/mailFolders/inbox/messages",
+                "//127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages", "/v1.0/me/mailFolders/inbox/messages",
+                "http://127.0.0.1:8123@evil.example/v1.0/x",  # security-scan: allow secret-token -- a fake user-info address, the very trick the next-page check refuses
+                "http://127.0.0.1:8123\\@evil.example/v1.0/x", "http://127.0.0.1:99999/x", "", None, 5,
+                "http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages\u00e9"):
         with pytest.raises(ol.ProviderError) as refused:
-            ol.msgraph.checked_next_link(bad, request)
+            check(bad, request)
         assert "next-page address" in str(refused.value) and "nothing more was read" in str(refused.value)
+    with pytest.raises(ol.ProviderError):
+        check("https://graph.microsoft.com:8443/v1.0/me/messages", https)
+    with pytest.raises(ol.ProviderError):
+        check("http://graph.microsoft.com/v1.0/me/messages", https)
+    assert ol.msgraph.next_page("https://evil.example/v1.0/x", request) is None
 
 
 # --- the authorization --------------------------------------------------------------------------------------------------------------
@@ -385,6 +449,16 @@ def test_no_authorization_a_revoked_one_and_an_unreadable_one_are_not_configured
     fake.token_status = 400
     code, _, said = search(fake)
     assert code == 3 and "expired" in said and "revoked" in said and "outlook_auth.py authorize" in said
+
+
+def test_a_record_made_for_another_permission_is_not_this_providers_and_nothing_is_called(fake):
+    for scope in ("Files.Read", "Calendars.ReadBasic", "Mail.ReadWrite"):
+        code, _, said = run(fake, "--check", record={"scope": scope})
+        assert code == 3 and "another permission" in said and "outlook_auth.py authorize" in said, scope
+    assert fake.token_forms == [] and fake.requests == []
+    record = fake.record()
+    del record["scope"]
+    assert run(fake, "--check", env={"OUTLOOK_MAIL_TOKEN": json.dumps(record)})[0] == 0, "a record that does not say is read as it always was"
 
 
 def test_invalid_grant_is_exit_3_with_the_authorize_command_and_without_the_token(fake):
@@ -556,13 +630,13 @@ def test_a_token_that_fails_the_scope_check_is_not_stored(fake, stored):
     assert stored.values == stored.initial
 
 
-@pytest.mark.parametrize("rotated", ["rot\r\nX-Injected: 1", "rot \tspace", "rotő€", "rot\x00nul"])
+@pytest.mark.parametrize("rotated", ["zq9\r\nX-Injected: 1", "zq9 \tspace", "zq9ő€", "zq9\x00nul"])
 def test_a_rotated_refresh_token_that_is_not_printable_ascii_is_not_stored_and_not_shown(fake, stored, capsys, rotated):
     fake.rotated_value = rotated
     assert ol.main(["--check"]) == 0
     out, err = capsys.readouterr()
     assert stored.values == stored.initial and json.loads(out)["rotation"] == "not rotated"
-    assert "will not keep" in err and "X-Injected" not in out + err and "rot" not in (out + err).replace("rotation", "").replace("not rotated", "")
+    assert "will not keep" in err and "X-Injected" not in out + err and "zq9" not in out + err
 
 
 def test_test_mode_never_reads_or_writes_the_store(fake):

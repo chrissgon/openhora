@@ -73,7 +73,17 @@ class FakeGraphCal(fake_microsoft.FakeMicrosoft):
             full = {k: v for k, v in full.items() if k in wanted}
         return full
 
+    @staticmethod
+    def spelled(rest):
+        """The path as the service reads it: the fixed words without case, `/users/<id>/` as `/me/`, no trailing slash (an id keeps its case)."""
+        rest = rest.rstrip("/")
+        if rest.lower().startswith("/users/"):
+            rest = "/me/" + rest.split("/", 3)[3]
+        parts = rest.split("/")
+        return "/".join(p if i == 3 else p.lower() for i, p in enumerate(parts))
+
     def route(self, handler, rest, query):
+        rest = self.spelled(rest)
         select = query.get("$select", "")
         if any(name.strip().lower() in FORBIDDEN_SELECT for name in select.split(",")):
             return handler.error(403, "ErrorAccessDenied", "Access is denied. Check credentials and try again.")
@@ -81,10 +91,10 @@ class FakeGraphCal(fake_microsoft.FakeMicrosoft):
             if self.calendars_status != 200:
                 return handler.error(self.calendars_status, "ErrorAccessDenied", "Access is denied.")
             return self.paged(handler, rest, query, [self.shown(c, select) for c in self.calendars.values()])
-        if rest == "/me/calendarView":
+        if rest.lower() == "/me/calendarview":
             return self.view(handler, rest, query, DEFAULT_CALENDAR)
         parts = rest.split("/")      # ["", "me", "calendars", id, "calendarView"]
-        if len(parts) == 5 and parts[1:3] == ["me", "calendars"] and parts[4] == "calendarView":
+        if len(parts) == 5 and parts[1:3] == ["me", "calendars"] and parts[4] == "calendarview":
             if parts[3] not in self.calendars:
                 return handler.error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
             return self.view(handler, rest, query, parts[3])

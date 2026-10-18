@@ -89,5 +89,6 @@ def test_the_social_tick_of_a_project_with_auto_fails_and_with_gmail_resolves(mo
 def test_the_documents_that_tell_the_maintainer_say_what_to_set():
     readme = (REPO / "providers" / "mailbox" / "README.md").read_text(encoding="utf-8")
     assert '"mailbox": "gmail"' in readme and "MAILBOX_PROVIDER" in readme and "auto" in readme
-    handler = (REPO / "runtime" / "handlers" / "social.py").read_text(encoding="utf-8")
-    assert '"mailbox": "auto | none | <implementation>"' in handler, "the handler's own documentation of the key is unchanged"
+    for path in (REPO / "runtime" / "handlers" / "social.py", REPO / "scripts" / "runtime.py"):
+        text = path.read_text(encoding="utf-8")
+        assert '"auto" resolves only while one reader ships (since M1 name gmail or outlook, or set MAILBOX_PROVIDER)' in text, path.name

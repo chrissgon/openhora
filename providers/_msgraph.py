@@ -24,7 +24,8 @@ what differs between providers (the one permission, the secret, the words of the
   store_rotation          Microsoft replaces the refresh token on every use: written back into the one record it came from, if it still holds
                           the token this process used (contracts/secrets.md rule 1)
   GraphClient             GET requests with one access token to one base address; failure() words an error answer
-  checked_next_link       a next-page address is followed only when it is the same scheme, host, port and path as the request
+  checked_next_link       a next-page address is followed only with the request's scheme, host and port and a path inside /v1.0/;
+                          next_page returns None, with a note, for one that is not (the caller returns what it read, truncated)
   CallbackServer, authorize, forget, check, auth_main   the authorization command (PKCE S256, state, one loopback callback)
 
 Standard library only (the OS secret store is reached through the `keyring` package a provider imports, never here). Runs on Python 3.9.
@@ -206,6 +207,8 @@ def parse_record(profile: Profile, text: str) -> dict:
         record = None
     if not isinstance(record, dict) or not plain_ascii(record.get("refresh_token")) or not plain_ascii(record.get("client_id")):
         raise ProviderError(f"the stored {profile.label} authorization is unreadable or incomplete; run: {profile.auth_command}", EXIT_NOT_CONFIGURED)
+    if record.get("scope") is not None and record.get("scope") != profile.scope:
+        raise ProviderError(f"the stored {profile.label} authorization was made for another permission; run: {profile.auth_command}", EXIT_NOT_CONFIGURED)
     tenant = record.get("tenant") or "common"
     if not isinstance(tenant, str) or not TENANT.fullmatch(tenant):
         raise ProviderError(f"the {profile.label} authorization holds a tenant that is not a tenant name; run: {profile.auth_command}", EXIT_NOT_CONFIGURED)
@@ -379,17 +382,25 @@ def store_rotation(profile: Profile, record: dict, rotated, where: str, test_mod
     return "stored"
 
 
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
 def checked_next_link(link, request_url: str) -> str:
-    """The address of the next page Graph named (`@odata.nextLink`), when it is the request's own: the same scheme, host, port and path (the
-    page numbers are in the query), no user or password in it, and nothing outside \\x21-\\x7e. ProviderError otherwise, naming the host and
-    never the rest of the address. A next link to another host, scheme, port or path is never followed: the request carries the access token."""
-    if not isinstance(link, str) or not link or any(not "!" <= ch <= "~" for ch in link):
+    """The address of the next page Graph named (`@odata.nextLink`), when it can be followed with the access token: the request's own scheme and
+    host (compared without case), the same port (the scheme's default when absent, so `:443` is the same as none), no user or password, no
+    backslash and nothing outside \\x21-\\x7e, and a path inside the API: it starts, without case, with the request's own version segment
+    (`/v1.0/`) and holds no `..`. The rest of the path is Graph's to write: it may differ in case, name a folder as `mailFolders('Inbox')`,
+    go through `/users/<id>/` or end in `/`. ProviderError otherwise, naming the host and never the rest of the address."""
+    if not isinstance(link, str) or not link or any(not "!" <= ch <= "~" for ch in link) or "\\" in link:
         raise ProviderError("Graph named a next-page address with characters an address does not hold; nothing more was read")
     try:
         wanted, got = urllib.parse.urlparse(request_url), urllib.parse.urlparse(link)
-        same = (got.scheme == wanted.scheme and (got.hostname or "").lower() == (wanted.hostname or "").lower() and got.port == wanted.port
+        prefix = "/" + (wanted.path.lstrip("/").split("/", 1)[0]).lower() + "/"
+        path = urllib.parse.unquote(got.path)
+        same = (got.scheme == wanted.scheme and (got.hostname or "").lower() == (wanted.hostname or "").lower()
+                and (got.port or DEFAULT_PORTS.get(got.scheme)) == (wanted.port or DEFAULT_PORTS.get(wanted.scheme))
                 and not got.username and not got.password
-                and urllib.parse.unquote(got.path) == urllib.parse.unquote(wanted.path))
+                and path.lower().startswith(prefix) and ".." not in path.split("/"))
     except ValueError:
         raise ProviderError("Graph named a next-page address this provider cannot read; nothing more was read") from None
     if not same:
@@ -397,9 +408,19 @@ def checked_next_link(link, request_url: str) -> str:
             host = one_line(urllib.parse.urlparse(link).hostname or "", 100) or "an address without a host"
         except ValueError:
             host = "an address this provider cannot read"
-        raise ProviderError(f"refusing to follow a next-page address that leaves the request (it names {host}, or another scheme, port or path); "
-                            "nothing more was read")
+        raise ProviderError(f"refusing to follow a next-page address that leaves the API (it names {host}, or another scheme or port, or a path "
+                            "outside the API); nothing more was read")
     return link
+
+
+def next_page(link, first_url: str):
+    """The checked address of the next page, or None after a note on stderr when Graph named one that cannot be followed: the caller then
+    returns what it has read, marked truncated, rather than failing the whole read. The note names the host and nothing else of the address."""
+    try:
+        return checked_next_link(link, first_url)
+    except ProviderError as exc:
+        log(f"note: {exc}; the pages read so far are returned, marked truncated")
+        return None
 
 
 class GraphClient:

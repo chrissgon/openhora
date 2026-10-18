@@ -11,7 +11,8 @@ here from providers/messenger/email-imap.py unchanged (the same text, the same b
 channel cut the quoted history of a reply in one way.
 
   INVISIBLE_RE, HSPACE_RE    the invisible and direction-changing characters, and a run of horizontal space
-  HIDDEN_STYLE_RE            an inline style that hides an element from a reader
+  HIDDEN_STYLE_RE, style_hides   an inline style that hides an element from a reader (display:none, visibility:hidden, mso-hide:all, a zero
+                             font-size, opacity:0, a zero width or height, a zero max-height or max-width with overflow:hidden)
   clean_line, clean_block    a line, and a block, with the invisible characters removed and the space folded
   HTMLText, html_to_text     the text and the links of an HTML body with the standard library parser (no script is run, no link is
                              followed, nothing is fetched); an element hidden by an inline style or the hidden attribute gives nothing
@@ -33,9 +34,20 @@ INVISIBLE_RE = re.compile("[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u20
                           "\u2060-\u2064\u2066-\u2069\u3164\ufeff\uffa0]")
 HSPACE_RE = re.compile(r"[^\S\n]+")
 # An inline style that hides an element from a reader. Hidden text is a way to put words before a model that the
-# person never sees, so it is not message text.
-HIDDEN_STYLE_RE = re.compile(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!\s*important\s*)?(?:;|$)",
-                             re.I)
+# person never sees, so it is not message text. The declarations that hide by themselves: display:none, visibility:hidden, the Outlook
+# mso-hide:all, a zero font-size, opacity:0 and a zero width or height (a number, with or without a unit, that is zero).
+_ZERO = r"0(?:\.0+)?(?:px|pt|em|rem|ex|ch|%)?"
+HIDDEN_STYLE_RE = re.compile(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden|mso-hide\s*:\s*all|font-size\s*:\s*" + _ZERO
+                             + r"|opacity\s*:\s*0(?:\.0+)?|(?:width|height)\s*:\s*" + _ZERO + r")\s*(?:!\s*important\s*)?(?:;|$)", re.I)
+# A zero max-height or max-width hides only together with overflow:hidden (the preheader trick); alone it hides nothing.
+MAX_ZERO_RE = re.compile(r"(?:^|;)\s*max-(?:height|width)\s*:\s*" + _ZERO + r"\s*(?:!\s*important\s*)?(?:;|$)", re.I)
+OVERFLOW_HIDDEN_RE = re.compile(r"(?:^|;)\s*overflow(?:-[xy])?\s*:\s*hidden\s*(?:!\s*important\s*)?(?:;|$)", re.I)
+
+
+def style_hides(style: str) -> bool:
+    """Whether an inline style hides the element it is on (see HIDDEN_STYLE_RE). A style sheet rule, a class, a colour and a position off the
+    page are not looked at."""
+    return bool(HIDDEN_STYLE_RE.search(style) or (MAX_ZERO_RE.search(style) and OVERFLOW_HIDDEN_RE.search(style)))
 
 
 def clean_line(line: str) -> str:
@@ -75,7 +87,7 @@ class HTMLText(HTMLParser):
 
     @staticmethod
     def hidden(attrs: dict) -> bool:
-        return "hidden" in attrs or bool(HIDDEN_STYLE_RE.search(attrs.get("style") or ""))
+        return "hidden" in attrs or style_hides(attrs.get("style") or "")
 
     def handle_starttag(self, tag, attrs):
         if self.hidden_tag is not None:

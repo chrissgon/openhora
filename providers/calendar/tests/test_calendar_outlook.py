@@ -115,11 +115,11 @@ def test_the_record_of_the_mail_registration_is_not_this_providers():
 # --- GET only, no redirect, only what ReadBasic gives -----------------------------------------------------------------------------------
 
 
-def test_only_get_reaches_graph_and_no_header_asks_for_a_time_zone_or_a_body_format(fake):
+def test_only_get_reaches_graph_and_the_only_header_asked_is_the_utc_time_zone(fake):
     assert events(fake)[0] == 0 and run(fake, "calendars")[0] == 0
     assert set(fake.methods) == {"GET"} and all(f["grant_type"] == "refresh_token" for f in fake.token_forms)
     assert all(r["auth"] for r in fake.api_requests())
-    assert all("prefer" not in r["headers"] for r in fake.api_requests()), "times come in UTC; the runtime converts"
+    assert all(r["headers"].get("prefer") in (None, 'outlook.timezone="UTC"') for r in fake.api_requests()), "times come in UTC; the runtime converts"
 
 
 def test_a_redirect_from_graph_is_not_followed(fake):
@@ -267,14 +267,32 @@ def test_the_pages_are_read_by_the_next_page_address_until_max_and_truncation_is
     assert out["truncated"] is False and len(out["events"]) == 11
 
 
-@pytest.mark.parametrize("how", ["host", "path", "scheme", "user", "space"])
-def test_a_next_page_address_that_leaves_the_request_is_refused_and_not_followed(fake, how):
+@pytest.mark.parametrize("how", ["host", "outside", "scheme", "user", "space"])
+def test_a_next_page_address_that_cannot_be_followed_ends_the_read_with_what_was_read_marked_truncated(fake, how):
     fake.page_cap = 2
     fake.link_base = {"host": "https://evil.example", "scheme": "https://127.0.0.1:%d" % fake.port, "user": "http://u:pw@127.0.0.1:%d" % fake.port}.get(how)
-    fake.link_path = {"path": "/v1.0/me/calendars/other/calendarView", "space": "/v1.0/me/calendarView x"}.get(how)
-    code, _, said = events(fake, "--max", "4")
-    assert code == 1 and "next-page address" in said and "nothing more was read" in said, said
+    fake.link_path = {"outside": "/beta/me/calendarView", "space": "/v1.0/me/calendarView x"}.get(how)
+    code, out, said = events(fake, "--max", "4")
+    assert code == 0 and out["truncated"] is True and len(out["events"]) == 2, said
+    assert "next-page address" in said and "marked truncated" in said
     assert len(fake.api_requests()) == 1 and "pw" not in said and fake_graph_cal.ACCESS_TOKEN not in said
+
+
+@pytest.mark.parametrize("path", ["/V1.0/me/CalendarView", "/v1.0/me/calendarview/", "/v1.0/users/abc-123/calendarView"])
+def test_a_next_page_address_the_service_spells_its_own_way_is_followed(fake, path):
+    fake.page_cap = 2
+    fake.link_path = path
+    code, out, said = events(fake, "--max", "3")
+    assert code == 0 and len(out["events"]) == 3, said
+    assert len(fake.api_requests()) == 2, "the second page came from the address the service named"
+    assert all(r["headers"].get("prefer") == 'outlook.timezone="UTC"' for r in fake.api_requests()), "the time zone is asked on every page"
+
+
+def test_the_time_zone_is_asked_in_utc_on_the_calendar_view_only(fake):
+    assert events(fake)[0] == 0 and run(fake, "calendars")[0] == 0
+    views = [r for r in fake.api_requests() if r["path"].endswith("calendarView")]
+    assert views and all(r["headers"]["prefer"] == 'outlook.timezone="UTC"' for r in views)
+    assert all("prefer" not in r["headers"] for r in fake.api_requests() if r["path"].endswith("/calendars"))
 
 
 # --- calendars -----------------------------------------------------------------------------------------------------------------------
