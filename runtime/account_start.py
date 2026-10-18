@@ -179,9 +179,13 @@ def start(project: str, kind: str, args, *, key_words: str, title_key: str, acco
     if not out.get("stopped") or not out.get("pending"):
         _abandon(ctx, made["request"])
         raise core.OpsError("the preparation ended without a card to approve; nothing was written", 1)
-    item = core._stored(ctx, store.pending_get, out["pending"])
-    facts = ops_grants.effect_facts(ctx, item) if item.get("kind") == "effect" else {"word": None, "on_cards": False}
-    why = _card_problem(item, title, word, facts)
+    try:
+        item = core._stored(ctx, store.pending_get, out["pending"])
+        facts = ops_grants.effect_facts(ctx, item) if item.get("kind") == "effect" else {"word": None, "on_cards": False}
+        why = _card_problem(item, title, word, facts)
+    except BaseException:
+        _abandon(ctx, made["request"])
+        raise
     if why:
         _abandon(ctx, made["request"])
         raise core.OpsError(CARD_REFUSED.format(why=why), 1)

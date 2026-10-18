@@ -34,7 +34,7 @@ ALLOWED_DELETE = ()
 WORD = re.compile(r"(?<![A-Za-z])delete(?![A-Za-z])", re.I)               # the word `delete` alone (not `deleted`, `deleteditems`)
 METHODISH = re.compile(r"\s*delete(?![A-Za-z-])", re.I)                    # a string that starts with the method: "DELETE", "delete /x"
 DANGEROUS = re.compile(r"permanent_?delete|batch_?delete|empty_?trash", re.I)
-TRASHED_TRUE = re.compile(r"""trashed["']?\s*[:=]\s*(?:true|1)\b""", re.I)
+TRASHED_TRUE = re.compile(r"""trashed["']?\s*[:=]\s*["']?(?:true|1)\b""", re.I)
 # The one thing a script may delete: its own record in the local OS secret store (`forget` of the authorize scripts), which is no data of an account.
 LOCAL_RECORD_NAMES = ("delete_password",)
 LOCAL_RECORD_TEXT = re.compile(r"secret store", re.I)
@@ -63,6 +63,10 @@ def _fold(node):
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         left, right = _fold(node.left), _fold(node.right)
         return left + right if left is not None and right is not None else None
+    if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords and isinstance(node.func, ast.Attribute) and node.func.attr == "join" \
+            and isinstance(node.args[0], (ast.List, ast.Tuple)):
+        sep, parts = _fold(node.func.value), [_fold(e) for e in node.args[0].elts]
+        return sep.join(parts) if sep is not None and None not in parts else None
     if isinstance(node, ast.Call) and not node.args and not node.keywords and isinstance(node.func, ast.Attribute) and node.func.attr in CASE_METHODS:
         inner = _fold(node.func.value)
         return getattr(inner, node.func.attr)() if inner is not None else None
@@ -119,7 +123,7 @@ def delete_findings(source: str, name: str = "<sample>", allowed=ALLOWED_DELETE)
                 add(node, "an HTTP DELETE")
         if isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values):
-                if isinstance(key, ast.Constant) and key.value == "trashed" and not _falsy(value):
+                if key is not None and _fold(key) == "trashed" and not _falsy(value):
                     add(node, "trashed set to true")
         if isinstance(node, ast.keyword) and node.arg == "trashed" and not _falsy(node.value):
             add(node.value, "trashed set to true")
@@ -170,13 +174,14 @@ def test_limit_57_measure_no_script_of_the_writers_helpers_or_readers_holds_a_pe
 
 SAMPLES = {
     "an HTTP DELETE": ["requests.request('DELETE', url)", "conn.request('delete', p)", "Request(url, method='delete'.upper())", "conn.request('DEL' + 'ETE', p)",
-                       "conn.request(b'DELETE', p)", "m = 'del' + 'ete'", "Request(url, method='DELETE')", "f = 'Delete'", "x = ('de' + 'lete').upper()"],
+                       "conn.request(b'DELETE', p)", "m = ''.join(['DEL', 'ETE'])", "m = 'del' + 'ete'", "Request(url, method='DELETE')", "f = 'Delete'", "x = ('de' + 'lete').upper()"],
     "a name for deleting": ["requests.delete(url)", "s.delete(url)", "service.users().messages().delete(userId='me', id=x).execute()", "def delete_event(x):\n    return x",
                             "def eventDelete(x):\n    return x", "client.deleteEvent(x)", "def f(delete=False):\n    return delete", "delete = 1", "api.Delete(x)"],
     "a permanent-delete word": ["verb = 'permanentDelete'", "path = '/users/me/messages/batchDelete'", "path = 'trash/emptyTrash'",
                                 "getattr(api, 'perm' + 'anentDelete')(x)", "getattr(api, 'permanent' + '_delete')(x)"],
     "a permanent-delete name": ["api.permanentDelete(id)", "service.batch_delete(x)", "def empty_trash(x):\n    return x"],
-    "trashed set to": ["body = {'trashed': True}", "body = {'trashed': flag}", "body = '{\"trashed\": true}'", "body = dict(trashed=True)", "body = dict(trashed=flag)",
+    "trashed set to": ["body = {'trashed': True}", "body = {'trashed': flag}", "body = '{\"trashed\": true}'", "body = dict(trashed=True)", "body = dict(trashed=flag)", "body = {'trashed': 'true'}", "body = {'tra' + 'shed': True}", "body = {''.join(['tra', 'shed']): True}",
+
                        "body['trashed'] = True", "body['trashed'] = flag", "body['tra' + 'shed'] = 1", "files.update(fileId=i, trashed=True)"],
 }
 

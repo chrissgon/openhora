@@ -442,3 +442,7 @@ Not listed: the degraded-mode cases proposed for `design-execute`, `design-syste
 - [ ] **K24.** `mkt-content-plan`: a slot whose pillar has no material: an empty topic and a question that names the pillar; also the stop on a missing strategy. (group-6, mkt-content-plan, should-fix 2.)
 - [ ] **K25.** `mkt-social-copy`: a sensitive hit that blocks a post: the content file is `blocked` or not written, the reply says why; also a slot without material. (group-6, mkt-social-copy, should-fix 4.)
 - [ ] **K26.** `mkt-vote-round`: fewer than three topics with material: the reply asks for material and names the pillar, no third option invented; also nothing pending. (group-6, mkt-vote-round, should-fix 7.)
+
+## Forward notes of the writes to the person's own accounts
+
+- [ ] **W-FRAME.** The kinds of the writes to the person's own accounts that put a person's text on a card (a mail body, a note, the text of a file: W1 to W4a, fields of `phrases.CARD_MULTILINE`) frame it with their own start and end lines (`CARD_MAIL_START`/`CARD_MAIL_END`, `CARD_FILE_START`/`CARD_FILE_END`), because a multi-line field can hold a line that looks like another line of the card; and each decides whether a combining character or a no-break space in a one-line field is refused at the kind (`phrases.card_valid` refuses control, format, separator, surrogate and private-use characters only). (Review of #476, minor 2.)

@@ -9,7 +9,10 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_accounts_widening.py
 from __future__ import annotations
 
 import copy
+import hashlib
+import itertools
 import json
+import string
 from pathlib import Path
 
 import pytest
@@ -118,7 +121,7 @@ def test_config_shows_the_gain_of_a_file_that_is_not_accepted_yet_with_what_each
 
 GAINS = {
     "a new account": (lambda a: a.update(microsoft={"address": "ana@office.example", "calendars": {"personal": "default"}}),
-                      ["microsoft:account", "microsoft:address=ana@office.example", "microsoft:calendar:personal=default"]),
+                      ["microsoft:account", "microsoft:address=ana@office.example", "microsoft:calendar:personal=default", "microsoft:default-calendar=personal"]),
     "a changed address": (lambda a: a["google"].update(address="other@mail.example"), ["google:address=other@mail.example"]),
     "a new calendar": (lambda a: a["google"]["calendars"].update(work="c_work@group.calendar.example"), ["google:calendar:work=c_work@group.calendar.example"]),
     "a new folder": (lambda a: a["google"]["folders"].update(invoices="Folder_ID_02"), ["google:folder:invoices=Folder_ID_02"]),
@@ -178,13 +181,13 @@ def test_what_was_removed_is_a_gain_again_when_it_comes_back(world):
     accept(world, BASE)
     smaller = changed(BASE, lambda a: a["google"]["calendars"].clear())
     ops.accept_config(world, write(world, smaller)["sha256"])
-    assert gains(world, BASE) == ["google:calendar:personal=primary"]
+    assert gains(world, BASE) == ["google:calendar:personal=primary", "google:default-calendar=personal"]
 
 
 def test_a_file_that_removes_one_target_and_adds_another_lists_only_the_new_one(world):
     accept(world, BASE)
     swapped = changed(BASE, lambda a: (a["google"]["calendars"].clear(), a["google"]["calendars"].update(work="c_work")))
-    assert gains(world, swapped) == ["google:calendar:work=c_work"]
+    assert gains(world, swapped) == ["google:calendar:work=c_work", "google:default-calendar=work"]
 
 
 # --- what the hash binds ---------------------------------------------------------------------------------------------------------------------------
@@ -224,7 +227,7 @@ def test_the_biggest_file_fits_the_cursor_and_is_read_back(world):
     accept(world, big)
     ctx = ops_core.context(world)
     text = ctx["store"].cursor_get(ctx["conn"], policy_widening.ACCOUNTS)
-    assert len(text) < 4096 and len(policy_widening.parse_accounts(text)) == 2 * (3 + 150)
+    assert len(text) < 4096 and len(policy_widening.parse_accounts(text)) == 2 * (4 + 150)
     assert write(world, big)["widening"] == []
 
 
@@ -233,7 +236,7 @@ def test_a_record_that_is_not_one_holds_nothing():
     for text in ('{"v":2,"items":""}', '{"v":1,"items":"abc"}', '{"v":1,"items":"zzzzzzzzzz"}', '{"v":1,"items":5}', "[]"):
         assert policy_widening.parse_accounts(text) is None, text
     cfg = {"accounts": {"google": {"address": "a@b.example", "calendars": {"x": "primary"}, "folders": {}, "mail_folders": {}, "move_removes_inbox": False}}}
-    assert [i["group"] for i in policy_widening.account_widening("garbage", cfg)] == ["google:account", "google:address=a@b.example", "google:calendar:x=primary"]
+    assert [i["group"] for i in policy_widening.account_widening("garbage", cfg)] == ["google:account", "google:address=a@b.example", "google:calendar:x=primary", "google:default-calendar=x"]
     assert policy_widening.account_widening(policy_widening.dump_accounts(cfg), cfg) == []
     assert policy_widening.account_widening(None, {}) == [] and policy_widening.account_widening(None, {"accounts": None}) == []
 
@@ -242,3 +245,99 @@ def test_the_record_holds_no_address_no_name_and_no_id():
     cfg = {"accounts": {"google": {"address": "ana@mail.example", "calendars": {"personal": "primary"}, "folders": {}, "mail_folders": {}, "move_removes_inbox": False}}}
     text = policy_widening.dump_accounts(cfg)
     assert "ana" not in text and "personal" not in text and "primary" not in text and "mail.example" not in text
+
+
+# --- the default calendar, the inbox line ----------------------------------------------------------------------------------------------------------
+
+
+TWO = {"google": {"address": "ana@mail.example", "calendars": {"personal": "primary", "work": "work_cal_1"}}}
+
+
+def test_reordering_the_calendars_changes_the_default_and_is_a_gain_that_needs_the_hash(world):
+    accept(world, TWO)
+    cfg = ops.project_config.load(world)
+    assert ops.project_config.account_target(cfg, "google", "calendars") == ("primary", None)
+    swapped = {"google": {"address": "ana@mail.example", "calendars": {"work": "work_cal_1", "personal": "primary"}}}
+    assert gains(world, swapped) == ["google:default-calendar=work"]
+    refused_without_the_hash(world, swapped)
+    accept(world, swapped)
+    assert ops.project_config.account_target(ops.project_config.load(world), "google", "calendars") == ("work_cal_1", None)
+    assert gains(world, swapped) == [] and gains(world, TWO) == ["google:default-calendar=personal"]
+
+
+def test_the_default_calendar_is_named_in_the_first_lists_and_the_removal_of_calendars_needs_nothing(world):
+    assert "google:default-calendar=personal" in gains(world, TWO)
+    accept(world, TWO)
+    only = {"google": {"address": "ana@mail.example", "calendars": {"work": "work_cal_1"}}}
+    assert gains(world, only) == ["google:default-calendar=work"]       # the default moved to another calendar: a gain, though a calendar was removed
+
+
+def test_a_new_accounts_line_says_that_moving_mail_takes_it_out_of_the_inbox_when_the_file_says_so(world):
+    on = write(world, {"google": {"address": "ana@mail.example"}})["widening"]
+    assert any("takes it out of the Inbox" in i["means"] for i in on if i["group"] == "google:account")
+    off = write(world, {"google": {"address": "ana@mail.example", "move_removes_inbox": False}})["widening"]
+    assert not any("Inbox" in i["means"] for i in off)
+
+
+# --- the digests are keyed: a chosen name cannot be made to collide with one the record holds -----------------------------------------------------
+
+
+def find_collision(held, make, size):
+    """A name whose plain digest (the first `size` hexadecimal characters of the sha256 of make(name)) is one of `held`: the search the key makes impossible."""
+    for n in itertools.count(1):
+        for combo in itertools.product(string.ascii_lowercase + string.digits, repeat=n):
+            name = "".join(combo)
+            if hashlib.sha256(make(name).encode()).hexdigest()[:size] in held:
+                return name
+
+
+def test_a_forced_collision_of_a_name_with_a_held_digest_hides_a_gain_without_the_key_and_is_found_with_it(monkeypatch):
+    monkeypatch.setattr(policy_widening, "DIGEST", 5)      # the old length was 10; 5 makes the search a second long, the claim is the same
+    entry = {"address": "ana@mail.example", "calendars": {"personal": "primary"}, "folders": {}, "mail_folders": {}, "move_removes_inbox": False}
+    base = {"accounts": {"google": entry}}
+    target = "attacker_cal@group.calendar.example"
+    unkeyed = policy_widening.dump_accounts(base)
+    name = find_collision(policy_widening.parse_accounts(unkeyed), lambda n: f"google:calendar:{n}={target}", 5)
+    wider = {"accounts": {"google": dict(entry, calendars={"personal": "primary", name: target})}}
+    assert not any(name in i["group"] for i in policy_widening.account_widening(unkeyed, wider)), "without a key the chosen name hides the new calendar"
+    keyed = policy_widening.dump_accounts(base, "the-projects-key")
+    assert any(name in i["group"] for i in policy_widening.account_widening(keyed, wider, "the-projects-key")), "with the key the new calendar is listed"
+
+
+def test_a_forced_collision_of_a_sender_id_with_a_recorded_place_hides_the_sender_without_the_key_and_not_with_it(monkeypatch):
+    monkeypatch.setattr(policy_widening, "PLACE", 4)       # the old length was 12
+    owner = "telegram:1001"
+    held = {policy_widening.place_id(owner)}
+    other = next(f"telegram:{n}" for n in itertools.count(2000) if policy_widening.place_id(f"telegram:{n}") in held and f"telegram:{n}" != owner)
+    snap = {"channels": {}, "senders": {owner: ["read-limited"]}}
+    new = {"channels": {}, "senders": {owner: ["read-limited"], other: ["read-limited"]}}
+    plain = policy_widening.parse(policy_widening.dump(snap))
+    assert [w["place"] for w in policy_widening.widening(plain, new)] == [], "unkeyed, the chosen id inherits the recorded sender's groups"
+    key = "the-projects-key"
+    assert policy_widening.place_id(owner, key) != policy_widening.place_id(other, key)
+    sealed = policy_widening.parse(policy_widening.dump(snap, key))
+    assert {w["place"] for w in policy_widening.widening(sealed, new, key)} == {other}
+
+
+def test_the_record_made_before_the_key_lists_its_senders_once_and_a_keyed_record_does_not():
+    snap = {"channels": {}, "senders": {"telegram:1001": ["read-limited"]}}
+    legacy = policy_widening.parse(policy_widening.dump(snap))
+    assert policy_widening.widening(legacy, snap) == [], "read with no key (the tests), the old record matches"
+    assert [w["place"] for w in policy_widening.widening(legacy, snap, policy_widening.PENDING_SECRET)] == ["telegram:1001"], "with a key it does not: listed once"
+    keyed = policy_widening.parse(policy_widening.dump(snap, "k"))
+    assert policy_widening.widening(keyed, snap, "k") == [] and json.loads(policy_widening.dump(snap, "k"))["v"] == 3 and json.loads(policy_widening.dump(snap))["v"] == 2
+
+
+def test_the_first_acceptance_makes_the_projects_key_and_the_records_are_keyed_with_it(world):
+    ctx = ops_core.context(world)
+    assert ctx["store"].cursor_get(ctx["conn"], policy_widening.KEY) is not None, "made when the project was first accepted"
+    key = ctx["store"].cursor_get(ctx["conn"], policy_widening.KEY)
+    assert len(key) == 32 and all(c in "0123456789abcdef" for c in key)
+    accept(world, BASE)
+    ctx = ops_core.context(world)
+    assert ctx["store"].cursor_get(ctx["conn"], policy_widening.KEY) == key, "the key does not change"
+    text = ctx["store"].cursor_get(ctx["conn"], policy_widening.ACCOUNTS)
+    held = policy_widening.parse_accounts(text)
+    cfg = ops.project_config.load(world)
+    assert held == {i["digest"] for i in policy_widening.account_items(cfg, key)} and not held & {i["digest"] for i in policy_widening.account_items(cfg)}
+    assert json.loads(ctx["store"].cursor_get(ctx["conn"], policy_widening.EFFECTIVE))["v"] == 3

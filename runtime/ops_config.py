@@ -47,6 +47,7 @@ import hashlib
 import importlib
 import json
 import os
+import secrets
 import sys
 
 import operations
@@ -106,8 +107,9 @@ def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool 
     previous = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
     core._stored(ctx, ctx["store"].cursor_set, ACCEPTED_BY, by)
     if record:   # only accept_config, and a mode change when a record exists already: nothing else ends the unknown state of a project accepted before the record
-        core._stored(ctx, ctx["store"].cursor_set, policy_widening.EFFECTIVE, policy_widening.dump(policy_widening.snapshot(cfg)))   # POL-1/POL-2: what the file accepted now effectively has is what the next acceptance compares with
-        core._stored(ctx, ctx["store"].cursor_set, policy_widening.ACCOUNTS, policy_widening.dump_accounts(cfg))   # FND: the accounts it names, for the same comparison
+        secret = _digest_key(ctx, create=True)      # the digests of both records are keyed: a name written into the file cannot be chosen to collide with one
+        core._stored(ctx, ctx["store"].cursor_set, policy_widening.EFFECTIVE, policy_widening.dump(policy_widening.snapshot(cfg), secret))   # POL-1/POL-2: what the file accepted now effectively has is what the next acceptance compares with
+        core._stored(ctx, ctx["store"].cursor_set, policy_widening.ACCOUNTS, policy_widening.dump_accounts(cfg, secret))   # FND: the accounts it names, for the same comparison
     core._stored(ctx, ctx["store"].cursor_set, project_config.ACCEPTED, sha256)
     done = {"previous": previous, "checkpoints": write_checkpoints(cfg)}
     if adopted:
@@ -115,9 +117,20 @@ def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool 
     return done
 
 
+def _digest_key(ctx: dict, create: bool = False) -> str:
+    """The project's key of the digests (policy_widening.KEY), from the store; made at random when `create` and there is none (under the configuration lock,
+    which every acceptance holds). Without one a read uses PENDING_SECRET, which no digest of an older record matches."""
+    found = core._stored(ctx, ctx["store"].cursor_get, policy_widening.KEY)
+    if found or not create:
+        return found or policy_widening.PENDING_SECRET
+    made = secrets.token_hex(16)
+    core._stored(ctx, ctx["store"].cursor_set, policy_widening.KEY, made)
+    return made
+
+
 def _widening_refusal(cfg: dict, listed: list, digest) -> "core.OpsError":
-    """The refusal of a file that widens a channel or a sender and was accepted without the hash of what it widens: the list, what each gives away, and the command."""
-    return core.OpsError("the file widens what a channel may do or what a listed sender may do, and nothing was accepted. It gives, and the accepted file did not:"
+    """The refusal of a file that widens a channel or a sender, or where the platform may write in the person's own accounts, and was accepted without the hash of what it widens: the list, what each gives away, and the command."""
+    return core.OpsError("the file widens what a channel may do or what a listed sender may do (or where the platform may write in your accounts), and nothing was accepted. It gives, and the accepted file did not:"
                          + policy_widening.lines(listed) + "\nTo accept it, run: "
                          + core._command("accept-config", cfg["project"], sha256=cfg["sha256"], widen=digest), 1)
 
@@ -126,8 +139,9 @@ def _widening_of(ctx: dict, cfg: dict) -> list:
     """The widenings of this configuration over the file the person accepted last (policy_widening): read from the store's two cursors."""
     got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)
     before = got(project_config.ACCEPTED) is not None
-    return (policy_widening.widening(policy_widening.baseline(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), before), policy_widening.snapshot(cfg))
-            + policy_widening.account_widening(got(policy_widening.ACCOUNTS), cfg))      # FND: the accounts the platform may write to
+    secret = _digest_key(ctx)
+    return (policy_widening.widening(policy_widening.baseline(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), before), policy_widening.snapshot(cfg), secret)
+            + policy_widening.account_widening(got(policy_widening.ACCOUNTS), cfg, secret))      # FND: the accounts the platform may write to
 
 
 def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen: str | None = None) -> dict:

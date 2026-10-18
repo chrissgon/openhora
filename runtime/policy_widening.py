@@ -38,7 +38,7 @@ exactly the list that was shown, and nobody types a phone number.
 
 The accounts the platform may write to (package FND) are a widening too, of the same kind and with the same hash: a new account, a changed address, a new
 calendar, folder or mail folder name, a changed id behind a name already there, and `move_removes_inbox` turned on. Removals and narrowing need no ceremony. The
-record of what the accepted file named is its own cursor (`config:accounts`, outside the repository), one short digest per item, since a target's name and id
+record of what the accepted file named is its own cursor (`config:accounts`, outside the repository), one short KEYED digest per item (the digests of the senders' record are keyed the same way, `digest_of` with the project's key `config:digest-key`: a name or an id written into the file cannot be chosen to collide with a held digest), since a target's name and id
 would not fit with the senders in the 4 KiB of one cursor; an absent record is "nothing was accepted", so the first file that names an account lists all of it.
 
   account_items(cfg)              [{"place": "accounts", "channel": "accounts", "group", "means", "digest"}] of the accounts a configuration names, in order
@@ -50,6 +50,7 @@ No module here calls the store or a provider. Standard library only. Runs on Pyt
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import sys
@@ -59,6 +60,9 @@ import operations  # noqa: E402
 
 ORDER = ("messaging", "mcp", "page")   # the order of the widening list: the channel that reaches a person's phone first, then the MCP mode, then the page
 EFFECTIVE = "config:effective"   # the store's cursor that holds the snapshot of the file the person accepted last
+KEY = "config:digest-key"       # the store's cursor that holds the project's secret for the digests of the two records (random, made at the first acceptance, never in a file)
+PLACE = 12                      # hexadecimal characters of a sender's place_id
+PENDING_SECRET = "pending"      # what a read uses while no key exists yet: no digest of an older record can match it, so such a record lists everything once
 ACCOUNTS = "config:accounts"     # the store's cursor that holds the digests of the account targets the file accepted last named (package FND)
 LEGACY = "config:grants"         # POL-1's cursor: the grants of that file, as a JSON list of "<channel>:<group>" (read when EFFECTIVE is absent)
 
@@ -72,11 +76,22 @@ def means(channel: str, group: str) -> str:
     return operations.GRANT_TEXT.get(line_of(channel, group)) or operations.GROUP_TEXT.get(group, group)
 
 
-def place_id(key: str) -> str:
-    """The short name under which a sender is recorded: the first 12 hexadecimal characters of the sha256 of its key. It keeps the record of the store
-    from carrying a readable phone number or account id, and fits the 4 KiB of a cursor for as many senders as project_config allows. It is NOT a
-    secret: a phone number is easy to guess, so whoever holds the store can test a number against it. The store is outside the project's repository."""
-    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+def digest_of(text: str, size: int, secret: str = "") -> str:
+    """The first `size` hexadecimal characters of the digest of a text, the ONE helper of both records (senders and accounts). With a `secret` (the project's
+    key, KEY) it is the HMAC-SHA256 of the text, so that a name or an id written into the file cannot be CHOSEN to collide with a digest the record holds:
+    whoever edits runtime.json does not hold the key, which is in the store outside the project. Without one (the tests, and nothing else) it is the plain
+    sha256. A short digest stays short because the collision a person could search for needs the key."""
+    if secret:
+        return hmac.new(secret.encode("utf-8"), text.encode("utf-8"), hashlib.sha256).hexdigest()[:size]
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:size]
+
+
+def place_id(key: str, secret: str = "") -> str:
+    """The short name under which a sender is recorded: the first 12 hexadecimal characters of the digest of its key (digest_of; keyed in the runtime). It
+    keeps the record of the store from carrying a readable phone number or account id, and fits the 4 KiB of a cursor for as many senders as project_config
+    allows. The keyed digest cannot be searched for a collision by whoever writes the sender's id into the file; it hides a number from whoever reads the
+    store only as far as the key is not read with it (the store is outside the project's repository)."""
+    return digest_of(key, PLACE, secret)
 
 
 def snapshot(cfg: dict) -> dict:
@@ -93,14 +108,14 @@ def snapshot(cfg: dict) -> dict:
     return out
 
 
-def dump(snap: dict) -> str:
+def dump(snap: dict, secret: str = "") -> str:
     """The cursor's text: the groups in the order of operations.GROUPS now, and each place as a bit mask over that list (a sender by place_id). Compact
     on purpose: a cursor holds 4 KiB."""
     names = list(operations.GROUPS)
     mask = lambda groups: None if groups is None else format(sum(1 << names.index(g) for g in groups if g in names), "x")   # noqa: E731
-    senders = {place_id(k): mask(v) for k, v in snap["senders"].items()}
+    senders = {place_id(k, secret): mask(v) for k, v in snap["senders"].items()}
     senders.update({k: mask(v) for k, v in (snap.get("sender_ids") or {}).items()})
-    return json.dumps({"v": 2, "groups": names, "channels": {c: mask(v) for c, v in snap["channels"].items()}, "senders": senders},
+    return json.dumps({"v": 3 if secret else 2, "groups": names, "channels": {c: mask(v) for c, v in snap["channels"].items()}, "senders": senders},
                       sort_keys=True, separators=(",", ":"))
 
 
@@ -111,7 +126,7 @@ def parse(text):
         found = json.loads(text) if text else None
     except ValueError:
         return None
-    if not isinstance(found, dict) or found.get("v") != 2 or not isinstance(found.get("groups"), list):
+    if not isinstance(found, dict) or found.get("v") not in (2, 3) or not isinstance(found.get("groups"), list):
         return None
     names, channels, senders = found["groups"], found.get("channels"), found.get("senders")
     if not isinstance(channels, dict) or not isinstance(senders, dict) or not all(isinstance(n, str) for n in names):
@@ -176,7 +191,7 @@ def _items(place: str, channel: str, groups) -> list:
     return [{"place": place, "channel": channel, "group": g, "means": means(channel, g)} for g in operations.GROUPS if g in groups and g not in implied]
 
 
-def widening(old: dict, new: dict) -> list:
+def widening(old: dict, new: dict, secret: str = "") -> list:
     """The widenings of `new` over `old` (two snapshots): [{"place", "channel", "group", "means"}], deterministic. Every channel is compared with
     itself (an absent entry is what the channel holds with no entry: its default or its ceiling). A sender that `old` listed is compared with the groups
     it had (its profile, else the channel's); a sender it did not list (a person newly allowed to write) is compared with NOTHING: a restrictive default
@@ -190,11 +205,11 @@ def widening(old: dict, new: dict) -> list:
     old_channel = concrete("messaging", (old["channels"].get("messaging") or []) if unknown else old["channels"].get("messaging"))
     new_channel = concrete("messaging", new["channels"].get("messaging"))
     recorded = dict(old.get("sender_ids") or {})
-    recorded.update({place_id(k): v for k, v in old["senders"].items()})
+    recorded.update({place_id(k, secret): v for k, v in old["senders"].items()})
     for key in sorted(new["senders"]):
         mine = new["senders"][key]
-        listed_before = place_id(key) in recorded and not unknown
-        had = recorded.get(place_id(key))
+        listed_before = place_id(key, secret) in recorded and not unknown
+        had = recorded.get(place_id(key, secret))
         if listed_before and mine is None and had is None:
             continue
         if unknown:
@@ -213,34 +228,39 @@ ACCOUNT_KINDS = (("calendars", "calendar", "the platform may create, change and 
 DIGEST = 10     # hexadecimal characters of one item's digest
 
 
-def _digest(group: str) -> str:
-    return hashlib.sha256(group.encode("utf-8")).hexdigest()[:DIGEST]
+def _digest(group: str, secret: str = "") -> str:
+    return digest_of(group, DIGEST, secret)
 
 
-def account_items(cfg: dict) -> list:
+def account_items(cfg: dict, secret: str = "") -> list:
     """The items of the accounts a loaded configuration names (project_config `accounts`), in a fixed order: for each provider the account, its address, its
-    calendars, folders and mail folders by name, and `move_removes_inbox` when it is on. The `group` of an item carries what the hash binds: the provider, the
-    kind, the name AND the id (so a changed id behind a name is another item), or the address."""
+    calendars (with the DEFAULT one: the first in the file, where an event goes when none is named, so that reordering the file is a gain), folders and mail
+    folders by name, and `move_removes_inbox` when it is on. The `group` of an item carries what the hash binds: the provider, the kind, the name AND the id (so a
+    changed id behind a name is another item), or the address. `secret` keys the digests (digest_of)."""
     out = []
     for provider in ("google", "microsoft"):
         entry = ((cfg or {}).get("accounts") or {}).get(provider)
         if not isinstance(entry, dict):
             continue
         shown = PROVIDER_NAME[provider]
-        items = [(f"{provider}:account", f"the platform may write in your {shown} account, within the targets listed with it"),
+        inbox = " (moving a message to a mail folder also takes it out of the Inbox, as the file says)" if entry.get("move_removes_inbox") is True else ""
+        items = [(f"{provider}:account", f"the platform may write in your {shown} account, within the targets listed with it{inbox}"),
                  (f"{provider}:address={entry['address']}", f"the {shown} account is {entry['address']}")]
         for section, kind, means in ACCOUNT_KINDS:
             for name in sorted(entry.get(section) or {}):
                 items.append((f"{provider}:{kind}:{name}={entry[section][name]}", means.format(provider=shown, name=name)))
+            if section == "calendars" and entry.get(section):
+                first = next(iter(entry[section]))
+                items.append((f"{provider}:default-calendar={first}", f"an event with no calendar named goes to the {shown} calendar '{first}' (the first of the file)"))
         if entry.get("move_removes_inbox") is True:
             items.append((f"{provider}:move_removes_inbox", f"moving a message to a mail folder of the {shown} account also takes it out of the Inbox"))
-        out += [{"place": "accounts", "channel": "accounts", "group": group, "means": means, "digest": _digest(group)} for group, means in items]
+        out += [{"place": "accounts", "channel": "accounts", "group": group, "means": means, "digest": _digest(group, secret)} for group, means in items]
     return out
 
 
-def dump_accounts(cfg: dict) -> str:
-    """The cursor's text: the digests of the items, sorted, in one string (two providers of 153 items each fit in a cursor)."""
-    return json.dumps({"v": 1, "items": "".join(sorted(i["digest"] for i in account_items(cfg)))}, separators=(",", ":"))
+def dump_accounts(cfg: dict, secret: str = "") -> str:
+    """The cursor's text: the (keyed) digests of the items, sorted, in one string (two providers of 154 items each fit in a cursor)."""
+    return json.dumps({"v": 1, "items": "".join(sorted(i["digest"] for i in account_items(cfg, secret)))}, separators=(",", ":"))
 
 
 def parse_accounts(text):
@@ -255,16 +275,16 @@ def parse_accounts(text):
     return {items[i:i + DIGEST] for i in range(0, len(items), DIGEST)}
 
 
-def account_widening(old_text, cfg: dict) -> list:
+def account_widening(old_text, cfg: dict, secret: str = "") -> list:
     """What `cfg` names of the accounts and the record (`old_text`, the cursor ACCOUNTS) does not hold: the items, in order, without their digest. No record,
     or one that is not readable, holds nothing, so the first file that names an account lists everything it names. `move_removes_inbox` is listed only for
     an account the record held (for a new account it is part of the account)."""
     held = parse_accounts(old_text) or set()
     out = []
-    for item in account_items(cfg):
+    for item in account_items(cfg, secret):
         if item["digest"] in held:
             continue
-        if item["group"].endswith(":move_removes_inbox") and _digest(item["group"].split(":")[0] + ":account") not in held:
+        if item["group"].endswith(":move_removes_inbox") and _digest(item["group"].split(":")[0] + ":account", secret) not in held:
             continue
         out.append({k: v for k, v in item.items() if k != "digest"})
     return out
