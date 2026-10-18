@@ -30,7 +30,7 @@ Contract: contracts/runtime.md. Configuration: <project>/docs/workbench/runtime.
 
 Providers are reached by requirement class through providers/resolve.py, never by a path built here. The keys
 below are configuration keys of runtime.json and keep their names; the class each one maps to is named beside it:
-  mailbox    class `reader:email`. "auto" resolves it; "none" means no mailbox; any other value names the
+  mailbox    class `reader:email`. "auto" resolves only while one reader ships (since M1 name gmail or outlook, or set MAILBOX_PROVIDER); "none" means no mailbox; any other value names the
              implementation explicitly and wins over the environment (a runtime.json written before resolution
              by class, with "mailbox": "gmail", keeps working unchanged).
   publisher  class `publisher:<platform>`; the value is the platform, passed as --platform. The resolution
