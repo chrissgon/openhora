@@ -224,8 +224,32 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            set_local="uv run providers/documents/onedrive_auth.py authorize (writes the record after the browser consent)",
            note="one JSON record (refresh_token, client_id, tenant, scope, account_kind, obtained_at) written by "
                 "providers/documents/onedrive_auth.py and rewritten by providers/documents/onedrive.py when Microsoft replaces the refresh "
-                "token (the one provider that writes its record back, only when it was found in the OS secret store); no client secret "
+                "token (one of the providers that write their record back, only when it was found in the OS secret store); no client secret "
                 "exists (a public client); from the environment, the same JSON text"),
+    Secret("OUTLOOK_MAIL_TOKEN",
+           "read the person's Outlook mailbox for the mail sources they chose (messages of the inbox, with their attachment names)",
+           "Microsoft Graph delegated Mail.Read only (providers/mailbox/outlook_auth.py): it reads every message of the mailbox and "
+           "changes none; the narrowing to the inbox and a window is the runtime's, not the service's; its own app registration, apart "
+           "from the OneDrive and calendar ones",
+           ("providers/mailbox/outlook.py", "providers/mailbox/outlook_auth.py"),
+           store_username="outlook-mail",
+           set_local="uv run providers/mailbox/outlook_auth.py authorize (writes the record after the browser consent)",
+           note="one JSON record (refresh_token, client_id, tenant, scope, obtained_at) written by providers/mailbox/outlook_auth.py "
+                "and rewritten by providers/mailbox/outlook.py when Microsoft replaces the refresh token (only when it was found in the OS "
+                "secret store, and only if it still holds the token the provider used); no client secret exists (a public client); from "
+                "the environment, the same JSON text"),
+    Secret("OUTLOOK_CALENDAR_TOKEN",
+           "read the events and the list of calendars of the person's Outlook calendar, for the calendar sources they chose",
+           "Microsoft Graph delegated Calendars.ReadBasic only (providers/calendar/outlook_auth.py): it reads the events of every "
+           "calendar the account can see without their body, attachments and extensions, and changes none; the narrowing to a calendar "
+           "and a window is the runtime's, not the service's; its own app registration, apart from the OneDrive and mail ones",
+           ("providers/calendar/outlook.py", "providers/calendar/outlook_auth.py"),
+           store_username="outlook-calendar",
+           set_local="uv run providers/calendar/outlook_auth.py authorize (writes the record after the browser consent)",
+           note="one JSON record (refresh_token, client_id, tenant, scope, obtained_at) written by providers/calendar/outlook_auth.py "
+                "and rewritten by providers/calendar/outlook.py when Microsoft replaces the refresh token (only when it was found in the "
+                "OS secret store, and only if it still holds the token the provider used); no client secret exists (a public client); "
+                "from the environment, the same JSON text"),
     Secret("MESSENGER_TELEGRAM_BOT_TOKEN",
            "receive the person's messages and send the notices of the messaging bridge, as a Telegram bot",
            "a bot created for this person with the platform's bot service, used only by this bridge",
