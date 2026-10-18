@@ -45,6 +45,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
+import natural  # noqa: E402  (the same folder: a request in the person's own words, package NR-1)
 import ops_core as core  # noqa: E402
 import reminders as rm  # noqa: E402
 import workcopy  # noqa: E402
@@ -121,10 +122,18 @@ def _own(row: dict, channel, sender) -> None:
         raise _fail(rm.NO_SUCH.format(n=row["id"]))
 
 
-def remind(project: str, when: str, text: str, to: str | None = None, channel: str | None = None, sender: str | None = None) -> dict:
+def remind(project: str, when: str | None = None, text: str | None = None, to: str | None = None, channel: str | None = None, sender: str | None = None,
+           said: str | None = None, how: str = "trigger", draft: dict | None = None) -> dict:
     """Make a reminder. `when` is HH:MM, YYYY-MM-DD HH:MM or in <n>m|h|d (runtime/reminders.py resolve), `text` the words to send. Returns {"reminder":
-    the reminder as a shell reads it (with its text), "reply": the sentence a messaging app answers with}. A refusal is an OpsError whose message is
-    the sentence the person reads (code 2 for a usage error)."""
+    the reminder as a shell reads it (with its text), "reply": the sentence a terminal or a page shows, "human": the facts a chat shows (the day, the time, the
+    zone, the days from today, and whether a time with no day rolled over to tomorrow)}. A refusal is an OpsError whose message is the sentence the person
+    reads (code 2 for a usage error).
+
+    `said` is the person's own line instead of `when` and `text` (the messaging bridge passes it, package NR-1; no shell of the table does): it is read with the
+    clock by runtime/natural.py, `how` says as what ("trigger": it starts with a remind word, "bare": it may be a note or an event, "command": the words after
+    `/remind`), and `draft` is the question the previous line was asked, which `said` answers. The policy is asked before the line is read. What comes back
+    is the reminder made, or {"ask": the draft to keep}, or {"event": True} (the person chose the calendar), or {"declined": True} (a line that does not
+    answer the draft); a question stores nothing."""
     ctx = core.context(project)
     cfg = ctx["cfg"]
     ops_actor.guard(ctx, "remind", channel, sender)
@@ -145,9 +154,18 @@ def remind(project: str, when: str, text: str, to: str | None = None, channel: s
         if not operations.permitted("remind", MESSAGING, cfg["channels"], None, recipient):
             raise _fail(f"{to} does not hold the group reminders: add it to the sender's profile in runtime.json and accept the file with "
                         "--widen (the group is in no default policy)", 1)
+    clock = now()
+    if said is not None:
+        understood = natural.complete(draft, said, clock) if draft else natural.understand(said, clock, how)
+        if understood is None:
+            return {"declined": True}
+        if understood.get("event"):
+            return {"event": True}
+        if "ask" in understood:
+            return {"ask": understood["ask"]}
+        when, text = understood["when"], understood["text"]
     try:
         words = rm.clean_text(text)
-        clock = now()
         found = rm.resolve(when, clock, local_at, local_of)
     except ValueError as e:
         raise _fail(str(e), 2) from None
@@ -168,7 +186,10 @@ def remind(project: str, when: str, text: str, to: str | None = None, channel: s
         if str(e) == store.REMINDER_DAY_FULL:
             raise _fail(rm.DAY_FULL.format(n=rm.DAY_MAX)) from None
         raise _fail(str(e), e.code) from None
-    return {"reminder": _shown(row, cfg, True), "reply": rm.SET.format(id=row["id"], wall=found["wall"].replace("T", " "), zone=found["zone"])}
+    due_day = found["due"].date()
+    human = {"date": due_day.isoformat(), "time": found["wall"][11:16], "zone": found["zone"], "rel": (due_day - clock.date()).days,
+             "rolled": bool(rm.is_time_only(when)) and due_day > clock.date()}
+    return {"reminder": _shown(row, cfg, True), "reply": rm.SET.format(id=row["id"], wall=found["wall"].replace("T", " "), zone=found["zone"]), "human": human}
 
 
 def reminders_read(project: str, channel: str | None = None, sender: str | None = None) -> dict:

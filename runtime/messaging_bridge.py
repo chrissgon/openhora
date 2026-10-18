@@ -78,6 +78,9 @@ Reminders (RM-1). `/remind <time> <text>`, `/reminders` and `/forget <n>` are do
 `Reminders.deliver` sends what is due: only to the private chat of the sender it was made for, with that sender's own words (none in `notices: count`),
 after the operations layer read the configuration and the sender's profile again, so a sender removed or narrowed before the time gets nothing.
 A reminder is a notice and never an effect (limit L51).
+Reminders in the person's own words (NR-1). A plain line that code matched to a reminder operation, and `/remind <rest>` outside the strict grammar, arrive as
+the intent `natural` and are done by `remind.natural` with no model, no route lock and no model slot; a question the bridge asked about a reminder is kept as a draft
+in `self.remind.drafts` (memory only) and the next update of that chat finishes it or drops it (`remind.answer`).
 
 Language (LR-1). Every sentence the bridge says is the phrase table's (runtime/phrases.py) in the project's language: `Bridge.cfg` reads the key `language` from
 `config` when the sentence is said (an unaccepted file too), `Bridge.t` picks the sentence, and `cards.build` is handed the settings for the frames of a card. A project with
@@ -633,12 +636,17 @@ class Bridge(shell_kit.Jobs):
         kind = intent["kind"]
         if kind == "ignore":
             return
+        if kind != "action" and chat in self.remind.drafts and self.remind.answer(project, chat, kind, update.get("text") or ""):
+            return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line
         if kind == "attachment":
             self.attach.arrived(project, chat, intent)
         elif kind in ("add", "discard"):
             self.attach.typed(project, chat, kind, intent["id"])
         elif kind == "remind":
             self.remind.created(project, chat, intent)
+        elif kind == "natural":
+            if not self.remind.natural(project, chat, intent):
+                self.say(project, chat, intent["text"])
         elif kind == "reminders":
             self.remind.listing(project, chat)
         elif kind == "forget":

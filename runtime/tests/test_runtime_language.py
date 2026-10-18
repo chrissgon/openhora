@@ -252,13 +252,13 @@ def test_a_command_the_busy_planning_agent_cannot_take_is_refused_in_the_languag
 def test_the_replies_to_the_reminder_commands_are_in_portuguese_and_the_words_of_the_person_are_not_touched(day):  # noqa: F811
     accept(day.path, language="pt-BR")
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
-    assert day.texts(OWNER)[-1] == "Lembrete #1 marcado para 2026-10-18 15:00 (BRT)."
+    assert day.texts(OWNER)[-1] == f"Lembrete #1: hoje, dom 18/10, às 15:00 (BRT): {DENTIST}. Para desfazer: /forget 1."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     day.say(OWNER, "/remind")
-    assert day.texts(OWNER)[-1] == PT["RM_USAGE"] and day.texts(OWNER)[-1].startswith("Uso: /remind HH:MM <text>, /remind YYYY-MM-DD HH:MM <text> ou /remind in <n>m|h|d <text>")
+    assert day.texts(OWNER)[-1] == PT["NT_ASK_WHEN_SLASH"] == "Quando? Ex.: /remind amanhã 13h corte de cabelo"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     day.say(OWNER, "/remind 25:00 call")
     assert day.texts(OWNER)[-1] == "25:00 não é uma hora do dia (00:00 a 23:59)."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     day.say(OWNER, "/remind 13:00 x")
-    assert day.texts(OWNER)[-1] == "Lembrete #2 marcado para 2026-10-19 13:00 (BRT)."
+    assert day.texts(OWNER)[-1] == "Lembrete #2: 13:00 de hoje já passou: amanhã, seg 19/10, às 13:00 (BRT): x. Para desfazer: /forget 2."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     day.say(OWNER, "/forget")
     assert day.texts(OWNER)[-1] == "Uso: /forget <n>"
     day.say(OWNER, "/reminders")
@@ -294,7 +294,7 @@ def test_a_due_reminder_goes_with_a_frame_in_the_language_and_the_late_mark_and_
 
 def test_an_english_project_gets_the_reminder_sentences_it_always_got(day):  # noqa: F811
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
-    assert day.texts(OWNER)[-1] == "Reminder #1 set for 2026-10-18 15:00 (BRT)."
+    assert day.texts(OWNER)[-1] == f"Reminder #1: today, Sun 18/10, at 15:00 (BRT): {DENTIST}. To undo: /forget 1."
     day.say(OWNER, "/forget 99")
     assert day.texts(OWNER)[-1] == "No reminder 99 waits for you."
     day.clock.set("2026-10-18 15:00")

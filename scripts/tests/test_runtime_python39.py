@@ -61,6 +61,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",
     # Reminders (RM-1): the pure part, the operations and the bridge's part.
     "runtime/reminders.py", "runtime/ops_reminders.py", "runtime/messaging_remind.py",
+    # Reminders asked in the person's own words (NR-1): the intent rows, the time parser and the language tables it reads (data, loaded by path).
+    "runtime/natural.py", "runtime/natural_time.py", "runtime/natural_lang_en.py", "runtime/natural_lang_pt_br.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state
     "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py", "runtime/ops_cancel.py", "runtime/run_stop.py",
     # S16: the password-manager backends, loaded by path by the resolver, which the runtime loads under the system interpreter too.
