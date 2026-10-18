@@ -545,7 +545,7 @@ def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
         if row["model"] is not False:
             assert row.get("job") is True, row["name"]
     assert {r["name"] for r in operations.OPERATIONS if r.get("job")} == \
-        {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say"}
+        {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say", "ask"}
 
 
 def test_a_refused_operation_becomes_its_documented_status(world):
@@ -887,13 +887,13 @@ def test_the_read_routes_call_their_operations_with_the_query_they_take_and_refu
         assert world.fake.calls == []
     # conversation: both keys optional
     world.fake.calls.clear()
-    assert call(world, "GET", api(world, "/conversation"))[0] == 200 and last() == ("conversation", project, {})
+    assert call(world, "GET", api(world, "/conversation"))[0] == 200 and last() == ("conversation", project, {"channel": "page"})
     assert call(world, "GET", api(world, "/conversation?after=0"))[0] == 200
-    assert last() == ("conversation", project, {"after": 0})
+    assert last() == ("conversation", project, {"after": 0, "channel": "page"})
     assert call(world, "GET", api(world, "/conversation?after=42&conversation=project"))[0] == 200
-    assert last() == ("conversation", project, {"after": 42, "conversation": "project"})
+    assert last() == ("conversation", project, {"after": 42, "conversation": "project", "channel": "page"})
     assert call(world, "GET", api(world, "/conversation?conversation=other"))[0] == 200
-    assert last() == ("conversation", project, {"conversation": "other"})
+    assert last() == ("conversation", project, {"conversation": "other", "channel": "page"})
     # costs: since is text, the operation checks it
     assert call(world, "GET", api(world, "/costs"))[0] == 200 and last() == ("costs", project, {})
     assert call(world, "GET", api(world, "/costs?since=2026-10-01"))[0] == 200

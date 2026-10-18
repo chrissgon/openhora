@@ -74,6 +74,46 @@ def _contained_folder(cfg: dict) -> tuple:
         return n, folder
 
 
+def routed(ctx: dict, skill: str) -> tuple:
+    """(meta, keys, routing) of a contained run of the skill: the model and the adapter come from the choice (ops_models.route: the
+    project's default_model, else `auto`, with the keys as run_next passes them), never from what a caller asks. OpsError when the
+    skill cannot be routed (3 for the lab's refusals and for a model with no key, else 1). Shared by `contained_run` and `ask`."""
+    try:
+        meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
+        keys = core._keys()
+        routing = _ops()._route(ctx, skill, meta, keys)
+        if routing["key_missing"]:
+            raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
+    except (skill_meta.SkillError, lab.LabError, KeyError, ValueError, OSError) as e:
+        raise core.OpsError(f"{skill} could not be routed: {e}", 3 if isinstance(e, lab.LabError) else 1) from None
+    return meta, keys, routing
+
+
+def execute(ctx: dict, skill: str, meta: dict, keys, routing: dict, prompt: str, *, platforms=(), timeout=None, dest: str,
+            prepared_dir: str, max_cost, sourced=(), around=None) -> dict:
+    """The one run both callers make: the copy that holds the artifacts the skill declares (and, for `ask`, `sourced`: the copies of
+    the sources code selected, [(path, relative path)] already written under `prepared_dir`), then one attempt in the facade's session,
+    never on the open network, within `timeout` seconds, in the claimed folder `dest`. Returns lab.run_skill's result. The caller
+    owns `prepared_dir` and removes it (`ask` still reads the copies after the run). `around` is a context manager that is entered inside
+    the lab's session (`ask` gives the watcher that ends the run when its request is cancelled). A LabError is OpsError 3 with its reason
+    and the empty folder claimed for the run goes."""
+    cfg = ctx["cfg"]
+    try:
+        # web=True here is the copy's form, "the artifacts the skill declares" (L3); the run itself is web=False below.
+        entered = workcopy.entering(cfg["project"], meta, web=True, cfg=cfg, settings_names=lab.settings_names(),
+                                    prepared_dir=prepared_dir, sourced=sourced)
+    except workcopy.CopyError as e:
+        raise core.OpsError(f"the copy could not be built: {e}", 1) from None
+    try:
+        with core._LAB_GUARD, lab.session(), _ops()._key_in_environment(routing, keys), around or contextlib.nullcontext():  # the lab's process-wide session: one at a time
+            return lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
+                                 timeout=timeout, retries=0, platforms=list(platforms or ()), max_cost=max_cost)
+    except lab.LabError as e:
+        with contextlib.suppress(OSError):
+            os.rmdir(dest)  # no run was made: the folder claimed for it is empty, and goes
+        raise core.OpsError(f"{e.kind}: {e.reason}", 3) from None
+
+
 def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms=(), timeout=None) -> dict:
     """Run one skill once on one task text, in the eval container, for a caller that is not a task (a handler's agent run).
 
@@ -109,32 +149,12 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
     _contained_scope(ctx, skill)
     prompt = ops_instructions.contained_prompt(cfg["project"], prompt)   # the person's standing instructions, appended after the caller's text
     out_dir = os.path.abspath(out_dir)
-    try:
-        meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
-        keys = core._keys()
-        routing = _ops()._route(ctx, skill, meta, keys)
-        if routing["key_missing"]:
-            raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
-    except (skill_meta.SkillError, lab.LabError, KeyError, ValueError, OSError) as e:
-        raise core.OpsError(f"{skill} could not be routed: {e}", 3 if isinstance(e, lab.LabError) else 1) from None
+    meta, keys, routing = routed(ctx, skill)
     number, dest = _contained_folder(cfg)
     prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
     try:
-        try:
-            # web=True here is the copy's form, "the artifacts the skill declares" (L3); the run itself is web=False below.
-            entered = workcopy.entering(cfg["project"], meta, web=True, cfg=cfg, settings_names=lab.settings_names(),
-                                        prepared_dir=prepared_dir)
-        except workcopy.CopyError as e:
-            raise core.OpsError(f"the copy could not be built: {e}", 1) from None
-        try:
-            with core._LAB_GUARD, lab.session(), _ops()._key_in_environment(routing, keys):  # the lab's process-wide session: one at a time
-                result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
-                                       timeout=timeout, retries=0, platforms=list(platforms or ()),
-                                       max_cost=_ops()._budget(ctx, None, routing, keys))
-        except lab.LabError as e:
-            with contextlib.suppress(OSError):
-                os.rmdir(dest)  # no run was made: the folder claimed for it is empty, and goes
-            raise core.OpsError(f"{e.kind}: {e.reason}", 3) from None
+        result = execute(ctx, skill, meta, keys, routing, prompt, platforms=platforms, timeout=timeout, dest=dest,
+                         prepared_dir=prepared_dir, max_cost=_ops()._budget(ctx, None, routing, keys))
     finally:
         shutil.rmtree(prepared_dir, ignore_errors=True)
     changes = result["changes"] or {}

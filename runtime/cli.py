@@ -70,6 +70,7 @@ Usage:
   python3 runtime/cli.py set-mode --project <dir> --agent <name> --mode stopped|supervised|milestones|autonomous|autonomous-with-policy [--accept] [--consent]
   python3 runtime/cli.py set-model --project <dir> --agent <name> --model <id>|auto|default [--accept] [--consent]
   python3 runtime/cli.py contained-run --project <dir> --skill <name> --prompt-file <file> --out <dir> [--platform <name>]... [--timeout-seconds <n>]
+  python3 runtime/cli.py ask      --project <dir> --text <question> | --text-file <file>
   python3 runtime/cli.py dispatch --project <dir>
   python3 runtime/cli.py poll     --project <dir>
   python3 runtime/cli.py handler  --project <dir> --name <handler> --verb <verb> [--arg <flag>=<value>]...
@@ -367,6 +368,12 @@ say       one turn of the conversation with the planning agent (the same as one 
           ("status", "how are we", "como estamos", "o que falta", "what is running") is answered at once from the
           store's records, with no model and no request; a line that needs the planner, typed while another
           run of the project is in progress, is refused before it is stored (only the local page queues one).
+ask       answers one question from the text of the project's sources (runtime/ops_ask.py): the sources are chosen by code
+          (@<id> in the question names them; with no mention, all of them when they fit, else the ones whose words the
+          question shares), one run of the answer skill reads their converted text, and the reply gives the answer, the
+          quotes it rests on (each checked against its source) and the sources and versions read, with a line when the
+          pair of skill and model is not proven. No plan to approve; nothing is sent anywhere but back to you. Refused
+          before any model call when no skill answers yet, no source matches, or the owning agent is at its cap.
 handler   starts one verb of a handler (runtime/handlers/) that handlers in runtime.json names, and prints its result.
 stop-runs ends the runs this process started (its children, the container and the process group of each run). The local
           service calls it before it exits; started on its own it has no run to end. With --all it ends every task run of

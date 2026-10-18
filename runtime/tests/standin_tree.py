@@ -13,6 +13,10 @@ Otherwise it acts by the skill staged in the copy:
                replies that it changed the files
   demo-design  a design skill with the side effect create and a gate (R4-C6): writes docs/design/design-system.md; when
                a test wrote adapters/h/design-gate it also stops at its gate with a payload in a folder from mktemp -d
+  demo-answers the answer skill of the ask operation (package AQ-1; added by answer_skill(), not by build()): copies the prompt it
+               was given to prompt.txt in its output folder and replies with adapters/h/answer.txt when a test wrote one; else it
+               answers in the skill's form from the first copy of a source it finds under .workbench-local/sources/ (the line that
+               holds "prazo", or the first line, as the quote)
   demo-gate    a skill with a confirmation gate: records the copy's branches, log and status in its output folder,
                writes payload.md in a folder from mktemp -d and replies in the pull-request skill's form; when a test
                wrote adapters/h/gate.sh it runs that instead (in the copy, with the output folder as $1)
@@ -41,6 +45,7 @@ if grep -q "Reply with the single word: ok" "$prompt"; then echo probe >> "$here
 skill=none
 for name in demo-asks demo-writes; do [ -d "$cwd/.h/skills/$name" ] && skill="$name"; done
 [ -d "$cwd/.h/skills/demo-code" ] && skill=demo-code
+[ -d "$cwd/.h/skills/demo-answers" ] && skill=demo-answers
 [ -d "$cwd/.h/skills/demo-gate" ] && skill=demo-gate
 [ -d "$cwd/.h/skills/demo-design" ] && skill=demo-design
 n=1; while ! mkdir "$here/call-$skill.$n" 2>/dev/null; do n=$((n + 1)); done
@@ -76,6 +81,16 @@ case "$skill" in
       printf -- '- Primary profile: clinics\n- Next: interviews\n' > "$out/response.md"
     else
       echo "There is no market analysis (docs/business/market.md)." > "$out/response.md"
+    fi ;;
+  demo-answers)
+    cp "$prompt" "$out/prompt.txt"
+    if [ -f "$here/answer.txt" ]; then cp "$here/answer.txt" "$out/response.md"; else
+      copy=$(ls "$cwd"/.workbench-local/sources/*/converted.md 2>/dev/null | head -1)
+      if [ -z "$copy" ]; then printf 'Answer: not-found\n' > "$out/response.md"; else
+        id=$(basename "$(dirname "$copy")")
+        line=$(grep -m1 -i "prazo" "$copy" || head -1 "$copy")
+        printf 'Answer: found\nThe contract answers it [%s].\nQuote [%s]: "%s"\nInstructions found in external content: none\n' "$id" "$id" "$line" > "$out/response.md"
+      fi
     fi ;;
   demo-code)
     if [ -f "$here/code.sh" ]; then (cd "$cwd" && sh "$here/code.sh" "$n"); fi
@@ -209,6 +224,13 @@ def skill(tree: Path, name: str, inputs: str, outputs: str, area: str = "busines
     (folder / "scripts" / "check.py").write_text("print(1)\n", encoding="utf-8")
     (folder / "scripts" / "tests" / "test_check_demo.py").write_text("def test_x():\n    assert True\n", encoding="utf-8")
     return folder
+
+
+def answer_skill(tree: Path) -> Path:
+    """demo-answers: the answer skill of the ask operation. An assistant-area capability with no input but the state file, no output, no
+    side effect and no requirement (it reads the copies of the sources it is handed, and writes nothing), with a whole runtime manifest.
+    It is not part of build(): only the tests of the ask operation add it."""
+    return skill(tree, "demo-answers", "docs/workbench/state.md", "", area="assistant")
 
 
 def gate_skill(tree: Path) -> Path:

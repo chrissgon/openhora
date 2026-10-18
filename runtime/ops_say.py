@@ -56,6 +56,7 @@ MEMORY_CUT = 600
 MEMORY_HEAD = "Earlier in this conversation, oldest first:"
 MEMORY_TAIL = "The request now:"
 PLAN_NEXT = "Approve with " + operations.chat_line("approve", pending_id="{pending}")
+ANSWERED_AS = "(answered from the sources: request {request})"   # what `conversation` shows in place of an answer to a reader that did not ask
 ASK_NEXT = "Answer with a plain line, or start again with " + operations.chat_line("new", text="<text>")
 NOT_NAMED = "The planning agent did not name a flow or a skill for request {request}"
 NOT_NAMED_ACTIONS = ["choose-flow", "cancel"]    # the words of the payload's `actions`: the page draws one button for each
@@ -186,12 +187,13 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
 
 
 def _turn_routes(said: str) -> bool:
-    """Whether a line makes a turn that runs the router: a plain line, or /new. A command of the table calls its own
-    operation, which takes the locks it needs itself, and a line that is no command gets the help."""
+    """Whether a line makes a turn that runs a conversation model call (the router, or the answer run of /ask) under the route lock: a plain
+    line, /new or /ask. Any other command of the table calls its own operation, which takes the locks it needs itself, and a line that
+    is no command gets the help."""
     if not said.startswith("/"):
         return True
     parsed = operations.parse_chat(said)
-    return parsed is not None and parsed[0] == "new"
+    return parsed is not None and parsed[0] in ("new", "ask")
 
 
 # --- the questions about the state, answered by code ------------------------------------------------------------------
@@ -533,6 +535,8 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
     if name == "new":
         after, found = operations.split_new(found)
         return _say_route(project, ctx, found, line_id, channel, after=after, sender=sender)
+    if name == "ask" and channel == DRAIN:       # a queued /ask is answered on the page that queued it (the only channel that queues)
+        channel = "page"
     row = operations.by_name(name)
     if channel not in row["channels"]:
         return f"error: /{name} is done in the terminal or on the page", None, None, False, None
@@ -565,6 +569,10 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
             out = function(project, **found)
     except core.OpsError as e:
         return f"error: {e}", None, None, False, None
+    if name == "ask" and out.get("run_id") is not None:
+        # The answer is stored with the id of its answer run and no request (so it is not the router's memory): `conversation` shows it only
+        # to the channel that asked (ops_ask.asked_by), and every other reader gets ANSWERED_AS (limit L50).
+        return out["reply"], None, None, False, out["run_id"]
     if row.get("chat_reply"):
         return out[row["chat_reply"]], None, None, False, None
     return json.dumps(out, ensure_ascii=False, indent=1, default=str), None, None, False, None
@@ -579,9 +587,8 @@ def _planning_may_start(ctx: dict) -> tuple:
     billing = _ops()._route(ctx, router.ROUTER_SKILL, meta, core._keys())["billing"]
     now = datetime.datetime.now(datetime.timezone.utc)
     standing_rows = core._stored(ctx, store.approvals_list, status="active", scope="standing")
-    runs = autonomy.with_billing([dict(r, agent=plan.PLANNING) if r.get("agent") is None and r.get("skill") == router.ROUTER_SKILL
-                                  else r for r in core._stored(ctx, store.runs_since, _ops()._midnight_utc())],
-                                 core._metered_models())
+    runs = autonomy.with_billing(core.attributed(core._stored(ctx, store.runs_since, _ops()._midnight_utc()),
+                                                 importlib.import_module("ops_ask").run_owners(ctx)), core._metered_models())
     facts = autonomy.facts(plan.PLANNING, agents, standing_rows, now)
     spent = autonomy.spend(runs, plan.PLANNING, cfg["raw"].get("max_cost_usd_per_run", _ops().PER_RUN_USD))
     ok, why = autonomy.may_start(plan.PLANNING, agents, facts, spent, billing)
@@ -617,7 +624,8 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
     if routed.get("kind") == "direct":
         import ops_cancel      # at call time, like the other operations this sibling reaches (it imports no sibling above it at the top)
         core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:direct", context=ctx)
-        return state_reply(project, routed.get("next")), None, None, True, routed.get("run_id")
+        return (state_reply(project, routed.get("next")) + importlib.import_module("ops_ask").hint(ctx, channel, sender),
+                None, None, True, routed.get("run_id"))
     item = core._stored(ctx, ctx["store"].pending_get, routed["pending_id"]) if routed.get("pending_id") else None
     if item is None:
         failure = (routed.get("failure") or {}).get("reason") or "the router's run failed"

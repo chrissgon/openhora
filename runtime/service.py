@@ -326,6 +326,7 @@ ROUTES = (
     _route("GET", "/projects/{p}/commands", "commands", take=()),
     _route("GET", "/versions", own="versions"),
     _route("POST", "/projects/{p}/conversation", "say"),
+    _route("POST", "/projects/{p}/ask", "ask"),
     _route("POST", "/projects/{p}/sync", "sync"),
     _route("GET", "/projects/{p}/sources", "sources", take=()),
     _route("POST", "/projects/{p}/sources", "source-add"),

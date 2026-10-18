@@ -101,6 +101,7 @@ Operations of stage 6:
                                    an acceptance)
 
 Operations of stage 7:
+  ask(project, text[, channel, sender])                     one question answered from the project's sources (runtime/ops_ask.py)
   contained_run(project, skill, prompt, out_dir[, platforms, timeout])   one run of one skill of an area agent's
                                    pack, in the eval container, on the artifacts the skill declares and nothing else,
                                    for a caller that is not a task (a handler's agent run): nothing is brought back, only
@@ -1631,7 +1632,7 @@ def task(project: str, task_id: int) -> dict:
     ctx = core.context(project)
     store = ctx["store"]
     found = core._stored(ctx, store.task_get, task_id)
-    return {"task": ops_waits.task_row(ctx, found), "drop": ops_reads.drop_note(found), "runs": core._stored(ctx, store.task_runs_list, task_id),
+    return {"task": ops_waits.task_row(ctx, found), "drop": ops_reads.drop_note(found), "runs": ops_ask.with_asker(ctx, core._stored(ctx, store.task_runs_list, task_id)),
             "pending": [{**ops_actor.shown(item), "agent": found["agent"] if found["parent_id"] is not None else None,
                          "actions": _actions(store, item)}
                         for item in core._stored(ctx, store.pending_list, "all", task_id)]}
@@ -2298,15 +2299,15 @@ def _agents_of_the_day(ctx: dict, keys=None) -> dict:
     """Each area agent's facts, a day's spend and entry, from the store and the configuration: {name: {"facts",
     "entry", "spent", "split", "in_use"}} (split: autonomy.spend_split, for the meters; in_use: core._caps_in_use; keys: the Keys found). The
     spend is by the billing each run recorded (autonomy.with_billing gives a run older than the column the rule of its model: a run on a metered model is metered). The day starts at local midnight (_midnight_utc), as the caps count it, and a run of the router
-    (its task is a request, so its agent is None) counts against the planning agent. {} without area agents."""
+    (its task is a request, so its agent is None) counts against the planning agent, an answer run (ask) against the owner of the answer skill
+    (ops_ask.run_owners). {} without area agents."""
     store, cfg = ctx["store"], ctx["cfg"]
     agents_checked = cfg["area_agents"]
     if not agents_checked:
         return {}
     now = datetime.datetime.now(datetime.timezone.utc)
     standing_rows = core._stored(ctx, store.approvals_list, status="active", scope="standing")
-    runs = autonomy.with_billing([dict(r, agent=plan.PLANNING) if r.get("agent") is None and r.get("skill") == router.ROUTER_SKILL
-                                  else r for r in core._stored(ctx, store.runs_since, _midnight_utc())],
+    runs = autonomy.with_billing(core.attributed(core._stored(ctx, store.runs_since, _midnight_utc()), ops_ask.run_owners(ctx)),
                                  core._metered_models())
     per_run, in_use = cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD), core._caps_in_use(runs, keys or core._keys())
     return {name: {"facts": autonomy.facts(name, agents_checked, standing_rows, now), "entry": entry,
@@ -2693,6 +2694,8 @@ import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
 import ops_instructions  # noqa: E402  (the standing instructions: three operations, the block of a prompt, the answer's proposal)
 from ops_instructions import answer_proposing, instructions_add, instructions_read, instructions_set  # noqa: E402,F401
+import ops_ask  # noqa: E402  (the answer from sources: `ask`, and the owners of the runs of a request)
+from ops_ask import ask  # noqa: E402,F401
 from ops_contained import contained_run  # noqa: E402,F401  (the contained run: a handler's agent run; moved out of this file, no change of logic)
 # The routines (runtime/ops_routines.py): the schedule's flows, their approval by hash, the brakes and the tick a round calls.
 import ops_routines  # noqa: E402

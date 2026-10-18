@@ -36,6 +36,7 @@ USAGE = {"approve": "/approve <id>", "reject": "/reject <id> [note]", "release":
          "add": "/add <n>", "discard": "/discard <n>", "forget": "/forget <n>"}
 HELP = ("Commands:\n/pending            what waits for you\n/approve <id>       approve what the last card of <id> showed\n"
         "/reject <id> [note] reject it\n/release <id>       release a delivery\n/answer <id> <text> answer a question\n"
+        "/ask <question>     answer a question from the project's sources\n"
         "/add <n>            add a file you sent as a source\n/discard <n>        delete a file you sent\n"
         "/remind <time> <text> a reminder sent back to you once (15:00, 2026-10-20 09:30 or in 2h)\n/reminders          the reminders that wait\n"
         "/forget <n>         cancel a reminder\n"

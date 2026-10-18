@@ -2494,6 +2494,32 @@ def acceptance_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution:
     return {"pending_id": pending_id, "task_id": item["task_id"], "task_state": state}
 
 
+def _router_run_in(conn: sqlite3.Connection, request_id: int, *, skill: str, model: str, adapter: str, skill_version, skill_sha256,
+                   web: bool, reroute: bool, billing, autonomy, now: str) -> int:
+    """Inside a write transaction: route_run_start's checks and its row. Returns the run's id."""
+    request = _request(conn, request_id)
+    if request["stop_requested_at"]:
+        raise StoreError(f"request {request_id} is being cancelled: it is not routed")
+    if reroute:
+        if request["state"] not in REROUTE_STATES:
+            raise StoreError(f"request {request_id} is {request['state']}: only a planned or done request has a "
+                             "delivery routed again")
+    elif request["state"] != "requested":
+        raise StoreError(f"request {request_id} is {request['state']}: only a request waiting for its plan is routed")
+    open_items = [] if reroute else _open_pending(conn, request_id)
+    if open_items:
+        raise StoreError(f"request {request_id} has an open {open_items[0]['kind']} (pending decision "
+                         f"{open_items[0]['id']}): decide it first")
+    if conn.execute("SELECT 1 FROM task_runs r JOIN tasks t ON t.id = r.task_id "
+                    "WHERE r.status = 'running' AND t.parent_id IS NULL").fetchone():
+        raise StoreError("a router run is in progress: one router run at a time per project")
+    run_id = conn.execute(
+        "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing, "
+        "autonomy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (request_id, skill, skill_version, skill_sha256, model, adapter, 1 if web else 0, now, billing, autonomy)).lastrowid
+    return run_id
+
+
 def route_run_start(conn: sqlite3.Connection, request_id: int, *, skill: str, model: str, adapter: str,
                     skill_version: str | None = None, skill_sha256: str | None = None, web: bool = False,
                     reroute: bool = False, billing: str | None = None, autonomy: str | None = None) -> dict:
@@ -2511,26 +2537,8 @@ def route_run_start(conn: sqlite3.Connection, request_id: int, *, skill: str, mo
     skill_sha256 = _sha_or_none(skill_sha256, "skill_sha256")
     now = iso(utcnow())
     with write(conn):
-        request = _request(conn, request_id)
-        if request["stop_requested_at"]:
-            raise StoreError(f"request {request_id} is being cancelled: it is not routed")
-        if reroute:
-            if request["state"] not in REROUTE_STATES:
-                raise StoreError(f"request {request_id} is {request['state']}: only a planned or done request has a "
-                                 "delivery routed again")
-        elif request["state"] != "requested":
-            raise StoreError(f"request {request_id} is {request['state']}: only a request waiting for its plan is routed")
-        open_items = [] if reroute else _open_pending(conn, request_id)
-        if open_items:
-            raise StoreError(f"request {request_id} has an open {open_items[0]['kind']} (pending decision "
-                             f"{open_items[0]['id']}): decide it first")
-        if conn.execute("SELECT 1 FROM task_runs r JOIN tasks t ON t.id = r.task_id "
-                        "WHERE r.status = 'running' AND t.parent_id IS NULL").fetchone():
-            raise StoreError("a router run is in progress: one router run at a time per project")
-        run_id = conn.execute(
-            "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing, "
-            "autonomy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (request_id, skill, skill_version, skill_sha256, model, adapter, 1 if web else 0, now, billing, autonomy)).lastrowid
+        run_id = _router_run_in(conn, request_id, skill=skill, model=model, adapter=adapter, skill_version=skill_version,
+                                skill_sha256=skill_sha256, web=web, reroute=reroute, billing=billing, autonomy=autonomy, now=now)
     return {"run_id": run_id, "request_id": request_id, "started_at": now}
 
 
@@ -2594,6 +2602,111 @@ def route_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, fail
                 "INSERT INTO pending_decisions (task_id, run_id, kind, title, body, payload, payload_sha256, "
                 "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (request["id"], run_id, *item, now)).lastrowid
     return {"run_id": run_id, "request_id": request["id"], "pending_id": pending_id, "cancelled": False}
+
+
+ASK_ACTOR_CURSOR = "ask-actor:{run}"   # who asked, kept beside an answer run (no column holds it): the same retention as the actor of a decision, never deleted
+ANSWER_TITLE = "Question"             # the title code gives the request of a question, with its number ("Question 7"): what marks it as one
+ANSWER_FAILED_BY = "code:answer-failed"   # the `by` of the request an answer run that failed cancels
+
+
+def answer_run_start(conn: sqlite3.Connection, request_id: int | None = None, *, skill: str, model: str, adapter: str,
+                     skill_version: str | None = None, skill_sha256: str | None = None, billing: str | None = None,
+                     autonomy: str | None = None, title: str | None = None, text: str | None = None) -> dict:
+    """A run of the answer skill on the request a question made (the ask operation, runtime/ops_ask.py): the same row and the same
+    checks as `route_run_start` (the request is `requested`, has no open decision and is not being cancelled; no router or answer run
+    is running: one conversation model call per project at a time), on the web never. The row is a row of task_runs whose task is the
+    request, so no new column, state or trigger exists. With no `request_id`, the request is made in the same transaction from `title`
+    and `text`, so that no request of a question exists without its run (a mirror that reads the store between the two never sees it);
+    its title is `title` and the request's number ("Question 7"), so that the text of a question is in the request's `text` and in no
+    line that lists requests. Returns {"run_id", "request_id", "started_at"}."""
+    billing = _billing_arg(billing)
+    autonomy = _autonomy_arg(autonomy)
+    skill = text_arg(skill, "skill", LABEL_MAX)
+    model = text_arg(model, "model", REF_MAX)
+    adapter = text_arg(adapter, "adapter", LABEL_MAX)
+    skill_version = text_arg(skill_version, "skill_version", LABEL_MAX, required=False)
+    skill_sha256 = _sha_or_none(skill_sha256, "skill_sha256")
+    if request_id is None:
+        title = text_arg(title, "title", TITLE_MAX)
+        text = text_arg(text, "text", TEXT_MAX, multiline=True)
+    now = iso(utcnow())
+    with write(conn):
+        if request_id is None:
+            request_id = _request_in(conn, title, text, None, [], None, None, None, now)["request"]
+            conn.execute("UPDATE tasks SET title = ? WHERE id = ?", (f"{title} {request_id}", request_id))
+        run_id = _router_run_in(conn, request_id, skill=skill, model=model, adapter=adapter, skill_version=skill_version,
+                                skill_sha256=skill_sha256, web=False, reroute=False, billing=billing, autonomy=autonomy, now=now)
+    return {"run_id": run_id, "request_id": request_id, "started_at": now}
+
+
+def answers_abandoned_cancel(conn: sqlite3.Connection) -> list:
+    """Cancel, by `code:answer-failed`, the questions an ask left behind when its process died: a request that code made as a question
+    (its title is ANSWER_TITLE and its number, which answer_run_start writes in the transaction that makes the request), with no task, in
+    the state `requested`, that has runs, none running (the recovery has ended the run). A request a person made, with the router's runs
+    under whatever skill name the checkout has, is never one; one whose run is still running is not touched. Returns the ids cancelled."""
+    now = iso(utcnow())
+    cancelled = []
+    with write(conn):
+        for row in conn.execute("SELECT id FROM tasks WHERE parent_id IS NULL AND state = 'requested' AND title = ? || ' ' || id ORDER BY id",
+                                (ANSWER_TITLE,)).fetchall():
+            if conn.execute("SELECT 1 FROM tasks WHERE parent_id = ?", (row["id"],)).fetchone():
+                continue
+            runs = conn.execute("SELECT id, skill, status FROM task_runs WHERE task_id = ?", (row["id"],)).fetchall()
+            if not runs or any(r["status"] == "running" for r in runs):
+                continue
+            _cancel_request(conn, row["id"], ANSWER_FAILED_BY, now)
+            cancelled.append(row["id"])
+    return cancelled
+
+
+def answer_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, failure: str | None = None, attempts: int = 0,
+                      cost_usd: float | None = None, tokens: int | None = None, duration_ms: int | None = None,
+                      skill_loaded: bool | None = None, image_digest: str | None = None, run_dir: str | None = None,
+                      error: str | None = None, redactions: int | None = None) -> dict:
+    """End a run that answer_run_start opened, all or nothing. `ok`: the run ends with the ending `done` and its request becomes
+    `done`, in the same transaction. `failed` (with the kind of failure): the run is recorded failed and the request is cancelled by
+    `code:answer-failed`, as `request_cancel` cancels it. A request that is being cancelled (request_stop) has the run recorded
+    `cancelled` and the request settled as the stop says (R18). Returns {"run_id", "request_id", "state": the request's state,
+    "cancelled": whether a stop request ended it}."""
+    if status not in ("ok", "failed") or (status == "failed") != (failure is not None):
+        raise StoreError("status is ok, or failed with the kind of failure", EXIT_USAGE)
+    if failure is not None and failure not in RUN_FAILURES:
+        raise StoreError(f"failure must be one of {', '.join(RUN_FAILURES)}", EXIT_USAGE)
+    error = text_arg(error, "error", NOTE_MAX, multiline=True, required=False)
+    run_dir = text_arg(run_dir, "run_dir", PATH_MAX, required=False)
+    image_digest = text_arg(image_digest, "image_digest", REF_MAX, required=False)
+    loaded = None if skill_loaded is None else (1 if skill_loaded else 0)
+    if redactions is not None and (isinstance(redactions, bool) or not isinstance(redactions, int) or redactions < 0):
+        raise StoreError("redactions is a count: a whole number, 0 or more", EXIT_USAGE)
+    now = iso(utcnow())
+    with write(conn):
+        row = conn.execute("SELECT task_id, status FROM task_runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise StoreError(f"no task run {run_id}")
+        if row["status"] != "running":
+            raise StoreError(f"task run {run_id} already ended with status {row['status']}")
+        request = _request(conn, row["task_id"])
+        stop = stop_of(conn, request["id"])
+        if stop is not None:
+            _end_stopped_run(conn, run_id, stop, now, {
+                "attempts": int(attempts), "cost_usd": cost_usd, "tokens": tokens, "duration_ms": duration_ms,
+                "skill_loaded": loaded, "image_digest": image_digest, "run_dir": run_dir, "redactions": redactions})
+            _complete_cancel(conn, request["id"], now)
+            return {"run_id": run_id, "request_id": request["id"], "state": _request(conn, request["id"])["state"], "cancelled": True}
+        if status == "ok" and request["state"] != "requested":
+            raise StoreError(f"request {request['id']} is {request['state']}: the answer is not recorded")
+        conn.execute(
+            "UPDATE task_runs SET status = ?, failure = ?, ending = ?, attempts = ?, ended_at = ?, cost_usd = ?, "
+            "tokens = ?, duration_ms = ?, skill_loaded = ?, image_digest = ?, run_dir = ?, error = ?, redactions = ? "
+            "WHERE id = ?",
+            (status, failure, "done" if status == "ok" else None, int(attempts), now, cost_usd, tokens, duration_ms, loaded,
+             image_digest, run_dir, error, redactions, run_id))
+        if status == "ok":
+            conn.execute("UPDATE tasks SET state = 'done', updated_at = ? WHERE id = ?", (now, request["id"]))
+        else:
+            _cancel_request(conn, request["id"], ANSWER_FAILED_BY, now)
+        state = _request(conn, request["id"])["state"]
+    return {"run_id": run_id, "request_id": request["id"], "state": state, "cancelled": False}
 
 
 def plan_open(conn: sqlite3.Connection, request_id: int, *, title: str, body: str, payload: dict) -> dict:
