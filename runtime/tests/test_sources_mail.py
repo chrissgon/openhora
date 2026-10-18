@@ -985,3 +985,176 @@ def test_the_outlook_calendar_provider_is_read_through_the_runtime_in_the_zone_o
         assert "secret agenda" not in text_ and "guest@x.example" not in text_ and set(fake.methods) <= {"GET", "POST"}
     finally:
         fake.close()
+
+
+# --- the index of a snapshot (package SNAP-IDX) ---------------------------------------------------------------------------------------------
+
+
+MAIL_KEYS = ["n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key"]
+EVENT_KEYS = ["n", "id", "etag", "calendar", "organizer_self", "attendees_other", "recurring"]
+
+
+def numbers_in(text_):
+    """The numbers of the message headings (`## 3. 2026-10-17 06:00`) of a mail snapshot's text, in the order it prints them."""
+    return [int(m.group(1)) for m in re.finditer(r"^## (\d+)\. ", text_, re.M)]
+
+
+def test_the_index_of_a_mail_snapshot_has_one_entry_for_each_numbered_message_in_the_order_of_the_text(desk):
+    desk.providers.mail["gmail"] = [
+        message(1, "2026-10-15T08:00:00Z", sender="Cleo <cleo@club.example>", subject="Third", thread_id="t3", headers={"Message-ID": "<c@club.example>"}),
+        message(2, "2026-10-17T09:00:00Z", sender="Ana Lima <ana@clinic.example>", subject="First", thread_id="t1", headers={"Message-ID": "<a@clinic.example>"}),
+        message(3, "2026-10-16T14:30:00Z", sender="Bob <bob@shop.example>", subject="Second", thread_id="t2", headers={"Message-ID": "<b@shop.example>"})]
+    desk.mail("inbox")
+    text_, index = desk.text("inbox"), desk.manifest("inbox")["index"]
+    assert numbers_in(text_) == [1, 2, 3] and [e["n"] for e in index] == [1, 2, 3], "the same count, numbered the same"
+    subjects_in_text = re.findall(r"^Subject: (.*)$", text_, re.M)
+    assert subjects_in_text == [e["subject"] for e in index] == ["First", "Second", "Third"], "the same order: newest first"
+    assert [e["id"] for e in index] == ["m2", "m3", "m1"] and [e["thread_id"] for e in index] == ["t1", "t2", "t3"]
+    assert [e["message_id"] for e in index] == ["<a@clinic.example>", "<b@shop.example>", "<c@club.example>"]
+    assert [e["from_address"] for e in index] == ["ana@clinic.example", "bob@shop.example", "cleo@club.example"]
+    assert all(sorted(e) == sorted(MAIL_KEYS) for e in index) and all(e["reply_to_address"] is None and e["change_key"] is None for e in index)
+    assert desk.manifest("inbox")["messages"] == len(index) == 3
+
+
+def test_a_message_left_out_for_a_credential_has_no_entry_and_the_numbers_after_it_do_not_shift(desk):
+    desk.providers.mail["gmail"] = [message(1, "2026-10-17T09:00:00Z", subject="Keep one"),
+                                    message(2, "2026-10-16T14:30:00Z", sender="Bank <alerts@bank.example>", subject="Your new key", text=f"Your key is {KEY}."),
+                                    message(3, "2026-10-15T08:00:00Z", sender="Cleo <cleo@club.example>", subject="Keep two")]
+    desk.mail("inbox")
+    text_, index = desk.text("inbox"), desk.manifest("inbox")["index"]
+    assert numbers_in(text_) == [1, 2] and [e["n"] for e in index] == [1, 2]
+    assert [e["id"] for e in index] == ["m1", "m3"], "the left-out message m2 is not in the index, and message 2 of the text is m3"
+    assert re.findall(r"^Subject: (.*)$", text_, re.M) == ["Keep one", "Keep two"]
+    held = json.dumps(index)
+    assert "alerts@bank" not in held and "Your new key" not in held and KEY not in held and '"m2"' not in held
+
+
+def test_the_messages_dropped_for_the_size_of_the_text_have_no_entry_either(desk):
+    big = "\n".join("€" * 900 for _ in range(5))
+    desk.providers.mail["gmail"] = [message(n, f"2026-10-17T{9 - n // 60:02d}:{59 - n % 60:02d}:00Z", subject=f"s{n}", text=big) for n in range(100)]
+    done = desk.mail("inbox", GMAIL.replace("max=50", "max=100"))
+    index = desk.manifest("inbox")["index"]
+    assert 0 < done["items"] < 100 and len(index) == done["items"] == len(numbers_in(desk.text("inbox")))
+    assert [e["n"] for e in index] == list(range(1, done["items"] + 1)) and [e["id"] for e in index] == [f"m{n}" for n in range(done["items"])]
+
+
+def test_the_index_holds_no_body_no_name_and_a_subject_cleaned_and_cut_at_120_characters(desk):
+    long_subject = "Quarterly planning " + "x" * 300
+    desk.providers.mail["gmail"] = [
+        message(1, "2026-10-17T09:00:00Z", sender="Ana \"Boss\" Lima <ana@clinic.example>", subject=long_subject, text="SECRET-BODY-WORDS and more."),
+        message(2, "2026-10-16T14:30:00Z", sender="Bob <bob@shop.example>", subject="See https://track.example/o?t=abc123 now\u202e\x07 ok", text="Body two."),
+        message(3, "2026-10-15T08:00:00Z", sender="Cleo <cleo@club.example>", subject="", text="Body three.")]
+    desk.mail("inbox")
+    index = desk.manifest("inbox")["index"]
+    first = index[0]
+    assert sources_mail.INDEX_SUBJECT_CHARS == 120 and len(first["subject"]) == 120 and first["subject"].endswith("…")
+    assert first["subject"].startswith("Quarterly planning xxx")
+    assert index[1]["subject"] == "See <link: track.example> now ok", "links replaced, control and direction characters removed"
+    assert "abc123" not in json.dumps(index) and index[2]["subject"] == ""
+    dumped = json.dumps(index)
+    for third_party in ("SECRET-BODY-WORDS", "Body two", "Body three", "Ana", "Boss", "Lima", "Bob", "Cleo"):
+        assert third_party not in dumped, third_party
+    assert all(len(e["subject"]) <= 120 for e in index)
+
+
+def test_the_reply_to_of_a_message_is_the_address_alone_and_absent_when_it_is_the_senders(desk):
+    desk.providers.mail["gmail"] = [
+        message(1, "2026-10-17T09:00:00Z", sender="Ana Lima <ana@clinic.example>", reply_to="desk@clinic.example"),
+        message(2, "2026-10-16T14:30:00Z", sender="Bob <bob@shop.example>", reply_to="BOB@Shop.Example"),
+        message(3, "2026-10-15T08:00:00Z", sender="Cleo <cleo@club.example>", reply_to="Front Desk <desk@club.example>"),
+        message(4, "2026-10-14T08:00:00Z", sender="Dan <dan@club.example>", reply_to="not an address")]
+    desk.mail("inbox")
+    assert [e["reply_to_address"] for e in desk.manifest("inbox")["index"]] == ["desk@clinic.example", None, "desk@club.example", None]
+
+
+def test_a_value_the_service_did_not_print_in_a_known_shape_is_null_and_the_entry_keeps_its_number(desk):
+    desk.providers.mail["gmail"] = [message(1, "2026-10-17T09:00:00Z", id="has space/and slash", thread_id="x" * 701, change_key="bad key",
+                                            headers={"Message-ID": "<a b@x>"}, sender="Odd <odd at example>"),
+                                    message(2, "2026-10-16T14:30:00Z", id="a/b", thread_id=None, headers=None)]
+    desk.mail("inbox")
+    first, second = desk.manifest("inbox")["index"]
+    assert (first["n"], first["id"], first["thread_id"], first["change_key"], first["message_id"], first["from_address"]) == (1, None, None, None, None, None)
+    assert (second["n"], second["id"], second["thread_id"], second["message_id"]) == (2, None, None, None), "an entry is kept so that the numbers do not move"
+
+
+def test_an_address_that_looks_like_a_credential_is_not_kept_in_the_index_and_the_entry_keeps_its_number(desk):
+    desk.providers.mail["gmail"] = [message(1, "2026-10-17T09:00:00Z", subject="Hello", reply_to=f"{KEY}@desk.example"), message(2, "2026-10-16T14:30:00Z", subject="Second")]
+    desk.mail("inbox")
+    first, second = desk.manifest("inbox")["index"]
+    assert first["n"] == 1 and first["id"] == "m1" and first["reply_to_address"] is None and first["subject"] == "" and first["from_address"] is None
+    assert second["from_address"] == "ana@clinic.example" and second["subject"] == "Second"
+    held = "".join(p.read_text(errors="ignore") for p in desk.folder.rglob("*") if p.is_file())
+    assert KEY not in held
+
+
+def test_the_index_of_an_outlook_snapshot_keeps_the_change_key_and_the_internet_message_id(desk):
+    desk.providers.mail["outlook"] = [message(1, source="outlook", change_key="CK/1+a=", headers={"Message-ID": "<o1@mail.example>"}, thread_id="conv-1")]
+    desk.mail("work", OUTLOOK_MAIL)
+    [entry] = desk.manifest("work")["index"]
+    assert entry["change_key"] == "CK/1+a=" and entry["message_id"] == "<o1@mail.example>" and entry["thread_id"] == "conv-1" and entry["id"] == "m1"
+
+
+def test_a_new_version_has_a_new_index_and_the_old_version_keeps_its_own(desk):
+    desk.mail("inbox")
+    assert [e["id"] for e in desk.manifest("inbox", 1)["index"]] == ["m1", "m2"]
+    desk.providers.mail["gmail"] = [message(3, "2026-10-17T09:30:00Z", subject="Newer")] + desk.providers.mail["gmail"]
+    desk.later(hours=1)
+    assert desk.refresh("inbox")["imported"] is True
+    assert [e["id"] for e in desk.manifest("inbox", 2)["index"]] == ["m3", "m1", "m2"] and [e["id"] for e in desk.manifest("inbox", 1)["index"]] == ["m1", "m2"]
+
+
+def test_the_index_of_a_calendar_snapshot_numbers_the_events_in_the_order_the_text_lists_them(desk):
+    desk.providers.events[("google", "primary")] = [
+        event(1, "2026-10-18T09:00:00-03:00", "2026-10-18T10:00:00-03:00", "Later day", recurring=True),
+        event(2, "2026-10-17T15:00:00-03:00", "2026-10-17T16:00:00-03:00", "Afternoon", organizer_self=False),
+        event(3, "2026-10-17", "2026-10-18", "Holiday", all_day=True),
+        event(4, "2026-10-17T09:00:00-03:00", "2026-10-17T10:00:00-03:00", "Morning", attendees_other=2)]
+    desk.calendar("agenda", GOOGLE_CAL)
+    text_, index = desk.text("agenda"), desk.manifest("agenda")["index"]
+    listed = [line for line in text_.splitlines() if line.startswith("- ")]
+    assert [item.split(" · ")[1] for item in listed] == ["Holiday", "Morning", "Afternoon", "Later day"]
+    assert [e["id"] for e in index] == ["e3", "e4", "e2", "e1"] and [e["n"] for e in index] == [1, 2, 3, 4], "the order of the text: all-day first, then by start, day by day"
+    assert all(sorted(e) == sorted(EVENT_KEYS) for e in index) and desk.manifest("agenda")["events"] == len(index) == 4
+    by_id = {e["id"]: e for e in index}
+    assert by_id["e1"]["recurring"] is True and by_id["e2"]["organizer_self"] is False and by_id["e4"]["attendees_other"] == 2
+    assert by_id["e3"]["attendees_other"] is None and by_id["e3"]["etag"] == '"etag3"' and by_id["e3"]["calendar"] == "primary"
+
+
+def test_an_event_left_out_for_a_credential_or_unreadable_has_no_entry_in_the_index(desk):
+    desk.providers.events[("google", "primary")] = [event(1, title="Keep"), event(2, title=f"Key {KEY}"), event(3, start="soon", end="later", title="Odd"),
+                                                    event(4, "2026-10-17T11:00:00-03:00", "2026-10-17T12:00:00-03:00", "Keep two")]
+    desk.calendar("agenda", GOOGLE_CAL)
+    index = desk.manifest("agenda")["index"]
+    assert [e["id"] for e in index] == ["e1", "e4"] and [e["n"] for e in index] == [1, 2]
+    assert KEY not in json.dumps(index) and desk.manifest("agenda")["events"] == 2 and desk.manifest("agenda")["left_out"] == 1
+
+
+def test_a_run_never_receives_the_index_and_the_snapshot_text_holds_no_address_from_it(desk):
+    desk.providers.mail["gmail"] = [message(1, "2026-10-17T09:00:00Z", sender="Ana Lima <ana@clinic.example>", reply_to="desk@clinic.example")]
+    desk.mail("inbox")
+    assert desk.manifest("inbox")["index"][0]["reply_to_address"] == "desk@clinic.example"
+    prepared = desk.tmp / "prepared"
+    got = ops_sources.copies_for(desk.ctx, {"id": 1, "sources": ["inbox"]}, str(prepared), False, clock=lambda: NOW)
+    handed = "".join(Path(path).read_text(encoding="utf-8") for path, _rel in got["files"])
+    assert "desk@clinic.example" not in handed and "reply_to" not in handed and "\"index\"" not in handed
+    assert not any(p.name == "manifest.json" for p in prepared.rglob("*"))
+
+
+def test_the_outlook_provider_reply_to_reaches_the_index_through_the_runtime(desk):
+    sys.path.insert(0, str(REPO / "providers" / "mailbox" / "tests"))
+    import fake_graph_mail
+    fake = fake_graph_mail.FakeGraphMail()
+    try:
+        fake.add("AAMk1", "2026-10-17T07:12:03Z", "Ana Lima", "ana@clinic.example", "Appointment confirmed", text="Hello Sam.")
+        fake.add("AAMk2", "2026-10-16T07:12:03Z", "Bruno Reis", "bruno@shop.example", "Your order", text="Shipped.")
+        fake.messages["AAMk1"]["replyTo"] = [fake_graph_mail.recipient("Front Desk", "desk@clinic.example")]
+        script = REPO / "providers" / "mailbox" / "outlook.py"
+        desk.providers = real_call(script, fake.env())
+        desk.mail("work", "outlook:box=inbox;days=3;max=20")
+        first, second = desk.manifest("work")["index"]
+        assert (first["id"], first["from_address"], first["reply_to_address"], first["change_key"], first["message_id"], first["thread_id"]) == (
+            "AAMk1", "ana@clinic.example", "desk@clinic.example", "CK-AAMk1", "<AAMk1@mail.example>", "conv-1")
+        assert second["reply_to_address"] is None and second["subject"] == "Your order"
+        assert {r["method"] for r in fake.api_requests()} == {"GET"}
+    finally:
+        fake.close()

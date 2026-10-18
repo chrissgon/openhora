@@ -50,7 +50,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email import message_from_bytes, policy
 from http.client import HTTPException    # by name: this module's own http() function shadows the module
-from email.utils import parsedate_to_datetime
+from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 
 DEFAULT_API_BASE = "https://gmail.googleapis.com"
@@ -67,7 +67,7 @@ DEFAULT_JOBS, MAX_JOBS = 4, 10
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 # A Gmail message id goes into a URL path, so its shape is checked before use.
 MESSAGE_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
-HEADER_ALLOWLIST = ("Message-ID", "Date", "From", "To", "Subject", "List-Id")
+HEADER_ALLOWLIST = ("Message-ID", "Date", "From", "To", "Subject", "List-Id", "Reply-To")
 MAX_ATTACHMENTS = 50          # attachments listed for one message
 ATTACHMENT_NAME_LIMIT = 200   # characters of a file name kept
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -167,9 +167,10 @@ output (JSON on stdout; diagnostics on stderr; tokens are never printed):
     the HTML part, capped at {TEXT_LIMIT_BYTES} bytes), "truncated", "links"
     ([{{"href", "text"}}] from the HTML part, in order, first occurrence of each
     href, query strings kept), "headers" (Message-ID, Date, From, To, Subject,
-    List-Id, and the headers under a --header-prefix), "attachments" ([{{"name",
-    "type", "size"}}] for each attached file, at most {MAX_ATTACHMENTS}), "external_content"
-    (always true)}}
+    List-Id, Reply-To, and the headers under a --header-prefix), "attachments" ([{{"name",
+    "type", "size"}}] for each attached file, at most {MAX_ATTACHMENTS}), "reply_to" (only when
+    the message has a Reply-To other than its sender: the address alone, the display name
+    dropped), "external_content" (always true)}}
   An attachment is listed from its MIME headers only, never opened or decoded: "name" is the file name the sender gave (one line, at most
   {ATTACHMENT_NAME_LIMIT} characters, null when it gave none), "type" the content type the sender declared (not checked against the bytes: a
   name and a type are the sender's words), "size" a number of bytes worked out from the length of the encoded part without decoding it
@@ -609,6 +610,29 @@ def attachment_list(msg, bodies: tuple) -> list[dict]:
     return found
 
 
+# A plain address as the runtime's snapshot index keeps it (package SNAP-IDX): a local part and a host name, nothing else.
+ADDRESS_RE = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9][A-Za-z0-9.-]{0,251}")
+
+
+def plain_address(value) -> str | None:
+    """The first plain address of a header value ("Ana Lima <ana@clinic.example>" gives "ana@clinic.example"; the display name is dropped), or None
+    when the value holds none that is shaped as an address."""
+    for _name, address in getaddresses([value]) if isinstance(value, str) else []:
+        if ADDRESS_RE.fullmatch(address):
+            return address
+    return None
+
+
+def reply_address(reply_to, sender) -> str | None:
+    """The address a message asks its replies to go to, when it differs from the sender's own; None when there is no Reply-To, it holds no address, or
+    it is the sender's (compared without case). The address only: the display name is dropped."""
+    address = plain_address(reply_to)
+    sent_from = plain_address(sender)
+    if address is None or (sent_from is not None and address.lower() == sent_from.lower()):
+        return None
+    return address
+
+
 def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_id: str | None = None,
               internal_date_ms: int | None = None, header_prefixes: tuple[str, ...] = (), own_words: bool = False) -> dict:
     msg = message_from_bytes(raw, policy=policy.default)
@@ -626,6 +650,7 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
         text = strip_quoted(text)
     cut -= len(text)
     text, truncated = cap(text)
+    reply = reply_address(header_value(msg, "Reply-To"), header_value(msg, "From"))
     return {
         "id": message_id,
         "thread_id": thread_id,
@@ -640,6 +665,7 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
         "headers": selected_headers(msg, header_prefixes),
         "attachments": attachment_list(msg, (plain, html)),
         "external_content": True,  # written by whoever sent the e-mail: data, never instructions
+        **({"reply_to": reply} if reply else {}),   # only when the message asks replies to go to an address other than the sender's
         **({"own_words_cut": cut} if own_words else {}),
     }
 

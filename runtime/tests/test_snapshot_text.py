@@ -299,3 +299,23 @@ def test_an_event_that_cannot_be_read_is_none_and_an_empty_window_says_so():
 def test_an_event_left_out_is_counted_by_its_date():
     out = calendar(event(), left=[{"date": "2026-10-18", "why": "it holds what looks like a credential"}], notes=["1 event was left out: unreadable."])
     assert "1 event was left out:" in out and "- 2026-10-18: it holds what looks like a credential" in out
+
+
+def test_calendar_order_is_the_order_the_text_lists_the_events_in_and_a_tie_keeps_the_given_order():
+    """The snapshot's index (package SNAP-IDX) numbers the events by this function, so the text and the index cannot disagree."""
+    first = datetime.date(2026, 10, 17)
+    events = [event(id="late", title="Late", start="2026-10-19T09:00:00-03:00", end="2026-10-19T10:00:00-03:00"),
+              event(id="same-b", title="Same", start="2026-10-17T12:00:00-03:00", end="2026-10-17T13:00:00-03:00"),
+              event(id="holiday", title="Holiday", start="2026-10-17", end="2026-10-18", all_day=True),
+              event(id="same-a", title="Same", start="2026-10-17T12:00:00-03:00", end="2026-10-17T13:00:00-03:00"),
+              event(id="early", title="Early", start="2026-10-17T08:00:00-03:00", end="2026-10-17T08:30:00-03:00"),
+              event(id="started-before", title="Retreat", start="2026-10-15T20:00:00-03:00", end="2026-10-17T12:00:00-03:00")]
+    views = [t.event_view(e, BRT) for e in events]
+    for view, source in zip(views, events):
+        view["id"] = source["id"]
+    ordered = [v["id"] for v in t.calendar_order(views, first)]
+    assert ordered == ["holiday", "started-before", "early", "same-b", "same-a", "late"], "the first day's all-day events, then by start; equal ones as given"
+    out = t.render_calendar("agenda", first, datetime.date(2026, 10, 31), "UTC-03:00", "2026-10-17T10:12:00Z", views, [], [])
+    titles = [line.split(" · ")[1] for line in out.splitlines() if line.startswith("- ")]
+    assert titles == [{"holiday": "Holiday", "started-before": "Retreat", "early": "Early", "same-b": "Same", "same-a": "Same", "late": "Late"}[i] for i in ordered]
+    assert [v["id"] for v in views] == [e["id"] for e in events], "the list it was given is not reordered"
