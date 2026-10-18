@@ -23,7 +23,7 @@ service = st.load("service")
 mcp = st.load("mcp")
 sources = st.load("sources")
 
-WRITES = ("source-add", "source-import", "source-refresh", "source-describe", "source-mail", "source-calendar")   # the last two: RT-1
+WRITES = ("source-add", "source-import", "source-refresh", "source-describe")
 
 
 def test_the_writes_are_for_the_terminal_and_the_page_and_the_catalog_read_is_also_for_the_mcp_mode_and_the_messaging_channel():
@@ -71,8 +71,7 @@ def test_the_pages_routes_bind_the_source_id_from_the_path_and_the_upload_hands_
     found = {(r["method"], r["pattern"]): r for r in service.ROUTES if r["op"] in WRITES + ("sources",)}
     assert set(found) == {("GET", "/projects/{p}/sources"), ("POST", "/projects/{p}/sources"), ("POST", "/projects/{p}/sources/{name}/files"),
                           ("POST", "/projects/{p}/sources/{name}/import"), ("POST", "/projects/{p}/sources/{name}/refresh"),
-                          ("POST", "/projects/{p}/sources/{name}/refresh/files"), ("POST", "/projects/{p}/sources/{name}/description"),
-                          ("POST", "/projects/{p}/sources/mail"), ("POST", "/projects/{p}/sources/calendar")}   # the last two: RT-1
+                          ("POST", "/projects/{p}/sources/{name}/refresh/files"), ("POST", "/projects/{p}/sources/{name}/description")}
     project = "0123456789ab"
     route, params = service.match("POST", f"{service.PREFIX}/projects/{project}/sources/survey/files")
     assert route["upload"] is True and route["op"] == "source-import" and params["name"] == "survey" and route["limit"] == service.FILE_LIMIT

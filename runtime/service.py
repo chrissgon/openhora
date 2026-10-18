@@ -330,8 +330,6 @@ ROUTES = (
     _route("POST", "/projects/{p}/sync", "sync"),
     _route("GET", "/projects/{p}/sources", "sources", take=()),
     _route("POST", "/projects/{p}/sources", "source-add"),
-    _route("POST", "/projects/{p}/sources/mail", "source-mail"),
-    _route("POST", "/projects/{p}/sources/calendar", "source-calendar"),
     _route("POST", "/projects/{p}/sources/{name}/files", "source-import", bind={"source_id": "name"},
            hidden=("file", "url", "origin", "description"), upload=True),
     _route("POST", "/projects/{p}/sources/{name}/import", "source-import", bind={"source_id": "name"}, take=("url", "origin", "description"),

@@ -15,8 +15,10 @@ The rules, in order (contracts/runtime.md, "The answer from sources"):
 
   1. `@<id>` mentions (sources.mentions): exactly those, in the order they appear. More than ASK_SOURCES_MAX: TOO_MANY. Their
      converted bytes over ASK_BYTES_MAX: TOO_LARGE, with each id and its size.
-  2. No mention, and the project's sources that have a version fit (at most ASK_SOURCES_MAX, together at most ASK_BYTES_MAX
-     bytes of converted text): all of them, by id.
+  2. No mention, and the project's documents that have a version fit (at most ASK_SOURCES_MAX, together at most ASK_BYTES_MAX
+     bytes of converted text): all of them, by id. A mail or calendar snapshot (sources.SNAPSHOT_TYPES) is not a document of this rule or of
+     rule 3: it is read only when the question names it with `@<id>` (rule 1), and ops_ask accepts such a question only from the terminal
+     and the page. When the project has only snapshots, NO_MATCH offers their ids.
   3. Otherwise rank. The question's words (lower case, no accents, at least 3 letters, minus a closed list of English and
      Portuguese stop words) against the words of each entry's name, description, headings, sheet names, column names and sample
      values; a word matches on equality, or on a shared start of 5 letters; the score is the number of distinct question words
@@ -130,7 +132,9 @@ def select(question: str, rows: list) -> dict:
         if sum(size_of(have[i]) for i in named) > ASK_BYTES_MAX:
             return refuse(TOO_LARGE, [{"id": i, "bytes": size_of(have[i])} for i in named])
         return {"ids": named, "skipped": [], "refusal": None, "detail": None}
-    ordered = sorted(have)
+    ordered = sorted(i for i, r in have.items() if r.get("type") not in sources.SNAPSHOT_TYPES)     # a snapshot is read only when it is named
+    if not ordered:
+        return refuse(NO_MATCH, sorted(have)[:NO_MATCH_IDS])
     if len(ordered) <= ASK_SOURCES_MAX and sum(size_of(have[i]) for i in ordered) <= ASK_BYTES_MAX:
         return {"ids": ordered, "skipped": [], "refusal": None, "detail": None}
     wanted = words_of(question)
@@ -139,7 +143,7 @@ def select(question: str, rows: list) -> dict:
     ranked.sort(key=lambda i: _date(have[i]), reverse=True)             # the newer version date first,
     ranked.sort(key=lambda i: by_score[i], reverse=True)                # then the higher score
     if not ranked:
-        return refuse(NO_MATCH, ordered[:NO_MATCH_IDS])
+        return refuse(NO_MATCH, sorted(have)[:NO_MATCH_IDS])
     taken, skipped, used = [], [], 0
     for source_id in ranked:
         size = size_of(have[source_id])

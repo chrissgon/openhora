@@ -25,7 +25,7 @@ operation here is ever written from a messaging channel, and none approves anyth
   source_onedrive(project[, search, folder, item, source_id, description])   OneDrive (O2): list candidates for a search text or
                                     a folder (registers nothing), or make the chosen files sources and import them; terminal only
   source_mail(project, source_id[, origin, description])               mail (RT-1): a window of the mailbox as a dated snapshot; the first
-                                    call registers the source from its origin, a later one reads it again; terminal and page
+                                    call registers the source from its origin, a later one reads it again; terminal only
   source_calendar(project, source_id[, origin, description])           the same for one calendar's window
   sources_catalog(project)                                             the catalog: every source, its newest version, its status
 
@@ -97,11 +97,15 @@ def source_add(project: str, source_id: str, source_type: str, origin: str, desc
                channel: str | None = None) -> dict:
     """Register a source: its id, its type (`file`, `notion`, `drive`, `onedrive`, `mail` or `calendar`), its origin (a file's name, the address or
     the id of a Notion page, a Drive file's id, a OneDrive file's "<drive id>/<item id>", or the closed line of a mail or calendar window) and an
-    optional description. A OneDrive source is registered
-    from the terminal alone (`channel` must be "terminal"): `Files.Read` reaches every file of the person's OneDrive, so the choice of the files is
-    made where the person lists them (`source-onedrive`), never by a token of the page. Nothing is imported and no credential is kept. Returns {"source": the row}."""
+    optional description. A OneDrive, a mail or a calendar source is registered
+    from the terminal alone (`channel` must be "terminal"): `Files.Read` reaches every file of the person's OneDrive, and the mail and calendar scopes
+    every message and every event, so the choice of what is read is made where the person is (`source-onedrive`, `source-mail`, `source-calendar`),
+    never by a token of the page; a registered one is read again by `source-refresh`, also from the page. Nothing is imported and no credential is
+    kept. Returns {"source": the row}."""
     if source_type == "onedrive" and channel != "terminal":
         raise core.OpsError("a OneDrive file is chosen in the terminal: use `source-onedrive` (a page, a chat or a model cannot register one)", 2)
+    if source_type in sources.SNAPSHOT_TYPES and channel != "terminal":
+        raise core.OpsError(f"a {source_type} window is chosen in the terminal: use `source-{source_type}` (a page, a chat or a model cannot register one)", 2)
     ctx = core.context(project)
     try:
         return {"source": sources.register(ctx, source_id, source_type, origin, description)}

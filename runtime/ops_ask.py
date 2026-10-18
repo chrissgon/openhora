@@ -17,6 +17,9 @@ never imported at module level. contracts/runtime.md, "The answer from sources",
      an enabled area agent (ops_contained._contained_scope); that agent owns the run (plan.agent_of).
   3. The sources are selected by code (runtime/ask_select.py). Nothing selected: the reply says why (NO_SOURCES, NO_MATCH, TOO_MANY,
      TOO_LARGE) and no model runs.
+     A mail or calendar snapshot is selected only when the question names it with @<id>, and then only for a question asked in the terminal,
+     the conversation's own shell or the page: from a messaging app (or the MCP mode) the reply is SNAPSHOT_HERE, refusal `snapshot-channel`, and
+     nothing is copied or run.
   4. Under the project's route lock (one conversation model call at a time: a busy lock is RunBusy, before anything is stored): the
      copies of the selected sources are made as a task's are (sources.task_copies: the newest version, checked against its record; a
      version the person changed by hand only to an ask typed in the terminal), the owning agent's caps are asked (autonomy.may_start),
@@ -81,6 +84,8 @@ FAILED = "The answer run failed ({kind}): {reason}. Nothing was answered."
 ASK_HINT = "To answer from your sources, send /ask <question>."
 TOO_LONG = "The question is over {max} characters."
 CANCELLED = "The question was cancelled. Nothing was answered."
+SNAPSHOT_HERE = ("A mailbox or a calendar is read only by a question asked in the terminal or on the page: ask there. Nothing was run.")
+SNAPSHOT_ASKERS = (None, "terminal", "chat", "page")   # the actors (ops_actor.label) that may name a mail or calendar snapshot with @<id>; never the MCP mode or a messaging app
 
 # The text the answer run is given after the question: the measured one. The cases of the answer skill carry it byte for byte
 # (runtime/tests/test_ask_task_text.py compares them), so the proof of the skill stands for the run.
@@ -224,6 +229,9 @@ def ask(project: str, text: str, channel: str | None = None, sender: str | None 
     picked = ask_select.select(said, _catalog(ctx))
     if picked["refusal"]:
         return _outcome(_refusal(picked["refusal"], picked), refusal=picked["refusal"])
+    kinds = {r["id"]: r["type"] for r in _catalog(ctx)}
+    if any(kinds.get(i) in sources.SNAPSHOT_TYPES for i in picked["ids"]) and ops_actor.label(cfg, channel, sender) not in SNAPSHOT_ASKERS:
+        return _outcome(SNAPSHOT_HERE, refusal="snapshot-channel")      # decided by the maintainer: the text of a mailbox or a calendar goes to a model only for a question typed where the person is
     try:
         agent = plan.agent_of(skill, plan.agent_skills(cfg, core.ROOT))
     except (plan.PlanError, ValueError) as e:

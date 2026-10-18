@@ -590,40 +590,48 @@ def test_a_file_or_a_page_cannot_be_imported_into_a_snapshot_source_and_it_is_no
     assert desk.count("inbox") == 1
 
 
-def test_source_add_registers_the_two_types_without_reading_anything(desk):
+def test_a_mail_or_calendar_source_is_registered_from_the_terminal_alone_and_source_add_reads_nothing(desk):
     row = operations.by_name("source-add")
-    assert "mail" in row["args"][1]["choices"] and "calendar" in row["args"][1]["choices"]
-    for channel in ("terminal", "page"):
-        made = ops_sources.source_add(desk.path, f"inbox-{channel}", "mail", f"gmail:box=inbox;days={2 if channel == 'page' else 3};max=5", channel=channel)
-        assert made["source"]["type"] == "mail"
-    assert ops_sources.source_add(desk.path, "agenda", "calendar", GOOGLE_CAL, channel="page")["source"]["type"] == "calendar"
+    assert "mail" in row["args"][1]["choices"] and "calendar" in row["args"][1]["choices"] and row["channel_arg"] is True
+    for channel in ("page", "mcp", "messaging", "chat", None):
+        for kind, origin in (("mail", GMAIL), ("calendar", GOOGLE_CAL)):
+            with pytest.raises(ops_core.OpsError) as refused:
+                ops_sources.source_add(desk.path, "inbox", kind, origin, channel=channel)
+            assert refused.value.code == 2 and f"source-{kind}" in str(refused.value) and "terminal" in str(refused.value), (channel, kind)
+    assert sources.list_catalog(desk.ctx, hashes=False) == [] and desk.providers.calls == []
+    assert ops_sources.source_add(desk.path, "inbox", "mail", GMAIL, channel="terminal")["source"]["type"] == "mail"
+    assert ops_sources.source_add(desk.path, "agenda", "calendar", GOOGLE_CAL, channel="terminal")["source"]["type"] == "calendar"
     with pytest.raises(ops_core.OpsError) as bad:
         ops_sources.source_add(desk.path, "bad", "mail", "not an origin", channel="terminal")
     assert bad.value.code == 2 and desk.providers.calls == []
-    assert desk.refresh("agenda")["imported"] is True and desk.latest("agenda")["label"] == "import", "a registered source gets its first version from a refresh"
+    assert ops_sources.source_add(desk.path, "plain", "file", "survey.csv", channel="page")["source"]["type"] == "file", "the page still registers a file"
 
 
-def test_source_mail_and_source_calendar_are_for_the_terminal_and_the_page_and_in_the_sources_group_alone():
+def test_the_page_refreshes_a_mail_or_calendar_source_the_terminal_registered_and_does_nothing_else_with_it(desk):
+    ops_sources.source_add(desk.path, "agenda", "calendar", GOOGLE_CAL, channel="terminal")
+    assert "page" in operations.by_name("source-refresh")["channels"]
+    assert operations.permitted("source-refresh", "page", None) is True
+    first = ops_sources.source_refresh(desk.path, "agenda")        # what the page's route calls
+    assert first["refreshed"] is True and desk.latest("agenda")["label"] == "import"
+    desk.later(hours=24)
+    assert ops_sources.source_refresh(desk.path, "agenda")["refreshed"] is True and desk.count("agenda") == 2
+
+
+def test_source_mail_and_source_calendar_are_rows_of_the_terminal_alone_in_no_group_and_with_no_route_on_the_page():
+    service = st.load("service")
     for name in ("source-mail", "source-calendar"):
         row = operations.by_name(name)
-        assert row["channels"] == ("terminal", "page") and row["model"] is False and "job" not in row
-        assert [g for g, group in operations.GROUPS.items() if name in group["operations"]] == ["sources"]
-        assert name in operations.terminal_verbs() and name in cli.__doc__
-        for channel in ("mcp", "messaging", "chat"):
+        assert row["channels"] == ("terminal",) and row["model"] is False and "job" not in row
+        assert not any(name in group["operations"] for group in operations.GROUPS.values())
+        assert name in operations.terminal_verbs() and name in cli.__doc__ and not [r for r in service.ROUTES if r["op"] == name]
+        for channel in ("page", "mcp", "messaging", "chat"):
             assert operations.permitted(name, channel, {channel: ["read", "sources", "talk", "answer"]}) is False, (name, channel)
+            assert operations.permitted(name, channel, None) is False, (name, channel)
+        assert operations.permitted(name, "terminal", {"terminal": []}) is True
     got = cli.build_parser().parse_args(["source-mail", "--project", "/p", "--source", "inbox", "--origin", GMAIL])
     assert (got.command, got.f_source, got.f_origin) == ("source-mail", "inbox", GMAIL)
     assert cli.build_parser().parse_args(["source-calendar", "--project", "/p", "--source", "agenda"]).f_origin is None
     assert "calendar" in cli.build_parser().parse_args(["source-add", "--project", "/p", "--source", "x", "--type", "calendar", "--origin", GOOGLE_CAL]).f_type
-
-
-def test_the_page_has_one_route_for_each_of_the_two_operations():
-    service = st.load("service")
-    routes = {r["op"]: r for r in service.ROUTES if r["op"] in ("source-mail", "source-calendar")}
-    assert set(routes) == {"source-mail", "source-calendar"} and all(r["method"] == "POST" for r in routes.values())
-    found = service.match("POST", service.PREFIX + "/projects/0123456789ab/sources/mail")
-    assert found and found[0]["op"] == "source-mail"
-    assert service.match("POST", service.PREFIX + "/projects/0123456789ab/sources/calendar")[0]["op"] == "source-calendar"
 
 
 # --- the step that refreshes it unattended -----------------------------------------------------------------------------------------------------

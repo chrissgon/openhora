@@ -456,8 +456,6 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/sync` | `sync` | - | every other argument | - | - |
 | GET | `/projects/{p}/sources` | `sources` | - | none | - | - |
 | POST | `/projects/{p}/sources` | `source-add` | - | every other argument | - | - |
-| POST | `/projects/{p}/sources/mail` | `source-mail` | - | every other argument | - | - |
-| POST | `/projects/{p}/sources/calendar` | `source-calendar` | - | every other argument | - | - |
 | POST | `/projects/{p}/sources/{name}/files` | `source-import` | `source_id` from `{name}` | every other argument | `file`, `url`, `origin`, `description` | file upload |
 | POST | `/projects/{p}/sources/{name}/import` | `source-import` | `source_id` from `{name}` | `url`, `origin`, `description` | `file` | - |
 | POST | `/projects/{p}/sources/{name}/refresh` | `source-refresh` | `source_id` from `{name}` | none | `file` | - |
