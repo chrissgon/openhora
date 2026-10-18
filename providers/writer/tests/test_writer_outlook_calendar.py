@@ -247,6 +247,13 @@ def test_event_get_prints_what_the_runtime_needs_and_no_address(fake, tmp_path, 
     assert (method, path) == ("GET", f"{EVENTS}/AAMkEvent9999=") and "$select" in query
 
 
+def test_a_server_error_on_a_read_is_a_refusal_not_an_unknown_outcome_because_a_read_changes_nothing(fake, tmp_path, state):
+    an_event(fake)
+    fake.fail_get_next = 500
+    proc = run(fake, tmp_path, state, "event-get", "--calendar", "default", "--event", "AAMkEvent9999=")
+    assert proc.returncode == 1 and "Graph returned 500" in proc.stderr and "may or may not have landed" not in proc.stderr
+
+
 @pytest.mark.parametrize("more", [{"type": "seriesMaster"}, {"type": "occurrence"}, {"type": "exception"}, {"seriesMasterId": "AAMkSeries0001="}], ids=str)
 def test_event_get_says_recurring_for_a_series_an_occurrence_and_an_exception(fake, tmp_path, state, more):
     an_event(fake, **more)

@@ -10,6 +10,7 @@ should never send is answered 405 and recorded too, and `unexpected()` lists it.
   fake.lose_answer_once = True                # the next write is APPLIED and the connection is closed with no answer (a lost answer)
   fake.refuse_next = (status, reason)         # the next write is answered with that status and changes nothing
   fake.redirect_next = True                   # the next write is answered 307 to another address
+  fake.fail_get_next = 500                    # the next read is answered with that status
   fake.refresh_scope                          # what a refresh says the token carries (default: the platform's set)
 
 Every value is a stand-in made up for the tests; none is a credential.
@@ -49,6 +50,7 @@ class FakeGoogleCalendar:
         self.lose_answer_once = False
         self.refuse_next = None
         self.redirect_next = False
+        self.fail_get_next = None
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -85,6 +87,9 @@ class FakeGoogleCalendar:
                 if self.command != "GET" and owner.redirect_next:
                     owner.redirect_next = False
                     return self._send(307, None, {"Location": "http://127.0.0.1:1/elsewhere"})
+                if self.command == "GET" and owner.fail_get_next:
+                    status, owner.fail_get_next = owner.fail_get_next, None
+                    return self._send(status, {"error": {"code": status, "message": "stand-in failure"}})
                 status, answer, headers, apply = owner.api(entry)
                 if status == 405:
                     return self._send(405, answer)

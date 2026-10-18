@@ -265,7 +265,7 @@ def failure(status: int, body: bytes, retry: str, what: str) -> ProviderError:
     if status == 403:
         return ProviderError(f"Google refused the request ({what}){detail}; check that the Google Calendar API is enabled and that the calendar is the person's own",
                              EXIT_REFUSED, status)
-    if status >= 500:
+    if status >= 500 and not what.startswith("GET"):      # a read changes nothing: only a write may have landed
         return Lost(f"Google answered {status} ({what}){detail}: the request may or may not have landed")
     return ProviderError(f"Google returned {status} ({what}){detail}", EXIT_REFUSED, status)
 

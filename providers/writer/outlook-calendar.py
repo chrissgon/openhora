@@ -194,7 +194,7 @@ def failure(session: Session, status: int, headers, body: bytes, what: str):
     """The error for an answer that is not the one wanted. A write answered with a redirect or a server error may have landed (Lost)."""
     if status == 404 or status == 409 or status == 410:
         return WriterError(f"changed: the event is not as it was read ({what}, {status})", EXIT_REFUSED, status)
-    if status in msgraph.REDIRECT_STATUSES or (status >= 500 and status != 503):
+    if not what.startswith("GET") and (status in msgraph.REDIRECT_STATUSES or (status >= 500 and status != 503)):      # a read changes nothing: only a write may have landed
         return Lost(f"Graph answered {status} ({what}): the request may or may not have landed")
     problem = session.client.failure(status, headers, body, what)
     return WriterError(str(problem), problem.code, status)

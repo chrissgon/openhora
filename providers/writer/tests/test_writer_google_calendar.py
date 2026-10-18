@@ -261,6 +261,22 @@ def test_event_get_prints_what_the_runtime_needs_and_no_address(fake, tmp_path, 
     assert [(m, p) for m, p, _, _ in calls(fake)] == [("GET", f"{EVENTS}/evabc12345")]
 
 
+def test_a_server_error_on_a_read_is_a_refusal_not_an_unknown_outcome_because_a_read_changes_nothing(fake, tmp_path, state):
+    a_event(fake)
+    fake.fail_get_next = 500
+    proc = run(fake, tmp_path, state, "event-get", "--calendar", fgw.CALENDAR, "--event", "evabc12345")
+    assert proc.returncode == 1 and "Google returned 500" in proc.stderr and "may or may not have landed" not in proc.stderr
+    fake.fail_get_next = 503
+    assert run(fake, tmp_path, state, "event-get", "--calendar", fgw.CALENDAR, "--event", "evabc12345").returncode == 1
+
+
+def test_a_server_error_on_a_write_is_unknown_and_the_key_stays_pending(fake, tmp_path, state):
+    fake.refuse_next = (500, "backendError")
+    proc = run(fake, tmp_path, state, *insert_args(tmp_path))
+    assert proc.returncode == 4 and "may or may not have landed" in proc.stderr
+    assert out(run(fake, tmp_path, state, *insert_args(tmp_path, mode="--dry-run")))["ledger"] == "pending"
+
+
 def test_event_get_says_recurring_for_a_series_and_for_an_occurrence_and_found_false_for_a_gone_event(fake, tmp_path, state):
     a_event(fake, recurrence=["RRULE:FREQ=WEEKLY"])
     assert out(run(fake, tmp_path, state, "event-get", "--calendar", fgw.CALENDAR, "--event", "evabc12345"))["event"]["recurring"] is True
