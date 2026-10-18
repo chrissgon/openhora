@@ -172,13 +172,13 @@ def test_the_questions_a_dead_process_left_are_cancelled_and_nothing_else_is(con
     planned = store.request_add(conn, title="Planned", text="Planned.", flow="x", tasks=[{"key": "a", "skill": "demo-a", "title": "A", "text": "do a."}])["request"]
     done = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="Answered")
     store.answer_run_finish(conn, done["run_id"], status="ok")
-    assert store.answers_abandoned_cancel(conn) == [dead["request_id"]]
+    assert store.answers_abandoned_cancel(conn, "demo-router") == [dead["request_id"]]
     assert store.task_get(conn, dead["request_id"])["state"] == "cancelled"
     assert store.cursor_get(conn, store.ASK_ACTOR_CURSOR.format(run=dead["run_id"])) == "page"       # the record of who asked stays
     assert [store.task_get(conn, i)["state"] for i in (routed, waiting, planned, done["request_id"])] == ["requested", "requested", "planned", "done"]
-    assert store.answers_abandoned_cancel(conn) == []                         # and a second call finds nothing
+    assert store.answers_abandoned_cancel(conn, "demo-router") == []                         # and a second call finds nothing
     running = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="Still going")
-    assert store.answers_abandoned_cancel(conn) == []                         # a run that is running is not abandoned
+    assert store.answers_abandoned_cancel(conn, "demo-router") == []                         # a run that is running is not abandoned
     assert store.task_get(conn, running["request_id"])["state"] == "requested"
 
 
@@ -191,6 +191,16 @@ def test_a_question_is_marked_by_the_title_code_gave_it_and_not_by_the_name_of_a
     store.route_run_finish(conn, store.task_runs_list(conn, typed)[0]["id"], status="failed", failure="timeout")
     asked = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title=store.ANSWER_TITLE, text="Left behind?")
     store.task_fail_orphans(conn, [], [asked["run_id"]], "the process died")
-    assert store.answers_abandoned_cancel(conn) == [asked["request_id"]]
+    assert store.answers_abandoned_cancel(conn, "demo-router") == [asked["request_id"]]
     assert [store.task_get(conn, i)["state"] for i in (renamed, typed)] == ["requested", "requested"]
     assert store.task_get(conn, asked["request_id"])["title"] == f"{store.ANSWER_TITLE} {asked['request_id']}"
+
+
+def test_a_request_with_the_title_code_wrote_and_a_run_of_the_routers_skill_is_not_cancelled_as_abandoned(conn):
+    both = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title=store.ANSWER_TITLE, text="Left behind?")
+    store.task_fail_orphans(conn, [], [both["run_id"]], "the process died")
+    routed = store.route_run_start(conn, both["request_id"], skill="demo-router", model="m", adapter="h")["run_id"]
+    store.route_run_finish(conn, routed, status="failed", failure="timeout")
+    assert store.answers_abandoned_cancel(conn, "demo-router") == []                              # the title is code's, but the router also ran
+    assert store.task_get(conn, both["request_id"])["state"] == "requested"
+    assert store.answers_abandoned_cancel(conn, "another-router-name") == [both["request_id"]]    # without a run of the router's skill it is abandoned
