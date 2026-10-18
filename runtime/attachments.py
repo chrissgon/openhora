@@ -62,7 +62,9 @@ ORIGINAL = "original"                  # the held file inside held/<id>/
 TOKEN = re.compile(r"[0-9a-f]{16}")
 LOCK_NAME = "attachments.lock"         # <data_dir>/locks/: one add or discard at a time
 MEDIA_KINDS = ("photo", "voice", "video", "audio", "sticker")    # what a provider names a medium it has no type for
-CODES = ("off", "media", "too_large", "day", "held_max", "gone", "mismatch", "type", "size", "credential", "convert", "macro", "target", "changed", "lost")
+CODES = ("off", "media", "too_large", "day", "held_max", "gone", "mismatch", "type", "size", "credential", "convert", "macro", "target", "changed", "lost",
+         "fetch", "busy", "duplicate")
+FAILED_FETCH = ("gone", "fetch", "size")      # the codes of a fetch that did not end held, as the bridge reports it (attachment_hold, failed=)
 
 # The sentences a person reads. English constants, each tested. `{name}` is the cleaned name, never the file's content.
 OFF = "Files are not taken from this app for this project. Add it on the page or in the terminal (source-import)."
@@ -89,6 +91,8 @@ NOT_HELD = "That file is {status}, not waiting for your answer."
 NO_SUCH = "No file {n} waits for you."
 EXPIRED = "{name} waited more than {days} days and was deleted. Send it again."
 LOST = "The held file is gone from this machine. Send it again."
+KEPT_FAILED = "{name} could not be kept on this machine. Send it again in a while."
+MACHINE = "This machine could not do that now. Try again later, or use the page or the terminal."
 WORD_SIZES = (("MiB", 1024 * 1024), ("KiB", 1024))
 
 
@@ -130,9 +134,11 @@ def size_text(count: int) -> str:
     return f"{count} bytes"
 
 
-def ref_digest(platform: str, ref: str) -> str:
-    """The hash under which a platform's reference is remembered (the reference itself is what the platform fetches the file by, and is never stored)."""
-    return hashlib.sha256(f"{platform}\n{ref}".encode("utf-8")).hexdigest()
+def ref_digest(platform: str, ref: str, sender: str = "") -> str:
+    """The hash under which a platform's reference is remembered, for the sender who sent it (the reference itself is what the platform fetches the file by, and
+    is never stored). It names the sender, so that a file one sender holds never blocks the same reference sent by another, and the second is never told the
+    first's number."""
+    return hashlib.sha256(f"{platform}\n{sender}\n{ref}".encode("utf-8")).hexdigest()
 
 
 def card_sha256(file_sha256: str, target: str, label: str) -> str:
@@ -223,21 +229,27 @@ def mismatch(declared, sniffed: str) -> bool:
     return allowed is not None and sniffed not in allowed
 
 
-def precheck(attachments: list, *, cap: int, today: dict, held: list, platform: str):
+def precheck(attachments: list, *, cap: int, today: dict, held: list, platform: str, sender: str = ""):
     """The checks made on a message's attachments before anything is fetched, from what the store reports: `today` is {"files", "bytes"}, `held`
-    the held rows (each with `ref_sha256`). Returns a list of decisions, one for each attachment taken or refused, in order, each
+    the held rows (each with `ref_sha256`, which names its sender: a duplicate is the same platform, sender and reference). Returns a list of decisions, one for each attachment taken or refused, in order, each
     {"index", "attachment", "refuse": {"code", ...} or None, "duplicate": the held row or None}; at most PER_MESSAGE are looked at (the
     rest are returned as {"index", "over": True}). The budget of the day and the held ceiling count the files of this message that were
     taken before it, so a message of five cannot pass a limit each of its files would pass alone."""
     out = []
     files, used, waiting = today.get("files", 0), today.get("bytes", 0), len(held)
     known = {row["ref_sha256"]: row for row in held}
+    seen = set()
     for index, attachment in enumerate(attachments):
         if index >= PER_MESSAGE:
             out.append({"index": index, "attachment": attachment, "over": True, "refuse": None, "duplicate": None})
             continue
         entry = {"index": index, "attachment": attachment, "over": False, "refuse": declared_problem(attachment, cap), "duplicate": None}
-        digest = ref_digest(platform, attachment["ref"])
+        digest = ref_digest(platform, attachment["ref"], sender)
+        if digest in seen:
+            entry["refuse"], entry["duplicate"] = None, {"id": None}        # the same reference twice in one message is one file: fetched once
+            out.append(entry)
+            continue
+        seen.add(digest)
         if entry["refuse"] is None and digest in known:
             entry["duplicate"] = known[digest]
         elif entry["refuse"] is None and (files >= DAY_FILES or used >= DAY_BYTES):
@@ -339,6 +351,8 @@ def open_content(path: str):
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise FolderError("the provider's file is not a regular file")
+        if info.st_nlink != 1:
+            raise FolderError("the provider's file has another name")        # a hard link may be a file of someone else's, written through
         return os.fdopen(fd, "rb"), info.st_size
     except BaseException:
         os.close(fd)
