@@ -19,7 +19,15 @@ Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt):
   whoami [--seconds 120]              print, in the terminal, the phone digits of whoever writes to the bridge's number
                                       meanwhile; refuses while a bridge runs
   listen --platform whatsapp          the long-lived verb (the protocol of providers/messenger/README.md)
-  receive, send, ack                  exit 2: whatsapp works only in listen mode
+  receive, send, ack, fetch-attachment
+                                      exit 2: whatsapp works only in listen mode (a file a person sends is fetched with the
+                                      listen op `fetch`, which the program answers itself, as it answers a send)
+
+Files: the capabilities declare `attachments` and `max_attachment_bytes`. A document, a photo, a video, an audio file, a voice
+note or a sticker a listed person sends becomes an update with `attachments` (a random reference, never the media key or an
+address); the listen op `fetch` (providers/messenger/README.md) is answered by the program itself, which downloads the file with
+the library inside its own process, bounded to the byte cap, checks it against the hash the message declared, and writes it as
+`content` in the folder the bridge made. This script passes nothing of it on: after `listen` it is the program.
 
 The state is under the state folder (the environment variable OPENHORA_STATE_DIR, else an absolute XDG_STATE_HOME with
 /openhora added, else ~/.local/state/openhora; the bridge's own --state-dir does not reach a provider): a real folder
@@ -62,7 +70,11 @@ PLATFORMS = ("whatsapp",)
 
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 CAPABILITIES = {"max_text": 4096, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False,
-                "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": True, "listen": True}
+                "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": True, "listen": True,
+                "attachments": True,
+                # the most one file the program holds (the library decrypts a medium in memory), not a limit WhatsApp states; the same
+                # number is `maxAttachment` in whatsapp/fetch.go, and a test holds the two equal
+                "max_attachment_bytes": 104857600}
 HERE = os.path.dirname(os.path.abspath(__file__))
 GO_DIR = os.path.join(HERE, "whatsapp")
 STATE_ENV = "OPENHORA_STATE_DIR"
@@ -411,13 +423,13 @@ def build_parser():
     who = sub.add_parser("whoami")
     who.add_argument("--seconds", type=int, default=120)
     who.set_defaults(func=cmd_whoami)
-    for name in ("receive", "send", "ack"):
+    for name in ("receive", "send", "ack", "fetch-attachment"):
         one = sub.add_parser(name)
         one.set_defaults(func=cmd_one_shot, one_shot=True)
     for parser in sub.choices.values():
         parser.add_argument("--platform", default="whatsapp", choices=PLATFORMS)
-    for name in ("receive", "send", "ack"):
-        for flag in ("--offset", "--timeout", "--chat", "--message-file", "--action-ref"):
+    for name in ("receive", "send", "ack", "fetch-attachment"):
+        for flag in ("--offset", "--timeout", "--chat", "--message-file", "--action-ref", "--ref", "--out", "--max-bytes"):
             sub.choices[name].add_argument(flag)
     return p
 

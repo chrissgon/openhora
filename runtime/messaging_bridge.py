@@ -335,10 +335,11 @@ class Bridge(shell_kit.Jobs):
             raise Refused(operations.not_enabled(op, CHANNEL))
         return settings
 
-    def run_op(self, project: dict, op: str, kind=None, sender=None, **args):
+    def run_op(self, project: dict, op: str, kind=None, sender=None, allow_as=None, **args):
         """The one call path: the policy first (for the sender's profile), then the operation, as the channel `messaging` and, when it takes one,
-        as that sender (the layer asks the policy again for them and records who acted)."""
-        self.allow(project, op, kind, sender)         # raises when no sender is named
+        as that sender (the layer asks the policy again for them and records who acted). `allow_as` names the operation whose group the
+        policy is asked for when it is not the one called: a typed `/ask` is a `say`, and needs the group `ask`, not `talk`."""
+        self.allow(project, allow_as or op, kind, sender)         # raises when no sender is named
         row = self.ops.operations.by_name(op)
         function = getattr(self.ops, row["call"])
         if row.get("channel_arg"):
@@ -830,7 +831,7 @@ class Bridge(shell_kit.Jobs):
                     if settings is None or chat not in settings["senders"]:
                         self.log(DROPPED)
                         return
-                result = self.run_op(project, "say", sender=chat, text=text)
+                result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text), text=text)
                 self.reply(chat, result.get("reply") or "(no reply)")
             except Refused as e:
                 self.reply(chat, str(e))
@@ -853,11 +854,18 @@ class Bridge(shell_kit.Jobs):
             self.waiting = [e for e in self.waiting if e is not entry]
             entry["starting"] = False
 
+    def needs(self, text: str):
+        """The operation whose group a line needs when it is not `say`'s own: a typed `/ask <question>` is a `say`, and needs the group `ask`, not
+        `talk` (a profile may ask and not talk, or talk and not ask). None for every other line. The one place that chooses: `keep_or_refuse` asks the
+        policy for it when the line comes and `line` when it runs."""
+        named = self.ops.operations.parse_chat(text)
+        return "ask" if named is not None and named[0] == "ask" else None
+
     def keep_or_refuse(self, project: dict, chat: str, text: str, refusal: str) -> None:
         """Keep the line and say so, or say `refusal` (the sentence the line always got when the project was busy). A sender whose policy refuses the
         line is told so now, and nothing is kept for it."""
         try:
-            self.allow(project, "say", sender=chat)
+            self.allow(project, self.needs(text) or "say", sender=chat)
         except Refused as e:
             self.reply(chat, str(e))
             return

@@ -629,3 +629,64 @@ def test_a_second_line_of_a_chat_that_waits_out_a_router_pause_gets_the_routers_
     assert settle(lab)
     lab.say(OWNER, "x again")
     assert lab.texts(OWNER) == [bridge.QUEUED, bridge.RUN_BUSY], "the slot is free: the sentence that fits is the router's"
+
+
+# --- /ask: the group the line needs (M1) ---------------------------------------------------------------------------------------------------
+
+ASKER, TALKER = OWNER, STAFF
+ASK_PROFILES = {**POLICIES_ALL, "asker": ["read-limited", "ask"], "talker": ["read-limited", "talk"], "holder": ["read", "talk", "ask"]}
+
+
+def ask_lab(lab):  # noqa: F811
+    """Three senders: one who holds the slot, one who may ask and not talk, one who may talk and not ask."""
+    holder = "55119000000009"
+    configure(lab, [{"id": holder, "policy": "holder"}, {"id": ASKER, "policy": "asker"}, {"id": TALKER, "policy": "talker"}], policies=ASK_PROFILES)
+    return holder
+
+
+def test_the_group_a_line_needs_is_chosen_in_one_place(lab):  # noqa: F811
+    two(lab)
+    assert lab.bridge.needs("/ask when is the deadline?") == "ask"
+    for line in ("when is the deadline?", "/new plan it", "/progress", "/ask"):
+        assert lab.bridge.needs(line) is None, line
+
+
+def test_an_ask_only_sender_slash_ask_while_busy_is_queued_and_answered(lab, planner):  # noqa: F811
+    holder = ask_lab(lab)
+    planner.hold = {0}
+    lab.say(holder, "first")
+    assert planner.reached(0).wait(WAIT)
+    lab.say(ASKER, "/ask when is the deadline?")
+    assert lab.texts(ASKER) == [bridge.QUEUED], "the group `ask` is what the line needs: a profile that may ask and not talk is kept"
+    planner.gate(0).set()
+    assert settle(lab)
+    assert planner.texts() == ["first", "/ask when is the deadline?"] and lab.texts(ASKER) == [bridge.QUEUED, "Answer 1"]
+    assert planner.calls[1]["sender"] == f"telegram:{ASKER}"
+
+
+def test_a_talk_only_sender_slash_ask_while_busy_is_refused_at_once_and_nothing_is_kept(lab, planner):  # noqa: F811
+    holder = ask_lab(lab)
+    planner.hold = {0}
+    lab.say(holder, "first")
+    assert planner.reached(0).wait(WAIT)
+    lab.say(TALKER, "/ask when is the deadline?")
+    assert NOT_ENABLED in lab.texts(TALKER)[-1] and not lab.bridge.waiting
+    lab.say(ASKER, "a plain line")           # and the other way: asking does not let a sender talk
+    assert NOT_ENABLED in lab.texts(ASKER)[-1] and not lab.bridge.waiting
+    planner.gate(0).set()
+    assert settle(lab)
+    assert planner.texts() == ["first"]
+
+
+def test_a_queued_slash_ask_checks_the_ask_group_again_when_it_runs(lab, planner):  # noqa: F811
+    holder = ask_lab(lab)
+    planner.hold = {0}
+    lab.say(holder, "first")
+    assert planner.reached(0).wait(WAIT)
+    lab.say(ASKER, "/ask when is the deadline?")
+    assert lab.texts(ASKER) == [bridge.QUEUED]
+    accept(lab.path, policies={**ASK_PROFILES, "asker": ["read-limited", "talk"]})        # `ask` taken away, `talk` given: not a narrowing for talk, a swap
+    planner.gate(0).set()
+    assert settle(lab)
+    assert planner.texts() == ["first"], "the line was not run"
+    assert NOT_ENABLED in lab.texts(ASKER)[-1]

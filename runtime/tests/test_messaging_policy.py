@@ -20,7 +20,7 @@ operations = st.load("operations")
 project_config = st.load("project_config")
 
 ON_MESSAGING = ["status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact", "say", "answer",
-                "release", "approve", "reject", "retry", "cancel", "stop-task", "sources", "instructions", "routines", "routine-create", "routine-change", "routine-pause",
+                "release", "approve", "reject", "retry", "cancel", "stop-task", "ask", "sources", "instructions", "routines", "routine-create", "routine-change", "routine-pause",
                 "routine-cancel", "attachments", "attachment-hold", "attachment-add", "attachment-discard"]
 ALL_GROUPS = list(operations.GROUPS)
 NOT_ENABLED = "is not enabled for this channel; the project's configuration (channels.messaging) turns it on"
@@ -87,7 +87,7 @@ def test_permitted_follows_the_groups_the_ceiling_and_the_closed_default():
     assert not operations.permitted("set-mode", "messaging", {"messaging": ALL_GROUPS}) and not operations.permitted("nothing", "messaging", None)
     # the closed default: read, talk, answer
     for name in rows:
-        expected = name in ON_MESSAGING and name not in ("release", "approve", "reject", "retry", "cancel", "stop-task", "sources", "routine-create", "routine-change", "attachments", "attachment-hold", "attachment-add", "attachment-discard")  # files from a messaging app are taken only on the group add-sources (ATT-1); a routine is made and changed only on a grant (P6b); # the catalog holds the person's data: its group is turned on, never by default
+        expected = name in ON_MESSAGING and name not in ("release", "approve", "reject", "retry", "cancel", "stop-task", "ask", "sources", "routine-create", "routine-change", "attachments", "attachment-hold", "attachment-add", "attachment-discard")  # an answer from the full text of the sources is turned on by a group, never by default (AQ-1); files from a messaging app are taken only on the group add-sources (ATT-1); a routine is made and changed only on a grant (P6b); # the catalog holds the person's data: its group is turned on, never by default
         assert operations.permitted(name, "messaging", None) is expected, name
         assert operations.permitted(name, "messaging", {}, "plan") is expected, name
     assert operations.permitted("approve", "messaging", {"messaging": []}) is False
