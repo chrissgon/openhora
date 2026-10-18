@@ -338,7 +338,7 @@ OPERATIONS = (
      "args": ({"name": "when", "kind": "str", "required": True, "label": "HH:MM | YYYY-MM-DD HH:MM | in <n>m|h|d"},
               {"name": "text", "kind": "text", "required": True}, {"name": "to", "kind": "str", "label": "platform:id"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
-     "help": "make a reminder: a line of your own words that the messaging bridge sends once, at that time, to the chat of a listed sender, with no model in between (--when HH:MM is today or, when past, tomorrow; YYYY-MM-DD HH:MM; in <n>m|h|d; the machine's local time; 1 minute to 366 days ahead; --text up to 300 characters, refused if it looks like a credential); --to names the listed sender it goes to (from a messaging app it is always the sender who asks); never an effect (limit LR), off for a messaging app until the project's configuration lists the group reminders; at most 100 wait in a project and 30 are made for one chat in a day"},
+     "help": "make a reminder: a line of your own words that the messaging bridge sends once, at that time, to the chat of a listed sender, with no model in between (--when HH:MM is today or, when past, tomorrow; YYYY-MM-DD HH:MM; in <n>m|h|d; the machine's local time; 1 minute to 366 days ahead; --text up to 300 characters, refused if it looks like a credential); --to names the listed sender it goes to (from a messaging app it is always the sender who asks); never an effect (limit L51), off for a messaging app until the project's configuration lists the group reminders; at most 100 wait in a project, 30 for one chat, and 30 are made for one chat in a day"},
     {"name": "reminders", "call": "reminders_read", "args": (), "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "the reminders that wait and the ones that did not go out in the last 7 days (missed: the bridge was down more than 6 hours past the time; dropped: the sender was removed or lost the group before it fired); from a messaging app only the ones made for you, and no text when the project's notices are `count`"},
     {"name": "reminder-forget", "call": "reminder_forget",
@@ -442,7 +442,7 @@ GROUPS = {
     # channel: the file a listed sender sends becomes a version of a source at once, with no card; it holds the one call the bridge makes after a fetch
     "add-sources": {"operations": ("attachments", "attachment-hold", "attachment-add", "attachment-discard"), "kind": None},
     "add-sources-direct": {"operations": ("attachment-hold",), "kind": "direct"},
-    # RM-1: reminders, a one-shot notice the messaging bridge sends to the chat that made it (limit LR). In no default policy: a messaging app takes it only when the
+    # RM-1: reminders, a one-shot notice the messaging bridge sends to the chat that made it (limit L51). In no default policy: a messaging app takes it only when the
     # project's configuration lists the group (accept-config --widen confirms it); never on the MCP mode (no row lists it). The group is a notice and never an effect.
     "reminders": {"operations": ("remind", "reminders", "reminder-forget"), "kind": None},
 }

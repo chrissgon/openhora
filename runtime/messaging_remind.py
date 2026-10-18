@@ -7,7 +7,7 @@
 that are due. The bridge (runtime/messaging_bridge.py) dispatches to it in four places and holds nothing of it; the words and the caps are
 runtime/reminders.py, the operations and the claim of a due reminder are runtime/ops_reminders.py.
 
-A reminder is a notice and never an effect (limit LR, contracts/runtime.md): it goes only to the private chat of the sender who made it (or whom the
+A reminder is a notice and never an effect (limit L51, contracts/runtime.md): it goes only to the private chat of the sender who made it (or whom the
 terminal named), with that person's own words, and nothing is done in the world.
 
 From a sender. `/remind <time> <text>` is parsed with no model (runtime/messaging_inbound.py splits the line, the operation reads the time against the
@@ -20,8 +20,9 @@ Delivery. Each tick (`deliver`, after the cards and before the line about unread
 reminders of this platform that are due, ends the ones later than the late window `missed` and the ones whose sender was removed or lost the group
 `dropped` (the configuration is read then, not when the reminder was made), and returns what goes out (the text only when the project's notices carry
 text). Each one is sent to its own chat through `Bridge.reply`, then marked `sent`; a send that failed or was deferred is marked open again and tried
-at the next tick, until the window ends. A bridge that stops between the send and the mark leaves the reminder `sending`; it is open again after
-CLAIM_STALE seconds, so a line may go twice and never zero times. The text of a reminder is never logged: the log has the class of an error and
+again after a pause of 1, 2, 4, 8 ... minutes (not at every tick), until the late window ends it `missed`. A bridge that stops between the send and the
+mark, and a mark that fails after a send that went out (logged by its class), both leave the reminder `sending`; it is open again after CLAIM_STALE
+seconds, so a line may go twice and never zero times. The text of a reminder is never logged: the log has the class of an error and
 the number of reminders, nothing else.
 
 Standard library only. Runs on Python 3.9.

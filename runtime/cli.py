@@ -290,8 +290,8 @@ attachment-discard  deletes a held file (--id) without adding it.
 remind    makes a reminder: one line of your own words (--text or --text-file, up to 300 characters, refused when it looks like a credential) that the
           messaging bridge sends once, at the time --when names, to the chat of the listed sender --to names (<platform>:<sender id>; the sender must
           hold the group reminders). --when is HH:MM (today, or tomorrow when that time has passed), YYYY-MM-DD HH:MM, or in <n>m|h|d; the clock is this
-          machine's local time, 24 hours, two digits; from one minute to 366 days ahead. It is a notice and never an effect (limit LR): no model, nothing
-          done in the world. At most 100 wait in a project and 30 are made for one chat in a day. It calls no model.
+          machine's local time, 24 hours, two digits; from one minute to 366 days ahead. It is a notice and never an effect (limit L51): no model, nothing
+          done in the world. At most 100 wait in a project, 30 for one chat, and 30 are made for one chat in a day. It calls no model.
 reminders the reminders that wait and the ones that did not go out in the last 7 days (missed: the bridge was down more than 6 hours past the time;
           dropped: the sender was removed or lost the group before it fired), with their text. It calls no model.
 reminder-forget  cancels a reminder that waits (--id); one that is being sent or has ended is not changed.

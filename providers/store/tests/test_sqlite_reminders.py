@@ -202,3 +202,79 @@ def test_the_export_does_not_carry_the_words_of_a_reminder(conn):
     path = conn.execute("PRAGMA database_list").fetchone()[2]
     out = subprocess.run([sys.executable, str(SCRIPT), "--db", path, "export", "--format", "json"], capture_output=True, text=True, check=True).stdout
     assert "dentist" not in out and "reminders" not in json.loads(out)
+
+
+# --- review of RM-1 ----------------------------------------------------------------------------------------------------------------------------
+
+
+def test_one_chat_cannot_hold_more_than_its_share_of_the_open_ones(conn):
+    for n in range(3):
+        add(conn, max_open_chat=3, text=f"line {n}", chat="1")
+    with pytest.raises(store.StoreError) as e:
+        add(conn, max_open_chat=3, chat="1")
+    assert str(e.value) == store.REMINDER_CHAT_FULL
+    assert add(conn, max_open_chat=3, chat="2")["chat"] == "2", "another chat is not blocked"
+    assert add(conn, max_open_chat=3, chat="1", platform="chirp")["platform"] == "chirp", "nor the same id on another platform"
+    store.reminder_claim(conn, 1)
+    with pytest.raises(store.StoreError):
+        add(conn, max_open_chat=3, chat="1")                  # being sent still waits
+    store.reminder_end(conn, 1, "sent")
+    assert add(conn, max_open_chat=3, chat="1")["id"] == 6
+
+
+def test_a_failed_send_counts_and_waits_before_it_is_offered_again(conn):
+    add(conn)
+    until = "2026-10-18T18:30:00.000000Z"
+    store.reminder_claim(conn, 1)
+    assert store.reminder_release(conn, 1, "2026-10-18T18:10:00.000000Z") is True
+    row = store.reminder_get(conn, 1)
+    assert (row["status"], row["attempts"], row["retry_after"]) == ("open", 1, "2026-10-18T18:10:00.000000Z")
+    assert store.reminders_due(conn, "telegram", "2026-10-18T18:09:59.000000Z") == []
+    assert [r["id"] for r in store.reminders_due(conn, "telegram", "2026-10-18T18:10:00.000000Z")] == [1]
+    store.reminder_claim(conn, 1)
+    store.reminder_release(conn, 1, "2026-10-18T18:12:00.000000Z")
+    assert store.reminder_get(conn, 1)["attempts"] == 2 and store.reminders_due(conn, "telegram", until)
+    store.reminder_claim(conn, 1)
+    assert store.reminder_release(conn, 1) is True and store.reminder_get(conn, 1)["retry_after"] is None, "no time given: offered at once"
+    with pytest.raises(store.StoreError):
+        store.reminder_release(conn, 1, "soon")
+    assert store.reminder_get(conn, 1)["attempts"] == 3
+
+
+def test_a_store_that_reached_20_without_19_gets_19_applied_and_is_refused_until_then(tmp_path, monkeypatch):
+    """Two packages took neighbouring numbers and 20 was merged before 19: init applies every number the store lacks, not only those above its highest."""
+    monkeypatch.setitem(store.MIGRATIONS, 19, ("a probe table", ["CREATE TABLE gap_probe (x INTEGER)"]))
+    path = tmp_path / "gap.sqlite"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, description TEXT NOT NULL)")
+    for version in sorted(store.MIGRATIONS):
+        if version == 19:
+            continue
+        for statement in store.MIGRATIONS[version][1]:
+            old.execute(statement)
+        old.execute("INSERT INTO schema_version VALUES (?, '2026-10-17T00:00:00.000000Z', 'x')", (version,))
+    old.commit()
+    assert [r[0] for r in old.execute("SELECT version FROM schema_version ORDER BY 1")][-3:] == [17, 18, 20]
+    old.close()
+    plain = sqlite3.connect(path)
+    assert store.missing_migrations(plain) == [19]
+    plain.close()
+    with pytest.raises(store.StoreError) as e:
+        store.open_db(path)
+    assert "migration 19" in str(e.value) and "run init" in str(e.value) and e.value.code == store.EXIT_NOT_CONFIGURED
+    out = store.init_db(path)
+    assert out["applied"] == [19] and out["migrated_from"] == 20 and out["schema_version"] == store.SCHEMA_VERSION
+    conn = store.open_db(path)
+    assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'gap_probe'").fetchone() is not None
+    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY 1")][-3:] == [18, 19, 20]
+    assert store.init_db(path)["applied"] == []
+
+
+def test_a_store_with_no_version_table_is_refused_by_open_ready_and_missing_lists_everything(tmp_path):
+    path = tmp_path / "empty.sqlite"
+    sqlite3.connect(path).close()
+    plain = sqlite3.connect(path)
+    assert store.missing_migrations(plain) == sorted(store.MIGRATIONS)
+    plain.close()
+    with pytest.raises(store.StoreError):
+        store.open_db(path)

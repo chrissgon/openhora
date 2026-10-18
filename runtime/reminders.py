@@ -7,7 +7,7 @@
 to be sent. No store, no clock of its own, no file, no network: the operations (runtime/ops_reminders.py) pass the clock in.
 
 A reminder is a stored one-shot notice the messaging bridge sends to the chat that made it, with the person's own words and no model in between.
-It is never an effect (nothing is done in the world); limit LR (contracts/runtime.md) is what keeps it that way.
+It is never an effect (nothing is done in the world); limit L51 (contracts/runtime.md) is what keeps it that way.
 
 What a person types (the words after `/remind`, or the two arguments of the terminal's `remind`):
 
@@ -21,8 +21,9 @@ wall time that does not exist (the hour a clock change skips) is refused; one th
 one minute ahead (MIN_AHEAD) and at most 366 days ahead (MAX_AHEAD).
 
   split_line(rest)            (when, text) of the words after `/remind`: only the first one or two words are the time; ValueError(USAGE) otherwise
-  resolve(when, now, at)      the due moment of a `when`: {"due": aware datetime, "wall": "YYYY-MM-DDTHH:MM", "zone": name}; ValueError(sentence) says why not
-  clean_text(text)            the text as it is stored (one line, control characters and runs of blanks become one space), or ValueError(sentence)
+  resolve(when, now, at[, local])  the due moment of a `when`: {"due": aware datetime, "wall": "YYYY-MM-DDTHH:MM", "zone": name}; ValueError(sentence) says why not
+  clean_text(text)            the text as it is stored (one line, control characters and runs of blanks become one space, format characters dropped), or ValueError(sentence)
+  retry_delay(attempts)       how long a reminder whose send failed waits before the next try (1, 2, 4, 8 ... minutes)
   verdict(due, now)           what to do with an open reminder: "wait", "send" or "missed" (the late window), and how late it is
   line(id, text, due_local, late)  the line a due reminder goes out as, with the mark "(due at HH:MM)" when it went out late
 
@@ -34,11 +35,14 @@ from __future__ import annotations
 import datetime
 import re
 import sys
+import unicodedata
 
 UTC = datetime.timezone.utc
 
 TEXT_MAX = 300                    # characters of one reminder
 OPEN_MAX = 100                    # reminders waiting (open or being sent) in a project
+OPEN_CHAT_MAX = 30                # and for one chat, so that one sender cannot fill the project and block the others
+BACKOFF_MAX_MINUTES = 64          # a send that failed is tried again after 1, 2, 4, 8 ... minutes, no longer apart than this
 DAY_MAX = 30                      # reminders made for one recipient in a day (the local day of the clock)
 MIN_AHEAD = 60                    # seconds: a reminder is at least this far from now
 MAX_AHEAD = 366 * 86400           # seconds: and at most this far
@@ -60,6 +64,7 @@ NO_SUCH = "No reminder {n} waits for you."
 NOT_WAITING = "Reminder {n} is {status}, not waiting."
 BEING_SENT = "Reminder {n} is being sent now."
 OPEN_FULL = "There are already {n} reminders waiting in this project. Forget one first."
+CHAT_FULL = "There are already {n} reminders waiting for this chat. Forget one first."
 DAY_FULL = "{n} reminders were already made for this chat today. Try again tomorrow."
 SET = "Reminder #{id} set for {wall} ({zone})."
 FORGOT = "Forgot reminder #{id}."
@@ -98,9 +103,11 @@ def split_line(rest: str) -> tuple:
 
 
 def clean_text(text) -> str:
-    """The text as it is stored: one line (a control character or a line end, and a run of blanks, is one space), not empty, at most TEXT_MAX
-    characters. ValueError(sentence) when it is not."""
-    one = " ".join(_CONTROL.sub(" ", text if isinstance(text, str) else "").split())
+    """The text as it is stored: one line (a control character or a line end, and a run of blanks, is one space; a format character, Unicode category
+    Cf, is dropped: a bidirectional override can disguise a line, and an emoji joiner is lost with it), not empty, at most TEXT_MAX characters. ValueError(sentence) when it is not."""
+    given = _CONTROL.sub(" ", text if isinstance(text, str) else "")
+    given = "".join(c for c in given if unicodedata.category(c) != "Cf")      # bidi overrides, zero-width characters, the byte order mark, the soft hyphen
+    one = " ".join(given.split())
     if not one:
         raise ValueError(NO_TEXT)
     if len(one) > TEXT_MAX:
@@ -130,9 +137,10 @@ def zone_name(moment: datetime.datetime) -> str:
     return moment.tzname() or (moment.strftime("%z") or "UTC")
 
 
-def resolve(when: str, now: datetime.datetime, at) -> dict:
+def resolve(when: str, now: datetime.datetime, at, local=None) -> dict:
     """The due moment of `when` ({"due": aware datetime, "wall": "YYYY-MM-DDTHH:MM", "zone": name}), or ValueError with the sentence that says why not.
-    `now` is aware; `at(naive)` is the aware datetime of a local wall time. Checked in this order: the form, the time of day and the date, the
+    `now` is aware; `at(naive)` is the aware datetime of a local wall time; `local(instant)` is an instant read in the local time of THAT day (the machine's
+    rules, so a clock change between now and then counts; by default the zone `now` carries). Checked in this order: the form, the time of day and the date, the
     wall time exists, it is not past, it is at least MIN_AHEAD and at most MAX_AHEAD from now."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("the clock has no zone")
@@ -145,7 +153,7 @@ def resolve(when: str, now: datetime.datetime, at) -> dict:
         due = now.astimezone(UTC) + datetime.timedelta(seconds=seconds)       # elapsed time, so a clock change in between counts: arithmetic in UTC
         if due.second or due.microsecond:       # to the minute, upwards: a reminder never comes earlier than it was asked
             due = due.replace(second=0, microsecond=0) + datetime.timedelta(minutes=1)
-        due = due.astimezone(now.tzinfo)
+        due = local(due) if local is not None else due.astimezone(now.tzinfo)
     else:
         words = given.split(" ")
         if len(words) == 2 and _DATE.fullmatch(words[0]):
@@ -161,9 +169,14 @@ def resolve(when: str, now: datetime.datetime, at) -> dict:
         hour, minute = int(clock[:2]), int(clock[3:])
         if date is None:
             day = now.date()
-            due = _at(datetime.datetime.combine(day, datetime.time(hour, minute)), at)
-            if due.astimezone(UTC) <= now.astimezone(UTC):
-                due = _at(datetime.datetime.combine(day + datetime.timedelta(days=1), datetime.time(hour, minute)), at)
+            today = datetime.datetime.combine(day, datetime.time(hour, minute))
+            tomorrow = datetime.datetime.combine(day + datetime.timedelta(days=1), datetime.time(hour, minute))
+            if today <= now.replace(tzinfo=None):       # already past on the wall clock: tomorrow's, whether or not today's exists (the hour a clock change skips)
+                due = _at(tomorrow, at)
+            else:
+                due = _at(today, at)                     # a time ahead that the clock skips is refused
+                if due.astimezone(UTC) <= now.astimezone(UTC):      # the first of two occurrences has passed
+                    due = _at(tomorrow, at)
         else:
             try:
                 day = datetime.date(int(date[:4]), int(date[5:7]), int(date[8:]))
@@ -178,6 +191,11 @@ def resolve(when: str, now: datetime.datetime, at) -> dict:
     if ahead > MAX_AHEAD:
         raise ValueError(TOO_FAR)
     return {"due": due, "wall": due.strftime("%Y-%m-%dT%H:%M"), "zone": zone_name(due)}
+
+
+def retry_delay(attempts: int) -> int:
+    """Seconds to wait before a reminder whose send failed `attempts` times (1 for the first failure) is tried again: 1, 2, 4, 8 ... minutes, to BACKOFF_MAX_MINUTES."""
+    return 60 * min(2 ** max(0, int(attempts) - 1), BACKOFF_MAX_MINUTES)
 
 
 def verdict(due: datetime.datetime, now: datetime.datetime) -> tuple:

@@ -69,7 +69,7 @@ Reminders (RM-1). `/remind <time> <text>`, `/reminders` and `/forget <n>` are do
 `reminders`, in no default policy, so a sender must be given it and the person confirms that with `accept-config --widen`). At the end of each tick
 `Reminders.deliver` sends what is due: only to the private chat of the sender it was made for, with that sender's own words (none in `notices: count`),
 after the operations layer read the configuration and the sender's profile again, so a sender removed or narrowed before the time gets nothing.
-A reminder is a notice and never an effect (limit LR).
+A reminder is a notice and never an effect (limit L51).
 
 Standard library only. Runs on Python 3.9.
 """

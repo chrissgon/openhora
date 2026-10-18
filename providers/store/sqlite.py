@@ -616,6 +616,7 @@ MIGRATIONS = {
     # text). A reminder is `open`, claimed as `sending` by the one tick that sends it (a crash in between leaves it `sending`; after a while it is open
     # again, so a line may go twice and never zero times), then `sent`; or it ends `cancelled` (the person forgot it), `missed` (it was later than the late
     # window when a bridge looked: why `late`) or `dropped` (the sender was removed or narrowed before it fired: why `sender removed` or `not permitted`).
+    # A send that failed gives the claim back (`attempts` counts the failures, `retry_after` is the earliest next try: 1, 2, 4, 8 ... minutes).
     # A row is never deleted; what it was asked and for whom never changes; an ended row stays as it ended.
     20: ("reminders, the one-shot notices the messaging bridge sends", [
         """CREATE TABLE reminders (
@@ -632,6 +633,8 @@ MIGRATIONS = {
             created_at TEXT NOT NULL,
             claimed_at TEXT,
             ended_at TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            retry_after TEXT,
             CHECK ((status IN ('missed', 'dropped')) = (why IS NOT NULL)))""",
         "CREATE INDEX reminders_by_status ON reminders (status, due_utc)",
         "CREATE INDEX reminders_by_chat ON reminders (platform, chat, id)",
@@ -972,8 +975,16 @@ def private_files(path: Path) -> None:
             pass
 
 
+def missing_migrations(conn: sqlite3.Connection) -> list:
+    """The numbers of MIGRATIONS that the store has not applied, ascending (all of them when it has no version table)."""
+    found = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'").fetchone()
+    have = {r[0] for r in conn.execute("SELECT version FROM schema_version")} if found else set()
+    return sorted(set(MIGRATIONS) - have)
+
+
 def open_ready(args) -> sqlite3.Connection:
-    """A connection to an existing database at the current schema version."""
+    """A connection to an existing database at the current schema version: the highest applied number is the script's, and none of the script's
+    migrations is missing (a number below the highest that was never applied is a gap, and init fills it)."""
     path = db_path(args)
     if not path.is_file():
         raise StoreError(f"no database at {path}: run init first", EXIT_NOT_CONFIGURED)
@@ -985,6 +996,9 @@ def open_ready(args) -> sqlite3.Connection:
     if version > SCHEMA_VERSION:
         raise StoreError(f"{path} is at schema version {version}, newer than this script ({SCHEMA_VERSION}): "
                          "update the workbench", EXIT_ERROR)
+    gaps = missing_migrations(conn)
+    if gaps:
+        raise StoreError(f"{path} has not applied migration {', '.join(map(str, gaps))} of this script: run init to migrate", EXIT_NOT_CONFIGURED)
     return conn
 
 
@@ -1042,8 +1056,11 @@ def _init(path: Path) -> dict:
         current = conn.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
         if current > SCHEMA_VERSION:
             raise StoreError(f"{path} is at schema version {current}, newer than this script ({SCHEMA_VERSION})")
+        # Every number the script knows that the store lacks, ascending: not only those above the highest applied. A store that reached 20 before 19
+        # was merged (two packages took neighbouring numbers) gets 19 applied now, and `open_ready` refuses it until then.
+        have = {r[0] for r in conn.execute("SELECT version FROM schema_version")}
         for version in sorted(MIGRATIONS):
-            if version <= current:
+            if version in have:
                 continue
             description, statements = MIGRATIONS[version]
             for statement in statements:
@@ -3803,12 +3820,14 @@ REMINDER_TEXT_BYTES = 1280      # 300 characters of any script, with a margin; t
 REMINDER_LIST_MAX = 500
 REMINDER_OPEN_FULL = "too many reminders wait in this project"
 REMINDER_DAY_FULL = "too many reminders were made for this chat today"
+REMINDER_CHAT_FULL = "too many reminders wait for this chat"
 REMINDER_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z")
 
 
 def reminder_add(conn: sqlite3.Connection, *, text: str, due_local: str, due_utc: str, zone: str, platform: str, chat: str, created_by: str,
-                 max_open: int, max_day: int, day_since: str, created_at: str | None = None) -> dict:
-    """Record one reminder, `open`, if the project holds fewer than `max_open` that wait (open or being sent) and fewer than `max_day` were made for
+                 max_open: int, max_day: int, day_since: str, max_open_chat: int | None = None, created_at: str | None = None) -> dict:
+    """Record one reminder, `open`, if the project holds fewer than `max_open` that wait (open or being sent), this platform and chat fewer than
+    `max_open_chat` (when given: one chat cannot fill the project), and fewer than `max_day` were made for
     this platform and chat since `day_since` (an ISO time): both counted in the transaction that writes, so two callers cannot both pass the last
     place. `due_utc` is a fixed-width UTC time (iso); `due_local` the wall time as asked. Returns the row."""
     text = text_arg(text, "text", REMINDER_TEXT_BYTES)
@@ -3824,6 +3843,9 @@ def reminder_add(conn: sqlite3.Connection, *, text: str, due_local: str, due_utc
         waiting = conn.execute("SELECT COUNT(*) AS n FROM reminders WHERE status IN ('open', 'sending')").fetchone()["n"]
         if waiting >= int(max_open):
             raise StoreError(REMINDER_OPEN_FULL, EXIT_ERROR)
+        if max_open_chat is not None and conn.execute("SELECT COUNT(*) AS n FROM reminders WHERE status IN ('open', 'sending') AND platform = ? AND chat = ?",
+                                                      (platform, chat)).fetchone()["n"] >= int(max_open_chat):
+            raise StoreError(REMINDER_CHAT_FULL, EXIT_ERROR)
         today = conn.execute("SELECT COUNT(*) AS n FROM reminders WHERE platform = ? AND chat = ? AND created_at >= ?",
                              (platform, chat, day_since)).fetchone()["n"]
         if today >= int(max_day):
@@ -3866,10 +3888,11 @@ def reminders_list(conn: sqlite3.Connection, statuses=None, platform: str | None
 
 
 def reminders_due(conn: sqlite3.Connection, platform: str, until: str, limit: int = REMINDER_LIST_MAX) -> list:
-    """The open reminders of a platform whose time is at or before `until` (an ISO time), oldest due first."""
+    """The open reminders of a platform whose time is at or before `until` (an ISO time) and that are not waiting out the pause after a failed send
+    (`retry_after`), oldest due first."""
     return [row_dict(r) for r in conn.execute(
-        "SELECT * FROM reminders WHERE status = 'open' AND platform = ? AND due_utc <= ? ORDER BY due_utc, id LIMIT ?",
-        (platform, until, min(int(limit), REMINDER_LIST_MAX))).fetchall()]
+        "SELECT * FROM reminders WHERE status = 'open' AND platform = ? AND due_utc <= ? AND (retry_after IS NULL OR retry_after <= ?) "
+        "ORDER BY due_utc, id LIMIT ?", (platform, until, until, min(int(limit), REMINDER_LIST_MAX))).fetchall()]
 
 
 def reminder_claim(conn: sqlite3.Connection, reminder_id: int, at: str | None = None) -> bool:
@@ -3880,10 +3903,14 @@ def reminder_claim(conn: sqlite3.Connection, reminder_id: int, at: str | None = 
     return changed == 1
 
 
-def reminder_release(conn: sqlite3.Connection, reminder_id: int) -> bool:
-    """Give a claimed reminder back (the send failed or was deferred): `sending` becomes `open`. False when it was not `sending`."""
+def reminder_release(conn: sqlite3.Connection, reminder_id: int, retry_after: str | None = None) -> bool:
+    """Give a claimed reminder back (the send failed or was deferred): `sending` becomes `open`, one more failure is counted, and it is not offered
+    again before `retry_after` (an ISO time; none: at once). False when it was not `sending`."""
+    if retry_after is not None and not (isinstance(retry_after, str) and REMINDER_TIME.fullmatch(retry_after)):
+        raise StoreError("retry_after must be a fixed-width UTC time (iso)", EXIT_USAGE)
     with write(conn):
-        changed = conn.execute("UPDATE reminders SET status = 'open', claimed_at = NULL WHERE id = ? AND status = 'sending'", (reminder_id,)).rowcount
+        changed = conn.execute("UPDATE reminders SET status = 'open', claimed_at = NULL, attempts = attempts + 1, retry_after = ? WHERE id = ? AND status = 'sending'",
+                               (retry_after, reminder_id)).rowcount
     return changed == 1
 
 

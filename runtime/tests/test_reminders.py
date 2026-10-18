@@ -39,6 +39,7 @@ class Clock:
         self.moment = datetime.datetime.strptime(wall, "%Y-%m-%d %H:%M").replace(tzinfo=zone)
         monkeypatch.setattr(ops_reminders, "now", lambda: self.moment)
         monkeypatch.setattr(ops_reminders, "local_at", lambda naive: naive.replace(tzinfo=self.zone))
+        monkeypatch.setattr(ops_reminders, "local_of", lambda instant: instant.astimezone(self.zone))
 
     def set(self, wall):
         self.moment = datetime.datetime.strptime(wall, "%Y-%m-%d %H:%M").replace(tzinfo=self.zone)
@@ -231,7 +232,8 @@ def test_the_text_is_one_line_of_at_most_300_characters():
 
 
 def test_the_caps_and_the_windows_are_the_constants_of_the_specification():
-    assert (rm.OPEN_MAX, rm.DAY_MAX, rm.TEXT_MAX) == (100, 30, 300)
+    assert (rm.OPEN_MAX, rm.OPEN_CHAT_MAX, rm.DAY_MAX, rm.TEXT_MAX) == (100, 30, 30, 300)
+    assert [rm.retry_delay(n) for n in (1, 2, 3, 4, 7, 8, 20)] == [60, 120, 240, 480, 3840, 3840, 3840]
     assert (rm.MIN_AHEAD, rm.MAX_AHEAD, rm.LATE_WINDOW) == (60, 366 * 86400, 6 * 3600)
     assert rm.LATE_MARK == 300 and rm.CLAIM_STALE == 600 and rm.PER_TICK == 10
     assert rm.STATUSES == ("open", "sending", "sent", "cancelled", "missed", "dropped")
@@ -349,6 +351,8 @@ def test_the_text_is_stored_clean_and_never_in_the_answer_of_a_messaging_app(wor
 def test_thirty_reminders_a_day_for_one_chat_then_the_next_day_and_the_other_chats_are_not_affected(world):
     for n in range(rm.DAY_MAX):
         world.remind(f"in {n + 1}m", f"line {n}")
+    for n in range(1, 6):
+        ops.reminder_forget(world.path, n, channel="terminal")           # the day counts what was made, not what still waits
     with pytest.raises(ops.OpsError) as e:
         world.remind("in 40m", "one too many")
     assert str(e.value) == "30 reminders were already made for this chat today. Try again tomorrow."
@@ -356,6 +360,20 @@ def test_thirty_reminders_a_day_for_one_chat_then_the_next_day_and_the_other_cha
     world.clock.set("2026-10-19 09:00")
     assert world.remind("in 40m", "a new day")["reminder"]["id"] == 32, "the day is the machine's local day"
     assert len(world.rows()) == 32
+
+
+def test_one_chat_holds_thirty_waiting_reminders_and_the_others_are_not_blocked(world):
+    for n in range(rm.OPEN_CHAT_MAX):
+        world.remind("in 2h", f"line {n}")
+    with pytest.raises(ops.OpsError) as e:
+        world.remind("in 2h", "one too many")
+    assert str(e.value) == "There are already 30 reminders waiting for this chat. Forget one first."
+    with pytest.raises(ops.OpsError):
+        world.phone(SENDER, "in 2h", "one too many, from the phone")
+    assert world.remind("in 2h", "another chat is free", f"telegram:{OTHER}")["reminder"]["id"] == 31
+    ops.reminder_forget(world.path, 1, channel="terminal")
+    world.clock.set("2026-10-19 09:00")                      # the day's 30 are used up; a new day makes room
+    assert world.remind("in 2h", "room again")["reminder"]["id"] == 32
 
 
 def test_one_hundred_reminders_wait_in_a_project_and_a_sent_one_makes_room(world):
@@ -459,16 +477,25 @@ def test_a_due_reminder_is_claimed_by_one_call_and_sent_once(world):
         ops.reminders_sent(world.path, 1)           # an ended reminder is final
 
 
-def test_a_send_that_failed_is_open_again_and_tried_at_the_next_tick_until_the_window_ends(world):
+def test_a_send_that_failed_is_open_again_after_a_pause_that_doubles_until_the_window_ends(world):
     world.remind("in 2h", "Call the dentist")
     world.clock.set("2026-10-18 16:00")
     assert due_ids(world) == [(1, IDENT)]
-    assert ops.reminders_retry(world.path, 1) == {"id": 1, "open": True}
-    world.clock.set("2026-10-18 16:01")
-    assert due_ids(world) == [(1, IDENT)], "tried again"
+    utc = datetime.timezone.utc
+    gaps = []
+    for _ in range(8):
+        got = ops.reminders_retry(world.path, 1)
+        after = datetime.datetime.strptime(got["retry_after"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=utc)
+        gaps.append(int((after - world.clock.moment.astimezone(utc)).total_seconds() // 60))
+        assert got["open"] is True and due_ids(world) == [], "not at the next tick"
+        world.clock.moment = (after - datetime.timedelta(seconds=1)).astimezone(BRT)
+        assert due_ids(world) == [], "not a second early"
+        world.clock.moment = after.astimezone(BRT)
+        assert due_ids(world) == [(1, IDENT)], "tried again when the pause ends"
+    assert gaps == [1, 2, 4, 8, 16, 32, 64, 64] and world.rows()[0]["attempts"] == 8
     ops.reminders_retry(world.path, 1)
     world.clock.set("2026-10-18 22:01")
-    assert ops.reminders_due(world.path, "telegram") == {"send": [], "missed": 1, "dropped": 0}
+    assert ops.reminders_due(world.path, "telegram") == {"send": [], "missed": 1, "dropped": 0}, "the late window still ends it"
     assert world.rows()[0]["status"] == "missed" and world.rows()[0]["why"] == "late"
 
 
@@ -593,3 +620,71 @@ def test_turning_the_group_on_is_a_widening_that_accept_config_takes_only_with_i
     assert "--widen" in str(e.value) or "widen" in str(e.value)
     ops.accept_config(world.path, shown["sha256"], widen=shown["widening_sha256"])
     assert world.phone(SENDER, "15:00", "now it is on")["reply"].startswith("Reminder #1")
+
+
+# --- 13. review of RM-1: the clock changes, the text, the order of the checks -----------------------------------------------------------------
+
+
+def test_a_relative_time_across_a_clock_change_is_read_in_the_local_time_of_that_day():
+    """In production `now` carries the fixed offset of this moment (datetime.now().astimezone()); 24 hours from a winter noon is 13:00 on the summer wall
+    clock, which only the machine's rules for that day say: the `local` seam."""
+    zone = new_york()
+    winter = datetime.timezone(datetime.timedelta(hours=-5), "EST")
+    noon = datetime.datetime(2026, 3, 7, 12, 0, tzinfo=winter)
+    at = lambda naive: naive.replace(tzinfo=zone)  # noqa: E731
+    local = lambda instant: instant.astimezone(zone)  # noqa: E731
+    got = rm.resolve("in 24h", noon, at, local)
+    assert got["wall"] == "2026-03-08T13:00" and got["zone"] == "EDT" and got["due"].utcoffset() == datetime.timedelta(hours=-4)
+    assert got["due"].astimezone(datetime.timezone.utc) == noon.astimezone(datetime.timezone.utc) + datetime.timedelta(hours=24)
+    wrong = rm.resolve("in 24h", noon, at)        # without the seam the offset of the moment is kept: the old, wrong answer
+    assert wrong["wall"] == "2026-03-08T12:00" and wrong["zone"] == "EST"
+    fall = datetime.datetime(2026, 10, 31, 12, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=-4), "EDT"))
+    assert rm.resolve("in 24h", fall, at, local)["wall"] == "2026-11-01T11:00", "and across the fall change the wall clock is an hour earlier"
+
+
+def test_a_time_that_has_passed_today_is_tomorrows_even_when_the_clock_skipped_it_today():
+    zone = new_york()
+    at = lambda naive: naive.replace(tzinfo=zone)  # noqa: E731
+    after_skip = datetime.datetime(2026, 3, 8, 4, 0, tzinfo=zone)          # the day the clock jumps from 02:00 to 03:00
+    got = rm.resolve("02:30", after_skip, at)
+    assert got["wall"] == "2026-03-09T02:30", "02:30 does not exist today and has passed anyway: tomorrow's"
+    assert rm.resolve("03:30", datetime.datetime(2026, 3, 8, 3, 45, tzinfo=zone), at)["wall"] == "2026-03-09T03:30"
+    before_skip = datetime.datetime(2026, 3, 8, 0, 30, tzinfo=zone)
+    with pytest.raises(ValueError) as e:
+        rm.resolve("02:30", before_skip, at)                              # ahead today and skipped: refused, not guessed
+    assert str(e.value) == "2026-03-08 02:30 does not exist on that day (the clock skips it). Pick another time."
+    fold = datetime.datetime(2026, 11, 1, 1, 15, tzinfo=zone, fold=1)      # the second 01:15 of the night
+    assert rm.resolve("01:30", fold, at)["wall"] == "2026-11-02T01:30", "the first 01:30 is behind us"
+
+
+def test_the_day_starts_at_the_real_midnight_of_the_day_and_not_at_the_offset_of_the_moment(world, monkeypatch):
+    zone = new_york()
+    clock = Clock(monkeypatch, "2026-03-08 12:00", zone)
+    assert ops_reminders._iso(ops_reminders.day_start(clock.moment)) == "2026-03-08T05:00:00.000000Z", "midnight was EST (UTC-5); noon is EDT"
+    Clock(monkeypatch, "2026-10-18 14:00", BRT)
+    assert ops_reminders._iso(ops_reminders.day_start(moment("2026-10-18 14:00"))) == "2026-10-18T03:00:00.000000Z"
+
+
+def test_the_text_loses_its_format_characters_a_bidirectional_override_included():
+    assert rm.clean_text("pay\u202e the rent\u202c now") == "pay the rent now"
+    assert rm.clean_text("ze\u200bro\u200dwidth\ufeff soft\u00adhyphen") == "zerowidth softhyphen"
+    assert rm.clean_text("a\u2066b\u2069") == "ab"
+    with pytest.raises(ValueError) as e:
+        rm.clean_text("\u202e\u200b")
+    assert str(e.value) == rm.NO_TEXT, "a text of nothing but format characters is empty"
+    assert rm.clean_text("café naïve, über") == "café naïve, über", "letters, accents and punctuation stay"
+
+
+def test_the_stored_text_has_no_format_character(world):
+    world.remind("15:00", "pay\u202e the rent")
+    assert world.rows()[0]["text"] == "pay the rent"
+
+
+def test_a_mark_that_fails_after_a_send_that_went_out_leaves_the_reminder_sending_and_it_may_go_twice(world):
+    world.remind("in 2h", "Call the dentist")
+    world.clock.set("2026-10-18 16:00")
+    assert due_ids(world) == [(1, IDENT)]
+    # the line went out but `reminders_sent` failed: nothing was marked
+    assert world.rows()[0]["status"] == "sending"
+    world.clock.moment += datetime.timedelta(seconds=rm.CLAIM_STALE + 1)
+    assert due_ids(world) == [(1, IDENT)], "the same reminder is offered again after the claim goes stale: a duplicate, never a loss"

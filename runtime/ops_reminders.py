@@ -8,7 +8,7 @@ words a person types, the caps and the sentences are runtime/reminders.py; the t
 runtime/messaging_remind.py.
 
 A reminder is a stored one-shot notice: the person's own words, sent at a moment to the chat that made it, by the messaging bridge, with no model in
-between. It is a notice and never an effect (limit LR, contracts/runtime.md): it reaches only a sender the project lists, only in that sender's own
+between. It is a notice and never an effect (limit L51, contracts/runtime.md): it reaches only a sender the project lists, only in that sender's own
 private chat, with text that sender (or the person at the terminal) wrote, and nothing is done in the world.
 
   remind(project, when, text[, to])     make a reminder. From a messaging app: for the sender who asks, in their own chat (`to` is refused). From the
@@ -26,7 +26,7 @@ What the bridge asks, not operations of the table (no sender can type them; the 
                                         the ones later than the late window end `missed`; the ones whose sender is no longer listed, or whose profile no
                                         longer holds the group, end `dropped`: the configuration and the profile are read now, not when it was made
   reminders_sent(project, id)           the line went out: `sent`
-  reminders_retry(project, id)          it did not (a failed or deferred send): `open` again, tried at the next tick until the window ends
+  reminders_retry(project, id)          it did not (a failed or deferred send): `open` again, tried after a pause of 1, 2, 4, 8 ... minutes until the window ends
 
 The text of a reminder is the person's own words. It is never written to a log, never put in a notice, an error or a catalog, and never in the store's
 export; it leaves the store through `reminders_read` and `reminders_due` alone, and only toward the chat of the sender it was made for (or the terminal
@@ -56,6 +56,17 @@ UTC = datetime.timezone.utc
 def now() -> datetime.datetime:
     """The clock a reminder's time is read from: the machine's local time, with its zone. A test replaces this function."""
     return datetime.datetime.now().astimezone()
+
+
+def local_of(instant: datetime.datetime) -> datetime.datetime:
+    """An instant read in the machine's local time of THAT day (its rules then, a clock change included). A test replaces it with the rules of the
+    zone it stands for."""
+    return instant.astimezone()
+
+
+def day_start(clock: datetime.datetime) -> datetime.datetime:
+    """The real start of the local day of `clock`, by the rules of that day (not the offset `clock` carries: on the day a clock changes the two differ)."""
+    return local_at(datetime.datetime.combine(clock.date(), datetime.time(0, 0)))
 
 
 def local_at(naive: datetime.datetime) -> datetime.datetime:
@@ -137,21 +148,23 @@ def remind(project: str, when: str, text: str, to: str | None = None, channel: s
     try:
         words = rm.clean_text(text)
         clock = now()
-        found = rm.resolve(when, clock, local_at)
+        found = rm.resolve(when, clock, local_at, local_of)
     except ValueError as e:
         raise _fail(str(e), 2) from None
     labels = workcopy.credential_findings(words)
     if labels:
         raise _fail(rm.CREDENTIAL.format(labels=", ".join(sorted(set(labels)))), 2)
     store = ctx["store"]
-    start = _iso(clock.replace(hour=0, minute=0, second=0, microsecond=0))
+    start = _iso(day_start(clock))
     try:
         row = store.reminder_add(ctx["conn"], text=words, due_local=found["wall"], due_utc=_iso(found["due"]), zone=found["zone"], platform=platform,
-                                 chat=ident, created_by=ops_actor.label(cfg, channel, sender) or "terminal", max_open=rm.OPEN_MAX, max_day=rm.DAY_MAX,
+                                 chat=ident, created_by=ops_actor.label(cfg, channel, sender) or "terminal", max_open=rm.OPEN_MAX, max_day=rm.DAY_MAX, max_open_chat=rm.OPEN_CHAT_MAX,
                                  day_since=start, created_at=_iso(clock))
     except store.StoreError as e:
         if str(e) == store.REMINDER_OPEN_FULL:
             raise _fail(rm.OPEN_FULL.format(n=rm.OPEN_MAX)) from None
+        if str(e) == store.REMINDER_CHAT_FULL:
+            raise _fail(rm.CHAT_FULL.format(n=rm.OPEN_CHAT_MAX)) from None
         if str(e) == store.REMINDER_DAY_FULL:
             raise _fail(rm.DAY_FULL.format(n=rm.DAY_MAX)) from None
         raise _fail(str(e), e.code) from None
@@ -250,9 +263,13 @@ def reminders_sent(project: str, reminder_id: int) -> dict:
 
 
 def reminders_retry(project: str, reminder_id: int) -> dict:
-    """The line of a claimed reminder did not go out (a failed or deferred send): it is open again, tried at the next tick."""
+    """The line of a claimed reminder did not go out (a failed or deferred send): it is open again and is not offered before a pause that doubles with
+    each failure (1, 2, 4, 8 ... minutes, `reminders.retry_delay`), until the late window ends it `missed`. Returns {"id", "open", "retry_after"}."""
     ctx = core.context(project)
-    return {"id": reminder_id, "open": core._stored(ctx, ctx["store"].reminder_release, reminder_id)}
+    store = ctx["store"]
+    failed = core._stored(ctx, store.reminder_get, reminder_id)["attempts"] + 1
+    after = _iso(now().astimezone(UTC) + datetime.timedelta(seconds=rm.retry_delay(failed)))
+    return {"id": reminder_id, "open": core._stored(ctx, store.reminder_release, reminder_id, after), "retry_after": after}
 
 
 if __name__ == "__main__":

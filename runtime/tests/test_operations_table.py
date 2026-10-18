@@ -54,7 +54,7 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   # four operations; ops.py `answer` is the step that records an answer, which the row `answer` now reaches through answer_proposing
                   "for_run", "guard", "contained_prompt", "hash_of", "proposal", "answer", "vet",
                   # ops_reminders.py: what the messaging bridge asks of the store to send a reminder, and the clock, beside the three operations (no sender can type them)
-                  "reminders_due", "reminders_sent", "reminders_retry", "local_at"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "reminders_due", "reminders_sent", "reminders_retry", "local_at", "local_of", "day_start"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.

@@ -59,7 +59,8 @@ def parse(update: dict) -> dict:
     if not text:
         return {"kind": "ignore"}
     if text.startswith("/"):
-        word, _, rest = text.partition(" ")
+        pieces = text.split(None, 1)       # the command word ends at any blank (a line end, a no-break space), so `/remind\n15:00 x` is a command and never a line for a model
+        word, rest = pieces[0], (pieces[1] if len(pieces) > 1 else "")
         name, rest = word[1:].split("@", 1)[0].lower(), rest.strip()
         if name in USAGE:
             number = _id(rest)

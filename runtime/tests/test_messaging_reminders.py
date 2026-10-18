@@ -1,7 +1,7 @@
 """Reminders on a messaging app (package RM-1): `/remind`, `/reminders` and `/forget` from a listed sender, and the delivery of what is due, over the REAL
 operations layer and a stand-in messenger provider (the lab of test_sender_profiles_bridge.py): the group `reminders` off until a profile lists it, the reply
 that never echoes the words, a reminder delivered once to the chat that made it and to no other, the count mode, a sender removed or narrowed before the
-time, the late window, a send that failed, a restart, a phone that is never told a path, and limit LR. The pure part and the operations are in
+time, the late window, a send that failed, a restart, a phone that is never told a path, and limit L51. The pure part and the operations are in
 test_reminders.py; the table in providers/store/tests/test_sqlite_reminders.py. Offline, no model, no network; invented ids.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_reminders.py
@@ -69,6 +69,11 @@ def test_the_three_commands_are_read_from_a_line_with_no_clock_and_no_model():
     for line in ("/forget", "/forget x", "/forget -1", "/forget 3x"):
         assert parse(update(line)) == {"kind": "usage", "text": "Usage: /forget <n>"}, line
     assert parse(update("remind me at 15:00")) == {"kind": "text", "text": "remind me at 15:00"}, "free text still goes to the planning agent"
+    for blank in ("\n", "\u00a0", "\t", "\u2003", "  ", "\r\n"):         # the command word ends at any blank: the line is a command, never a line for a model
+        assert parse(update(f"/remind{blank}15:00 Call")) == {"kind": "remind", "when": "15:00", "text": "Call"}, repr(blank)
+        assert parse(update(f"/forget{blank}3")) == {"kind": "forget", "id": 3} and parse(update(f"/reminders{blank}")) == {"kind": "reminders"}
+    assert parse(update("/remind\n")) == {"kind": "usage", "text": rm.USAGE} and parse(update("/remind\u00a0")) == {"kind": "usage", "text": rm.USAGE}
+    assert parse(update("/approve\n12"))["kind"] == "approve"
     assert "/remind <time> <text>" in inbound.HELP and "/reminders" in inbound.HELP and "/forget <n>" in inbound.HELP
 
 
@@ -220,7 +225,7 @@ def test_late_by_five_hours_it_goes_with_the_time_it_was_due_and_late_by_seven_i
     assert "Third" not in " ".join(day.log) and DENTIST not in " ".join(day.log)
 
 
-def test_a_send_that_failed_or_was_deferred_is_tried_at_the_next_tick_and_goes_once(day, monkeypatch):
+def test_a_send_that_failed_or_was_deferred_is_tried_again_after_a_pause_that_doubles_and_goes_once(day, monkeypatch):
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
     day.clock.set("2026-10-18 15:00")
     real = day.bridge.messenger.send
@@ -232,14 +237,40 @@ def test_a_send_that_failed_or_was_deferred_is_tried_at_the_next_tick_and_goes_o
         return real(chat, message)
     monkeypatch.setattr(day.bridge.messenger, "send", flaky)
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [] and [r["status"] for r in day.all()["open"]] == ["open"]
+    assert reminder_texts(day, OWNER) == [] and [r["status"] for r in day.all()["open"]] == ["open"] and len(answers) == 1
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [] and [r["status"] for r in day.all()["open"]] == ["open"]
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"] and day.all()["open"] == []
+    assert len(answers) == 1, "the next ticks do not try again inside the minute"
+    day.clock.moment += datetime.timedelta(minutes=1)
+    day.bridge.tick()
+    assert reminder_texts(day, OWNER) == [] and not answers, "the second try is the deferred one"
+    day.clock.moment += datetime.timedelta(minutes=1, seconds=59)
+    day.bridge.tick()
+    assert reminder_texts(day, OWNER) == [], "two minutes were asked for"
+    day.clock.moment += datetime.timedelta(seconds=1)
+    day.bridge.tick()
+    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"] and day.all()["open"] == [], "four minutes late: within the tick's own delay, no mark"
     day.bridge.tick()
     assert len(reminder_texts(day, OWNER)) == 1
     assert DENTIST not in " ".join(day.log), "a failed send logs its class, never the words"
+
+
+def test_a_mark_that_fails_after_the_line_went_out_is_logged_by_class_and_the_line_may_go_twice(day, monkeypatch):
+    day.say(OWNER, f"/remind 15:00 {DENTIST}")
+    day.clock.set("2026-10-18 15:00")
+    real = ops.reminders_sent
+    monkeypatch.setattr(ops, "reminders_sent", lambda *a, **k: (_ for _ in ()).throw(ops.OpsError("the store at /Users/someone/x: locked", 1)))
+    day.bridge.tick()
+    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"]
+    assert any("a reminder could not be marked (OpsError)" in x for x in day.log) and not any("/Users" in x or "dentist" in x for x in day.log)
+    day.bridge.tick()
+    assert len(reminder_texts(day, OWNER)) == 1, "still claimed"
+    monkeypatch.setattr(ops, "reminders_sent", real)
+    day.clock.moment += datetime.timedelta(seconds=rm.CLAIM_STALE + 1)
+    day.bridge.tick()
+    assert len(reminder_texts(day, OWNER)) == 2, "the documented duplicate: the claim went stale and the line went again; it is marked now"
+    day.bridge.tick()
+    assert len(reminder_texts(day, OWNER)) == 2 and day.all()["open"] == []
 
 
 def test_a_restart_does_not_send_again_what_was_sent_and_sends_what_a_stopped_bridge_only_claimed(day):
@@ -295,7 +326,7 @@ def test_a_delivery_that_cannot_read_the_store_logs_its_class_and_goes_on(day, m
     assert any("reminders could not be read (OpsError)" in x for x in day.log) and not any("/Users" in x for x in day.log)
 
 
-# --- 4. limit LR ---------------------------------------------------------------------------------------------------------------------------------
+# --- 4. limit L51 ---------------------------------------------------------------------------------------------------------------------------------
 
 
 def test_limit_51_a_reminder_is_a_notice_to_the_sender_who_set_it_and_never_an_effect(day):
