@@ -69,12 +69,12 @@ def test_a_store_at_16_migrates_to_17_keeps_every_row_adds_two_columns_and_touch
     before = {t: [tuple(r) for r in old.execute(f"SELECT * FROM {t} ORDER BY 1")] for t in ("tasks", "pending_decisions", "approvals")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 16 and out["applied"] == [17] and out["schema_version"] == 17
+    assert out["migrated_from"] == 16 and out["applied"] == [17, 18] and out["schema_version"] == 18
     conn = store.open_db(path)
-    assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables, "no table is added or dropped"
+    assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables | {"attachments"}, "migration 18 adds its one table and drops none"
     for table, names in columns.items():
         now = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
-        assert now == names + (["actor"] if table in ("pending_decisions", "approvals") else []), table     # only these two tables gain a column
+        assert now == names + (["actor"] if table in ("pending_decisions", "approvals") else []) + (["provenance"] if table == "source_versions" else []), table     # only these gain a column
     for table, rows in before.items():
         after = [tuple(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY 1")]
         assert [row[:len(old_row)] for row, old_row in zip(after, rows)] == rows, table

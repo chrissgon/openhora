@@ -150,6 +150,10 @@
 .wb-rt-content { display: grid; grid-template-columns: max-content 1fr; gap: 2px 8px; margin: 0; font-size: 12px; min-width: 0; }
 .wb-rt-content dt { color: var(--pui-muted, inherit); }
 .wb-rt-content dd { margin: 0; overflow-wrap: anywhere; }
+.wb-at-sec[hidden] { display: none; }      /* the files people sent through a messaging app (ATT-1) */
+.wb-at-list, .wb-at-latest { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.wb-at-item, .wb-at-done { min-width: 0; overflow-wrap: anywhere; padding: 0 4px; }
+.wb-at-name, .wb-at-line { margin: 0; }
 .wb-in-sec[hidden], .wb-in-problem[hidden], .wb-in-changed[hidden] { display: none; }      /* the project's standing instructions */
 .wb-in-field { width: 100%; box-sizing: border-box; min-height: 8rem; resize: vertical; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-in-count, .wb-in-changed { overflow-wrap: anywhere; }

@@ -314,6 +314,26 @@ OPERATIONS = (
      "help": "set your description of a source (what it is, what it is for); the planner reads it with the catalog; an empty one clears it"},
     {"name": "sources", "call": "sources_catalog", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime"},
+    {"name": "attachments", "call": "attachments", "args": (), "channels": ("terminal", "chat", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "the files people sent through a messaging app (from a messaging app, only the ones you sent): those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder"},
+    {"name": "attachment-hold", "call": "attachment_hold",
+     "args": ({"name": "incoming", "kind": "str", "required": True},
+              {"name": "platform", "kind": "str", "required": True, "flag": "messenger-platform"},
+              {"name": "ref", "kind": "str", "required": True}, {"name": "name", "kind": "str", "required": True},
+              {"name": "declared_type", "kind": "str", "flag": "declared-type"}, {"name": "declared_bytes", "kind": "int", "flag": "declared-bytes"},
+              {"name": "target", "kind": "str"}, {"name": "direct", "kind": "flag"},
+              {"name": "max_bytes", "kind": "int", "flag": "max-bytes"}, {"name": "failed", "kind": "str"},
+              {"name": "fetched_bytes", "kind": "int", "flag": "fetched-bytes"}),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call after it fetched a file into an incoming folder it made: the intake bounds it, reads its type from its bytes and hashes it, and it is kept for your answer; with the grant add-sources-direct a file for a new source is added at once; with failed, a fetch that ended with no file is recorded so that it counts against the day"},
+    {"name": "attachment-add", "call": "attachment_add",
+     "args": ({"name": "attachment_id", "kind": "int", "required": True, "flag": "id", "label": "id"},),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "add a held file as a source of the project, or as the next version of the source it names: converted in a container with no network, scanned for credentials, kept as an immutable version with where it came from (never who sent it); the held file is deleted whatever the result"},
+    {"name": "attachment-discard", "call": "attachment_discard",
+     "args": ({"name": "attachment_id", "kind": "int", "required": True, "flag": "id", "label": "id"},),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "delete a held file without adding it (from a messaging app, only a file you sent, and only by the answer to its card: /add and /discard)"},
     {"name": "instructions", "call": "instructions_read", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the project's standing instructions (docs/workbench/instructions.md, written only by you): whether the file is there, its sha256, its characters against the cap, the problem that would stop a run, and the text; every model run of the project receives it in its prompt, and it never replaces a skill's stop rule, a confirmation gate or an approval"},
     {"name": "instructions-set", "call": "instructions_set",
@@ -406,6 +426,11 @@ GROUPS = {
     "instructions-write": {"operations": ("instructions-set", "instructions-add"), "kind": None},   # writing the person's standing instructions (L40): the terminal and the page alone BY DEFAULT, whatever a policy lists today (a later package makes it a grant); not `instructions`, the read operation of the group `read`
     "verdict": {"operations": ("verdict",), "kind": None},
     "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "sources"), "kind": None},
+    # ATT-1: files sent through a messaging app. `add-sources` is the group of everything about them (a messaging app takes a file only when its policy lists it,
+    # by default none does; the page keeps its ceiling unless its policy narrows it; the MCP mode has no row). `add-sources-direct` is a grant of the messaging
+    # channel: the file a listed sender sends becomes a version of a source at once, with no card; it holds the one call the bridge makes after a fetch
+    "add-sources": {"operations": ("attachments", "attachment-hold", "attachment-add", "attachment-discard"), "kind": None},
+    "add-sources-direct": {"operations": ("attachment-hold",), "kind": "direct"},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -443,7 +468,8 @@ BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel") 
 # effective_groups(channel, cfg, sender)). Nothing but accept-config in the terminal changes a profile, and nothing a sender sends names one.
 EFFECT_APPROVAL_WORDS = ("create", "write", "send", "publish")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
-    "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans"),
+    "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans",
+                  "add-sources-direct"),
     "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
 }
 GRANT_TEXT = {
@@ -452,6 +478,7 @@ GRANT_TEXT = {
     "messaging:approve-effect-send": "a messaging app may approve an e-mail sent from your outbox (never one with an attachment), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-publish": "a messaging app may approve a post to a social platform (never one with an image), from a card that carries the whole text, with its hash",
     "messaging:approve-networked-plans": "a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash",
+    "messaging:add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card)",
     "mcp:approve-plans": "a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain",
     "mcp:approve-acceptances": "a connected AI client may accept what a request delivered or proposed: a model then authorises more work",
     "mcp:reject-cancel": "a connected AI client may reject a decision and cancel a request",
@@ -487,6 +514,8 @@ GROUP_TEXT = {
     "instructions-write": "writes the person's standing instructions",
     "verdict": "records a verdict on a skill's use",
     "sources": "adds, imports, refreshes and describes the project's sources",
+    "add-sources": "takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files",
+    "add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation; a file for an existing source still waits for a card (it holds the hold alone, and adds nothing else)",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

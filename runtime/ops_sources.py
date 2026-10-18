@@ -55,7 +55,9 @@ class SourcesRefused(Exception):
 
 
 def _refused(error: "sources.SourcesError") -> "core.OpsError":
-    return core.OpsError(str(error), CODES.get(error.code, 1))
+    refused = core.OpsError(str(error), CODES.get(error.code, 1))
+    refused.why = error.code      # the word of the refusal, for the caller that sorts a file's fault from a problem of this machine (ops_attachments)
+    return refused
 
 
 def _evidence_base():
@@ -89,11 +91,13 @@ def source_add(project: str, source_id: str, source_type: str, origin: str, desc
         raise _refused(e) from None
 
 
-def import_bytes(project: str, source_id: str, name: str, data: bytes) -> dict:
-    """source_import for a file whose bytes the caller already holds (the step kind `ingest`, which hashed them against the plan):
-    the same registration, label, intake and conversion, from those bytes and not from a path read again. `name` is the file's name.
+def import_bytes(project: str, source_id: str, name: str, data: bytes, provenance: dict | None = None, origin: str | None = None) -> dict:
+    """source_import for a file whose bytes the caller already holds (the step kind `ingest`, which hashed them against the plan; an
+    attachment a person added, ATT-1): the same registration, label, intake and conversion, from those bytes and not from a path read again.
+    `name` is the file's name, and `origin` the origin of a source this import registers (default: the name). `provenance`
+    (sources.clean_provenance) says where the file came from, when a messaging app brought it.
     Not an operation."""
-    return _import(project, source_id, name, None, None, None, data)
+    return _import(project, source_id, name, None, origin, None, data, provenance)
 
 
 def source_import(project: str, source_id: str, file: str | None = None, url: str | None = None,
@@ -107,7 +111,7 @@ def source_import(project: str, source_id: str, file: str | None = None, url: st
     return _import(project, source_id, file, url, origin, description, None)
 
 
-def _import(project: str, source_id: str, file, url, origin, description, data) -> dict:
+def _import(project: str, source_id: str, file, url, origin, description, data, provenance=None) -> dict:
     """The work of source_import; `data`, when given, is the file's bytes (file is then its name)."""
     if (file is None) == (url is None):
         raise core.OpsError("give exactly one of --file (a file of yours) and --url (a Notion page's address or id)", 2)
@@ -130,7 +134,7 @@ def _import(project: str, source_id: str, file, url, origin, description, data) 
         label = _label(ctx, row)
         if kind == "file":
             done = sources.import_version(ctx, row, data if data is not None else os.path.abspath(file), convert=_convert(ctx),
-                                          label=label, evidence_base=evidence)
+                                          label=label, evidence_base=evidence, provenance=provenance)
         else:
             done = _import_notion(ctx, row, url, evidence, label)
     except sources.SourcesError as e:

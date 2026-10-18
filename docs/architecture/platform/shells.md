@@ -328,6 +328,9 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `source-drive` | `[--file-id]` `[--source]` `[--description]` | `source_drive` |
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
+| `attachments` | - | `attachments` |
+| `attachment-add` | `--id` | `attachment_add` |
+| `attachment-discard` | `--id` | `attachment_discard` |
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
 | `instructions-add` | `--line` `--base-sha256` | `instructions_add` |
@@ -358,6 +361,7 @@ Every verb also takes `--project <dir>`. The parser is built from `terminal_verb
 | `/retry <task id>` | make a failed or blocked task ready again |
 | `/cancel <request id>` | cancel a request at any moment, even while a task of it runs: the run is ended and returns nothing, what it used so far is spent |
 | `/stop-task <task id>` | stop one running task: its run is ended and returns nothing, the task is blocked, and retry resumes it |
+| `/attachments` | the files people sent through a messaging app (from a messaging app, only the ones you sent): those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder |
 | `/new <text>` | start a new request, whatever is open (--after <id> before the text: run it after that request) |
 <!-- /generated -->
 
@@ -448,6 +452,9 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/sources/{name}/refresh` | `source-refresh` | `source_id` from `{name}` | none | `file` | - |
 | POST | `/projects/{p}/sources/{name}/refresh/files` | `source-refresh` | `source_id` from `{name}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/sources/{name}/description` | `source-describe` | `source_id` from `{name}` | `description` | - | - |
+| GET | `/projects/{p}/attachments` | `attachments` | - | none | - | - |
+| POST | `/projects/{p}/attachments/{id}/add` | `attachment-add` | `attachment_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/attachments/{id}/discard` | `attachment-discard` | `attachment_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->

@@ -55,6 +55,12 @@ export function instructions() {
   return { path: "docs/workbench/instructions.md", present: false, sha256: null, characters: 0, cap: 4000, problem: null, text: "" };
 }
 
+/** The files people sent through a messaging app, as `attachments` answers: the demo has none (it reads no messaging app and holds no file), with the keys the operation returns. */
+export function attachments() {
+  return { held: [], recent: [], today: { files: 0, bytes: 0 },
+    limits: { file_cap: 26214400, day_files: 20, day_bytes: 104857600, held_max: 10, per_message: 5, held_days: 7 } };
+}
+
 export function status(P) {
   return fill(F.status, {
     config: { file: "runtime.json", sha256: P.configSha },
