@@ -84,9 +84,14 @@ def _convert(ctx):
     return sources.provider_convert(ctx["cfg"])
 
 
-def source_add(project: str, source_id: str, source_type: str, origin: str, description: str | None = None) -> dict:
+def source_add(project: str, source_id: str, source_type: str, origin: str, description: str | None = None,
+               channel: str | None = None) -> dict:
     """Register a source: its id, its type (`file`, `notion`, `drive` or `onedrive`), its origin (a file's name, the address or the id of a
-    Notion page, a Drive file's id, or a OneDrive file's "<drive id>/<item id>") and an optional description. Nothing is imported and no credential is kept. Returns {"source": the row}."""
+    Notion page, a Drive file's id, or a OneDrive file's "<drive id>/<item id>") and an optional description. A OneDrive source is registered
+    from the terminal alone (`channel` must be "terminal"): `Files.Read` reaches every file of the person's OneDrive, so the choice of the files is
+    made where the person lists them (`source-onedrive`), never by a token of the page. Nothing is imported and no credential is kept. Returns {"source": the row}."""
+    if source_type == "onedrive" and channel != "terminal":
+        raise core.OpsError("a OneDrive file is chosen in the terminal: use `source-onedrive` (a page, a chat or a model cannot register one)", 2)
     ctx = core.context(project)
     try:
         return {"source": sources.register(ctx, source_id, source_type, origin, description)}
@@ -308,7 +313,7 @@ def _onedrive_one(ctx, item_id: str, evidence, source_id=None, description=None,
         out["name"] = sources._clean(info.get("name") or "", 200) or None
         if not info["supported"]:
             raise sources.SourcesError(sources._clean(info.get("reason") or "OneDrive says it cannot be read", 300), "onedrive")
-        existing = next((r for r in sources.list_catalog(ctx, hashes=False) if r["type"] == "onedrive" and r["origin"] == item_id), None)
+        existing = next((r for r in sources.list_catalog(ctx, hashes=False) if r["type"] == "onedrive" and r["origin"].lower() == item_id.lower()), None)
         if existing is not None:
             row, registered = sources.public_row(ctx["store"].source_get(ctx["conn"], existing["id"])), False
             if source_id not in (None, row["id"]):
@@ -326,7 +331,7 @@ def _onedrive_one(ctx, item_id: str, evidence, source_id=None, description=None,
         if registered:
             done = sources_onedrive.onedrive_import(ctx, row, convert=convert or _convert(ctx), label="import", call=call, evidence_base=evidence)
         else:   # a file chosen again is a refresh: the cTag is asked first, and nothing is read when it has not moved
-            done = sources_onedrive.onedrive_refresh(ctx, row, convert=convert or _convert(ctx), call=call, evidence_base=evidence)
+            done = sources_onedrive.onedrive_refresh(ctx, row, convert=convert or _convert(ctx), call=call, evidence_base=evidence, info=info)
         out.update({k: done[k] for k in ("imported", "version", "kind", "warnings") if k in done})
         if done.get("unchanged"):
             out["unchanged"] = True
@@ -358,10 +363,10 @@ def source_onedrive(project: str, search: str | None = None, folder: str | None 
             found = sources_onedrive.onedrive_candidates(ctx["cfg"], search=search, folder=folder)
         except sources.SourcesError as e:
             raise _refused(e) from None
-        known = {r["origin"]: r["id"] for r in sources.list_catalog(ctx, hashes=False) if r["type"] == "onedrive"}
+        known = {r["origin"].lower(): r["id"] for r in sources.list_catalog(ctx, hashes=False) if r["type"] == "onedrive"}
         for candidate in found["candidates"]:
-            if candidate["id"] in known:
-                candidate["source"] = known[candidate["id"]]
+            if candidate["id"].lower() in known:
+                candidate["source"] = known[candidate["id"].lower()]
         return found
     evidence = _evidence_base()
     results = [_onedrive_one(ctx, one, evidence, source_id=source_id, description=description) for one in chosen]

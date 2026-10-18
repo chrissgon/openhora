@@ -137,13 +137,13 @@ def onedrive_import(ctx, source: dict, *, convert, label: str, call=None, clock=
         shutil.rmtree(stage, ignore_errors=True)
 
 
-def onedrive_refresh(ctx, source: dict, *, convert, call=None, clock=None, evidence_base=None) -> dict:
+def onedrive_refresh(ctx, source: dict, *, convert, call=None, clock=None, evidence_base=None, info=None) -> dict:
     """A refresh of a OneDrive source. The provider's `stat` is asked first: when its version (the cTag) is the one recorded with the
     newest version, nothing is read and no version is made (the files in the folder are still checked against the record, limit L25).
     When it differs, the file is read and imported; bytes already held make no version either. Returns {"imported", "unchanged", "read"
-    (whether the file was read), "remote_version", "version", ...}."""
+    (whether the file was read), "remote_version", "version", ...}. `info` is a `stat` answer the caller has just asked for (not asked twice)."""
     cfg = ctx["cfg"]
-    info = onedrive_stat(cfg, onedrive_id_of(source), call=call)
+    info = info if info is not None else onedrive_stat(cfg, onedrive_id_of(source), call=call)
     if not info["supported"]:
         raise SourcesError(f"{source['id']} is not read: {_clean(info.get('reason') or 'OneDrive says it cannot be read', ONEDRIVE_REASON_CHARS)}",
                            "onedrive")

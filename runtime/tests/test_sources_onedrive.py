@@ -486,14 +486,83 @@ def test_source_onedrive_is_a_terminal_operation_only_and_outside_the_group_a_po
     assert "onedrive" in cli.build_parser().parse_args(["source-add", "--project", "/p", "--source", "x", "--type", "onedrive", "--origin", ident(DOCX)]).f_type
 
 
-def test_source_add_registers_a_onedrive_source_with_its_origin_checked(cloud):
-    made = ops_sources.source_add(cloud.path, "notes", "onedrive", ident(DOCX), "The weekly notes.")
+def test_source_add_registers_a_onedrive_source_from_the_terminal_alone_with_its_origin_checked(cloud):
+    row = operations.by_name("source-add")
+    assert row["channel_arg"] is True and "page" in row["channels"], "the page may register the other types: the operation takes the channel"
+    for channel in ("page", "mcp", "messaging", "chat", None):
+        with pytest.raises(ops_core.OpsError) as refused:
+            ops_sources.source_add(cloud.path, "notes", "onedrive", ident(DOCX), channel=channel)
+        assert refused.value.code == 2 and "source-onedrive" in str(refused.value), channel
+    assert sources.list_catalog(cloud.ctx, hashes=False) == []
+    made = ops_sources.source_add(cloud.path, "notes", "onedrive", ident(DOCX), "The weekly notes.", channel="terminal")
     assert made["source"]["type"] == "onedrive" and made["source"]["origin"] == ident(DOCX)
     with pytest.raises(ops_core.OpsError) as refused:
-        ops_sources.source_add(cloud.path, "bad", "onedrive", "not-an-id")
+        ops_sources.source_add(cloud.path, "bad", "onedrive", "not-an-id", channel="terminal")
     assert refused.value.code == 2
     with pytest.raises(ops_core.OpsError):
-        ops_sources.source_add(cloud.path, "bad", "ftp", ident(DOCX))
+        ops_sources.source_add(cloud.path, "bad", "ftp", ident(DOCX), channel="terminal")
+    assert ops_sources.source_add(cloud.path, "plain", "file", "survey.csv", channel="page")["source"]["type"] == "file", "the page still registers a file"
+
+
+def test_the_page_may_refresh_a_onedrive_source_the_terminal_chose_and_nothing_else_of_onedrive(cloud):
+    cloud.choose(DOCX, source_id="weekly")
+    assert "page" in operations.by_name("source-refresh")["channels"] and operations.by_name("source-onedrive")["channels"] == ("terminal",)
+    assert ops_sources.source_refresh(cloud.path, "weekly")["unchanged"] is True
+    cloud.fake.edit(DRIVE, DOCX, make_docx(["Weekly notes", "New."]))
+    assert ops_sources.source_refresh(cloud.path, "weekly")["refreshed"] is True
+
+
+def test_one_file_is_one_source_and_a_onedrive_id_is_compared_without_case(cloud):
+    sources.register(cloud.ctx, "notes", "onedrive", "b!Fake-Drive_1/ABC123!101")
+    for again in ("b!Fake-Drive_1/ABC123!101", "B!FAKE-DRIVE_1/abc123!101"):
+        with pytest.raises(sources.SourcesError) as refused:
+            sources.register(cloud.ctx, "twin", "onedrive", again)
+        assert refused.value.code == "usage" and "already the source notes" in str(refused.value)
+    drive_id = "1DocAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    sources.register(cloud.ctx, "gdoc", "drive", drive_id)
+    with pytest.raises(sources.SourcesError) as refused:
+        sources.register(cloud.ctx, "gdoc-2", "drive", drive_id)
+    assert "already the source gdoc" in str(refused.value)
+    assert sources.register(cloud.ctx, "gdoc-3", "drive", drive_id.replace("Doc", "doc"))["id"] == "gdoc-3", "a Drive id is case-sensitive"
+    assert sources.register(cloud.ctx, "other", "file", "b!Fake-Drive_1/ABC123!101".split("/")[1])["type"] == "file"
+
+
+def test_a_file_chosen_again_asks_onedrive_about_it_once(cloud):
+    cloud.choose(PDF)
+    before = len(cloud.calls)
+    cloud.choose(PDF)
+    assert [c[1] for c in cloud.calls[before:]] == ["stat"], "one metadata call: the refresh uses the answer the choice already has"
+
+
+def test_a_file_with_a_key_in_its_text_is_refused_by_the_shared_scan_and_nothing_is_kept(cloud):
+    key = "sk-" + "ant-" + "api03-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"
+    cloud.fake.add_file(DRIVE, "KEY1!120", "Handover.docx", make_docx([f"The api key is {key} please keep it"]), mime=fake_graph.DOCX)
+    [one] = cloud.choose("KEY1!120", source_id="handover")["results"]
+    assert "credential" in one["error"] and key not in json.dumps(one) and cloud.count("handover") == 0
+    assert not (cloud.folder / "handover").exists() or not any((cloud.folder / "handover").iterdir())
+
+
+HOSTILE = "Plan\u202e\u009b\u200b\u2028\u2067 end"
+
+
+def test_invisible_and_directional_characters_are_cleaned_on_the_onedrive_and_the_drive_paths(cloud):
+    assert sources._clean(HOSTILE, 100) == "Plan end"
+    assert sources._clean("tab\tand\nline  \x7f\x00 caf\u00e9", 100) == "tab and line café", "an ordinary accent stays"
+    answer = {"items": [{"id": ident("EVIL2!1"), "name": HOSTILE, "kind": "file", "path": "/" + HOSTILE, "size": 1, "modified": "",
+                         "supported": False, "reason": HOSTILE}]}
+    [only] = sources_onedrive.onedrive_candidates(cloud.cfg, search="plan", call=lambda *a, **k: answer)["candidates"]
+    assert (only["name"], only["path"], only["reason"]) == ("Plan end", "/Plan end", "Plan end")
+
+    def onedrive_stat_answer(cls, verb, args, **kwargs):
+        return {"id": ident("EVIL2!1"), "name": HOSTILE, "version": "c:1", "supported": False, "reason": HOSTILE}
+    [refused] = [ops_sources._onedrive_one(cloud.ctx, ident("EVIL2!1"), None, call=onedrive_stat_answer)]
+    assert refused["name"] == "Plan end" and refused["error"] == "Plan end"
+
+    def drive_answer(cls, verb, args, **kwargs):
+        return {"id": "x", "name": HOSTILE, "version": "1", "supported": False, "reason": HOSTILE, "mime_type": "", "archived": False}
+    file_id = "1DocAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    drive = ops_sources._drive_one(cloud.ctx, {"id": file_id, "name": None}, None, call=drive_answer)
+    assert drive["name"] == "Plan end" and drive["error"] == "Plan end"
 
 
 # --- a credential never enters a run ---------------------------------------------------------------------------------------------------

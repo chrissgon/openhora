@@ -84,6 +84,7 @@ import signal
 import stat
 import sys
 import threading
+import unicodedata
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -119,6 +120,7 @@ HEADINGS_SHOWN, HEADING_CHARS = 8, 80
 CATALOG_ENTRY_CHARS = 1800                       # one source in the planner's text
 CATALOG_TEXT_CHARS = 24000                       # all the sources in the planner's text
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+INVISIBLE_CATEGORIES = ("Cc", "Cf", "Zl", "Zp")   # what _clean turns into a space besides CONTROL
 NOTION_HOSTS = ("notion.so", "www.notion.so")
 NOTION_ID = re.compile(r"[0-9a-f]{32}")
 NOTION_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -745,7 +747,10 @@ def _now(clock=None) -> str:
 
 def _clean(text, limit: int) -> str:
     """Text of the person's data, shown in a catalog: control characters out, white space collapsed, cut at `limit`."""
-    one = " ".join(CONTROL.sub(" ", str(text)).split())
+    raw = CONTROL.sub(" ", str(text))
+    if not raw.isascii():   # C1 controls, bidi overrides and isolates, zero-width marks, line and paragraph separators (Cc, Cf, Zl, Zp) are not text either
+        raw = "".join(" " if unicodedata.category(c) in INVISIBLE_CATEGORIES else c for c in raw)
+    one = " ".join(raw.split())
     return one if len(one) <= limit else one[:max(0, limit - 1)].rstrip() + "…"
 
 
@@ -1041,6 +1046,11 @@ def register(ctx, source_id: str, source_type: str, origin: str, description=Non
         origin = os.path.basename(origin.replace("\\", "/"))
         if not origin:
             raise SourcesError("the origin of a file source is the file's name", "usage")
+    if source_type in ("drive", "onedrive"):   # one file is one source: a OneDrive id is compared without case (a personal id is hex), a Drive id as it is
+        fold = str.lower if source_type == "onedrive" else str
+        for held in _stored(ctx, "sources_list"):
+            if held["type"] == source_type and fold(held["origin"]) == fold(origin):
+                raise SourcesError(f"this file is already the source {held['id']}", "usage")
     if source_type == "file" and origin.strip().startswith(DRIVE_PREFIX):
         raise SourcesError(f"a file source's origin cannot start with {DRIVE_PREFIX!r}: that marks a Drive source", "usage")
     return public_row(_stored(ctx, "source_add", source_id=source_id, source_type=source_type, origin=origin.strip(),
