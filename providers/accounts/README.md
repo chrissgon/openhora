@@ -85,7 +85,79 @@ After ACCT-LEGACY: `uv run --with keyring==25.7.0 keyring del openhora gdrive-so
 
 ## Microsoft
 
-The Microsoft account token is made by `providers/accounts/microsoft_auth.py` (package ACCT-M); its section is written with it.
+```
+uv run <workbench>/providers/accounts/microsoft_auth.py authorize [--account main] [--no-browser]
+uv run <workbench>/providers/accounts/microsoft_auth.py check     [--account main]
+uv run <workbench>/providers/accounts/microsoft_auth.py forget    [--account main]
+```
+
+`--help` carries the Entra steps and the exit codes. The client id is read from `MICROSOFT_CLIENT_ID` in the environment of the command (or typed at a hidden prompt on a terminal), never from a flag; an office with its own single-tenant registration also sets `MICROSOFT_TENANT` (default `common`).
+
+### One registration, six permissions
+
+One app registration in the maintainer's Entra directory: supported account types "Any Entra ID Tenant + Personal Microsoft accounts", platform "Mobile and desktop applications" with the redirect `http://localhost` (the port is ignored for `localhost`), **a public client with no client secret**. Delegated permissions on Microsoft Graph, and nothing else:
+
+| Permission | What Microsoft says it grants | Admin consent | What the platform uses it for |
+|---|---|---|---|
+| `Mail.ReadWrite` | "create, read, update, and delete email in user mailboxes. Does not include permission to send mail" | no; available for consent in personal Microsoft accounts | the mail reader today; drafts, replies, moves and read state later |
+| `Mail.Send` | "send mail as users in the organization" | no | sending from the person's own address, later |
+| `Calendars.ReadWrite` | "create, read, update, and delete events in user calendars" | no | the calendar reader today; events later |
+| `Files.ReadWrite` | "read, create, update and delete the signed-in user's files"; on personal accounts it also reaches files shared with the user | no | the OneDrive reader today; new files and revisions later |
+| `User.Read` | sign in and read the user's profile | no | `GET /me` once, at authorization, for the account's address |
+| `offline_access` | grants no access to a resource; asks for a refresh token | no | the refresh token |
+
+Sources (Microsoft's own pages, accessed 2026-10-18 by the research pass of the plan; the wording of `User.Read` is to verify): the permissions reference https://learn.microsoft.com/en-us/graph/permissions-reference ; refresh tokens https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens . `Files.ReadWrite` is used and not `Files.ReadWrite.All`: on a personal account the first already reaches the person's own files and the files shared with them, and `.All` adds nothing this platform uses.
+
+The code's constant is `PLATFORM_SCOPES` in `providers/_msgraph.py`. **A token whose granted set (the authorization's and every refresh's), without `openid`, `email`, `profile` and `offline_access`, is not exactly that set is refused** with exit 3: a missing permission ("the account token lacks <permission>: run the authorize command and keep every box ticked"), or an extra one ("the account token carries <permission>, which the platform does not ask: remove it from the registration, revoke the app's access, and run the authorize command"). An authorization that returns a wrong set stores nothing.
+
+### Personal accounts and work accounts
+
+None of the six needs an admin's consent on a personal account, and the consent screen lists them once. A work or school tenant may block user consent by its own policy; the command then stops with exit 3 and the sentence "your Microsoft 365 admin must approve the app". A personal account (outlook.com, hotmail.com) cannot register an app without a directory of its own; `microsoft_auth.py --help` says how to get a free one.
+
+### The record
+
+Secret `MICROSOFT_ACCOUNT_TOKEN` (registry in `providers/secrets/resolver.py`, table in `contracts/secrets.md`), store username `microsoft-account`, service `openhora`; one JSON record:
+
+```
+{"slot": "main", "refresh_token": "...", "client_id": "...", "tenant": "common",
+ "scope": "Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.ReadWrite User.Read",
+ "account_kind": "personal", "account": "<the address>", "obtained_at": "<UTC>"}
+```
+
+The address is read once with `GET /me` (`mail`, else `userPrincipalName`); an authorization that cannot read it stores nothing (exit 1). `account_kind` comes from one more read, `GET /me/drive`; a failure there is a note and the kind is stored as `unknown`. The record carries a `slot` so that a second account can be added later without moving this one; only `main` exists, and `--account` with another word is refused (exit 2). A record without a `slot` is never the account's.
+
+`check` reads the record back through the resolver (the environment, the credentials directory, then the OS secret store), checks it was made for the platform's set, and prints `{"found", "source", "slot", "account", "account_kind", "tenant", "scopes", "has_refresh_token", "obtained_at"}`: **no network call and no token**. `forget` deletes the local record of this account only (a local delete; it revokes nothing).
+
+### Who reads it, and what they send
+
+`providers/documents/onedrive.py`, `providers/mailbox/outlook.py` and `providers/calendar/outlook.py` read the account record first; their verbs are unchanged and they send **GET requests only** to Graph (the token endpoint is the one POST). Each prints `"record": "account"` in `--check`. The writers that come later send only the methods and paths of their own allow-list. A provider process is started by the runtime (or by the person's terminal) with the minimum environment plus this one secret (`providers/resolve.py` `provider_environment`), so the token is never in a run, a prompt, a manifest, a card or a log.
+
+### The rotation, and the race
+
+Microsoft replaces the refresh token on every use. Several provider processes now share one record, so two refreshes can overlap: both start from the token the record held, each is answered with a new one, and one of the two write-backs has to lose. The rule (`store_rotation` in `providers/_msgraph.py`):
+
+1. A rotation is written only when the record was found in the OS secret store (a record from the environment or the credentials directory is never rewritten: it ages 90 days from the consent), and only into the record the process used, the account's or a legacy one.
+2. Immediately before the write the record is read again through the resolver, and the new token is written only if the stored record **still holds the token this process used**. A record forgotten meanwhile, authorized again meanwhile, or rotated first by another process is left alone ("not stored: the record changed meanwhile").
+3. The read, the comparison and the write are one step per process (a lock), so threads of one process that interleave write back once.
+4. The loser keeps working with the token it has. Microsoft documents that a refresh token is bound to a user and a client, and replaced on use; that the old one stays valid until it expires is the stand-in's model and is **to verify live**. If Microsoft invalidated the old token at rotation, a loser's next refresh would be refused with exit 3 and the authorize command; nothing would be lost but that process's session.
+5. Between two processes the OS secret store has no compare-and-swap: the window is the two calls (the read and the write), and the worst case is one still-valid token replacing another.
+
+`providers/accounts/tests/test_account_microsoft_rotation.py` runs two (and four) refreshes interleaved against the stand-in token endpoint, with a slow write, and asserts one write-back and every call succeeding.
+
+### The old records (one cycle)
+
+Each reader's own single-permission record keeps working as a fallback, for one cycle, with its old exact check and one note on stderr per process: `onedrive-sources` (`ONEDRIVE_SOURCES_TOKEN`), `outlook-mail` (`OUTLOOK_MAIL_TOKEN`), `outlook-calendar` (`OUTLOOK_CALENDAR_TOKEN`). When both exist the account record is used and the legacy one is not read; an account record that the service refuses does **not** fall back to the legacy one. The fallback and the three old `*_auth.py authorize` commands are removed in the cycle after the integration branch reaches `main` (backlog ACCT-LEGACY). Code never deletes an old record. Once `check` passes and a reader's `--check` says `"record": "account"`, remove them yourself: `uv run --with keyring==25.7.0 keyring del openhora onedrive-sources` (and `outlook-mail`, `outlook-calendar`), and delete the three old registrations in Entra.
+
+### To verify live (nothing here was run against Microsoft)
+
+- The consent screen shows the six permissions once and a personal account can approve without an admin.
+- The token response carries the granted set the way `check_platform_scope` reads it (with or without the Graph prefix), on a personal account and on a work account.
+- Microsoft leaves the old refresh token valid after a rotation (the race above).
+- `GET /me` names `mail` or `userPrincipalName` for a personal account; the wording of `User.Read`.
+
+### Tests
+
+`uv run --with pytest==9.1.1 pytest providers/accounts/tests` (offline: a stand-in token endpoint and Graph on `127.0.0.1`, fake tokens). `test_account_microsoft_auth.py` (the consent URL, the stored record, a missing or an extra permission, `check`, `forget`), `test_account_microsoft_readers.py` (each reader with the account record alone, the legacy record alone and both, GET only, no token in any output, the rotation per reader), `test_account_microsoft_rotation.py` (the race), `test_account_microsoft.py` (the set, the record, the choice between records, the static facts the limits rest on). The existing suites of the three readers run unchanged.
 
 ## Sources
 

@@ -268,6 +268,23 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
                 "and rewritten by providers/calendar/outlook.py when Microsoft replaces the refresh token (only when it was found in the "
                 "OS secret store, and only if it still holds the token the provider used); no client secret exists (a public client); "
                 "from the environment, the same JSON text"),
+    Secret("MICROSOFT_ACCOUNT_TOKEN",
+           "act on the person's own Microsoft account (Outlook mail and calendar, OneDrive): the readers of the mail, calendar and file "
+           "sources today, the platform's writers later; one consent for the whole account",
+           "Microsoft Graph delegated Mail.ReadWrite, Mail.Send, Calendars.ReadWrite, Files.ReadWrite and User.Read, with offline_access "
+           "(providers/accounts/microsoft_auth.py), from one app registration: the token can read, change, send and move to the trash "
+           "everything the account holds in those services and delete nothing permanently through this code; what stops misuse is the "
+           "platform's (policies, a card of the exact content for each write, the verbs each script sends, no token in a run), not the "
+           "token's. A token that lacks one of the set or carries another is refused",
+           ("providers/accounts/microsoft_auth.py", "providers/_msgraph.py", "providers/documents/onedrive.py", "providers/mailbox/outlook.py",
+            "providers/calendar/outlook.py"),
+           store_username="microsoft-account",
+           set_local="uv run providers/accounts/microsoft_auth.py authorize (writes the record after the browser consent)",
+           note="one JSON record (slot, refresh_token, client_id, tenant, scope, account_kind, account, obtained_at) written by "
+                "providers/accounts/microsoft_auth.py and rewritten by the readers through providers/_msgraph.py when Microsoft replaces the "
+                "refresh token (only when it was found in the OS secret store, and only if it still holds the token the provider used); no "
+                "client secret exists (a public client); the readers use it before their own single-permission records, which stay for one "
+                "cycle; from the environment, the same JSON text"),
     Secret("MESSENGER_TELEGRAM_BOT_TOKEN",
            "receive the person's messages and send the notices of the messaging bridge, as a Telegram bot",
            "a bot created for this person with the platform's bot service, used only by this bridge",
