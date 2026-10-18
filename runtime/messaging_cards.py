@@ -234,3 +234,43 @@ def split(text: str, limit: int) -> list:
     if text or not pieces:
         pieces.append(text)
     return pieces
+
+
+# --- the card of a file a sender sent (ATT-1) ----------------------------------------------------------------------------------------
+
+ATTACH_OPERATION = {"add": "attachment-add", "discard": "attachment-discard"}
+ATTACH_LABELS = {"add": "Add", "discard": "Discard"}
+ATTACH_ASK = "File from you on {platform}: {name} ({size}, {kind}).\nAdd it to {project} as the source `{id}`?"
+ATTACH_ASK_VERSION = "File from you on {platform}: {name} ({size}, {kind}).\nAdd it to {project} as version {n} of the source `{id}`?"
+ATTACH_COUNT = "A file from you waits for your answer."
+
+
+def attachment_card(project_name: str, row: dict, next_version: int, caps: dict, policy, notices: str = "text", operations=None, sender: str | None = None) -> dict:
+    """The card of one held file (kind `attachment`), drawn for the sender who sent it: a question with **Add** and **Discard**, each only when the sender's profile
+    permits `attachment-add` / `attachment-discard`; a platform with no buttons gets the typed lines `Send /add 3` and `Send /discard 3`; what the policy refuses is
+    neither drawn nor offered (the card says to act on the page or in the terminal). With notices "count" the card carries nothing of the project or of the file.
+    `row` is the held file as `attachments` reads it (its name, kind and size are the sender's own words, already cleaned and cut). Returns {"message", "content_sha256"
+    (the one of attachments.card_sha256), "kind": "attachment", "attachment_id", "actionable"}; the bridge records it in the ledger with the file's number in place of a
+    decision's."""
+    import attachments as att
+    words = [w for w in ("add", "discard") if operations.permitted(ATTACH_OPERATION[w], CHANNEL, policy, None, sender)]
+    buttons_ok = bool(caps.get("buttons")) and caps.get("max_buttons", 0) > 0
+    room = caps.get("max_buttons", 0) if buttons_ok else 0
+    shown, typed_words = words[:room], words[room:]
+    footer = [f"Send /{w} {row['id']}" for w in typed_words]
+    if len(words) < 2:
+        footer.append(PAGE_LINE)
+    header = f"{project_name} · file #{row['id']}"
+    if notices == "count":
+        body = ATTACH_COUNT
+    else:
+        fields = dict(platform=row.get("platform") or "a messaging app", name=row["name"], size=att.size_text(row["bytes"]), kind=row.get("kind") or "file",
+                      project=project_name, id=row["target"], n=next_version)
+        body = (ATTACH_ASK_VERSION if row.get("label") == "refresh" else ATTACH_ASK).format(**fields)
+    tail = "\n\n" + "\n".join(footer) if footer else ""
+    text = _cut(header + "\n\n" + body, int(caps.get("max_text") or 4096) - len(tail), CUT) + tail
+    message = {"text": text, "actions": [{"op": w, "label": ATTACH_LABELS[w]} for w in shown], "link": None, "document": None}
+    if footer and caps.get("actions_need_reply"):
+        message["footer"] = list(footer)
+    return {"message": message, "content_sha256": att.card_sha256(row["sha256"], row["target"], row["label"]), "kind": "attachment", "attachment_id": row["id"],
+            "actionable": bool(words)}

@@ -3582,7 +3582,7 @@ def source_version_add(conn: sqlite3.Connection, *, source_id: str, version: int
     with write(conn):
         if _source_row(conn, source_id) is None:
             raise StoreError(f"no source {source_id}")
-        top =conn.execute("SELECT COALESCE(MAX(version), 0) AS top FROM source_versions WHERE source_id = ?", (source_id,)).fetchone()["top"]
+        top = conn.execute("SELECT COALESCE(MAX(version), 0) AS top FROM source_versions WHERE source_id = ?", (source_id,)).fetchone()["top"]
         if version != top + 1:
             raise StoreError(f"the next version of {source_id} is {top + 1}, not {version}")
         conn.execute("INSERT INTO source_versions (source_id, version, label, by, kind, original_name, original_sha256, original_bytes, "

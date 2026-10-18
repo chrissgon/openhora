@@ -193,7 +193,7 @@ def _failed_fetch(ctx, platform, ref, name, declared, declared_bytes, failed, fe
     if failed not in att.FAILED_FETCH:
         raise _fail(f"a failed fetch is one of {', '.join(att.FAILED_FETCH)}", 2)
     size = fetched_bytes if type(fetched_bytes) is int and fetched_bytes >= 0 else 0
-    _record(ctx, platform, att.ref_digest(platform, ref), ident, ops_actor.profile_of(ctx["cfg"], sender), name, att.media_type(declared) or None,
+    _record(ctx, platform, att.ref_digest(platform, ref, ident), ident, ops_actor.profile_of(ctx["cfg"], sender), name, att.media_type(declared) or None,
             declared_bytes if type(declared_bytes) is int and declared_bytes >= 0 else None, None, None, min(size, att.FILE_CAP), failed)
     return {"recorded": True, "code": failed}
 
@@ -201,7 +201,7 @@ def _failed_fetch(ctx, platform, ref, name, declared, declared_bytes, failed, fe
 def _hold(project, ctx, folder, platform, ref, name, declared, declared_bytes, wanted, direct, max_bytes, ident, sender) -> dict:
     store, cfg = ctx["store"], ctx["cfg"]
     profile = ops_actor.profile_of(cfg, sender)
-    digest = att.ref_digest(platform, ref)
+    digest = att.ref_digest(platform, ref, ident)
     declared_kind = att.media_type(declared) or None
     declared_size = declared_bytes if isinstance(declared_bytes, int) and not isinstance(declared_bytes, bool) else None
     try:
