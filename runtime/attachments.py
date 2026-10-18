@@ -81,6 +81,7 @@ DUPLICATE = "{name} already waits for your answer (file {id})."
 CAPTION_IGNORED = "The text sent with a file is not read; send it as its own message."
 OVER_MESSAGE = "At most {n} files are taken from one message; the rest were not."
 BUSY = "Another file is being fetched. Send this one again in a moment."
+FETCH_FAILED = "The file could not be fetched. Send it again."
 ADDED = "Added {name} as `{id}`, version {n}."
 ADDED_SAME = "{name} is already the newest version of `{id}` (version {n}): nothing changed."
 TARGET_TYPE = "`{id}` is a {type} source: a file cannot be added to it. Send the file without that text, or name a source of the type file."
@@ -133,9 +134,11 @@ def size_text(count: int) -> str:
     return f"{count} bytes"
 
 
-def ref_digest(platform: str, ref: str) -> str:
-    """The hash under which a platform's reference is remembered (the reference itself is what the platform fetches the file by, and is never stored)."""
-    return hashlib.sha256(f"{platform}\n{ref}".encode("utf-8")).hexdigest()
+def ref_digest(platform: str, ref: str, sender: str = "") -> str:
+    """The hash under which a platform's reference is remembered, for the sender who sent it (the reference itself is what the platform fetches the file by, and
+    is never stored). It names the sender, so that a file one sender holds never blocks the same reference sent by another, and the second is never told the
+    first's number."""
+    return hashlib.sha256(f"{platform}\n{sender}\n{ref}".encode("utf-8")).hexdigest()
 
 
 def card_sha256(file_sha256: str, target: str, label: str) -> str:
@@ -226,21 +229,27 @@ def mismatch(declared, sniffed: str) -> bool:
     return allowed is not None and sniffed not in allowed
 
 
-def precheck(attachments: list, *, cap: int, today: dict, held: list, platform: str):
+def precheck(attachments: list, *, cap: int, today: dict, held: list, platform: str, sender: str = ""):
     """The checks made on a message's attachments before anything is fetched, from what the store reports: `today` is {"files", "bytes"}, `held`
-    the held rows (each with `ref_sha256`). Returns a list of decisions, one for each attachment taken or refused, in order, each
+    the held rows (each with `ref_sha256`, which names its sender: a duplicate is the same platform, sender and reference). Returns a list of decisions, one for each attachment taken or refused, in order, each
     {"index", "attachment", "refuse": {"code", ...} or None, "duplicate": the held row or None}; at most PER_MESSAGE are looked at (the
     rest are returned as {"index", "over": True}). The budget of the day and the held ceiling count the files of this message that were
     taken before it, so a message of five cannot pass a limit each of its files would pass alone."""
     out = []
     files, used, waiting = today.get("files", 0), today.get("bytes", 0), len(held)
     known = {row["ref_sha256"]: row for row in held}
+    seen = set()
     for index, attachment in enumerate(attachments):
         if index >= PER_MESSAGE:
             out.append({"index": index, "attachment": attachment, "over": True, "refuse": None, "duplicate": None})
             continue
         entry = {"index": index, "attachment": attachment, "over": False, "refuse": declared_problem(attachment, cap), "duplicate": None}
-        digest = ref_digest(platform, attachment["ref"])
+        digest = ref_digest(platform, attachment["ref"], sender)
+        if digest in seen:
+            entry["refuse"], entry["duplicate"] = None, {"id": None}        # the same reference twice in one message is one file: fetched once
+            out.append(entry)
+            continue
+        seen.add(digest)
         if entry["refuse"] is None and digest in known:
             entry["duplicate"] = known[digest]
         elif entry["refuse"] is None and (files >= DAY_FILES or used >= DAY_BYTES):
@@ -457,6 +466,15 @@ def delete_held(data_dir: str, attachment_id: int) -> None:
     finally:
         for fd in opened:
             os.close(fd)
+
+
+FetchBusy = intake.IntakeError      # what fetch_lock raises when another upload or fetch holds the lock
+
+
+def fetch_lock(data_dir: str):
+    """The lock one fetch holds, taken without waiting: the one the page's uploads take (sources.upload_lock_path), so that one file at a time is brought to
+    a project and the free-space count is not made twice. Release it with `.release()`. FetchBusy when another holder has it."""
+    return intake.one_at_a_time(sources.upload_lock_path({"data_dir": data_dir}))
 
 
 def lock_path(cfg: dict) -> str:

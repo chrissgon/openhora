@@ -58,7 +58,7 @@ ON_SYSTEM_PYTHON = [
     # The document converter's provider runs a container; the host side is plain Python and runs on the scheduler's interpreter too.
     "runtime/sources.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # Files sent through a messaging app (ATT-1): the limits and folders of the hold, and the operations over it.
-    "runtime/attachments.py", "runtime/ops_attachments.py",
+    "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state
     "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py", "runtime/ops_cancel.py", "runtime/run_stop.py",
     # S16: the password-manager backends, loaded by path by the resolver, which the runtime loads under the system interpreter too.

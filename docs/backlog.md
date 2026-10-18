@@ -222,6 +222,17 @@ The public website (`site/`, published by Netlify at https://openhora.dev).
 - [ ] **EM4. The page's form for a flow's parameters.** The send-email flow takes `to`, `cc`, `subject` and `body` as parameters; whether the page shows them as a form is to verify on first use.
   - Done when: the page starts `send-email` from a form, or the terminal path is the documented one.
 
+## Files from messaging apps
+
+- [ ] **AT1. The live checks of the attachments (ATT-1 to ATT-4).** Everything is tested against stand-in providers; no provider declares `attachments` until ATT-2 to ATT-4 merge.
+  - What: per platform, by hand: a PDF and a Word document added by tap and by typed `/add`; a photo and an oversized file refused; a discard; Twilio's Restricted API key reading media with media authentication on; the Cloud API's media host; the unofficial client's download.
+  - Done when: each platform's README has a "live test" line with the date and what was seen.
+- [ ] **AT2. Files by e-mail.** The e-mail provider emits no `attachments` and does not declare them.
+  - What: section 5 of `SPEC-ATTACH` for the e-mail provider (the MIME parts of an authenticated message, the same limits), as its own package.
+  - Done when: a PDF attached to a message from a listed sender is held and carded like one from a phone, and the bridge's tests run against it.
+- [ ] **AT3. Follow-ups the maintainer deferred.** Handing a held file to a request that waits for its plan (`stage-file`) from the phone; a key of `runtime.json` that narrows the limits (the constants are fixed in code); OCR and transcription, so that a photo or a voice note can be a source; a caption that is more than `@<id>` (a description, a request line).
+  - Done when: each is decided and built or dropped, in its own package.
+
 ## Publishing
 
 - [ ] **PB1. Scheduling a post from the approval path.** `publish-post` publishes now; a slot in the future is shown and not waited for, and scheduling stays the publishing skill's (`mkt-publish`, the `scheduler:job` class).

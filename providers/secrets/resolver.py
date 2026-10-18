@@ -279,7 +279,9 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
     Secret("MESSENGER_WHATSAPP_TWILIO_API_KEY_SID",
            "name the Restricted API key that sends the notices of the messaging bridge through Twilio's WhatsApp sender",
            "the SID (SK...) of a Restricted API key made for this bridge, with only the messaging permission (and the Content "
-           "permission, if the console lists one) that Twilio's console offers; its name is copied from the console, not invented",
+           "permission, if the console lists one) that Twilio's console offers, and, to take the files a listed sender sends (ATT-3), the "
+           "permission to read a message's media if the console lists one and the account asks for media authentication (checked live; "
+           "the Auth Token still only checks signatures); its name is copied from the console, not invented",
            ("providers/messenger/whatsapp-twilio.py",),
            store_username="messenger-whatsapp-twilio-api-key-sid"),
     Secret("MESSENGER_WHATSAPP_TWILIO_API_KEY_SECRET",
