@@ -45,8 +45,8 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `messenger:<platform>` | `messenger/` | `email-imap.py` (PLATFORMS: email) | `--check`, `capabilities`, `listen`, `receive`, `send`, `ack`, `whoami`, `setup` |
 | `messenger:<platform>` | `messenger/` | `telegram.py` (PLATFORMS: telegram) | `--check`, `capabilities`, `receive`, `send`, `ack` |
 | `messenger:<platform>` | `messenger/` | `whatsapp.py` (PLATFORMS: whatsapp) | `capabilities`, `build`, `status`, `listen`, `receive`, `send`, `ack`, `pair`, `whoami` |
-| `messenger:<platform>` | `messenger/` | `whatsapp-cloud.py` (PLATFORMS: whatsapp-cloud) | `capabilities`, `listen`, `receive`, `send`, `ack`, `setup`, `whoami` |
-| `messenger:<platform>` | `messenger/` | `whatsapp-twilio.py` (PLATFORMS: whatsapp-twilio) | `capabilities`, `listen`, `receive`, `send`, `ack`, `setup`, `whoami` |
+| `messenger:<platform>` | `messenger/` | `whatsapp-cloud.py` (PLATFORMS: whatsapp-cloud) | `capabilities`, `listen`, `receive`, `send`, `ack`, `fetch-attachment`, `setup`, `whoami` |
+| `messenger:<platform>` | `messenger/` | `whatsapp-twilio.py` (PLATFORMS: whatsapp-twilio) | `capabilities`, `listen`, `receive`, `send`, `ack`, `fetch-attachment`, `setup`, `whoami` |
 | `converter:document` | `converter/` | `container.py` | `--check`, `build`, `convert` |
 | `exporter:document` | `exporter/` | `container.py` | `--check`, `build`, `render` |
 | `script:project` | `script/` | `container.py` | `--check`, `build`, `run`, `deps`, `reap` |
@@ -104,8 +104,8 @@ A candidate is an implementation shipped in the class's folder and, for `publish
 | `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes | no | no |
 | `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no | no | no | no |
 | `whatsapp` | `whatsapp.py` | 4096 | no | 0 | 0 | no | 0 | no | yes | yes | yes | no | no | no |
-| `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes | no | no | no |
-| `whatsapp-twilio` | `whatsapp-twilio.py` | 1600 | configured | 3 if configured, else 0 | 20 if configured, else 0 | no | 0 | no | yes | no | yes | no | no | no |
+| `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes | no | yes | 104857600 |
+| `whatsapp-twilio` | `whatsapp-twilio.py` | 1600 | configured | 3 if configured, else 0 | 20 if configured, else 0 | no | 0 | no | yes | no | yes | no | yes | 16777216 |
 <!-- /generated -->
 
 The protocol, the neutral message, the state machine of the session, the kinds and the platforms are on [messaging.md](messaging.md), "Abstractions". What is particular to the class: a messenger's `send` has neither `--confirmed` nor an idempotency key, because the bridge is its only caller, sends only to a chat of the project's accepted `messaging.senders` list and keeps the ledger; a provider refuses a message beyond its capabilities (exit 2); a provider of the listen mode must exit within 5 s of the end of its standard input; and `providers/messenger/whatsapp_meta.py` is a module two providers load by path, never an implementation.
