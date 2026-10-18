@@ -35,7 +35,7 @@ func TestAPlainTextOneToOneMessageIsAnUpdateWithTheSenderDigits(t *testing.T) {
 	if u == nil || why != dropNone {
 		t.Fatalf("dropped: %q", why)
 	}
-	if u.Sender != person || u.Chat != person || !u.Private || u.Text != "/pending" || u.UpdateID != "3EB0AAAA0001" {
+	if u.Sender != person || u.Chat != person || !u.Private || u.Text == nil || *u.Text != "/pending" || u.UpdateID != "3EB0AAAA0001" {
 		t.Fatalf("%+v", u)
 	}
 	if u.Action != nil || u.ActionRef != nil || u.ReplyTo != nil {
@@ -58,7 +58,7 @@ func TestAnExtendedTextMessageCarriesTheQuotedMessageIdAsReplyTo(t *testing.T) {
 		ContextInfo: &waE2E.ContextInfo{StanzaID: ptr("3EB0CARD0001")},
 	}}
 	u, _ := inbound(context.Background(), evt, noResolver)
-	if u == nil || u.Text != "approve it" || u.ReplyTo == nil || *u.ReplyTo != "3EB0CARD0001" {
+	if u == nil || u.Text == nil || *u.Text != "approve it" || u.ReplyTo == nil || *u.ReplyTo != "3EB0CARD0001" {
 		t.Fatalf("%+v", u)
 	}
 	evt.Message.ExtendedTextMessage.ContextInfo = nil

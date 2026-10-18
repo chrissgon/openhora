@@ -16,6 +16,7 @@ import signal
 import stat
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -79,9 +80,11 @@ def test_capabilities_are_the_documented_ones_and_fit_what_the_bridge_checks(cap
     code, out, _ = run_main(["capabilities", "--platform", "whatsapp"], capsys)
     caps = json.loads(out)
     assert code == 0 and caps == {"max_text": 4096, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False,
-                                  "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": True, "listen": True}
+                                  "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": True, "listen": True,
+                                  "attachments": True, "max_attachment_bytes": 104857600}
     types = {"max_text": int, "buttons": bool, "max_buttons": int, "max_button_label": int, "lists": bool, "max_list_rows": int,
-             "url_buttons": bool, "reply_context": bool, "documents": bool, "listen": bool}
+             "url_buttons": bool, "reply_context": bool, "documents": bool, "listen": bool, "attachments": bool,
+             "max_attachment_bytes": int}
     assert {k: type(v) for k, v in caps.items()} == types
 
 
@@ -97,9 +100,15 @@ def test_the_platform_line_is_the_one_the_resolver_reads_as_text():
     assert resolve.interpreter_for(str(SCRIPT)) == [sys.executable]   # no dependency: the caller's interpreter, not uv
 
 
-@pytest.mark.parametrize("verb", ["receive", "send", "ack"])
+@pytest.mark.parametrize("verb", ["receive", "send", "ack", "fetch-attachment"])
 def test_the_one_shot_verbs_exit_2(verb, capsys):
     code, out, err = run_main([verb, "--platform", "whatsapp"], capsys)
+    assert code == 2 and out == "" and "works only in listen mode" in err
+
+
+def test_fetch_attachment_accepts_the_flags_the_contract_gives_it_and_still_exits_2(capsys):
+    code, out, err = run_main(["fetch-attachment", "--platform", "whatsapp", "--ref", "0" * 32, "--out", "/nonexistent",
+                               "--max-bytes", "100"], capsys)
     assert code == 2 and out == "" and "works only in listen mode" in err
 
 
@@ -559,3 +568,138 @@ def test_the_phone_shape_is_the_go_programs_shape():
     go = (GO_SOURCE / "send.go").read_text()
     shape = re.search(r"phonePattern\s*= `\^(.+)\$`", go).group(1)
     assert wa.PHONE.pattern == shape
+
+
+# --- the files a person sends (ATT-4) ----------------------------------------------------------------------------------------
+# The Go program maps a file into an update's `attachments` and answers the listen op `fetch` itself (`go test ./...` tests it with
+# fakes, no network). These tests hold the two sides of the contract together: the lines the Go tests compare with the files in
+# whatsapp/testdata/ are handed here to the bridge's own checks, and the numbers the script and the program both state are equal.
+
+
+def runtime_provider():
+    """The bridge's side of the contract (runtime/messaging_provider.py), loaded from its file by parts."""
+    path = Path(*PROVIDERS.parent.parts, "runtime", "messaging" + "_provider.py")
+    spec = importlib.util.spec_from_file_location("provider_for_whatsapp_contract", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def golden(name):
+    return json.loads((GO_SOURCE / "testdata" / name).read_text(encoding="utf-8"))
+
+
+def raw_line(value):
+    return json.dumps(value, ensure_ascii=True).encode("ascii")
+
+
+def session_of(module):
+    """A listen session that was never started, fed lines by hand: the bridge's reader on what the program writes."""
+    session = module.ListenSession(module.resolver(), "whatsapp", module.ROOT, None, log=lambda text: None)
+    return session, module.Run(None)
+
+
+def test_the_capabilities_have_the_types_the_bridge_checks_for_files():
+    bridge = runtime_provider()
+    for key, kind in bridge.OPTIONAL_KEYS.items():
+        if key in wa.CAPABILITIES:
+            assert type(wa.CAPABILITIES[key]) is kind, key
+    assert wa.CAPABILITIES["attachments"] is True and wa.CAPABILITIES["max_attachment_bytes"] == 104857600
+
+
+def test_the_byte_ceiling_is_the_programs_ceiling():
+    go = (GO_SOURCE / "fetch.go").read_text()
+    found = re.search(r"maxAttachment\s*=\s*(\d+) << (\d+)", go)
+    assert found and int(found.group(1)) << int(found.group(2)) == wa.CAPABILITIES["max_attachment_bytes"] == 104857600
+
+
+def test_the_update_the_program_writes_for_a_document_is_one_the_bridge_accepts():
+    bridge = runtime_provider()
+    line = golden("attachment_update.json")
+    assert line["event"] == "update"
+    update = bridge.valid_update(line["update"])
+    assert update is not None
+    assert update["text"] is None and update["private"] is True and update["sender"] == update["chat"]
+    assert update["attachments"] == [{"ref": "0123456789abcdef0123456789abcdef", "name": "Plan Q3 ü.pdf", "size": 13,
+                                      "type": "application/pdf"}]
+    assert 1 <= len(update["attachments"][0]["ref"]) <= 512
+    raw_line(line).decode("ascii")   # the protocol is ASCII-escaped JSON
+
+
+def test_a_photo_with_no_name_and_a_caption_is_accepted_and_a_text_update_has_no_attachments_key():
+    bridge = runtime_provider()
+    base = golden("attachment_update.json")["update"]
+    photo = dict(base, text="look", attachments=[{"ref": "f" * 32, "name": None, "size": None, "type": "photo"}])
+    found = bridge.valid_update(photo)
+    assert found["text"] == "look" and found["attachments"][0]["type"] == "photo" and found["attachments"][0]["name"] is None
+    plain = {k: v for k, v in base.items() if k != "attachments"}
+    plain["text"] = "hi"
+    assert "attachments" not in bridge.valid_update(plain)
+
+
+def test_the_answers_the_program_writes_to_a_fetch_pass_the_bridges_reader():
+    bridge = runtime_provider()
+    ok, gone = golden("fetch_ok.json"), golden("fetch_gone.json")
+    assert gone["kind"] in bridge.ANSWER_KINDS and gone["kind"] == "gone"
+    go = (GO_SOURCE / "fetch.go").read_text() + (GO_SOURCE / "send.go").read_text()
+    kinds = set(re.findall(r'kind(?:Gone|Usage|Failed)\s*=\s*"([a-z-]+)"', go))
+    assert kinds == {"gone", "usage", "failed"} and kinds <= set(bridge.ANSWER_KINDS)
+
+    session, run = session_of(bridge)
+    for answer, expect in ((ok, {"ok": True, "bytes": 13, "sha256": ok["sha256"]}),
+                           (gone, {"ok": False, "kind": "gone", "reason": gone["reason"]})):
+        entry = [threading.Event(), None, "fetch"]
+        session.waiting[answer["id"]] = entry
+        session.take(run, raw_line(answer))
+        assert entry[0].is_set() and entry[1] == expect
+
+    messenger = bridge.Messenger("whatsapp")
+    messenger.session = type("Fake", (), {"fetch": lambda self, ref, out, cap: {"bytes": ok["bytes"], "sha256": ok["sha256"]}})()
+    assert messenger.fetch("0" * 32, "/somewhere", 100) == {"bytes": 13, "sha256": ok["sha256"]}
+
+
+def test_the_update_line_reaches_the_bridges_inbox_with_its_attachments():
+    bridge = runtime_provider()
+    session, run = session_of(bridge)
+    session.take(run, raw_line(golden("attachment_update.json")))
+    got = session.next_update(0)
+    assert got is not None and got["attachments"][0]["name"] == "Plan Q3 ü.pdf" and got["text"] is None
+
+
+def test_the_program_keeps_what_a_sender_wrote_out_of_the_log_and_the_media_key_out_of_the_protocol():
+    sources = {p.name: p.read_text() for p in GO_SOURCE.glob("*.go") if not p.name.endswith("_test.go")}
+    for name, text in sources.items():
+        for call in re.findall(r"logf\([^\n]*\)", text):
+            assert not re.search(r"\b(name|FileName|Title|Caption|MediaKey|msg|\*req\.(Ref|Out))\b", call), (name, call)
+    assert "GetMediaKey" not in sources["fetch.go"] and "MediaKey" not in sources["refs.go"] and "MediaKey" not in sources["inbound.go"]
+    assert "O_EXCL" in sources["fetch.go"] and "O_NOFOLLOW" in sources["fetch.go"] and "0o600" in sources["fetch.go"]
+
+
+def test_a_fetch_request_reaches_the_program_and_its_answer_comes_back_through_the_exec(home, tmp_path):
+    """A real process: python whatsapp.py listen is replaced by a stand-in program, so the bridge's `fetch` line goes to it
+    untouched and its answer line comes back on the same pipes. (The program's own handling is `go test ./...`.)"""
+    seen = tmp_path / "request.json"
+    answer = json.dumps(dict(golden("fetch_ok.json"), id=7))
+    body = ("#!/bin/sh\ncase \"$1\" in\n  status) echo '{\"paired\": true, \"phone\": null}'; exit 0 ;;\n"
+            "  listen) echo '{\"event\": \"ready\"}'; read line; printf '%s\\n' \"$line\" > '" + str(seen) + "'; "
+            "echo '" + answer + "'; exec cat ;;\nesac\n")
+    install_program(home, body)
+    (home / "whatsapp" / "session.db").write_bytes(b"")
+    env = dict(os.environ, OPENHORA_STATE_DIR=str(home))
+    proc = subprocess.Popen([sys.executable, str(SCRIPT), "listen", "--platform", "whatsapp"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=str(tmp_path))
+    try:
+        assert json.loads(proc.stdout.readline()) == {"event": "ready"}
+        request = {"id": 7, "op": "fetch", "ref": "0123456789abcdef0123456789abcdef", "out": str(tmp_path / "in"), "max_bytes": 1000}
+        proc.stdin.write(raw_line(request) + b"\n")
+        proc.stdin.flush()
+        reply = json.loads(proc.stdout.readline())
+        assert reply["id"] == 7 and reply["ok"] is True and reply["bytes"] == 13
+        proc.stdin.close()
+        assert proc.wait(timeout=5) == 0
+        assert json.loads(seen.read_text()) == request
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
