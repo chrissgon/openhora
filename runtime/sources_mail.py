@@ -47,8 +47,8 @@ words of the text (runtime/item_refs.py reads it). A mail entry is {n, id, threa
 change_key}; a calendar entry is {n, id, etag, calendar, organizer_self, attendees_other, recurring}. It holds no body, no sender's name, no
 token; a subject is cleaned and cut at INDEX_SUBJECT_CHARS characters; an id, key or address that is not shaped as the service prints it
 is null, and the entry stays so that the numbers do not move. A message left out of the text for a credential has no entry and no number. A mail
-text numbers its messages (`## 3. ...`); a calendar text does not print numbers, and its events are numbered in the order it lists them
-(snapshot_text.calendar_order). The index is in the manifest, which no run receives (L26, L52).
+text numbers its messages (`## 3. ...`); a calendar text numbers its event lines (`3. 09:00-10:00 · ...`) in the order of
+snapshot_text.calendar_order, which is the order of the index. The index is in the manifest, which no run receives (L26, L52).
 
 Imports `sources` (the registry, the versions, the guardrails of the folder) and `snapshot_text`; nothing of the operations layer.
 `sources.register` loads this module for the origin check of its types. Standard library only. Runs on Python 3.9.

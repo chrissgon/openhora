@@ -321,8 +321,8 @@ def test_the_first_calendar_snapshot_keeps_the_events_by_day_and_no_description_
     done = desk.calendar("agenda", GOOGLE_CAL)
     assert done["imported"] is True and done["version"] == 1 and done["items"] == 2
     text_ = desk.text("agenda")
-    assert "## 2026-10-17 (Saturday)" in text_ and "- 09:00-10:00 · Dentist · organizer: you · you: accepted" in text_
-    assert "## 2026-10-18 (Sunday)" in text_ and "- all day · Holiday" in text_
+    assert "## 2026-10-17 (Saturday)" in text_ and "1. 09:00-10:00 · Dentist · organizer: you · you: accepted" in text_
+    assert "## 2026-10-18 (Sunday)" in text_ and "2. all day · Holiday" in text_
     assert "PRIVATE" not in text_ and "guest@x.example" not in text_
     assert desk.latest("agenda")["catalog"]["name"] == "Calendar snapshot: google calendar, 0 days back, 14 days ahead"
     assert desk.manifest("agenda")["events"] == 2 and desk.manifest("agenda")["kind"] == "calendar"
@@ -405,7 +405,7 @@ def test_a_calendar_event_with_a_new_etag_makes_a_version(desk):
     desk.providers.events[("google", "primary")][0]["start"] = "2026-10-17T11:00:00-03:00"
     desk.providers.events[("google", "primary")][0]["end"] = "2026-10-17T12:00:00-03:00"
     done = desk.refresh("agenda")
-    assert done["version"] == 2 and "- 11:00-12:00 · Dentist" in desk.text("agenda")
+    assert done["version"] == 2 and "11:00-12:00 · Dentist" in desk.text("agenda")
 
 
 def test_a_snapshot_edited_in_the_folder_is_still_noticed_when_the_listing_did_not_change(desk):
@@ -981,7 +981,7 @@ def test_the_outlook_calendar_provider_is_read_through_the_runtime_in_the_zone_o
         done = desk.calendar("agenda", "outlook:calendar=default;past=0;ahead=3")
         assert done["imported"] is True and done["items"] == 2
         text_ = desk.text("agenda")
-        assert "- 09:00-10:00 · Planning · Room 4 · organizer: corp.example · you: tentative · online meeting" in text_, "UTC becomes the zone of the snapshot"
+        assert "1. 09:00-10:00 · Planning · Room 4 · organizer: corp.example · you: tentative · online meeting" in text_, "UTC becomes the zone of the snapshot"
         assert "secret agenda" not in text_ and "guest@x.example" not in text_ and set(fake.methods) <= {"GET", "POST"}
     finally:
         fake.close()
@@ -1111,7 +1111,7 @@ def test_the_index_of_a_calendar_snapshot_numbers_the_events_in_the_order_the_te
         event(4, "2026-10-17T09:00:00-03:00", "2026-10-17T10:00:00-03:00", "Morning", attendees_other=2)]
     desk.calendar("agenda", GOOGLE_CAL)
     text_, index = desk.text("agenda"), desk.manifest("agenda")["index"]
-    listed = [line for line in text_.splitlines() if line.startswith("- ")]
+    listed = [line for line in text_.splitlines() if re.match(r"\d+\. ", line)]
     assert [item.split(" · ")[1] for item in listed] == ["Holiday", "Morning", "Afternoon", "Later day"]
     assert [e["id"] for e in index] == ["e3", "e4", "e2", "e1"] and [e["n"] for e in index] == [1, 2, 3, 4], "the order of the text: all-day first, then by start, day by day"
     assert all(sorted(e) == sorted(EVENT_KEYS) for e in index) and desk.manifest("agenda")["events"] == len(index) == 4
@@ -1158,3 +1158,22 @@ def test_the_outlook_provider_reply_to_reaches_the_index_through_the_runtime(des
         assert {r["method"] for r in fake.api_requests()} == {"GET"}
     finally:
         fake.close()
+
+
+def test_every_number_the_text_prints_is_the_n_of_its_index_entry_for_mail_and_for_a_calendar(desk):
+    desk.providers.mail["gmail"] = [message(n, f"2026-10-{20 - n:02d}T09:00:00Z", subject=f"Subject {n}") for n in range(1, 6)]
+    desk.mail("inbox")
+    mail_text, mail_index = desk.text("inbox"), desk.manifest("inbox")["index"]
+    printed = [(int(m.group(1)), m.group(2)) for m in re.finditer(r"^## (\d+)\. .*\nFrom: .*\nTo: .*\nSubject: (.*)$", mail_text, re.M)]
+    assert [n for n, _ in printed] == [e["n"] for e in mail_index] == [1, 2, 3, 4, 5]
+    assert [subject for _, subject in printed] == [e["subject"] for e in mail_index]
+    desk.providers.events[("google", "primary")] = [
+        event(1, "2026-10-18T09:00:00-03:00", "2026-10-18T10:00:00-03:00", "Later day"), event(2, "2026-10-17T15:00:00-03:00", "2026-10-17T16:00:00-03:00", "Afternoon"),
+        event(3, "2026-10-17", "2026-10-18", "Holiday", all_day=True), event(4, "2026-10-17T09:00:00-03:00", "2026-10-17T10:00:00-03:00", "Morning"),
+        event(5, "2026-10-19T09:00:00-03:00", "2026-10-19T10:00:00-03:00", "Last")]
+    desk.calendar("agenda", GOOGLE_CAL)
+    lines = [line for line in desk.text("agenda").splitlines() if re.match(r"\d+\. ", line)]
+    index = desk.manifest("agenda")["index"]
+    assert [int(line.split(".", 1)[0]) for line in lines] == [e["n"] for e in index] == [1, 2, 3, 4, 5]
+    assert [line.split(" · ")[1] for line in lines] == ["Holiday", "Morning", "Afternoon", "Later day", "Last"]
+    assert [e["id"] for e in index] == ["e3", "e4", "e2", "e1", "e5"], "the line numbered n is the event the entry n names"

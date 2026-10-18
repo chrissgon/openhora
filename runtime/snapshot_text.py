@@ -347,8 +347,9 @@ def _time_text(view: dict, day) -> str:
     return f"{left} → {right}"
 
 
-def event_line(view: dict, day) -> str:
-    """`- 09:00-10:00 · Dentist · Rua Exemplo 10 · organizer: you · you: accepted`."""
+def event_line(view: dict, day, number=None) -> str:
+    """`3. 09:00-10:00 · Dentist · Rua Exemplo 10 · organizer: you · you: accepted`: the number is the event's place in the snapshot (the number the
+    index and a reference `<source id>#3` use). Without a number (the credential scan reads the words alone) the line begins with `- `."""
     parts = [_time_text(view, day), view["title"]]
     if view["place"]:
         parts.append(view["place"])
@@ -359,13 +360,13 @@ def event_line(view: dict, day) -> str:
     for flag, word in (("cancelled", "cancelled"), ("tentative", "tentative"), ("online", "online meeting"), ("recurring", "recurring")):
         if view[flag]:
             parts.append(word)
-    return "- " + " · ".join(parts)
+    return (f"{number}. " if number is not None else "- ") + " · ".join(parts)
 
 
 def calendar_order(views: list, first_day) -> list:
     """The events of a calendar snapshot in the order its text lists them: by the day they are listed under (a window's first day for one that
     started before it), all-day events first, then by start, then by title. The snapshot's index (runtime/sources_mail.py) numbers the events
-    in this order, so the text and the index cannot disagree."""
+    in this order, so the text and the index cannot disagree. render_calendar prints each event's place in this order as its number."""
     return sorted(views, key=lambda v: (max(v["day"], first_day), 0 if v["all_day"] else 1, v["start"].isoformat() if not v["all_day"] else "", v["title"]))
 
 
@@ -386,12 +387,12 @@ def render_calendar(source_id: str, first_day, last_day, label: str, read_at: st
     if not shown:
         out += ["", "Nothing is scheduled in this window."]
     current = None
-    for view in shown:
+    for number, view in enumerate(shown, 1):
         day = max(view["day"], first_day)
         if day != current:
             current = day
             out += ["", f"## {day.isoformat()} ({WEEKDAYS[day.weekday()]})"]
-        out.append(event_line(view, day))
+        out.append(event_line(view, day, number))
     return "\n".join(out).rstrip("\n") + "\n"
 
 

@@ -7,8 +7,8 @@
 person's own mailbox or calendar says WHICH message or event by a reference, never by the words of its text:
 
   <source id>#<n>      the n-th item of the newest version of a registered `mail` or `calendar` source, as the snapshot's text numbers it
-                       (a mail text prints `## 3. ...`; a calendar text lists its events in an order that snapshot_text.calendar_order
-                       fixes, and the index numbers them in that order)
+                       (a mail text prints `## 3. ...`; a calendar text prints `3. 09:00-10:00 · ...`, the numbers following the order of
+                       snapshot_text.calendar_order, which is the order of the index)
   created:<number>     the event the runtime created when card <number> was approved (its provider id is in that effect's recorded result);
                        resolved by the calendar write path, through the `created` function this module is given
 
