@@ -50,7 +50,7 @@ def test_several_strong_matches_are_listed_strongest_first_then_the_newer_versio
     kind, ids = pick("what does the report say about sales?", rows)
     assert kind == "ask" and ids == ["report-2026", "report-2025"]
     kind, ids = pick("what does the report 2025 say?", rows)
-    assert (kind, ids[0]) == ("ask", "report-2025"), "the strongest first"
+    assert (kind, ids) == ("one", ["report-2025"]), "the id is typed as the person copies it: the file is named, nothing is asked"
 
 
 def test_at_most_five_candidates_are_listed():
@@ -100,3 +100,23 @@ def test_the_listing_is_numbered_with_the_id_the_name_the_type_and_the_date():
 def test_words_are_canonical_and_leave_out_the_stop_words_the_generic_words_and_the_extensions():
     assert resolve.words("O meu CV em PDF sobre Vue") == ["cv", "vue"]
     assert resolve.words("my resume.docx") == ["cv"]
+
+
+def test_typing_the_exact_id_selects_the_file_without_asking_and_the_longer_id_wins_over_the_one_it_contains():
+    rows = [row("cv", "CV.pdf"), row("cv-old", "CV-old.pdf", date="2025-01-03"), row("cover-letter", "Cover letter.docx"), LEASE]
+    assert pick("what does the cv-old say about Vue", rows) == ("one", ["cv-old"]), "cv-old, not cv and not both"
+    assert pick("read cover-letter please", rows) == ("one", ["cover-letter"])
+    assert pick("compare lease-contract with cover-letter", rows) == ("free", []), "two ids typed: the old selection reads documents as before"
+
+
+def test_a_source_whose_name_is_one_common_word_matches_only_a_line_that_names_a_document():
+    plan = row("plan", "plan.md", description="launch notes")
+    assert pick("what is the plan for the launch?", [plan, LEASE]) == ("free", []), "plan is a word of the sentence, not the file"
+    assert pick("what does the plan document say?", [plan, LEASE]) == ("one", ["plan"])
+    assert pick("what does the plan file say about the launch?", [plan, LEASE]) == ("one", ["plan"])
+
+
+def test_a_question_that_names_two_files_in_plain_words_keeps_the_old_selection_and_asks_no_new_question():
+    rows = [LEASE, NOTES, CV]
+    assert pick("compare the lease with the meeting notes", rows) == ("free", [])
+    assert pick("compare the files lease and notes", rows)[0] == "ask", "with a word that says a file, the person is asked"

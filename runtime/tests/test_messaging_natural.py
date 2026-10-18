@@ -84,9 +84,8 @@ def test_a_decision_named_in_words_is_answered_and_its_card_goes_out_again_and_n
     assert any(s["message"].get("actions") for s in rig.sent())
     cards = len([s for s in rig.sent() if s["message"].get("actions")])
     rig.bridge.handle(rig.update(OWNER, "aprova o plano 1"))
-    assert wait_for(lambda: len([s for s in rig.sent() if s["message"].get("actions")]) == cards + 1)
-    texts = [s["message"]["text"] for s in rig.sent()]
-    assert phrases.text("NAT_DECISION_CARD", None, id=1) in texts
+    assert wait_for(lambda: phrases.text("NAT_DECISION_CARD", None, id=1) in [s["message"]["text"] for s in rig.sent()])
+    assert len([s for s in rig.sent() if s["message"].get("actions")]) == cards + 1
     assert ops.pending(rig.project["path"], 1)["status"] == "open"
     assert ops.status(rig.project["path"])["requests"][0]["state"] == "requested", "nothing was approved: the tasks were not made"
     assert rig.sent()[-1]["chat"] == OWNER

@@ -156,7 +156,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     ctx = core.context(project)
     said = core._text(text, "the line")
     store = ctx["store"]
-    if _turn_routes(said) and not asks_state(ctx, said) and not asks_natural(ctx, said, channel, sender):
+    handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender)
+    if _turn_routes(said) and not asks_state(ctx, said) and not handled:
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
         # router is free again; a shell that drains nothing is refused while the router answers another request.
         if channel in QUEUING_CHANNELS and (route_busy(ctx) or _queue_read(ctx, peek=True)):
@@ -190,10 +191,25 @@ def _natural_channel(channel: str) -> str:
     return "page" if channel == DRAIN else channel
 
 
+def may_talk(ctx: dict, channel: str, sender=None) -> bool:
+    """Whether the sender of a line may talk to the planning agent: a messaging sender needs the group `talk` (the bridge asks it for a plain line; the
+    layer asks it again, so that a line admitted under another group - a read, a notice, the choice of a file - never reaches the router or answers its
+    question). Every other channel is as it always was."""
+    return channel != "messaging" or operations.permitted("say", channel, ctx["cfg"]["channels"], None, sender)
+
+
 def asks_natural(ctx: dict, said: str, channel: str, sender=None) -> bool:
     """Whether a plain line is handled by code as a natural request (a tier-1 form, or the answer to the sender's draft): it runs no model, so it takes
-    no route lock and is never queued. As with the state, an open question of the router means the line is its answer."""
-    return _router_question(ctx, _last_request(ctx)) is None and ops_natural.peek(ctx, said, _natural_channel(channel), sender)
+    no route lock and is never queued. As with the state, an open question of the router means the line is its answer, unless the sender may not talk:
+    a sender who may not talk never answers it."""
+    return (_router_question(ctx, _last_request(ctx)) is None or not may_talk(ctx, channel, sender)) \
+        and ops_natural.peek(ctx, said, _natural_channel(channel), sender)
+
+
+def natural_needs(project: str, text: str, sender=None, channel: str = "messaging"):
+    """The operation whose group a sender must hold for a plain line to be handled by code (ops_natural.needs), or None: the bridge asks it before it asks
+    `talk`. Not an operation of the table."""
+    return ops_natural.needs(core.context(project), text, channel, sender)
 
 
 def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender=None, extras=None) -> tuple:
@@ -204,7 +220,8 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
     closes the reply, and the line is the person's own text, never the reply's."""
     if said.startswith("/"):
         return (*_say_command(project, ctx, said, channel, line_id, sender), None)
-    asked = _router_question(ctx, _last_request(ctx))
+    talks = may_talk(ctx, channel, sender)
+    asked = _router_question(ctx, _last_request(ctx)) if talks else None      # a sender who may not talk never answers the router's question
     if asked is None and state_question(said):
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
             return f"error: {operations.not_enabled('status', channel)}", None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
@@ -214,6 +231,8 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
         natural_reply = ops_natural.take(project, ctx, said, _natural_channel(channel), sender, extras)
         if natural_reply is not None:
             return natural_reply, None, None, False, extras.get("run_id"), None
+    if not talks:      # admitted under another group, and no form of it took the line: it is not a model's, so it is refused as the typed `talk` is
+        return f"error: {operations.refusal('say', channel, ctx['cfg']['channels'], sender=sender)}", None, None, False, None, None
     out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender, extras=extras)
     offered = importlib.import_module("ops_instructions").proposal(ctx, out[1], said, channel) if asked is not None else None
     return (out[0] + "\n\n" + offered["text"], *out[1:], offered) if offered else (*out, None)

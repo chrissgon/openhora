@@ -33,12 +33,12 @@ roles = st.load("roles")
 router = st.load("router")
 sources = st.load("sources")
 
-OWNER, READER, NOTALK, MAILER, ASKER = "55119000000001", "55119000000002", "55119000000003", "55119000000004", "55119000000005"
-KEY = {"owner": f"telegram:{OWNER}", "reader": f"telegram:{READER}", "notalk": f"telegram:{NOTALK}", "mailer": f"telegram:{MAILER}", "asker": f"telegram:{ASKER}"}
+OWNER, READER, NOTALK, MAILER, ASKER, PLAIN = "55119000000001", "55119000000002", "55119000000003", "55119000000004", "55119000000005", "55119000000006"
+KEY = {"owner": f"telegram:{OWNER}", "reader": f"telegram:{READER}", "notalk": f"telegram:{NOTALK}", "mailer": f"telegram:{MAILER}", "asker": f"telegram:{ASKER}", "plain": f"telegram:{PLAIN}"}
 PROFILES = {"owner": ["read", "talk", "ask", "reminders", "brakes", "retry", "approve-plans", "answer", "release", "reject-cancel", "sources", "add-sources"],
-            "reader": ["read"], "notalk": ["read", "ask"], "mailer": ["read", "talk", "ask", "ask-mail"], "asker": ["read", "talk", "ask"]}
+            "reader": ["read"], "notalk": ["read", "ask"], "mailer": ["read", "talk", "ask", "ask-mail"], "asker": ["read", "talk", "ask"], "plain": ["read", "talk"]}
 SENDERS = {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": READER, "policy": "reader"}, {"id": NOTALK, "policy": "notalk"},
-                        {"id": MAILER, "policy": "mailer"}, {"id": ASKER, "policy": "asker"}]}
+                        {"id": MAILER, "policy": "mailer"}, {"id": ASKER, "policy": "asker"}, {"id": PLAIN, "policy": "plain"}]}
 FLOW = "Route: flow-demo (flow, pending)\nWhy: a market question\nNext: the market task.\n"
 OPERATION = "Route: none (operation)\nOperation: {name}\n"
 
@@ -213,7 +213,7 @@ def test_a_decision_named_in_words_on_the_page_points_to_its_command_and_decides
     assert out["reply"] == phrases.text("NAT_DECISION_TYPED", None, command=f"/approve {plan_id}") and "resend" not in out
     assert ops.pending(world["path"], plan_id)["status"] == "open"
     gone = say(world, "aprova o plano 99")["reply"]
-    assert gone.startswith("error: ")
+    assert gone == phrases.text("NAT_NO_DECISION", None, id=99)
 
 
 def test_a_decision_that_is_not_open_is_said_so_and_no_card_is_sent(world):
@@ -221,7 +221,7 @@ def test_a_decision_that_is_not_open_is_said_so_and_no_card_is_sent(world):
     plan_id = phone(world, "owner", "Which market first?")["pending_id"]
     ops.reject(world["path"], plan_id)
     out = phone(world, "owner", f"approve {plan_id}")
-    assert "resend" not in out and f"{plan_id}" in out["reply"] and "not open" in out["reply"]
+    assert "resend" not in out and out["reply"] == phrases.text("NAT_NO_DECISION", None, id=plan_id), "the same sentence as for one that does not exist"
 
 
 def test_a_write_named_in_words_is_never_run_and_the_reply_is_the_command_to_send(world):
@@ -279,7 +279,7 @@ def test_a_draft_belongs_to_one_sender_waits_ten_minutes_and_a_line_that_is_not_
     clock = {"t": 1000.0}
     monkeypatch.setattr(ops_natural, "monotonic", lambda: clock["t"])
     key = ops_natural._key(world["ctx"], "messaging", KEY["owner"])
-    ops_natural._put(key, {"kind": "confirm", "when": "2026-10-19 13:00", "text": "x"})
+    ops_natural._put(key, {"kind": "confirm", "op": "remind", "args": {"when": "2026-10-19 13:00", "text": "x"}})
     assert ops_natural.peek(world["ctx"], "yes", "messaging", KEY["owner"]) is True
     assert ops_natural.peek(world["ctx"], "yes", "messaging", KEY["reader"]) is False, "another sender's draft is not theirs"
     assert ops_natural.peek(world["ctx"], "yes", "page", None) is False
@@ -287,7 +287,7 @@ def test_a_draft_belongs_to_one_sender_waits_ten_minutes_and_a_line_that_is_not_
     clock["t"] += ops_natural.DRAFT_TTL + 1
     assert ops_natural.peek(world["ctx"], "yes", "messaging", KEY["owner"]) is False, "ten minutes, then it is gone"
     for n in range(ops_natural.DRAFTS_MAX + 5):
-        ops_natural._put((world["ctx"]["cfg"]["project"], "messaging", f"s{n}"), {"kind": "confirm", "when": "w", "text": "t"})
+        ops_natural._put((world["ctx"]["cfg"]["project"], "messaging", f"s{n}"), {"kind": "confirm", "op": "remind", "args": {"when": "w", "text": "t"}})
     assert len(ops_natural._DRAFTS) <= ops_natural.DRAFTS_MAX
     assert world["ctx"]["cfg"]["project"] not in json.dumps({"log": "nothing is logged"}), "drafts are in memory only"
 
@@ -346,8 +346,9 @@ def test_limit_54_a_read_or_a_notice_without_its_group_gets_the_typed_refusal_an
 def test_limit_54_an_operation_that_a_row_does_not_list_for_the_channel_is_the_typed_commands_sentence(world, monkeypatch):
     spied = spy_all(monkeypatch)
     ctx = ops_core.context(world["path"])
-    reply = ops_natural.run(world["path"], ctx, "agents", {}, "a line", "chat", None, {})
-    assert reply == "error: /agents is done in the terminal or on the page" and spied == {}
+    reply = ops_natural.run(world["path"], ctx, "reminders", {}, "a line", "mcp", None, {})
+    assert reply == "error: /reminders is done in the terminal or on the page" and spied == {}
+    assert ops_natural.run(world["path"], ctx, "agents", {}, "a line", "chat", None, {}) != reply, "the conversation's own shell is the terminal's equal"
 
 
 def test_limit_54_an_argument_the_line_does_not_bear_out_is_never_passed_to_an_operation(world, monkeypatch):

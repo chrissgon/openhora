@@ -756,7 +756,15 @@ def permitted(op_name: str, channel: str, policy, kind: str | None = None, sende
 
 
 def not_enabled(name: str, channel: str) -> str:
-    """The sentence of an operation the channel's ceiling lists and the project's policy does not turn on."""
+    """The sentence of an operation the channel's ceiling lists and the project's policy does not turn on. For an operation whose row does not list the channel
+    and that no grant of the channel reaches, no configuration can turn it on, and the sentence says where it is done."""
+    try:
+        row = by_name(name)
+    except KeyError:
+        row = None
+    if row is not None and channel not in row["channels"] and not any(name in GROUPS[g]["operations"] for g in GRANTS.get(channel, ())):
+        places = [words for place, words in (("terminal", "in the terminal"), ("page", "on the page")) if place in row["channels"]]
+        return f"/{name} is done " + " or ".join(places) if places else f"/{name} is not done on this channel"
     return f"/{name} is not enabled for this channel; the project's configuration (channels.{channel}) turns it on"
 
 

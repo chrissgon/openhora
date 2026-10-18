@@ -42,7 +42,7 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "route_busy", "queue_route", "held_commands", "held_next", "drop_note", "asks_state", "waiting", "queue_stale", "with_routing",
                   "write_checkpoints", "own_key_name",
                   # ops_say.py and ops_ask.py (NR-2): the line of a request, whether a plain line is a natural request, whether the asker holds ask-mail
-                  "person_line", "asks_natural", "holds_mail",
+                  "person_line", "asks_natural", "holds_mail", "may_talk", "natural_needs",
                   # ops_sources.py: what the planner and a run ask of the sources, beside the five operations
                   "catalog_block", "router_block", "known_ids", "forced_for", "copies_for", "record_copies", "prompt_lines",
                   # ops_cancel.py: what a run, the router and the board ask of a cancel, beside cancel and stop_task

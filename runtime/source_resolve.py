@@ -83,13 +83,26 @@ def label(row: dict) -> str:
     return _name(row) or row["id"]
 
 
-def _score(wanted: list, row: dict) -> tuple:
-    """(strong words, description words) of the line that match this row."""
+def _score(wanted: list, row: dict, cue: bool) -> tuple:
+    """(strong words, description words) of the line that match this row. A source whose name and id are ONE word ("plan", "notes") is a common word the
+    line may use for something else: it matches by that word only for a line that names a kind of document (a cue)."""
     names = set(words(_name(row))) | set(words(row["id"].replace("-", " ")))
     mine = set(words(row.get("description") or ""))
-    strong = [w for w in wanted if w in names]
+    strong = [w for w in wanted if w in names and (cue or len(names) > 1)]
     described = [w for w in wanted if w in mine and w not in strong]
     return strong, described
+
+
+def _exact(line: str, have: list) -> list:
+    """The sources whose id is written in the line as the person copies it (`cv-old`): an id of two words or more, or with a digit, that stands in the line as a
+    whole phrase and is not part of a longer id that also does. Typing the id is naming the file; nothing is asked."""
+    flat = " " + ask_select.normal(line) + " "
+    found = []
+    for row in have:
+        phrase = ask_select.normal(row["id"])
+        if (len(phrase.split()) > 1 or any(c.isdigit() for c in phrase)) and f" {phrase} " in flat:
+            found.append((phrase, row))
+    return [row for phrase, row in found if not any(other != phrase and f" {phrase} " in f" {other} " for other, _r in found)]
 
 
 def resolve(line: str, rows: list, snapshots: bool = False) -> dict:
@@ -97,19 +110,28 @@ def resolve(line: str, rows: list, snapshots: bool = False) -> dict:
     (sources.list_catalog; a row with no version is not a source to read). The ids of `ask` are in the order they are listed: the strongest, then the
     newer version, then the id."""
     have = [r for r in rows if r.get("version") and (snapshots or r.get("type") not in sources.SNAPSHOT_TYPES)]
+    typed = _exact(line, have)
     wanted = words(line)
     cue = _cue(line)
     strong, weak = [], []
     for row in have:
-        names, described = _score(wanted, row)
+        names, described = _score(wanted, row, cue)
         if names or (cue and len(described) >= 2):     # a description counts only for a line that names a kind of document: a general question is selected as it always was
             strong.append((2 * len(names) + len(described), row))
         elif cue and described:
             weak.append((len(described), row))
+    if typed:      # an id typed as copied names the file; but a line that names other files too, or two ids, is selected as it always was: no narrowing, no question
+        explained = {w for r in typed for w in set(words(_name(r))) | set(words(r["id"].replace("-", " ")))}      # the words the typed ids themselves account for
+        others = [r for _s, r in strong if r not in typed and not set(_score(wanted, r, cue)[0]) <= explained]
+        if len(typed) == 1 and not others:
+            return {"kind": "one", "ids": [typed[0]["id"]], "rows": typed}
+        return {"kind": "free", "ids": [], "rows": []}
     pick = lambda found: [r for _s, r in sorted(found, key=lambda t: (-t[0], _newer(t[1]), t[1]["id"]))]  # noqa: E731
     if len(strong) == 1:
         row = strong[0][1]
         return {"kind": "one", "ids": [row["id"]], "rows": [row]}
+    if len(strong) > 1 and not cue:      # a question that names two files in plain words is selected as it always was: no new question
+        return {"kind": "free", "ids": [], "rows": []}
     chosen = pick(strong) if strong else pick(weak)
     if chosen:
         chosen = chosen[:RESOLVE_LISTED]

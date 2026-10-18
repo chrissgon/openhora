@@ -42,7 +42,7 @@ of a route:
   Argument <slot>: <words copied from the person's line>         (zero or more, one per slot)
   When: YYYY-MM-DD HH:MM                                          (optional: a time the router normalised)
 
-Code reads it as `{"kind": "operation", ...}` only when the person's line is given (`read_route(reply, line=...)`) and `natural.check_operation`
+Code reads it as `{"kind": "operation", ...}` only when the person's line is given (`read_route(reply, said=...)`) and `natural.check_operation`
 believes it: the operation is in the table, each Argument is a slot of its row and a number, a word or a text of the person's line, and the When line has
 the shape of its slot. Anything else (two Operation lines, an Argument the row lacks, words that are not in the line, a bad When, no line given) is
 unclassified; a Sources or Language line is not read for an operation. The reply is never executed here: runtime/ops_natural.py executes an operation,
@@ -53,7 +53,7 @@ the skill's answer for a one-step request that no skill is needed for: a direct 
 text of the template's `Next:` line, and the person is answered from the project's records (runtime/ops_say.py).
 
 Functions:
-  read_route(reply, ignore_language=False, line=None)   {"kind": "question"} | {"kind": "direct", "next"} | {"kind": "operation", "name", "args", "when"} | {"kind": "route", ...} | {"kind": "unclassified", "why"}
+  read_route(reply, ignore_language=False, said=None) {"kind": "question"} | {"kind": "direct", "next"} | {"kind": "operation", "name", "args", "when"} | {"kind": "route", ...} | {"kind": "unclassified", "why"}
   check_route(route, flow_names, pack_skills, known_sources=None)   {"ok": true, "flow" | "skill"} | {"ok": false, "why"}
 
 Pure: text in, a route out. It imports nothing of the lab or the store and calls no model.

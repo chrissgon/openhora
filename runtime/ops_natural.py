@@ -126,6 +126,26 @@ def peek(ctx: dict, said: str, channel, sender) -> bool:
     return draft is not None and _answers(draft, said) is not None
 
 
+def peek_model(ctx: dict, said: str, channel, sender) -> bool:
+    """Whether the line answers a draft whose completion calls a model (the choice of a file for an `ask`): it takes the route lock like any model call, so
+    it waits in the queue (the page) or is kept by the bridge when the router is busy, and the draft is not lost."""
+    draft = _live(_key(ctx, channel, sender))
+    return draft is not None and draft["kind"] == "which" and _answers(draft, said) is not None
+
+
+def needs(ctx: dict, said: str, channel, sender):
+    """The operation whose group a sender must hold for this plain line to be handled here, or None (the line needs `talk`, as every plain line does): the
+    group of a tier-1 form that the channel's rows list (a read or a notice its own, a decision `pending`), `ask` for the choice of a file, `remind` for the
+    answer to a confirmation. Never an operation whose row does not list the channel: its refusal would say that a configuration turns on what none can."""
+    draft = _live(_key(ctx, channel, sender))
+    if draft is not None and _answers(draft, said) is not None:
+        return "ask" if draft["kind"] == "which" else draft.get("op", "remind")
+    group = natural.needs(said)
+    if group is not None and channel in operations.by_name(group)["channels"]:
+        return group
+    return None
+
+
 def stored_line(ctx: dict, said: str) -> str:
     """The text the conversation stores for the person's line: the line, but a neutral word for the words of a reminder (limit L51)."""
     return phrases.text("NAT_PRIVATE_LINE", ctx["cfg"]) if natural.private(said) else said
@@ -154,9 +174,10 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     return run(project, ctx, found["op"], found["args"], said, channel, sender, extras)
 
 
-def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, sender, extras: dict, when=None) -> str:
+def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, sender, extras: dict, when=None, routed: bool = False) -> str:
     """Execute one operation chosen by a tier, and return the reply (see the module's text for the order). `args` are the arguments natural.py checked:
-    {parameter: value}; `when` is the router's normalised time, which makes an N operation ask first."""
+    {parameter: value}; `when` is the router's normalised time; `routed` says the router chose the operation: a notice or an own write it chose (a time
+    it normalised, a reminder to forget) always asks first, because no code can check the choice against the line."""
     cfg = ctx["cfg"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     cls = natural.class_of(name)
@@ -167,27 +188,30 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     if name == "commands":      # the help is public: what can be asked, never a read of the project
         return t("HELP") if channel == "messaging" else operations.chat_help()
     row = operations.by_name(name)
-    if channel not in row["channels"]:
-        extra = _command(ctx, name, args, "terminal") if cls == "G" else None
+    where = "terminal" if channel == "chat" else channel      # the conversation's own shell is the terminal's equal, not a channel of its own
+    if where not in row["channels"]:
+        extra = _command(ctx, name, args, "terminal", channel) if cls == "G" else None
         return f"error: /{name} is done in the terminal or on the page" + (f". {extra}" if extra else "")
     policy = cfg["channels"]
-    refused = operations.refusal(name, channel, policy, sender=sender)
+    refused = operations.refusal(name, where, policy, sender=sender)
     if refused:
         return f"error: {refused}"
     if cls == "D":
-        refused = operations.refusal("pending", channel, policy, sender=sender)
+        refused = operations.refusal("pending", where, policy, sender=sender)
         if refused:
             return f"error: {refused}"
     if cls == "R":
+        if "mcp" not in row["channels"]:      # the MCP mode reads the conversation: what it could not read itself (reminders, files people sent) is stored as a neutral word (limits L50, L51)
+            extras["stored"] = t("NAT_READ_REPLY")
         return _read(project, ctx, name, row, args, channel, sender)
     if cls == "N":
-        return _notice(project, ctx, name, row, args, said, channel, sender, extras, when)
+        return _notice(project, ctx, name, row, args, said, channel, sender, extras, when, routed)
     if cls == "W":
-        return t("NAT_TYPE_IT", command=_command(ctx, name, args, channel))
+        return t("NAT_TYPE_IT", command=_command(ctx, name, args, channel, channel))
     if cls == "D":
         return _decision(project, ctx, name, args, channel, sender, extras)
     if cls == "G":
-        return _gated(ctx, name, args)
+        return _gated(ctx, name, args, channel)
     if name == "ask":
         return _ask(project, ctx, row, said, channel, sender, extras)
     return f"error: {name} is not reached from a line"
@@ -199,7 +223,7 @@ def run_routed(project: str, ctx: dict, operation: dict, said: str, channel, sen
     checked = natural.check_operation(operation.get("name"), _slots_of(operation), operation.get("when"), said)
     if not checked["ok"]:
         return phrases.text("NAT_NOT_BELIEVED", ctx["cfg"])
-    return run(project, ctx, checked["name"], checked["args"], said, channel, sender, extras, when=checked["when"])
+    return run(project, ctx, checked["name"], checked["args"], said, channel, sender, extras, when=checked["when"], routed=True)
 
 
 def _slots_of(operation: dict) -> dict:
@@ -337,16 +361,19 @@ def _reminders(out: dict, cfg: dict) -> str:
 # --- N: a notice and the person's own writes --------------------------------------------------------------------------------------------------
 
 
-def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str, channel, sender, extras: dict, when) -> str:
+def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str, channel, sender, extras: dict, when, routed: bool = False) -> str:
     cfg = ctx["cfg"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     if name == "remind":
         extras["stored"] = t("NAT_PRIVATE_REPLY")
         if channel != "messaging":      # a reminder is sent to a chat of a messaging app: elsewhere it is the terminal's command, which names the listed sender
-            return t("NAT_TYPE_IT", command=_command(ctx, name, dict(args, to="<platform:id>", **({"when": when} if when else {})), "terminal"))
+            return t("NAT_TYPE_IT", command=_command(ctx, name, dict(args, to="<platform:id>", **({"when": when} if when else {})), "terminal", channel))
     if name == "reminder-forget":
         if _missing(row, args):
             return t("NAT_ASK_ID")
+        if routed:      # the router chose it: no code can check that this is the reminder the person meant, so the person confirms (a notice, but the choice is not theirs)
+            _put(_key(ctx, channel, sender), {"kind": "confirm", "op": "reminder-forget", "args": dict(args)})
+            return t("NAT_CONFIRM_FORGET", id=args["reminder_id"])
         try:
             done = _call(project, row, args, channel, sender)
         except core.OpsError as e:
@@ -366,7 +393,7 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
     except ValueError as e:
         return _error(cfg, core.OpsError(str(e), 2), channel)
     # the router's time cannot be checked against the line by code: the person confirms it, in a human date, before anything is made
-    _put(_key(ctx, channel, sender), {"kind": "confirm", "when": when, "text": words})
+    _put(_key(ctx, channel, sender), {"kind": "confirm", "op": "remind", "args": {"when": when, "text": words}})
     shown = f": {words}" if reminders._notices_text(cfg) else ""
     return t("NAT_CONFIRM_REMIND", when=_human(found["due"], clock, cfg), words=shown)
 
@@ -389,16 +416,17 @@ def _complete(project: str, ctx: dict, draft: dict, answer, channel, sender, ext
         if refused:
             return f"error: {refused}"
         text = draft["line"] + " @" + draft["ids"][answer - 1]
-        return _ask(project, ctx, operations.by_name("ask"), text, channel, sender, extras)
-    extras["stored"] = t("NAT_PRIVATE_REPLY")
+        return _ask(project, ctx, operations.by_name("ask"), text, channel, sender, extras, again=draft)
+    if draft["op"] == "remind":
+        extras["stored"] = t("NAT_PRIVATE_REPLY")
     if answer == "no":
         return t("NAT_DROPPED")
-    row = operations.by_name("remind")
-    refused = operations.refusal("remind", channel, cfg["channels"], sender=sender)      # the policy again, now: the profile may have changed since the question
+    row = operations.by_name(draft["op"])
+    refused = operations.refusal(draft["op"], channel, cfg["channels"], sender=sender)      # the policy again, now: the profile may have changed since the question
     if refused:
         return f"error: {refused}"
     try:
-        done = _call(project, row, {"when": draft["when"], "text": draft["text"]}, channel, sender)
+        done = _call(project, row, draft["args"], channel, sender)
     except core.OpsError as e:
         return _error(cfg, e, channel)
     return phrases.localize(done["reply"], cfg)
@@ -411,33 +439,34 @@ def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, e
     cfg = ctx["cfg"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     number = args.get("pending_id")
-    command = _command(ctx, name, args, channel)
+    command = _command(ctx, name, args, channel, channel)
     if number is None or name == "go-ahead":
         return t("NAT_DECISION_TYPED", command=command)
     try:
         item = _ops().pending(project, pending_id=number)
-    except core.OpsError as e:
-        return _error(cfg, e, channel)
-    if item.get("status", "open") != "open":
-        return t("NOT_OPEN", number=number, status=phrases.status(item.get("status"), cfg))
+    except core.OpsError:
+        item = None
+    if item is None or item.get("status", "open") != "open":
+        return t("NAT_NO_DECISION", id=number)      # the same sentence for one that does not exist and one that is closed: a sender learns nothing of another's decisions
     if channel == "messaging":
-        extras["resend"] = number      # the bridge sends the decision's card again, to this chat, under the rules of any card
+        extras["resend"] = number      # the bridge sends the decision's card again, to this chat, under the rules of any card; it says so only when it did
         return t("NAT_DECISION_CARD", id=number)
     return t("NAT_DECISION_TYPED", command=command)
 
 
-def _gated(ctx: dict, name: str, args: dict) -> str:
+def _gated(ctx: dict, name: str, args: dict, channel=None) -> str:
     cfg = ctx["cfg"]
     row = operations.by_name(name)
     where = ("NAT_PLACE_BOTH" if "terminal" in row["channels"] and "page" in row["channels"] else
              "NAT_PLACE_TERMINAL" if "terminal" in row["channels"] else "NAT_PLACE_PAGE")
-    command = _command(ctx, name, args, "terminal") if "terminal" in row["channels"] else None
+    command = _command(ctx, name, args, "terminal", channel) if "terminal" in row["channels"] else None
     return phrases.text("NAT_GATED", cfg, place=phrases.text(where, cfg), command=f": {command}" if command else ".")
 
 
-def _command(ctx: dict, name: str, args: dict, channel) -> str:
+def _command(ctx: dict, name: str, args: dict, channel, carried=None) -> str:
     """The exact command of an operation: the line to send where the conversation has the command (a messaging app's own forms first), else the terminal's
-    command, with `<name>` where the line gave no value. The one place that spells it is operations (chat_line, command_line)."""
+    command, with `<name>` where the line gave no value. The one place that spells it is operations (chat_line, command_line). For the MCP mode (`carried`) the
+    terminal's command is the relative form with `<project>`: a model client is never told a path of this machine."""
     row = operations.by_name(name)
     filled = dict(args)
     for arg in row["args"]:
@@ -451,6 +480,8 @@ def _command(ctx: dict, name: str, args: dict, channel) -> str:
         except ValueError:
             pass
     if "terminal" in row["channels"]:
+        if carried == "mcp":
+            return operations.command_line(name, "<project>", checkout=None, **filled)
         return operations.command_line(name, ctx["cfg"]["project"], checkout=core.ROOT, **filled)
     return "/" + name
 
@@ -465,12 +496,16 @@ def keep_which(ctx: dict, channel, sender, line: str, out: dict) -> None:
         _put(_key(ctx, channel, sender), {"kind": "which", "line": line, "ids": list(out["candidates"])})
 
 
-def _ask(project: str, ctx: dict, row: dict, line: str, channel, sender, extras: dict) -> str:
+def _ask(project: str, ctx: dict, row: dict, line: str, channel, sender, extras: dict, again=None) -> str:
     """`ask` with the person's WHOLE line as the question (never a model's rewrite, never the router's `Sources:` line): the sources are chosen by code in
     the operation itself, and a mail or calendar snapshot only as it decides (ops_ask)."""
     cfg = ctx["cfg"]
     try:
         out = _call(project, row, {"text": line}, channel, sender)
+    except core.RunBusy:
+        if again is not None:      # the router answers another request: the choice is kept, not lost
+            _put(_key(ctx, channel, sender), again)
+        return phrases.text("RUN_BUSY", cfg)
     except core.OpsError as e:
         return _error(cfg, e, channel)
     keep_which(ctx, channel, sender, line, out)

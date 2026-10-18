@@ -141,6 +141,7 @@ QUEUE_PER_PROJECT = 5
 QUEUE_RETRY = 1.0     # seconds before a line that met `RunBusy` is started again
 QUEUE_POLL = 2        # seconds a polling loop waits for the messenger while a line waits out a `RunBusy` pause (a held slot is looked at when its job ends)
 QUEUE_STOP_WAIT = 10.0   # seconds, in all, the stop messages may take (they go out together); the runs end after that
+RESEND_EVERY = 60.0   # seconds: a decision named in words has its card sent again at most this often to one chat
 QUEUE_COMMANDS = ("new", "ask")   # the slash commands that may wait: the ones that run the planning agent or the answer run; the others are not lines but acts
 
 
@@ -230,6 +231,7 @@ class Bridge(shell_kit.Jobs):
         self.unread_waiting = {}              # chat -> how many skipped messages it has not been told of (memory only)
         self.unread_told = {}                 # chat -> time.monotonic() of the last line about skipped messages
         self.monotonic = time.monotonic       # the clock of the waiting lines (a test moves it)
+        self.resent = {}                      # (project id, chat, decision) -> when its card was last sent again to that chat (NR-2: at most once in RESEND_EVERY seconds)
         self.waiting = []                     # the lines kept for a busy project, oldest first (memory only): {"n", "project", "chat", "text", "since", "after"}
         self.ticket = 0
         self.queue_lock = threading.Lock()    # guards `waiting` and `ticket`
@@ -921,10 +923,11 @@ class Bridge(shell_kit.Jobs):
                     if settings is None or chat not in settings["senders"]:
                         self.log(DROPPED)
                         return
-                result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text), text=text)
-                self.reply(chat, result.get("reply") or self.t("NO_REPLY", project=project), project)
-                if result.get("resend") is not None:      # a decision named in words (NR-2): its card goes out again; the decision is made from the card
-                    self.resend(project, chat, result["resend"])
+                result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text)
+                said = result.get("reply") or self.t("NO_REPLY", project=project)
+                if result.get("resend") is not None and not self.resend(project, chat, result["resend"]):      # a decision named in words (NR-2): its card goes out again
+                    said = self.t("NAT_DECISION_NO_CARD", project=project)      # and the sentence says so only when a card is there
+                self.reply(chat, said, project)
             except Refused as e:
                 self.reply(chat, str(e), project)
             except self.ops.OpsError as e:
@@ -946,32 +949,50 @@ class Bridge(shell_kit.Jobs):
             self.waiting = [e for e in self.waiting if e is not entry]
             entry["starting"] = False
 
-    def needs(self, text: str):
+    def needs(self, text: str, project=None, chat=None):
         """The operation whose group a line needs when it is not `say`'s own: a typed `/ask <question>` is a `say`, and needs the group `ask`, not
-        `talk` (a profile may ask and not talk, or talk and not ask). None for every other line. The one place that chooses: `keep_or_refuse` asks the
-        policy for it when the line comes and `line` when it runs."""
+        `talk` (a profile may ask and not talk, or talk and not ask). A plain line (NR-2) that code takes with no model (a form of a read or a notice, a
+        decision named in words, the answer to the sender's own draft) needs the group of that operation, never one whose row does not list this channel; the
+        layer asks `talk` again for a line no form takes, so a sender without it never reaches the router. None for every other line. The one place that
+        chooses: `keep_or_refuse` asks the policy for it when the line comes and `line` when it runs."""
         named = self.ops.operations.parse_chat(text)
         if named is not None:
             return "ask" if named[0] == "ask" else None
-        return natural.needs(text)      # NR-2: a plain line that is a form of a read or a notice needs that operation's group, not `talk` (it runs no model)
+        if project is not None and chat is not None and hasattr(self.ops, "natural_needs"):
+            try:
+                return self.ops.natural_needs(project["path"], text, sender=self.key(chat), channel=CHANNEL)
+            except self.ops.OpsError:
+                return None
+        found = natural.needs(text)
+        return found if found is not None and CHANNEL in self.ops.operations.by_name(found)["channels"] else None
 
-    def resend(self, project: dict, chat: str, pending_id: int) -> None:
+    def resend(self, project: dict, chat: str, pending_id: int) -> bool:
         """Send the card of an open decision again to the chat that named it in words (NR-2): the same card, under the same rules, so the decision is
-        made from it. Nothing is sent for a decision that is not open, or that the sender is not sent a card for."""
+        made from it. True when the card is there for the sender: sent now, or sent less than RESEND_EVERY seconds ago (a line repeated is not a flood).
+        False for a decision that is not open, or that the sender is not sent a card for."""
+        key = (project["id"], chat, pending_id)
+        now = self.monotonic()
+        last = self.resent.get(key)
+        if last is not None and now - last < RESEND_EVERY:
+            return True
         try:
             item = self.ops.pending(project["path"], pending_id=pending_id)
             settings = self.settings(project)
             if settings is None or item.get("status", "open") != "open" or not self.wants(project, settings, item, chat):
-                return
-            self.send_card(project, settings, item, chat)
+                return False
+            sent = self.send_card(project, settings, item, chat)
         except self.ops.OpsError as e:
             self.log(f"a card could not be sent again ({e.__class__.__name__})")
+            return False
+        if sent:
+            self.resent[key] = now
+        return bool(sent)
 
     def keep_or_refuse(self, project: dict, chat: str, text: str, refusal: str) -> None:
         """Keep the line and say so, or say `refusal` (the phrase table's key of the sentence the line always got when the project was busy: `RUN_BUSY` or
         `STILL_WORKING`). A sender whose policy refuses the line is told so now, and nothing is kept for it."""
         try:
-            self.allow(project, self.needs(text) or "say", sender=chat)
+            self.allow(project, self.needs(text, project, chat) or "say", sender=chat)
         except Refused as e:
             self.reply(chat, str(e), project)
             return

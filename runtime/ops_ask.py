@@ -196,10 +196,10 @@ def _check_policy(ctx: dict, channel, sender) -> None:
             raise core.OpsError(refused, 1)
 
 
-def _still_may_ask(project: str, channel, sender) -> bool:
+def _still_may_ask(project: str, channel, sender, mail: bool = False) -> bool:
     """Whether the sender may still ask, read from the configuration as it is NOW (the answer took minutes): a sender removed from the list,
-    narrowed to a profile without `ask`, or a configuration that is no longer the accepted one gets nothing. The terminal and the
-    conversation's own shell are never narrowed."""
+    narrowed to a profile without `ask`, or a configuration that is no longer the accepted one gets nothing; an answer that read a mail or calendar
+    snapshot for a messaging sender (`mail`) also needs the group `ask-mail` now. The terminal and the conversation's own shell are never narrowed."""
     try:
         fresh = core.context(project)
     except core.OpsError:
@@ -212,7 +212,7 @@ def _still_may_ask(project: str, channel, sender) -> bool:
         platform, ident = ops_actor.split(sender)
         if ident not in ((cfg.get("messaging") or {}).get("senders") or {}).get(platform, ()):
             return False
-        return operations.permitted("ask", "messaging", cfg["channels"], None, sender)
+        return operations.permitted("ask", "messaging", cfg["channels"], None, sender) and (not mail or holds_mail(cfg, "messaging", sender))
     return operations.permitted("ask", where, cfg["channels"])
 
 
@@ -280,7 +280,8 @@ def _ask(project: str, text: str, channel: str | None = None, sender: str | None
         number, dest = ops_contained._contained_folder(cfg)
         prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
         try:
-            out = _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel, sender)
+            out = _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel, sender,
+                          mail=any(kinds.get(i) in sources.SNAPSHOT_TYPES for i in picked["ids"]))
         finally:
             shutil.rmtree(prepared_dir, ignore_errors=True)
             with contextlib.suppress(OSError):
@@ -290,7 +291,7 @@ def _ask(project: str, text: str, channel: str | None = None, sender: str | None
     return out
 
 
-def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel=None, sender=None) -> dict:
+def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel=None, sender=None, mail=False) -> dict:
     cfg, store = ctx["cfg"], ctx["store"]
     try:
         got = ops_sources.copies_for(ctx, {"sources": picked["ids"]}, prepared_dir, not attended)
@@ -363,7 +364,7 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
                        tokens=every.get("tokens", number_of("total_tokens", int)), duration_ms=number_of("duration_ms", int),
                        skill_loaded=_ops()._skill_loaded(timing, skill), image_digest=result["image_digest"],
                        redactions=_ops()._count(counts.get("redactions")))
-    if not cancelled and not _still_may_ask(ctx["cfg"]["project"], channel, sender):
+    if not cancelled and not _still_may_ask(ctx["cfg"]["project"], channel, sender, mail):
         return _outcome(phrases.text("WITHHELD", cfg), ran=True, refusal="withheld", **base)     # the run is recorded: it was made and spent
     return cancelled or _outcome(text, ran=True, answer=checked["outcome"], flags=checked["flags"], **base)
 

@@ -63,7 +63,7 @@ def test_an_operation_the_router_named_is_executed_by_code_the_request_is_cancel
 def test_the_operation_is_believed_against_the_line_alone_not_against_the_conversations_memory(world):
     router_says(world, OPERATION.format(name="reminder-forget") + "Argument id: 7\n")
     first = say(world, "forget the old reminder 7 please")
-    assert first["reply"].startswith("error: ") and "7" in first["reply"], "believed (7 is written in the line); the reminder does not exist"
+    assert first["reply"] == phrases.text("NAT_CONFIRM_FORGET", None, id=7), "believed (7 is written in the line); a router's choice of a notice is confirmed first"
     second = say(world, "forget that other old reminder please")
     assert "Earlier in this conversation" in (world["adapter"] / "last-router-prompt.md").read_text(encoding="utf-8")
     assert "reminder 7" in (world["adapter"] / "last-router-prompt.md").read_text(encoding="utf-8"), "7 is in the memory the router saw"
@@ -89,9 +89,9 @@ def test_ask_is_called_with_the_whole_line_and_the_sources_are_chosen_by_code_ne
 def test_ask_from_a_messaging_sender_without_the_group_is_the_typed_refusal_and_no_answer_run(docs):
     with_senders(docs)
     router_says(docs, OPERATION.format(name="ask"))
-    out = phone(docs, "reader", "qual o prazo do contrato?")
-    assert out["reply"] == "error: " + operations.refusal("ask", "messaging", ops_core.context(docs["path"])["cfg"]["channels"], sender=KEY["reader"])
-    typed = phone(docs, "reader", "/ask qual o prazo do contrato?")
+    out = phone(docs, "plain", "qual o prazo do contrato?")
+    assert out["reply"] == "error: " + operations.refusal("ask", "messaging", ops_core.context(docs["path"])["cfg"]["channels"], sender=KEY["plain"])
+    typed = phone(docs, "plain", "/ask qual o prazo do contrato?")
     assert typed["reply"] == out["reply"]
     assert st.calls(docs["adapter"]) == ["core-orchestrator 1"], "the router ran (the line cost it); the answer skill did not"
 
