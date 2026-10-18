@@ -134,9 +134,11 @@ def size_text(count: int) -> str:
     return f"{count} bytes"
 
 
-def ref_digest(platform: str, ref: str) -> str:
-    """The hash under which a platform's reference is remembered (the reference itself is what the platform fetches the file by, and is never stored)."""
-    return hashlib.sha256(f"{platform}\n{ref}".encode("utf-8")).hexdigest()
+def ref_digest(platform: str, ref: str, sender: str = "") -> str:
+    """The hash under which a platform's reference is remembered, for the sender who sent it (the reference itself is what the platform fetches the file by, and
+    is never stored). It names the sender, so that a file one sender holds never blocks the same reference sent by another, and the second is never told the
+    first's number."""
+    return hashlib.sha256(f"{platform}\n{sender}\n{ref}".encode("utf-8")).hexdigest()
 
 
 def card_sha256(file_sha256: str, target: str, label: str) -> str:
@@ -227,9 +229,9 @@ def mismatch(declared, sniffed: str) -> bool:
     return allowed is not None and sniffed not in allowed
 
 
-def precheck(attachments: list, *, cap: int, today: dict, held: list, platform: str):
+def precheck(attachments: list, *, cap: int, today: dict, held: list, platform: str, sender: str = ""):
     """The checks made on a message's attachments before anything is fetched, from what the store reports: `today` is {"files", "bytes"}, `held`
-    the held rows (each with `ref_sha256`). Returns a list of decisions, one for each attachment taken or refused, in order, each
+    the held rows (each with `ref_sha256`, which names its sender: a duplicate is the same platform, sender and reference). Returns a list of decisions, one for each attachment taken or refused, in order, each
     {"index", "attachment", "refuse": {"code", ...} or None, "duplicate": the held row or None}; at most PER_MESSAGE are looked at (the
     rest are returned as {"index", "over": True}). The budget of the day and the held ceiling count the files of this message that were
     taken before it, so a message of five cannot pass a limit each of its files would pass alone."""
@@ -242,7 +244,7 @@ def precheck(attachments: list, *, cap: int, today: dict, held: list, platform: 
             out.append({"index": index, "attachment": attachment, "over": True, "refuse": None, "duplicate": None})
             continue
         entry = {"index": index, "attachment": attachment, "over": False, "refuse": declared_problem(attachment, cap), "duplicate": None}
-        digest = ref_digest(platform, attachment["ref"])
+        digest = ref_digest(platform, attachment["ref"], sender)
         if digest in seen:
             entry["refuse"], entry["duplicate"] = None, {"id": None}        # the same reference twice in one message is one file: fetched once
             out.append(entry)
