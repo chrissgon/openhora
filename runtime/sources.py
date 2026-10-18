@@ -41,7 +41,8 @@ because text compressed inside a raw file is invisible to a scan of its bytes; o
 and its rows written. A refusal at any step leaves nothing in the folder and no row.
 
 A Google Drive file is a source too (P7, decision D13): see "Google Drive files" near the end of this file. Its bytes come from the
-Drive provider (providers/documents/gdrive.py) into the runtime's staging area and go through the same steps.
+Drive provider (providers/documents/gdrive.py) into the runtime's staging area and go through the same steps. So is a OneDrive file
+(O2): runtime/sources_onedrive.py is its block, written beside this module and reusing import_version.
 
 Where the bytes wait. The file received by the intake, the folder the converter writes to and the container's mount are in the runtime's
 own private folder, `<data_dir>/sources-staging/<token>/`, never inside the sources folder: nothing is written by path inside the
@@ -83,6 +84,7 @@ import signal
 import stat
 import sys
 import threading
+import unicodedata
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -91,7 +93,7 @@ import intake  # noqa: E402  (the same folder: the generic streaming intake)
 import lease  # noqa: E402  (the same folder: one host writes the folder at a time, limit L28)
 
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
-TYPES = ("file", "notion", "drive")
+TYPES = ("file", "notion", "drive", "onedrive")   # the words of the registry's CHECK (providers/store/sqlite.py, migration 19); a new type is a migration that rebuilds it
 MARKER = ".openhora-sources"
 INCOMING = ".incoming"                           # inside the folder: where a version is assembled before the rename that puts it in place
 STAGING = "sources-staging"                      # inside data_dir: where the bytes of an import are received and converted
@@ -118,6 +120,7 @@ HEADINGS_SHOWN, HEADING_CHARS = 8, 80
 CATALOG_ENTRY_CHARS = 1800                       # one source in the planner's text
 CATALOG_TEXT_CHARS = 24000                       # all the sources in the planner's text
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+INVISIBLE_CATEGORIES = ("Cc", "Cf", "Zl", "Zp")   # what _clean turns into a space besides CONTROL
 NOTION_HOSTS = ("notion.so", "www.notion.so")
 NOTION_ID = re.compile(r"[0-9a-f]{32}")
 NOTION_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -744,7 +747,10 @@ def _now(clock=None) -> str:
 
 def _clean(text, limit: int) -> str:
     """Text of the person's data, shown in a catalog: control characters out, white space collapsed, cut at `limit`."""
-    one = " ".join(CONTROL.sub(" ", str(text)).split())
+    raw = CONTROL.sub(" ", str(text))
+    if not raw.isascii():   # C1 controls, bidi overrides and isolates, zero-width marks, line and paragraph separators (Cc, Cf, Zl, Zp) are not text either
+        raw = "".join(" " if unicodedata.category(c) in INVISIBLE_CATEGORIES else c for c in raw)
+    one = " ".join(raw.split())
     return one if len(one) <= limit else one[:max(0, limit - 1)].rstrip() + "…"
 
 
@@ -1023,20 +1029,28 @@ def _stored(ctx, name: str, *args, **kwargs):
 def register(ctx, source_id: str, source_type: str, origin: str, description=None) -> dict:
     """Add a source to the registry: its id, type, origin (a file name, a Notion page address or id, or a Drive file id) and an
     optional description. No credential is ever kept, and nothing is imported. A Notion origin must hold a page id, a Drive origin
-    a file id. Returns the row (a Drive source reads as type `drive` with the file id as its origin: public_row)."""
+    a file id, a OneDrive origin "<drive id>/<item id>" (sources_onedrive.onedrive_origin). Returns the row (a Drive source reads as type `drive` with the file id as its origin: public_row)."""
     check_id(source_id)
     if source_type not in TYPES:
-        raise SourcesError(f"a source is a {' or a '.join(TYPES)}", "usage")
+        raise SourcesError(f"a source's type is one of {', '.join(TYPES)}", "usage")
     if not isinstance(origin, str) or not origin.strip() or CONTROL.search(origin) or len(origin) > 512:
         raise SourcesError("the origin is one line of at most 512 characters", "usage")
     if source_type == "notion":
         notion_page_id(origin)
     elif source_type == "drive":
         origin = drive_file_id(origin)
+    elif source_type == "onedrive":
+        import sources_onedrive  # noqa: PLC0415  (its block imports this module: loaded when a OneDrive source is registered)
+        origin = sources_onedrive.onedrive_origin(origin)
     elif "/" in origin or "\\" in origin:
         origin = os.path.basename(origin.replace("\\", "/"))
         if not origin:
             raise SourcesError("the origin of a file source is the file's name", "usage")
+    if source_type in ("drive", "onedrive"):   # one file is one source: a OneDrive id is compared without case (a personal id is hex), a Drive id as it is
+        fold = str.lower if source_type == "onedrive" else str
+        for held in _stored(ctx, "sources_list"):
+            if held["type"] == source_type and fold(held["origin"]) == fold(origin):
+                raise SourcesError(f"this file is already the source {held['id']}", "usage")
     if source_type == "file" and origin.strip().startswith(DRIVE_PREFIX):
         raise SourcesError(f"a file source's origin cannot start with {DRIVE_PREFIX!r}: that marks a Drive source", "usage")
     return public_row(_stored(ctx, "source_add", source_id=source_id, source_type=source_type, origin=origin.strip(),

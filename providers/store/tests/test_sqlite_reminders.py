@@ -50,7 +50,7 @@ def test_a_store_at_18_migrates_to_20_keeps_every_row_and_adds_one_table(tmp_pat
     before = [tuple(r) for r in old.execute("SELECT * FROM tasks")]
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 18 and out["applied"] == [20] and out["schema_version"] == 20 == store.SCHEMA_VERSION
+    assert out["migrated_from"] == 18 and out["applied"] == [19, 20] and out["schema_version"] == 20 == store.SCHEMA_VERSION
     conn = store.open_db(path)
     assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables | {"reminders"}
     assert [tuple(r) for r in conn.execute("SELECT * FROM tasks")] == before

@@ -61,7 +61,7 @@ def test_migration_9_keeps_every_earlier_run_and_leaves_its_billing_empty(tmp_pa
     old.commit()
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 8 and out["applied"] == [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20] and out["schema_version"] == 20
+    assert out["migrated_from"] == 8 and out["applied"] == [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] and out["schema_version"] == 20
     conn = store.open_db(path)
     row = conn.execute("SELECT id, model, cost_usd, billing FROM task_runs").fetchone()
     assert tuple(row) == (1, "m", 0.25, None)

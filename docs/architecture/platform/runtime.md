@@ -143,6 +143,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/shell_kit.py` | What the two network-free shells of the operations layer share: the local service (runtime/service.py) and the MCP mode (runtime/mcp.py). |
 | `runtime/skill_meta.py` | What a skill declares in its frontmatter, read for the runtime: the artifact lists, the requirement classes, the side effects and the version. |
 | `runtime/sources.py` | The sources of a project: a registry of what the person gave the project to read, immutable versions of each in the project's sources folder, a catalog built by code, and the copies a task receives. |
+| `runtime/sources_onedrive.py` | OneDrive files as sources of a project (package O2): the origin check, the calls to the provider, the import, the version-first refresh and the listings for the person's terminal. |
 | `runtime/state_merge.py` | The one module that decides what a run may change in the project's state file (docs/workbench/state.md), limit L10 of the platform plan. |
 | `runtime/step_export.py` | The step kinds that make a file: `export-csv`, `export-xlsx`, `export-docx` and `export-pdf` (package P8, decision D17 direction 1). |
 | `runtime/step_ingest.py` | The step kind `ingest`: bring one version of a source into the project, as a task (package P5, the engine's second consumer). |
@@ -187,6 +188,7 @@ Schema version 20: the highest migration of `MIGRATIONS`.
 | 16 | the language a request or a task asks its deliverable in | - | `tasks.language` | - |
 | 17 | the actor of a resolution and of an approval | - | `pending_decisions.actor`, `approvals.actor` | `approvals_only_status_moves` |
 | 18 | held attachments, and the provenance of a source version | `attachments` | `source_versions.provenance` | `attachments_never_deleted`, `attachments_decided_once` |
+| 19 | the OneDrive source type | `sources` | - | `sources_never_deleted`, `sources_only_description_moves` |
 | 20 | reminders, the one-shot notices the messaging bridge sends | `reminders` | - | `reminders_never_deleted`, `reminders_fixed`, `reminders_move` |
 <!-- /generated -->
 
@@ -203,14 +205,15 @@ The task runtime's tables, those that migration 2 and later create, with their c
 | `approvals` | 5 | id, scope, what, payload_sha256, policy_sha256, bounds, task_id, pending_id, approved_at, approved_by, expires_at, status, executed_at, actor (migration 17) |
 | `conversation_messages` | 6 | id, conversation, role, text, task_id, run_id, created_at |
 | `task_waits` | 8 | id, task_id, awaited_id, kind, path, reason, status, created_at, ended_at, ended_by |
-| `sources` | 14 | id, type, origin, description, created_at, updated_at |
+| `sources` | 19 | id, type, origin, description, created_at, updated_at |
 | `source_versions` | 11 | source_id, version, label, by, kind, original_name, original_sha256, original_bytes, converted_name, converted_sha256, converted_bytes, converter, converter_version, hidden_text, warnings, catalog, origin_version, imported_at, provenance (migration 18) |
 | `task_sources` | 11 | run_id, task_id, source_id, version, sha256, copied_at |
-| `sources` | 14 | id, type, origin, description, created_at, updated_at |
+| `sources` | 19 | id, type, origin, description, created_at, updated_at |
 | `routines` | 14 | id, name, flow, params, schedule, model, consent, providers, window_seconds, state, approved_sha256, approved_content, approved_at, approved_by, resumed_at, created_at, updated_at |
 | `routine_fires` | 14 | id, routine_id, slot, status, reason, request_id, fired_at |
 | `task_runs` | 15 | id, task_id, skill, skill_version, skill_sha256, model, adapter, web, status, failure, ending, attempts, started_at, ended_at, cost_usd, tokens, duration_ms, skill_loaded, image_digest, run_dir, error, redactions, billing, autonomy |
 | `attachments` | 18 | id, platform, ref_sha256, sender, profile, name, declared_type, declared_bytes, kind, sha256, bytes, target, label, direct, status, code, source_id, version, created_at, decided_at |
+| `sources` | 19 | id, type, origin, description, created_at, updated_at |
 | `reminders` | 20 | id, text, due_local, due_utc, zone, platform, chat, created_by, status, why, created_at, claimed_at, ended_at, attempts, retry_after |
 <!-- /generated -->
 
@@ -572,6 +575,7 @@ The limit's text and the stage that built it come from the contract's table; the
 | `source-import` | `--source` `[--file]` `[--url]` `[--origin]` `[--description]` | `source_import` |
 | `source-refresh` | `--source` `[--file]` | `source_refresh` |
 | `source-drive` | `[--file-id]` `[--source]` `[--description]` | `source_drive` |
+| `source-onedrive` | `[--search]` `[--folder]` `[--item]` `[--source]` `[--description]` | `source_onedrive` |
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
 | `attachments` | - | `attachments` |
@@ -677,10 +681,11 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `commands` | `commands` | page | no | the commands of the conversation as rows, command, arguments and help line, in the order /help prints them (the page lists them when the person types /) |
 | `stop_runs` | `stop-runs` | terminal | no | end the runs this process started (the local service calls it before it exits); with --all, every task run of the project that a live process holds |
 | `service_check` | `service-check` | terminal | no | what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project) |
-| `source_add` | `source-add` | terminal, page | no | register a source of this project: its id, its type (file, notion or drive) and its origin (a file's name, a Notion page's address or id, or a Drive file's id); nothing is imported and no credential is kept |
+| `source_add` | `source-add` | terminal, page | no | register a source of this project: its id, its type (file, notion, drive or onedrive) and its origin (a file's name, a Notion page's address or id, a Drive file's id, or a OneDrive file's <drive id>/<item id>, which only the terminal registers); nothing is imported and no credential is kept |
 | `source_import` | `source-import` | terminal, page | no | import a version of a source from a file of yours (--file) or from a Notion page (--url, its address or id): read, converted to text in a container with no network, scanned, and kept as an immutable version in the sources folder |
 | `source_refresh` | `source-refresh` | terminal, page | no | a new version of a source: from a new file, from its Notion page again, or, with neither, from the file you changed in the sources folder (it becomes a version labelled as yours, which a task that starts on its own never receives) |
 | `source_drive` | `source-drive` | terminal | no | make Google Drive files sources: the Picker opens on a one-shot page on 127.0.0.1 and you choose one or more files (never a folder); each becomes a source and its first version is imported; with --file-id and --source, one file already picked is imported or refreshed |
+| `source_onedrive` | `source-onedrive` | terminal | no | make OneDrive files sources: --search <text> or --folder <path> lists up to 25 candidates (name, folder, size, date and the <drive id>/<item id>) and registers nothing; --item <drive id>/<item id>, repeated for several files, makes each chosen file a source and imports its first version (never a folder) |
 | `source_describe` | `source-describe` | terminal, page | no | set your description of a source (what it is, what it is for); the planner reads it with the catalog; an empty one clears it |
 | `sources_catalog` | `sources` | terminal, page, mcp, messaging | no | the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime |
 | `attachments` | `attachments` | terminal, chat, page, messaging | no | the files people sent through a messaging app (from a messaging app, only the ones you sent): those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder |
@@ -777,4 +782,5 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 - 2026-10-16: cancel and stop at any moment (R18, package CANCEL-BOARD): migration 15 (`tasks.stop_requested_at`, `stop_requested_by`; `task_runs` rebuilt to admit the status `cancelled`), the operations `cancel` (now working while a run is in progress) and `stop-task`, `runtime/ops_cancel.py` and `runtime/run_stop.py`, the group `brakes` (a grant of `channels.messaging`, in no default), limit L41, `Stop task` on the page and `POST /projects/{p}/tasks/{id}/stop`.
 - 2026-10-16: the language of a deliverable (LANGUAGE, runtime part): migration 16 (`tasks.language`), `runtime/language.py` and `runtime/ops_language.py`, the option `request --language`, the line every task run and the router's run get, the field `language` of a plan's tasks (the hash covers it), the router's optional `Language:` line, and the plan's language line on every surface.- 2026-10-16: follow-ups of the cancel and the stop (R18): `ps` is asked in the C locale so a holder is verified in every language; the L41 row names the exception of a cancel during an output, a send or a publication write; tests of a cancel during a send and a publication.
 - 2026-10-17: files sent through a messaging app are held and added by a person (ATT-1, runtime part): migration 18 (the table `attachments`, `source_versions.provenance`), `runtime/attachments.py` and `runtime/ops_attachments.py`, the operations `attachments`, `attachment-hold`, `attachment-add` and `attachment-discard`, the group `add-sources` and the grant `add-sources-direct`, the held pass of `upkeep`, the Building's section, limit L48 ([sources.md](sources.md), `contracts/runtime.md` "The sources").
+- 2026-10-18: OneDrive files as sources (O2): migration 19 (the type `onedrive` in the sources table), `runtime/sources_onedrive.py`, the operation `source-onedrive` (terminal only), the refresh by cTag ([sources.md](sources.md), rule 17; `contracts/runtime.md`, "The sources").
 - 2026-10-18: reminders (RM-1): migration 20 (the table `reminders`), `runtime/reminders.py`, `runtime/ops_reminders.py` and `runtime/messaging_remind.py`, the operations `remind`, `reminders` and `reminder-forget` (the group `reminders`, in no default policy, never on the MCP mode), the page's routes, the terminal verbs and limit LR. See [messaging.md](messaging.md), rules R1 to R7.

@@ -138,7 +138,7 @@ def test_init_is_idempotent_and_keeps_data(db, tmp_path):
     assert again["applied"] == [] and again["migrated_from"] == 20 and again["created"] is False
     assert ok("cursor-get", "--name", "since", db=db)["value"] == "v1"
     rows = sqlite3.connect(db).execute("SELECT version FROM schema_version").fetchall()
-    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (20,)]
+    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,), (20,)]
 
 
 def test_init_migrates_an_empty_version_table(tmp_path):
@@ -150,7 +150,7 @@ def test_init_migrates_an_empty_version_table(tmp_path):
     conn.close()
     assert run("--check", db=path).returncode == 3
     out = ok("init", db=path)
-    assert out["migrated_from"] == 0 and out["applied"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20]
+    assert out["migrated_from"] == 0 and out["applied"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     ok("--check", db=path)
 
 
@@ -174,7 +174,7 @@ def test_concurrent_init(tmp_path):
         results = pool.map(_init, [str(path)] * 4)
     assert [code for code, _ in results] == [0, 0, 0, 0], results
     rows = sqlite3.connect(path).execute("SELECT version FROM schema_version").fetchall()
-    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (20,)]
+    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,), (20,)]
 
 
 def load_store():
@@ -208,7 +208,7 @@ def test_concurrent_inits_create_a_missing_folder_once(tmp_path, capsys):
         assert codes == [0] * 16, capsys.readouterr().err
         assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     rows = sqlite3.connect(path).execute("SELECT version FROM schema_version").fetchall()
-    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (20,)]
+    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,), (20,)]
 
 
 def test_a_wal_file_removed_by_another_process_does_not_fail_init(tmp_path, monkeypatch):

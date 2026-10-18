@@ -44,7 +44,7 @@ def test_a_store_at_12_migrates_to_13_keeps_every_row_and_the_new_column_is_empt
     old.commit()
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 12 and out["applied"] == [13, 14, 15, 16, 17, 18, 20] and out["schema_version"] == 20
+    assert out["migrated_from"] == 12 and out["applied"] == [13, 14, 15, 16, 17, 18, 19, 20] and out["schema_version"] == 20
     conn = store.open_db(path)
     task = store.task_get(conn, 2)
     assert task["skill"] == "biz-market-analysis" and task["title"] == "Market" and task["state"] == "ready" and task["web_off"] is None

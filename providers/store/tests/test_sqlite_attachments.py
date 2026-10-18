@@ -54,7 +54,7 @@ def test_a_store_at_17_migrates_to_18_keeps_every_row_adds_one_table_and_one_col
     before = [tuple(r) for r in old.execute("SELECT * FROM source_versions")]
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 17 and out["applied"] == [18, 20] and out["schema_version"] == 20
+    assert out["migrated_from"] == 17 and out["applied"] == [18, 19, 20] and out["schema_version"] == 20
     conn = store.open_db(path)
     assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables | {"attachments", "reminders"}
     assert [r[1] for r in conn.execute("PRAGMA table_info(source_versions)")] == columns + ["provenance"]

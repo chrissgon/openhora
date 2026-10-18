@@ -50,11 +50,12 @@ Usage:
   python3 runtime/cli.py verdict  --project <dir> --run <run id> --word worked|corrected|failed
   python3 runtime/cli.py sync     --project <dir> [--dry-run] [--take page|project --path <relative path>]
   python3 runtime/cli.py hand-over --project <dir> --task <task id> --file <path>
-  python3 runtime/cli.py source-add --project <dir> --source <id> --type file|notion|drive --origin <file name | Notion page address | Drive file id> [--description <text>]
+  python3 runtime/cli.py source-add --project <dir> --source <id> --type file|notion|drive|onedrive --origin <file name | Notion page address | Drive file id | OneDrive <drive id>/<item id>> [--description <text>]
   python3 runtime/cli.py source-import --project <dir> --source <id> (--file <path> | --url <Notion page address or id>) [--origin <text>] [--description <text>]
   python3 runtime/cli.py source-refresh --project <dir> --source <id> [--file <path>]
   python3 runtime/cli.py source-describe --project <dir> --source <id> [--description <text>]
   python3 runtime/cli.py source-drive --project <dir> [--file-id <Drive file id> --source <id>] [--description <text>]
+  python3 runtime/cli.py source-onedrive --project <dir> (--search <text> | --folder <path> | --item <drive id>/<item id> [--item ...] [--source <id>]) [--description <text>]
   python3 runtime/cli.py sources  --project <dir>
   python3 runtime/cli.py attachments --project <dir>
   python3 runtime/cli.py attachment-add --project <dir> --id <attachment id>
@@ -260,8 +261,8 @@ hand-over copies one file of yours into the task's file drop, <project>/.workben
           file holding what looks like a credential, and a git project that does not ignore .workbench-local/. A task
           whose skill uses the web takes the file too (the maintainer's decision: the file is the person's own choice)
           and the answer carries "web": true and the line "this file will be visible to a run with the open network".
-source-add  registers a source of the project: an id (lowercase letters, digits, hyphens), its type (file, notion or drive) and its origin (a
-          file's name, a Notion page's address or id, or a Drive file's id); nothing is imported and no credential is kept. The registry is in the
+source-add  registers a source of the project: an id (lowercase letters, digits, hyphens), its type (file, notion, drive or onedrive) and its origin (a
+          file's name, a Notion page's address or id, a Drive file's id, or a OneDrive <drive id>/<item id>); nothing is imported and no credential is kept. The registry is in the
           store; the versions are in the project's sources folder (sources_dir of runtime.json, runtime/sources.py).
 source-import  imports a version of a source from a file of yours (--file) or from a Notion page (--url): the generic intake
           bounds the length and reads the type from the bytes (PDF, Word, spreadsheet, CSV, HTML, text), a container with no network
@@ -279,6 +280,15 @@ source-drive  makes Google Drive files sources. It opens the Picker on a one-sho
           file you picked before is imported or refreshed. source-refresh asks Drive for the file's version and reads it only when it
           moved. Needs the one-time authorization: uv run providers/documents/gdrive_auth.py authorize. The scope, drive.file, lets the
           app read and write the files you pick, so it is not read-only; the runtime asks for reads only.
+source-onedrive  makes OneDrive files sources. There is no picker: you choose in the terminal. --search <text> (or --folder <path> from the root
+          of your OneDrive) lists up to 25 candidates, numbered, with name, folder, size, date and the <drive id>/<item id> to give back, and
+          registers nothing; then --item <drive id>/<item id> (repeat it for several files; --source <id> names the source of exactly one) makes
+          each chosen FILE a source, named from the file, with its first version imported (Word, Excel, PowerPoint, PDF, CSV, HTML and text,
+          then the same converter, scan and rows as a file of yours). Never a folder, a OneNote notebook, an item shared from another drive, a
+          flagged or deleted item, or a legacy .doc/.xls/.ppt (save it as .docx/.xlsx/.pptx). source-refresh asks OneDrive for the file's version
+          (its cTag) and reads it only when it moved. Needs the one-time authorization: uv run providers/documents/onedrive_auth.py authorize.
+          The scope, Files.Read, lets the token READ every file of your own OneDrive (Microsoft has no scope per chosen file) and write none; the
+          runtime reads only the files you chose here. File names and search results are shown as the text they are, never run.
 sources   the catalog of the sources: each one's newest version (name, type, size, date, sheets and columns with sample values,
           first headings), your description, and whether its files changed outside the runtime. It calls no model.
 attachments  the files people sent through a messaging app that wait for your answer (what each is, the source it would become, when it expires), the
