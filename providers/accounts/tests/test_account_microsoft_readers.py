@@ -2,7 +2,8 @@
 account token (package ACCT-M): each reads the account record (MICROSOFT_ACCOUNT_TOKEN) first and, when it is absent, its own legacy record
 with the old exact check and one note; with both it uses the account one and does not fall back when that one is refused; a token that lacks
 a permission of the platform's set, or carries another, is refused (exit 3) naming the account command; the readers still send GET requests
-only, and no token is on stdout or stderr (the output half of limit L59; what environment a provider is given is the runtime's half). The stand-in services are the readers' own (their fakes are loaded from
+only, and no token is on stdout or stderr (the output half of limit L59; what environment a provider is given, and that no run holds the token, is the runtime's half:
+runtime/tests/test_account_token_limit.py). The stand-in services are the readers' own (their fakes are loaded from
 their test folders). No network but loopback, no real account, no real credential.
 
 Run: uv run --with pytest==9.1.1 pytest providers/accounts/tests/test_account_microsoft_readers.py
@@ -144,7 +145,7 @@ def test_a_reader_sends_get_requests_only_to_graph_with_the_account_token(case):
     assert case.fake.token_forms and all(f["grant_type"] == "refresh_token" for f in case.fake.token_forms)
 
 
-def test_no_token_is_on_stdout_or_stderr_on_any_path(case):
+def test_limit_59_the_account_token_is_in_no_output_or_error_of_a_reader_whatever_goes_wrong(case):
     """The output half of limit L59: the account token reaches a provider process and no output of it."""
     case.accept_account_token()
     outputs = []
@@ -168,7 +169,7 @@ def test_the_token_of_the_service_is_rejected_with_the_account_command_not_the_l
     assert code == 3 and ACCOUNT_COMMAND in stderr and case.username not in stderr and "outlook_auth.py" not in stderr and "onedrive_auth.py" not in stderr
 
 
-def test_a_token_that_lacks_a_permission_of_the_set_is_refused_before_anything_is_read(case):
+def test_limit_59_a_token_that_lacks_a_permission_of_the_set_is_refused_before_anything_is_read(case):
     case.accept_account_token()
     for missing in PLATFORM:
         case.fake.scope_granted = " ".join(PREFIX + n for n in PLATFORM if n != missing) + " offline_access openid"
@@ -180,7 +181,7 @@ def test_a_token_that_lacks_a_permission_of_the_set_is_refused_before_anything_i
         assert len(case.fake.requests) == before, "no Graph call was made with the token"
 
 
-def test_a_token_that_carries_another_permission_is_refused_and_says_how_to_remove_it(case):
+def test_limit_59_a_token_that_carries_another_permission_is_refused_and_says_how_to_remove_it(case):
     case.accept_account_token()
     for extra in ("Mail.Read", "Calendars.ReadBasic", "Files.Read", "Files.ReadWrite.All", "Directory.Read.All"):
         case.fake.scope_granted = GRANTED + " " + PREFIX + extra
@@ -425,3 +426,74 @@ def test_a_record_from_the_environment_or_the_credentials_directory_is_never_rew
         monkeypatch.setattr(module, "secret_resolver", lambda where=where: Fixed(where))
         assert module.main(["--check"]) == 0
     assert store.values == store.initial and store.writes == []
+
+
+def credentials_folder(tmp_path, record_text, file_mode=0o600, folder_mode=0o700):
+    folder = tmp_path / "credentials"
+    folder.mkdir(mode=0o700)
+    file = folder / "MICROSOFT_ACCOUNT_TOKEN"
+    file.write_text(record_text, encoding="utf-8")
+    file.chmod(file_mode)
+    folder.chmod(folder_mode)
+    return folder
+
+
+@pytest.mark.parametrize("file_mode, folder_mode", [(0o644, 0o700), (0o600, 0o755), (0o666, 0o700)])
+def test_an_account_record_in_an_unsafe_credentials_directory_is_exit_3_naming_the_entry_and_not_a_fall_back(case, tmp_path, file_mode, folder_mode):
+    """The resolver says "unsafe" (a file others can read, a folder others can enter): the record is there and cannot be read, not absent."""
+    case.accept_account_token()
+    folder = credentials_folder(tmp_path, json.dumps(case.account_record()), file_mode, folder_mode)
+    for legacy in (None, case.legacy_record()):
+        before = len(case.fake.token_forms)
+        code, _, _, stderr = case.run("--check", legacy=legacy, extra={"OPENHORA_CREDENTIALS_DIR": str(folder)})
+        assert code == 3, (file_mode, folder_mode, legacy, stderr)
+        assert "microsoft-account" in stderr and "MICROSOFT_ACCOUNT_TOKEN" in stderr and "cannot be read (unsafe)" in stderr, stderr
+        assert "no older record takes its place" in stderr and "using the legacy record" not in stderr
+        assert len(case.fake.token_forms) == before, "no token of either record was sent"
+        assert ACCOUNT_COMMAND not in stderr or "unsafe" in stderr
+        assert ACCOUNT_REFRESH not in stderr and LEGACY_REFRESH not in stderr
+
+
+def test_the_same_directory_made_safe_is_read(case, tmp_path):
+    case.accept_account_token()
+    folder = credentials_folder(tmp_path, json.dumps(case.account_record()))
+    code, out, _, stderr = case.run("--check", legacy=case.legacy_record(), extra={"OPENHORA_CREDENTIALS_DIR": str(folder)})
+    assert code == 0 and out["record"] == "account", stderr
+
+
+def test_an_account_record_in_a_locked_secret_store_is_exit_3_naming_the_entry_and_not_a_fall_back(case, monkeypatch, capsys):
+    """In process: the real resolver with a store that raises. A locked store may hold the account record; the legacy one must not be used."""
+    module = MODULES[case.kind]
+    legacy_text = json.dumps(case.legacy_record())
+    asked = []
+
+    class LockedStore:
+        def get_password(self, service, username):
+            asked.append(username)
+            raise RuntimeError("the collection is locked")
+
+    class AccountSide:
+        """The real resolver module, asked for the account's secret with a locked store."""
+
+        @staticmethod
+        def resolve_state(name, allow_store=True):
+            return RESOLVER.resolve_state(name, allow_store=allow_store, environ={}, store=LockedStore())
+
+    class LegacySide:
+        @staticmethod
+        def resolve(name, allow_store=True):
+            asked.append(name)
+            return (legacy_text, "environment")
+
+    monkeypatch.setattr(module, "account_resolver", lambda: AccountSide)
+    monkeypatch.setattr(module, "secret_resolver", lambda: LegacySide)
+    with pytest.raises(module.ProviderError) as refused:
+        module.load_record(False)
+    message = str(refused.value)
+    assert refused.value.code == 3 and "microsoft-account" in message and "cannot be read (locked)" in message
+    assert "no older record takes its place" in message and "unlock" in message
+    assert case.legacy_secret not in asked, "the legacy record was not even asked for"
+    assert asked and set(asked) == {"microsoft-account"}
+
+
+RESOLVER = load(PROVIDERS / "secrets" / "resolver.py", "resolver_for_the_account_reader_tests")

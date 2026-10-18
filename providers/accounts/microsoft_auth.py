@@ -25,7 +25,8 @@ authorize prints one JSON object on stdout: {"authorized": true, "secret_store":
 "obtained_at"}. Neither prints a token.
 
 What the token can do. It is not narrow: with the whole set it reads, changes, sends and moves to the trash everything the account holds in
-Outlook mail, Outlook calendar and OneDrive, and it is as private as your mail. That is accepted (decision of 2026-10-18): the restriction is
+Outlook mail, Outlook calendar and OneDrive (Microsoft lists the permanentDelete actions of a message, an event and a drive item with these
+permissions, so it could delete permanently too; what prevents that is code, never the scope), and it is as private as your mail. That is accepted (decision of 2026-10-18): the restriction is
 the platform's, not the token's. The record is read only by a provider process that the runtime or you start, with this one secret in its
 environment; it never enters a run, a prompt, a log or the store; every write is a hashed effect you approve; each provider script sends only
 the verbs its job needs, and none holds a permanent-delete call. Revoking the app in your Microsoft account stops every provider at once.

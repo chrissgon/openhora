@@ -2,7 +2,7 @@
 record and how a reader chooses between it and its legacy record, the profile a record belongs to, the profile's refresh scope, the account's
 address, and the static facts the limits rest on (the readers send GET only; the provider environment is built from one named secret;
 the registry row; no script of this work holds a permanent delete). The runtime's half of limit L59 (which names a source operation hands a provider, and that
-no run's environment holds the token) is tested in the runtime's tests, not here. No network at all.
+no run's environment holds the token) is tested in runtime/tests/test_account_token_limit.py, not here. No network at all.
 
 Run: uv run --with pytest==9.1.1 pytest providers/accounts/tests/test_account_microsoft.py
 """
@@ -255,7 +255,7 @@ def test_no_script_of_the_account_work_holds_a_permanent_delete_call():
             assert word not in code, (path.name, word)
 
 
-def test_provider_environment_passes_the_one_account_secret_it_is_named_for_and_no_legacy_or_other_record():
+def test_limit_59_provider_environment_passes_the_one_account_secret_a_provider_is_named_for_and_no_legacy_or_other_record():
     env = {"PATH": "/usr/bin", "MICROSOFT_ACCOUNT_TOKEN": '{"refresh_token": "x"}', "OUTLOOK_MAIL_TOKEN": "legacy", "ONEDRIVE_SOURCES_TOKEN": "legacy",
            "VCS_GITHUB_TOKEN": "t", "MAILBOX_PROVIDER": "outlook"}
     for cls in ("reader:email", "integration:calendar", "integration:documents"):
@@ -278,3 +278,44 @@ def test_the_registry_row_names_the_set_the_record_and_the_readers_and_the_resol
     assert found == ('{"slot": "main"}', "environment (MICROSOFT_ACCOUNT_TOKEN)")
     shown = json.dumps(resolver.report(environ={"MICROSOFT_ACCOUNT_TOKEN": "sentinel-value-not-real"}, store=None))  # security-scan: allow secret-assignment -- a made-up value for a test that checks nothing prints it; no real account has it
     assert "sentinel-value-not-real" not in shown, "the report never prints a value"
+
+
+class Looked:
+    def __init__(self, state, value="", source=None, detail=""):
+        self.state, self.value, self.source, self.detail = state, value, source, detail
+
+
+class StateResolver:
+    def __init__(self, answer):
+        self.answer, self.asked = answer, []
+
+    def resolve_state(self, name, allow_store=True):
+        self.asked.append((name, allow_store))
+        return self.answer
+
+
+def test_find_account_record_reads_the_state_found_and_missing_and_nothing_else_is_absent():
+    found = msgraph.find_account_record(StateResolver(Looked("found", "{}", "secret store")), ACCOUNT, False)
+    assert found == ("{}", "secret store")
+    answering = StateResolver(Looked("missing"))
+    assert msgraph.find_account_record(answering, ACCOUNT, True) is None and answering.asked == [("MICROSOFT_ACCOUNT_TOKEN", False)]
+    for state, detail in (("locked", "the secret store is locked or unavailable: unlock it"), ("unsafe", "the credentials file is readable by others"),
+                          ("weird", "")):
+        with pytest.raises(msgraph.ProviderError) as refused:
+            msgraph.find_account_record(StateResolver(Looked(state, detail=detail)), ACCOUNT, False)
+        message = str(refused.value)
+        assert refused.value.code == 3 and "microsoft-account" in message and "MICROSOFT_ACCOUNT_TOKEN" in message
+        assert f"cannot be read ({state})" in message and (detail in message if detail else "no detail" in message)
+        assert "no older record takes its place" in message
+
+
+def test_a_resolver_without_resolve_state_is_asked_with_resolve():
+    assert msgraph.find_account_record(Resolver({}), ACCOUNT, False) is None
+    assert msgraph.find_account_record(Resolver({"MICROSOFT_ACCOUNT_TOKEN": ("{}", "environment")}), ACCOUNT, False) == ("{}", "environment")
+
+
+def test_load_credentials_never_reaches_the_legacy_record_when_the_account_one_cannot_be_read():
+    legacy_side = Resolver({"OUTLOOK_MAIL_TOKEN": (json.dumps({"refresh_token": "x", "client_id": "y"}), "environment")})
+    with pytest.raises(msgraph.ProviderError) as refused:
+        msgraph.load_credentials(LEGACY, ACCOUNT, lambda: legacy_side, False, lambda: StateResolver(Looked("locked", detail="unlock it")))
+    assert "cannot be read (locked)" in str(refused.value) and legacy_side.asked == []

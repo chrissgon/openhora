@@ -269,7 +269,7 @@ def test_a_kind_of_account_that_cannot_be_read_is_a_note_and_not_a_failure(fake,
 
 
 @pytest.mark.parametrize("missing", fake_ms_account.PLATFORM)
-def test_a_consent_that_lacks_one_permission_of_the_set_stores_nothing_and_names_the_command(fake, env, monkeypatch, capsys, missing):
+def test_limit_59_a_consent_that_lacks_one_permission_of_the_set_stores_nothing_and_names_the_command(fake, env, monkeypatch, capsys, missing):
     fake.scope_granted = granted(*[n for n in fake_ms_account.PLATFORM if n != missing])
     browser(monkeypatch, returns_with_the_code)
     assert auth.main(["authorize"]) == 3
@@ -281,7 +281,7 @@ def test_a_consent_that_lacks_one_permission_of_the_set_stores_nothing_and_names
 
 
 @pytest.mark.parametrize("extra", ["Mail.Read", "Calendars.ReadBasic", "Files.ReadWrite.All", "Mail.ReadWrite.Shared", "Directory.Read.All"])
-def test_a_consent_that_carries_another_permission_stores_nothing_and_says_how_to_remove_it(fake, env, monkeypatch, capsys, extra):
+def test_limit_59_a_consent_that_carries_another_permission_stores_nothing_and_says_how_to_remove_it(fake, env, monkeypatch, capsys, extra):
     fake.scope_granted = granted(*fake_ms_account.PLATFORM, extra)
     browser(monkeypatch, returns_with_the_code)
     assert auth.main(["authorize"]) == 3
@@ -448,3 +448,19 @@ def test_the_accounts_folder_is_not_a_class_folder_and_the_resolver_never_lists_
     classes = json.loads(done.stdout)["classes"]
     assert not [c for c in classes if "accounts" in c["folder"] or "microsoft_auth" in json.dumps(c)]
     assert re.search(r"accounts", done.stdout) is None
+
+
+def test_check_of_an_unsafe_credentials_file_is_exit_3_with_the_reason_and_not_found_false(fake, env, monkeypatch, tmp_path, capsys):
+    folder = tmp_path / "credentials"
+    folder.mkdir(mode=0o700)
+    file = folder / "MICROSOFT_ACCOUNT_TOKEN"
+    file.write_text(fake.account_record_json(), encoding="utf-8")
+    file.chmod(0o644)
+    folder.chmod(0o700)
+    monkeypatch.setenv("OPENHORA_CREDENTIALS_DIR", str(folder))
+    assert auth.main(["check"]) == 3
+    out, err = capsys.readouterr()
+    assert "cannot be read (unsafe)" in err and "microsoft-account" in err and '"found": false' not in out.lower()
+    assert fake_ms_account.REFRESH_TOKEN not in out + err
+    file.chmod(0o600)
+    assert auth.main(["check"]) == 0 and json.loads(capsys.readouterr().out)["found"] is True

@@ -273,8 +273,9 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "sources today, the platform's writers later; one consent for the whole account",
            "Microsoft Graph delegated Mail.ReadWrite, Mail.Send, Calendars.ReadWrite, Files.ReadWrite and User.Read, with offline_access "
            "(providers/accounts/microsoft_auth.py), from one app registration: the token can read, change, send and move to the trash "
-           "everything the account holds in those services and delete nothing permanently through this code; what stops misuse is the "
-           "platform's (policies, a card of the exact content for each write, the verbs each script sends, no token in a run), not the "
+           "everything the account holds in those services, and the three ReadWrite permissions can also delete permanently (Microsoft "
+           "lists permanentDelete for them): what prevents that, and what stops misuse, is the platform's (limit L57 and the writers' "
+           "allow-lists, policies, a card of the exact content for each write, the verbs each script sends, no token in a run), not the "
            "token's. A token that lacks one of the set or carries another is refused",
            ("providers/accounts/microsoft_auth.py", "providers/_msgraph.py", "providers/documents/onedrive.py", "providers/mailbox/outlook.py",
             "providers/calendar/outlook.py"),

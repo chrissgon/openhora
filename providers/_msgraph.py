@@ -304,14 +304,34 @@ def note_legacy(legacy: Profile, account: Profile) -> None:
         log(f"note: using the legacy record {legacy.keyring_username}; run {account.auth_command} to move to the account token")
 
 
+def find_account_record(resolver, account: Profile, test_mode: bool):
+    """(the record's JSON text, where it was found) through the secret resolver, or None when the record is ABSENT. The lookup is the
+    resolver's `resolve_state`: a record that is there and cannot be read now (the OS secret store is locked or unavailable, the credentials
+    directory or its file is not safe, the password manager is locked: any state but "missing") is not absent, it is exit 3 naming
+    `microsoft-account` with the lookup's own detail, and no legacy record takes its place. A resolver without `resolve_state` (a stand-in)
+    is asked with `resolve`, whose None is "missing"."""
+    state_of = getattr(resolver, "resolve_state", None)
+    if state_of is None:
+        found = resolver.resolve(account.secret, allow_store=not test_mode)
+        return None if not found else (found[0], found[1])
+    found = state_of(account.secret, allow_store=not test_mode)
+    if found.state == "found":
+        return found.value, found.source
+    if found.state != "missing":
+        raise ProviderError(f"the {account.label} record ({account.secret}, store username {account.keyring_username}) cannot be read "
+                            f"({found.state}): {one_line(found.detail, 300) or 'no detail'}; no older record takes its place", EXIT_NOT_CONFIGURED)
+    return None
+
+
 def load_credentials(legacy: Profile, account: Profile, resolver, test_mode: bool, account_resolver=None) -> tuple:
     """(record, where it was found) for a reader: the account record first, the reader's own legacy record second (backlog ACCT-LEGACY removes
     the second), and the legacy one only when the account record is ABSENT. Whatever is found under the account's secret is the account's
     record: when it is malformed (not JSON, no slot, another shape or scope set) the answer is exit 3 naming `microsoft-account` and the
     authorize and forget commands, never a silent fall back to the legacy record. When both exist and the account's is whole, the account
-    record is used and the legacy one is not read. `resolver` is the provider's own function for its legacy secret and `account_resolver` its
+    record is used and the legacy one is not read. A record that is there but cannot be read now (a locked store, an unsafe credentials
+    directory or file) is not absent either: find_account_record. `resolver` is the provider's own function for its legacy secret and `account_resolver` its
     function for the account's (the same resolver in the workbench; two functions so that a test can replace one)."""
-    found = (account_resolver or resolver)().resolve(account.secret, allow_store=not test_mode)
+    found = find_account_record((account_resolver or resolver)(), account, test_mode)
     if found:
         return parse_account_record(account, found[0]), found[1]
     older = resolver().resolve(legacy.secret, allow_store=not test_mode)
@@ -1032,7 +1052,7 @@ def authorize_account(profile: Profile, provider, server_cls, open_browser: bool
 def check_account(profile: Profile, provider) -> int:
     """Whether an account authorization is there and holds the platform's set, read the way the readers read it. No network, no token printed."""
     _, _, _, test_mode = provider.endpoints()
-    found = provider.secret_resolver().resolve(profile.secret, allow_store=not test_mode)
+    found = find_account_record(provider.secret_resolver(), profile, test_mode)
     if not found:
         print(json.dumps({"found": False}, indent=2))
         log(f"not configured: no {profile.label} authorization in the environment, the credentials directory or the OS secret store; run: "
