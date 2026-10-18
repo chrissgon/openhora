@@ -2504,6 +2504,7 @@ def route_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, fail
 
 
 ASK_ACTOR_CURSOR = "ask-actor:{run}"   # who asked, kept beside an answer run (no column holds it): the same retention as the actor of a decision, never deleted
+ANSWER_TITLE = "Question"             # the title code gives the request of a question, with its number ("Question 7"): what marks it as one
 ANSWER_FAILED_BY = "code:answer-failed"   # the `by` of the request an answer run that failed cancels
 
 
@@ -2537,20 +2538,20 @@ def answer_run_start(conn: sqlite3.Connection, request_id: int | None = None, *,
     return {"run_id": run_id, "request_id": request_id, "started_at": now}
 
 
-def answers_abandoned_cancel(conn: sqlite3.Connection, router_skill: str) -> list:
-    """Cancel, by `code:answer-failed`, the questions an ask left behind when its process died: a request with no task, in the state
-    `requested`, that has runs, none running (the recovery has ended the run) and none of the router's (`router_skill`: the only other
-    runs a request has). A request a router run is working on has a run of the router's, and one whose run is still running is not
-    touched. Returns the ids of the requests cancelled."""
-    router_skill = text_arg(router_skill, "router_skill", LABEL_MAX)
+def answers_abandoned_cancel(conn: sqlite3.Connection) -> list:
+    """Cancel, by `code:answer-failed`, the questions an ask left behind when its process died: a request that code made as a question
+    (its title is ANSWER_TITLE and its number, which answer_run_start writes in the transaction that makes the request), with no task, in
+    the state `requested`, that has runs, none running (the recovery has ended the run). A request a person made, with the router's runs
+    under whatever skill name the checkout has, is never one; one whose run is still running is not touched. Returns the ids cancelled."""
     now = iso(utcnow())
     cancelled = []
     with write(conn):
-        for row in conn.execute("SELECT id FROM tasks WHERE parent_id IS NULL AND state = 'requested' ORDER BY id").fetchall():
+        for row in conn.execute("SELECT id FROM tasks WHERE parent_id IS NULL AND state = 'requested' AND title = ? || ' ' || id ORDER BY id",
+                                (ANSWER_TITLE,)).fetchall():
             if conn.execute("SELECT 1 FROM tasks WHERE parent_id = ?", (row["id"],)).fetchone():
                 continue
             runs = conn.execute("SELECT id, skill, status FROM task_runs WHERE task_id = ?", (row["id"],)).fetchall()
-            if not runs or any(r["skill"] == router_skill or r["status"] == "running" for r in runs):
+            if not runs or any(r["status"] == "running" for r in runs):
                 continue
             _cancel_request(conn, row["id"], ANSWER_FAILED_BY, now)
             cancelled.append(row["id"])

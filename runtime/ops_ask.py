@@ -65,7 +65,7 @@ def _ops():
 
 
 ASK_TIMEOUT = 300                     # seconds one answer run may last (the gate file's timeout is a task's)
-TITLE = "Question"                    # the store adds the request's number: no text of a question is in a title
+TITLE = "Question"                    # = store.ANSWER_TITLE; the store adds the request's number: no text of a question is in a title, and the title marks it as one
 NOT_BUILT = "No skill answers from the sources in this checkout yet (asst-answer is planned)."
 NO_SOURCES = "This project has no source with a version to answer from. Import one first."
 NO_MATCH = "No source of this project seems to be about this. Name one with @<id>: {ids}."

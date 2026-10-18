@@ -189,8 +189,8 @@ def _recover(ctx: dict, holding_route: bool = False) -> dict:
                     held.append(fd)
                     runs = router
         found = {"tasks": [], "runs": []} if not tasks and not runs else core._stored(ctx, store.task_fail_orphans, tasks, runs, ORPHAN_NOTE)
-        # the questions an ask left when its process died (a request with no task, whose runs are all answer runs and none running)
-        core._stored(ctx, store.answers_abandoned_cancel, importlib.import_module("router").ROUTER_SKILL)
+        # the questions an ask left when its process died (a request code titled "Question <n>", with no task and no run running)
+        core._stored(ctx, store.answers_abandoned_cancel)
         return ops_waits.settled(ctx, found)
     finally:
         for fd in held:

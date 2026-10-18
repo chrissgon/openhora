@@ -30,6 +30,11 @@ and this module reads only those lines and decides what is sent. A model's text 
   7. After the instructions line the reply keeps only lines that name a source the run was given, say `not followed` and carry a
      quoted passage (INSTRUCTION_MIN_WORDS words or more) that is in the copy of the source they name; every other line there is left
      out and flagged (AFTER_INSTRUCTIONS for a line of another form, INSTRUCTION_UNVERIFIED for one whose passage is not in its source).
+     A line that is kept is written again by code, `[<id>] "<the passage>" (not followed)`: none of the model's other words reaches the person.
+  8. What is shown is cleaned (clean()): NFC, with every Unicode format character (Cf), every combining mark that has no precomposed letter
+     (Mn) and the default-ignorable code points (the combining grapheme joiner, the Hangul fillers, the variation selectors, the tag
+     characters) removed. A line that holds a text-direction control (U+202A to U+202E, U+2066 to U+2069, U+200E, U+200F, U+061C) is left
+     out and flagged BIDI_CONTROL, since such a character can make a line read differently from how it is stored.
 
 Code appends the footer: READ (each source and version read) and, when the run is not proven, UNPROVEN. The sentences are English
 constants; the project's language is applied to them by a later package (LR-1).
@@ -57,6 +62,8 @@ QUOTE_CHECKED = 'Checked quote [{id}]: "{text}"'
 QUOTE_IMITATED = "A line of the answer imitated a checked quote and was left out."
 AFTER_INSTRUCTIONS = "Text after the instructions line was left out."
 INSTRUCTION_UNVERIFIED = "An instruction found in a source was left out: its quoted passage is not in that source."
+BIDI_LEFT_OUT = "A line with text-direction controls was left out."
+INSTRUCTION_LINE = '[{id}] "{passage}" (not followed)'
 UNVERIFIED = "No quote of this answer could be checked against the sources; check it yourself."
 NOT_FOUND = "Not found in the sources read: {read}."
 READ = "Read: {read}"
@@ -78,13 +85,37 @@ CONFUSABLES = str.maketrans({
     "\u0442": "t", "\u043d": "h", "\u0432": "b", "\u0491": "r",
     "\u03b1": "a", "\u03b5": "e", "\u03bf": "o", "\u03c1": "p", "\u03bd": "v", "\u03c5": "u", "\u03b9": "i", "\u03ba": "k",
     "\u03c4": "t", "\u03c7": "x", "\u03b3": "y", "\u03b2": "b", "\u03b7": "n", "\u03c9": "w",
+    # Armenian
+    "\u0585": "o", "\u0578": "n", "\u057d": "u", "\u0570": "h", "\u0581": "g", "\u0566": "q", "\u0561": "w",
+    # Cherokee (case folding turns its small letters into these capitals)
+    "\u13aa": "a", "\u13f4": "b", "\u13df": "c", "\u13a0": "d", "\u13ac": "e", "\u13c0": "g", "\u13bb": "h", "\u13d6": "i",
+    "\u13ab": "j", "\u13e6": "k", "\u13de": "l", "\u13b7": "m", "\u13da": "s", "\u13a2": "t", "\u13d9": "v", "\u13b3": "w",
+    "\u13a9": "y", "\u13c3": "z", "\u13e2": "p", "\u13a1": "r", "\u13ee": "x",
+    # Latin small capitals
+    "\u1d00": "a", "\u0299": "b", "\u1d04": "c", "\u1d05": "d", "\u1d07": "e", "\ua730": "f", "\u0262": "g", "\u029c": "h",
+    "\u026a": "i", "\u1d0a": "j", "\u1d0b": "k", "\u029f": "l", "\u1d0d": "m", "\u0274": "n", "\u1d0f": "o", "\u1d18": "p",
+    "\u0280": "r", "\ua731": "s", "\u1d1b": "t", "\u1d1c": "u", "\u1d20": "v", "\u1d21": "w", "\u028f": "y", "\u1d22": "z",
 })
+BIDI = re.compile("[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c]")
+IGNORABLE = frozenset([0x115F, 0x1160, 0x3164, 0xFFA0, 0x034F, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x180F])
+
+
+def ignorable(c: str) -> bool:
+    """A character the reader does not see or that only changes the one before it: format (Cf), combining marks (Mn) and the default-ignorable code points."""
+    n = ord(c)
+    return (unicodedata.category(c) in ("Cf", "Mn") or n in IGNORABLE or 0xFE00 <= n <= 0xFE0F or 0xE0000 <= n <= 0xE0FFF)
+
+
+def clean(text: str) -> str:
+    """The text as it may be shown: NFC, with every ignorable character removed (see the module's text, rule 8)."""
+    return "".join(c for c in unicodedata.normalize("NFC", str(text)) if not ignorable(c))
 
 
 def fold(text: str) -> str:
-    """A line as the check for an imitated quote reads it: NFKC, the Unicode format characters (category Cf: zero-width space, joiners,
-    the soft hyphen, direction marks) removed, case folded, the look-alike letters of Cyrillic and Greek read as Latin."""
-    plain = "".join(c for c in unicodedata.normalize("NFKC", str(text)) if unicodedata.category(c) != "Cf")
+    """A line as the check for an imitated quote reads it: NFKD, every ignorable character removed (format characters, combining marks, the
+    fillers and variation selectors), case folded, the look-alike letters of Cyrillic, Greek, Armenian, Cherokee and the Latin small
+    capitals read as Latin."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", str(text)) if not ignorable(c))
     return plain.casefold().translate(CONFUSABLES)
 
 
@@ -95,8 +126,8 @@ def imitates(line: str) -> bool:
 
 
 def collapse(text: str) -> str:
-    """NFC, then every run of white space one space."""
-    return " ".join(unicodedata.normalize("NFC", str(text)).split())
+    """The cleaned text (clean()), then every run of white space one space: both sides of a comparison with a source are read this way."""
+    return " ".join(clean(text).split())
 
 
 def read_line(given: list) -> str:
@@ -111,11 +142,12 @@ def parse(response: str) -> dict:
     lines = (response or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     start = next((n for n, line in enumerate(lines) if line.strip()), None)
     if start is None:
-        return {"answer": None, "prose": [], "quotes": [], "imitated": 0, "tail": []}
+        return {"answer": None, "prose": [], "quotes": [], "imitated": 0, "bidi": 0, "tail": []}
     if FIRST_LINE.fullmatch(lines[start].strip()) is None:
-        return {"answer": None, "prose": lines, "quotes": [], "imitated": 0, "tail": []}
+        return {"answer": None, "prose": lines, "quotes": [], "imitated": 0, "bidi": 0, "tail": []}
     answer = FIRST_LINE.fullmatch(lines[start].strip()).group(1).lower()
-    body, tail = lines[start + 1:], []
+    bidi = sum(1 for line in lines[start + 1:] if BIDI.search(line))
+    body, tail = [clean(line) for line in lines[start + 1:] if not BIDI.search(line)], []
     for n, line in enumerate(body):
         found = INSTRUCTIONS_LINE.fullmatch(line.strip()) if line.strip().lower().startswith(INSTRUCTIONS.lower()) else None
         if found:
@@ -135,14 +167,19 @@ def parse(response: str) -> dict:
             imitated += 1
         else:
             prose.append(line.rstrip())
-    return {"answer": answer, "prose": prose, "quotes": quotes, "imitated": imitated, "tail": tail}
+    return {"answer": answer, "prose": prose, "quotes": quotes, "imitated": imitated, "bidi": bidi, "tail": tail}
 
 
-def _quoted_in_source(line: str, ids: set, copies_flat: dict) -> bool:
-    """Whether the line carries a quoted passage of INSTRUCTION_MIN_WORDS words or more that is in the copy of a source it names."""
-    named = [i for i in ids if _names(line, {i})]
-    return any(len(collapse(p).split()) >= INSTRUCTION_MIN_WORDS and collapse(p) in copies_flat.get(i, "")
-               for p in QUOTED.findall(line) for i in named)
+def _verified_instruction(line: str, ids: set, copies_flat: dict):
+    """The instruction line as code writes it, `[<id>] "<passage>" (not followed)`, for the first quoted passage of INSTRUCTION_MIN_WORDS words
+    or more that is in the copy of a source the line names; None when there is none."""
+    named = [i for i in sorted(ids) if _names(line, {i})]
+    for passage in QUOTED.findall(line):
+        flat = collapse(passage)
+        for source_id in named:
+            if len(flat.split()) >= INSTRUCTION_MIN_WORDS and flat in copies_flat.get(source_id, ""):
+                return INSTRUCTION_LINE.format(id=source_id, passage=flat)
+    return None
 
 
 def _names(line: str, ids: set) -> bool:
@@ -159,7 +196,7 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
     ids = {g["source"] for g in given}
     flags = []
     if parsed["answer"] is None:
-        text = "\n\n".join([UNCHECKED, (response or "").strip() or "(empty reply)", READ.format(read=read), *footer])
+        text = "\n\n".join([UNCHECKED, clean(response or "").strip() or "(empty reply)", READ.format(read=read), *footer])
         return {"text": text, "outcome": "unchecked", "flags": ["UNCHECKED"], "verified": 0}
     copies_flat = {i: collapse(t) for i, t in copies.items()}
     kept, other, unverified = [], 0, 0
@@ -167,11 +204,15 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
         form = "not followed" in line.lower() and _names(line, ids) and not imitates(line)
         if not form:
             other += 1
-        elif _quoted_in_source(line, ids, copies_flat):
-            kept.append(line)
         else:
-            unverified += 1
+            written = _verified_instruction(line, ids, copies_flat)
+            if written:
+                kept.append(written)
+            else:
+                unverified += 1
     instructions = (INSTRUCTIONS + " " + kept[0] + "".join("\n" + t for t in kept[1:])) if kept else ""
+    if parsed["bidi"]:
+        flags.append("BIDI_CONTROL")
     if other:
         flags.append("AFTER_INSTRUCTIONS")
     if unverified:
@@ -205,6 +246,8 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
     if parsed["imitated"]:
         flags.append("QUOTE_IMITATED")
         notes.append(QUOTE_IMITATED)
+    if parsed["bidi"]:
+        notes.append(BIDI_LEFT_OUT)
     if other:
         notes.append(AFTER_INSTRUCTIONS)
     if unverified:
