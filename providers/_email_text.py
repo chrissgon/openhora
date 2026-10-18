@@ -11,8 +11,9 @@ here from providers/messenger/email-imap.py unchanged (the same text, the same b
 channel cut the quoted history of a reply in one way.
 
   INVISIBLE_RE, HSPACE_RE    the invisible and direction-changing characters, and a run of horizontal space
-  HIDDEN_STYLE_RE, style_hides   an inline style that hides an element from a reader (display:none, visibility:hidden, mso-hide:all, a zero
-                             font-size, opacity:0, a zero width or height, a zero max-height or max-width with overflow:hidden)
+  HIDDEN_STYLE_RE, style_hides   an inline style that hides an element and all that is in it from a reader (display:none, visibility:hidden,
+                             mso-hide:all, opacity:0, a zero width, height, max-width or max-height with overflow:hidden); font_zero, a zero
+                             font-size, hides the text written in that element unless a descendant sets a size of its own
   clean_line, clean_block    a line, and a block, with the invisible characters removed and the space folded
   HTMLText, html_to_text     the text and the links of an HTML body with the standard library parser (no script is run, no link is
                              followed, nothing is fetched); an element hidden by an inline style or the hidden attribute gives nothing
@@ -34,20 +35,40 @@ INVISIBLE_RE = re.compile("[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u20
                           "\u2060-\u2064\u2066-\u2069\u3164\ufeff\uffa0]")
 HSPACE_RE = re.compile(r"[^\S\n]+")
 # An inline style that hides an element from a reader. Hidden text is a way to put words before a model that the
-# person never sees, so it is not message text. The declarations that hide by themselves: display:none, visibility:hidden, the Outlook
-# mso-hide:all, a zero font-size, opacity:0 and a zero width or height (a number, with or without a unit, that is zero).
+# person never sees, so it is not message text. Two kinds, by what a descendant can do about them:
+#  - HIDDEN_STYLE_RE: declarations that hide the element and everything in it, which no child can undo: display:none, visibility:hidden,
+#    the Outlook mso-hide:all and opacity:0;
+#  - a box of zero width or height (also max-width and max-height) hides only together with overflow:hidden; alone its text overflows
+#    and is seen (style_hides). A zero font-size hides only the text written in that element, and a descendant that sets its own
+#    non-zero size shows its text again (HTMLText keeps a stack of the sizes): template e-mails set font-size:0 on a wrapper to kill
+#    the gaps between inline blocks and size the text inside it.
 _ZERO = r"0(?:\.0+)?(?:px|pt|em|rem|ex|ch|%)?"
-HIDDEN_STYLE_RE = re.compile(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden|mso-hide\s*:\s*all|font-size\s*:\s*" + _ZERO
-                             + r"|opacity\s*:\s*0(?:\.0+)?|(?:width|height)\s*:\s*" + _ZERO + r")\s*(?:!\s*important\s*)?(?:;|$)", re.I)
-# A zero max-height or max-width hides only together with overflow:hidden (the preheader trick); alone it hides nothing.
-MAX_ZERO_RE = re.compile(r"(?:^|;)\s*max-(?:height|width)\s*:\s*" + _ZERO + r"\s*(?:!\s*important\s*)?(?:;|$)", re.I)
-OVERFLOW_HIDDEN_RE = re.compile(r"(?:^|;)\s*overflow(?:-[xy])?\s*:\s*hidden\s*(?:!\s*important\s*)?(?:;|$)", re.I)
+_END = r"\s*(?:!\s*important\s*)?(?:;|$)"
+HIDDEN_STYLE_RE = re.compile(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden|mso-hide\s*:\s*all|opacity\s*:\s*0(?:\.0+)?)" + _END, re.I)
+ZERO_BOX_RE = re.compile(r"(?:^|;)\s*(?:max-)?(?:width|height)\s*:\s*" + _ZERO + _END, re.I)
+OVERFLOW_HIDDEN_RE = re.compile(r"(?:^|;)\s*overflow(?:-[xy])?\s*:\s*hidden" + _END, re.I)
+FONT_SIZE_RE = re.compile(r"(?:^|;)\s*font-size\s*:\s*([^;]*)", re.I)
+FONT_ZERO_RE = re.compile(_ZERO, re.I)
+# Sizes that do not depend on the parent's: a child with one of these is seen even inside a font-size:0 wrapper.
+FONT_ABSOLUTE_RE = re.compile(r"[0-9.]+(?:px|pt|pc|in|cm|mm|q|rem|vw|vh)|(?:xx-|x-)?small|medium|(?:x-|xx-|xxx-)?large", re.I)
 
 
 def style_hides(style: str) -> bool:
-    """Whether an inline style hides the element it is on (see HIDDEN_STYLE_RE). A style sheet rule, a class, a colour and a position off the
-    page are not looked at."""
-    return bool(HIDDEN_STYLE_RE.search(style) or (MAX_ZERO_RE.search(style) and OVERFLOW_HIDDEN_RE.search(style)))
+    """Whether an inline style hides the element it is on and all that is in it (see above). A style sheet rule, a class, a colour, a
+    position off the page and a zero font-size (see font_zero) are not looked at here."""
+    return bool(HIDDEN_STYLE_RE.search(style) or (ZERO_BOX_RE.search(style) and OVERFLOW_HIDDEN_RE.search(style)))
+
+
+def font_zero(style: str, inherited: bool) -> bool:
+    """Whether the text in an element is of size zero: its last font-size declaration decides when it has one (zero: yes; a size that does
+    not depend on the parent's, such as 13px or large: no; anything else keeps what the parent had), else what the parent had."""
+    found = FONT_SIZE_RE.findall(style)
+    if not found:
+        return inherited
+    value = re.sub(r"\s*!\s*important\s*$", "", found[-1].strip(), flags=re.I)
+    if FONT_ZERO_RE.fullmatch(value):
+        return True
+    return False if FONT_ABSOLUTE_RE.fullmatch(value) else inherited
 
 
 def clean_line(line: str) -> str:
@@ -66,8 +87,9 @@ def clean_block(text: str, keep_blank_lines: bool) -> str:
 
 
 class HTMLText(HTMLParser):
-    """Text and links of an HTML body, with the standard library parser (no script is run). An element hidden by an
-    inline display:none or visibility:hidden style, or by the hidden attribute, gives no text and no link."""
+    """Text and links of an HTML body, with the standard library parser (no script is run). An element hidden by the hidden attribute or
+    by an inline style (display:none, visibility:hidden, mso-hide:all, opacity:0, a zero width or height with overflow:hidden) gives no
+    text and no link, nor does anything in it; text of font size zero gives none either, unless an element in it sets a size of its own."""
 
     SKIP = {"script", "style", "head", "title", "template", "noscript"}
     BLOCK = {"p", "div", "br", "tr", "li", "ul", "ol", "table", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -84,6 +106,8 @@ class HTMLText(HTMLParser):
         # The hidden element being skipped: its tag, and how many elements of that tag are open inside it.
         self.hidden_tag: str | None = None
         self.hidden_depth = 0
+        # The open elements and whether the text in each is of font size zero (an element that sets no size has its parent's).
+        self.sizes: list[tuple[str, bool]] = []
 
     @staticmethod
     def hidden(attrs: dict) -> bool:
@@ -105,12 +129,15 @@ class HTMLText(HTMLParser):
             if tag not in self.VOID:
                 self.hidden_tag, self.hidden_depth = tag, 1
             return
+        zero = font_zero(attrs.get("style") or "", self.zero)
+        if tag not in self.VOID:
+            self.sizes.append((tag, zero))
         if tag in self.BLOCK:
             self.parts.append("\n")
         if tag == "a":
             self._close_anchor()
             href = (attrs.get("href") or "").strip()
-            self.anchor = {"href": href, "text": []} if href else None
+            self.anchor = {"href": href, "text": []} if href and not zero else None
         elif tag == "img" and self.anchor is not None and attrs.get("alt"):
             self.anchor["text"].append(" " + attrs["alt"] + " ")
 
@@ -124,13 +151,22 @@ class HTMLText(HTMLParser):
         if tag in self.SKIP:
             self.skip_depth = max(0, self.skip_depth - 1)
             return
+        for i in range(len(self.sizes) - 1, -1, -1):   # close the nearest open element of this name, and any left open inside it
+            if self.sizes[i][0] == tag:
+                del self.sizes[i:]
+                break
         if tag == "a":
             self._close_anchor()
         if tag in self.BLOCK:
             self.parts.append("\n")
 
+    @property
+    def zero(self) -> bool:
+        """Whether the text here is of font size zero."""
+        return self.sizes[-1][1] if self.sizes else False
+
     def handle_data(self, data):
-        if self.skip_depth or self.hidden_tag is not None:
+        if self.skip_depth or self.hidden_tag is not None or self.zero:
             return
         self.parts.append(data)
         if self.anchor is not None:

@@ -399,7 +399,7 @@ def checked_next_link(link, request_url: str) -> str:
         path = urllib.parse.unquote(got.path)
         same = (got.scheme == wanted.scheme and (got.hostname or "").lower() == (wanted.hostname or "").lower()
                 and (got.port or DEFAULT_PORTS.get(got.scheme)) == (wanted.port or DEFAULT_PORTS.get(wanted.scheme))
-                and not got.username and not got.password
+                and not got.username and not got.password and "@" not in got.netloc   # not even an empty user-info
                 and path.lower().startswith(prefix) and ".." not in path.split("/"))
     except ValueError:
         raise ProviderError("Graph named a next-page address this provider cannot read; nothing more was read") from None

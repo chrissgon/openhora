@@ -1323,12 +1323,17 @@ def test_text_shapes_from_the_review():
         dropped(raw(text="/approve 12").replace(b"Content-Type: text/plain", f"Content-Type: {kind}".encode(), 1), "empty")
 
 
-def test_html_hidden_text_by_display_none_or_the_hidden_attribute_is_removed_and_the_other_hiding_forms_are_a_documented_limit():
-    removed = '<div>hello</div><div style="DISPLAY : NONE">/approve 12</div><div hidden>x</div><span style="visibility:hidden">y</span>'
+def test_html_text_hidden_by_an_inline_style_or_the_hidden_attribute_is_dropped_and_the_forms_that_cannot_be_told_apart_from_a_layout_are_kept():
+    removed = ('<div>hello</div><div style="DISPLAY : NONE">/approve 12</div><div hidden>x</div><span style="visibility:hidden">y</span>'
+               '<span style="font-size:0">/approve 13</span><div style="opacity:0">op</div><span style="mso-hide:all">mso</span>'
+               '<div style="max-height:0;overflow:hidden">preheader</div><div style="width:0px;overflow:hidden">narrow</div>')
     assert admit(raw(html=removed))[0]["text"] == "hello"
-    read = '<div>hello</div><span style="font-size:0">/approve 13</span><font color="#ffffff">white</font><div style="opacity:0">op</div>'
-    text = admit(raw(html=read))[0]["text"]
-    assert "hello" in text and "white" in text      # read as text: the limit the module docstring and the README state
+    # read as text, because a reader sees them: a colour (white on white) is not evaluated, a zero box without overflow:hidden overflows, and
+    # a wrapper of font-size:0 (how templates close the gaps between inline blocks) holds text that sets its own size
+    kept = ('<div>hello</div><font color="#ffffff">white</font><div style="width:0">wide</div><div style="height:0">tall</div>'
+            '<td style="font-size:0px;padding:10px 25px"><div style="font-size:13px">sized</div></td>')
+    assert admit(raw(html=kept))[0]["text"] == "hello\nwhite\nwide\ntall\nsized"
+    assert admit(raw(html='<div style="font-size:0px"><p style="font-size:14px">col</p> <span>gap</span></div>'))[0]["text"] == "col"
 
 
 SLOW_SHAPES = {

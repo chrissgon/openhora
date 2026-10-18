@@ -25,9 +25,11 @@ hidden text and invisible characters removed; HTML is never rendered, a link nev
 a `-- ` signature line, or an attribution or forward marker of a closed list (English, Portuguese, Spanish), so only the sender's own words
 reach the bridge. When the first line is a command (`/approve 12`), that line alone is the text, so a signature a phone adds cannot turn it
 into a typed hash. At most 8,000 characters. `reply_to` is the In-Reply-To of the message, only when it is a Message-ID this provider sent to
-that chat. `action` and `action_ref` are null, `private` is true. Hidden text is removed only when an inline style `display:none` or
-`visibility:hidden`, or the `hidden` attribute, hides it: text hidden by size, colour, opacity, position or a style sheet is read as text,
-which is why a command is honoured only as the first line of a message and the bridge still needs the reply to the card for any act.
+that chat. `action` and `action_ref` are null, `private` is true. Hidden text is removed when the `hidden` attribute or an inline style hides it: `display:none`, `visibility:hidden`, `mso-hide:all`,
+`opacity:0`, a zero `width`, `height`, `max-width` or `max-height` together with `overflow:hidden` (all of what is in the element), or a
+`font-size` of zero (the text written in that element, unless an element inside it sets a size of its own: template e-mails do). Text hidden
+by colour (white on white), position, a class or a style sheet is read as text, which is why a command is honoured only as the first line of a
+message and the bridge still needs the reply to the card for any act.
 
 The mailbox is never changed: IMAP EXAMINE (read only), UID SEARCH, UID FETCH with BODY.PEEK and RFC822.SIZE, NOOP, LOGOUT; no flag, move,
 copy or delete, ever. TLS is code: IMAP 993 from the first byte, SMTP 465 or 587 with a required STARTTLS, the certificate verified, no

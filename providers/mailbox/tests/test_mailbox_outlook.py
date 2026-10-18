@@ -251,7 +251,7 @@ def test_an_html_body_becomes_text_and_what_a_reader_cannot_see_is_not_in_it(fak
 @pytest.mark.parametrize("hidden", [
     'style="display:none"', 'style="visibility:hidden"', 'style="mso-hide:all"', 'style="MSO-HIDE: all"', 'style="font-size:0"', 'style="font-size: 0px !important"',
     'style="font-size:0pt"', 'style="font-size:0.0em"', 'style="opacity:0"', 'style="opacity: 0.0"', 'style="max-height:0;overflow:hidden"',
-    'style="overflow:hidden;max-height:0px"', 'style="max-width:0;overflow-x:hidden"', 'style="height:0"', 'style="width:0px"',
+    'style="overflow:hidden;max-height:0px"', 'style="max-width:0;overflow-x:hidden"', 'style="height:0;overflow:hidden"', 'style="width:0px;overflow:hidden"',
     'style="color:red; display : none ;"', 'hidden'])
 def test_text_a_reader_cannot_see_is_not_in_the_text_of_a_message(fake, hidden):
     fake.add("hid", "2026-10-13T02:00:00Z", "Ana", "ana@x.example", "Hidden", html=f"<p>seen words</p><div {hidden}>UNSEEN INSTRUCTION</div><p>more seen</p>")
@@ -262,10 +262,22 @@ def test_text_a_reader_cannot_see_is_not_in_the_text_of_a_message(fake, hidden):
 @pytest.mark.parametrize("shown", [
     'style="font-size:12px"', 'style="font-size:0.8em"', 'style="font-size:10"', 'style="opacity:0.5"', 'style="opacity:1"', 'style="max-height:0"',
     'style="overflow:hidden"', 'style="max-height:100px;overflow:hidden"', 'style="min-width:0"', 'style="line-height:0"', 'style="width:50%"',
+    'style="width:0"', 'style="height:0px"', 'style="max-width:0"', 'style="font-size:0;font-size:13px"', 'style="font-size:large"',
     'style="color:#ffffff"', 'class="x"'])
 def test_text_that_only_looks_like_a_hiding_style_is_kept(fake, shown):
     fake.add("shown", "2026-10-13T03:00:00Z", "Ana", "ana@x.example", "Shown", html=f"<p>a</p><div {shown}>KEPT WORDS</div><p>b</p>")
     assert "KEPT WORDS" in run(fake, "get", "--id", "shown")[1]["text"], shown
+
+
+def test_a_template_wrapper_of_font_size_zero_does_not_hide_the_text_that_sets_its_own_size(fake):
+    html = ('<table><tr><td style="font-size:0px;padding:10px 25px"><div style="font-size:13px">Your order has shipped</div></td></tr></table>'
+            '<div style="font-size:0px;display:inline-block;width:100%"><p style="font-size:14px">Column text</p><span>GAP TEXT</span></div>'
+            '<div style="font-size:0"><div style="font-size:1em">RELATIVE</div><a href="https://hid.example/x">HIDLINK</a>'
+            '<span style="font-size:12px"><a href="https://shown.example/y">shown link</a></span></div>')
+    fake.add("tpl", "2026-10-13T04:00:00Z", "Shop", "shop@x.example", "Order", html=html)
+    out = run(fake, "get", "--id", "tpl")[1]
+    assert out["text"] == "Your order has shipped\nColumn text\nshown link", out["text"]
+    assert out["links"] == [{"href": "https://shown.example/y", "text": "shown link"}], "a link in text nobody can read is not a link"
 
 
 def test_what_the_provider_does_not_remove_is_said_in_its_help(fake):
@@ -423,7 +435,8 @@ def test_the_next_page_check_in_isolation():
                 "http://127.0.0.1:81/v1.0/me/mailFolders/inbox/messages", "http://127.0.0.1/v1.0/me/mailFolders/inbox/messages",
                 "//127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages", "/v1.0/me/mailFolders/inbox/messages",
                 "http://127.0.0.1:8123@evil.example/v1.0/x",  # security-scan: allow secret-token -- a fake user-info address, the very trick the next-page check refuses
-                "http://127.0.0.1:8123\\@evil.example/v1.0/x", "http://127.0.0.1:99999/x", "", None, 5,
+                "http://127.0.0.1:8123\\@evil.example/v1.0/x", "http://127.0.0.1:99999/x", "", None, 5, "http://@127.0.0.1:8123/v1.0/me/messages",
+                "http://:@127.0.0.1:8123/v1.0/me/messages",
                 "http://127.0.0.1:8123/v1.0/me/mailFolders/inbox/messages\u00e9"):
         with pytest.raises(ol.ProviderError) as refused:
             check(bad, request)
