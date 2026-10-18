@@ -257,7 +257,7 @@ def test_a_fetched_file_is_held_with_its_type_read_from_its_bytes_and_a_name_tha
     assert case.tree(case.data / "attachments" / "incoming") == [], "the incoming folder is removed"
     assert case.tree(case.folder) == [".openhora-sources"], "nothing reaches the sources folder before an add"
     stored = case.rows()[0]
-    assert stored["sender"] == IDENT and stored["platform"] == "telegram" and stored["ref_sha256"] == attachments.ref_digest("telegram", "ref-1")
+    assert stored["sender"] == IDENT and stored["platform"] == "telegram" and stored["ref_sha256"] == attachments.ref_digest("telegram", "ref-1", IDENT)
     assert "ref-1" not in json.dumps(stored), "the platform's reference is never stored"
     listed = ops.attachments(case.path)
     assert [h["id"] for h in listed["held"]] == [1] and listed["today"] == {"files": 1, "bytes": len(PDF)} and IDENT not in json.dumps(listed)

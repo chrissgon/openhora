@@ -60,6 +60,11 @@ the "N more waiting" line goes to (`hears_count`) one fixed sentence of its own,
 subject, at most once an hour to a chat, and only to a sender who still hears the count when the line goes out (the policy is read again then); the count of what
 a chat has not been told lives in memory, so a restart forgets it (the provider's log line stays). A line that failed to send is tried again an hour later.
 
+Files (ATT-1b). A file a listed sender sends is fetched only when THAT sender's profile permits `attachment-hold` (the group `add-sources`, or the grant
+`add-sources-direct`); runtime/messaging_attach.py does the work, from the update to the fetch, the hold, the card or the add, and from the card's answer to the
+add or the discard. The bridge dispatches to it in three places: an update of the kind `attachment`, a tap on a card of the kind `attachment`, and `/add <n>` and
+`/discard <n>`; `/pending` also lists the files that wait.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -71,6 +76,7 @@ import threading
 import time
 import traceback
 
+import messaging_attach as attach
 import messaging_cards as cards
 import messaging_inbound as inbound
 import messaging_provider as provider
@@ -161,8 +167,11 @@ class Refused(Exception):
 
 
 class Bridge(shell_kit.Jobs):
+    Refused, NOT_ACCEPTED, NO_CARD = Refused, NOT_ACCEPTED, NO_CARD      # what messaging_attach reads of the bridge
+
     def __init__(self, ops_module, projects, messenger, ledger, platform: str, log=None, clock=None):
         super().__init__(ops_module, projects, log)
+        self.attach = attach.Attachments(self)
         self.messenger, self.ledger, self.platform = messenger, ledger, platform
         self.clock = clock or shell_kit.now
         self.chosen = {}       # sender -> project id
@@ -500,12 +509,22 @@ class Bridge(shell_kit.Jobs):
         if not listed:
             self.log(DROPPED)
             return
+        if update.get("attachments") is not None:
+            found = provider.valid_attachments(update["attachments"])
+            if found is None:
+                self.log("an update with attachments that are not valid was dropped")
+                return
+            update = dict(update, attachments=found)
         intent = inbound.parse(update)
         project = self.project_of(sender, listed)
         kind = intent["kind"]
         if kind == "ignore":
             return
-        if kind == "action":
+        if kind == "attachment":
+            self.attach.arrived(project, chat, intent)
+        elif kind in ("add", "discard"):
+            self.attach.typed(project, chat, kind, intent["id"])
+        elif kind == "action":
             self.tapped(chat, intent["action"], update.get("action_ref"))
         elif kind == "usage":
             self.reply(chat, intent["text"])
@@ -564,6 +583,9 @@ class Bridge(shell_kit.Jobs):
         if not self.listed_in(project, chat):
             self.log(DROPPED)
             return
+        if card.get("kind") == "attachment":
+            self.attach.tapped(project, chat, card, card["actions"][action_id])
+            return
         self.act(project, chat, card["actions"][action_id], card["pending_id"], card=card)
 
     def choose(self, sender: str, chat: str, listed: list, name: str) -> None:
@@ -584,16 +606,23 @@ class Bridge(shell_kit.Jobs):
         except (Refused, self.ops.OpsError) as e:
             self.reply(chat, str(e))
             return
+        files = self.attach.waiting(project, chat)      # this sender's own files that wait for an answer and have a card in this chat (their profile permits `attachments`), else None
         if not found:
             self.reply(chat, f"{project['name']}: nothing waits for you.")
+            if files:
+                self.reply(chat, files)
             return
         settings = self.settings(project)
         if settings is not None:      # a profile that is sent only what it can act on is listed only that
             found = [i for i in found if self.wants(project, settings, self.ops.pending(project["path"], pending_id=i["id"]), chat)]
             if not found:
                 self.reply(chat, f"{project['name']}: nothing waits for you to act on.")
+                if files:
+                    self.reply(chat, files)
                 return
         self.reply(chat, f"{project['name']}: " + "\n".join(f"#{i['id']} {i['kind']}: {i['title']}" for i in found))
+        if files:
+            self.reply(chat, files)
         try:
             self.notify_project(project, only_chat=chat, retry_blocked=True)
         except self.ops.OpsError as e:
