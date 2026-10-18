@@ -94,16 +94,16 @@ A candidate is an implementation shipped in the class's folder and, for `publish
 **The messenger class and its two modes.** `messenger:<platform>` (folder `providers/messenger/`, variables `MESSENGER_<PLATFORM>_PROVIDER` then `MESSENGER_PROVIDER`) is a class the task runtime uses and a skill may not require, so it is on purpose not in the class table of `contracts/environment.md`; its only caller is the messaging bridge (`runtime/messaging_provider.py`). A messenger moves messages between a messaging app and the bridge and decides nothing. It works in one of two modes, declared by the optional capability `listen`: **per-call verbs** (Telegram: `capabilities`, `receive`, `send`, `ack`, one JSON object per process, started with `resolve.call`) or **a listen session** (Discord and the three WhatsApp providers: one long-lived process, started with `resolve.start`, speaking JSON lines on its standard input and output, with the answer kinds `deferred` and the error-event kind `paused` that no other class has). Its capabilities, read from the providers' text, are:
 
 <!-- generated: messenger-capabilities -->
-`yes` and `no` are booleans; a key a provider leaves out is `no` (`listen` and `actions_need_reply` are optional); `configured` is a value the provider computes from its saved settings, not a constant.
+`yes` and `no` are booleans; a key a provider leaves out is `no` (`listen`, `actions_need_reply`, `attachments` and `max_attachment_bytes` are optional); `configured` is a value the provider computes from its saved settings, not a constant.
 
-| Platform | Provider | `max_text` | `buttons` | `max_buttons` | `max_button_label` | `lists` | `max_list_rows` | `url_buttons` | `reply_context` | `documents` | `listen` | `actions_need_reply` |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `discord` | `discord.py` | 1900 | yes | 5 | 80 | no | 0 | yes | yes | yes | yes | no |
-| `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes |
-| `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no | no |
-| `whatsapp` | `whatsapp.py` | 4096 | no | 0 | 0 | no | 0 | no | yes | yes | yes | no |
-| `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes | no |
-| `whatsapp-twilio` | `whatsapp-twilio.py` | 1600 | configured | 3 if configured, else 0 | 20 if configured, else 0 | no | 0 | no | yes | no | yes | no |
+| Platform | Provider | `max_text` | `buttons` | `max_buttons` | `max_button_label` | `lists` | `max_list_rows` | `url_buttons` | `reply_context` | `documents` | `listen` | `actions_need_reply` | `attachments` | `max_attachment_bytes` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `discord` | `discord.py` | 1900 | yes | 5 | 80 | no | 0 | yes | yes | yes | yes | no | no | no |
+| `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes | no | no |
+| `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no | no | no | no |
+| `whatsapp` | `whatsapp.py` | 4096 | no | 0 | 0 | no | 0 | no | yes | yes | yes | no | no | no |
+| `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes | no | no | no |
+| `whatsapp-twilio` | `whatsapp-twilio.py` | 1600 | configured | 3 if configured, else 0 | 20 if configured, else 0 | no | 0 | no | yes | no | yes | no | no | no |
 <!-- /generated -->
 
 The protocol, the neutral message, the state machine of the session, the kinds and the platforms are on [messaging.md](messaging.md), "Abstractions". What is particular to the class: a messenger's `send` has neither `--confirmed` nor an idempotency key, because the bridge is its only caller, sends only to a chat of the project's accepted `messaging.senders` list and keeps the ledger; a provider refuses a message beyond its capabilities (exit 2); a provider of the listen mode must exit within 5 s of the end of its standard input; and `providers/messenger/whatsapp_meta.py` is a module two providers load by path, never an implementation.

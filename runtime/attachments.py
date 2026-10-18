@@ -79,6 +79,7 @@ DUPLICATE = "{name} already waits for your answer (file {id})."
 CAPTION_IGNORED = "The text sent with a file is not read; send it as its own message."
 OVER_MESSAGE = "At most {n} files are taken from one message; the rest were not."
 BUSY = "Another file is being fetched. Send this one again in a moment."
+FETCH_FAILED = "The file could not be fetched. Send it again."
 ADDED = "Added {name} as `{id}`, version {n}."
 ADDED_SAME = "{name} is already the newest version of `{id}` (version {n}): nothing changed."
 TARGET_TYPE = "`{id}` is a {type} source: a file cannot be added to it. Send the file without that text, or name a source of the type file."
@@ -451,6 +452,15 @@ def delete_held(data_dir: str, attachment_id: int) -> None:
     finally:
         for fd in opened:
             os.close(fd)
+
+
+FetchBusy = intake.IntakeError      # what fetch_lock raises when another upload or fetch holds the lock
+
+
+def fetch_lock(data_dir: str):
+    """The lock one fetch holds, taken without waiting: the one the page's uploads take (sources.upload_lock_path), so that one file at a time is brought to
+    a project and the free-space count is not made twice. Release it with `.release()`. FetchBusy when another holder has it."""
+    return intake.one_at_a_time(sources.upload_lock_path({"data_dir": data_dir}))
 
 
 def lock_path(cfg: dict) -> str:

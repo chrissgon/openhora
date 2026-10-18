@@ -634,7 +634,7 @@ def test_deferred_is_an_answer_kind_and_not_an_error_kind_and_other_words_stay_f
     with pytest.raises(providers.MessengerError) as caught:
         r.messenger.send("fail-deferred", plain)
     assert caught.value.kind == "deferred" and caught.value.reason == "refused by the stand-in"
-    assert set(providers.ANSWER_KINDS) == {"usage", "not-configured", "failed", "deferred"}, "paused is an event kind, not an answer kind"
+    assert set(providers.ANSWER_KINDS) == {"usage", "not-configured", "failed", "deferred", "gone"}, "paused is an event kind, not an answer kind; gone is the answer to a fetch"
     r.finish()
 
 

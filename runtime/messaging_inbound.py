@@ -10,6 +10,8 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
   {"kind": "reject", "id": 12, "note": "text"|None}   /reject 12 [note]
   {"kind": "release", "id": 12}                       /release 12
   {"kind": "answer", "id": 12, "text": "..."}         /answer 12 <text>
+  {"kind": "add", "id": 3} {"kind": "discard", "id": 3}   /add 3, /discard 3: the answer to the card of a file that was sent (the attachment's number)
+  {"kind": "attachment", "attachments": [...], "text": "..."|None}   files sent (ATT-1), the caption in "text"; checked by messaging_provider.valid_attachments
   {"kind": "pending"} {"kind": "project", "name": ""} {"kind": "help"}
   {"kind": "reply", "reply_to": "<message id>", "text": "..."}   a reply to a message, not a command
   {"kind": "text", "text": "..."}                     anything else: a line for the planning agent (a command the
@@ -21,9 +23,11 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
-USAGE = {"approve": "/approve <id>", "reject": "/reject <id> [note]", "release": "/release <id>", "answer": "/answer <id> <text>"}
+USAGE = {"approve": "/approve <id>", "reject": "/reject <id> [note]", "release": "/release <id>", "answer": "/answer <id> <text>",
+         "add": "/add <n>", "discard": "/discard <n>"}
 HELP = ("Commands:\n/pending            what waits for you\n/approve <id>       approve what the last card of <id> showed\n"
         "/reject <id> [note] reject it\n/release <id>       release a delivery\n/answer <id> <text> answer a question\n"
+        "/add <n>            add a file you sent as a source\n/discard <n>        delete a file you sent\n"
         "/project [name]     choose the project your lines go to\n/help               this list\n"
         "Any other line goes to the planning agent. Which of these your project turns on is in its configuration "
         "(channels.messaging).")
@@ -39,6 +43,8 @@ def parse(update: dict) -> dict:
     if action:
         return {"kind": "action", "action": action}
     text = (update.get("text") or "").strip()
+    if update.get("attachments"):
+        return {"kind": "attachment", "attachments": list(update["attachments"]), "text": text or None}
     if not text:
         return {"kind": "ignore"}
     if text.startswith("/"):
