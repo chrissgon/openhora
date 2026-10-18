@@ -313,6 +313,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `handler` | `--name` `--verb` `[--arg]` | `handler_call` |
 | `pin` | - | `pin` |
 | `say` | `--text \| --text-file` | `say` |
+| `ask` | `--text \| --text-file` | `ask` |
 | `agents` | - | `agents` |
 | `conversation` | `[--conversation]` `[--after]` | `conversation` |
 | `skills` | - | `skills` |
@@ -361,6 +362,7 @@ Every verb also takes `--project <dir>`. The parser is built from `terminal_verb
 | `/retry <task id>` | make a failed or blocked task ready again |
 | `/cancel <request id>` | cancel a request at any moment, even while a task of it runs: the run is ended and returns nothing, what it used so far is spent |
 | `/stop-task <task id>` | stop one running task: its run is ended and returns nothing, the task is blocked, and retry resumes it |
+| `/ask <text>` | answer a question from the text of the project's sources, with the quotes it rests on and the sources and versions read: one run of the answer skill, no plan to approve; the sources are chosen by code (@<id> to name them), the answer goes only to the shell or chat that asked; never the MCP mode, and on a messaging app only for a sender whose profile lists the group ask |
 | `/attachments` | the files people sent through a messaging app (from a messaging app, only the ones you sent): those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder |
 | `/new <text>` | start a new request, whatever is open (--after <id> before the text: run it after that request) |
 <!-- /generated -->
@@ -444,6 +446,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/commands` | `commands` | - | none | - | - |
 | GET | `/versions` | the service's own `versions` | - | - | - | - |
 | POST | `/projects/{p}/conversation` | `say` | - | every other argument | - | - |
+| POST | `/projects/{p}/ask` | `ask` | - | every other argument | - | - |
 | POST | `/projects/{p}/sync` | `sync` | - | every other argument | - | - |
 | GET | `/projects/{p}/sources` | `sources` | - | none | - | - |
 | POST | `/projects/{p}/sources` | `source-add` | - | every other argument | - | - |

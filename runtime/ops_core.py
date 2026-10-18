@@ -285,6 +285,14 @@ def _metered_models(manifests=None) -> set:
     return {model for model in lab.models() if _model_billing(model, manifests=manifests) == "metered"}
 
 
+def attributed(runs, owners: dict) -> list:
+    """The rows of runs_since with the agent a run of a REQUEST counts against: a run whose task is a request has no agent (a router
+    run, an answer run), and `owners` ({skill: agent}) says whose it is: the planning agent for the router's skill, the owner of the
+    answer skill for an answer run. A run that has an agent keeps it; a skill that is not in `owners` stays with none. The one place
+    both the planning agent's cap check and the day's use of every agent read, so that the two cannot differ."""
+    return [dict(r, agent=owners[r["skill"]]) if r.get("agent") is None and r.get("skill") in owners else r for r in runs]
+
+
 def _caps_in_use(runs, keys) -> dict:
     """{"runs": bool, "spend": bool}: whether each daily cap has something to count in this project, so that a page draws
     only the meters that mean something. A cap is in use when a run of the day (runs, with their billing filled in) used a

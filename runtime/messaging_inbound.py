@@ -27,6 +27,7 @@ USAGE = {"approve": "/approve <id>", "reject": "/reject <id> [note]", "release":
          "add": "/add <n>", "discard": "/discard <n>"}
 HELP = ("Commands:\n/pending            what waits for you\n/approve <id>       approve what the last card of <id> showed\n"
         "/reject <id> [note] reject it\n/release <id>       release a delivery\n/answer <id> <text> answer a question\n"
+        "/ask <question>     answer a question from the project's sources\n"
         "/add <n>            add a file you sent as a source\n/discard <n>        delete a file you sent\n"
         "/project [name]     choose the project your lines go to\n/help               this list\n"
         "Any other line goes to the planning agent. Which of these your project turns on is in its configuration "
