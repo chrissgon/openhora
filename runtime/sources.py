@@ -97,7 +97,8 @@ import lease  # noqa: E402  (the same folder: one host writes the folder at a ti
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 TYPES = ("file", "notion", "drive", "onedrive", "mail", "calendar")   # the words of the registry's CHECK (providers/store/sqlite.py, migration 21); a new type is a migration that rebuilds it
 SNAPSHOT_TYPES = ("mail", "calendar")            # a window of the person's mailbox or calendar, read as a dated snapshot (runtime/sources_mail.py)
-SNAPSHOT_MAX_AGE = 26 * 3600                     # limit L53 (LS2): seconds; a snapshot older than this is never handed to a task that starts on its own (a daily refresh always qualifies)
+SNAPSHOT_CLOCK_SKEW = 300                        # seconds a version may be dated ahead of this clock before its age is unknown (and so refused to an unattended task)
+SNAPSHOT_MAX_AGE = 26 * 3600                     # limit L53: seconds; a snapshot older than this is never handed to a task that starts on its own (a daily refresh always qualifies)
 MARKER = ".openhora-sources"
 INCOMING = ".incoming"                           # inside the folder: where a version is assembled before the rename that puts it in place
 STAGING = "sources-staging"                      # inside data_dir: where the bytes of an import are received and converted
@@ -1518,7 +1519,7 @@ def _age_text(seconds: float) -> str:
 
 def snapshot_age(imported_at: str, clock=None):
     """Seconds since a version of a snapshot was read (its `imported_at`, a UTC time as the clock wrote it), or None when the time cannot
-    be read. A time in the future counts as zero."""
+    be read or lies more than five minutes in the future (a clock that is wrong: the age is unknown). A time a little in the future counts as zero."""
     try:
         read = datetime.datetime.fromisoformat(str(imported_at).replace("Z", "+00:00"))
     except ValueError:
@@ -1526,7 +1527,8 @@ def snapshot_age(imported_at: str, clock=None):
     if read.tzinfo is None:
         return None
     now = clock() if clock else datetime.datetime.now(datetime.timezone.utc)
-    return max(0.0, (now - read).total_seconds())
+    age = (now - read).total_seconds()
+    return None if age < -SNAPSHOT_CLOCK_SKEW else max(0.0, age)
 
 
 def task_copies(ctx, task: dict, prepared_dir: str, *, unattended: bool, evidence_base=None, clock=None) -> dict:
@@ -1538,7 +1540,7 @@ def task_copies(ctx, task: dict, prepared_dir: str, *, unattended: bool, evidenc
     (limit L26). Returns {"files": [(path, rel)], "records": [{"source", "version", "sha256", "name"}]}; the caller records
     the rows once the run exists.
 
-    Limit L53 (LS2). A mail or calendar snapshot (type `mail` or `calendar`, read by runtime/sources_mail.py) older than SNAPSHOT_MAX_AGE is never
+    Limit L53. A mail or calendar snapshot (type `mail` or `calendar`, read by runtime/sources_mail.py) older than SNAPSHOT_MAX_AGE is never
     handed to a task that starts on its own: SourcesError (code `stale`) says when it was read and how to refresh it. A task the person
     starts receives it, and every copy of a snapshot, attended or not, begins with one line that says when it was read and how old it is
     (the record still names the version and the hash of its text: the line is not part of the version). `clock` is a seam for tests."""

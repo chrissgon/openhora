@@ -47,9 +47,31 @@ def block(**more):
     ("https://[::1]/x and https://bücher.example/", "<link> and <link>"),
     ("write to mailto:ana@clinic.example?subject=hi, or ana@clinic.example", "write to <address>, or ana@clinic.example"),
     ("<mailto:a@b.example>", "<address>"),
+    # the forms a reader's software still follows (review of RT-1, M2)
+    ("x_https://a.example/p?t=1", "x_<link: a.example>"),
+    ("0https://a.example/x", "0<link: a.example>"),
+    ("abcdefghijklmnopqrstuvwxyzhttps://a.example/x", "<link: a.example>"),
+    ("https:/a.example/x", "<link: a.example>"),
+    ("https:\\\\a.example\\x", "<link: a.example>"),
+    ("go to //a.example/x now", "go to <link: a.example> now"),
+    ("a.example/path?q=1", "<link: a.example>"),
+    ("docs.a.example/x#frag and b.example?t=2", "<link: docs.a.example> and <link: b.example>"),
+    ("xmailto:a@b.example", "x<address>"),
+    ("see https://u:p@h.example:8080/a, ok", "see <link: h.example>, ok"),
+    ("HTTPS://[::1]:80/x", "<link>"),
+    # words that are not links stay
+    ("the report.pdf, e.g. this, docs/report.pdf, ana@clinic.example, v2.5 and 1.5/2 and a // comment", "the report.pdf, e.g. this, docs/report.pdf, ana@clinic.example, v2.5 and 1.5/2 and a // comment"),
 ])
 def test_every_url_becomes_a_link_marker_with_its_host_alone_and_a_mailto_becomes_an_address(raw, expected):
     assert t.replace_links(raw) == expected
+
+
+def test_a_long_run_of_letters_or_of_link_like_pieces_is_replaced_in_a_moment_and_not_a_hang():
+    import time
+    for blob in ("a" * 200000, "a." * 100000, "http:" * 40000, "a.b" * 70000 + "/", "//" * 100000, "-" * 200000, "https://" + "a" * 200000):
+        started = time.monotonic()
+        t.replace_links(blob)
+        assert time.monotonic() - started < 3, blob[:12]
 
 
 def test_a_link_with_a_magic_link_token_leaves_no_token_in_the_text():
@@ -160,6 +182,22 @@ def test_a_message_shows_the_sender_the_number_of_recipients_the_subject_and_the
     assert "Attachments" not in block() and "Attachments: unknown" in block(attachments=None)
     many = [{"name": f"f{n}.txt", "type": "text/plain", "size": 1} for n in range(13)]
     assert "and 3 more" in block(attachments=many)
+
+
+def test_the_view_of_a_message_keeps_the_whole_of_its_words_before_any_cut_for_the_credential_scan():
+    key = "AKIA" + "Q" * 16     # built at run time
+    names = [{"name": f"f{n}.txt", "type": "text/plain", "size": 1} for n in range(12)] + [{"name": f"{key}.txt", "type": "text/plain", "size": 1}]
+    view = t.message_view(message(subject="s " * 148 + key, text="b " * 1995 + key, attachments=names, **{"from": "n " * 99 + key}), BRT)
+    assert key not in t.message_block(1, view), "the cuts left the key out of what is written"
+    assert view["whole"].count(key) == 4, "and the scan reads it whole in the subject, the sender, the attachments and the body"
+    event = t.event_view(event_with(title="t " * 148 + key, location="p " * 99 + key), BRT)
+    assert event["whole"].count(key) == 2 and key not in t.event_line(event, event["day"])
+
+
+def event_with(**more):
+    base = {"id": "e1", "start": "2026-10-17T09:00:00-03:00", "end": "2026-10-17T10:00:00-03:00", "title": "Dentist"}
+    base.update(more)
+    return base
 
 
 def test_a_message_without_a_readable_time_is_shown_with_an_unknown_time_and_the_zone_converts_the_rest():

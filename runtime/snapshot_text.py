@@ -32,7 +32,6 @@ import re
 import sys
 import unicodedata
 from email.utils import getaddresses, parseaddr
-from urllib.parse import urlsplit
 
 BODY_CHARS = 4000          # the longest body of one message in a snapshot
 LINE_CHARS = 1000          # the longest line of a body
@@ -41,8 +40,16 @@ ATTACHMENTS_SHOWN = 10
 LEFT_OUT_SHOWN = 20
 CUT = "(cut)"
 
-URL = re.compile(r"<?\b(?:[A-Za-z][A-Za-z0-9+.-]{1,15}://|www\.)[^\s<>\"]+>?", re.I)
-MAILTO = re.compile(r"<?\bmailto:[^\s<>\"]+>?", re.I)
+# A link is anything a reader's software would follow: a scheme with one or more slashes or backslashes after it (`https://`, `https:/`, `https:\\`,
+# whatever letters or digits stand before it), a protocol-relative `//host/path`, `www.` and a bare `host.tld/path` or `host.tld?query` (a dot-separated
+# name that ends in letters and goes on with `/`, `?` or `#`). There is no word boundary in front: `x_https://` and `0https://` are links too. The
+# scheme is at most 41 characters, so that a long run of letters costs a bounded scan from each place (a run of 200,000 letters is not a hang).
+URL = re.compile(r"<?(?:[A-Za-z][A-Za-z0-9+.-]{0,40}:[/\\]+[^\s<>\"]*"
+                 r"|(?<![A-Za-z0-9:/\\])//[A-Za-z0-9][^\s<>\"]*"
+                 r"|www\.[^\s<>\"]+"
+                 r"|(?<![\w@.-])(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}[/?#][^\s<>\"]*)>?", re.I)
+MAILTO = re.compile(r"<?mailto:[^\s<>\"]+>?", re.I)
+SCHEME_AND_SLASHES = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]{0,40}:)?([/\\]*)")
 HOST = re.compile(r"[a-z0-9][a-z0-9.-]{0,252}")
 DOMAIN = HOST
 TRAILING = ".,;:!?)]}'\""
@@ -82,12 +89,13 @@ def clean_text(text) -> str:
 
 
 def _host_of(url: str):
-    """The host of a URL, lower-case, when it is a plain host name; None otherwise."""
-    try:
-        host = urlsplit(url if "://" in url else "http://" + url).hostname
-    except ValueError:
+    """The host of a link, lower-case, when it is a plain host name; None otherwise (no host after three slashes, an address in brackets, a name
+    with characters outside letters, digits, dots and hyphens). The user name, the password and the port are dropped."""
+    found = SCHEME_AND_SLASHES.match(url)
+    if len(found.group(1)) > 2:
         return None
-    host = (host or "").lower().rstrip(".")
+    authority = re.split(r"[/\\?#]", url[found.end():], maxsplit=1)[0].rsplit("@", 1)[-1]
+    host = re.sub(r":\d*$", "", authority).lower().rstrip(".")
     return host if HOST.fullmatch(host) else None
 
 
@@ -122,6 +130,12 @@ def one_line(text, limit: int) -> str:
     """A third party's words on one line: cleaned, links replaced, white space collapsed, cut at `limit` characters."""
     one = " ".join(replace_links(clean_text(text)).split())
     return one if len(one) <= limit else one[:max(0, limit - 1)].rstrip() + "…"
+
+
+def full_line(text) -> str:
+    """A third party's words on one line as they stand before any cut: cleaned, links replaced, white space collapsed. The credential scan reads this,
+    so that a key a cut would split is found whole."""
+    return " ".join(replace_links(clean_text(text)).split())
 
 
 def body_text(text, *, cut_before: bool = False):
@@ -238,11 +252,13 @@ def message_view(message: dict, zone) -> dict:
     count = sum(1 for _name, address in getaddresses([message["to"]] if isinstance(message.get("to"), str) else []) if "@" in address)
     cut_before = bool(message.get("truncated"))
     body, cut = body_text(message.get("text") or "", cut_before=cut_before)
+    names = [full_line(a.get("name") or "") for a in message["attachments"] if isinstance(a, dict)] if isinstance(message.get("attachments"), list) else []
+    whole = "\n".join([full_line(message.get("subject") or ""), full_line(message.get("from") or ""), *names, replace_links(clean_text(message.get("text") or ""))])
     return {"moment": moment, "when": _stamp(moment) if moment else "unknown time", "date": moment.strftime("%Y-%m-%d") if moment else "unknown date",
             "from": one_line(message.get("from") or "", NAME_CHARS) or "unknown", "recipients": count,
             "subject": one_line(message.get("subject") or "", SUBJECT_CHARS) or "(no subject)",
             "attachments": attachments_line(message.get("attachments")), "body": body, "cut": cut,
-            "emptied": not body and bool(message.get("own_words_cut")), "domain": sender_domain(message.get("from"))}
+            "emptied": not body and bool(message.get("own_words_cut")), "domain": sender_domain(message.get("from")), "whole": whole}
 
 
 def message_block(number: int, view: dict) -> str:
@@ -316,7 +332,8 @@ def event_view(event: dict, zone):
     return {"all_day": all_day, "start": begin, "end": finish, "day": day, "title": one_line(event.get("title") or "", TITLE_CHARS) or "(no title)",
             "place": one_line(event.get("location") or "", PLACE_CHARS), "organizer": "you" if self_organizer else domain,
             "response": RESPONSES.get(event.get("response")), "cancelled": status == "cancelled", "tentative": status == "tentative",
-            "online": event.get("online_meeting") is True, "recurring": event.get("recurring") is True}
+            "online": event.get("online_meeting") is True, "recurring": event.get("recurring") is True,
+            "whole": full_line(event.get("title") or "") + "\n" + full_line(event.get("location") or "")}
 
 
 def _time_text(view: dict, day) -> str:

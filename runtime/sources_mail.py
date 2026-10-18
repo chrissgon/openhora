@@ -21,7 +21,7 @@ The box is a fixed query of the provider, never free text (a free query is a lat
 calendars are several sources. The implementation named in the origin is handed to providers/resolve.py as the explicit implementation, so
 the choice between two readers is never "auto". One account per implementation per machine.
 
-LIMIT L52 (LS1 of the spec). A mail or calendar source is read only by its snapshot: the providers of `reader:email` and `integration:calendar` are called
+LIMIT L52. A mail or calendar source is read only by its snapshot: the providers of `reader:email` and `integration:calendar` are called
 only from here, by the source operations of the host (`source-mail`, `source-calendar`, a refresh from the terminal, the page or the
 `ingest` step of a routine), with the arguments the person's origin fixes; never from a run and never with a query a model wrote. A run
 receives only the converted text of the versions its plan chose. `provider_call` is the one caller, and it sends only the verbs `search`
@@ -234,8 +234,11 @@ def build_mail(source_id: str, snap: dict, *, scan=None) -> tuple:
     views.sort(key=lambda v: (v["moment"] is not None, v["moment"] or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)), reverse=True)
     kept, left_out = [], []
     for view in views:
-        if scan(text.message_block(0, view).encode("utf-8")):
-            left_out.append({"date": view["date"], "domain": view["domain"], "why": WHY_CREDENTIAL})
+        if scan(view["whole"].encode("utf-8")) or scan(text.message_block(0, view).encode("utf-8")):   # the whole fields before any cut, then what is written
+            item = {"date": view["date"], "domain": view["domain"], "why": WHY_CREDENTIAL}
+            if scan(text.left_out_line(item).encode("utf-8")):    # a sender's domain is a stranger's word too: one that looks like a key is not written
+                item["domain"] = None
+            left_out.append(item)
         else:
             kept.append(view)
     blocks, used, budget = [], 0, sources.CONVERTED_CAP - SIZE_MARGIN
@@ -271,7 +274,7 @@ def build_calendar(source_id: str, snap: dict, *, scan=None) -> tuple:
         view = text.event_view(event, zone)
         if view is None:
             unreadable += 1
-        elif scan(text.event_block(view).encode("utf-8")):
+        elif scan(view["whole"].encode("utf-8")) or scan(text.event_block(view).encode("utf-8")):
             left_out.append({"date": view["day"].isoformat(), "why": WHY_CREDENTIAL})
         else:
             kept.append(view)

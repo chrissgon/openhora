@@ -1,8 +1,8 @@
 """Tests of mail and calendar as sources (package RT-1): a window of the person's mailbox or of one calendar is read through the providers
 (through the `call` seam, with stand-in answers shaped as the providers print them), turned into the dated text of a snapshot, scanned message
 by message for credentials, and kept as an immutable version; a refresh with the same listing on the same day makes no version, a changed
-listing makes one; the window comes from a fixed clock and zone; LS1 (the providers are called by the source operations alone, with the
-verbs that read, never by a run or a step with a query) and LS2 (a snapshot older than 26 hours is never handed to a task that starts on its
+listing makes one; the window comes from a fixed clock and zone; limit L52 (the providers are called by the source operations alone, with the
+verbs that read, never by a run or a step with a query) and limit L53 (a snapshot older than 26 hours is never handed to a task that starts on its
 own) are enforced in code; and no credential reaches a run, a manifest, the catalog or a message. Offline: no Google or Microsoft host is
 reached (the real providers, in the last tests, run against their loopback stand-ins), and every name, address and credential is invented.
 
@@ -455,6 +455,41 @@ def test_a_credential_in_the_title_of_an_event_leaves_that_event_out_and_the_res
     assert "2 events were left out:" in text_ and "- 2026-10-18: it holds what looks like a credential" in text_ and "- 2026-10-19: it holds what looks like a credential" in text_
 
 
+def test_a_senders_domain_that_looks_like_a_key_is_not_written_into_the_left_out_line_and_the_snapshot_still_imports(desk):
+    slack = "xoxb-" + "abcdefghij" + "1234"                    # a text in a credential's format, built at run time
+    model = "sk-" + "a1b2c3d4" * 4
+    desk.providers.mail["gmail"] = [message(1, "2026-10-17T09:00:00Z", sender=f"Eve <x@{slack}.example>", subject="One"),
+                                    message(2, "2026-10-16T09:00:00Z", sender=f"Eve <x@{model}.example>", subject="Two"),
+                                    message(3, "2026-10-15T09:00:00Z", sender=f"Bank <alerts@bank.example>", subject="Key", text=f"The key is {KEY}"),
+                                    message(4, "2026-10-14T09:00:00Z")]
+    done = desk.mail("inbox")
+    assert done["imported"] is True and done["items"] == 1 and done["left_out"] == 3
+    text_ = desk.text("inbox")
+    assert slack not in text_ and model not in text_ and KEY not in text_
+    assert "- 2026-10-17: it holds what looks like a credential" in text_ and "- 2026-10-16: it holds what looks like a credential" in text_
+    assert "- 2026-10-15, from bank.example: it holds what looks like a credential" in text_, "a plain domain is still named"
+    again = desk.refresh("inbox")
+    assert again["unchanged"] is True, "the second scan found nothing to refuse, so the next refresh is not a failure either"
+
+
+def test_a_key_that_a_cut_would_split_leaves_the_message_or_the_event_out_instead_of_being_kept_in_part(desk):
+    long_subject = "s " * 148 + KEY[:12] + KEY[12:]          # the key starts before the 300th character and ends after it
+    long_body = "b " * 1995 + KEY
+    desk.providers.mail["gmail"] = [message(1, subject=long_subject), message(2, "2026-10-16T09:00:00Z", text=long_body),
+                                    message(3, "2026-10-15T09:00:00Z", **{"from": "n " * 99 + KEY + " <a@b.example>"}),
+                                    message(4, "2026-10-14T09:00:00Z", attachments=[{"name": f"f{n}.txt", "type": "text/plain", "size": 1} for n in range(12)]
+                                                                                    + [{"name": KEY + ".txt", "type": "text/plain", "size": 1}]),
+                                    message(5, "2026-10-13T09:00:00Z")]
+    done = desk.mail("inbox")
+    assert done["items"] == 1 and done["left_out"] == 4
+    text_ = desk.text("inbox")
+    assert KEY[:12] not in text_ and "AKIAQQ" not in text_
+    desk.providers.events[("google", "primary")] = [event(1, title="t " * 148 + KEY), event(2, "2026-10-18T09:00:00-03:00", "2026-10-18T10:00:00-03:00", location="p " * 99 + KEY),
+                                                    event(3, "2026-10-19T09:00:00-03:00", "2026-10-19T10:00:00-03:00", "Lunch")]
+    done = desk.calendar("agenda")
+    assert done["items"] == 1 and done["left_out"] == 2 and "AKIAQQ" not in desk.text("agenda")
+
+
 def test_a_magic_link_with_a_token_is_replaced_and_the_message_stays(desk):
     body = f"Sign in: https://login.clinic.example/magic?t={JWT}&id=42 (valid 10 minutes)\nOr paste {JWT[:5]}."
     desk.providers.mail["gmail"] = [message(1, subject="Your sign-in link", text=body)]
@@ -631,14 +666,28 @@ def test_limit_52_an_ingest_step_takes_a_source_id_and_no_query_box_window_or_ca
 
 def test_limit_52_the_providers_of_mail_and_calendar_are_named_only_by_the_one_module_that_calls_them():
     quoted = re.compile(r"""["'](reader:email|integration:calendar)["']""")
-    found = {}
-    for path in sorted(st.RUNTIME.glob("*.py")) + sorted((st.RUNTIME / "handlers").glob("*.py")):
-        for cls in set(quoted.findall(path.read_text(encoding="utf-8"))):
-            found.setdefault(cls, set()).add(path.relative_to(st.RUNTIME).as_posix())
-    assert found["integration:calendar"] == {"sources_mail.py"}, found
-    # reader:email is also read by the social handler for the platform's notification e-mails, with the project's own fixed query (the handler's
-    # configuration, never a task's argument); no other module of the runtime names it
-    assert found["reader:email"] == {"sources_mail.py", "handlers/social.py"}, found
+    paths = re.compile(r"""["']providers["']\s*,\s*["'](?:mailbox|calendar)["']|providers/(?:mailbox|calendar)/\w+\.py|["'](?:mailbox|calendar)/(?:gmail|outlook|google)\.py["']""")
+    modules = (sorted(st.RUNTIME.glob("*.py")) + sorted((st.RUNTIME / "handlers").glob("*.py")) + sorted((st.REPO / "scripts").glob("*.py"))
+               + sorted((st.REPO / "providers").glob("*.py")))
+    found, pathed = {}, {}
+    for path in modules:
+        source = path.read_text(encoding="utf-8")
+        rel = path.relative_to(st.REPO).as_posix()
+        for cls in set(quoted.findall(source)):
+            found.setdefault(cls, set()).add(rel)
+        if paths.search(source) and not rel.startswith("providers/"):   # the providers' own helpers describe themselves
+            pathed[rel] = True
+    assert found["integration:calendar"] == {"runtime/sources_mail.py"}, found
+    # reader:email is also named by the two older ticks that poll a platform's notification e-mails with the project's own fixed query (the
+    # handler's configuration, never a task's argument): runtime/handlers/social.py and scripts/runtime.py. scripts/validate.py holds the table of the
+    # classes' old names and providers/resolve.py defines the classes; neither calls a provider of mail. No other module of the runtime, of the
+    # scripts or of the providers' own folder names one.
+    assert found["reader:email"] == {"runtime/sources_mail.py", "runtime/handlers/social.py", "scripts/runtime.py", "scripts/validate.py",
+                                     "providers/resolve.py"}, found
+    # nor does any module build the path of one of those providers: the documentation of the authorization commands (cli.py, the help of the two
+    # operations) and the module itself are the only places a path of providers/mailbox or providers/calendar is written outside the providers
+    allowed = {"runtime/cli.py", "runtime/sources_mail.py", "runtime/operations.py", "runtime/ops_sources.py", "runtime/sources.py"}
+    assert set(pathed) <= allowed, pathed
 
 
 def test_limit_52_the_one_caller_sends_only_the_verbs_that_read_a_window_and_only_to_the_four_implementations(desk):
@@ -708,7 +757,19 @@ def test_limit_53_a_fresh_snapshot_carries_its_age_too_in_minutes_or_hours(desk)
     assert "(1 minute old" in Path(copies(desk, unattended=True, at=NOW + datetime.timedelta(minutes=1))["files"][0][0]).read_text().splitlines()[0]
     assert "(59 minutes old" in Path(copies(desk, unattended=True, at=NOW + datetime.timedelta(minutes=59))["files"][0][0]).read_text().splitlines()[0]
     assert "(1 hour old" in Path(copies(desk, unattended=True, at=NOW + datetime.timedelta(hours=1, minutes=40))["files"][0][0]).read_text().splitlines()[0]
-    assert "(0 minutes old" in Path(copies(desk, unattended=True, at=NOW - datetime.timedelta(hours=1))["files"][0][0]).read_text().splitlines()[0], "a clock behind counts as zero"
+    assert "(0 minutes old" in Path(copies(desk, unattended=True, at=NOW - datetime.timedelta(minutes=4))["files"][0][0]).read_text().splitlines()[0], "a clock a little behind counts as zero"
+
+
+def test_limit_53_a_snapshot_dated_more_than_five_minutes_ahead_of_the_clock_has_an_unknown_age_and_is_refused_to_an_unattended_task(desk):
+    desk.mail("inbox")
+    behind = NOW - datetime.timedelta(minutes=6)
+    assert sources.snapshot_age("2026-10-17T10:12:00Z", lambda: behind) is None and sources.snapshot_age("2026-10-17T10:12:00Z", lambda: NOW) == 0
+    assert sources.snapshot_age("not a time") is None and sources.snapshot_age("2026-10-17T10:12:00") is None
+    with pytest.raises(ops_sources.SourcesRefused) as refused:
+        copies(desk, unattended=True, at=behind)
+    assert refused.value.code == "stale" and "the snapshot of inbox is from 2026-10-17T10:12:00Z; refresh it" in str(refused.value)
+    got = copies(desk, unattended=False, at=behind)
+    assert "its age is unknown" in Path(got["files"][0][0]).read_text().splitlines()[0]
 
 
 def test_limit_53_a_file_source_is_not_aged_and_a_refreshed_snapshot_qualifies_again(desk, tmp_path):

@@ -47,7 +47,9 @@ def store_before(path, up_to=None):
 def test_a_store_at_the_version_before_migrates_to_21_keeps_every_source_and_version_and_admits_mail_and_calendar(tmp_path):
     path = tmp_path / "before.sqlite"
     old = store_before(path)
-    assert BEFORE[-1] in (19, 20) and 21 not in BEFORE
+    assert BEFORE[-1] == 20 and 21 not in BEFORE, "the store holds RM-1's migration 20, the reminders"
+    old.execute("INSERT INTO reminders (text, due_local, due_utc, zone, platform, chat, created_by, status, created_at) "
+                "VALUES ('Call the dentist', '2026-10-18T15:00', '2026-10-18T18:00:00.000000Z', 'BRT', 'telegram', '1234', 'terminal', 'open', ?)", (STAMP,))
     for source, kind, origin, description in (("plain", "file", "survey.csv", "a description"), ("page", "notion", "a" * 32, None),
                                               ("notes", "drive", "1AbCdEfGhIjKlMnOpQrStUvWxYz", "from Drive"), ("weekly", "onedrive", ITEM, None),
                                               ("trick", "file", "gmail:box=inbox;days=7;max=50", None)):
@@ -61,7 +63,7 @@ def test_a_store_at_the_version_before_migrates_to_21_keeps_every_source_and_ver
     tables = {r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     columns = [r[1] for r in old.execute("PRAGMA table_info(sources)")]
     triggers = {r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'sources'")}
-    before = {t: old.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("sources", "source_versions", "task_sources")}
+    before = {t: old.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("sources", "source_versions", "task_sources", "reminders")}
     old.close()
     out = store.init_db(path)
     assert out["migrated_from"] == BEFORE[-1] and out["applied"] == [21] and out["schema_version"] == 21 == store.SCHEMA_VERSION
@@ -69,7 +71,7 @@ def test_a_store_at_the_version_before_migrates_to_21_keeps_every_source_and_ver
     assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables, "no table is added and none is left over"
     assert [r[1] for r in conn.execute("PRAGMA table_info(sources)")] == columns
     assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'sources'")} == triggers
-    after = {t: conn.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("sources", "source_versions", "task_sources")}
+    after = {t: conn.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("sources", "source_versions", "task_sources", "reminders")}
     for table in before:
         assert [tuple(r) for r in after[table]] == [tuple(r) for r in before[table]], f"{table}: no row is rewritten"
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == [] and conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
@@ -117,3 +119,29 @@ def test_a_store_made_today_has_the_two_types_in_its_check_and_in_the_list_and_r
     assert store.source_add(conn, source_id="inbox", source_type="mail", origin=GMAIL)["origin"] == GMAIL
     with pytest.raises(store.StoreError, match="already registered"):
         store.source_add(conn, source_id="inbox", source_type="mail", origin=GMAIL)
+
+
+def test_a_store_that_has_21_without_20_is_refused_until_init_applies_20_and_a_store_at_20_with_a_reminder_keeps_it(tmp_path):
+    path = tmp_path / "gap.sqlite"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, description TEXT NOT NULL)")
+    for version in sorted(store.MIGRATIONS):
+        if version == 20:
+            continue
+        for statement in store.MIGRATIONS[version][1]:
+            old.execute(statement)
+        old.execute("INSERT INTO schema_version VALUES (?, ?, 'x')", (version, STAMP))
+    old.execute("INSERT INTO sources VALUES ('inbox', 'mail', ?, NULL, ?, ?)", (GMAIL, STAMP, STAMP))
+    old.commit()
+    plain = sqlite3.connect(path)
+    assert store.missing_migrations(plain) == [20]
+    plain.close()
+    old.close()
+    with pytest.raises(store.StoreError) as refused:
+        store.open_db(path)
+    assert "migration 20" in str(refused.value) and "run init" in str(refused.value)
+    out = store.init_db(path)
+    assert out["applied"] == [20] and out["migrated_from"] == 21 and out["schema_version"] == 21
+    conn = store.open_db(path)
+    assert [tuple(r) for r in conn.execute("SELECT id, type FROM sources")] == [("inbox", "mail")]
+    assert conn.execute("SELECT COUNT(*) FROM reminders").fetchone()[0] == 0 and store.missing_migrations(sqlite3.connect(path)) == []

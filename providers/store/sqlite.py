@@ -675,7 +675,8 @@ MIGRATIONS = {
               OR (OLD.status = 'sending' AND NEW.status NOT IN ('sending', 'sent', 'open', 'missed', 'dropped'))
             BEGIN SELECT RAISE(ABORT, 'a reminder that ended stays as it ended, and is sent only after it was claimed'); END""",
     ]),
-    # RT-1: a mail window and a calendar window as sources. Number 20 is the reminders package's (RM-1). The sources table is rebuilt to admit
+    # RT-1: a mail window and a calendar window as sources. Number 20 is the reminders package's (RM-1, merged before this one): a store that applied 21 without 20, or the other way, is refused by
+    # `open_ready` (`missing_migrations`) until `_init` applies every number the store lacks, so the two can reach a store in either order. The sources table is rebuilt to admit
     # `mail` and `calendar` exactly as migrations 14 and 19 rebuilt it: the same columns, the same two triggers, every row copied as it is (no row is
     # rewritten, and the versions are not touched).
     21: ("the mail and calendar source types", [
