@@ -65,6 +65,12 @@ Files (ATT-1b). A file a listed sender sends is fetched only when THAT sender's 
 add or the discard. The bridge dispatches to it in three places: an update of the kind `attachment`, a tap on a card of the kind `attachment`, and `/add <n>` and
 `/discard <n>`; `/pending` also lists the files that wait.
 
+Reminders (RM-1). `/remind <time> <text>`, `/reminders` and `/forget <n>` are done by runtime/messaging_remind.py through the one call path (the group
+`reminders`, in no default policy, so a sender must be given it and the person confirms that with `accept-config --widen`). At the end of each tick
+`Reminders.deliver` sends what is due: only to the private chat of the sender it was made for, with that sender's own words (none in `notices: count`),
+after the operations layer read the configuration and the sender's profile again, so a sender removed or narrowed before the time gets nothing.
+A reminder is a notice and never an effect (limit LR).
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -80,6 +86,7 @@ import messaging_attach as attach
 import messaging_cards as cards
 import messaging_inbound as inbound
 import messaging_provider as provider
+import messaging_remind as remind
 import shell_kit
 
 CHANNEL = "messaging"
@@ -172,6 +179,7 @@ class Bridge(shell_kit.Jobs):
     def __init__(self, ops_module, projects, messenger, ledger, platform: str, log=None, clock=None):
         super().__init__(ops_module, projects, log)
         self.attach = attach.Attachments(self)
+        self.remind = remind.Reminders(self)
         self.messenger, self.ledger, self.platform = messenger, ledger, platform
         self.clock = clock or shell_kit.now
         self.chosen = {}       # sender -> project id
@@ -457,6 +465,7 @@ class Bridge(shell_kit.Jobs):
                     self.more.pop(key, None)
                 elif self.more.get(key) != left and self.reply(chat, cards.MORE_LINE.format(n=left)) is not None:
                     self.more[key] = left      # a deferred line is not recorded: it is tried again at the next notice period
+        self.remind.deliver()
         self.notify_unread()
 
     def hearers(self) -> set:
@@ -523,6 +532,12 @@ class Bridge(shell_kit.Jobs):
             self.attach.arrived(project, chat, intent)
         elif kind in ("add", "discard"):
             self.attach.typed(project, chat, kind, intent["id"])
+        elif kind == "remind":
+            self.remind.created(project, chat, intent)
+        elif kind == "reminders":
+            self.remind.listing(project, chat)
+        elif kind == "forget":
+            self.remind.forget(project, chat, intent["id"])
         elif kind == "action":
             self.tapped(chat, intent["action"], update.get("action_ref"))
         elif kind == "usage":

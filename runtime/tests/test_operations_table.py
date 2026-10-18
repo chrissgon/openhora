@@ -31,6 +31,7 @@ ops_cancel = st.load("ops_cancel")
 ops_instructions = st.load("ops_instructions")
 ops_contained = st.load("ops_contained")
 ops_attachments = st.load("ops_attachments")
+ops_reminders = st.load("ops_reminders")
 operations = st.load("operations")
 cli = st.load("cli")
 effects = st.load("effects")
@@ -51,7 +52,9 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "effective_model", "content_of", "local_reason", "tick", "fire", "routine_of_task", "consent_in_force",
                   # ops_instructions.py: what a run's prompt, a routine's content and the answer ask of the standing instructions, beside the
                   # four operations; ops.py `answer` is the step that records an answer, which the row `answer` now reaches through answer_proposing
-                  "for_run", "guard", "contained_prompt", "hash_of", "proposal", "answer", "vet"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "for_run", "guard", "contained_prompt", "hash_of", "proposal", "answer", "vet",
+                  # ops_reminders.py: what the messaging bridge asks of the store to send a reminder, and the clock, beside the three operations (no sender can type them)
+                  "reminders_due", "reminders_sent", "reminders_retry", "local_at"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.
@@ -109,7 +112,7 @@ def test_every_row_calls_a_function_of_the_operations_layer_that_accepts_its_arg
 
 def test_every_public_function_of_the_operations_layer_is_a_row_or_listed_as_not_one():
     # the layer is seven files (CONS-1B, ADJ-R1, R4-C3, P6a): ops.py and the siblings it re-exports from; a function counts where it is defined
-    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_instructions, ops_contained, ops_cancel, ops_attachments) for n, f in inspect.getmembers(module, inspect.isfunction)
+    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_instructions, ops_contained, ops_cancel, ops_attachments, ops_reminders) for n, f in inspect.getmembers(module, inspect.isfunction)
               if not n.startswith("_") and f.__module__ == module.__name__}
     called = {r["call"] for r in operations.OPERATIONS}
     assert called <= public

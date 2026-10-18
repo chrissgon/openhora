@@ -331,6 +331,9 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `attachments` | - | `attachments` |
 | `attachment-add` | `--id` | `attachment_add` |
 | `attachment-discard` | `--id` | `attachment_discard` |
+| `remind` | `--when` `--text \| --text-file` `[--to]` | `remind` |
+| `reminders` | - | `reminders_read` |
+| `reminder-forget` | `--id` | `reminder_forget` |
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
 | `instructions-add` | `--line` `--base-sha256` | `instructions_add` |
@@ -455,6 +458,9 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/attachments` | `attachments` | - | none | - | - |
 | POST | `/projects/{p}/attachments/{id}/add` | `attachment-add` | `attachment_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/attachments/{id}/discard` | `attachment-discard` | `attachment_id` from `{id}` | every other argument | - | - |
+| GET | `/projects/{p}/reminders` | `reminders` | - | none | - | - |
+| POST | `/projects/{p}/reminders` | `remind` | - | every other argument | - | - |
+| POST | `/projects/{p}/reminders/{id}/forget` | `reminder-forget` | `reminder_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->
@@ -493,3 +499,4 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 - 2026-10-15: `run-step` takes `--unattended` (the dispatcher's flag), the `agents` read carries `steps` (the brake of the step tasks) and the Building's panel draws it (P5c).
 - 2026-10-15: five rows and seven routes for the sources (P4): `source-add`, `source-import`, `source-refresh`, `source-describe` (the terminal and the page; the upload follows the existing file route) and `sources` (also the MCP mode and messaging, in the group `sources`).
 - 2026-10-16: the language of a deliverable (LANGUAGE, runtime part): `request` takes `--language <tag>` (the terminal) and `language` (`POST /projects/{p}/requests`, the MCP mode); the request form has a language select beside the model select (the project's language first, then `en`, `pt-BR`, `es`, `fr`, `de`, and a field for another tag); the `skills` read carries the project's `language`; the plan card and the plan's text show one language line before approval (`interface/js/language.js`, `interface/js/cards/plan-rows.js`).
+- 2026-10-18: reminders (RM-1): the terminal verbs `remind`, `reminders` and `reminder-forget` and the page's routes `GET` and `POST /projects/{p}/reminders` and `POST /projects/{p}/reminders/{id}/forget`; no tool of the MCP mode and no conversation command.

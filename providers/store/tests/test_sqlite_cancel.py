@@ -72,7 +72,7 @@ def test_a_store_at_14_migrates_to_15_keeps_every_row_and_admits_the_cancelled_s
     before = {t: [tuple(r) for r in old.execute(f"SELECT * FROM {t} ORDER BY 1")] for t in ("task_runs", "pending_decisions", "conversation_messages", "task_sources")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 14 and out["applied"] == [15, 16, 17, 18] and out["schema_version"] == 18
+    assert out["migrated_from"] == 14 and out["applied"] == [15, 16, 17, 18, 20] and out["schema_version"] == 20
     conn = store.open_db(path)
     for name, rows in before.items():   # migration 17 adds a trailing column (the actor) to pending_decisions: the earlier columns are the same, the new one empty
         kept = [tuple(r)[:len(rows[0])] for r in conn.execute(f"SELECT * FROM {name} ORDER BY 1")]

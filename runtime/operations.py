@@ -334,6 +334,17 @@ OPERATIONS = (
      "args": ({"name": "attachment_id", "kind": "int", "required": True, "flag": "id", "label": "id"},),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "delete a held file without adding it (from a messaging app, only a file you sent, and only by the answer to its card: /add and /discard)"},
+    {"name": "remind", "call": "remind",
+     "args": ({"name": "when", "kind": "str", "required": True, "label": "HH:MM | YYYY-MM-DD HH:MM | in <n>m|h|d"},
+              {"name": "text", "kind": "text", "required": True}, {"name": "to", "kind": "str", "label": "platform:id"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "make a reminder: a line of your own words that the messaging bridge sends once, at that time, to the chat of a listed sender, with no model in between (--when HH:MM is today or, when past, tomorrow; YYYY-MM-DD HH:MM; in <n>m|h|d; the machine's local time; 1 minute to 366 days ahead; --text up to 300 characters, refused if it looks like a credential); --to names the listed sender it goes to (from a messaging app it is always the sender who asks); never an effect (limit LR), off for a messaging app until the project's configuration lists the group reminders; at most 100 wait in a project and 30 are made for one chat in a day"},
+    {"name": "reminders", "call": "reminders_read", "args": (), "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "the reminders that wait and the ones that did not go out in the last 7 days (missed: the bridge was down more than 6 hours past the time; dropped: the sender was removed or lost the group before it fired); from a messaging app only the ones made for you, and no text when the project's notices are `count`"},
+    {"name": "reminder-forget", "call": "reminder_forget",
+     "args": ({"name": "reminder_id", "kind": "int", "required": True, "flag": "id", "label": "id"},),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "cancel a reminder that waits (from a messaging app, only one made for you: /forget); one that is being sent or has ended is not changed"},
     {"name": "instructions", "call": "instructions_read", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the project's standing instructions (docs/workbench/instructions.md, written only by you): whether the file is there, its sha256, its characters against the cap, the problem that would stop a run, and the text; every model run of the project receives it in its prompt, and it never replaces a skill's stop rule, a confirmation gate or an approval"},
     {"name": "instructions-set", "call": "instructions_set",
@@ -431,6 +442,9 @@ GROUPS = {
     # channel: the file a listed sender sends becomes a version of a source at once, with no card; it holds the one call the bridge makes after a fetch
     "add-sources": {"operations": ("attachments", "attachment-hold", "attachment-add", "attachment-discard"), "kind": None},
     "add-sources-direct": {"operations": ("attachment-hold",), "kind": "direct"},
+    # RM-1: reminders, a one-shot notice the messaging bridge sends to the chat that made it (limit LR). In no default policy: a messaging app takes it only when the
+    # project's configuration lists the group (accept-config --widen confirms it); never on the MCP mode (no row lists it). The group is a notice and never an effect.
+    "reminders": {"operations": ("remind", "reminders", "reminder-forget"), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -516,6 +530,7 @@ GROUP_TEXT = {
     "sources": "adds, imports, refreshes and describes the project's sources",
     "add-sources": "takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files",
     "add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation; a file for an existing source still waits for a card (it holds the hold alone, and adds nothing else)",
+    "reminders": "makes, lists and forgets reminders: one-shot lines of the sender's own words that the bridge sends back to their own chat at the time they chose",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

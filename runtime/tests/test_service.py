@@ -61,7 +61,12 @@ class Standin:
         self.job_stop = threading.Event()
         self.lock = threading.Lock()
 
+    # What the messaging bridge asks of the operations layer that is no row of the table (RM-1): nothing is due unless a test says so.
+    BRIDGE_ONLY = {"reminders_due": {"send": [], "missed": 0, "dropped": 0}, "reminders_sent": {"id": 0}, "reminders_retry": {"id": 0, "open": True}}
+
     def __getattr__(self, name):
+        if name in self.BRIDGE_ONLY:
+            return lambda project, *args, **kwargs: self.answers.get(name, self.BRIDGE_ONLY[name])
         if name not in {row["call"] for row in operations.OPERATIONS}:
             raise AttributeError(name)
 
@@ -183,7 +188,7 @@ def path_of(world, route):
 
 OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"]]
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands")  # the reads of the views
-READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments") + VIEW_READS
+READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments", "reminders") + VIEW_READS
 
 
 # --- rule 1: the loopback address -----------------------------------------------------------------------------------

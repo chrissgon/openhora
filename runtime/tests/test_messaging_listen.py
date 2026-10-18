@@ -447,6 +447,8 @@ class Fake:
                 "messaging": {{"senders": {{"chirp": ["4242"]}}}}, "channels": {{"messaging": ["read"]}}}}
     def pending(self, project, pending_id=None):
         return {{"pending": []}}
+    def reminders_due(self, project, platform):
+        return {{"send": [], "missed": 0, "dropped": 0}}
     def stop_runs(self):
         open({marker!r}, "w").write("stopped")
         return {{}}
