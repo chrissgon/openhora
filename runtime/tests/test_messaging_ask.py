@@ -113,15 +113,20 @@ def test_a_sender_whose_profile_lacks_ask_is_told_it_is_not_enabled_and_nothing_
     assert runs(world.tree) == [] and st.calls(world.tree["adapter"]) == []
 
 
-def test_a_slash_ask_met_by_a_busy_router_gets_the_busy_sentence_before_the_line_is_stored(world):
+def test_a_slash_ask_met_by_a_busy_router_waits_in_the_bridge_and_is_answered_when_the_router_is_free(world):
+    """BQ-1: the router's lock refuses the line before it is stored (RunBusy); the bridge keeps it in memory, tells the sender, and runs it again."""
     held = ops_core._try_lock(world.tree["ctx"]["cfg"], "route.lock")
     try:
         world.bridge.handle(world.update(OWNER, "/ask qual o prazo do contrato?"))
-        assert wait_for(lambda: len(world.sent()) == 1)
+        assert wait_for(lambda: [s["message"]["text"] for s in world.sent()] == [bridge.QUEUED])
+        assert wait_for(lambda: not world.bridge.exclusive)
     finally:
         os.close(held)
-    assert world.sent()[0]["message"]["text"] == bridge.RUN_BUSY
-    assert ops.conversation(world.project["path"])["messages"] == [] and runs(world.tree) == []
+    assert ops.conversation(world.project["path"])["messages"] == [] and runs(world.tree) == [], "nothing was stored or run while the router was busy"
+    world.bridge.monotonic = lambda: time.monotonic() + 10      # past the pause a busy router asks for
+    world.bridge.drain()
+    assert wait_for(lambda: len(world.sent()) == 2)
+    assert world.sent()[1]["chat"] == OWNER and "[lease-contract]" in world.sent()[1]["message"]["text"] and len(runs(world.tree)) == 1
 
 
 def test_limit_50_an_answer_leaves_only_as_the_reply_to_the_chat_that_asked_and_opens_no_effect(world):
