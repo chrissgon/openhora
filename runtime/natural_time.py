@@ -7,70 +7,85 @@
 
 Pure: the clock is passed in (an aware datetime), nothing is read but the language tables, nothing is stored, nothing is logged. The engine holds no word of any
 language. Every word it looks for (weekdays, months, "tomorrow", "in 2 hours", "13h", "9 pm", the words that introduce an hour) is data in a language table,
-`runtime/natural_lang_<tag>.py` (`TABLE`), and the table of EVERY language found is tried on EVERY line, so a project whose language is Portuguese still
-understands an English line. Adding a language adds one file (and its tests); the engine is not edited (`load_languages` finds the files, `check_table` refuses
-a table that breaks the schema below, and a test plugs a stub third language in to show it).
+`runtime/natural_lang_<tag>.py` (`TABLE`), and the table of EVERY language is tried on EVERY line, so a project whose language is Portuguese still
+understands an English line. The tables shipped are named in `runtime/natural_languages.json` and are read as data (`ast.literal_eval` of the `TABLE` literal,
+never executed); adding a language adds a file, a name in that list and its tests, and the engine is not edited (a test plugs a stub third language in).
 
-  find(text, languages=None)         the time phrases of a line, with no clock: {"norm", "origin", "hits"}; each hit has "kind", "lang" and a span
+The rule that governs it: what is ambiguous, or not fully understood, is ASKED BACK and never guessed. So a line never gets an invented hour or an invented day,
+two readings are all offered, an hour with no marker is asked, a word of a recurrence or of a week or a month that the parse did not use makes the line asked
+(`suspicious`), a weak word of a language (an abbreviation such as "sex" or "may") counts only when the line is in that language, and x/y is a date only when
+something says it is one.
+
+  find(text, languages=None)         the time phrases of a line, with no clock: {"norm", "origin", "hits", "tables"}; each hit has "kind", "lang" and a span
   parse(text, now, languages=None)   what the line means, with the clock:
                                        {"when": <the grammar of reminders.resolve>, "reading": {...}, "spans": [(start, end)...]}   one clear reading
-                                       {"ask": [reading...], "spans"}                                                              two or more readings: ask
+                                       {"ask": [reading...], "spans"}                                                              two or more readings (or one to confirm): ask
                                        {"missing": "time", "day": {...} | None, "spans"}                                            a day or a vague time, no hour
                                        None                                                                                          no time phrase
+  suspicious(rest, languages=None)   whether the words left over once the time is taken out show the time was not fully understood
   without(text, spans)               the line with those spans (of the ORIGINAL text) taken out
-  normalise(text)                    (folded text, origin): lower case, no accent, and where each folded character came from
-  languages() / load_languages(folder) / check_table(table)
+  normalise(text)                    (folded text, origin): lower case, no accent, no format character, and where each folded character came from
+  languages() / load_languages(folder, names) / check_table(table)
 
-What a reading is: {"when", "date": "YYYY-MM-DD", "time": "HH:MM", "rel": days from today | None, "weekday": 0 (Monday) to 6 | None, "rolled": bool,
-"relative": "in 2h" | None}. `when` is one of the three forms of runtime/reminders.py (`HH:MM`, `YYYY-MM-DD HH:MM`, `in <n>m|h|d`), so `reminders.resolve` keeps
-every check it has (a wall time the clock skips, a time that has passed, one minute to 366 days). `rolled` is true when a time with no day has passed today and
-means tomorrow's. A date the calendar does not have (30 February) is passed on as written, for `resolve` to refuse.
+What a reading is: {"when", "date": "YYYY-MM-DD", "time": "HH:MM", "rel": days from today | None, "weekday": 0 (Monday) to 6 | None, "far": the year is not
+this one, "rolled": bool, "relative": "in 2h" | None, "dated": the person named the day or a length of time, "assumed_year": the year was inferred}. `when` is one of
+the three forms of runtime/reminders.py (`HH:MM`, `YYYY-MM-DD HH:MM`, `in <n>m|h|d`), so `reminders.resolve` keeps every check it has (a wall time the clock skips,
+a time that has passed, one minute to 366 days). `rolled` is true when a time with no day has passed today and means tomorrow's. A date the calendar does not have
+(30 February) is passed on as written, for `resolve` to refuse; a date this year that has passed is NOT moved to next year silently: it is offered as a reading to
+confirm, and today's date with an hour that has passed stays today's and is refused as past by `resolve`.
 
 What the engine reads (all of it from the tables):
 
-  clock, 24-hour     13h  13hs  13hrs  13 hrs  13:00  9:30  13h30  21h        (the "hour words" of the table, or HH:MM)
+  clock, 24-hour     13h  13hs  13hrs  13 hrs  13:00  9:30  13h30  13h 30min  13.30 (with a cue)  13 e 30  13 e meia  meio-dia e meia
   clock, 12-hour     1pm  1 pm  1:30pm  9am  9 da manha  3 da tarde  noon  midnight   (meridiem, day parts, noon and midnight words)
-  hour with no marker  "at 9"  "as 9" (1 to 11): two readings, 09:00 and 21:00; 12 is noon; 13 to 23 and 0 are that hour
+  hour with no marker  "at 9"  "as 9" (1 to 11): two readings, 09:00 and 21:00 (also "as 3 e meia"); 12 is noon; 13 to 23 and 0 are that hour
   day                today  tomorrow  the day after tomorrow  (the words of the table)
-  weekday            friday  next friday  (the same weekday is today when the time is still ahead, else in 7 days; "next" is never today)
+  weekday            friday  (the same weekday is today when the time is still ahead, else in 7 days);  "next friday", "sexta que vem": the nearest and the one
+                     after it are both offered
   day of the month   the 25th  day 25  (this month when it is ahead, else the next month that has the day)
-  date               25 october  october 25  25/10  25/10/2026  2026-10-25   (x/y: day first in a language whose table says "day-first", else asked when
-                     both numbers are 12 or less and the line's other words are not of a "day-first" language)
-  in a while         in 2 hours  in 30 minutes  in 3 days  in half an hour  (an hour is `in <n>h`, to the minute upwards, as resolve does)
+  date               25 october  october 25  25/10  25/10/2026  2026-10-25   (x/y only with a cue: "on", "dia", a time beside it, and not a fraction such as
+                     "installment 3/10" or "3/10 of the rent"; both numbers 12 or less in a line that is not in a "day-first" language is asked)
+  in a while         in 2 hours  in 30 minutes  in 3 days  in half an hour  in 1h30  in an hour and a half  (an hour is `in <n>h`, to the minute upwards); "in 2 days
+                     at 9h" is the day two days ahead at 09:00
+  midnight           "friday at midnight" offers the start and the end of that day
   vague              later  this afternoon  (a day with no hour, or a vague part of the day: `missing`; no hour is ever invented)
   two phrases        two clocks, two days, a clock and a "in a while": every reading is offered (at most 4), nothing is picked
 
 The schema of a table (`check_table`; every list holds folded words, a phrase is words separated by one space; see runtime/natural_lang_en.py):
 tag, markers, slash_dates ("ask" | "day-first"), days {today, tomorrow, day_after_tomorrow}, weekdays (7 lists, Monday first), weekday_next, weekday_this,
-months (12 lists), month_joiners, day_words, ordinal_prefixes, ordinal_suffixes, prefixes, hour_words_24, meridiem {am, pm}, dayparts {morning, dawn, afternoon,
-evening, night}, vague, noon, midnight, bare_hour_prefixes, relative_in, relative_units {m, h, d, w}, number_words {word: n}, half_hour, triggers {remind,
-reminders, calendar, calendar_loose, note}, forget {verbs, nouns, fillers}, polite, connectors, answers {yes, notice, event}, work_starters. The trigger words
-are read by runtime/natural.py, the time words here.
+weekday_after, months (12 lists), weak, month_joiners, day_words, ordinal_prefixes, ordinal_suffixes, prefixes, hour_words_24, meridiem {am, pm}, dayparts
+{morning, dawn, afternoon, evening, night}, vague, noon, midnight, bare_hour_prefixes, relative_in, relative_units {m, h, d, w}, number_words {word: n},
+half_hour, and_half, joiners, half_words, time_words, fraction_before, fraction_after, date_cues, edge_words, triggers {remind, remind_anywhere, reminders,
+reminders_bare, calendar, calendar_loose, note}, forget {verbs, nouns, fillers}, polite, connectors, answers {yes, notice, event, other}, work_starters. The
+trigger words are read by runtime/natural.py, the time words here.
 
 Standard library only. Runs on Python 3.9: python3 runtime/natural_time.py --help
 """
 from __future__ import annotations
 
+import ast
 import calendar
 import datetime
-import glob
-import importlib.util
+import json
 import os
 import re
 import sys
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+SHIPPED = "natural_languages.json"      # the names of the language files shipped, as data
 MAX_READINGS = 4          # a question offers at most this many readings
 RELATIVE_MAX = 9999       # the largest n of `in <n>m|h|d` (runtime/reminders.py)
 _L = r"(?<![a-z0-9])"
 _R = r"(?![a-z0-9])"
 
-LISTS = ("markers", "weekday_next", "weekday_this", "month_joiners", "day_words", "ordinal_prefixes", "ordinal_suffixes", "prefixes", "hour_words_24", "vague",
-         "noon", "midnight", "bare_hour_prefixes", "relative_in", "half_hour", "polite", "connectors", "work_starters")
+LISTS = ("markers", "weekday_next", "weekday_this", "weekday_after", "weak", "month_joiners", "day_words", "ordinal_prefixes", "ordinal_suffixes", "prefixes",
+         "hour_words_24", "vague", "noon", "midnight", "bare_hour_prefixes", "relative_in", "half_hour", "and_half", "joiners", "half_words", "time_words",
+         "fraction_before", "fraction_after", "date_cues", "edge_words", "polite", "connectors", "work_starters")
 GROUPS = {"days": ("today", "tomorrow", "day_after_tomorrow"), "meridiem": ("am", "pm"), "dayparts": ("morning", "dawn", "afternoon", "evening", "night"),
-          "relative_units": ("m", "h", "d", "w"), "triggers": ("remind", "reminders", "calendar", "calendar_loose", "note"),
-          "forget": ("verbs", "nouns", "fillers"), "answers": ("yes", "notice", "event")}
+          "relative_units": ("m", "h", "d", "w"),
+          "triggers": ("remind", "remind_anywhere", "reminders", "reminders_bare", "calendar", "calendar_loose", "note"),
+          "forget": ("verbs", "nouns", "fillers"), "answers": ("yes", "notice", "event", "other")}
 
 
 def check_table(table) -> None:
@@ -111,17 +126,40 @@ def check_table(table) -> None:
     words(list(numbers), "number_words")
 
 
-def load_languages(folder=None) -> list:
-    """The tables of every file `natural_lang_*.py` in `folder` (default: this folder), checked, in the order of their file names. A file that breaks the
-    schema is a ValueError (a language table is data under review, not something to skip silently)."""
-    out = []
-    for path in sorted(glob.glob(os.path.join(folder or HERE, "natural_lang_*.py"))):
-        name = os.path.basename(path)[:-3]
-        spec = importlib.util.spec_from_file_location("_" + name, path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        check_table(module.TABLE)
-        out.append(module.TABLE)
+def _read_table(path: str):
+    """The `TABLE` literal of a language file, read as data: the file is parsed, never executed."""
+    with open(path, encoding="utf-8") as handle:
+        tree = ast.parse(handle.read(), filename=path)
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "TABLE" for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise ValueError(f"{os.path.basename(path)}: no TABLE literal")
+
+
+def load_languages(folder=None, names=None) -> list:
+    """The checked tables of the language files `names` (default: the list in `natural_languages.json` of `folder`, which is this folder by default), read as
+    data, in that order. A file that breaks the schema, a name that is not a language file and two tables with the same tag are a ValueError with a sentence
+    that says which (a language table is data under review, not something to skip silently)."""
+    folder = folder or HERE
+    if names is None:
+        try:
+            with open(os.path.join(folder, SHIPPED), encoding="utf-8") as handle:
+                names = json.load(handle)["languages"]
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            raise ValueError(f"{SHIPPED}: the list of shipped languages cannot be read ({e.__class__.__name__})") from None
+    out, tags = [], set()
+    for name in names:
+        if not isinstance(name, str) or not re.fullmatch(r"natural_lang_[a-z0-9_]+", name):
+            raise ValueError(f"{SHIPPED}: {name!r} is not the name of a language file (natural_lang_<tag>)")
+        try:
+            table = _read_table(os.path.join(folder, name + ".py"))
+        except (OSError, SyntaxError, ValueError) as e:
+            raise ValueError(f"{name}.py cannot be read as a language table ({e.__class__.__name__}: {e})") from None
+        check_table(table)
+        if table["tag"] in tags:
+            raise ValueError(f"language table {table['tag']!r}: two files have this tag")
+        tags.add(table["tag"])
+        out.append(table)
     return out
 
 
@@ -129,19 +167,19 @@ _default = []
 
 
 def languages() -> list:
-    """The tables of this folder, loaded once."""
+    """The tables shipped, read once. Called at the start of a bridge (a table that breaks the schema stops it there with a sentence), so a line never meets the error."""
     if not _default:
         _default.extend(load_languages())
     return _default
 
 
 def normalise(text) -> tuple:
-    """(folded, origin): `text` in lower case with no accent, a hyphen between two letters read as a space; origin[i] is the index in `text` the i-th folded
-    character came from, so that a span found in the folded text is a span of the original."""
+    """(folded, origin): `text` in lower case with no accent and no format character (a soft hyphen, a zero-width character), a hyphen between two letters read as
+    a space; origin[i] is the index in `text` the i-th folded character came from, so that a span found in the folded text is a span of the original."""
     out, origin = [], []
     for i, ch in enumerate(text or ""):
         for c in unicodedata.normalize("NFKD", ch):
-            if not unicodedata.combining(c):
+            if not unicodedata.combining(c) and unicodedata.category(c) != "Cf":
                 out.append(c.lower())
                 origin.append(i)
     folded = re.sub(r"(?<=[a-z])-(?=[a-z])", " ", "".join(out))
@@ -180,16 +218,21 @@ class _Compiled:
             self.maps["noon"][p] = (12, 0)
         for p in table["midnight"]:
             self.maps["noon"][p] = (0, 0)
+        self.midnight = set(table["midnight"])
         for mer, names in table["meridiem"].items():
             for p in names:
                 self.maps["mer"][p] = mer
         for part, names in table["dayparts"].items():
             for p in names:
                 self.maps["part"][p] = part
+        self.weak = set(table["weak"])
+        self.half = set(table["half_words"])
         days = a(sum(table["days"].values(), []))
         names = a(list(self.maps["weekday"]))
         months = a(list(self.maps["month"]))
         units = a(list(self.maps["unit"]))
+        hunits = a([p for p, u in self.maps["unit"].items() if u == "h"])
+        munits = a([p for p, u in self.maps["unit"].items() if u == "m"])
         nums = a(list(table["number_words"]))
         intro = a(table["relative_in"])
         hw = a(table["hour_words_24"])
@@ -198,13 +241,26 @@ class _Compiled:
         dayw = a(table["day_words"])
         ordp = a(table["ordinal_prefixes"])
         suffix = a(table["ordinal_suffixes"])
+        joiners = a(table["joiners"])
+        halfw = a(table["half_words"])
+        after = a(table["weekday_after"])
         modifiers = a(table["weekday_next"] + table["weekday_this"])
         modifier = "(?:(?P<mod>" + modifiers + r")\s+)?" if modifiers else ""
+        after_part = r"(?:\s+(?P<after>" + after + "))?" if after else ""
         short = a([w for w in table["hour_words_24"] if len(w) <= 3])
         long = a([w for w in table["hour_words_24"] if len(w) > 3])
+        mnum = "[0-9]{2}" + ("|" + halfw if halfw else "")
+        jmin = (r"(?:\s+" + joiners + r"\s+(?P<m>" + mnum + "))?") if joiners else ""
+        num_h = "(?P<h>[0-9]{1,4}|" + nums + ")" if nums else "(?P<h>[0-9]{1,4})"
         self.prefix = a(table["prefixes"])
-        self.relative = re.compile(f"{_L}(?P<intro>{intro})\\s+(?P<num>[0-9]{{1,4}}|{nums})\\s*(?P<unit>{units}){_R}") if intro and units and nums else None
-        self.half = re.compile(f"{_L}(?P<intro>{intro})\\s+{a(table['half_hour'])}{_R}") if intro and table["half_hour"] else None
+        self.and_half = re.compile(f"{_L}(?P<intro>{intro})\\s+{num_h}\\s*(?P<hu>{hunits})(?![a-z])\\s+{a(table['and_half'])}{_R}") \
+            if intro and hunits and table["and_half"] else None
+        jopt = (r"(?P<j>" + joiners + r"\s*)?") if joiners else ""
+        mopt = (r"\s*(?P<mu>" + munits + ")?") if munits else ""
+        self.compound = re.compile(f"{_L}(?P<intro>{intro})\\s+{num_h}\\s*(?P<hu>{hunits})(?![a-z])(?P<gap>\\s*){jopt}(?P<m>[0-9]{{1,2}}){mopt}(?![a-z0-9])") \
+            if intro and hunits else None
+        self.relative = re.compile(f"{_L}(?P<intro>{intro})\\s+(?P<num>[0-9]{{1,4}}|{nums})\\s*(?P<unit>{units}){_R}(?!\\s*[0-9])") if intro and units and nums else None
+        self.half_hour = re.compile(f"{_L}(?P<intro>{intro})\\s+{a(table['half_hour'])}{_R}") if intro and table["half_hour"] else None
         lead = _opt(a([w for w in (table["day_words"] + table["ordinal_prefixes"]) if w]))
         self.monthday1 = re.compile(f"{_L}{lead}(?P<d>[0-9]{{1,2}}){('(?:' + suffix + ')?') if suffix else ''}\\s+{_opt(a(table['month_joiners']))}(?P<mon>{months}){_R}") \
             if months else None
@@ -212,17 +268,22 @@ class _Compiled:
         self.dom1 = re.compile(f"{_L}{dayw}\\s+(?P<d>[0-9]{{1,2}})(?![a-z0-9:/])") if dayw else None
         self.dom2 = re.compile(f"{_L}{_opt(ordp)}(?P<d>[0-9]{{1,2}}){suffix}(?![a-z0-9:/])") if suffix else None
         self.day = re.compile(f"{_L}(?P<w>{days}){_R}") if days else None
-        self.weekday = re.compile(f"{_L}{modifier}(?P<name>{names}){_R}") if names else None
+        self.weekday = re.compile(f"{_L}{modifier}(?P<name>{names}){after_part}{_R}") if names else None
         self.nxt = set(table["weekday_next"])
         self.daypart = re.compile(f"{_L}(?P<h>[0-9]{{1,2}})(?::(?P<m1>[0-9]{{2}})" + (f"|\\s*{hw}(?:(?P<m2>[0-9]{{2}}))?" if hw else "") +
                                   f")?\\s+(?P<part>{parts}){_R}") if parts else None
         self.colon = re.compile(f"{_L}(?P<h>[0-9]{{1,2}}):(?P<m>[0-9]{{2}})" + (f"(?:\\s*(?P<mer>{mer}))?" if mer else "") + "(?![a-z0-9:])")
-        self.hw = re.compile(f"{_L}(?P<h>[0-9]{{1,2}})\\s*{short}(?![a-z])(?P<m>[0-9]{{2}})?(?![0-9])") if short else None
+        mu_opt = (r"(?:\s*" + munits + "(?![a-z0-9]))?") if munits else ""
+        m2_part = r"|\s+(?P<m2>[0-9]{2})(?![0-9/:.])" + ((r"(?:\s*" + munits + "(?![a-z0-9]))?") if munits else "")
+        m3_part = (r"|\s+" + joiners + r"\s+(?P<m3>" + mnum + ")") if joiners else ""
+        self.hw = re.compile(f"{_L}(?P<h>[0-9]{{1,2}})\\s*{short}(?![a-z])(?:(?P<m>[0-9]{{2}})(?![0-9]){mu_opt}{m2_part}{m3_part})?(?![0-9])(?!\\s+[0-9])") if short else None
         self.mer = re.compile(f"{_L}(?P<h>[0-9]{{1,2}})\\s*(?P<mer>{mer}){_R}") if mer else None
         special = a(list(self.maps["noon"]))
-        self.special = re.compile(f"{_L}(?P<w>{special}){_R}") if special else None
+        jmin_special = (r"(?:\s+" + joiners + r"\s+(?P<m>" + mnum + "))?") if joiners else ""
+        self.special = re.compile(f"{_L}(?P<w>{special}){jmin_special}{_R}") if special else None
         bare = a(table["bare_hour_prefixes"])
-        self.bare = re.compile(f"{_L}(?P<p>{bare})\\s+(?P<h>[0-9]{{1,2}})(?![a-z0-9:/])" + (f"(?:\\s+{long}{_R})?" if long else "")) if bare else None
+        long_part = (r"(?:\s+" + long + ")?") if long else ""
+        self.bare = re.compile(f"{_L}(?P<p>{bare})\\s+(?P<h>[0-9]{{1,2}}){long_part}{jmin}(?![a-z0-9:/]|[.,][0-9]|\\s+[0-9])") if bare else None
         vague = a(table["vague"])
         self.vague = re.compile(f"{_L}(?P<w>{vague}){_R}") if vague else None
 
@@ -241,8 +302,8 @@ def _word(text) -> str:
     return " ".join(text.split())
 
 
-def _day_of(d, month=None):
-    return 1 <= d <= 31
+def _num(c, text):
+    return int(text) if text.isdigit() else c.table["number_words"].get(_word(text))
 
 
 def _meridiem(h, mer):
@@ -266,6 +327,10 @@ def _part_hours(h, part):
     return None
 
 
+def _duration(total: int, unit: str = "m") -> dict:
+    return {"kind": "relative", "when": f"in {total}m", "delta": datetime.timedelta(minutes=total), "unit": "m", "days": 0}
+
+
 def _scan(work: str, tables: list) -> list:
     """Every time phrase of the folded line, stage by stage (a phrase found by a stage is hidden from the later ones, so that "2 hours" in "in 2 hours" is not a
     clock), in all the languages. Returns the hits, each {"kind", "s", "e", "lang", ...}."""
@@ -280,7 +345,7 @@ def _scan(work: str, tables: list) -> list:
             for m in pattern.finditer(work):
                 hit = accept(lang, m)
                 if hit:
-                    hit.update(s=m.start(), e=m.end(), lang=lang["tag"] if isinstance(lang, dict) else (lang.tag if lang is not None else None))
+                    hit.update(s=m.start(), e=m.end(), s0=m.start(), lang=lang.tag if lang is not None else None)
                     found.append(hit)
         found.sort(key=lambda h: (-(h["e"] - h["s"]), h["s"]))
         taken = []
@@ -293,68 +358,111 @@ def _scan(work: str, tables: list) -> list:
         hits.extend(taken)
 
     def per(attr, accept):
-        run([(c, getattr(c, attr)) for c in compiled if getattr(c, attr) is not None], lambda c, m: accept(c, m))
+        run([(c, getattr(c, attr)) for c in compiled if getattr(c, attr) is not None], accept)
 
     iso = re.compile(r"(?<![0-9-])([0-9]{4})-([0-9]{2})-([0-9]{2})(?![0-9-])")
     run([(None, iso)], lambda c, m: {"kind": "date", "spec": {"k": "ymd", "y": int(m.group(1)), "m": int(m.group(2)), "d": int(m.group(3))}})
     slash = re.compile(r"(?<![0-9/])([0-9]{1,2})/([0-9]{1,2})(?:/([0-9]{4}|[0-9]{2}))?(?![0-9/])")
     run([(None, slash)], lambda c, m: {"kind": "slash", "a": int(m.group(1)), "b": int(m.group(2)), "y": int(m.group(3)) if m.group(3) else None})
+    dotted = re.compile(r"(?<![a-z0-9.,])([0-9]{1,2})\.([0-9]{2})(?![0-9]|[.,][0-9])")
+    run([(None, dotted)], lambda c, m: {"kind": "clock", "times": [(int(m.group(1)), int(m.group(2)))], "bare": False, "dotted": True}
+        if int(m.group(1)) <= 23 and int(m.group(2)) <= 59 else None)
+
+    def and_half(c, m):
+        n = _num(c, m.group("h"))
+        return _duration(n * 60 + 30) if n and n * 60 + 30 <= RELATIVE_MAX else None
+    per("and_half", and_half)
+
+    def compound(c, m):
+        n, minutes = _num(c, m.group("h")), int(m.group("m"))
+        gap, joined, unit = m.group("gap"), ("j" in m.groupdict() and m.group("j")), ("mu" in m.groupdict() and m.group("mu"))
+        if not n or minutes > 59 or ((gap or joined) and not (joined or unit)):
+            return None
+        return _duration(n * 60 + minutes) if n * 60 + minutes <= RELATIVE_MAX else None
+    per("compound", compound)
+    per("half_hour", lambda c, m: _duration(30))
 
     def relative(c, m):
-        num = m.group("num")
-        n = int(num) if num.isdigit() else c.table["number_words"].get(_word(num))
+        n = _num(c, m.group("num"))
         unit = c.maps["unit"].get(_word(m.group("unit")))
         if not n or not unit or n * (7 if unit == "w" else 1) > RELATIVE_MAX:
             return None
         n, unit = (n * 7, "d") if unit == "w" else (n, unit)
-        return {"kind": "relative", "when": f"in {n}{unit}", "delta": datetime.timedelta(minutes=n) if unit == "m" else datetime.timedelta(hours=n) if unit == "h"
-                else datetime.timedelta(days=n)}
-    per("half", lambda c, m: {"kind": "relative", "when": "in 30m", "delta": datetime.timedelta(minutes=30)})
+        return {"kind": "relative", "when": f"in {n}{unit}", "unit": unit, "days": n if unit == "d" else 0,
+                "delta": datetime.timedelta(minutes=n) if unit == "m" else datetime.timedelta(hours=n) if unit == "h" else datetime.timedelta(days=n)}
     per("relative", relative)
 
     def monthday(c, m):
-        month = c.maps["month"].get(_word(m.group("mon")))
+        phrase = _word(m.group("mon"))
+        month = c.maps["month"].get(phrase)
         d = int(m.group("d"))
-        return {"kind": "date", "spec": {"k": "md", "m": month, "d": d}} if month and _day_of(d) else None
+        return {"kind": "date", "spec": {"k": "md", "m": month, "d": d}, "weak": phrase in c.weak} if month and 1 <= d <= 31 else None
     per("monthday1", monthday)
     per("monthday2", monthday)
-    per("dom1", lambda c, m: {"kind": "date", "spec": {"k": "dom", "d": int(m.group("d"))}} if _day_of(int(m.group("d"))) else None)
-    per("dom2", lambda c, m: {"kind": "date", "spec": {"k": "dom", "d": int(m.group("d"))}} if _day_of(int(m.group("d"))) else None)
+    per("dom1", lambda c, m: {"kind": "date", "spec": {"k": "dom", "d": int(m.group("d"))}} if 1 <= int(m.group("d")) <= 31 else None)
+    per("dom2", lambda c, m: {"kind": "date", "spec": {"k": "dom", "d": int(m.group("d"))}} if 1 <= int(m.group("d")) <= 31 else None)
     per("day", lambda c, m: {"kind": "date", "spec": {"k": "rel", "n": c.maps["day"][_word(m.group("w"))]}})
 
     def weekday(c, m):
-        mod = m.group("mod") if "mod" in m.groupdict() else None
-        return {"kind": "date", "spec": {"k": "wd", "i": c.maps["weekday"][_word(m.group("name"))], "next": bool(mod) and _word(mod) in c.nxt}}
+        groups = m.groupdict()
+        phrase = _word(m.group("name"))
+        mod = groups.get("mod")
+        two = bool(groups.get("after")) or (bool(mod) and _word(mod) in c.nxt)
+        return {"kind": "date", "spec": {"k": "wd", "i": c.maps["weekday"][phrase], "next": two, "two": two}, "weak": phrase in c.weak}
     per("weekday", weekday)
 
     def daypart(c, m):
-        minute = int(m.group("m1") or m.group("m2") or 0) if "m2" in m.groupdict() else int(m.group("m1") or 0)
+        groups = m.groupdict()
+        minute = int(groups.get("m1") or groups.get("m2") or 0)
         hours = _part_hours(int(m.group("h")), c.maps["part"][_word(m.group("part"))])
         return {"kind": "clock", "times": [(h, minute) for h in hours], "bare": False} if hours and minute <= 59 else None
     per("daypart", daypart)
 
     def colon(c, m):
-        h, minute, mer = int(m.group("h")), int(m.group("m")), (m.group("mer") if "mer" in m.groupdict() else None)
+        h, minute, mer = int(m.group("h")), int(m.group("m")), m.groupdict().get("mer")
         if minute > 59:
             return None
         if mer:
             h = _meridiem(h, c.maps["mer"][_word(mer)])
         return {"kind": "clock", "times": [(h, minute)], "bare": False} if h is not None and h <= 23 else None
     per("colon", colon)
-    per("hw", lambda c, m: {"kind": "clock", "times": [(int(m.group("h")), int(m.group("m") or 0))], "bare": False}
-        if int(m.group("h")) <= 23 and int(m.group("m") or 0) <= 59 else None)
+
+    def hw(c, m):
+        groups = m.groupdict()
+        h = int(m.group("h"))
+        text = groups.get("m") or groups.get("m2") or groups.get("m3")
+        minute = (30 if _word(text) in c.half else int(text)) if text else 0
+        if h > 23 or minute > 59:
+            return None
+        hit = {"kind": "clock", "times": [(h, minute)], "bare": False}
+        if text and text.isdigit() and 1 <= h <= 5:          # "1h30": 01:30, or a length of time
+            hit["alt"] = _duration(h * 60 + minute)
+        return hit
+    per("hw", hw)
 
     def meridiem(c, m):
         h = _meridiem(int(m.group("h")), c.maps["mer"][_word(m.group("mer"))])
         return {"kind": "clock", "times": [(h, 0)], "bare": False} if h is not None else None
     per("mer", meridiem)
-    per("special", lambda c, m: {"kind": "clock", "times": [c.maps["noon"][_word(m.group("w"))]], "bare": False})
+
+    def special(c, m):
+        phrase = _word(m.group("w"))
+        h, minute = c.maps["noon"][phrase]
+        text = m.groupdict().get("m")
+        if text:
+            minute = 30 if _word(text) in c.half else int(text)
+        if minute > 59:
+            return None
+        return {"kind": "clock", "times": [(h, minute)], "bare": False, "midnight": phrase in c.midnight and minute == 0}
+    per("special", special)
 
     def bare(c, m):
         h = int(m.group("h"))
-        if h > 23:
+        text = m.groupdict().get("m")
+        minute = (30 if _word(text) in c.half else int(text)) if text else 0
+        if h > 23 or minute > 59:
             return None
-        times = [(h, 0), (h + 12, 0)] if 1 <= h <= 11 else [(h, 0)]
+        times = [(h, minute), (h + 12, minute)] if 1 <= h <= 11 else [(h, minute)]
         return {"kind": "clock", "times": times, "bare": len(times) > 1}
     per("bare", bare)
     per("vague", lambda c, m: {"kind": "vague"})
@@ -362,7 +470,8 @@ def _scan(work: str, tables: list) -> list:
 
 
 def _extend(norm: str, hits: list, tables: list) -> None:
-    """Take one connector that stands just before a phrase ("at 13h", "on friday", "para amanha") into the phrase: it goes with it when the words are taken out."""
+    """Take one connector that stands just before a phrase ("at 13h", "on friday", "para amanha") into the phrase: it goes with it when the words are taken out.
+    A phrase that took one has a `cue`."""
     prefixes = _alt(sorted({p for t in tables for p in t["prefixes"]}))
     if not prefixes:
         return
@@ -375,16 +484,48 @@ def _extend(norm: str, hits: list, tables: list) -> None:
         m = tail.search(norm[floor:hit["s"]])
         if m:
             hit["s"] = floor + m.start(1)
+            hit["cue"] = True
+
+
+def _neighbours(norm: str, hit: dict) -> tuple:
+    """(the word before, the word after) a hit, folded."""
+    before = re.findall(r"[a-z0-9]+", norm[:hit["s0"]])
+    after = re.findall(r"[a-z0-9]+", norm[hit["e"]:])
+    return (before[-1] if before else ""), (after[0] if after else "")
+
+
+def _keep(hit: dict, hits: list, norm: str, tables: list, evidence: set) -> bool:
+    """Whether a hit counts: a weak word only in a line of its own language; a dotted time (13.30) only with a cue and no money; x/y only as a date."""
+    if hit.get("weak") and hit["lang"] not in evidence:
+        return False
+    if hit.get("dotted"):
+        if re.search(r"[$€£]", norm) or any(h is not hit and h["kind"] == "clock" and not h.get("dotted") for h in hits):
+            return False
+        beside = any(h is not hit and h["kind"] in ("date", "slash", "relative") and (
+            (h["e"] <= hit["s0"] and not norm[h["e"]:hit["s0"]].strip()) or (hit["e"] <= h["s0"] and not norm[hit["e"]:h["s0"]].strip())) for h in hits)
+        return bool(hit.get("cue") or beside)          # "at 13.30", "tomorrow 13.30": a cue or a day beside it; "bill 13.50" is a number
+    if hit["kind"] == "slash":
+        a, b, year = hit["a"], hit["b"], hit["y"]
+        if not ((1 <= b <= 12 and 1 <= a <= 31) or (1 <= a <= 12 and 1 <= b <= 31)):
+            return False
+        before, after = _neighbours(norm, hit)
+        if any(before in t["fraction_before"] or after in t["fraction_after"] for t in tables) and year is None:
+            return False
+        return bool(year is not None or hit.get("cue") or any(before in t["date_cues"] for t in tables) or any(h["kind"] == "clock" for h in hits))
+    return True
 
 
 def find(text, languages=None) -> dict:
     """The time phrases of the line, with no clock: {"norm", "origin", "hits", "tables"}. Each hit is {"kind": "clock" | "date" | "slash" | "relative" | "vague",
-    "s", "e" (in the folded text), "lang", ...}. `languages` replaces the tables found in this folder (a test's stub language, a project's own)."""
+    "s", "e" (in the folded text), "lang", ...}. `languages` replaces the tables shipped (a test's stub language)."""
     tables = languages if languages is not None else globals()["languages"]()
     norm, origin = normalise(text)
     hits = _scan(norm, tables)
     _extend(norm, hits, tables)
-    return {"norm": norm, "origin": origin, "hits": sorted(hits, key=lambda h: h["s"]), "tables": tables}
+    tokens = set(re.findall(r"[a-z0-9]+", norm))
+    evidence = {h["lang"] for h in hits if h.get("lang") and not h.get("weak")} | {t["tag"] for t in tables if tokens & set(t["markers"])}
+    kept = [h for h in hits if _keep(h, hits, norm, tables, evidence)]
+    return {"norm": norm, "origin": origin, "hits": sorted(kept, key=lambda h: h["s"]), "tables": tables}
 
 
 def _spans(found: dict) -> list:
@@ -412,6 +553,32 @@ def without(text: str, spans) -> str:
     return " ".join(" ".join(out).split())
 
 
+def _distance_one(a: str, b: str) -> bool:
+    """Whether two words differ by one letter added, dropped, changed or two neighbours swapped."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        return len(diff) == 1 or (len(diff) == 2 and diff[1] == diff[0] + 1 and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]])
+    short, long = (a, b) if len(a) < len(b) else (b, a)
+    return any(long[:i] + long[i + 1:] == short for i in range(len(long)))
+
+
+def suspicious(rest, languages=None) -> bool:
+    """Whether the words left over once the time is taken out (the reminder's own words) show that the time was not fully understood: one of the table's
+    `time_words` (a week, a month, a recurrence, "next", "until"), or a word one letter away from a day word of a table ("amnha", "tomorow"). The line is then asked
+    back and not made."""
+    tables = languages if languages is not None else globals()["languages"]()
+    norm, _origin = normalise(rest)
+    tokens = re.findall(r"[a-z0-9]+", norm)
+    joined = " " + " ".join(tokens) + " "
+    if any(f" {w} " in joined for t in tables for w in t["time_words"]):
+        return True
+    known = {w for t in tables for key in t["days"].values() for p in key for w in [p] if " " not in p and len(p) >= 5}
+    known |= {p for t in tables for names in t["weekdays"] + t["months"] for p in names if " " not in p and len(p) >= 5}
+    return any(len(tok) >= 5 and any(_distance_one(tok, k) for k in known) for tok in tokens)
+
+
 def _score(found: dict) -> dict:
     tokens = re.findall(r"[a-z0-9]+", found["norm"])
     return {t["tag"]: sum(1 for w in tokens if w in set(t["markers"])) + sum(1 for h in found["hits"] if h.get("lang") == t["tag"]) for t in found["tables"]}
@@ -428,7 +595,10 @@ def _ask_mode(found: dict) -> bool:
 
 def _specs(hit: dict, ask_mode: bool) -> list:
     if hit["kind"] == "date":
-        return [hit["spec"]]
+        spec = hit["spec"]
+        if spec["k"] == "wd" and spec.get("two"):          # "next friday", "sexta que vem": the nearest one and the one after it
+            return [{**spec, "two": False, "plus": 0}, {**spec, "two": False, "plus": 7}]
+        return [spec]
     a, b, y = hit["a"], hit["b"], hit["y"]
     year = None if y is None else (y if y >= 100 else 2000 + y)
 
@@ -445,46 +615,53 @@ def _specs(hit: dict, ask_mode: bool) -> list:
     return out or [spec(a, b)]
 
 
-def _date_for(spec: dict, h: int, minute: int, now: datetime.datetime):
-    """(date or None, "YYYY-MM-DD") of a day spec for a time of day: a date the calendar does not have is (None, as written)."""
-    today = now.date()
-    wall = now.replace(tzinfo=None)
-    ahead = datetime.datetime.combine(today, datetime.time(h, minute)) > wall
-    k = spec["k"]
-    if k == "rel":
-        day = today + datetime.timedelta(days=spec["n"])
-    elif k == "wd":
-        delta = (spec["i"] - today.weekday()) % 7
-        if delta == 0 and (spec["next"] or not ahead):
-            delta = 7
-        day = today + datetime.timedelta(days=delta)
-    elif k == "dom":
-        day = None
-        for step in range(0, 14):
-            index = today.year * 12 + today.month - 1 + step
-            year, month = index // 12, index % 12 + 1
-            if spec["d"] > calendar.monthrange(year, month)[1]:
-                continue
-            candidate = datetime.date(year, month, spec["d"])
-            if candidate > today or (candidate == today and ahead):
-                day = candidate
-                break
-    elif k == "md":
-        year = today.year
-        if (spec["m"], spec["d"], h, minute) <= (today.month, today.day, now.hour, now.minute):
-            year += 1
-        return _valid(year, spec["m"], spec["d"])
-    else:
-        return _valid(spec["y"], spec["m"], spec["d"])
-    return day, day.isoformat()
-
-
 def _valid(year, month, day):
     try:
         found = datetime.date(year, month, day)
         return found, found.isoformat()
     except ValueError:
         return None, f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def _date_for(spec: dict, h: int, minute: int, now: datetime.datetime):
+    """(date or None, "YYYY-MM-DD", assumed) of a day spec for a time of day: a date the calendar does not have is (None, as written, False); `assumed` is true
+    when the year was inferred because the date has passed this year. A date that is today stays today, whatever the hour: `resolve` refuses it when it has passed."""
+    today = now.date()
+    wall = now.replace(tzinfo=None)
+    ahead = datetime.datetime.combine(today, datetime.time(h, minute)) > wall
+    k = spec["k"]
+    assumed = False
+    if k == "rel":
+        day, text = today + datetime.timedelta(days=spec["n"]), None
+    elif k == "wd":
+        delta = (spec["i"] - today.weekday()) % 7
+        if delta == 0 and (spec["next"] or not ahead):
+            delta = 7
+        day, text = today + datetime.timedelta(days=delta), None
+    elif k == "dom":
+        day, text = None, None
+        for step in range(0, 14):
+            index = today.year * 12 + today.month - 1 + step
+            year, month = index // 12, index % 12 + 1
+            if spec["d"] > calendar.monthrange(year, month)[1]:
+                continue
+            candidate = datetime.date(year, month, spec["d"])
+            if candidate >= today:          # today stays today, whatever the hour: `resolve` refuses it as past when it has
+                day = candidate
+                break
+    elif k == "md":
+        year = today.year
+        if (spec["m"], spec["d"]) < (today.month, today.day):
+            year, assumed = year + 1, True
+        day, text = _valid(year, spec["m"], spec["d"])
+        assumed = assumed and day is not None
+    else:
+        day, text = _valid(spec["y"], spec["m"], spec["d"])
+    if day is not None and spec.get("plus"):
+        day, text = day + datetime.timedelta(days=spec["plus"]), None
+    if day is not None:
+        text = day.isoformat()
+    return day, text, assumed
 
 
 def _day_only(spec: dict, now: datetime.datetime):
@@ -497,10 +674,7 @@ def _day_only(spec: dict, now: datetime.datetime):
         delta = (spec["i"] - today.weekday()) % 7
         return None if delta == 0 and not spec["next"] else today + datetime.timedelta(days=delta or 7)
     if k == "dom":
-        if spec["d"] == today.day:
-            return None
-        found = _date_for(spec, 0, 0, now.replace(hour=23, minute=59))[0]
-        return found
+        return None if spec["d"] == today.day else _date_for(spec, 0, 0, now.replace(hour=23, minute=59))[0]
     if k == "md":
         return _date_for(spec, 0, 0, now)[0] if (spec["m"], spec["d"]) != (today.month, today.day) else today
     return _valid(spec["y"], spec["m"], spec["d"])[0]
@@ -508,7 +682,8 @@ def _day_only(spec: dict, now: datetime.datetime):
 
 def _info(day, now: datetime.datetime) -> dict:
     today = now.date()
-    return {"date": day.isoformat() if day else None, "rel": (day - today).days if day else None, "weekday": day.weekday() if day else None}
+    return {"date": day.isoformat() if day else None, "rel": (day - today).days if day else None, "weekday": day.weekday() if day else None,
+            "far": bool(day) and day.year != today.year}
 
 
 def _reading(spec, h: int, minute: int, now: datetime.datetime) -> dict:
@@ -517,9 +692,9 @@ def _reading(spec, h: int, minute: int, now: datetime.datetime) -> dict:
     if spec is None:
         rolled = datetime.datetime.combine(today, datetime.time(h, minute)) <= now.replace(tzinfo=None)
         day = today + datetime.timedelta(days=1 if rolled else 0)
-        return {"when": clock, **_info(day, now), "time": clock, "rolled": rolled, "relative": None}
-    day, text = _date_for(spec, h, minute, now)
-    out = {"when": f"{text} {clock}", **_info(day, now), "time": clock, "rolled": False, "relative": None}
+        return {"when": clock, **_info(day, now), "time": clock, "rolled": rolled, "relative": None, "dated": False, "assumed_year": False}
+    day, text, assumed = _date_for(spec, h, minute, now)
+    out = {"when": f"{text} {clock}", **_info(day, now), "time": clock, "rolled": False, "relative": None, "dated": True, "assumed_year": assumed}
     out["date"] = text
     return out
 
@@ -528,7 +703,8 @@ def _relative_reading(hit: dict, now: datetime.datetime) -> dict:
     due = now.replace(tzinfo=None) + hit["delta"]
     if due.second or due.microsecond:
         due = due.replace(second=0, microsecond=0) + datetime.timedelta(minutes=1)
-    return {"when": hit["when"], **_info(due.date(), now), "time": due.strftime("%H:%M"), "rolled": False, "relative": hit["when"]}
+    return {"when": hit["when"], **_info(due.date(), now), "time": due.strftime("%H:%M"), "rolled": False, "relative": hit["when"], "dated": True,
+            "assumed_year": False}
 
 
 def parse(text, now, languages=None):
@@ -547,6 +723,9 @@ def parse(text, now, languages=None):
         for spec in _specs(hit, ask_mode):
             if spec not in specs:
                 specs.append(spec)
+    if clocks and len(relatives) == 1 and relatives[0].get("unit") == "d":      # "in 2 days at 9h": the day two days ahead
+        specs.append({"k": "rel", "n": relatives[0]["days"]})
+        relatives = []
     readings = []
 
     def add(reading):
@@ -555,20 +734,27 @@ def parse(text, now, languages=None):
     for hit in relatives:
         add(_relative_reading(hit, now))
     if clocks:
-        times = []
+        times, midnight = [], set()
         for hit in clocks:
             for hm in hit["times"]:
                 if hm not in times:
                     times.append(hm)
+                if hit.get("midnight"):
+                    midnight.add(hm)
+            if hit.get("alt"):
+                add(_relative_reading(hit["alt"], now))
         for spec in (specs or [None]):
             for h, minute in times:
                 add(_reading(spec, h, minute, now))
+                if spec is not None and (h, minute) in midnight:          # "friday at midnight": the start or the end of the day
+                    add(_reading({**spec, "plus": spec.get("plus", 0) + 1}, h, minute, now))
     if readings and specs and not clocks:       # a day and a length of time ("tomorrow in 2 hours"): nothing says which is meant
         return {"missing": "time", "day": None, "spans": spans}
+    vague = any(h["kind"] == "vague" for h in hits)          # "9am in the afternoon": a part of the day the reading did not use
     if readings:
         if len(readings) == 1:
-            return {"when": readings[0]["when"], "reading": readings[0], "spans": spans}
-        return {"ask": readings[:MAX_READINGS], "spans": spans}
+            return {"when": readings[0]["when"], "reading": readings[0], "spans": spans, "vague": vague}
+        return {"ask": readings[:MAX_READINGS], "spans": spans, "vague": vague}
     day = None
     if len(specs) == 1:
         found_day = _day_only(specs[0], now)

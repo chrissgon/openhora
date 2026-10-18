@@ -15,8 +15,8 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
   {"kind": "remind", "when": "15:00", "text": "..."}  /remind <time> <text> (RM-1): the time as typed (HH:MM, YYYY-MM-DD HH:MM or in <n>m|h|d) and the words;
                                                       the moment is worked out by the operation, with the clock
   {"kind": "natural", "op": ..., "how": ..., "text": "..."}   a line in the person's own words that code matched to an operation, with no model (NR-1,
-                                                      runtime/natural.py): op "remind" (how "trigger" | "bare" | "command"), "reminders", "reminder-forget"
-                                                      (with "id": n or None) or "calendar-event-create" (planned); `/remind <rest>` that the strict grammar above
+                                                      runtime/natural.py): op "remind" (how "trigger" | "bare" | "note" | "command"), "reminders", "reminder-forget"
+                                                      (with "id": n, or "words": what was said of it, or "many") or "calendar-event-create" (planned; how "trigger" or "ask"); `/remind <rest>` that the strict grammar above
                                                       does not claim is one too (how "command"). The time is worked out by the operation, with the clock
   {"kind": "reminders"} {"kind": "forget", "id": 3}   /reminders, /forget <n>
   {"kind": "pending"} {"kind": "project", "name": ""} {"kind": "help"}
@@ -97,9 +97,9 @@ def parse(update: dict) -> dict:
         if name in ("help", "start"):
             return {"kind": "help"}
         return {"kind": "text", "text": text}
-    if update.get("reply_to"):
-        return {"kind": "reply", "reply_to": update["reply_to"], "text": text}
-    named = natural.candidate(text)
+    named = natural.candidate(text)          # before the reply gesture: a reminder asked as a reply to a message is still a reminder (NR-1)
     if named:
         return {"kind": "natural", "text": text, **named}
+    if update.get("reply_to"):
+        return {"kind": "reply", "reply_to": update["reply_to"], "text": text}
     return {"kind": "text", "text": text}

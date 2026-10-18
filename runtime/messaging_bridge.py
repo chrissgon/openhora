@@ -104,6 +104,7 @@ import messaging_cards as cards
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
+import natural_time
 import phrases
 import shell_kit
 
@@ -218,6 +219,10 @@ class Bridge(shell_kit.Jobs):
 
     def __init__(self, ops_module, projects, messenger, ledger, platform: str, log=None, clock=None):
         super().__init__(ops_module, projects, log)
+        try:
+            natural_time.languages()      # the language tables are read and checked once, here: a table that breaks the schema stops the bridge with a sentence (NR-1)
+        except ValueError as e:
+            raise Fatal(f"the natural-request language tables are not valid: {e}") from None
         self.attach = attach.Attachments(self)
         self.remind = remind.Reminders(self)
         self.messenger, self.ledger, self.platform = messenger, ledger, platform

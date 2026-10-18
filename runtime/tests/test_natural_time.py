@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import datetime
+import json
 import re
 
 import pytest
@@ -69,8 +70,8 @@ ENGLISH_CASES = [
     ("in half an hour", "in 30m"),
     ("in 1 week", "in 7d"),
     ("friday at 9am", "2026-10-23 09:00"),
-    ("next friday 9am", "2026-10-23 09:00"),
-    ("next thursday 10am", "2026-10-29 10:00"),
+    ("next friday 9am", ("ask", ["2026-10-23 09:00", "2026-10-30 09:00"])),
+    ("next thursday 10am", ("ask", ["2026-10-29 10:00", "2026-11-05 10:00"])),
     ("thursday 3pm", "2026-10-22 15:00"),
     ("thursday 1pm", "2026-10-29 13:00"),
     ("on monday at 8am", "2026-10-26 08:00"),
@@ -86,6 +87,20 @@ ENGLISH_CASES = [
     ("25/10 at 10:00", "2026-10-25 10:00"),
     ("10/25 at 10:00", "2026-10-25 10:00"),
     ("2026-10-25 08:00", "2026-10-25 08:00"),
+    ("in 1h30", "in 90m"),
+    ("in an hour and a half", "in 90m"),
+    ("in 1 hour 30 minutes", "in 90m"),
+    ("in 2 days at 9", ("ask", ["2026-10-24 09:00", "2026-10-24 21:00"])),
+    ("at 9.30", "09:30"),
+    ("at midnight", "00:00"),
+    ("friday at midnight", ("ask", ["2026-10-23 00:00", "2026-10-24 00:00"])),
+    ("remind me fri 3pm", "2026-10-23 15:00"),
+    ("fri 3pm", "2026-10-23 15:00"),
+    ("I may 2 people", None),
+    ("sex ed class", None),
+    ("installment 3/10 tomorrow 9am", "2026-10-23 09:00"),
+    ("3/10 of the rent tomorrow 9am", "2026-10-23 09:00"),
+    ("on 3/10 at 9am", ("ask", ["2027-10-03 09:00", "2027-03-10 09:00"])),
     ("tomorrow", "missing"),
     ("later", "missing"),
     ("tonight", "missing"),
@@ -132,7 +147,8 @@ def test_a_day_with_no_hour_and_a_vague_time_ask_and_never_get_a_default_hour():
 
 def test_a_reading_carries_the_day_the_time_the_weekday_and_whether_it_rolled_over():
     got = nt.parse("13h", clock())
-    assert got["when"] == "13:00" and got["reading"] == {"when": "13:00", "date": "2026-10-23", "time": "13:00", "rel": 1, "weekday": 4, "rolled": True, "relative": None}
+    assert got["when"] == "13:00" and got["reading"] == {"when": "13:00", "date": "2026-10-23", "time": "13:00", "rel": 1, "weekday": 4, "far": False, "rolled": True,
+                                                         "relative": None, "dated": False, "assumed_year": False}
     ahead = nt.parse("15h", clock())["reading"]
     assert ahead["date"] == "2026-10-22" and ahead["rel"] == 0 and ahead["rolled"] is False
     dated = nt.parse("on the 25th at 5pm", clock())["reading"]
@@ -234,12 +250,14 @@ STUB = {      # an invented language: "morgen" is tomorrow, "heute" today, and a
     "tag": "xx", "markers": ["bitte"], "slash_dates": "day-first",
     "days": {"today": ["heute"], "tomorrow": ["morgen"], "day_after_tomorrow": ["uebermorgen"]},
     "weekdays": [["montag"], ["dienstag"], ["mittwoch"], ["donnerstag"], ["freitag"], ["samstag"], ["sonntag"]],
-    "weekday_next": ["naechsten"], "weekday_this": [], "months": [[f"monat{n}"] for n in range(1, 13)], "month_joiners": [], "day_words": [], "ordinal_prefixes": [],
+    "weekday_next": ["naechsten"], "weekday_this": [], "weekday_after": [], "weak": [], "months": [[f"monat{n}"] for n in range(1, 13)], "month_joiners": [],
+    "day_words": [], "ordinal_prefixes": [], "and_half": [], "joiners": [], "half_words": [], "time_words": [], "fraction_before": [], "fraction_after": [],
+    "date_cues": [], "edge_words": [],
     "ordinal_suffixes": [], "prefixes": ["um", "am"], "hour_words_24": ["u"], "meridiem": {"am": [], "pm": []},
     "dayparts": {"morning": [], "dawn": [], "afternoon": [], "evening": [], "night": []}, "vague": ["spaeter"], "noon": ["mittag"], "midnight": [],
     "bare_hour_prefixes": ["um"], "relative_in": ["in"], "relative_units": {"m": ["min"], "h": ["std"], "d": ["tagen"], "w": []}, "number_words": {"ein": 1},
-    "half_hour": [], "triggers": {"remind": ["erinnere mich"], "reminders": [], "calendar": [], "calendar_loose": [], "note": []},
-    "forget": {"verbs": [], "nouns": [], "fillers": []}, "polite": [], "connectors": ["an"], "answers": {"yes": ["ja"], "notice": [], "event": []},
+    "half_hour": [], "triggers": {"remind": ["erinnere mich"], "remind_anywhere": [], "reminders": [], "reminders_bare": [], "calendar": [], "calendar_loose": [], "note": []},
+    "forget": {"verbs": [], "nouns": [], "fillers": []}, "polite": [], "connectors": ["an"], "answers": {"yes": ["ja"], "notice": [], "event": [], "other": []},
     "work_starters": [],
 }
 
@@ -249,7 +267,7 @@ def test_a_third_language_plugs_in_as_a_table_with_no_edit_of_the_engine():
     now = clock()
     assert nt.parse("morgen 7u", now, [STUB])["when"] == "2026-10-23 07:00"
     assert nt.parse("uebermorgen mittag", now, [STUB])["when"] == "2026-10-24 12:00"
-    assert nt.parse("naechsten donnerstag 9u", now, [STUB])["when"] == "2026-10-29 09:00"
+    assert [r["when"] for r in nt.parse("naechsten donnerstag 9u", now, [STUB])["ask"]] == ["2026-10-29 09:00", "2026-11-05 09:00"]
     assert nt.parse("in 30 min", now, [STUB])["when"] == "in 30m"
     assert nt.parse("spaeter", now, [STUB])["missing"] == "time"
     assert nt.parse("um 9", now, [STUB])["ask"][1]["time"] == "21:00"
@@ -259,16 +277,50 @@ def test_a_third_language_plugs_in_as_a_table_with_no_edit_of_the_engine():
     assert nt.parse("tomorrow 7u", now, both)["when"] == "2026-10-23 07:00", "even half of a line in each"
 
 
-def test_a_table_file_dropped_in_the_folder_is_found_and_checked(tmp_path):
-    (tmp_path / "natural_lang_xx.py").write_text("TABLE = " + repr(STUB) + "\n", encoding="utf-8")
+def folder_with(tmp_path, names, files=None):
+    """A folder of language files: the shipped English table, the stub as `natural_lang_xx.py`, and the list of names the loader reads."""
     (tmp_path / "natural_lang_en.py").write_text((st.RUNTIME / "natural_lang_en.py").read_text(encoding="utf-8"), encoding="utf-8")
-    found = nt.load_languages(str(tmp_path))
+    (tmp_path / "natural_lang_xx.py").write_text("TABLE = " + repr(STUB) + "\n", encoding="utf-8")
+    for name, text in (files or {}).items():
+        (tmp_path / f"{name}.py").write_text(text, encoding="utf-8")
+    (tmp_path / "natural_languages.json").write_text(json.dumps({"languages": names}), encoding="utf-8")
+    return str(tmp_path)
+
+
+def test_a_language_is_a_file_and_a_name_in_the_list_and_the_engine_is_not_edited(tmp_path):
+    folder = folder_with(tmp_path, ["natural_lang_en", "natural_lang_xx"])
+    found = nt.load_languages(folder)
     assert [t["tag"] for t in found] == ["en", "xx"]
     assert nt.parse("morgen 7u", clock(), found)["when"] == "2026-10-23 07:00" and nt.parse("tomorrow 7pm", clock(), found)["when"] == "2026-10-23 19:00"
-    (tmp_path / "natural_lang_bad.py").write_text("TABLE = {'tag': 'bad'}\n", encoding="utf-8")
+
+
+def test_the_tables_are_read_as_data_and_never_executed(tmp_path):
+    marker = tmp_path / "ran.txt"
+    code = "open(%r, 'w').write('ran')\nTABLE = %r\n" % (str(marker), STUB)
+    folder = folder_with(tmp_path, ["natural_lang_en", "natural_lang_xx"], {"natural_lang_xx": code})
+    assert [t["tag"] for t in nt.load_languages(folder)] == ["en", "xx"]
+    assert not marker.exists(), "the file was parsed and its TABLE literal read; no line of it ran"
+    (tmp_path / "natural_lang_xx.py").write_text("TABLE = dict(tag='xx')\n", encoding="utf-8")
+    with pytest.raises(ValueError):          # a table that is not a literal is refused, not run
+        nt.load_languages(folder)
+
+
+def test_a_list_that_names_a_bad_file_a_duplicate_tag_or_no_file_is_refused_with_a_sentence_and_a_glob_finds_nothing(tmp_path):
+    folder = folder_with(tmp_path, ["natural_lang_en", "natural_lang_xx"], {"natural_lang_bad": "TABLE = {'tag': 'bad'}\n", "natural_lang_twin": "TABLE = " + repr(STUB) + "\n"})
     with pytest.raises(ValueError) as e:
-        nt.load_languages(str(tmp_path))
+        nt.load_languages(folder, ["natural_lang_en", "natural_lang_bad"])
     assert "language table 'bad'" in str(e.value)
+    with pytest.raises(ValueError) as e:
+        nt.load_languages(folder, ["natural_lang_xx", "natural_lang_twin"])
+    assert "two files have this tag" in str(e.value)
+    for name in ("../natural_lang_en", "other", "natural_lang_en.py", "natural_lang_missing"):
+        with pytest.raises(ValueError):
+            nt.load_languages(folder, [name])
+    assert [t["tag"] for t in nt.load_languages(folder)] == ["en", "xx"], "only what the list names is loaded: the files `bad` and `twin` sit in the folder and are not read"
+    (tmp_path / "natural_languages.json").write_text("not json", encoding="utf-8")
+    with pytest.raises(ValueError) as e:
+        nt.load_languages(folder)
+    assert "natural_languages.json" in str(e.value)
 
 
 def test_the_shipped_tables_follow_the_schema_and_a_table_that_breaks_it_is_refused():
@@ -308,4 +360,4 @@ def test_the_engine_holds_no_word_of_any_language_and_no_import_of_the_runtime()
     found = sorted(w for w in words if len(w) > 2 and any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", text) for text in strings))
     assert len(words) > 100 and found == [], "a word of a language is data in a table, not in the engine"
     imports = set(re.findall(r"^\s*(?:import|from)\s+(\w+)", source, re.M))
-    assert imports <= {"__future__", "calendar", "datetime", "glob", "importlib", "os", "re", "sys", "unicodedata"}, imports
+    assert imports <= {"__future__", "ast", "calendar", "datetime", "json", "os", "re", "sys", "unicodedata"}, imports

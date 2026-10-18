@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -188,7 +189,7 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
         raise _fail(str(e), e.code) from None
     due_day = found["due"].date()
     human = {"date": due_day.isoformat(), "time": found["wall"][11:16], "zone": found["zone"], "rel": (due_day - clock.date()).days,
-             "rolled": bool(rm.is_time_only(when)) and due_day > clock.date()}
+             "far": due_day.year != clock.date().year, "rolled": bool(rm.is_time_only(when)) and due_day > clock.date()}
     return {"reminder": _shown(row, cfg, True), "reply": rm.SET.format(id=row["id"], wall=found["wall"].replace("T", " "), zone=found["zone"]), "human": human}
 
 
@@ -212,8 +213,39 @@ def reminders_read(project: str, channel: str | None = None, sender: str | None 
             "limits": {"open": rm.OPEN_MAX, "per_chat_per_day": rm.DAY_MAX, "text_characters": rm.TEXT_MAX, "late_window_hours": rm.LATE_WINDOW // 3600}}
 
 
-def reminder_forget(project: str, reminder_id: int, channel: str | None = None, sender: str | None = None) -> dict:
-    """Cancel a waiting reminder. From a messaging app only one made for the sender who asks (any other is answered as one that does not exist)."""
+def _forget_matching(project: str, words: list, channel, sender) -> dict:
+    """Forget the one waiting reminder of the sender whose words hold every word of `words` (what the person said of it, folded): {"reminder", "reply", "matched"}
+    when exactly one does (cancelled as `reminder-forget` by number does), {"choose": [the reminders that do]} when several do, {"none": True} when none does."""
+    ctx = core.context(project)
+    cfg = ctx["cfg"]
+    ops_actor.guard(ctx, "reminder-forget", channel, sender)
+    platform = chat = None
+    if channel == MESSAGING:
+        platform, chat = ops_actor.split(sender)
+    keys = [w for w in words if isinstance(w, str) and w]
+    waiting = core._stored(ctx, ctx["store"].reminders_list, ("open",), platform, chat)
+
+    def holds(row):
+        tokens = re.findall(r"[a-z0-9]+", natural.nt.normalise(row["text"])[0])
+        return all(any(t.startswith(k) for t in tokens) for k in keys)
+    found = [r for r in waiting if keys and holds(r)]
+    if not found:
+        return {"none": True}
+    with_text = channel != MESSAGING or _notices_text(cfg)
+    if len(found) > 1:
+        return {"choose": [_shown(r, cfg, with_text) for r in found]}
+    done = reminder_forget(project, found[0]["id"], channel, sender)
+    done["matched"] = _shown(found[0], cfg, with_text)
+    row = found[0]
+    done["human"] = {**natural.info_of(row["due_local"][:10], row["due_local"][11:16], now().date()), "zone": row["zone"]}
+    return done
+
+
+def reminder_forget(project: str, reminder_id: int | None = None, channel: str | None = None, sender: str | None = None, matching: list | None = None) -> dict:
+    """Cancel a waiting reminder. From a messaging app only one made for the sender who asks (any other is answered as one that does not exist). `matching` is
+    what the person said of it instead of its number (the messaging bridge passes it, package NR-1; no shell of the table does): see `_forget_matching`."""
+    if matching is not None:
+        return _forget_matching(project, matching, channel, sender)
     if type(reminder_id) is not int or reminder_id < 1:
         raise _fail("a reminder is a whole number", 2)
     ctx = core.context(project)

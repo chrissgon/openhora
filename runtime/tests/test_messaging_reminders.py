@@ -80,7 +80,7 @@ def test_the_three_commands_are_read_from_a_line_with_no_clock_and_no_model():
 
 
 def test_a_line_the_bridge_cannot_read_is_asked_back_and_makes_nothing(day):
-    ask_when = "When? Example: /remind tomorrow 1 pm call the dentist"
+    ask_when = "When? Example: /remind tomorrow 1 pm water the plants"
     for line, sentence in (("/remind", ask_when), ("/remind buy milk", ask_when), ("/remind 15:00", "What should I remind you of? Reply with the words to send."),
                            ("/remind 25:00 call", "25:00 is not a time of day (00:00 to 23:59)."), ("/remind 13:00 x", None),
                            ("/forget", "Usage: /forget <n>")):
@@ -141,10 +141,10 @@ def test_reminders_lists_the_senders_own_and_forget_cancels_only_theirs(day):
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
     day.say(OTHER, "/remind 16:00 Take the bread out")
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == f"northwind-shop: reminders that wait (BRT)\n#1 2026-10-18 15:00 {DENTIST}"
+    assert day.texts(OWNER)[-1] == f"northwind-shop: reminders that wait (BRT)\n#1 today, Sun 18/10, at 15:00: {DENTIST}"
     assert "bread" not in day.texts(OWNER)[-1]
     day.say(OTHER, "/reminders")
-    assert day.texts(OTHER)[-1] == "northwind-shop: reminders that wait (BRT)\n#2 2026-10-18 16:00 Take the bread out"
+    assert day.texts(OTHER)[-1] == "northwind-shop: reminders that wait (BRT)\n#2 today, Sun 18/10, at 16:00: Take the bread out"
     day.say(OTHER, "/forget 1")
     assert day.texts(OTHER)[-1] == "No reminder 1 waits for you.", "another's reminder is answered as one that does not exist"
     day.say(OTHER, "/forget 99")
@@ -162,7 +162,7 @@ def test_in_count_mode_the_list_names_the_time_and_not_the_words(day):
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
     listed(day, notices="count")
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == "northwind-shop: reminders that wait (BRT)\n#1 2026-10-18 15:00" and "dentist" not in day.texts(OWNER)[-1]
+    assert day.texts(OWNER)[-1] == "northwind-shop: reminders that wait (BRT)\n#1 today, Sun 18/10, at 15:00" and "dentist" not in day.texts(OWNER)[-1]
 
 
 # --- the queue of waiting lines (BQ-1) never keeps these ---------------------------------------------------------------------------------------
@@ -181,7 +181,7 @@ def test_the_three_commands_are_never_kept_by_the_queue_and_are_handled_at_once_
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
     assert day.texts(OWNER)[before:] == [f"Reminder #1: today, Sun 18/10, at 15:00 (BRT): {DENTIST}. To undo: /forget 1."], "answered at once, not kept and not refused as busy"
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == f"northwind-shop: reminders that wait (BRT)\n#1 2026-10-18 15:00 {DENTIST}"
+    assert day.texts(OWNER)[-1] == f"northwind-shop: reminders that wait (BRT)\n#1 today, Sun 18/10, at 15:00: {DENTIST}"
     day.say(OWNER, "/forget 1")
     assert day.texts(OWNER)[-1] == "Forgot reminder #1."
     day.say(OWNER, "/remind 15:00 again")
@@ -241,7 +241,7 @@ def test_a_sender_removed_before_the_time_gets_nothing_and_the_creator_can_read_
     assert [(r["id"], r["why"]) for r in day.all()["not_sent"]] == [(1, "sender removed")]
     listed(day)
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == f"northwind-shop: no reminders wait.\nNot sent lately:\n#1 2026-10-18 15:00 {DENTIST} (not sent, you are no longer a listed sender)"
+    assert day.texts(OWNER)[-1] == f"northwind-shop: no reminders wait.\nNot sent lately:\n#1 today, Sun 18/10, at 15:00: {DENTIST} (not sent, you are no longer a listed sender)"
 
 
 def test_a_sender_narrowed_before_the_time_gets_nothing(day):
@@ -265,7 +265,7 @@ def test_late_by_five_hours_it_goes_with_the_time_it_was_due_and_late_by_seven_i
     assert not any("Third" in t for t in reminder_texts(day, OWNER)), "seven hours late is never sent"
     day.say(OWNER, "/reminders")
     assert day.texts(OWNER)[-1] == ("northwind-shop: no reminders wait.\nNot sent lately:\n"
-                                    "#2 2026-10-20 08:00 Third (missed, it was more than 6 hours past its time when the bridge looked)")
+                                    "#2 today, Tue 20/10, at 08:00: Third (missed, it was more than 6 hours past its time when the bridge looked)")
     assert "Third" not in " ".join(day.log) and DENTIST not in " ".join(day.log)
 
 

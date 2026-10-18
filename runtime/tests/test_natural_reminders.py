@@ -14,7 +14,7 @@ import re
 import pytest
 
 import standin_tree as st
-from natural_cases_pt_br import CANDIDATE_CASES, TEXT_CASES
+from natural_cases_pt_br import CANDIDATE_CASES, TEXT_CASES, UNSURE_LINES
 from test_attachments import case  # noqa: F401  (the project the attachment tests use, which the world fixture builds on)
 from test_reminders import BRT, NOT_ENABLED, SENDER, THIRD, world  # noqa: F401  (the world fixture: a project with four listed senders and a clock)
 
@@ -28,7 +28,7 @@ rm = st.load("reminders")
 NOW = datetime.datetime(2026, 10, 18, 14, 0, tzinfo=BRT)       # Sunday
 
 ENGLISH_CANDIDATES = [
-    ("remind me tomorrow at 1pm to call the dentist", {"op": "remind", "how": "trigger"}),
+    ("remind me tomorrow at 1pm to call the florist", {"op": "remind", "how": "trigger"}),
     ("Please remind me on friday to pay the rent", {"op": "remind", "how": "trigger"}),
     ("set a reminder for 9am: water the plants", {"op": "remind", "how": "trigger"}),
     ("reminder in 2 hours stretch", {"op": "remind", "how": "trigger"}),
@@ -37,10 +37,22 @@ ENGLISH_CANDIDATES = [
     ("forget reminder 4", {"op": "reminder-forget", "how": "trigger", "id": 4}),
     ("cancel the reminder #7", {"op": "reminder-forget", "how": "trigger", "id": 7}),
     ("delete reminder", {"op": "reminder-forget", "how": "trigger", "id": None}),
-    ("put on my calendar the dentist friday at 9", {"op": "calendar-event-create", "how": "trigger"}),
-    ("schedule a meeting tomorrow at 10", {"op": "calendar-event-create", "how": "trigger"}),
-    ("note haircut tomorrow at 1pm", {"op": "remind", "how": "bare"}),
-    ("haircut tomorrow 1pm", {"op": "remind", "how": "bare"}),
+    ("put on my calendar the florist friday at 9", {"op": "calendar-event-create", "how": "trigger"}),
+    ("schedule a meeting tomorrow at 10", {"op": "calendar-event-create", "how": "ask"}),
+    ("schedule the post for tomorrow at 9am", {"op": "calendar-event-create", "how": "ask"}),
+    ("book a table friday at 8pm", {"op": "calendar-event-create", "how": "ask"}),
+    ("calendar florist friday at 9", {"op": "calendar-event-create", "how": "trigger"}),
+    ("call the florist tomorrow at 9 remind me", {"op": "remind", "how": "trigger"}),
+    ("at 9am remind me to water the plants", {"op": "remind", "how": "trigger"}),
+    ("forget the reminder about the florist", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["florist"]}),
+    ("forget reminder 3 4", {"op": "reminder-forget", "how": "trigger", "id": None, "many": True}),
+    ("reminders", {"op": "reminders", "how": "trigger"}),
+    ("do reminders work on whatsapp?", None),
+    ("reminders are not arriving on my phone", None),
+    ("schedule the post", None),
+    ("note to self", {"op": "remind", "how": "note"}),
+    ("note violin class tomorrow at 1pm", {"op": "remind", "how": "bare"}),
+    ("violin class tomorrow 1pm", {"op": "remind", "how": "bare"}),
     # what must not become a reminder
     ("write the launch post for tomorrow at 9", None),
     ("what is due tomorrow at 9?", None),
@@ -48,9 +60,9 @@ ENGLISH_CANDIDATES = [
     ("how are we doing", None),
     ("approve plan 12", None),
     ("schedule", None),
-    ("delete reminder emails from the customer list", None),
+    ("delete reminder emails from the customer list", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["emails", "from", "customer", "list"]}),
+    ("delete reminder emails from the customer list and the old suppliers", None),
     ("reminders for the quarterly board meeting should be sent by friday at 3pm to every member", None),
-    ("note to self", None),
     ("/remind 9h x", None),
     ("", None),
 ]
@@ -62,7 +74,7 @@ def test_a_line_is_matched_to_a_reminder_operation_by_the_tables_and_nothing_els
 
 
 @pytest.mark.parametrize("line,expected", TEXT_CASES + [
-    ("remind me tomorrow at 1 pm to call the dentist", "call the dentist"),
+    ("remind me tomorrow at 1 pm to call the florist", "call the florist"),
     ("remind me to call mom tomorrow at 9am", "call mom"),
     ("Please remind me in 2 hours about the oven", "the oven"),
     ("reminder: friday at 15:00 pay the rent", "pay the rent"),
@@ -73,10 +85,10 @@ def test_the_words_of_the_reminder_are_the_line_without_the_trigger_the_time_and
 
 
 def test_the_command_form_needs_no_trigger_and_keeps_the_words_in_their_order():
-    got = natural.understand("corte de cabelo as 13hrs amanha", NOW, "command")
-    assert got["when"] == "2026-10-19 13:00" and got["text"] == "corte de cabelo"
-    got = natural.understand("tomorrow 1 pm call the dentist", NOW, "command")
-    assert got["when"] == "2026-10-19 13:00" and got["text"] == "call the dentist"
+    got = natural.understand("aula de violao as 13hrs amanha", NOW, "command")
+    assert got["when"] == "2026-10-19 13:00" and got["text"] == "aula de violao"
+    got = natural.understand("tomorrow 1 pm call the florist", NOW, "command")
+    assert got["when"] == "2026-10-19 13:00" and got["text"] == "call the florist"
 
 
 def test_what_is_missing_is_asked_and_the_draft_holds_what_is_known():
@@ -88,8 +100,8 @@ def test_what_is_missing_is_asked_and_the_draft_holds_what_is_known():
     assert two["need"] == "reading" and [r["when"] for r in two["readings"]] == ["2026-10-23 09:00", "2026-10-23 21:00"]
     no_text = natural.understand("remind me tomorrow at 9am", NOW, "trigger")["ask"]
     assert no_text["need"] == "text" and no_text["readings"][0]["when"] == "2026-10-19 09:00"
-    kind = natural.understand("haircut tomorrow at 1pm", NOW, "bare")["ask"]
-    assert kind["need"] == "kind" and kind["text"] == "haircut" and kind["readings"][0]["when"] == "2026-10-19 13:00"
+    kind = natural.understand("violin class tomorrow at 1pm", NOW, "bare")["ask"]
+    assert kind["need"] == "kind" and kind["text"] == "violin class" and kind["readings"][0]["when"] == "2026-10-19 13:00"
     assert natural.understand("", NOW, "command")["ask"]["need"] == "time"
     for asked in (time_missing, two, no_text, kind):
         assert asked["line"], "the draft keeps the line, in memory"
@@ -110,8 +122,8 @@ def test_a_draft_is_finished_by_a_time_a_reading_a_kind_or_the_missing_words_and
     assert complete(two, "10h", NOW) is None
     one = {**two, "readings": two["readings"][:1]}
     assert complete(one, "yes", NOW)["when"] == "2026-10-23 09:00" and complete(one, "sim", NOW)["when"] == "2026-10-23 09:00"
-    kind = natural.understand("haircut tomorrow at 1pm", NOW, "bare")["ask"]
-    assert complete(kind, "reminder", NOW)["text"] == "haircut" and complete(kind, "a reminder", NOW)["when"] == "2026-10-19 13:00"
+    kind = natural.understand("violin class tomorrow at 1pm", NOW, "bare")["ask"]
+    assert complete(kind, "reminder", NOW)["text"] == "violin class" and complete(kind, "a reminder", NOW)["when"] == "2026-10-19 13:00"
     assert complete(kind, "lembrete", NOW)["when"] == "2026-10-19 13:00"
     assert complete(kind, "calendar", NOW) == {"event": True} and complete(kind, "agenda", NOW) == {"event": True}
     assert complete(kind, "yes", NOW) is None, "yes does not say which of the two"
@@ -147,24 +159,86 @@ def test_the_table_of_rows_is_closed_and_a_planned_row_is_marked():
     assert {r["op"] for r in natural.NATURAL if r["class"] in ("N", "R")} == {"remind", "reminders", "reminder-forget"}
 
 
+def test_a_time_word_the_parse_did_not_use_asks_instead_of_making_the_reminder():
+    lines = UNSURE_LINES + ["remind me next week at 10am to pay the rent", "remind me every monday at 8am to water the plants", "remind me tomorow at 9am to pay",
+                            "remind me tomorrow at 9am until friday", "remind me on the weekend at 10am to call Ana", "remind me tomorrow at 9am in the afternoon to pay"]
+    for line in lines:
+        asked = natural.understand(line, NOW, "trigger")["ask"]
+        assert asked["need"] == "time" and asked["unsure"] is True, line
+    made = natural.understand("remind me tomorrow\u00ad at 9am to pay the rent", NOW)
+    assert made["text"] == "pay the rent" and made["when"] == "2026-10-19 09:00", "a soft hyphen is not a letter"
+    assert natural.understand("remind me tomorrow at 9am to pay the rent", NOW)["when"] == "2026-10-19 09:00", "nothing left over, nothing asked"
+
+
+def test_the_answer_to_an_unsure_question_is_taken_whole_and_a_full_new_time_replaces_the_reading():
+    unsure = natural.understand("remind me next week at 10am to pay the rent", NOW)["ask"]
+    assert natural.complete(unsure, "friday at 10am", NOW)["when"] == "2026-10-23 10:00"
+    assert natural.complete(unsure, "at 11am", NOW)["when"] == "11:00" or natural.complete(unsure, "11am", NOW)["when"] == "11:00"
+    day = natural.understand("remind me tomorrow to call the florist", NOW)["ask"]
+    assert natural.complete(day, "friday 10am", NOW)["when"] == "2026-10-23 10:00", "a day named in the answer replaces the day of the line"
+    assert natural.complete(day, "9am", NOW)["when"] == "2026-10-19 09:00", "an hour alone keeps the day"
+    two = natural.understand("remind me friday to pay", NOW)["ask"]
+    assert natural.complete(two, "in 2 days at 9h", NOW)["when"] == "2026-10-20 09:00"
+    assert natural.understand("remind me in 2 days at 9h to see the doctor", NOW)["when"] == "2026-10-20 09:00", "the day two days ahead at nine, not `in 2d`"
+
+
+def test_a_reply_that_names_the_day_picks_the_reading_by_the_day_and_the_hour_together():
+    ask = natural.understand("remind me next thursday at 3:30pm to see the architect", NOW)["ask"]
+    assert [r["when"] for r in ask["readings"]] == ["2026-10-22 15:30", "2026-10-29 15:30"]
+    assert natural.complete(ask, "the 29th", NOW)["when"] == "2026-10-29 15:30" and natural.complete(ask, "29", NOW)["when"] == "2026-10-29 15:30"
+    assert natural.complete(ask, "the 22nd", NOW)["when"] == "2026-10-22 15:30"
+    assert natural.complete(ask, "3:30pm", NOW) is None, "the hour is the same in both: it does not say which"
+    assert natural.complete(ask, "thursday 4pm", NOW)["when"] == "2026-10-22 16:00", "a full new time replaces the offered ones"
+    assert natural.understand("remind me at 3:30pm to stretch", NOW)["when"] == "15:30"
+    three = natural.understand("remind me at 3 to stretch", NOW)["ask"]
+    assert natural.complete(three, "15", NOW)["when"] == "15:00"
+
+
+def test_a_text_answer_is_short_and_is_not_a_request_for_work():
+    ask = natural.understand("remind me tomorrow at 9am", NOW)["ask"]
+    assert natural.complete(ask, "water the plants", NOW)["text"] == "water the plants"
+    assert natural.complete(ask, "write the launch post for the shop and send it to the whole team before the meeting", NOW) is None, "too long: a new line"
+    assert natural.complete(ask, "write the launch post", NOW) is None, "a work request at its head: a new line"
+    assert natural.complete(ask, "send a note to Ana", NOW) is None
+
+
+def test_event_or_something_else_is_decided_by_the_answer_alone():
+    for said, chosen in (("calendar", "event"), ("agenda", "event"), ("an event", "event"), ("something else", "other"), ("other", "other"), ("outra coisa", "other"),
+                         ("no", "other"), ("yes", None), ("when", None), ("calendar or other", None)):
+        assert natural.answer_kind(said) == chosen, said
+
+
+def test_a_moment_not_in_this_year_shows_its_year():
+    far = nt.parse("on 2027-01-05 at 9am", NOW)["reading"]
+    assert natural.describe(far, None, "BRT") == "Tue 05/01/2027 at 09:00 (BRT)" and natural.describe(nt.parse("on 2026-12-05 at 9am", NOW)["reading"], None) == "Sat 05/12 at 09:00"
+    assert natural.describe(natural.info_of("2027-01-05", "09:00", NOW.date()), {"language": "pt-BR"}) == "ter 05/01/2027 às 09:00"      # validate: allow english-only -- the expected Portuguese sentence
+    assert natural.info_of("2026-10-19", "13:00", NOW.date()) == {"date": "2026-10-19", "time": "13:00", "rel": 1, "far": False}
+
+
+def test_the_tables_drive_every_trigger_so_no_word_of_a_language_is_in_the_rules():
+    source = (st.RUNTIME / "natural.py").read_text(encoding="utf-8")
+    pt = {w for phrase in nt.languages()[1]["triggers"]["remind"] + nt.languages()[1]["work_starters"] for w in phrase.split()} - {w for phrase in nt.languages()[0]["triggers"]["remind"] for w in phrase.split()}
+    assert not [w for w in pt if len(w) > 3 and re.search(r"[\"'] ?" + re.escape(w) + r"\b", source)]
+
+
 # --- the operation: the policy first, then the line, with the clock -----------------------------------------------------------------------------------
 
 
 def test_a_line_makes_a_reminder_for_the_sender_with_the_facts_a_chat_shows(world):  # noqa: F811
-    got = ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 1 pm to call the dentist")
-    assert got["reminder"]["text"] == "call the dentist" and got["reminder"]["due"] == "2026-10-19 13:00"
-    assert got["human"] == {"date": "2026-10-19", "time": "13:00", "zone": "BRT", "rel": 1, "rolled": False}
+    got = ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 1 pm to call the florist")
+    assert got["reminder"]["text"] == "call the florist" and got["reminder"]["due"] == "2026-10-19 13:00"
+    assert got["human"] == {"date": "2026-10-19", "time": "13:00", "zone": "BRT", "rel": 1, "far": False, "rolled": False}
     assert got["reply"] == "Reminder #1 set for 2026-10-19 13:00 (BRT)."
     rolled = ops.remind(world.path, channel="messaging", sender=SENDER, said="13:00 stretch", how="command")
     assert rolled["human"]["rolled"] is True and rolled["human"]["date"] == "2026-10-19", "a time of day that had passed rolled over to tomorrow"
     again = ops.remind(world.path, channel="messaging", sender=SENDER, said="tomorrow 13:00 stretch", how="command")
     assert again["human"]["rolled"] is False, "a day named is never rolled"
-    assert [r["text"] for r in world.rows("open")] == ["call the dentist", "stretch", "stretch"]
+    assert [r["text"] for r in world.rows("open")] == ["call the florist", "stretch", "stretch"]
 
 
 def test_the_policy_is_asked_before_the_line_is_read_and_a_refusal_is_the_typed_one(world):  # noqa: F811
     with pytest.raises(ops.OpsError) as e:
-        ops.remind(world.path, channel="messaging", sender=f"telegram:{THIRD}", said="remind me tomorrow at 1 pm to call the dentist")
+        ops.remind(world.path, channel="messaging", sender=f"telegram:{THIRD}", said="remind me tomorrow at 1 pm to call the florist")
     assert NOT_ENABLED in str(e.value)
     with pytest.raises(ops.OpsError) as e2:
         ops.remind(world.path, "15:00", "x", channel="messaging", sender=f"telegram:{THIRD}")
@@ -178,10 +252,10 @@ def test_a_question_stores_nothing_and_keeps_nothing_and_an_answer_to_it_makes_t
     made = ops.remind(world.path, channel="messaging", sender=SENDER, said="21h", how="trigger", draft=asked["ask"])
     assert made["reminder"]["text"] == "call mom" and made["reminder"]["due"] == "2026-10-23 21:00"
     assert ops.remind(world.path, channel="messaging", sender=SENDER, said="something else entirely", draft=asked["ask"]) == {"declined": True}
-    kind = ops.remind(world.path, channel="messaging", sender=SENDER, said="haircut tomorrow 1pm", how="bare")["ask"]
+    kind = ops.remind(world.path, channel="messaging", sender=SENDER, said="violin class tomorrow 1pm", how="bare")["ask"]
     assert kind["need"] == "kind" and len(world.rows()) == 1
     assert ops.remind(world.path, channel="messaging", sender=SENDER, said="agenda", draft=kind) == {"event": True} and len(world.rows()) == 1
-    assert ops.remind(world.path, channel="messaging", sender=SENDER, said="reminder", draft=kind)["reminder"]["text"] == "haircut"
+    assert ops.remind(world.path, channel="messaging", sender=SENDER, said="reminder", draft=kind)["reminder"]["text"] == "violin class"
 
 
 def test_the_checks_of_the_strict_grammar_stay_over_a_line_in_words(world):  # noqa: F811
@@ -199,7 +273,7 @@ def test_the_checks_of_the_strict_grammar_stay_over_a_line_in_words(world):  # n
 
 
 def test_the_terminal_and_the_page_keep_the_strict_grammar_and_the_sentence_they_always_got(world):  # noqa: F811
-    got = world.remind("15:00", "Call the dentist")
+    got = world.remind("15:00", "Call the florist")
     assert got["reply"] == "Reminder #1 set for 2026-10-18 15:00 (BRT)." and got["human"]["time"] == "15:00"
     with pytest.raises(ops.OpsError):
         world.remind("13hrs", "x")
