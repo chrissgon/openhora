@@ -125,7 +125,7 @@ def test_an_english_project_gets_english_in_the_same_shape(day, planner):  # noq
     day.say(OWNER, "Please remind me on friday to pay the rent")
     assert day.texts(OWNER)[-1] == "Fri 23/10: at what time? Reply with a time, for example 1 pm."
     day.say(OWNER, "remind me to stretch")
-    assert day.texts(OWNER)[-1] == "When? Example: remind me tomorrow at 1 pm to water the plants"
+    assert day.texts(OWNER)[-1] == "The previous question was discarded. When? Example: remind me tomorrow at 1 pm to water the plants"
     no_model(planner)
 
 
@@ -279,11 +279,17 @@ def test_the_words_missing_are_asked_and_the_next_line_is_them_only_when_it_is_s
     assert day.texts(OWNER)[-1] == "What should I remind you of? Reply with the words to send."
     day.say(OWNER, "water the plants")
     assert day.all()["open"][0]["text"] == "water the plants" and day.all()["open"][0]["due"] == "2026-10-19 09:00"
-    for answer in ("write the launch post for the shop", "thanks", "yes", "please send the report to the whole team now"):
+    for answer in ("write the launch post for the shop", "please send the report to the whole team now"):
         day.say(OWNER, "remind me tomorrow at 9am")
         day.say(OWNER, answer)
         assert day.bridge.remind.drafts == {}, answer
-    assert settle(day) and planner.texts() == ["write the launch post for the shop", "thanks", "yes", "please send the report to the whole team now"]
+    for answer in ("thanks", "yes"):
+        day.say(OWNER, "remind me tomorrow at 9am")
+        day.say(OWNER, answer)
+        assert day.texts(OWNER)[-1] == "What should I remind you of? Reply with the words to send.", "a short reply that is no answer: the question once more"
+        day.say(OWNER, answer)
+        assert day.bridge.remind.drafts == {}, "and the second time the line is a plain one"
+    assert settle(day) and planner.texts() == ["write the launch post for the shop", "please send the report to the whole team now", "thanks", "yes"]
     assert len(day.all()["open"]) == 1
     day.say(OWNER, "remind me tomorrow at 9am")
     day.say(OWNER, "never mind")
@@ -306,8 +312,8 @@ def test_a_line_with_a_time_and_neither_kind_of_word_asks_a_reminder_or_a_calend
     assert day.texts(OWNER)[-1] == pt.NOT_BUILT and len(day.all()["open"]) == 1, "the calendar is not built: nothing is made in its place"
     day.say(OWNER, pt.LINE_NOTE_TIME)
     day.say(OWNER, "sim")
-    assert settle(day) and len(day.all()["open"]) == 1 and day.bridge.remind.drafts == {}
-    assert planner.texts() == ["sim"], "a yes does not say which of the two: the question is dropped and the yes is a plain line"
+    assert settle(day) and len(day.all()["open"]) == 2 and day.bridge.remind.drafts == {}
+    assert planner.texts() == [], "a yes to \"a reminder or an event\" is the reminder"
     listed(day, notices="count")
     accept(day.path, language="pt-BR")
     day.say(OWNER, pt.LINE_BARE)

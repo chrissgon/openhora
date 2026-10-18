@@ -15,7 +15,8 @@ The rule that governs it: what is ambiguous, or not fully understood, is ASKED B
 two readings are all offered, an hour with no marker is asked, and x/y is a date only when something says it is one. When a full reading is understood and only
 something about it is uncertain (a word of a week or a month within two words of the time, a day word with a typo, a dotted number beside a day, a year inferred),
 `doubts` says so and the caller SHOWS the reading and asks for a "yes" (runtime/natural.py); a line that repeats (`recurring`) is a routine's, not a reminder's; a
-weak word of a language (an abbreviation such as "sex" or "may") counts only when the line is in that language and is not a capitalised name.
+weak word of a language (an abbreviation such as "sex" or "may") counts only when the line is in that language, and where it may be a name (it does not touch the
+time or a number) the reading is confirmed, never dropped.
 
   find(text, languages=None)         the time phrases of a line, with no clock: {"norm", "origin", "hits", "tables"}; each hit has "kind", "lang" and a span
   parse(text, now, languages=None)   what the line means, with the clock:
@@ -25,7 +26,8 @@ weak word of a language (an abbreviation such as "sex" or "may") counts only whe
                                        None                                                                                          no time phrase
   doubts(text, languages=None)       (flag, typos): whether a word near the time shows it may not be fully understood, and the day words with a typo (each with the
                                      word it is one letter from); `doubt` is the flag alone
-  recurring(text, languages=None)    whether the line repeats ("every monday", "de 8 em 8 horas")
+  recurring(text, languages=None)    whether the line repeats: the repeating word is part of the time phrase ("every monday", "a cada 2 horas", "daily at 9"); the
+                                     same words in the reminder's own text ("weekly report", "each supplier") are text
   moment(date, clock, now)           the reading of a day and an hour the person names
 
   without(text, spans)               the line with those spans (of the ORIGINAL text) taken out
@@ -60,10 +62,11 @@ The schema of a table (`check_table`; every list holds folded words, a phrase is
 tag, markers, slash_dates ("ask" | "day-first"), days {today, tomorrow, day_after_tomorrow}, weekdays (7 lists, Monday first), weekday_next, weekday_this,
 weekday_after, months (12 lists), weak, cued, month_joiners, day_words, ordinal_prefixes, ordinal_suffixes, prefixes, hour_words_24, hour_words_long, meridiem {am,
 pm} (with the forms written with dots, "a.m."), dayparts {morning, dawn, afternoon, evening, night}, vague, noon, midnight, bare_hour_prefixes, relative_in,
-relative_units {m, h, d, w}, number_words {word: n}, half_hour, and_half, joiners, half_words, time_words, not_typos, recurrence, recurrence_before_day,
-recurrence_joiners, fraction_before, fraction_after, date_cues, edge_words, problem_words, work_verbs, calendar_noun_reads, triggers {remind, remind_anywhere,
-reminders, reminders_bare, calendar, calendar_verb, calendar_noun, calendar_loose, note, undo}, forget {verbs, nouns, fillers}, polite, connectors, answers {yes,
-notice, event, other, cancel, thanks}, work_starters. The trigger and answer words are read by runtime/natural.py, the time words here.
+relative_units {m, h, d, w}, number_words {word: n}, half_hour, and_half, joiners, half_words, time_words, not_typos, recurrence, recurrence_units,
+recurrence_other, recurrence_not_before, recurrence_adverbs, recurrence_before_day, recurrence_joiners, week_phrases, remind_nouns, vague_parts {morning, afternoon,
+evening, night}, fraction_before, fraction_after, date_cues, edge_words, problem_words, work_verbs, calendar_noun_reads, triggers {remind, remind_anywhere,
+reminders, reminders_bare, calendar, calendar_verb, calendar_noun, calendar_loose, note, undo}, forget {verbs, nouns, fillers, id_words}, polite, connectors, answers {yes,
+notice, event, other, cancel, thanks, again}, work_starters. The trigger and answer words are read by runtime/natural.py, the time words here.
 
 Standard library only. Runs on Python 3.9: python3 runtime/natural_time.py --help
 """
@@ -88,11 +91,13 @@ _R = r"(?![a-z0-9])"
 LISTS = ("markers", "weekday_next", "weekday_this", "weekday_after", "weak", "cued", "hour_words_long", "not_typos", "recurrence", "recurrence_before_day",
          "recurrence_joiners", "problem_words", "work_verbs", "calendar_noun_reads", "month_joiners", "day_words", "ordinal_prefixes", "ordinal_suffixes", "prefixes",
          "hour_words_24", "vague", "noon", "midnight", "bare_hour_prefixes", "relative_in", "half_hour", "and_half", "joiners", "half_words", "time_words",
-         "fraction_before", "fraction_after", "date_cues", "edge_words", "polite", "connectors", "work_starters")
+         "fraction_before", "fraction_after", "date_cues", "edge_words", "polite", "connectors", "work_starters", "recurrence_units", "recurrence_adverbs",
+         "recurrence_other", "recurrence_not_before", "week_phrases", "remind_nouns")
 GROUPS = {"days": ("today", "tomorrow", "day_after_tomorrow"), "meridiem": ("am", "pm"), "dayparts": ("morning", "dawn", "afternoon", "evening", "night"),
           "relative_units": ("m", "h", "d", "w"),
           "triggers": ("remind", "remind_anywhere", "reminders", "reminders_bare", "calendar", "calendar_verb", "calendar_noun", "calendar_loose", "note", "undo"),
-          "forget": ("verbs", "nouns", "fillers"), "answers": ("yes", "notice", "event", "other", "cancel", "thanks")}
+          "forget": ("verbs", "nouns", "fillers", "id_words"), "vague_parts": ("morning", "afternoon", "evening", "night"),
+          "answers": ("yes", "notice", "event", "other", "cancel", "thanks", "again")}
 
 
 def check_table(table) -> None:
@@ -300,6 +305,7 @@ class _Compiled:
         self.bare = re.compile(f"{_L}(?P<p>{bare})\\s+(?P<h>[0-9]{{1,2}}){long_part}{jmin}(?![a-z0-9:/]|[.,][0-9]|\\s+[0-9])") if bare else None
         vague = a(table["vague"])
         self.vague = re.compile(f"{_L}(?P<w>{vague}){_R}") if vague else None
+        self.vparts = {p: part for part, names in table["vague_parts"].items() for p in names}
 
 
 _compiled = {}
@@ -486,7 +492,7 @@ def _scan(work: str, tables: list) -> list:
         times = [(h, minute), (h + 12, minute)] if 1 <= h <= 11 else [(h, minute)]
         return {"kind": "clock", "times": times, "bare": len(times) > 1}
     per("bare", bare)
-    per("vague", lambda c, m: {"kind": "vague"})
+    per("vague", lambda c, m: {"kind": "vague", "part": c.vparts.get(_word(m.group("w")))})
     return hits
 
 
@@ -515,23 +521,39 @@ def _neighbours(norm: str, hit: dict) -> tuple:
     return (before[-1] if before else ""), (after[0] if after else "")
 
 
-def _is_name(hit: dict, text: str, origin: list) -> bool:
-    """Whether a weak word was written as a name: capitalised in the middle of a line, or capitalised and followed by another capitalised word ("Sex Shop")."""
+def _twin(hit: dict, text: str, origin: list) -> bool:
+    """Whether a weak word was written as the start of a name: capitalised and followed by another capitalised word ("Sex Shop"), or capitalised in the middle of a
+    sentence with nothing beside it to make it a day."""
     at = origin[hit["name_s"]] if hit.get("name_s") is not None and hit["name_s"] < len(origin) else None
     if at is None or not text[at:at + 1].isupper():
         return False
-    before = text[:at].rstrip()
-    if before and before[-1] not in ".!?\n:":
-        return True                                          # capitalised in the middle of a sentence
-    following = re.match(r"[A-Za-z\u00c0-\u024f]+\s+([A-Z\u00c0-\u00de])", text[at:])
-    return bool(following)
+    return bool(re.match(r"[A-Za-z\u00c0-\u024f]+\s+([A-Z\u00c0-\u00de])", text[at:]))
+
+
+def _anchored(hit: dict, hits: list, norm: str) -> bool:
+    """Whether a weak word of a day stands where a day stands: touching another time phrase ("Fri at 9am", "Seg as 9h") or beside a number. A weak word
+    anywhere else ("sex shop as 9h", "Dr. Mon called") may be a name: it is never dropped, the reading is confirmed (D1)."""
+    before, after = _neighbours(norm, hit)
+    if before.isdigit() or after.isdigit():
+        return True
+    for other in hits:
+        if other is hit or other["kind"] == "vague":
+            continue
+        if other["s"] >= hit["e"] and not norm[hit["e"]:other["s"]].strip(" .,;:-"):
+            return True
+        if other["e"] <= hit["s"] and not norm[other["e"]:hit["s"]].strip(" .,;:-"):
+            return True
+    return False
 
 
 def _keep(hit: dict, hits: list, norm: str, text: str, origin: list, tables: list, evidence: set) -> bool:
-    """Whether a hit counts: a weak word only in a line of its own language and never as a name, a month that is also a common word only after a cue; a dotted
+    """Whether a hit counts: a weak word only in a line of its own language (and confirmed, never dropped, where it may be a name), a month that is also a common word only after a cue; a dotted
     time (13.30) with its meridiem, a cue ("at 13.30") or a day beside it (then `doubt`: it is confirmed), and never beside money; x/y only as a date."""
-    if hit.get("weak") and (hit["lang"] not in evidence or _is_name(hit, text, origin)):
-        return False
+    if hit.get("weak"):
+        if hit["lang"] not in evidence:
+            return False
+        if hit["spec"].get("k") != "md" and (not _anchored(hit, hits, norm) or _twin(hit, text, origin)):          # a month has its day number beside it: it is a date
+            hit["doubt"] = True
     before, after = _neighbours(norm, hit)
     if hit.get("cued") and not (hit.get("cue") or any(before in t["date_cues"] for t in tables)):
         return False
@@ -635,35 +657,79 @@ def doubts(text, languages=None) -> tuple:
             for n in range(len(words) - len(parts) + 1):
                 if words[n:n + len(parts)] == parts and all(outside[n:n + len(parts)]) and near(n, n + len(parts) - 1):
                     return True, []
-    known = {w for t in tables for key in t["days"].values() for p in key for w in [p] if " " not in p and len(p) >= 5}
-    known |= {p for t in tables for names in t["weekdays"] + t["months"] for p in names if " " not in p and len(p) >= 5}
+    canon = {}          # a day word of the tables (one word, five letters or more) -> the first word of its list: the word a typo of it was meant as
+    for t in tables:
+        for names in list(t["days"].values()) + t["weekdays"] + t["months"]:
+            for p in names:
+                if " " not in p and len(p) >= 5:
+                    canon.setdefault(p, names[0] if " " not in names[0] else p)
     commons = {w for t in tables for w in t["not_typos"]}
-    typos = [n for n in range(len(words)) if outside[n] and len(words[n]) >= 5 and words[n] not in commons and words[n] not in known and words[n].rstrip("s") not in known
-             and near(n, n) and any(_distance_one(words[n], k) for k in known)]
-    origin, spans = found["origin"], []
+    text_original = text if isinstance(text, str) else ""
+    origin = found["origin"]
+
+    def named(n):          # a capitalised word in the middle of a line is a name, never a typo of a day
+        at = origin[tokens[n][1]] if tokens[n][1] < len(origin) else 0
+        return text_original[at:at + 1].isupper() and bool(text_original[:at].strip())
+    typos = [n for n in range(len(words)) if outside[n] and len(words[n]) >= 5 and words[n] not in commons and words[n] not in canon and words[n].rstrip("s") not in canon
+             and not named(n) and near(n, n) and any(_distance_one(words[n], k) for k in canon)]
+    spans = []
     for n in typos:
-        close = sorted({k for k in known if _distance_one(words[n], k)})
-        spans.append((origin[tokens[n][1]], origin[tokens[n][2] - 1] + 1, close[0] if len(close) == 1 else ""))          # the day word the person meant, when one word is that close
+        close = {canon[k] for k in canon if _distance_one(words[n], k)}
+        spans.append((origin[tokens[n][1]], origin[tokens[n][2] - 1] + 1, next(iter(close)) if len(close) == 1 else ""))          # the day word the person meant, when one word is that close
     return bool(typos), spans
 
 
+def _phrase_at(words: list, n: int, phrases: list):
+    """The length, in words, of the longest phrase of `phrases` that the folded words hold at index n, or 0."""
+    best = 0
+    for phrase in phrases:
+        parts = phrase.split()
+        if parts and words[n:n + len(parts)] == parts and len(parts) > best:
+            best = len(parts)
+    return best
+
+
 def recurring(text, languages=None) -> bool:
-    """Whether the line repeats ("every monday", "a cada", "de 8 em 8 horas", "toda segunda"): a reminder here is one-time, a routine repeats."""
+    """Whether the line repeats: a reminder here is one-time, a routine repeats. It repeats only when the word is part of the time phrase: an opener ("every",
+    "toda", "a cada") followed by a length of time or a weekday ("every monday", "a cada 2 horas", "toda segunda", "todo dia as 9h"); an adverb ("daily",
+    "semanalmente") right beside the time or at the edge of the words ("daily at 9", "remind me weekly to ..."); a number twice ("de 8 em 8 horas"). The same words
+    in the reminder's own text ("weekly report", "each supplier", "every client", "a cada um", "todo dia da planilha") are text."""
     tables = languages if languages is not None else globals()["languages"]()
     found = find(text, tables)
-    norm = found["norm"]
-    joined = " " + " ".join(re.findall(r"[a-z0-9]+", norm)) + " "
-    if any(f" {p} " in joined for t in tables for p in t["recurrence"]):
-        return True
+    norm, hits = found["norm"], found["hits"]
+    tokens = _tokens(norm)
+    words = [t[0] for t in tokens]
+    touches = lambda a, b: any((h["s"] >= b and not norm[b:h["s"]].strip()) or (h["e"] <= a and not norm[h["e"]:a].strip()) for h in hits)      # noqa: E731
     for t in tables:
         alt = _alt(t["recurrence_joiners"])
         if alt and re.search(f"{_L}([0-9]+)\\s+{alt}\\s+\\1{_R}", norm):
             return True
-        before = {w for w in t["recurrence_before_day"]}
-        for hit in found["hits"]:
+        units = set(t["recurrence_units"]) | {w for names in t["weekdays"] for p in names for w in p.split()[:1]}
+        units |= {w for names in t["relative_units"].values() for p in names for w in p.split()[:1] if len(w) > 1}
+        numbers = set(t["number_words"])
+        for n in range(len(words)):
+            size = _phrase_at(words, n, t["recurrence"])
+            if size:
+                j = n + size
+                if j < len(words) and words[j] in t["recurrence_other"]:
+                    j += 1
+                if j < len(words) and (words[j].isdigit() or words[j] in numbers):
+                    j += 1
+                if j < len(words) and (words[j] in units or any(words[j:j + len(p.split())] == p.split() for p in t["recurrence_units"])):
+                    after = words[j + 1] if j + 1 < len(words) else ""
+                    if after not in t["recurrence_not_before"] or touches(tokens[n][1], tokens[j][2]):
+                        return True
+            size = _phrase_at(words, n, t["recurrence_adverbs"])
+            if size:
+                last = n + size - 1
+                after = words[last + 1] if last + 1 < len(words) else ""
+                if touches(tokens[n][1], tokens[last][2]) or not after or after in t["edge_words"] or after in t["connectors"]:
+                    return True
+        before = set(t["recurrence_before_day"])
+        for hit in hits:
             if hit["kind"] == "date" and hit["spec"]["k"] in ("wd", "rel", "dom") and before:
-                words = re.findall(r"[a-z0-9]+", norm[:hit["s0"]])
-                if words and words[-1] in before:
+                tail = re.findall(r"[a-z0-9]+", norm[:hit["s0"]])
+                if tail and tail[-1] in before:
                     return True
     return False
 
@@ -835,6 +901,19 @@ def parse(text, now, languages=None):
     if clocks and len(relatives) == 1 and relatives[0].get("unit") == "d":      # "in 2 days at 9h": the day two days ahead
         specs.append({"k": "rel", "n": relatives[0]["days"]})
         relatives = []
+    parts = {h["part"] for h in hits if h["kind"] == "vague" and h.get("part")}
+    used = False
+    if len(parts) == 1 and clocks:          # "tomorrow in the morning at 9", "tonight at 9": the part of the day says which of the two hours is meant
+        part = next(iter(parts))
+        every = {x for base in range(1, 13) for x in (_part_hours(base, part) or [])}
+        for hit in clocks:
+            if hit.get("bare"):
+                base = hit["times"][0][0]
+                chosen = _part_hours(base, part)
+                if chosen:
+                    hit["times"], hit["bare"], used = [(x, hit["times"][0][1]) for x in chosen], False, True
+            elif all(h in every for h, _m in hit["times"]):
+                used = True
     readings = []
 
     def add(reading):
@@ -859,7 +938,7 @@ def parse(text, now, languages=None):
                     add(_reading({**spec, "plus": spec.get("plus", 0) + 1}, h, minute, now))
     if readings and specs and not clocks:       # a day and a length of time ("tomorrow in 2 hours"): nothing says which is meant
         return {"missing": "time", "day": None, "spans": spans}
-    vague = any(h["kind"] == "vague" for h in hits)          # "9am in the afternoon": a part of the day the reading did not use
+    vague = any(h["kind"] == "vague" and not (used and h.get("part")) for h in hits)          # "9am in the afternoon": a part of the day the reading did not use
     unsure = vague or any(h.get("doubt") for h in hits)
     if readings:
         if len(readings) == 1:

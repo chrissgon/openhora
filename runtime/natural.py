@@ -21,13 +21,15 @@ on to the router as before.
                                      asked), "note" (a note word and no time: a reminder is offered), or "command" (the words after `/remind`, which the
                                      caller passes in itself); `calendar-event-create` has "trigger" (a verb with a calendar word, or "marca" with a time) or
                                      "ask" (a scheduling verb with a time and no calendar word: event or something else is asked); `reminder-forget` has "id"
-                                     (only an explicit one: "#9", "reminder 9"), "words" (what the person said of it, matched by whole words) or "many";
-                                     `reminder-restore` is "undo"
+                                     (only an explicit one: "#9", "reminder 9"; with "confirm" a number after another word, "reminder of 3": shown and confirmed), "ids"
+                                     (several, confirmed), "at" (an hour, "the reminder at 9": matched against the moment and confirmed), "words" (what the person said
+                                     of it, matched by whole words) or "many"; `reminder-restore` is the bare "undo"
   understand(line, now, how)         the reminder the line asks for, with the clock: {"when", "text", "reading"} when it is complete, or {"ask": {...}} with what
-                                     is missing or uncertain (`need`: time | reading | text | kind | confirm | recurring) and the draft the caller keeps to finish it
+                                     is missing or uncertain (`need`: time | reading | text | kind | confirm | recurring | weekday | again | forget) and the draft the caller keeps to finish it
   complete(draft, said, now)         the next line of the same chat finishing a draft: the same shapes, {"event": True} when the person chose the calendar,
-                                     {"cancel": True} when they gave it up, or None when the line is not an answer (the draft is dropped and the line is handled
-                                     as a new one)
+                                     {"cancel": True} when they gave it up, {"forget": [ids]} when they said yes to cancelling,
+                                     {"ask": the same draft with `retries` 1} for a short reply that does not fit (asked once more), or None when the line is not an
+                                     answer (the draft is dropped and the line is handled as a new one)
   answer_kind(said)                  "event" | "notice" | "other" | None: the answer to "an event in the calendar, or something else?"
   describe(info, cfg, zone)          a moment as a person reads it, in the project's language: "tomorrow, Mon 19/10, at 13:00 (BRT)"; the year is shown when it
                                      is not this one
@@ -62,9 +64,9 @@ NATURAL = (
     {"op": "calendar-event-create", "class": "E", "trigger": "calendar", "planned": True},
 )
 LIST_WORDS_MAX = 5          # "what reminders do I have": a list request is short; a longer line that starts with the word asks for something else
-UNDO_WORDS_MAX = 2          # "undo", "undo that": a request to bring a reminder back is nearly the whole line
 FORGET_WORDS_MAX = 5        # "cancel the reminder about the florist": what the person says of the reminder is short
 BARE_WORDS_MAX = 6          # a line with no trigger is asked about only when it is this short, once the time is taken out
+MANY_IDS_MAX = 5            # "cancel reminders 1 and 2": a few numbers are shown and confirmed; more are asked
 TEXT_MAX_WORDS = 12         # the answer to "what should I remind you of?" is short; a longer line is a new line
 PUNCT = " \t,;:-–—."
 
@@ -114,10 +116,11 @@ def _stop(tables: list) -> set:
 
 
 def _forget(norm: str, tables: list):
-    """The facts of a line that asks to forget a reminder, or None. An EXPLICIT number names it ("reminder 9", "reminder #9", "number 9": the number is the whole
-    object); several numbers ask which; anything else the line says after "of"/"about" is words to look for among the person's own reminders (whole words,
-    numbers too: "about the 9 o'clock one" is words, never the id 9). A word right after the noun with no connective ("reminder emails from inbox") is not about a
-    reminder of the person's."""
+    """The facts of a line that asks to forget a reminder, or None. An EXPLICIT number names it ("reminder 9", "reminder #9", "reminder number 9": the number is the
+    whole object) and is acted on at once; a number with any other word before it ("reminder of 3", "reminder no 3" in a language where "no" is a preposition) is
+    shown and confirmed, and so are several numbers ("reminder 1 and 2"); anything else the line says after "of"/"about" is words to look for among the person's own
+    reminders (whole words, numbers too: "about the 9 o'clock one" is words, never the id 9), or an hour ("the reminder at 9") matched against the moment of the
+    reminders and confirmed. A word right after the noun with no connective ("reminder emails from inbox") is not about a reminder of the person's."""
     for table in tables:
         forget = table["forget"]
         verbs, nouns, fillers = nt._alt(forget["verbs"]), nt._alt(forget["nouns"]), nt._alt(forget["fillers"])
@@ -131,13 +134,25 @@ def _forget(norm: str, tables: list):
             continue
         rest = norm[m.end():]
         tail = f"(?:\\s+{polite})*" if polite else ""
-        one = re.fullmatch(f"\\s*(?:{fillers}\\s+)*#?\\s*([0-9]{{1,6}}){tail}[\\s?!.]*", rest) if fillers else re.fullmatch(f"\\s*#?\\s*([0-9]{{1,6}}){tail}[\\s?!.]*", rest)
+        idw = nt._alt(forget["id_words"])
+        idp = f"(?:{idw}\\s*)?" if idw else ""
+        one = re.fullmatch(f"\\s*{idp}#?\\s*([0-9]{{1,6}}){tail}[\\s?!.]*", rest)
         if one and int(one.group(1)) >= 1:
             return {"id": int(one.group(1))}
+        soft = re.fullmatch(f"\\s*(?:{fillers}\\s+)+#?\\s*([0-9]{{1,6}}){tail}[\\s?!.]*", rest) if fillers else None
+        if soft and int(soft.group(1)) >= 1:
+            return {"id": int(soft.group(1)), "confirm": True}
         tokens = _words(rest)
-        if len(tokens) >= 2 and all(t.isdigit() for t in tokens) and len(set(tokens)) > 1:
-            return {"id": None, "many": True}
         stop = _stop(tables)
+        numbers = [int(t) for t in tokens if t.isdigit()]
+        if len(numbers) >= 2 and all(t.isdigit() or t in stop for t in tokens) and all(n >= 1 for n in numbers):
+            ids = sorted(set(numbers))
+            return {"id": None, "ids": ids, "confirm": True} if len(ids) <= MANY_IDS_MAX else {"id": None, "many": True}
+        found = nt.find(rest, tables)
+        if any(h["kind"] == "clock" for h in found["hits"]):
+            left = _tidy(nt.without(rest, nt._spans(found)), tables)
+            if not [w for w in _words(left) if w not in stop]:
+                return {"id": None, "at": rest.strip(), "confirm": True}
         said = [t for t in tokens if t not in stop]
         if not said:
             return {"id": None}
@@ -145,6 +160,40 @@ def _forget(norm: str, tables: list):
             return None
         return {"id": None, "words": said}
     return None
+
+
+def _undo(norm: str, tables: list) -> bool:
+    """Whether the line is the bare word that brings a cancelled reminder back ("undo", "desfaz"), optionally with "the reminder" and nothing else: "undo the deploy"
+    and "desfaz o commit" are requests for something else."""
+    for table in tables:
+        alt = nt._alt(table["triggers"]["undo"])
+        if not alt:
+            continue
+        polite = nt._alt(table["polite"])
+        lead = f"(?:{polite}\\s+)*" if polite else ""
+        forget = table["forget"]
+        nouns, fillers = nt._alt(forget["nouns"]), nt._alt(forget["fillers"])
+        noun = f"(?:\\s+(?:{fillers}\\s+)*{nouns})?" if nouns and fillers else (f"(?:\\s+{nouns})?" if nouns else "")
+        trail = f"(?:\\s+{polite})*" if polite else ""
+        if re.fullmatch(f"[^a-z0-9]*{lead}{alt}{noun}{trail}[\\s.!]*", norm):
+            return True
+    return False
+
+
+def _verb_noun(norm: str, tables: list):
+    """The end, in the folded line, of "<scheduling verb> [a word or two] <reminder noun>" at the start of the line ("marca um lembrete", "schedule a reminder"), or None."""
+    best = None
+    for table in tables:
+        triggers = table["triggers"]
+        verbs, nouns = nt._alt(triggers["calendar_verb"] + triggers["calendar_loose"]), nt._alt(table["remind_nouns"])
+        if not verbs or not nouns:
+            continue
+        polite = nt._alt(table["polite"])
+        lead = f"(?:{polite}\\s+)*" if polite else ""
+        m = re.match(f"[^a-z0-9]*{lead}{verbs}\\s+(?:[a-z0-9]+\\s+){{0,2}}?{nouns}(?![a-z0-9])", norm)
+        if m and (best is None or m.end() > best):
+            best = m.end()
+    return best
 
 
 def candidate(line, languages=None):
@@ -156,8 +205,7 @@ def candidate(line, languages=None):
     norm, origin = nt.normalise(text)
     tokens = _words(norm)
     problem = {w for t in tables for w in t["problem_words"]} & set(tokens)
-    undo = _head(norm, tables, "undo")
-    if undo is not None and len(_words(norm[undo:])) <= UNDO_WORDS_MAX and "?" not in text:
+    if "?" not in text and _undo(norm, tables):
         return {"op": "reminder-restore", "how": "trigger"}
     forget = _forget(norm, tables)
     if forget:
@@ -170,6 +218,8 @@ def candidate(line, languages=None):
         return {"op": "reminders", "how": "trigger"}
     if _head(norm, tables, "calendar") is not None:
         return {"op": "calendar-event-create", "how": "trigger"}
+    if _verb_noun(norm, tables) is not None and not problem:          # "marca um lembrete", "schedule a reminder": the word reminder wins over the scheduling verb
+        return {"op": "remind", "how": "trigger"}
     noun_head = _head(norm, tables, "remind")
     if noun_head is not None:
         verbal = any(re.match(f"[^a-z0-9]*{nt._alt(t['triggers']['remind_anywhere'])}(?![a-z0-9])", norm) for t in tables if t["triggers"]["remind_anywhere"])
@@ -227,6 +277,8 @@ def _trigger_span(norm: str, tables: list, how: str):
     """(start, end), in the folded line, of the trigger words to take out of the reminder's words, or None."""
     if how == "trigger":
         end = _head(norm, tables, "remind")
+        if end is None:
+            end = _verb_noun(norm, tables)
         return (0, end) if end is not None else _anywhere(norm, tables, "remind_anywhere")
     if how in ("bare", "note"):
         end = _head(norm, tables, "note")
@@ -246,9 +298,20 @@ def understand(line, now, how="trigger", languages=None, trust=False):
     if nt.recurring(text, tables):
         return {"ask": _draft("recurring", how, text, "")}
     flagged, typos = nt.doubts(text, tables)
-    for start, end, meant in sorted(typos, reverse=True):          # a day word with a typo is read as the word it is one letter from; with two such words it is only dropped
-        text = text[:start] + meant + text[end:]
+    for start, end, meant in sorted(typos, reverse=True):          # a day word with a typo is read as the word it is one letter from; with two such words it stays in the words
+        if meant:
+            text = text[:start] + meant + text[end:]
     norm, origin = nt.normalise(text)
+    week = _week(norm, tables)
+    if week and not any(h["kind"] in ("date", "slash") for h in nt.find(text, tables)["hits"]):          # "next week at 10": the week is named, the day of it is asked
+        line = text[:origin[week[0]]] + " " + text[origin[week[1] - 1] + 1:]
+        norm2, origin2 = nt.normalise(line)
+        parsed = nt.parse(line, now, tables)
+        cuts = list(parsed["spans"]) if parsed else []
+        trigger = _trigger_span(norm2, tables, how)
+        if trigger:
+            cuts.append((origin2[trigger[0]], origin2[trigger[1] - 1] + 1))
+        return {"ask": _draft("weekday", how, " ".join(line.split()), _tidy(nt.without(line, cuts), tables))}
     parsed = nt.parse(text, now, tables)
     cuts = list(parsed["spans"]) if parsed else []
     trigger = _trigger_span(norm, tables, how)
@@ -262,6 +325,17 @@ def understand(line, now, how="trigger", languages=None, trust=False):
     reading = parsed["reading"]
     doubt = not trust and (bool(parsed.get("vague")) or reading["assumed_year"] or flagged)
     return _next(_draft("ready", how, text, words, readings=[reading], doubt=doubt), reading)
+
+
+def _week(norm: str, tables: list):
+    """(start, end), in the folded line, of the first phrase that names a week with no day in it ("next week", "semana que vem"), or None."""
+    best = None
+    for table in tables:
+        alt = nt._alt(table["week_phrases"])
+        m = re.search(f"{nt._L}{alt}{nt._R}", norm) if alt else None
+        if m and (best is None or m.start() < best[0]):
+            best = (m.start(), m.end())
+    return best
 
 
 def _next(draft: dict, reading: dict):
@@ -281,7 +355,7 @@ def _answers(word_norm: str, tables: list, group: str) -> bool:
     return any(word_norm in table["answers"][group] for table in tables)
 
 
-KINDS = ("notice", "event", "yes", "other", "cancel", "thanks")
+KINDS = ("notice", "event", "yes", "other", "cancel", "thanks", "again")
 
 
 def _only(said: str, tables: list, kinds=KINDS) -> tuple:
@@ -290,14 +364,16 @@ def _only(said: str, tables: list, kinds=KINDS) -> tuple:
     norm = nt.normalise(said)[0]
     tokens = _words(norm)
     noise = {w for table in tables for w in table["forget"]["fillers"] + table["connectors"] + list(table["number_words"])}
+    polite = {p for table in tables for p in table["polite"]}          # "please", "por favor": a courtesy is not an answer, and not a part of one
     found, rest = [], []
     index = 0
     while index < len(tokens):
         for size in (3, 2, 1):
             phrase = " ".join(tokens[index:index + size])
             kind = next((k for k in kinds if _answers(phrase, tables, k)), None)
-            if kind and len(tokens[index:index + size]) == size:
-                found.append(kind)
+            if len(tokens[index:index + size]) == size and (kind or phrase in polite):
+                if kind:
+                    found.append(kind)
                 index += size
                 break
         else:
@@ -377,50 +453,164 @@ def _pick(draft: dict, said: str, now, tables: list):
     return None
 
 
+def affirm(said, languages=None) -> bool:
+    """Whether a reply is a yes and nothing else ("yes", "yes please", "ok thanks", "sure, go ahead"): courtesies and thanks around it are not an answer."""
+    kinds, rest = _only(said if isinstance(said, str) else "", _tables(languages))
+    return not rest and bool(kinds) and set(kinds) <= {"yes", "thanks"} and "yes" in kinds
+
+
+def short_answer(said, languages=None) -> bool:
+    """Whether a reply that does not fit the question is short enough to be an attempt at an answer ("hmm", "talvez"), so that the question is asked once more: a
+    long line, a question, a request for work or another request of this tier is a new line."""
+    tables = _tables(languages)
+    said = said if isinstance(said, str) else ""
+    verbs = {w for table in tables for w in table["work_verbs"]}
+    tokens = _words(nt.normalise(said)[0])
+    return 0 < len(said.split()) <= 3 and "?" not in said and not (verbs & set(tokens)) and candidate(said, tables) is None
+
+
+def _retry(draft: dict, said: str, tables: list):
+    """The same question once more for a short reply that does not answer it; None the second time (the line is then handled as a new one)."""
+    if draft.get("retries", 0) >= 1 or not short_answer(said, tables):
+        return None
+    return {"ask": {**draft, "retries": draft.get("retries", 0) + 1}}
+
+
+def _table_of(draft: dict, tables: list) -> dict:
+    """The table whose words the draft's line is in (the first, on a tie): a bare answer is given the cue of that language."""
+    found = nt.find(draft.get("line") or draft.get("text") or "", tables)
+    score = nt._score(found)
+    return max(tables, key=lambda t: score[t["tag"]])
+
+
+def _cued(said: str, draft: dict, tables: list) -> str:
+    """An answer that is only a number gets the cue that makes it what it is, in the language of the question: "22/10" is a day ("dia 22/10"), "13.30" an hour ("as
+    13.30"). A bare "9" is handled where it is an hour."""
+    text = said.strip()
+    table = _table_of(draft, tables)
+    if re.fullmatch(r"[0-9]{1,2}/[0-9]{1,2}(?:/[0-9]{2,4})?", text) and table["date_cues"]:
+        return f"{table['date_cues'][0]} {text}"
+    if re.fullmatch(r"[0-9]{1,2}\.[0-9]{2}", text) and table["prefixes"]:
+        return f"{table['prefixes'][0]} {text}"
+    return said
+
+
+def _next_week(reading: dict, now) -> dict:
+    """The reading moved to the same weekday of next week (Monday to Sunday after this one)."""
+    day = datetime.date.fromisoformat(reading["date"])
+    first = now.date() + datetime.timedelta(days=7 - now.date().weekday())
+    while day < first:
+        day += datetime.timedelta(days=7)
+    while day >= first + datetime.timedelta(days=7):
+        day -= datetime.timedelta(days=7)
+    return nt.moment(day.isoformat(), reading["time"], now)
+
+
+def _complete_week(draft: dict, said: str, now, tables: list):
+    """The answer to "which day next week?": a weekday (or a date). A weekday is the one of next week; the line gets the date, so everything after (the hour, the
+    words, a confirmation) runs as for any line."""
+    found = nt.find(said, tables)
+    parsed = nt.parse(said, now, tables)
+    if parsed is None:
+        return None
+    weekday = any(h["kind"] == "date" and h["spec"]["k"] == "wd" for h in found["hits"])
+    if "missing" in parsed and parsed["day"]:
+        day = _next_week({"date": parsed["day"]["date"], "time": "00:00"}, now)["date"] if weekday else parsed["day"]["date"]
+        return understand(draft["line"] + " " + day, now, draft["how"], tables, trust=True)
+    if "when" in parsed and parsed["reading"]["dated"] and weekday:
+        shifted = _next_week(parsed["reading"], now)
+        old = nt.parse(draft["line"], now, tables)          # the hour of the answer replaces the one the line had
+        base = nt.without(draft["line"], old["spans"]) if old and "spans" in old else draft["line"]
+        return understand(base + " " + shifted["date"] + " " + shifted["time"], now, draft["how"], tables, trust=True)
+    return None
+
+
+def _complete_when(draft: dict, said: str, now, tables: list, settled: dict):
+    """The answer to "for when?" after "another time": a whole moment, or a day (the hour is then asked), or an hour (the day is the next one it comes)."""
+    parsed = nt.parse(said, now, tables)
+    if parsed is None:
+        return _retry(draft, said, tables)
+    if "when" in parsed:
+        return _next(settled, parsed["reading"])
+    if "ask" in parsed:
+        return {"ask": {**settled, "need": "reading", "readings": parsed["ask"]}}
+    return {"ask": _draft("time", draft["how"], f"{draft['text']} {said}".strip(), draft["text"], day=parsed.get("day"))}
+
+
 def complete(draft, said, now, languages=None):
-    """The next line of the chat finishing `draft` (see the module's text), or None when it is not an answer to it."""
+    """The next line of the chat finishing `draft` (see the module's text), or None when it is not an answer to it. A short reply that does not fit is asked once
+    more (the same draft, `retries` 1) instead of being dropped."""
     tables = _tables(languages)
     said = said if isinstance(said, str) else ""
     need, how = draft["need"], draft["how"]
     if not said.strip() or said.lstrip().startswith("/"):
         return None
     kinds, rest = _only(said, tables)
-    if kinds == ["cancel"] and not rest:
+    if kinds and set(kinds) <= {"cancel", "thanks"} and "cancel" in kinds and not rest:
         return {"cancel": True}
+    if kinds == ["other"] and not rest and need != "kind":          # "no": the question is given up
+        return {"cancel": True}
+    named = candidate(said, tables)
+    if named is not None and need != "kind":
+        return None          # a line that starts a request of its own ("me lembra ...", "cancela o lembrete 3") is a new line, never the answer to a question
     settled = {**draft, "doubt": False}
+    cued = _cued(said, draft, tables)
+    if need == "forget":
+        if affirm(said, tables):
+            return {"forget": draft["ids"]}
+        if kinds == ["other"] and not rest:
+            return {"cancel": True}
+        return _retry(draft, said, tables)
     if need == "confirm":
         reading = draft["readings"][0]
-        if kinds in (["other"], ["thanks"]) and not rest:
-            return {"cancel": True} if kinds == ["other"] else None
-        if kinds == ["yes"] and not rest:
+        if kinds == ["other"] and not rest:
+            return {"cancel": True}
+        if affirm(said, tables):
             return _next(settled, _dated(reading))          # the person saw the day and said yes: it is theirs, not a time that "rolled"
-        parsed = _time_only(said, now, tables)
+        if kinds == ["again"] and not rest:
+            return {"ask": _draft("again", how, draft["text"], draft["text"])}          # "another time": the words are kept, the moment is asked
+        parsed = _time_only(cued, now, tables)
         new = _replace(reading, parsed, now) if parsed else None
-        return None if new is None else _next(settled, new)
+        return _retry(draft, said, tables) if new is None else _next(settled, new)
+    if need == "again":
+        return _complete_when(draft, cued, now, tables, settled)
+    if need == "weekday":
+        done = _complete_week(draft, cued, now, tables)
+        return _retry(draft, said, tables) if done is None else done
     if need == "time":
-        parsed = _time_only(said, now, tables)
+        digits = re.fullmatch(r"\s*([0-9]{1,2})\s*", said)
+        if digits:          # a bare hour answers "at what time?": it is asked which of the two (09:00 or 21:00), never taken
+            if int(digits.group(1)) > 23:
+                return _retry(draft, said, tables)
+            prefix = _table_of(draft, tables)["bare_hour_prefixes"]
+            return understand(draft["line"] + " " + (prefix[0] + " " if prefix else "") + digits.group(1), now, how, tables, trust=True)
+        parsed = _time_only(cued, now, tables)
         if parsed is None:
-            return None
+            return _retry(draft, said, tables)
+        if "missing" in parsed and parsed["day"]:          # a day answers "at what time?": it replaces the day the line had, and only the hour is still asked
+            old = nt.parse(draft["line"], now, tables)
+            base = nt.without(draft["line"], old["spans"]) if old and "spans" in old else draft["line"]
+            return understand(base + " " + cued, now, how, tables, trust=True)
         if "when" in parsed and parsed["reading"]["dated"]:       # a day and an hour, or a length of time: they replace what the line said
             return _next(settled, parsed["reading"])
-        return understand(draft["line"] + " " + said, now, how, tables, trust=True)
+        return understand(draft["line"] + " " + cued, now, how, tables, trust=True)
     if need == "reading":
-        picked = _pick(draft, said, now, tables)
-        return None if picked is None else _next(settled, picked)
+        picked = _pick(draft, cued, now, tables)
+        return _retry(draft, said, tables) if picked is None else _next(settled, picked)
     if need == "kind":
-        if rest or len(set(kinds)) != 1 or kinds[0] in ("yes", "other", "thanks"):
-            return None
+        if rest or len(set(kinds)) != 1 or kinds[0] in ("other", "thanks", "again"):
+            return _retry(draft, said, tables)
         if kinds[0] == "event":
             return {"event": True}
-        return {"when": draft["readings"][0]["when"], "text": draft["text"], "reading": draft["readings"][0]}
+        return {"when": draft["readings"][0]["when"], "text": draft["text"], "reading": draft["readings"][0]}          # "reminder", or a yes
     if need == "text":
         reading = draft["readings"][0]
-        parsed = _time_only(said, now, tables)
+        parsed = _time_only(cued, now, tables)
         if parsed is not None:                       # a bare time completes the time, not the text
             new = _replace(reading, parsed, now)
             return None if new is None else {"ask": {**draft, "readings": [new]}}
         if kinds or candidate(said, tables) is not None:
-            return None
+            return _retry(draft, said, tables) if kinds else None
         verbs = {w for table in tables for w in table["work_verbs"]}
         tokens = _words(nt.normalise(said)[0])
         if len(said.split()) > TEXT_MAX_WORDS or verbs & set(tokens) or nt.recurring(said, tables):

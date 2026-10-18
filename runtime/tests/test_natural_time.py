@@ -268,7 +268,9 @@ STUB = {      # an invented language: "morgen" is tomorrow, "heute" today, and a
     "bare_hour_prefixes": ["um"], "relative_in": ["in"], "relative_units": {"m": ["min"], "h": ["std"], "d": ["tagen"], "w": []}, "number_words": {"ein": 1},
     "half_hour": [], "triggers": {"remind": ["erinnere mich"], "remind_anywhere": [], "reminders": [], "reminders_bare": [], "calendar": [], "calendar_verb": [], "calendar_noun": [],
                  "calendar_loose": [], "note": [], "undo": []},
-    "forget": {"verbs": [], "nouns": [], "fillers": []}, "polite": [], "connectors": ["an"], "answers": {"yes": ["ja"], "notice": [], "event": [], "other": [], "cancel": [], "thanks": []},
+    "forget": {"verbs": [], "nouns": [], "fillers": [], "id_words": []}, "polite": [], "connectors": ["an"],
+    "answers": {"yes": ["ja"], "notice": [], "event": [], "other": [], "cancel": [], "thanks": [], "again": []},
+    "vague_parts": {"morning": [], "afternoon": [], "evening": [], "night": []},
     "work_starters": [],
 }
 STUB = {**{key: [] for key in nt.LISTS}, **STUB, "markers": ["bitte"]}          # every list a table must hold, empty, unless the stub says otherwise
@@ -380,7 +382,7 @@ def test_the_engine_holds_no_word_of_any_language_and_no_import_of_the_runtime()
 
 def test_a_word_of_the_time_near_it_and_a_typo_of_a_day_word_are_doubts_and_a_name_or_a_far_word_is_not():
     for line in ("remind me next week at 10am to pay", "me lembra semana que vem às 10h de pagar", "me lembra amnha às 9h", "remind me tomorow at 9am",      # validate: allow english-only -- Portuguese lines, the cases of the tests
-                 "me lembra amanhã às 9h do próximo mês", "me lembra amanhã às 9h de levar todos os documentos"):      # validate: allow english-only -- Portuguese lines, the cases of the tests
+                 "me lembra amanhã às 9h do próximo mês", "me lembra amanhã às 9h do fim de semana"):      # validate: allow english-only -- Portuguese lines, the cases of the tests
         assert nt.doubt(line), line
     for line in ("me lembra amanhã às 9h de arrumar o quarto", "me lembra amanhã às 9h de ligar para a Amanda", "me lembra amanhã às 9h do segundo andar",      # validate: allow english-only -- Portuguese lines, the cases of the tests
                  "me lembra amanhã às 9h do quintal", "remind me tomorrow at 9am to call Marcos", "remind me tomorrow at 9am to match the invoices",      # validate: allow english-only -- Portuguese lines, the cases of the tests

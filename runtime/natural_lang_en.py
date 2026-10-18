@@ -25,7 +25,7 @@ TABLE = {
     "markers": ["remind", "reminder", "reminders", "tomorrow", "today", "tonight", "the", "to", "about", "next", "please", "my", "of", "and", "on", "at"],
     # how a date written x/y reads when both numbers are 12 or less: "ask" (month first or day first, the person is asked) or "day-first"
     "slash_dates": "ask",
-    "days": {"today": ["today"], "tomorrow": ["tomorrow"], "day_after_tomorrow": ["the day after tomorrow", "day after tomorrow"]},
+    "days": {"today": ["today"], "tomorrow": ["tomorrow", "tommorow", "tmrw", "tmr", "2morrow"], "day_after_tomorrow": ["the day after tomorrow", "day after tomorrow"]},
     # Monday first
     "weekdays": [["monday", "mon"], ["tuesday", "tue", "tues"], ["wednesday", "wed"], ["thursday", "thu", "thur", "thurs"], ["friday", "fri"], ["saturday"],
                  ["sunday"]],
@@ -53,6 +53,9 @@ TABLE = {
     # a number and a part of the day: "9 in the morning"
     "dayparts": {"morning": ["in the morning"], "dawn": [], "afternoon": ["in the afternoon"], "evening": ["in the evening"], "night": ["at night", "in the night"]},
     "vague": ["later", "later today", "this morning", "this afternoon", "this evening", "tonight", "in the morning", "in the afternoon", "in the evening", "soon"],
+    # the vague words that name a part of the day: with an hour that has no marker they say which of the two is meant ("tonight at 9" is 21:00)
+    "vague_parts": {"morning": ["this morning", "in the morning"], "afternoon": ["this afternoon", "in the afternoon"], "evening": ["this evening", "in the evening"],
+                    "night": ["tonight"]},
     "noon": ["noon", "midday"],
     "midnight": ["midnight"],
     # words that introduce an hour with no marker ("at 9"): asked back, 09:00 or 21:00
@@ -73,7 +76,16 @@ TABLE = {
     "not_typos": ["match", "matches", "mayor", "toady", "sundae", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays", "sundays", "march",
                   "august", "toast", "monday", "money", "funday"],
     # a repetition: reminders here are one-time, so a line that repeats is said not to be one (a routine does that)
-    "recurrence": ["every", "each", "daily", "weekly", "monthly", "yearly", "annually", "recurring", "repeat", "repeating"],
+    # an opener that repeats when a length of time or a weekday follows it ("every monday", "every 2 hours"); "every client" and "each supplier" are the reminder's words
+    "recurrence": ["every", "each"],
+    # what may follow an opener besides a weekday: "every day", "every 2 hours", "every other week"
+    "recurrence_units": ["day", "days", "week", "weeks", "month", "months", "year", "years", "hour", "hours", "minute", "minutes", "min", "mins", "weekday",
+                         "weekdays", "weekend", "weekends", "morning", "afternoon", "evening", "night"],
+    "recurrence_other": ["other"],
+    # a word right after the unit that makes the opener part of the reminder's words ("every day of the month")
+    "recurrence_not_before": ["of"],
+    # adverbs that repeat only beside the time ("daily at 9") or at the edge of the words ("remind me weekly to ..."); "weekly report" is the reminder's words
+    "recurrence_adverbs": ["daily", "weekly", "monthly", "yearly", "annually"],
     "recurrence_before_day": [],
     "recurrence_joiners": [],
     # a word just before or just after x/y that makes it a fraction or a count and not a date ("installment 3/10", "3/10 of the rent")
@@ -113,13 +125,21 @@ TABLE = {
         "note": ["note"],
         "undo": ["undo", "undo that", "undo it", "bring it back", "bring that back", "restore it"],
     },
-    "forget": {"verbs": ["forget", "cancel", "delete", "remove", "drop"], "nouns": ["reminder"], "fillers": ["the", "my", "number", "no", "n"]},
+    "forget": {"verbs": ["forget", "cancel", "delete", "remove", "drop"], "nouns": ["reminder", "reminders"], "fillers": ["the", "my", "of", "number", "no", "n"],
+               # the words that make the number after the noun its id ("reminder number 9"); any other word between them is not an id
+               "id_words": ["number", "no", "n", "num"]},
+    # the noun of a reminder: "schedule a reminder", "book a reminder" make a reminder, whatever the scheduling verb
+    "remind_nouns": ["reminder", "reminders"],
+    # a week that is named without a day: the day of it is asked ("next week at 10")
+    "week_phrases": ["next week"],
     "polite": ["please", "can you", "could you", "would you", "hey", "hi"],
     # one of these directly after the trigger is not part of the reminder's words
     "connectors": ["to", "about", "of", "that"],
-    "answers": {"yes": ["yes", "y", "yeah", "yep", "ok", "okay", "sure", "confirm", "do it"], "notice": ["reminder", "notice", "alert", "ping", "notification"],
+    "answers": {"yes": ["yes", "y", "yeah", "yep", "ok", "okay", "sure", "confirm", "do it", "go ahead", "sounds good", "of course", "thats right", "exactly", "that is right"], "notice": ["reminder", "notice", "alert", "ping", "notification"],
                 "event": ["event", "calendar", "agenda", "appointment"], "other": ["other", "something else", "else", "no", "nope", "nothing", "neither"],
-                "cancel": ["cancel", "never mind", "nevermind", "forget it", "stop", "drop it", "skip it"], "thanks": ["thanks", "thank you", "thx", "ty", "cheers"]},
+                "cancel": ["cancel", "never mind", "nevermind", "forget it", "stop", "drop it", "skip it"], "thanks": ["thanks", "thank you", "thx", "ty", "cheers"],
+                # "another time": the reading shown is not the one meant, and the person will say which
+                "again": ["another time", "other time", "different time", "another day", "change it", "change"]},
     # a line that starts with one of these is a request for work, never a reminder with no trigger
     "work_starters": ["write", "create", "make", "generate", "build", "draft", "prepare", "review", "analyze", "analyse", "summarize", "summarise", "search",
                       "find", "send", "publish", "post", "plan", "design", "implement", "fix", "check", "run", "show", "list", "give", "tell", "what", "how",

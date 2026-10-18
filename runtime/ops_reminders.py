@@ -133,8 +133,9 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
     `said` is the person's own line instead of `when` and `text` (the messaging bridge passes it, package NR-1; no shell of the table does): it is read with the
     clock by runtime/natural.py, `how` says as what ("trigger": it starts with a remind word, "bare": it may be a note or an event, "command": the words after
     `/remind`), and `draft` is the question the previous line was asked, which `said` answers. The policy is asked before the line is read. What comes back
-    is the reminder made, or {"ask": the draft to keep}, or {"event": True} (the person chose the calendar), or {"declined": True} (a line that does not
-    answer the draft); a question stores nothing."""
+    is the reminder made, or {"ask": the draft to keep}, or {"event": True} (the person chose the calendar), {"cancel": True} (the person gave it up),
+    {"forget": [ids]} (the person said yes to cancelling those reminders: the bridge cancels them one by one, each under its own policy), or {"declined": True}
+    (a line that does not answer the draft); a question stores nothing."""
     ctx = core.context(project)
     cfg = ctx["cfg"]
     ops_actor.guard(ctx, "remind", channel, sender)
@@ -164,6 +165,8 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
             return {"cancel": True}
         if understood.get("event"):
             return {"event": True}
+        if understood.get("forget"):
+            return {"forget": understood["forget"]}
         if "ask" in understood:
             return {"ask": understood["ask"]}
         when, text = understood["when"], understood["text"]
@@ -221,9 +224,11 @@ def reminders_read(project: str, channel: str | None = None, sender: str | None 
             "limits": {"open": rm.OPEN_MAX, "per_chat_per_day": rm.DAY_MAX, "text_characters": rm.TEXT_MAX, "late_window_hours": rm.LATE_WINDOW // 3600}}
 
 
-def _forget_matching(project: str, words: list, channel, sender) -> dict:
-    """Forget the one waiting reminder of the sender whose words hold every word of `words` (what the person said of it, folded): {"reminder", "reply", "matched"}
-    when exactly one does (cancelled as `reminder-forget` by number does), {"choose": [the reminders that do]} when several do, {"none": True} when none does."""
+def _forget_matching(project: str, words: list, channel, sender, at: str | None = None) -> dict:
+    """Find, among the sender's waiting reminders, the one whose words hold every word of `words` (what the person said of it, folded) and, with `at` (the hour the
+    person said: "the 9 o'clock one"), whose moment is that hour. Without `at` and exactly one match it is cancelled as `reminder-forget` by number does; with `at`
+    it is only shown ({"preview": ...}: an hour is not a name, so the bridge confirms). {"choose": [the reminders that match]} when several do, {"none": True}
+    when none does."""
     ctx = core.context(project)
     cfg = ctx["cfg"]
     ops_actor.guard(ctx, "reminder-forget", channel, sender)
@@ -231,25 +236,36 @@ def _forget_matching(project: str, words: list, channel, sender) -> dict:
     if channel == MESSAGING:
         platform, chat = ops_actor.split(sender)
     keys = [w for w in words if isinstance(w, str) and w]
+    times = set()
+    if at is not None:
+        parsed = natural.nt.parse(at, now())
+        if parsed is not None and "when" in parsed:
+            times = {parsed["reading"]["time"]}
+        elif parsed is not None and "ask" in parsed:
+            times = {r["time"] for r in parsed["ask"]}
     waiting = core._stored(ctx, ctx["store"].reminders_list, ("open",), platform, chat)
 
     def holds(row):
         tokens = set(re.findall(r"[a-z0-9]+", natural.nt.normalise(row["text"])[0]))
         return all(k in tokens for k in keys)          # whole words: "9" is not "9h", "dent" is not "dentist"
-    found = [r for r in waiting if keys and holds(r)]
-    if not found:
+    found = [r for r in waiting if (keys or times) and holds(r) and (not times or r["due_local"][11:16] in times)]
+    if not found or (at is not None and not times):
         return {"none": True}
     with_text = channel != MESSAGING or _notices_text(cfg)
     if len(found) > 1:
         return {"choose": [_shown(r, cfg, with_text) for r in found]}
+    if at is not None:
+        return reminder_forget(project, found[0]["id"], channel, sender, preview=True)
     return reminder_forget(project, found[0]["id"], channel, sender)
 
 
-def reminder_forget(project: str, reminder_id: int | None = None, channel: str | None = None, sender: str | None = None, matching: list | None = None) -> dict:
+def reminder_forget(project: str, reminder_id: int | None = None, channel: str | None = None, sender: str | None = None, matching: list | None = None,
+                    at: str | None = None, preview: bool = False) -> dict:
     """Cancel a waiting reminder. From a messaging app only one made for the sender who asks (any other is answered as one that does not exist). `matching` is
-    what the person said of it instead of its number (the messaging bridge passes it, package NR-1; no shell of the table does): see `_forget_matching`."""
-    if matching is not None:
-        return _forget_matching(project, matching, channel, sender)
+    what the person said of it instead of its number, and `at` the hour they said (the messaging bridge passes them, package NR-1; no shell of the table does): see
+    `_forget_matching`. With `preview` the reminder is checked and shown, not cancelled ({"preview": the reminder, "human": ...}): the bridge asks "cancel it?"."""
+    if matching is not None or at is not None:
+        return _forget_matching(project, matching or [], channel, sender, at)
     if type(reminder_id) is not int or reminder_id < 1:
         raise _fail("a reminder is a whole number", 2)
     ctx = core.context(project)
@@ -265,11 +281,14 @@ def reminder_forget(project: str, reminder_id: int | None = None, channel: str |
         raise _fail(rm.BEING_SENT.format(n=reminder_id))
     if row["status"] != "open":
         raise _fail(rm.NOT_WAITING.format(n=reminder_id, status=row["status"]))
+    with_text = channel != MESSAGING or _notices_text(cfg)
+    if preview:
+        human = {**natural.info_of(row["due_local"][:10], row["due_local"][11:16], now().date()), "zone": row["zone"]}
+        return {"preview": _shown(row, cfg, with_text), "human": human}
     try:
         done = store.reminder_end(ctx["conn"], reminder_id, "cancelled", at=_iso(now()))
     except store.StoreError:      # it was claimed between the read and the end: the bridge is sending it
         raise _fail(rm.BEING_SENT.format(n=reminder_id)) from None
-    with_text = channel != MESSAGING or _notices_text(cfg)
     human = {**natural.info_of(done["due_local"][:10], done["due_local"][11:16], now().date()), "zone": done["zone"]}
     return {"reminder": _shown(done, cfg, with_text), "reply": rm.FORGOT.format(id=reminder_id), "human": human}
 
@@ -291,12 +310,15 @@ def reminder_restore(project: str, reminder_id: int | None = None, channel: str 
         rows = [r for r in rows if r["id"] == reminder_id]
     if not rows:
         return {"none": True}
-    row = max(rows, key=lambda r: (r["ended_at"] or "", r["id"]))
+    rows.sort(key=lambda r: (r["ended_at"] or "", r["id"]), reverse=True)          # the most recent first
+    waiting = core._stored(ctx, store.reminders_list, ("open", "sending"), platform, chat)
+    back = lambda r: any(w["text"] == r["text"] and w["due_utc"] == r["due_utc"] and (w["platform"], w["chat"]) == (r["platform"], r["chat"]) for w in waiting)      # noqa: E731
+    fresh = [r for r in rows if not back(r)]          # the most recent one that is not already back: each has its own ten minutes
+    if not fresh:
+        raise _fail(rm.ALREADY_BACK.format(n=rows[0]["id"]))
+    row = fresh[0]
     if (_moment(row["due_utc"]) - clock.astimezone(UTC)).total_seconds() < rm.MIN_AHEAD:
         raise _fail(rm.RESTORE_TOO_LATE.format(n=row["id"]))
-    waiting = core._stored(ctx, store.reminders_list, ("open", "sending"), row["platform"], row["chat"])
-    if any(w["text"] == row["text"] and w["due_utc"] == row["due_utc"] for w in waiting):
-        raise _fail(rm.ALREADY_BACK.format(n=row["id"]))
     new = _add_row(ctx, cfg, clock, row["text"], row["due_local"], row["due_utc"], row["zone"], row["platform"], row["chat"],
                    ops_actor.label(cfg, channel, sender) or "terminal")
     with_text = channel != MESSAGING or _notices_text(cfg)

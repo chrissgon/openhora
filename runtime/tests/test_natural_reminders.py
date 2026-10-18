@@ -62,7 +62,7 @@ ENGLISH_CANDIDATES = [
     ("call the florist tomorrow at 9 remind me", {"op": "remind", "how": "trigger"}),
     ("at 9am remind me to water the plants", {"op": "remind", "how": "trigger"}),
     ("forget the reminder about the florist", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["florist"]}),
-    ("forget reminder 3 4", {"op": "reminder-forget", "how": "trigger", "id": None, "many": True}),
+    ("forget reminder 3 4", {"op": "reminder-forget", "how": "trigger", "id": None, "ids": [3, 4], "confirm": True}),
     ("reminders", {"op": "reminders", "how": "trigger"}),
     ("do reminders work on whatsapp?", None),
     ("reminders are not arriving on my phone", None),
@@ -134,15 +134,17 @@ def test_a_draft_is_finished_by_a_time_a_reading_a_kind_or_the_missing_words_and
     two = natural.understand("remind me to phone the neighbour friday at 9", NOW, "trigger")["ask"]
     assert complete(two, "21h", NOW)["when"] == "2026-10-23 21:00" and complete(two, "9:00", NOW)["when"] == "2026-10-23 09:00"
     assert complete(two, "21", NOW)["when"] == "2026-10-23 21:00" and complete(two, "9", NOW)["when"] == "2026-10-23 09:00", "a bare hour picks the reading with that hour"
-    assert complete(two, "yes", NOW) is None, "yes picks nothing when two readings were offered"
-    assert complete(two, "10h", NOW) is None
+    again = complete(two, "yes", NOW)["ask"]
+    assert again["need"] == "reading" and again["retries"] == 1, "yes picks nothing when two readings were offered: the question is asked once more"
+    assert complete(again, "yes", NOW) is None, "and the second time the line is a new one"
+    assert complete(two, "10h", NOW)["ask"]["retries"] == 1
     one = {**two, "readings": two["readings"][:1]}
     assert complete(one, "yes", NOW)["when"] == "2026-10-23 09:00" and complete(one, "sim", NOW)["when"] == "2026-10-23 09:00"
     kind = natural.understand("violin class tomorrow at 1pm", NOW, "bare")["ask"]
     assert complete(kind, "reminder", NOW)["text"] == "violin class" and complete(kind, "a reminder", NOW)["when"] == "2026-10-19 13:00"
     assert complete(kind, "lembrete", NOW)["when"] == "2026-10-19 13:00"
     assert complete(kind, "calendar", NOW) == {"event": True} and complete(kind, "agenda", NOW) == {"event": True}
-    assert complete(kind, "yes", NOW) is None, "yes does not say which of the two"
+    assert complete(kind, "yes", NOW)["text"] == "violin class" and complete(kind, "sim", NOW)["when"] == "2026-10-19 13:00", "a yes to \"a reminder or an event\" is the reminder"
     assert complete(kind, "a reminder please and an event", NOW) is None
     text = natural.understand("remind me tomorrow at 9am", NOW, "trigger")["ask"]
     assert complete(text, "water the plants", NOW)["text"] == "water the plants"
@@ -176,7 +178,7 @@ def test_the_table_of_rows_is_closed_and_a_planned_row_is_marked():
 
 
 def test_a_full_reading_with_something_uncertain_is_shown_and_confirmed_never_asked_open_and_never_lost():
-    lines = UNSURE_LINES + ["remind me next week at 10am to pay the rent", "remind me tomorow at 9am to pay",
+    lines = UNSURE_LINES + ["remind me tomorow at 9am to pay",
                             "remind me on the weekend at 10am to call Ana", "remind me tomorrow at 9am in the afternoon to pay", "remind me tomorrow 13.30 to pay"]
     for line in lines:
         asked = natural.understand(line, NOW, "trigger")["ask"]
@@ -204,7 +206,7 @@ def test_the_answer_to_a_confirmation_makes_it_or_replaces_only_the_part_it_name
     assert complete(ask, "saturday 8am", NOW)["when"] == "2026-10-24 08:00", "a day and an hour replace both"
     assert complete(ask, "in 2 hours", NOW)["when"] == "in 2h"
     assert complete(ask, "no", NOW) == {"cancel": True} and complete(ask, "cancel", NOW) == {"cancel": True} and complete(ask, "never mind", NOW) == {"cancel": True}
-    assert complete(ask, "thanks", NOW) is None and complete(ask, "what is the weather", NOW) is None
+    assert complete(ask, "thanks", NOW)["ask"]["retries"] == 1 and complete(ask, "what is the weather", NOW) is None
     kind = natural.understand("plan the garden friday at 3pm", NOW, "bare")
     assert kind["ask"]["need"] == "kind"
     unsure = natural.understand("remind me tomorrow at 9am to tidy next month", NOW)["ask"]
@@ -239,7 +241,7 @@ def test_a_reply_that_names_the_day_picks_the_reading_by_the_day_and_the_hour_to
     assert [r["when"] for r in ask["readings"]] == ["2026-10-22 15:30", "2026-10-29 15:30"]
     assert natural.complete(ask, "the 29th", NOW)["when"] == "2026-10-29 15:30" and natural.complete(ask, "29", NOW)["when"] == "2026-10-29 15:30"
     assert natural.complete(ask, "the 22nd", NOW)["when"] == "2026-10-22 15:30"
-    assert natural.complete(ask, "3:30pm", NOW) is None, "the hour is the same in both: it does not say which"
+    assert natural.complete(ask, "3:30pm", NOW)["ask"]["retries"] == 1, "the hour is the same in both: it does not say which, the question is asked once more"
     assert natural.complete(ask, "thursday 4pm", NOW)["when"] == "2026-10-22 16:00", "a full new time replaces the offered ones"
     assert natural.understand("remind me at 3:30pm to stretch", NOW)["when"] == "15:30"
     three = natural.understand("remind me at 3 to stretch", NOW)["ask"]
@@ -304,7 +306,9 @@ def test_a_question_stores_nothing_and_keeps_nothing_and_an_answer_to_it_makes_t
     assert asked["ask"]["need"] == "reading" and world.rows() == []
     made = ops.remind(world.path, channel="messaging", sender=SENDER, said="21h", how="trigger", draft=asked["ask"])
     assert made["reminder"]["text"] == "phone the neighbour" and made["reminder"]["due"] == "2026-10-23 21:00"
-    assert ops.remind(world.path, channel="messaging", sender=SENDER, said="something else entirely", draft=asked["ask"]) == {"declined": True}
+    retry = ops.remind(world.path, channel="messaging", sender=SENDER, said="something else entirely", draft=asked["ask"])
+    assert retry["ask"]["retries"] == 1 and len(world.rows()) == 1
+    assert ops.remind(world.path, channel="messaging", sender=SENDER, said="something else entirely", draft=retry["ask"]) == {"declined": True}
     kind = ops.remind(world.path, channel="messaging", sender=SENDER, said="violin class tomorrow 1pm", how="bare")["ask"]
     assert kind["need"] == "kind" and len(world.rows()) == 1
     assert ops.remind(world.path, channel="messaging", sender=SENDER, said="agenda", draft=kind) == {"event": True} and len(world.rows()) == 1

@@ -48,6 +48,7 @@ import reminders as rm  # noqa: E402
 
 CHANNEL = "messaging"
 DRAFT_SECONDS = 600       # a question the bridge asked about a reminder is answered by the next line of that chat for this long, then forgotten
+EXPIRED_SECONDS = 1800    # a "yes" this long after a question expired is told that the question expired (only that a question was open is remembered, never what it said)
 # The English words of why a reminder did not go out, and the phrase-table key of each (runtime/phrases.py, package LR-1: the lines below are said in the project's language).
 WHY_KEYS = {"late": "RM_WHY_LATE", "sender removed": "RM_WHY_SENDER_REMOVED", "not permitted": "RM_WHY_NOT_PERMITTED"}
 WHY_TEXT = {why: phrases.en(key) for why, key in WHY_KEYS.items()}
@@ -60,6 +61,8 @@ class Reminders:
     def __init__(self, bridge):
         self.bridge = bridge
         self.drafts = {}      # chat -> the question asked about a reminder and what it needs (memory only, one per chat, never logged, never in the store)
+        self.expired = {}     # chat -> when its question expired (memory only: no words), so that a late "yes" is told so
+        self.discarded = set()      # chats whose open question the line being handled just replaced (cleared at the start of every update)
 
     # --- what a sender types ----------------------------------------------------------------------------------------------------------
 
@@ -100,7 +103,11 @@ class Reminders:
         if op == "reminders":
             self.listing(project, chat)
         elif op == "reminder-forget":
-            if intent.get("id"):
+            if intent.get("ids") or (intent.get("id") and intent.get("confirm")):
+                self.forget_confirm(project, chat, intent.get("ids") or [intent["id"]])
+            elif intent.get("at"):
+                self.forget_at(project, chat, intent["at"])
+            elif intent.get("id"):
                 self.forget(project, chat, intent["id"])
             elif intent.get("words"):
                 self.forget_words(project, chat, intent["words"])
@@ -136,7 +143,7 @@ class Reminders:
             return
         bridge.reply(chat, phrases.text("NT_CALENDAR_NOT_BUILT", bridge.cfg(project)), project)
 
-    def ask_event(self, project: dict, chat: str, line: str) -> None:
+    def ask_event(self, project: dict, chat: str, line: str, retries: int = 0) -> None:
         """A scheduling verb with a time and no calendar word: ask whether it is an event or something else, and keep the line (memory only) so that
         "something else" can send it on to the planning agent."""
         bridge = self.bridge
@@ -145,15 +152,36 @@ class Reminders:
         except bridge.Refused as e:
             bridge.reply(chat, str(e), project)
             return
+        self.question(project, chat, phrases.text("NT_ASK_EVENT_OR_OTHER", bridge.cfg(project)), {**natural._draft("eventorother", "ask", line, ""), "retries": retries})
+
+    def question(self, project: dict, chat: str, sentence: str, draft: dict) -> None:
+        """Send a question and keep its draft for the next line of the chat (memory only). A question that replaces one still open says so."""
+        bridge = self.bridge
+        if chat in self.discarded:
+            self.discarded.discard(chat)
+            sentence = phrases.text("NT_DISCARDED", bridge.cfg(project)) + " " + sentence
         bridge.last_message.pop(chat, None)
-        bridge.reply(chat, phrases.text("NT_ASK_EVENT_OR_OTHER", bridge.cfg(project)), project)
-        self.drafts[chat] = {**natural._draft("eventorother", "ask", line, ""), "project": project["id"], "at": bridge.monotonic(), "message_id": bridge.last_message.get(chat)}
+        bridge.reply(chat, sentence, project)
+        self.drafts[chat] = {**draft, "project": project["id"], "at": bridge.monotonic(), "message_id": bridge.last_message.get(chat)}
 
     def sweep(self) -> None:
-        """Forget the questions older than DRAFT_SECONDS: the person's words leave memory when the time is up, not only when the chat writes again."""
+        """Forget the questions older than DRAFT_SECONDS: the person's words leave memory when the time is up, not only when the chat writes again. Only the fact that
+        a question expired is kept, for EXPIRED_SECONDS, so that a "yes" that comes too late is told so."""
         now = self.bridge.monotonic()
         for chat in [c for c, d in self.drafts.items() if now - d["at"] > DRAFT_SECONDS]:
             del self.drafts[chat]
+            self.expired[chat] = now
+        for chat in [c for c, at in self.expired.items() if now - at > EXPIRED_SECONDS]:
+            del self.expired[chat]
+
+    def late(self, project: dict, chat: str, kind: str, text: str) -> bool:
+        """The first line of a chat after its question expired: when it is a plain "yes" it is told that the question is no longer open (True); any other line is
+        handled as a new one, and the memory of the expired question goes either way."""
+        at = self.expired.pop(chat, None)
+        if at is None or kind not in ("text", "natural", "reply") or self.bridge.monotonic() - at > EXPIRED_SECONDS or not natural.affirm(text):
+            return False
+        self.bridge.reply(chat, phrases.text("NT_EXPIRED", self.bridge.cfg(project)), project)
+        return True
 
     def answer(self, project: dict, chat: str, kind: str, text: str, reply_to=None) -> bool:
         """The next update of a chat that has a question open: when it is a plain line (or a reply gesture) that answers it, it is handled here (True); any other
@@ -161,14 +189,28 @@ class Reminders:
         or asked about another project, is already forgotten."""
         bridge = self.bridge
         draft = self.drafts.pop(chat, None)
-        if draft is None or kind not in ("text", "natural", "reply") or text.lstrip().startswith("/"):
+        if draft is None:
             return False
         if draft["project"] != project["id"] or bridge.monotonic() - draft["at"] > DRAFT_SECONDS:
+            self.expired[chat] = draft["at"] + DRAFT_SECONDS
+            return self.late(project, chat, kind, text) if draft["project"] == project["id"] else False
+        if self.finish(project, chat, draft, kind, text, reply_to):
+            return True
+        self.discarded.add(chat)          # the line does not answer the question: a question it asks says the previous one was discarded
+        return False
+
+    def finish(self, project: dict, chat: str, draft: dict, kind: str, text: str, reply_to) -> bool:
+        """Whether `text` answers `draft` (it then has been handled)."""
+        bridge = self.bridge
+        if kind not in ("text", "natural", "reply") or text.lstrip().startswith("/"):
             return False
         if reply_to and reply_to != draft.get("message_id"):          # a reply to another message is not the answer to this question
             return False
         if draft["need"] == "eventorother":
             chosen = natural.answer_kind(text)
+            if chosen is None and draft.get("retries", 0) < 1 and natural.short_answer(text):
+                self.ask_event(project, chat, draft["line"], retries=1)          # a short reply that is neither: asked once more
+                return True
             if chosen == "event":
                 self.not_built(project, chat)
             elif chosen == "other":
@@ -194,6 +236,9 @@ class Reminders:
             bridge.reply(chat, phrases.text("NT_CANCELLED", cfg), project)
         elif done.get("event"):
             bridge.reply(chat, phrases.text("NT_CALENDAR_NOT_BUILT", cfg), project)
+        elif done.get("forget"):
+            for number in done["forget"]:
+                self.forget(project, chat, number)
         elif "ask" in done:
             self.ask(project, chat, done["ask"], how)
         else:
@@ -226,12 +271,16 @@ class Reminders:
             sentence = phrases.text("NT_ASK_READINGS", cfg, options=options)
         elif need == "text":
             sentence = phrases.text("NT_ASK_TEXT", cfg)
+        elif need == "again":
+            sentence = phrases.text("NT_ASK_AGAIN", cfg)
+        elif need == "weekday":
+            sentence = phrases.text("NT_ASK_WEEKDAY", cfg)
+        elif need == "forget":
+            sentence = draft["sentence"]
         else:
             when = natural.capital(natural.describe(draft["readings"][0], cfg))
             sentence = phrases.text("NT_ASK_KIND_TEXT", cfg, when=when, text=draft["text"]) if with_text else phrases.text("NT_ASK_KIND_COUNT", cfg, when=when)
-        bridge.last_message.pop(chat, None)
-        bridge.reply(chat, sentence, project)
-        self.drafts[chat] = {**draft, "project": project["id"], "at": bridge.monotonic(), "message_id": bridge.last_message.get(chat)}
+        self.question(project, chat, sentence, draft)
 
     def listing(self, project: dict, chat: str) -> bool:
         """`/reminders`: the sender's own that wait, and the ones that did not go out lately, each with its moment as a person reads it, in the project's
@@ -268,6 +317,57 @@ class Reminders:
             bridge.reply(chat, bridge.attach.phone(e, project), project)
             return
         self.forgot(project, chat, done)
+
+    def forget_confirm(self, project: dict, chat: str, numbers: list) -> None:
+        """"Cancel reminder of 3", "cancel reminders 1 and 2": a number that is not written as an explicit id is shown with what it names, and cancelled only on a
+        "yes". Each reminder is checked under the sender's own policy (a number that is not theirs is answered as one that does not exist)."""
+        bridge = self.bridge
+        shown = []
+        for number in numbers:
+            try:
+                shown.append(bridge.run_op(project, "reminder-forget", sender=chat, reminder_id=number, preview=True))
+            except (bridge.Refused, bridge.ops.OpsError) as e:
+                bridge.reply(chat, bridge.attach.phone(e, project), project)
+                return
+        self.ask_forget(project, chat, shown)
+
+    def forget_at(self, project: dict, chat: str, at: str) -> None:
+        """"Cancel the 9 o'clock reminder": the sender's reminders due at that hour; the one found is shown and confirmed, several are listed and asked, none is said."""
+        bridge = self.bridge
+        try:
+            done = bridge.run_op(project, "reminder-forget", sender=chat, at=at)
+        except (bridge.Refused, bridge.ops.OpsError) as e:
+            bridge.reply(chat, bridge.attach.phone(e, project), project)
+            return
+        if done.get("none"):
+            bridge.reply(chat, phrases.text("NT_NO_MATCH", bridge.cfg(project)), project)
+        elif done.get("choose"):
+            if self.listing(project, chat):
+                bridge.reply(chat, phrases.text("NT_WHICH", bridge.cfg(project)), project)
+        else:
+            self.ask_forget(project, chat, [done])
+
+    def ask_forget(self, project: dict, chat: str, shown: list) -> None:
+        """Ask "cancel it?" with what would be cancelled (its moment and, in text mode, its words), and keep the numbers for the answer."""
+        bridge = self.bridge
+        cfg = bridge.cfg(project)
+        settings = bridge.settings(project)
+        with_text = settings is None or settings["notices"] == "text"
+
+        def one(done):
+            when = natural.describe(done["human"], cfg, done["human"]["zone"])
+            row = done["preview"]
+            return f"#{row['id']} {when}" + (f": {row['text']}" if "text" in row and with_text else "")
+        numbers = [done["preview"]["id"] for done in shown]
+        if len(shown) == 1:
+            row, when = shown[0]["preview"], natural.describe(shown[0]["human"], cfg, shown[0]["human"]["zone"])
+            if "text" in row and with_text:
+                sentence = phrases.text("NT_ASK_FORGET_TEXT", cfg, id=row["id"], when=when, text=row["text"])
+            else:
+                sentence = phrases.text("NT_ASK_FORGET_COUNT", cfg, id=row["id"], when=when)
+        else:
+            sentence = "\n".join([phrases.text("NT_ASK_FORGET_MANY", cfg)] + [one(done) for done in shown])
+        self.question(project, chat, sentence, {**natural._draft("forget", "trigger", "", ""), "ids": numbers, "sentence": sentence})
 
     def forgot(self, project: dict, chat: str, done: dict) -> None:
         """The reply to a reminder just cancelled: what it was (its moment and, in text mode, its words) and how to get it back."""

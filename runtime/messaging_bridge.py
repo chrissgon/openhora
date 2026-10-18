@@ -647,8 +647,13 @@ class Bridge(shell_kit.Jobs):
         if kind == "natural" and replied and self.ledger.by_message(chat, replied):          # a reply to a card answers THAT card, not a reminder (NR-1)
             intent = {"kind": "reply", "reply_to": replied, "text": update.get("text") or ""}
             kind = "reply"
-        if kind != "action" and chat in self.remind.drafts and self.remind.answer(project, chat, kind, update.get("text") or "", replied):
-            return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line
+        self.remind.discarded.discard(chat)
+        if kind != "action":
+            if chat in self.remind.drafts:
+                if self.remind.answer(project, chat, kind, update.get("text") or "", replied):
+                    return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line
+            elif chat in self.remind.expired and self.remind.late(project, chat, kind, update.get("text") or ""):
+                return          # a "yes" to a question that expired is told so (NR-1)
         if kind == "attachment":
             self.attach.arrived(project, chat, intent)
         elif kind in ("add", "discard"):

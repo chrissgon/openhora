@@ -212,6 +212,13 @@ TABLE = {
     "NT_CONFIRM_COUNT": "Entendi: {when}. Confirma? (sim / outra hora)",
     "NT_RECURRING": "Um lembrete aqui acontece uma vez. O que se repete é uma rotina: configure no terminal ou na página. Para um lembrete único, diga quando.",
     "NT_CANCELLED": "Certo, nenhum lembrete foi criado.",
+    "NT_ASK_AGAIN": "Para quando? Responda com o dia e a hora, por exemplo amanhã às 13h.",
+    "NT_ASK_WEEKDAY": "Qual dia da semana que vem? Responda com o dia da semana, por exemplo terça.",
+    "NT_ASK_FORGET_TEXT": "Cancelar o lembrete #{id}: {when}: {text}? (sim / não)",
+    "NT_ASK_FORGET_COUNT": "Cancelar o lembrete #{id}: {when}? (sim / não)",
+    "NT_ASK_FORGET_MANY": "Cancelar estes lembretes? (sim / não)",
+    "NT_EXPIRED": "Essa pergunta não está mais aberta: ela espera dez minutos. Envie a frase de novo.",
+    "NT_DISCARDED": "A pergunta anterior foi descartada.",
     # --- the conversation ---
     "PLAN_NEXT": "Aprove com /approve {pending}",
     "ASK_NEXT": "Responda com uma mensagem comum ou recomece com /new <text>",

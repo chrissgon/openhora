@@ -255,6 +255,13 @@ TABLE = {
         "NT_CONFIRM_COUNT": "I understood: {when}. Confirm? (yes / another time)",
         "NT_RECURRING": "A reminder here happens once. Something that repeats is a routine: set it up in the terminal or on the page. For a single reminder, tell me when.",
         "NT_CANCELLED": "Ok, no reminder was made.",
+        "NT_ASK_AGAIN": "For when? Reply with a day and a time, for example tomorrow at 1 pm.",
+        "NT_ASK_WEEKDAY": "Which day next week? Reply with the weekday, for example Tuesday.",
+        "NT_ASK_FORGET_TEXT": "Cancel reminder #{id}: {when}: {text}? (yes / no)",
+        "NT_ASK_FORGET_COUNT": "Cancel reminder #{id}: {when}? (yes / no)",
+        "NT_ASK_FORGET_MANY": "Cancel these reminders? (yes / no)",
+        "NT_EXPIRED": "That question is no longer open: it waits ten minutes. Send the line again.",
+        "NT_DISCARDED": "The previous question was discarded.",
         # --- the conversation (ops_say.py) ---
         "PLAN_NEXT": "Approve with /approve {pending}",
         "ASK_NEXT": "Answer with a plain line, or start again with /new <text>",
