@@ -177,7 +177,7 @@ def test_bands_from_a_status_file_in_the_gate_file_order(tree, tmp_path):
 
 def test_bands_from_a_proof_file_carry_their_source(tree, tmp_path):
     proof = tmp_path / "proof.json"
-    proof.write_text(json.dumps({"version": 4, "skills": {"biz-demo": {"pairs": [
+    proof.write_text(json.dumps({"version": catalog.PROOF_VERSION, "skills": {"biz-demo": {"pairs": [
         {"model": "model-cheap", "band": "reliable", "runs": 6, "source": "community"},
         {"model": "model-strong", "band": "needs a test", "runs": 0, "source": None}]}}}), encoding="utf-8")
     done = run("--root", tree, "--proof", proof, "--date", DATE)

@@ -62,7 +62,7 @@ DOES_MAX = 200
 MANIFEST_KEYS = ("skill", "documents", "machine_files", "mandatory_milestone", "asking_openings", "gate")
 ROUTING = os.path.join("skills", "core-orchestrator", "references", "routing.md")
 NAME = re.compile(r"[a-z][a-z0-9-]*\Z")
-PROOF_VERSION = 4  # the version of the runtime's proof file (runtime/proof.py VERSION); a test compares the two
+PROOF_VERSION = 5  # the version of the runtime's proof file (runtime/proof.py VERSION); a test compares the two
 PREFIX_AREA = {"biz-": "business", "product-": "product", "brand-": "brand", "design-": "design", "eng-": "engineering",
                "ops-": "delivery", "mkt-": "marketing", "ai-": "ai", "core-": "core", "asst-": "assistant"}  # AGENTS.md table
 CATCH_ALL_PACKS = ("default", "all")  # runtime/plan.py CATCH_ALL_PACKS: a test compares the two
