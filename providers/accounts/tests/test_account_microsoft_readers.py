@@ -136,7 +136,7 @@ def test_a_reader_works_with_the_account_record_alone_and_says_which_record_it_u
     assert code == 0 and out is not None, stderr
 
 
-def test_a_reader_sends_get_requests_only_to_graph_with_the_account_token(case):
+def test_limit_58_a_reader_sends_get_requests_only_to_graph_with_the_account_token(case):
     """The readers send GET only (and the token POST), whatever the token could do."""
     case.accept_account_token()
     assert case.run(*case.command, account=case.account_record())[0] == 0

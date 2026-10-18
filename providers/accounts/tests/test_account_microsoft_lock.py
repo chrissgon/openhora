@@ -325,5 +325,5 @@ def test_the_write_steps_of_an_authorization_and_of_forget_take_the_lock(state, 
     store = Store()
     profile = msgraph.account_profile(run_hint="x", env_prefix="ACCOUNT_MICROSOFT", user_agent="t", not_found="n", forbidden_hint="f")
     msgraph.write_record(profile, store, "text")
-    msgraph.delete_record(profile, store)
+    msgraph.forget_record(profile, store)
     assert len(taken) == 2 and store.values == {}

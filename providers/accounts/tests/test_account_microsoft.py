@@ -234,7 +234,7 @@ def test_only_a_plain_address_is_kept_as_the_accounts_name(value, kept):
 # --- the static facts the limits rest on ----------------------------------------------------------------------------------------------
 
 
-def test_the_graph_client_and_the_three_readers_send_no_write_method_to_graph():
+def test_limit_58_the_graph_client_and_the_three_readers_send_no_write_method_to_graph():
     shared = (PROVIDERS / "_msgraph.py").read_text(encoding="utf-8")
     for method in ("PUT", "PATCH", "DELETE"):
         assert f'"{method}"' not in shared and f"'{method}'" not in shared, method

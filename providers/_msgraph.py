@@ -41,7 +41,7 @@ in a run). The legacy functions above keep their behaviour; the account ones are
   profile_of                         which profile a record belongs to (one read from the account's secret is an AccountRecord), for the refresh and the write-back
   authorize_account, check_account   the commands of providers/accounts/microsoft_auth.py (its `forget` is `forget` above)
   record_lock                        every write to a Microsoft record in the secret store (rotation, authorization, forget) is one step per
-                          process and, with fcntl, one advisory file lock per user across processes (write_record, delete_record)
+                          process and, with fcntl, one advisory file lock per user across processes (write_record, forget_record)
 
 Standard library only (the OS secret store is reached through the `keyring` package a provider imports, never here). Runs on Python 3.9.
 """
@@ -587,7 +587,7 @@ def write_record(profile: Profile, store, text: str) -> None:
         store.set_password(profile.keyring_service, profile.keyring_username, text)
 
 
-def delete_record(profile: Profile, store) -> None:
+def forget_record(profile: Profile, store) -> None:
     """Delete the profile's record, under the lock."""
     with record_lock():
         store.delete_password(profile.keyring_service, profile.keyring_username)
@@ -946,7 +946,7 @@ def forget(profile: Profile, provider) -> int:
     _, _, _, test_mode = provider.endpoints()
     store = provider.keyring_module(test_mode)
     try:
-        delete_record(profile, store)
+        forget_record(profile, store)
         forgotten = True
     except ProviderError:
         raise
