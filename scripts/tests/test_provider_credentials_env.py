@@ -44,6 +44,13 @@ def test_the_two_variables_that_name_the_credentials_directory_pass_and_no_secre
     assert SENTINEL not in json.dumps(got)
 
 
+def test_the_interpreter_a_scheduled_job_pins_passes_to_a_provider_process():
+    """UV_PYTHON names an interpreter and carries no secret: a provider started through uv run keeps the pin (F2-C)."""
+    env = {"PATH": "/bin", "UV_PYTHON": "/opt/py/python3.12", "VCS_GITHUB_TOKEN": SENTINEL}
+    assert resolve.provider_environment("generator:image", env) == {"PATH": "/bin", "UV_PYTHON": "/opt/py/python3.12"}
+    assert resolve.provider_environment("generator:image", {"PATH": "/bin"}) == {"PATH": "/bin"}
+
+
 @pytest.mark.skipif(not hasattr(os, "getuid"), reason="the credentials directory checks owners")
 def test_a_provider_process_finds_a_credentials_directory_that_only_the_variable_names(tmp_path):
     folder = credentials_folder(tmp_path)

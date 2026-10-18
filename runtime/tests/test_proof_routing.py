@@ -294,7 +294,7 @@ def test_the_proof_file_is_rebuilt_when_the_evidence_or_the_gate_file_changed(fa
     first = proof.row(cfg, "demo")
     assert proof.row(cfg, "demo") == first and facade["calls"] == 1
     saved = json.loads((Path(cfg["data_dir"]) / "proof.json").read_text(encoding="utf-8"))
-    assert saved["version"] == proof.VERSION == 4 and saved["skills"]["demo"]["inputs_sha256"] == "inputs-1"
+    assert saved["version"] == proof.VERSION == 5 and saved["skills"]["demo"]["inputs_sha256"] == "inputs-1"
     assert [p["model"] for p in first["pairs"]] == ["cheap", "dear", "free"]  # one pair for each model the gate file lists
     assert first["pairs"][2]["band"] == "needs a test" and first["pairs"][2]["runs"] == 0 and first["pairs"][2]["source"] is None
     assert first["pairs"][0]["usage_mean"] == USAGE and first["pairs"][0]["names"] == ["cheap"]

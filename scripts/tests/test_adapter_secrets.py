@@ -42,10 +42,14 @@ BEFORE = {
     "GMAIL_CLIENT_SECRET": ((), "gmail-client-secret", ("providers/mailbox/auth.py", "providers/mailbox/gmail.py")),
     # The platform's token joined the core registry on 2026-10-06 (stage 3 of the platform plan, WP-3.10).
     "NOTION_TOKEN": ((), "notion", ("providers/issue-tracker/notion.py", "providers/documents/notion.py")),
+    # G1 (SPEC-SECRETARY-INTEGRATIONS): the person's Google calendar as a source; one record of its own (token, client), two read scopes.
+    "GOOGLE_CALENDAR_TOKEN": ((), "calendar-google", ("providers/calendar/google.py", "providers/calendar/google_auth.py")),
     # Decision D13 and secret S7 of the delegation plan (P4): the read-only token of the pages chosen as sources, never the one that writes.
     "NOTION_SOURCES_TOKEN": ((), "notion-sources", ("providers/documents/notion.py",)),
     # P7: the Google Drive files the person picked as sources; one record (token, client, Picker key), scope drive.file.
     "GDRIVE_SOURCES_TOKEN": ((), "gdrive-sources", ("providers/documents/gdrive.py", "providers/documents/gdrive_auth.py")),
+    # O1: the OneDrive files the person chose as sources; one record (refresh token, client id, tenant), scope Files.Read.
+    "ONEDRIVE_SOURCES_TOKEN": ((), "onedrive-sources", ("providers/documents/onedrive.py", "providers/documents/onedrive_auth.py")),
     "MESSENGER_TELEGRAM_BOT_TOKEN": ((), "messenger-telegram", ("providers/messenger/telegram.py",)),
     "MESSENGER_DISCORD_BOT_TOKEN": ((), "messenger-discord", ("providers/messenger/discord.py",)),
     "MESSENGER_WHATSAPP_CLOUD_TOKEN": ((), "messenger-whatsapp-cloud", ("providers/messenger/whatsapp-cloud.py",)),
