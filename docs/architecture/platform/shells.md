@@ -361,9 +361,7 @@ Every verb also takes `--project <dir>`. The parser is built from `terminal_verb
 | `/retry <task id>` | make a failed or blocked task ready again |
 | `/cancel <request id>` | cancel a request at any moment, even while a task of it runs: the run is ended and returns nothing, what it used so far is spent |
 | `/stop-task <task id>` | stop one running task: its run is ended and returns nothing, the task is blocked, and retry resumes it |
-| `/attachments` | the files people sent through a messaging app: those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder |
-| `/attachment-add <id>` | add a held file as a source of the project, or as the next version of the source it names: converted in a container with no network, scanned for credentials, kept as an immutable version with where it came from (never who sent it); the held file is deleted whatever the result |
-| `/attachment-discard <id>` | delete a held file without adding it |
+| `/attachments` | the files people sent through a messaging app (from a messaging app, only the ones you sent): those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder |
 | `/new <text>` | start a new request, whatever is open (--after <id> before the text: run it after that request) |
 <!-- /generated -->
 

@@ -506,7 +506,13 @@ def test_the_converter_is_called_through_the_resolver_with_the_minimum_environme
         kind, reason = "not-configured", "the converter image is not built"
     with pytest.raises(sources.SourcesError) as refused:
         case.real_convert(case.cfg, call=lambda *a, **k: (_ for _ in ()).throw(Down()))("/in/file", "pdf", str(out))
-    assert refused.value.code == "convert" and "not built" in str(refused.value)
+    assert refused.value.code == "converter" and "not built" in str(refused.value), "the machine failing to run the converter is not the file's doing"
+
+    class Refused(Exception):
+        kind, reason, exit_code = "failed", "the conversion failed: error: the package holds macros", 4
+    with pytest.raises(sources.SourcesError) as refused:
+        case.real_convert(case.cfg, call=lambda *a, **k: (_ for _ in ()).throw(Refused()))("/in/file", "pdf", str(out))
+    assert refused.value.code == "convert", "the provider's exit 4 is the converter refusing the content"
     env = sources._provider_env(case.cfg, "converter:document", ("NOTION_SOURCES_TOKEN",))
     assert "ANTHROPIC_API_KEY" not in env and "PATH" in env
 

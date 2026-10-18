@@ -23,11 +23,13 @@ import itertools
 import json
 import os
 import queue
+import re
 import signal
 import sys
 import tempfile
 import threading
 import time
+import unicodedata
 from collections import deque
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -46,8 +48,13 @@ BACKOFF = (1.0, 300.0)             # the first wait before a restart and its cei
 RESET_AFTER = 600.0                # a provider ready this long has earned the first wait again
 MAX_STARTS = 200                   # starts per rolling window: a platform may reset a credential that connects too often
 START_WINDOW = 86400.0
+GONE_LINE = "gone"                 # the last non-empty line of stderr of a `fetch-attachment` that exits 1 for a reference the platform no longer serves
 FETCH_SECONDS = 150                # one fetch of an attachment (the provider's own limit is 120 s; the connect, the stream and the hash fit in the rest)
 ATTACHMENTS_MAX = 10               # elements of an update's `attachments`
+ATTACHMENT_NAME_MAX = 1024         # characters of a name an update may carry (the bridge cuts it to 100 for a person)
+ATTACHMENT_TYPE_MAX = 127          # a media type is `type/subtype` of at most 127 characters (RFC 6838)
+MEDIA_TYPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*")
+MEDIA_WORDS = ("photo", "voice", "video", "audio", "sticker")     # what a provider names a medium it has no media type for (attachments.MEDIA_KINDS)
 STDIN_WAIT, TERM_WAIT = 10.0, 5.0  # the stop: after stdin ends, then after SIGTERM, before SIGKILL
 UPDATE_QUEUE = 1000
 STDERR_TAIL = 300
@@ -101,8 +108,8 @@ class Messenger:
             return self.module.call(f"messenger:{self.platform}", verb, ["--platform", self.platform, *args], root=self.root,
                                     implementation=self.implementation, timeout=timeout)
         except self.module.ProviderCallError as e:
-            if verb == "fetch-attachment" and e.kind == "failed" and (e.stderr_tail or "").startswith("gone"):
-                raise MessengerError("gone", "the platform no longer serves the file") from None      # exit 1 with the word `gone` first on stderr (the resolver gives a failed verb's stderr tail, not its stdout)
+            if verb == "fetch-attachment" and e.kind == "failed" and getattr(e, "exit_code", None) == 1 and getattr(e, "stderr_last", None) == GONE_LINE:
+                raise MessengerError("gone", "the platform no longer serves the file") from None      # exit 1 and the LAST non-empty line of stderr is exactly `gone`
             raise MessengerError(e.kind, e.stderr_tail or e.reason) from None
 
     def capabilities(self) -> dict:
@@ -115,6 +122,8 @@ class Messenger:
             for key, kind in OPTIONAL_KEYS.items():
                 if key in found and type(found[key]) is not kind:
                     raise MessengerError("failed", f"capabilities has a {key} that is not a {kind.__name__}")
+            if found.get("max_attachment_bytes", 0) < 0:
+                raise MessengerError("failed", "capabilities has a max_attachment_bytes below 0")
             self._caps = {key: found[key] for key in CAPABILITY_KEYS}
             self._caps.update({key: found.get(key, kind()) for key, kind in OPTIONAL_KEYS.items() if kind is not bool})
             self._caps.update({key: found.get(key, False) for key, kind in OPTIONAL_KEYS.items() if kind is bool})
@@ -239,8 +248,28 @@ def valid_attachments(raw):
         size = item.get("size")
         if size is not None and (type(size) is not int or size < 0):
             return None
-        out.append({"ref": item["ref"], "name": item.get("name"), "size": size, "type": item.get("type")})
+        out.append({"ref": item["ref"], "name": clean_attachment_name(item.get("name")), "size": size, "type": clean_attachment_type(item.get("type"))})
     return out
+
+
+def clean_attachment_name(name):
+    """A name from a platform, as the bridge keeps it: control, format, separator and unassigned characters out (a bidirectional override cannot disguise an
+    extension), white space collapsed, at most ATTACHMENT_NAME_MAX characters; None for none or for a name that leaves nothing."""
+    if not isinstance(name, str):
+        return None
+    text = "".join(c if unicodedata.category(c) not in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp") else " " for c in name[:4 * ATTACHMENT_NAME_MAX])
+    return " ".join(text.split())[:ATTACHMENT_NAME_MAX] or None
+
+
+def clean_attachment_type(kind):
+    """A declared type, or None: `type/subtype` of at most ATTACHMENT_TYPE_MAX characters made of the characters a media type has (parameters after `;` are
+    dropped), or one of MEDIA_WORDS. Anything else is not a type: the bytes decide what the file is."""
+    if not isinstance(kind, str):
+        return None
+    word = kind[:ATTACHMENT_TYPE_MAX + 200].split(";", 1)[0].strip().lower()
+    if word in MEDIA_WORDS:
+        return word
+    return word if len(word) <= ATTACHMENT_TYPE_MAX and MEDIA_TYPE.fullmatch(word) else None
 
 
 class Run:

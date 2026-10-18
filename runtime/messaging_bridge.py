@@ -605,7 +605,7 @@ class Bridge(shell_kit.Jobs):
         except (Refused, self.ops.OpsError) as e:
             self.reply(chat, str(e))
             return
-        files = self.attach.waiting(project, chat)      # the files this sender sent that wait for an answer (their profile permits `attachments`), else None
+        files = self.attach.waiting(project, chat)      # this sender's own files that wait for an answer and have a card in this chat (their profile permits `attachments`), else None
         if not found:
             self.reply(chat, f"{project['name']}: nothing waits for you.")
             if files:
