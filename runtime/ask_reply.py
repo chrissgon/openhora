@@ -31,9 +31,10 @@ and this module reads only those lines and decides what is sent. A model's text 
      quoted passage (INSTRUCTION_MIN_WORDS words or more) that is in the copy of the source they name; every other line there is left
      out and flagged (AFTER_INSTRUCTIONS for a line of another form, INSTRUCTION_UNVERIFIED for one whose passage is not in its source).
      A line that is kept is written again by code, `[<id>] "<the passage>" (not followed)`: none of the model's other words reaches the person.
-  8. What is shown is cleaned (clean()): NFC, with every Unicode format character (Cf), every combining mark that has no precomposed letter
-     (Mn) and the default-ignorable code points (the combining grapheme joiner, the Hangul fillers, the variation selectors, the tag
-     characters) removed. A line that holds a text-direction control (U+202A to U+202E, U+2066 to U+2069, U+200E, U+200F, U+061C) is left
+  8. What is shown is cleaned (clean()): NFC, with every Unicode format character (Cf) and the default-ignorable code points (the combining
+     grapheme joiner, the Hangul fillers, the variation selectors, the tag characters) removed. The other combining marks (Mn) stay: the
+     vowel signs and the virama of Devanagari, the vowel marks of Thai and the accents with no precomposed letter are part of the words of
+     those languages. The imitation check (fold()) drops every combining mark, so that they cannot hide the form code writes. A line that holds a text-direction control (U+202A to U+202E, U+2066 to U+2069, U+200E, U+200F, U+061C) is left
      out and flagged BIDI_CONTROL, since such a character can make a line read differently from how it is stored.
 
 Code appends the footer: READ (each source and version read) and, when the run is not proven, UNPROVEN. The sentences are English
@@ -100,22 +101,22 @@ BIDI = re.compile("[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c]")
 IGNORABLE = frozenset([0x115F, 0x1160, 0x3164, 0xFFA0, 0x034F, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x180F])
 
 
-def ignorable(c: str) -> bool:
-    """A character the reader does not see or that only changes the one before it: format (Cf), combining marks (Mn) and the default-ignorable code points."""
+def invisible(c: str) -> bool:
+    """A character the reader does not see: format (Cf) and the default-ignorable code points. Never a combining mark that is part of a letter."""
     n = ord(c)
-    return (unicodedata.category(c) in ("Cf", "Mn") or n in IGNORABLE or 0xFE00 <= n <= 0xFE0F or 0xE0000 <= n <= 0xE0FFF)
+    return unicodedata.category(c) == "Cf" or n in IGNORABLE or 0xFE00 <= n <= 0xFE0F or 0xE0000 <= n <= 0xE0FFF
 
 
 def clean(text: str) -> str:
-    """The text as it may be shown: NFC, with every ignorable character removed (see the module's text, rule 8)."""
-    return "".join(c for c in unicodedata.normalize("NFC", str(text)) if not ignorable(c))
+    """The text as it may be shown: NFC, with every invisible character removed and the combining marks kept (see the module's text, rule 8)."""
+    return "".join(c for c in unicodedata.normalize("NFC", str(text)) if not invisible(c))
 
 
 def fold(text: str) -> str:
-    """A line as the check for an imitated quote reads it: NFKD, every ignorable character removed (format characters, combining marks, the
-    fillers and variation selectors), case folded, the look-alike letters of Cyrillic, Greek, Armenian, Cherokee and the Latin small
+    """A line as the check for an imitated quote reads it: NFKD, every invisible character and every combining mark removed (format characters,
+    the fillers, the variation selectors), case folded, the look-alike letters of Cyrillic, Greek, Armenian, Cherokee and the Latin small
     capitals read as Latin."""
-    plain = "".join(c for c in unicodedata.normalize("NFKD", str(text)) if not ignorable(c))
+    plain = "".join(c for c in unicodedata.normalize("NFKD", str(text)) if not invisible(c) and unicodedata.category(c) != "Mn")
     return plain.casefold().translate(CONFUSABLES)
 
 

@@ -2639,11 +2639,14 @@ def answer_run_start(conn: sqlite3.Connection, request_id: int | None = None, *,
     return {"run_id": run_id, "request_id": request_id, "started_at": now}
 
 
-def answers_abandoned_cancel(conn: sqlite3.Connection) -> list:
+def answers_abandoned_cancel(conn: sqlite3.Connection, router_skill: str) -> list:
     """Cancel, by `code:answer-failed`, the questions an ask left behind when its process died: a request that code made as a question
-    (its title is ANSWER_TITLE and its number, which answer_run_start writes in the transaction that makes the request), with no task, in
-    the state `requested`, that has runs, none running (the recovery has ended the run). A request a person made, with the router's runs
-    under whatever skill name the checkout has, is never one; one whose run is still running is not touched. Returns the ids cancelled."""
+    (its title is ANSWER_TITLE and its number, which answer_run_start writes in the transaction that makes the request) AND that has no run of
+    the router's skill (`router_skill`), with no task, in the state `requested`, that has runs, none running (the recovery has ended the
+    run). Both are needed: a person's request that is called "Question 5" has the router's runs, and a request with a router run under a
+    skill name this checkout no longer has is not called "Question N" by code. One whose run is still running is not touched. Returns
+    the ids cancelled."""
+    router_skill = text_arg(router_skill, "router_skill", LABEL_MAX)
     now = iso(utcnow())
     cancelled = []
     with write(conn):
@@ -2652,7 +2655,7 @@ def answers_abandoned_cancel(conn: sqlite3.Connection) -> list:
             if conn.execute("SELECT 1 FROM tasks WHERE parent_id = ?", (row["id"],)).fetchone():
                 continue
             runs = conn.execute("SELECT id, skill, status FROM task_runs WHERE task_id = ?", (row["id"],)).fetchall()
-            if not runs or any(r["status"] == "running" for r in runs):
+            if not runs or any(r["status"] == "running" or r["skill"] == router_skill for r in runs):
                 continue
             _cancel_request(conn, row["id"], ANSWER_FAILED_BY, now)
             cancelled.append(row["id"])
