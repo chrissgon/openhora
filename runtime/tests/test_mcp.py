@@ -187,7 +187,8 @@ def test_every_read_tool_returns_what_the_operation_returned_with_the_arguments_
         before = len(world.fake.calls)
         found = result_of(tool(world.server, name, arguments))
         assert found == {"answer": name, "text": "line one\nline two with a   separator"}, name
-        assert world.fake.calls[before:] == [(operations.by_name(name)["call"], path, arguments)], name
+        expected = {**arguments, "channel": "mcp"} if name == "conversation" else arguments      # the answer to a /ask is shown by the channel that reads (L50)
+        assert world.fake.calls[before:] == [(operations.by_name(name)["call"], path, expected)], name
     # an optional argument that was left out is not passed
     world.fake.calls.clear()
     result_of(tool(world.server, "pending"))
@@ -326,7 +327,7 @@ def test_say_is_called_as_the_channel_mcp_and_the_client_cannot_change_it(world)
     [(_, _, kwargs)] = world.fake.named("say")
     assert kwargs == {"text": "hello", "channel": "mcp"}
     assert "mcp" not in ops.EFFECT_CHANNELS  # the rule of the operations layer, which this shell does not restate
-    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "answer", "release", "approve", "reject", "retry", "cancel", "stop-task", "set-mode", "set-model", "give-consent", "dispatch", "say", "source-add", "attachments", "attachment-hold", "attachment-add", "attachment-discard", "instructions-set",
+    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "answer", "release", "approve", "reject", "retry", "cancel", "stop-task", "set-mode", "set-model", "give-consent", "dispatch", "say", "ask", "conversation", "source-add", "attachments", "attachment-hold", "attachment-add", "attachment-discard", "instructions-set",
                                                                                          "instructions-add", "routine-create", "routine-change"]
     assert "mcp" not in operations.by_name("approve")["channels"]
     # set-mode takes the channel (R4-C3) to refuse `accept` from any but the terminal; it has no tool and no chat command

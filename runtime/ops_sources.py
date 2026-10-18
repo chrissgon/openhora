@@ -54,7 +54,12 @@ CODES = {"usage": 2, "folder": 3, "path": 3}   # every other SourcesError is a r
 
 
 class SourcesRefused(Exception):
-    """A task cannot receive its sources now: the message says why and what the person does about it."""
+    """A task cannot receive its sources now: the message says why and what the person does about it. `code` is the machine word of
+    the refusal (sources.SourcesError.code: integrity, unattended, missing, ...), None for one that has none."""
+
+    def __init__(self, message: str, code=None):
+        super().__init__(message)
+        self.code = code
 
 
 def _refused(error: "sources.SourcesError") -> "core.OpsError":
@@ -427,7 +432,7 @@ def copies_for(ctx: dict, task: dict, prepared_dir: str, unattended: bool) -> di
     try:
         got = sources.task_copies(ctx, task, prepared_dir, unattended=unattended, evidence_base=_evidence_base())
     except sources.SourcesError as e:
-        raise SourcesRefused(str(e)) from None
+        raise SourcesRefused(str(e), e.code) from None
     except core.OpsError as e:
         raise SourcesRefused(str(e)) from None
     return {**got, "lines": prompt_lines(got["records"])}

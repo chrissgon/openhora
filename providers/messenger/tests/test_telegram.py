@@ -74,7 +74,7 @@ def test_capabilities_need_no_token_and_no_call(monkeypatch, capsys):
     caps = json.loads(out)
     assert code == 0 and caps["max_text"] == 4096 and caps["buttons"] is True and caps["lists"] is False
     assert set(caps) == {"max_text", "buttons", "max_buttons", "max_button_label", "lists", "max_list_rows", "url_buttons",
-                         "reply_context", "documents"}
+                         "reply_context", "documents", "attachments", "max_attachment_bytes"}
 
 
 def test_receive_maps_a_message_and_a_callback_query_and_skips_the_rest(monkeypatch, capsys):

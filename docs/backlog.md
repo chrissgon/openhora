@@ -316,6 +316,22 @@ Decided on 2026-09-29: the skills for a personal brand, then an agent from this 
   - From: SPEC-IMPORT.md, open question 4, decided 2026-10-17 as recommended: make it with the next battery (principle 12).
   - Done when: the skill's change is made and its partial test and guard cases have run.
 
+## Answers from the sources
+
+From the decisions of 2026-10-17 (`SPEC-ANSWER-FROM-SOURCES`, package AQ-1 built): `/ask <question>` answers from the converted text of the project's sources, with a stand-in skill in the tests and, in a real checkout, "no skill answers yet".
+
+- [ ] **AQ2. Skill `asst-answer` (the skill AQ-1 runs).** Written only from the maintainer's real questions, never from generic knowledge (`AGENTS.md`, "Adding a skill"; `core-skill-creator`).
+  - What: the maintainer's file `.workbench-local/answer-cases.md` in the secretary project (at least 10 questions with the source and exact passage and the expected answer, 2 whose answer is in no source, 1 that needs two sources), a hand pilot he marks right, wrong or invented, then `skills/asst-answer/` (area assistant; no input, output, update, requirement or side effect; the external-content line; a whole runtime manifest) and at least 6 fictional cases whose prompts are `ops_ask.ASK_TASK_TEXT` byte for byte (a test compares them, like `test_social_task_text.py`), the key `answer` in `runtime/roles.json` and `assistant` in `packs_in_use`.
+  - Done when: `--check-cases` passes, the task-text test passes, and its first full test passes (24 runs on the reference models, or in the next battery); until then an answer carries the `Unproven` footer.
+- [ ] **AQ3. Plain lines routed to answers (after AQ2, before the battery).** A plain question on a phone goes to the planner and gets a hint to send `/ask`; the router should route it to the answer skill itself, with its `Sources:` line, when the sender may ask.
+  - What: a row in `skills/core-orchestrator/references/routing.md` and one case (a Y change: its partial test is the 13 guard cases and the new case, 3 runs each); `ops_ask` run with the router's ids, without a plan, only when the sender may `ask`.
+  - Done when: the route to the answer skill opens no plan, and without the group a plan opens as today.
+- [ ] **LR1. The sentences of `/ask` in the project's language (package LR-1).** The sentences code adds to an answer, the refusals of `ops_ask` and `ask_reply` are English constants until the phrase table.
+  - What: when LR-1 translates them, the imitated-quote check of `ask_reply` (`imitates`, which compares a folded line with `quote [` and `checked quote`) must compare with the phrase table's words for the form code writes (`Checked quote`), in every language of the table, not with the English words alone, or a translated form could be imitated.
+  - Done when: a test imitates the translated form in each language of the table and the line is left out and flagged.
+- [ ] **AQ4. Chunking and retrieval for a source over 256 KiB.** A question reads at most 256 KiB of converted text and five sources. A larger source is answered only by a task; indexing waits for a real case.
+  - Done when: the maintainer has a real source that needs it, and the choice (chunks by heading, a local index, or the task) is decided on that case.
+
 ## Next skills
 
 What is built next is the maintainer's call, made when a real project needs it. Two rules decide it: a skill is written alongside a real task that needs it (a release for `ops-release`, a launch for `mkt-launch-plan`), never from generic knowledge; and the cheapest come first, the flows whose phases are all built. Details per skill are in [inventory.md](inventory.md), where each row that is not built says what it produces and reads.

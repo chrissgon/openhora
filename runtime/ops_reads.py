@@ -331,13 +331,16 @@ def drop_note(task: dict):
     return {"web": web, "takes": takes, "line": drop.WEB_LINE if web and takes else None}
 
 
-def conversation(project: str, conversation: str | None = ops_say.CONVERSATION, after: int | None = 0) -> dict:
+def conversation(project: str, conversation: str | None = ops_say.CONVERSATION, after: int | None = 0, channel: str | None = None,
+                 sender: str | None = None) -> dict:
     """The messages of a conversation whose id is above `after`, oldest first, at most MESSAGES_PAGE (the newest of
     them when more are waiting): {"conversation", "messages": [{"id", "role", "text", "task_id", "run_id",
     "created_at", "queued"}]}. There is one conversation per project and its name is CONVERSATION (an argument left out
     is the default). For an assistant message task_id is the request the turn made or answered. "queued" is true on
     a line of the person that was stored while a run was in progress and has no reply yet (runtime/ops_say.py, the
-    queue). Reads nothing else."""
+    queue). The answer to a `/ask` is in the conversation, stored with the id of its answer run, and is shown only to the channel that asked
+    (`channel`: the terminal, the page; on a messaging app only to the sender, `sender`): every other reader, the MCP mode always, and a call
+    that names no channel, gets "(answered from the sources: request <n>)" in its place (limit L50). Reads nothing else."""
     ctx = core.context(project)
     conversation, after = ops_say.CONVERSATION if conversation is None else conversation, 0 if after is None else after
     if isinstance(after, bool) or not isinstance(after, int) or after < 0:
@@ -347,8 +350,27 @@ def conversation(project: str, conversation: str | None = ops_say.CONVERSATION, 
     rows = core._stored(ctx, ctx["store"].messages_list, conversation, limit=MESSAGES_PAGE, after_id=after)
     keys = ("id", "role", "text", "task_id", "run_id", "created_at")
     queued = ops_say.queued_ids(ctx) if conversation == ops_say.CONVERSATION else set()
+    asker = importlib.import_module("ops_ask").asked_by
     return {"conversation": conversation,
-            "messages": [{**{key: row[key] for key in keys}, "queued": row["id"] in queued} for row in rows]}
+            "messages": [{**{key: row[key] for key in keys}, "text": _shown_text(ctx, row, asker, channel, sender), "queued": row["id"] in queued}
+                         for row in rows]}
+
+
+def _shown_text(ctx: dict, row: dict, asked_by, channel, sender) -> str:
+    """The text of a message for a reader: the message's own, except the reply to a `/ask` (an assistant message with the id of a run that is
+    not the router's), which is the person's document text and goes only to the channel that asked."""
+    if row["role"] != "assistant" or row["run_id"] is None:
+        return row["text"]
+    store, conn = ctx["store"], ctx["conn"]
+    try:
+        run = store.task_run_get(conn, row["run_id"])
+    except store.StoreError:
+        return row["text"]
+    if run["skill"] == router.ROUTER_SKILL:
+        return row["text"]
+    if asked_by(store.cursor_peek(conn, store.ASK_ACTOR_CURSOR.format(run=run["id"])), channel, sender):
+        return row["text"]
+    return ops_say.ANSWERED_AS.format(request=run["task_id"])
 
 
 def _scope(ctx: dict) -> list:
@@ -442,7 +464,7 @@ def costs(project: str, since: str | None = None) -> dict:
     source, the day they were read, their age and whether they are stale) and is None, never a guess, for a model with no price or a group with a run of unknown usage
     (unknown_runs counts them). A run whose key proxy could not count every answer is counted from what it did count, a
     lower bound, and lower_bound_runs counts such runs; the run's own report is never read in place of the proxy's count
-    (runtime/costs.py, metered_usage). A router run counts for the planning agent. The day is the local day."""
+    (runtime/costs.py, metered_usage). A router run counts for the planning agent, an answer run (ask) for the owner of the answer skill. The day is the local day."""
     ctx = core.context(project)
     cfg, store = ctx["cfg"], ctx["store"]
     if since is None:
@@ -458,11 +480,12 @@ def costs(project: str, since: str | None = None) -> dict:
         used = None
     folder = os.path.realpath(os.path.join(cfg["data_dir"], core.RUNS_DIR)) + os.sep
     runs = []
+    owners = importlib.import_module("ops_ask").run_owners(ctx)    # the agent a run whose task is a request counts against
     for task in core._stored(ctx, store.tasks_list):
         for run in core._stored(ctx, store.task_runs_list, task["id"]):
             agent = task.get("agent")
-            if agent is None and task["parent_id"] is None and run.get("skill") == router.ROUTER_SKILL:
-                agent = plan.PLANNING
+            if agent is None and task["parent_id"] is None:
+                agent = owners.get(run.get("skill"))
             where = run.get("run_dir")
             inside = isinstance(where, str) and os.path.realpath(where).startswith(folder)
             runs.append(dict(run, agent=agent, run_dir=where if inside else None))
