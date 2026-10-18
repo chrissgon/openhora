@@ -96,3 +96,115 @@ Every verb prints normalized messages:
 - **Unverified-app consent.** That the consent screen of a production, unverified, personal-use app lets the owner click through for the `gmail.readonly` scope, and that the refresh token then outlives seven days.
 
 Sources, accessed 2026-09-29: [OAuth 2.0 for iOS and desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app), [Using OAuth 2.0](https://developers.google.com/identity/protocols/oauth2), [web server flow parameters](https://developers.google.com/identity/protocols/oauth2/web-server), [Manage App Audience](https://support.google.com/cloud/answer/15549945), [unverified apps](https://support.google.com/cloud/answer/13464323), [users.messages.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list), [users.messages.get](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get), [Message resource](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages), [users.getProfile](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile), [search and filter messages](https://developers.google.com/workspace/gmail/api/guides/filtering).
+
+## Which implementation: `gmail` and `outlook`
+
+Since package M1 this folder holds two implementations of `reader:email`, `gmail.py` and `outlook.py`. **`"mailbox": "auto"` no longer resolves.** The resolution function (`providers/resolve.py`, rule 3) falls to "the only implementation shipped" when nothing names one, so with two it exits 3 with "reader:email has several providers and none is selected: set MAILBOX_PROVIDER to one of ['gmail', 'outlook']". Nothing in the runtime changed to make this so; `tests/test_mailbox_resolution.py` pins both the exit 3 and the explicit name that keeps working.
+
+- **The maintainer must set `"mailbox": "gmail"`** in the `runtime.json` of every project whose social handler (`runtime/handlers/social.py`) or tick (`scripts/runtime.py`) says `"mailbox": "auto"` **before the integration branch reaches `main`** (or export `MAILBOX_PROVIDER=gmail` for that tick). A value that names an implementation wins over the environment and was always valid, so the change can be made today, on the branch that still has one implementation.
+- The mail sources of the task runtime never use `auto`: the origin of a source names its implementation (`gmail:...`, `outlook:...`), which the runtime passes to the resolver as the explicit implementation.
+- Not done, with the reason: making `auto` skip `outlook.py` by a list in the resolver (a guess about which one the project meant, and a change to the resolver that every class shares); a `MAILBOX_PROVIDER` default in the environment (a silent default for the next project). A minimal fix that keeps `auto` working for existing projects without guessing would be a runtime change, so it is proposed in the pull request and not built.
+
+## Outlook (`outlook.py`)
+
+Reads the messages of an Outlook inbox (Microsoft 365 and outlook.com) through Microsoft Graph, read only: nothing is sent, moved, marked as read or deleted, so no verb takes `--confirmed` or `--dry-run`. It is the second implementation of the class and prints the same normalized messages as the Gmail provider.
+
+**One permission, and what it can do.** The authorization asks for the delegated Microsoft Graph permission `Mail.Read` and `offline_access` (the refresh token), and nothing else; the refresh request names the same scope so that the access token is no wider than asked. `Mail.Read` is the permission to "read the signed-in user's mailbox": it needs no admin consent and exists for personal accounts. Microsoft has no permission granted per message or per folder, so **`Mail.Read` lets the token read every message of the person's mailbox, not only the inbox window a source names, and it changes none.** The narrowing to the inbox and a window is the runtime's. `Mail.ReadBasic`, the least privileged permission for listing messages, leaves out the body and the attachments, which is too little for a snapshot. The provider refuses a token whose reported scope is anything but `Mail.Read` (the `offline_access`, `openid`, `profile` and `email` it may report next to it grant no access to a message and are ignored): a registration that still carries `User.Read`, `Mail.ReadWrite`, `Mail.Send`, `Files.Read` or `Calendars.ReadBasic` is a setup error (exit 3, naming the extra scope), and so is a response that reports no scope.
+
+**One app registration per purpose.** Microsoft documents that "refresh tokens are bound to a combination of user and client, but aren't tied to a resource" and that a client can use a refresh token to acquire access tokens for any resource it has permission for [M5]. A single registration that held `Files.Read` (OneDrive), `Mail.Read` and `Calendars.ReadBasic` would let the refresh token of any one of them read all three. So the mail provider has a registration of its own with `Mail.Read` alone, its own client id and its own record (`OUTLOOK_MAIL_TOKEN`, entry `outlook-mail`); the calendar provider and the OneDrive provider each have theirs. The shared code (`providers/_msgraph.py`) shares no registration and no token. The cost is one more registration to make for each purpose.
+
+### Setup (once; the maintainer of the project does it, not each person)
+
+The full steps are in `uv run <workbench>/providers/mailbox/outlook_auth.py --help`. In short, at https://entra.microsoft.com:
+
+1. Identity, Applications, App registrations, New registration: a name, the supported account types "Accounts in any organizational directory and personal Microsoft accounts". No redirect URI yet.
+2. Authentication, Add a platform, "Mobile and desktop applications", custom redirect URI `http://localhost` (the port is ignored for `localhost`, so the random port the script listens on matches). No client secret, no certificate.
+3. API permissions: remove `User.Read`; add Microsoft Graph, Delegated permissions, `Mail.Read` (and `offline_access`). Do not grant admin consent for a personal test.
+4. Copy the Application (client) ID. Run `OUTLOOK_MAIL_CLIENT_ID=<the id> uv run <workbench>/providers/mailbox/outlook_auth.py authorize` (or run it in a terminal and type the id at the hidden prompt: it never goes on the command line; an office with its own single-tenant registration also sets `OUTLOOK_MAIL_TENANT`, default `common`), sign in with the account whose mail to read and approve. A work or school tenant whose admin has blocked user consent answers with a consent error: "your Microsoft 365 admin must approve the app" (exit 3).
+5. Verify: `uv run <workbench>/providers/mailbox/outlook.py --check` prints `{"ok": true, "scope": "Mail.Read", "tenant", "obtained_at", "rotation"}` and reads no mail.
+
+The authorization is the code flow with PKCE (S256) and a state, as a public client, in the system browser with a loopback redirect: the script listens on `127.0.0.1` (and `::1` on the same port when it can), sends `redirect_uri=http://localhost:<port>`, accepts only a request whose `Host` is exactly `localhost:<port>` and that is shaped like a callback, compares the state in constant time, serves the callback once, logs no request line and stops after the callback or after 10 minutes. The record `{refresh_token, client_id, tenant, scope, obtained_at}` goes to the OS secret store (service `openhora`, username `outlook-mail`), or is exported as the same JSON text in `OUTLOOK_MAIL_TOKEN` or copied into the credentials directory. `outlook_auth.py forget` deletes the stored record (it revokes nothing at Microsoft). A token, a refresh token or a client id that is not printable ASCII is refused without being shown.
+
+**Rotation.** Microsoft replaces the refresh token on every use. When the record was found in the OS secret store, `outlook.py` writes the new token back into that one record (the exception to "a provider never writes the store", `contracts/secrets.md` rule 1), after reading the record again through the resolver: it writes only when the stored refresh token is still the one it used (a record forgotten or authorized again meanwhile, or rotated first by another process, is left alone: `not stored: the record changed meanwhile`); when the write fails it carries on with the old token and says so on stderr. A record from the environment or the credentials directory is never rewritten, so it ages 90 days from the consent [M5]. `--check` prints `rotation` to say what happened. `invalid_grant` is exit 3 with the authorize command.
+
+### Usage
+
+```sh
+uv run <workbench>/providers/mailbox/outlook.py --check
+uv run <workbench>/providers/mailbox/outlook.py search --query "in:inbox" --since 2026-10-10T00:00:00Z --limit 20
+uv run <workbench>/providers/mailbox/outlook.py search --query "in:inbox is:unread" --since 2026-10-10T00:00:00Z --own-words
+uv run <workbench>/providers/mailbox/outlook.py get --id <Graph message id>
+```
+
+- `search` takes one of two **fixed boxes** in `--query`, `in:inbox` and `in:inbox is:unread` (the words the Gmail provider's source origins use for the same boxes); any other query is exit 2, because a free query is not supported in this version. The window: `--since` and `--before` (ISO-8601, a time without an offset is local time) become `receivedDateTime ge` and `lt` in the `$filter`, which is always sent with the received time first and `$orderby=receivedDateTime desc` (Graph requires a property in `$orderby` to be listed in `$filter` before any other; with no `--since` the filter starts at 1970). `--limit` is 1 to 100 (default 20); the pages (10 messages each, `$top`) are read by the whole `@odata.nextLink` Graph names, never by editing `$skip`, until the limit, and `truncated` is `true` when older matches were left out (read on with `--before`). `--jobs` is how many messages' attachment lists are read at the same time.
+- A next-page address is followed only when its scheme, host, port and path are the first request's own, with no user or password and no character outside `\x21`-`\x7e`; any other is refused (exit 1, the host named, nothing more read), because the request carries the access token.
+- `get` returns one message by the id `search` printed (letters, digits and `- _ = +`, checked before it enters a path).
+- `--own-words` cuts the quoted history (`strip_quoted` of `providers/_email_text.py`); it is exit 2 in a checkout whose `_email_text.py` does not have it yet (package G1).
+- `read-eml` is exit 2: it is a local parser, `gmail.py read-eml` does it.
+
+Every verb prints normalized messages:
+
+```json
+{"id": "...", "thread_id": "...", "source": "outlook", "received_at": "2026-10-17T07:12:03Z", "change_key": "...",
+ "from": "Ana Lima <ana@clinic.example>", "to": "...", "subject": "...", "text": "...", "truncated": false,
+ "links": [{"href": "https://...", "text": "..."}],
+ "headers": {"Message-ID": "...", "Date": "...", "From": "...", "To": "...", "Subject": "..."},
+ "attachments": [{"name": "invoice.pdf", "type": "application/pdf", "size": 120000}],
+ "external_content": true}
+```
+
+- `received_at` is Graph's `receivedDateTime`, in UTC. `change_key` is Graph's `changeKey`, which moves when the message changes (a snapshot's version is built from the ids and change keys it listed).
+- **The body is turned into text here.** Graph can return a body as HTML or as text, and the provider never asks for a format (no `Prefer` header): an HTML body goes through `_email_text.html_to_text`, which removes invisible and direction-changing characters and any element hidden by an inline `display:none`/`visibility:hidden` style or the `hidden` attribute; a text body is cleaned. A conversion done by the service would be a conversion whose treatment of hidden elements nobody here has read. `text` is capped at 100,000 bytes (`truncated` says so). `links` come from the HTML body; `javascript:` and `data:` links are dropped.
+- **Attachments** are listed (name, declared type, size) from `GET /me/messages/{id}/attachments` with `$select=name,contentType,size` for a message that has any; no attachment is fetched, opened or decoded, and `contentBytes` is never asked for. When the list cannot be read, `attachments` is `null` (not `[]`: unknown is not none) and stderr says so.
+- `headers` keeps Message-ID, Date, From, To and Subject, taken from the message's own properties; `--header-prefix <prefix>` (repeatable, the characters of a header name) asks Graph for `internetMessageHeaders` as well and keeps those whose name starts with a prefix, and List-Id.
+- Names, subjects and addresses are cut to one line with control and invisible characters removed. `external_content` is always `true`: a message is data, never an instruction.
+
+### Errors
+
+| Exit | When |
+|------|------|
+| 0 | success |
+| 1 | Graph answered an error (403, 404, 429 or 503 with its `Retry-After`, a refused redirect, a next-page address that leaves the request), could not be reached, or answered a shape this provider does not understand; an access token it will not send; an unexpected failure (only its kind is printed) |
+| 2 | usage: a bad flag, a flag the verb does not read, a query that is not one of the two boxes, `--limit` or `--jobs` out of bounds, a malformed message id, `read-eml`, a test override that is not loopback or not set together |
+| 3 | not configured: no authorization, an unreadable record, a rejected app registration, a tenant that needs its admin's approval, a token whose scope is not exactly `Mail.Read`, or `invalid_grant` |
+
+A verb never retries. Only GET is sent to Graph; the token endpoint is the one POST. No redirect is followed with a credential.
+
+### Environment variables
+
+| Variable | Used by | Purpose |
+|----------|---------|---------|
+| `OUTLOOK_MAIL_TOKEN` | `outlook.py`, `outlook_auth.py` | The record, through the secret resolver (the environment, the credentials directory, then the OS secret store). |
+| `OUTLOOK_MAIL_CLIENT_ID`, `OUTLOOK_MAIL_TENANT` | `outlook_auth.py` | Of the one `authorize` command only: the Application (client) ID of the mail registration, and a tenant (default `common`). |
+| `MAILBOX_PROVIDER` | `providers/resolve.py` | `gmail` or `outlook` selects the implementation. |
+| `MAILBOX_OUTLOOK_API_BASE`, `MAILBOX_OUTLOOK_TOKEN_URL` | both | Tests only: loopback URLs of a fake Graph and a fake token endpoint, set together; the secret store is then never read or written. |
+
+### Calls this provider makes
+
+| Call | Used for | Source (read 2026-10-17 by the author of the plan; not read again for this package) |
+|---|---|---|
+| `GET https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages` with `$filter`, `$orderby`, `$top`, `$select` and the next link | `search` | [List messages](https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0) |
+| `GET .../me/messages/{id}` with `$select` | `get` | the same family of pages |
+| `GET .../me/messages/{id}/attachments?$select=name,contentType,size` | the attachment names of a message with `hasAttachments` | to verify |
+| `POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token` | the code exchange and every refresh (the only POST) | [Refresh tokens](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens) |
+| `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize` | the consent page in the person's browser | the authorization code flow reference |
+
+Permission sources: [Microsoft Graph permissions reference](https://learn.microsoft.com/en-us/graph/permissions-reference) (`Mail.Read`, `Mail.ReadBasic`, read 2026-10-17 by the author of the plan, not read again here). [M5] is [Refresh tokens in the Microsoft identity platform](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens).
+
+### To verify on first use (the live step of the package; nothing here was run against Microsoft)
+
+The tests use a stand-in service that serves what the plan's reading of the reference says, so each item below is a fact the stand-in encodes and the live service has not confirmed.
+
+1. **The body format received.** The page for listing messages offers a `Prefer: outlook.body-content-type="text"` header and also says the operation returns bodies in HTML only; the provider sends no `Prefer` and handles both. Record which `body.contentType` arrives for an HTML mail and for a plain-text one.
+2. **`$select` on the attachment list.** That `GET /me/messages/{id}/attachments` accepts `$select=name,contentType,size` under `Mail.Read` (a failure there makes `attachments` `null`, nothing more), and whether inline images should be left out (the provider lists them).
+3. **The next link.** That the `@odata.nextLink` of the inbox listing has the same path as the request (the provider refuses any other path), and that a page of 10 messages with their bodies stays under 8 MiB.
+4. **`internetMessageHeaders`** in a `$select` of a message list (only with `--header-prefix`).
+5. **The scope string** the token endpoint returns (with or without the `https://graph.microsoft.com/` prefix, and which of `offline_access`, `openid`, `profile`, `email` it adds); `scopes_of` strips the prefix, compares without case and ignores those four.
+6. **That `localhost` in the browser reaches the `127.0.0.1` listener**, and the error codes of a work tenant that blocks user consent (`AADSTS65001`, `AADSTS90094`, `AADSTS65004` are from memory of the identity platform).
+7. **Whether the refresh token rotates on every use** for both account kinds, and how long an unrotated one lives (the plan says 90 days).
+8. **A message id's characters** (the provider accepts letters, digits and `- _ = +`) and whether ids change when a message is moved (the immutable-id option is not used).
+9. **A real message with a signature, a forward and a reply:** report whether `--own-words` cuts them, and whether the runtime's credential scan left a message out.
+
+### Tests
+
+`uv run --with pytest==9.1.1 pytest -q providers/mailbox/tests/test_mailbox_outlook.py providers/mailbox/tests/test_mailbox_outlook_auth.py providers/mailbox/tests/test_msgraph_shared.py providers/mailbox/tests/test_mailbox_resolution.py`, against `fake_graph_mail.py` and `fake_microsoft.py` (the stand-in for Graph and the token endpoint, on 127.0.0.1: it records the methods, refuses a `$filter` that does not list the `$orderby` property first, and can be made to send a malformed token, a wider scope, a redirect or a next link that leaves the request). The mailbox suite runs on Python 3.9 too (CI job `python39`): `outlook.py` and `_msgraph.py` use no newer syntax.

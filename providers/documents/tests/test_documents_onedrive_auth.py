@@ -334,7 +334,7 @@ def test_a_session_with_no_callback_times_out_and_the_listener_stops():
 
 def test_the_session_is_ten_minutes_and_the_callback_logs_no_request_line():
     assert auth.SESSION_TIMEOUT_SECONDS == 600
-    handler_source = SCRIPT.read_text(encoding="utf-8")
+    handler_source = (REPO / "providers" / "_msgraph.py").read_text(encoding="utf-8")   # the handler moved into the shared module (package M1)
     assert "def log_message(self, *args):" in handler_source
 
 

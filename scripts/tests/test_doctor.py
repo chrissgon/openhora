@@ -150,6 +150,7 @@ def test_a_class_the_resolver_does_not_know_is_reported_as_unknown_without_a_tra
     """RS3: secrets_report raised UnknownClass for a class the resolution function did not have."""
     run_recorder(monkeypatch)
     monkeypatch.setitem(sys.modules, "keyring", None)  # the secrets report never reaches the OS secret store here
+    monkeypatch.setenv("MAILBOX_PROVIDER", "gmail")  # two readers ship since package M1: the class resolves once one is named
     declared = {"teleporter": ["eng-demo"], "reader:rss": ["eng-demo"], "store:runtime": ["eng-demo"],
                 "mailbox": ["mkt-demo"]}
     monkeypatch.setattr(doctor, "collect_requires", lambda: declared)

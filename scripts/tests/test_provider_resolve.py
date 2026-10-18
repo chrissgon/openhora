@@ -247,7 +247,12 @@ def test_cli_list_names_every_class_and_what_resolves(tmp_path):
 def test_this_checkout_resolves_what_it_ships():
     env = {}
     assert resolve.resolve("store:runtime", env=env)["implementation"] == "sqlite"
-    assert resolve.resolve("reader:email", env=env)["implementation"] == "gmail"
+    # Two readers ship since package M1 (gmail.py, outlook.py): nothing chooses one, so the class does not resolve until it is named
+    # (providers/mailbox/tests/test_mailbox_resolution.py pins the exit 3 and the sentence).
+    with pytest.raises(resolve.Unresolved) as several:
+        resolve.resolve("reader:email", env=env)
+    assert "MAILBOX_PROVIDER" in str(several.value)
+    assert resolve.resolve("reader:email", env={"MAILBOX_PROVIDER": "gmail"})["implementation"] == "gmail"
     assert resolve.resolve("integration:vcs", env=env)["implementation"] == "github"
     assert resolve.resolve("scheduler:job", env=env, platform="darwin")["implementation"] == "launchd"
     assert resolve.resolve("scheduler:job", env=env, platform="linux")["implementation"] == "systemd"
