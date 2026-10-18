@@ -51,7 +51,7 @@ def test_a_store_at_15_migrates_to_16_keeps_every_row_and_adds_the_language_colu
     before = {t: [tuple(r) for r in old.execute(f"SELECT * FROM {t} ORDER BY 1")] for t in ("tasks", "task_runs")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 15 and out["applied"] == [16, 17, 18, 19] and out["schema_version"] == 19
+    assert out["migrated_from"] == 15 and out["applied"] == [16, 17, 18, 19, 20] and out["schema_version"] == 20
     conn = store.open_db(path)
     after = {t: [tuple(r) for r in conn.execute(f"SELECT * FROM {t} ORDER BY 1")] for t in ("tasks", "task_runs")}
     assert after["task_runs"] == before["task_runs"]

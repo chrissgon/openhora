@@ -12,6 +12,9 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
   {"kind": "answer", "id": 12, "text": "..."}         /answer 12 <text>
   {"kind": "add", "id": 3} {"kind": "discard", "id": 3}   /add 3, /discard 3: the answer to the card of a file that was sent (the attachment's number)
   {"kind": "attachment", "attachments": [...], "text": "..."|None}   files sent (ATT-1), the caption in "text"; checked by messaging_provider.valid_attachments
+  {"kind": "remind", "when": "15:00", "text": "..."}  /remind <time> <text> (RM-1): the time as typed (HH:MM, YYYY-MM-DD HH:MM or in <n>m|h|d) and the words;
+                                                      the moment is worked out by the operation, with the clock
+  {"kind": "reminders"} {"kind": "forget", "id": 3}   /reminders, /forget <n>
   {"kind": "pending"} {"kind": "project", "name": ""} {"kind": "help"}
   {"kind": "reply", "reply_to": "<message id>", "text": "..."}   a reply to a message, not a command
   {"kind": "text", "text": "..."}                     anything else: a line for the planning agent (a command the
@@ -23,12 +26,20 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import reminders  # noqa: E402  (the same folder: the pure part of a reminder, which reads the words after /remind)
+
 USAGE = {"approve": "/approve <id>", "reject": "/reject <id> [note]", "release": "/release <id>", "answer": "/answer <id> <text>",
-         "add": "/add <n>", "discard": "/discard <n>"}
+         "add": "/add <n>", "discard": "/discard <n>", "forget": "/forget <n>"}
 HELP = ("Commands:\n/pending            what waits for you\n/approve <id>       approve what the last card of <id> showed\n"
         "/reject <id> [note] reject it\n/release <id>       release a delivery\n/answer <id> <text> answer a question\n"
         "/ask <question>     answer a question from the project's sources\n"
         "/add <n>            add a file you sent as a source\n/discard <n>        delete a file you sent\n"
+        "/remind <time> <text> a reminder sent back to you once (15:00, 2026-10-20 09:30 or in 2h)\n/reminders          the reminders that wait\n"
+        "/forget <n>         cancel a reminder\n"
         "/project [name]     choose the project your lines go to\n/help               this list\n"
         "Any other line goes to the planning agent. Which of these your project turns on is in its configuration "
         "(channels.messaging).")
@@ -49,7 +60,8 @@ def parse(update: dict) -> dict:
     if not text:
         return {"kind": "ignore"}
     if text.startswith("/"):
-        word, _, rest = text.partition(" ")
+        pieces = text.split(None, 1)       # the command word ends at any blank (a line end, a no-break space), so `/remind\n15:00 x` is a command and never a line for a model
+        word, rest = pieces[0], (pieces[1] if len(pieces) > 1 else "")
         name, rest = word[1:].split("@", 1)[0].lower(), rest.strip()
         if name in USAGE:
             number = _id(rest)
@@ -63,6 +75,14 @@ def parse(update: dict) -> dict:
             if name == "approve" and tail:
                 return {"kind": name, "id": number, "sha256": tail.split()[0].lower()}
             return {"kind": name, "id": number}
+        if name == "remind":
+            try:
+                when, body = reminders.split_line(rest)
+            except ValueError as e:
+                return {"kind": "usage", "text": str(e)}
+            return {"kind": "remind", "when": when, "text": body}
+        if name == "reminders":
+            return {"kind": "reminders"}
         if name == "pending":
             return {"kind": "pending"}
         if name == "project":
