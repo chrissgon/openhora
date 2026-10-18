@@ -240,6 +240,10 @@ TABLE = {
     "UNPROVEN": "Sem prova: {skill} não tem teste aprovado em {model}; confira a resposta com as citações.",
     "INSTRUCTIONS": "Instruções encontradas em conteúdo externo:",
     "EMPTY_REPLY": "(resposta vazia)",
+    # --- escritas nas contas da própria pessoa (pacote FND) ---
+    "ACCT_CARD_SENT": "O card #{pending} espera a sua aprovação.",
+    "ACCT_NOT_CONFIGURED": "A conta {account} não está configurada neste projeto: a chave accounts do runtime.json a lista, com o endereço e o que ela pode escrever.",
+    "CARD_ACCOUNT": "Conta: {account} ({address})",
 }
 
 STATUS = {

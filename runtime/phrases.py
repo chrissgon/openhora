@@ -39,6 +39,8 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
   status(word, cfg)           a status word of the store as a word of the language (the word itself when unknown or the language has no table)
   heading(title, cfg)         the title of a decision that code wrote whole, as a word of the language; any other title unchanged
   body(text, cfg)             the body of a decision that code wrote whole, in the language; any other body unchanged
+  card_valid(card)            whether a decision's `card` (a list of [key, {field: text}] lines, every key of the family CARD_) can be said line by line
+  card_text(card, cfg)        the lines of a valid card said in the project's language, one per line (the stored body of an effect that carries one is this in English)
 
 Standard library only. Runs on Python 3.9: python3 runtime/phrases.py --help
 """
@@ -280,6 +282,10 @@ TABLE = {
         "UNPROVEN": "Unproven: {skill} has no passing test on {model}; check the answer against the quotes.",
         "INSTRUCTIONS": "Instructions found in external content:",
         "EMPTY_REPLY": "(empty reply)",
+        # --- writes to the person's own accounts (package FND, runtime/account_start.py; the lines of each kind's card are CARD_, added with the kind) ---
+        "ACCT_CARD_SENT": "Card #{pending} waits for your approval.",
+        "ACCT_NOT_CONFIGURED": "The account {account} is not set up for this project: the key accounts of runtime.json lists it, with its address and what it may write to.",
+        "CARD_ACCOUNT": "Account: {account} ({address})",
     },
     "pt-BR": phrases_pt_br.TABLE,
 }
@@ -338,7 +344,7 @@ STATUS = {
 DEFAULT = language.DEFAULT
 HEADINGS = ("TITLE_",)      # the family of keys for the headings of a decision that code writes whole
 BODIES = ("BODY_",)         # ... and for a body that code writes whole, with nothing of a person's or a model's in it
-LOCALIZED = ("ATT_", "RM_")      # the families of keys `localize` knows by their English sentence
+LOCALIZED = ("ATT_", "RM_", "ACCT_")      # the families of keys `localize` knows by their English sentence
 VALUE_FAMILIES = ("ATT_REASON_", "ATT_SUBTYPE_")      # a field of such a sentence that is itself one of these English words is translated too
 VALUE_FIELDS = ("reason", "declared", "sniffed")      # ... but only in these fields: a file named `presentation` is not a word of the table
 NUMBER_FIELDS = ("size", "cap")                         # fields that hold a size written with a decimal point (`3.5 KiB`)
@@ -459,6 +465,42 @@ def localize(sentence, cfg=None):
             return decimal(value, cfg)
         return text(words[value], cfg) if name in VALUE_FIELDS and value in words else value
     return text(found[0], cfg, **{n: said(n, v) for n, v in found[1].items()})
+
+
+# --- the card of an effect, line by line (package FND) ---------------------------------------------------------------------------------------------------
+
+CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,40}")
+CARD_LINES_MAX = 300        # lines in one card
+
+
+def _fields_of(sentence: str) -> set:
+    return {name for _lit, name, _spec, _conv in string.Formatter().parse(sentence) if name}
+
+
+def card_valid(card) -> bool:
+    """Whether `card` is a well-formed card: a non-empty list of at most CARD_LINES_MAX pairs [key, {field: text}], every key of the family `CARD_` and in the
+    English table, every field a text, and the fields exactly the ones the English sentence of the key has. Anything else (a key outside the family, a field
+    that is not a text, a missing or an extra field) is no card, and `text` is never asked about it."""
+    if not isinstance(card, (list, tuple)) or not 0 < len(card) <= CARD_LINES_MAX:
+        return False
+    english = TABLE[DEFAULT]
+    for line in card:
+        if not isinstance(line, (list, tuple)) or len(line) != 2:
+            return False
+        key, fields = line
+        if not isinstance(key, str) or not CARD_FAMILY.fullmatch(key) or key not in english:
+            return False
+        if not isinstance(fields, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in fields.items()):
+            return False
+        if set(fields) != _fields_of(english[key]):
+            return False
+    return True
+
+
+def card_text(card, cfg=None) -> str:
+    """The lines of a valid card (card_valid) said in the project's language and joined by line ends. The values of the fields are the person's or a
+    service's own words and are never changed; with `cfg` None the text is English, which is what an effect stores as its body."""
+    return "\n".join(text(key, cfg, **fields) for key, fields in card)
 
 
 if __name__ == "__main__":
