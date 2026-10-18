@@ -373,7 +373,8 @@ def test_a_reply_to_a_questions_card_answers_that_decision_and_free_text_goes_to
     assert world.calls("answer_proposing")[1][2] == {"pending_id": 5, "text": "Another way", "channel": "messaging"}
 
 
-def test_a_second_model_call_during_the_first_gets_still_working(world):
+def test_a_second_model_call_during_the_first_is_queued_and_a_command_gets_still_working(world):
+    """BQ-1: a line that meets a busy project waits (runtime/tests/test_messaging_queue.py has the rest); a command never waits."""
     entered, release = threading.Event(), threading.Event()
 
     def slow(project, text, channel):
@@ -384,10 +385,12 @@ def test_a_second_model_call_during_the_first_gets_still_working(world):
     world.say("first")
     assert entered.wait(WAIT)
     world.say("second")
-    assert world.texts() == ["Still working on the last message."]
+    assert world.texts() == [bridge.QUEUED]
+    world.say("/progress")
+    assert world.texts() == [bridge.QUEUED, "Still working on the last message."]
     release.set()
-    assert wait_for(lambda: world.texts()[-1] == "Done thinking.")
-    assert len(world.calls("say")) == 1
+    assert wait_for(lambda: world.texts()[-2:] == ["Done thinking.", "Done thinking."])
+    assert [c[2]["text"] for c in world.calls("say")] == ["first", "second"]
 
 
 def test_a_run_in_progress_gets_its_sentence_and_every_reply_is_split_to_the_text_limit(world):
