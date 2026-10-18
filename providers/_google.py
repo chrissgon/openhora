@@ -146,15 +146,16 @@ def parse_account_record(text, error=AccountError) -> dict:
     except (ValueError, TypeError):
         record = None
     if not isinstance(record, dict) or not all(isinstance(record.get(k), str) and record[k] for k in RECORD_TEXTS):
-        raise error(f"the stored Google account authorization is unreadable or incomplete; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
+        raise error(f"the stored Google account authorization ({SECRET}, store username {KEYRING_USERNAME}) is unreadable or incomplete: it is "
+                    f"no older record takes its place; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
     for key in RECORD_TEXTS:
         if any(ch.isspace() or not ch.isprintable() for ch in record[key]):
-            raise error(f"the Google account authorization holds a {key} with whitespace or control characters; run: {AUTH_COMMAND}",
-                        EXIT_NOT_CONFIGURED)
+            raise error(f"the Google account authorization ({SECRET}, store username {KEYRING_USERNAME}) holds a {key} with whitespace or "
+                        f"control characters; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
     slot = record.get("slot", MAIN_SLOT)
     if slot != MAIN_SLOT:
-        raise error(f"the Google account authorization names the slot {one_line(slot, 20)!r}; only the slot {MAIN_SLOT!r} exists in this "
-                    f"version; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
+        raise error(f"the Google account authorization ({SECRET}, store username {KEYRING_USERNAME}) names the slot {one_line(slot, 20)!r}; "
+                    f"only the slot {MAIN_SLOT!r} exists in this version; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
     hold(*(record[k] for k in RECORD_TEXTS))
     out = {k: record[k] for k in RECORD_TEXTS}
     out["slot"] = MAIN_SLOT
@@ -189,7 +190,8 @@ def legacy_warning(username) -> None:
 
 def load_account_record(resolver, test_mode, slot=MAIN_SLOT, legacy=None, error=AccountError) -> Loaded:
     """The record a Google provider signs in with: the account record when there is one (an unreadable one is an error, not a reason to fall
-    back), else the provider's legacy record, else `error` (exit 3).
+    back: the legacy record is used only when the account record is ABSENT, and which record served is decided by the secret it was found
+    under), else the provider's legacy record, else `error` (exit 3).
 
     `legacy` is (username, loader, command) of that provider (`command`: the authorize command of its legacy record, named in the message
     when nothing is found): loader() returns (record, source) in the same shape as an account record (refresh_token,

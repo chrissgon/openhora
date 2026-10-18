@@ -207,6 +207,7 @@ def test_an_unreadable_account_record_is_an_error_and_never_a_reason_to_fall_bac
     with pytest.raises(Boom) as refused:
         google.load_account_record(resolver, False, legacy=legacy, error=Boom)
     assert refused.value.code == 3 and "unreadable or incomplete" in str(refused.value)
+    assert "GOOGLE_ACCOUNT_TOKEN" in str(refused.value) and "google-account" in str(refused.value), "the message names the record"
     assert capsys.readouterr().err == "", "no legacy warning: the legacy record was not used"
 
 

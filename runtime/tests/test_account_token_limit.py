@@ -74,13 +74,21 @@ def test_limit_59_the_converter_and_the_other_providers_are_given_no_account_tok
 
 
 def test_limit_59_the_environment_of_a_run_holds_no_account_token_whatever_the_model_passes(monkeypatch, tmp_path):
-    for name in (GOOGLE, MICROSOFT):
-        monkeypatch.setenv(name, json.dumps({"refresh_token": f"value-of-{name}", "client_secret": "fake-client-secret-not-real"}))
+    values = {GOOGLE: "fake-google-refresh-not-real-1a", MICROSOFT: "fake-microsoft-refresh-not-real-2b"}
+    for name, refresh in values.items():
+        monkeypatch.setenv(name, json.dumps({"slot": "main", "refresh_token": refresh, "client_id": "fake-client-id.example",
+                                             "client_secret": "fake-client-secret-not-real"}))
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
     passed = sorted({n for found in gate["models"].values() for n in found.get("pass_env", []) + found.get("web_pass_env", [])})
     assert not {GOOGLE, MICROSOFT} & set(passed), "no model's credential list names an account token"
-    env = lab.LAB.contained_env(str(tmp_path / "run-a"), tuple(passed))
-    assert not {GOOGLE, MICROSOFT} & set(env) and not any("value-of-" in v or "fake-client-secret-not-real" in v for v in env.values())
+    # The environment of a real run, built the way the lab builds it for every model and with every variable any model passes: first with
+    # nothing passed, then with the whole union (the account tokens are in this process's environment, so a leak would show).
+    for names in ((), tuple(passed)):
+        env = lab.LAB.contained_env(str(tmp_path / f"run-{len(names)}"), names)
+        text = json.dumps(env)
+        assert not {GOOGLE, MICROSOFT} & set(env), "neither account token name is in a run's environment"
+        for needle in (*values.values(), "fake-client-secret-not-real", "fake-client-id.example"):
+            assert needle not in text, f"{needle} is in a run's environment"
 
 
 def test_limit_59_the_account_token_is_registered_for_providers_only_and_under_its_own_store_name():

@@ -171,6 +171,7 @@ def test_an_unreadable_account_record_is_an_error_and_the_legacy_one_is_not_a_wa
     for bad in ("{broken", json.dumps({"refresh_token": "x"}), fake.record_json(slot="work")):
         done = run(reader, reader.verbs[0], {**base_env(tmp_path), **reader.endpoints(fake), **reader.legacy(fake), "GOOGLE_ACCOUNT_TOKEN": bad})
         assert done.returncode == 3 and "legacy" not in done.stderr
+        assert "GOOGLE_ACCOUNT_TOKEN" in done.stderr and "google-account" in done.stderr, "the error names the record"
     assert fake.requests == []
 
 
