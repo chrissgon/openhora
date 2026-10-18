@@ -93,7 +93,7 @@ class Attachments:
             bridge.reply(chat, self.phone(e))
             return
         lines, todo, over = [], [], False
-        for decision in att.precheck(files, cap=cap, today=held["today"], held=held["held"], platform=bridge.platform):
+        for decision in att.precheck(files, cap=cap, today=held["today"], held=held["held"], platform=bridge.platform, sender=chat):
             file = decision["attachment"]
             if decision["over"]:
                 over = True
@@ -147,14 +147,14 @@ class Attachments:
                     return
                 budget = att.fetch_budget(cap, today)
                 got = self.fetch(project, chat, file, folder, budget)
+                if got is not None and not self.left_as_told(folder, got, budget):
+                    bridge.log("a provider's file did not match its answer")
+                    self.failed(project, chat, file, "fetch", self.written(folder))      # recorded before the lock is released: no other fetch runs one over the count
+                    bridge.reply(chat, att.FETCH_FAILED)
+                    got = None
             finally:
                 lock.release()
             if got is None:
-                return
-            if not self.left_as_told(folder, got, budget):
-                bridge.log("a provider's file did not match its answer")
-                self.failed(project, chat, file, "fetch", self.written(folder) or budget)
-                bridge.reply(chat, att.FETCH_FAILED)
                 return
             self.hold(project, chat, file, token, target, direct, budget)
         finally:
@@ -171,13 +171,14 @@ class Attachments:
                 self.failed(project, chat, file, "gone", 0)
                 bridge.reply(chat, att.GONE.format(platform=bridge.platform))
             else:
-                self.failed(project, chat, file, "size" if e.kind == "usage" else "fetch", self.written(folder) or budget)      # a cap that stopped it is a usage; the bytes are what it was allowed
+                self.failed(project, chat, file, "size" if e.kind == "usage" else "fetch", self.written(folder))      # a cap that stopped it is a usage; the bytes are what was written (a file counts for one)
                 bridge.reply(chat, att.FETCH_FAILED)
             return None
 
     def failed(self, project: dict, chat: str, file: dict, code: str, nbytes: int) -> None:
         """Tell the hold that a fetch ended with no file, so that it counts against the day's files and bytes (a flood of oversized or vanished files stops at
-        the limit like any other). A failure of this call is logged by class and changes nothing for the person."""
+        the limit like any other). `nbytes` is what the provider actually wrote (0 for a transient error: the file still counts for one). A failure of this call is
+        logged by class and changes nothing for the person."""
         bridge = self.bridge
         try:
             bridge.run_op(project, "attachment-hold", sender=chat, incoming=None, platform=bridge.platform, ref=file["ref"], name=file.get("name") or "",

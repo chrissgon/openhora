@@ -276,7 +276,7 @@ def test_the_day_s_bytes_left_bound_the_fetch(world, monkeypatch):
     [call] = world.fetches()
     assert call["max_bytes"] == 500, "what is left of the day's bytes, not the file's own cap"
     assert world.texts() == ["The file could not be fetched. Send it again."], "the provider refused to write a file over the cap it was given"
-    assert [(r["status"], r["code"], r["bytes"]) for r in world.case.rows()][1:] == [("refused", "size", 500)], "what the fetch was allowed counts against the day"
+    assert [(r["status"], r["code"], r["bytes"]) for r in world.case.rows()][1:] == [("refused", "size", 0)], "only what was written counts for bytes (nothing, here): the file counts for one"
     assert world.incoming() == []
 
 
@@ -557,8 +557,8 @@ def test_twenty_five_attempts_to_fetch_a_file_over_the_cap_stop_at_the_day_s_lim
     assert len(world.fetches()) == attachments.DAY_FILES, "the 21st attempt is refused before a byte is fetched"
     assert "took 20 files" in world.texts()[-1]
     rows = world.case.rows()
-    assert len(rows) == 20 and {(r["status"], r["code"], r["bytes"]) for r in rows} == {("refused", "size", 1000)}
-    assert ops.attachments(world.case.path)["today"] == {"files": 20, "bytes": 20000}
+    assert len(rows) == 20 and {(r["status"], r["code"], r["bytes"]) for r in rows} == {("refused", "size", 0)}
+    assert ops.attachments(world.case.path)["today"] == {"files": 20, "bytes": 0}, "the flood stops at the file count, and costs no bytes it never wrote"
 
 
 def test_a_name_and_a_type_from_a_platform_are_cleaned_and_cut_at_validation():
@@ -655,3 +655,16 @@ def test_a_provider_that_says_a_bad_cap_is_refused(case, monkeypatch, cap, why):
     w = make_world(case, monkeypatch, caps={"attachments": True, "max_attachment_bytes": cap})
     with pytest.raises(providers.MessengerError, match=why):
         w.messenger.capabilities()
+
+
+def test_a_file_one_sender_holds_never_blocks_or_names_itself_to_another_sender_who_sends_the_same_reference(world):
+    accept(world.case.path, messaging={"senders": {"telegram": [IDENT, OTHER]}})
+    world.send([world.file("r1", "Memo.pdf")])
+    world.reset()
+    world.send([world.file("r1", "Memo.pdf")], sender=OTHER)
+    assert len(world.fetches()) == 1, "the other sender's file is fetched"
+    assert all("already waits" not in t and "file 1" not in t for t in world.texts()), "and they are not told the number of the first sender's file"
+    assert [(r["sender"], r["status"]) for r in world.case.rows()] == [(IDENT, "held"), (OTHER, "held")]
+    world.reset()
+    world.send([world.file("r1", "Memo.pdf")], sender=OTHER)
+    assert world.texts() == ["Memo.pdf already waits for your answer (file 2)."] and world.fetches() == [], "the same sender is told, with their own number"
