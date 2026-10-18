@@ -43,7 +43,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `reader:email` | `mailbox/` | `gmail.py` | `--check`, `search`, `get`, `read-eml` |
 | `messenger:<platform>` | `messenger/` | `discord.py` (PLATFORMS: discord) | `--check`, `capabilities`, `listen`, `receive`, `send`, `ack` |
 | `messenger:<platform>` | `messenger/` | `email-imap.py` (PLATFORMS: email) | `--check`, `capabilities`, `listen`, `receive`, `send`, `ack`, `whoami`, `setup` |
-| `messenger:<platform>` | `messenger/` | `telegram.py` (PLATFORMS: telegram) | `--check`, `capabilities`, `receive`, `send`, `ack` |
+| `messenger:<platform>` | `messenger/` | `telegram.py` (PLATFORMS: telegram) | `--check`, `capabilities`, `receive`, `send`, `ack`, `fetch-attachment` |
 | `messenger:<platform>` | `messenger/` | `whatsapp.py` (PLATFORMS: whatsapp) | `capabilities`, `build`, `status`, `listen`, `receive`, `send`, `ack`, `pair`, `whoami` |
 | `messenger:<platform>` | `messenger/` | `whatsapp-cloud.py` (PLATFORMS: whatsapp-cloud) | `capabilities`, `listen`, `receive`, `send`, `ack`, `setup`, `whoami` |
 | `messenger:<platform>` | `messenger/` | `whatsapp-twilio.py` (PLATFORMS: whatsapp-twilio) | `capabilities`, `listen`, `receive`, `send`, `ack`, `setup`, `whoami` |
@@ -100,9 +100,9 @@ A candidate is an implementation shipped in the class's folder and, for `publish
 
 | Platform | Provider | `max_text` | `buttons` | `max_buttons` | `max_button_label` | `lists` | `max_list_rows` | `url_buttons` | `reply_context` | `documents` | `listen` | `actions_need_reply` | `attachments` | `max_attachment_bytes` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `discord` | `discord.py` | 1900 | yes | 5 | 80 | no | 0 | yes | yes | yes | yes | no | no | no |
+| `discord` | `discord.py` | 1900 | yes | 5 | 80 | no | 0 | yes | yes | yes | yes | no | yes | 26214400 |
 | `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes | no | no |
-| `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no | no | no | no |
+| `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no | no | yes | 20971520 |
 | `whatsapp` | `whatsapp.py` | 4096 | no | 0 | 0 | no | 0 | no | yes | yes | yes | no | no | no |
 | `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes | no | no | no |
 | `whatsapp-twilio` | `whatsapp-twilio.py` | 1600 | configured | 3 if configured, else 0 | 20 if configured, else 0 | no | 0 | no | yes | no | yes | no | no | no |

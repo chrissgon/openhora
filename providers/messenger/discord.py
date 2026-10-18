@@ -21,6 +21,11 @@ Sources (Discord's developer documentation, read 2026-10-12):
     events per 60 seconds per connection. Close codes: 4004 authentication failed, 4007 invalid sequence, 4009 session
     timed out, 4010 to 4013 invalid shard, sharding required, invalid API version, invalid intents, 4014 disallowed
     intents. Direct-message content needs no privileged intent.
+  Attachments (docs.discord.com/developers/resources/message and .../resources/channel; written from the documented behaviour, not
+    re-read when ATT-2 was built, since it had no network: the maintainer's live test confirms it): a message has
+    `attachments[]` (`id`, `filename`, `size`, `content_type`, `url`, `proxy_url`); `GET /channels/<channel id>/messages/
+    <message id>` returns the message again, with an `url` that is signed and short-lived (`ex`, `is`, `hm` in its query)
+    and points to `cdn.discordapp.com` (its `proxy_url` to `media.discordapp.net`); Discord states no download limit for a bot.
   Interactions (docs.discord.com/developers/interactions/receiving-and-responding): a button tap arrives as
     INTERACTION_CREATE (type 3, `context` 1 for a direct message with the bot, `user`, `data.custom_id`, `message`)
     and the first response is due within 3 seconds, `POST /interactions/<id>/<token>/callback`; callback type 6
@@ -36,7 +41,8 @@ Sources (Discord's developer documentation, read 2026-10-12):
 
 Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt):
   capabilities --platform discord
-  listen --platform discord           the long-lived verb (the protocol of providers/messenger/README.md)
+  listen --platform discord           the long-lived verb (the protocol of providers/messenger/README.md; it also answers the
+                                      request `fetch` of a file a person sent, below)
   --check --platform discord          verify the token with GET /users/@me; exit 0 ready, 3 not configured
   receive, send, ack                  exit 2: discord works only in listen mode
 
@@ -45,6 +51,16 @@ it, outside code only made safe: a masked link becomes `text (url)`, the openers
 commands and guild links and the `||` of a spoiler are escaped with a backslash, a run of table lines is fenced. Every
 message is sent with `allowed_mentions` empty and the no-embeds flag. A text that is longer than 2000 characters once
 rendered is sent as it was (the bridge cuts it to the 1900 this provider declares).
+
+Attachments (ATT-2). A direct message with files becomes an update whose `attachments` holds {"ref": "<channel id>:<message
+id>:<attachment id>" (digits only), "name", "size", "type": the content_type} and whose `text` is the content (a caption), or
+null. The listen request {"id", "op": "fetch", "ref", "out", "max_bytes"} is answered {"id", "ok": true, "bytes", "sha256"}:
+the provider reads the message again with the bot token (that is the only call that carries it, to discord.com/api) for a
+fresh address, takes the attachment with that id, checks that the address is https on cdn.discordapp.com or
+media.discordapp.net, downloads it with NO Authorization header and no redirect followed, counts the bytes while it streams
+(over max_bytes: kind `usage`, nothing left) and writes `<out>/content` (O_EXCL, O_NOFOLLOW, mode 0600). A message or file
+Discord no longer has is kind `gone`. An address taken from an update is never fetched: the update carries ids only. A fetch
+runs on a thread of its own, beside the sends.
 
 The bot's token is the secret MESSENGER_DISCORD_BOT_TOKEN, read only through providers/secrets/resolver.py (the
 environment, else the OS secret store, username messenger-discord). It is sent only in the Authorization header and in
@@ -64,6 +80,8 @@ Identify calls left).
 from __future__ import annotations
 
 import argparse
+import hashlib
+import http.client
 import importlib.util
 import json
 import logging
@@ -91,8 +109,10 @@ EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 API_BASE = "https://discord.com/api/v10"
 USER_AGENT = "DiscordBot (https://github.com/chrissgon/openhora, 0.1)"
 GATEWAY_QUERY = "/?v=10&encoding=json"
+MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024   # Discord states no download limit for a bot; this is the most the bridge takes for a source (sources.ORIGINAL_CAP)
 CAPABILITIES = {"max_text": 1900, "buttons": True, "max_buttons": 5, "max_button_label": 80, "lists": False,
-                "max_list_rows": 0, "url_buttons": True, "reply_context": True, "documents": True, "listen": True}
+                "max_list_rows": 0, "url_buttons": True, "reply_context": True, "documents": True, "listen": True,
+                "attachments": True, "max_attachment_bytes": 26214400}
 DISCORD_TEXT_LIMIT = 2000
 CUSTOM_ID_LIMIT = 100
 LINK_URL_LIMIT = 512
@@ -112,6 +132,15 @@ PROPERTIES = {"os": "linux", "browser": "openhora", "device": "openhora"}
 FORBIDDEN_SENTENCE = ("the bot cannot message this user: share a server with the bot and allow direct messages from "
                       "that server's members (Discord error 50007)")
 SNOWFLAKE = re.compile(r"\d{1,20}")
+ASCII_ID = re.compile(r"[0-9]{1,20}")                                            # an id in an attachment's ref: ASCII digits, nothing a path or an address can use
+ATTACHMENT_REF = re.compile(r"([0-9]{1,20}):([0-9]{1,20}):([0-9]{1,20})")        # <channel id>:<message id>:<attachment id>
+CDN_HOSTS = ("cdn.discordapp.com", "media.discordapp.net")                       # the only hosts a file is downloaded from
+ATTACHMENTS_MAX = 10                                                             # what the bridge accepts in one update
+NAME_MAX = 255
+CONNECT_SECONDS = 10.0                                                           # opening the connection, and each wait for the next bytes
+FETCH_TOTAL_SECONDS = 120.0                                                      # the whole fetch: the message, the download and the hash
+CHUNK_BYTES = 64 * 1024
+QUEUE_POLL_SECONDS = 0.5                                                         # how often a worker looks at its queue for the end of the process
 INTERACTION_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,512}")
 TOKEN_SHAPE = re.compile(r"[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{20,}")
 LONG_SECRET = re.compile(r"[A-Za-z0-9_-]{60,}")
@@ -123,6 +152,13 @@ class ProviderError(Exception):
         super().__init__(message)
         self.code = code
         self.kind = kind
+
+
+class Gone(ProviderError):
+    """A message or a file Discord no longer has: kind `gone`, which the bridge answers with its own sentence."""
+
+    def __init__(self):
+        super().__init__("Discord no longer serves this file", EXIT_SERVICE, "gone")
 
 
 class HttpError(ProviderError):
@@ -212,6 +248,7 @@ class RefuseRedirect(urllib.request.HTTPRedirectHandler):
 
 
 OPENER = urllib.request.build_opener(RefuseRedirect)
+CDN_OPENER = urllib.request.build_opener(RefuseRedirect)    # the content host: a separate opener, so that it is never the one a header was set for
 
 
 def _http_error(error, token: str) -> HttpError:
@@ -266,7 +303,7 @@ class Api:
             raise
         except urllib.error.URLError as e:
             raise ProviderError(f"Discord {label}: could not be reached ({type(getattr(e, 'reason', e)).__name__})") from None
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError, http.client.HTTPException) as e:   # a body cut short (IncompleteRead) is an HTTPException, not an OSError
             raise ProviderError(f"Discord {label}: the call failed ({type(e).__name__})") from None
         if not answer:
             return None
@@ -488,22 +525,50 @@ def _id(value):
     return value if isinstance(value, str) and SNOWFLAKE.fullmatch(value) else None
 
 
+def _ascii_id(value):
+    return value if isinstance(value, str) and ASCII_ID.fullmatch(value) else None
+
+
+def attachments_of(d: dict) -> list:
+    """The files of a MESSAGE_CREATE as the neutral update lists them: the ref is made of ids only (never an address, which is signed and short-lived;
+    the fetch reads the message again for a fresh one). At most ATTACHMENTS_MAX; an element that is not well formed is skipped."""
+    channel, message = _ascii_id(d.get("channel_id")), _ascii_id(d.get("id"))
+    items = d.get("attachments")
+    if channel is None or message is None or not isinstance(items, list):
+        return []
+    out = []
+    for item in items:
+        if len(out) >= ATTACHMENTS_MAX:
+            break
+        if not isinstance(item, dict) or _ascii_id(item.get("id")) is None:
+            continue
+        name, kind, size = item.get("filename"), item.get("content_type"), item.get("size")
+        out.append({"ref": f"{channel}:{message}:{item['id']}", "name": name[:NAME_MAX] if isinstance(name, str) and name else None,
+                    "size": size if type(size) is int and size >= 0 else None,
+                    "type": kind[:255] if isinstance(kind, str) and kind else None})
+    return out
+
+
 def message_update(d) -> dict | None:
-    """The listen update of a MESSAGE_CREATE: a plain message or a reply, in a direct message, from a person; else None."""
+    """The listen update of a MESSAGE_CREATE: a plain message or a reply, in a direct message, from a person, with text, files or both; else None."""
     if not isinstance(d, dict) or "guild_id" in d or d.get("webhook_id") or d.get("type") not in (0, 19):
         return None
     author = d.get("author")
     if not isinstance(author, dict) or author.get("bot") is True or _id(author.get("id")) is None or _id(d.get("id")) is None:
         return None
     content = d.get("content")
-    if not isinstance(content, str) or not content.strip():
+    files = attachments_of(d)
+    if not isinstance(content, str) or (not content.strip() and not files):
         return None
     reply_to = None
     reference = d.get("message_reference")
     if isinstance(reference, dict) and reference.get("type", 0) == 0 and _id(reference.get("message_id")):
         reply_to = reference["message_id"]
-    return {"update_id": d["id"], "sender": author["id"], "chat": author["id"], "private": True, "text": content,
-            "action": None, "action_ref": None, "reply_to": reply_to}
+    update = {"update_id": d["id"], "sender": author["id"], "chat": author["id"], "private": True,
+              "text": content if content.strip() else None, "action": None, "action_ref": None, "reply_to": reply_to}
+    if files:
+        update["attachments"] = files      # the content is then the caption
+    return update
 
 
 def interaction_update(d) -> dict | None:
@@ -518,6 +583,101 @@ def interaction_update(d) -> dict | None:
         return None
     return {"update_id": d.get("id"), "sender": user["id"], "chat": user["id"], "private": True, "text": None,
             "action": custom_id, "action_ref": None, "reply_to": _id(message.get("id"))}
+
+
+# --- fetching a file -----------------------------------------------------------------------------------------------------
+
+def cdn_url_ok(url) -> bool:
+    """A file address is https on one of CDN_HOSTS, with no credentials in it and the default port."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        return parsed.scheme == "https" and (parsed.hostname or "") in CDN_HOSTS and parsed.username is None and parsed.password is None \
+            and parsed.port in (None, 443)
+    except (ValueError, AttributeError):
+        return False
+
+
+def open_content(out_dir: str) -> tuple:
+    """(directory descriptor, file descriptor) of `<out_dir>/content`, new: created with O_EXCL and O_NOFOLLOW, mode 0600. The folder is opened
+    without following a link, and the file is made inside it by descriptor, so a name in the folder can never lead the write elsewhere."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    try:
+        dfd = os.open(out_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow | getattr(os, "O_CLOEXEC", 0))
+    except OSError:
+        raise ProviderError("out is not a folder this provider can write to", EXIT_USAGE, "usage") from None
+    try:
+        fd = os.open("content", os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow | getattr(os, "O_CLOEXEC", 0), 0o600, dir_fd=dfd)
+    except FileExistsError:
+        os.close(dfd)
+        raise ProviderError("the output file exists already; the folder must be new") from None
+    except OSError:
+        os.close(dfd)
+        raise ProviderError("the output file could not be created") from None
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        pass
+    return dfd, fd
+
+
+def _declared_length(response):
+    headers = getattr(response, "headers", None)
+    value = headers.get("Content-Length") if headers is not None else None
+    return int(value) if isinstance(value, str) and value.isdigit() and len(value) < 19 else None
+
+
+def stream_file(response, out_dir: str, max_bytes: int, clock, started: float) -> dict:
+    """Write what `response` yields to `<out_dir>/content`, counting while it streams; over `max_bytes` is a usage answer and a file cut short or
+    slower than the whole-fetch deadline fails. Whatever fails leaves no file."""
+    declared = _declared_length(response)
+    if declared is not None and declared > max_bytes:
+        raise ProviderError(f"the file is {declared} bytes; at most {max_bytes} are taken", EXIT_USAGE, "usage")
+    dfd, fd = open_content(out_dir)
+    digest, total, done = hashlib.sha256(), 0, False
+    try:
+        while True:
+            if clock() - started > FETCH_TOTAL_SECONDS:
+                raise ProviderError(f"the download took longer than {int(FETCH_TOTAL_SECONDS)} seconds")
+            chunk = response.read(min(CHUNK_BYTES, max_bytes + 1 - total))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise ProviderError(f"the file is over {max_bytes} bytes; at most {max_bytes} are taken", EXIT_USAGE, "usage")
+            digest.update(chunk)
+            view = memoryview(chunk)
+            while view:
+                view = view[os.write(fd, view):]
+        if declared is not None and declared != total:
+            raise ProviderError("the download ended before the whole file arrived")
+        done = True
+    finally:
+        os.close(fd)
+        if not done:
+            try:
+                os.unlink("content", dir_fd=dfd)
+            except OSError:
+                pass
+        os.close(dfd)
+    return {"bytes": total, "sha256": digest.hexdigest()}
+
+
+def download(url: str, out_dir: str, max_bytes: int, clock, started: float) -> dict:
+    """The file at `url` (already checked against CDN_HOSTS) into `<out_dir>/content`. No Authorization header, and CDN_OPENER follows no redirect."""
+    request = urllib.request.Request(url, method="GET", headers={"User-Agent": USER_AGENT})
+    try:
+        with CDN_OPENER.open(request, timeout=CONNECT_SECONDS) as response:
+            return stream_file(response, out_dir, max_bytes, clock, started)
+    except urllib.error.HTTPError as e:
+        if e.code in (404, 410):
+            raise Gone() from None
+        raise ProviderError(f"Discord file download answered {e.code}") from None      # a 401 or 403 here is the file's address, never the bot's token
+    except ProviderError:
+        raise
+    except urllib.error.URLError as e:
+        raise ProviderError(f"Discord file download: could not be reached ({type(getattr(e, 'reason', e)).__name__})") from None
+    except (OSError, ValueError, http.client.HTTPException) as e:
+        raise ProviderError(f"Discord file download: the call failed ({type(e).__name__})") from None
 
 
 # --- the Gateway as a state machine ---------------------------------------------------------------------------------
@@ -768,7 +928,8 @@ class Listener:
         self.log = log or (lambda text: print(redact(text, token), file=sys.stderr, flush=True))
         self.gateway = Gateway(token, clock, rng)
         self.requests = queue.Queue()
-        self.threads = []   # the Gateway, sender and stdin threads once run() has started them
+        self.fetches = queue.Queue()    # the `fetch` requests: their own worker, so that a download never holds a send
+        self.threads = []   # the Gateway, sender, fetch and stdin threads once run() has started them
         self.channels = {}
         self.healthy = False
 
@@ -807,7 +968,7 @@ class Listener:
                 except ValueError:
                     self.log("dropped a request line that is not JSON")
                     continue
-                self.requests.put(request)
+                (self.fetches if isinstance(request, dict) and request.get("op") == "fetch" else self.requests).put(request)
         except (OSError, ValueError):
             pass
         self.finish(EXIT_OK)
@@ -819,7 +980,7 @@ class Listener:
     def work(self) -> None:
         while not self.stop.is_set():
             try:
-                request = self.requests.get(timeout=0.5)
+                request = self.requests.get(timeout=QUEUE_POLL_SECONDS)
             except queue.Empty:
                 continue
             try:
@@ -828,6 +989,73 @@ class Listener:
                 self.log(f"a send failed unexpectedly ({type(e).__name__})")
                 if isinstance(request, dict) and isinstance(request.get("id"), int):
                     self.answer(request["id"], False, kind="failed", reason="the send failed unexpectedly")
+
+    def work_fetch(self) -> None:
+        while not self.stop.is_set():
+            try:
+                request = self.fetches.get(timeout=QUEUE_POLL_SECONDS)
+            except queue.Empty:
+                continue
+            try:
+                self.handle_fetch(request)
+            except Exception as e:  # nothing else may print a traceback
+                self.log(f"a fetch failed unexpectedly ({type(e).__name__})")
+                if isinstance(request, dict) and isinstance(request.get("id"), int):
+                    self.answer(request["id"], False, kind="failed", reason="the fetch failed unexpectedly")
+
+    def handle_fetch(self, request) -> None:
+        rid = request.get("id")
+        if not isinstance(rid, int) or isinstance(rid, bool):
+            self.log("dropped a request with no integer id")
+            return
+        try:
+            ref, out_dir, cap = request.get("ref"), request.get("out"), request.get("max_bytes")
+            if not isinstance(ref, str) or not ATTACHMENT_REF.fullmatch(ref):
+                raise ProviderError("ref is <channel id>:<message id>:<attachment id>, whole digits", EXIT_USAGE, "usage")
+            if not isinstance(out_dir, str) or not out_dir:
+                raise ProviderError("out is the folder to write into", EXIT_USAGE, "usage")
+            if type(cap) is not int or cap < 1:
+                raise ProviderError("max_bytes is a positive whole number", EXIT_USAGE, "usage")
+            found = self.fetch(ref, out_dir, cap)
+        except HttpError as e:
+            if e.status == 401:
+                self.answer(rid, False, kind="not-configured", reason=redact(e, self.token))
+                self.fatal(EXIT_NOT_CONFIGURED, "not-configured", str(e))
+            elif e.status == 403:
+                self.answer(rid, False, kind="failed", reason="Discord refused the request (403" + (f", code {e.discord_code}" if e.discord_code else "")
+                            + "): check what the bot may do")
+            else:
+                self.answer(rid, False, kind="failed", reason=redact(e, self.token))
+        except ProviderError as e:
+            self.answer(rid, False, kind=e.kind, reason=redact(e, self.token))
+        else:
+            self.answer(rid, True, **found)
+
+    def fetch(self, ref: str, out_dir: str, max_bytes: int) -> dict:
+        """The file `ref` into `<out_dir>/content`. The message is read again with the bot token (the only call here that carries it, and only to
+        discord.com/api) for a fresh address; the file itself is downloaded from a content host with no Authorization header."""
+        channel, message_id, attachment_id = ATTACHMENT_REF.fullmatch(ref).groups()
+        budget = [RATE_LIMIT_WAIT]
+        started = self.clock()
+        try:
+            found = self.waiting_once(lambda: self.api.request("GET", f"/channels/{channel}/messages/{message_id}"), budget)
+        except HttpError as e:
+            if e.status == 404:      # an unknown message or channel (10008, 10003): the person deleted it
+                raise Gone() from None
+            raise
+        if not isinstance(found, dict) or found.get("id") != message_id:
+            raise ProviderError("Discord did not return the message")
+        items = found.get("attachments")
+        item = next((a for a in items if isinstance(a, dict) and a.get("id") == attachment_id), None) if isinstance(items, list) else None
+        if item is None:
+            raise Gone()
+        size = item.get("size")
+        if type(size) is int and size > max_bytes:
+            raise ProviderError(f"the file is {size} bytes; at most {max_bytes} are taken", EXIT_USAGE, "usage")
+        url = item.get("url")
+        if not cdn_url_ok(url):
+            raise ProviderError("Discord gave a file address that is not on its content hosts")
+        return download(url, out_dir, max_bytes, self.clock, started)
 
     def handle(self, request) -> None:
         rid = request.get("id") if isinstance(request, dict) else None
@@ -1008,6 +1236,7 @@ class Listener:
     def run(self) -> int:
         self.threads = threads = [threading.Thread(target=self.run_gateway, daemon=True),
                                   threading.Thread(target=self.work, daemon=True),
+                                  threading.Thread(target=self.work_fetch, daemon=True),
                                   threading.Thread(target=self.read_stdin, daemon=True)]
         for thread in threads:
             thread.start()
