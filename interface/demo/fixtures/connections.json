@@ -41,6 +41,11 @@
       "where": null
     },
     {
+      "name": "GOOGLE_CALENDAR_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
       "name": "LINKEDIN_ACCESS_TOKEN",
       "found": false,
       "where": null
@@ -112,6 +117,11 @@
     },
     {
       "name": "NOTION_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "ONEDRIVE_SOURCES_TOKEN",
       "found": false,
       "where": null
     },

@@ -184,9 +184,11 @@ def variables(cls: str) -> list[str]:
 # another class's provider is here. OPENHORA_CREDENTIALS_DIR and CREDENTIALS_DIRECTORY (what a systemd unit sets) carry a path and never
 # a value: without them a provider's process, which reads its secret through the resolver, would not find a credentials directory that
 # only these variables name (it looks in ~/.config/openhora/credentials alone), and the secret would read as missing (package S16).
+# UV_PYTHON names the interpreter a scheduled job pins for `uv run` (a path, never a value): without it a provider that reads the keychain would
+# run on whichever interpreter uv finds, and the keychain trusts a binary, not a version (providers/scheduler/README.md).
 ENV_MINIMUM = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
                "OPENHORA_STATE_DIR", "OPENHORA_CREDENTIALS_DIR", "CREDENTIALS_DIRECTORY",
-               "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")
+               "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "UV_PYTHON")
 
 
 def provider_environment(cls: str, env=None, passes=()) -> dict:

@@ -29,6 +29,9 @@ What a job guarantees:
 - The hashes are fixed at approval: the dry run prints a digest of everything that will run,
   and the confirmed call must pass it back with --approved. At run time the copies, the
   program and the runner are hashed again and the command is refused if any differs.
+- When UV_PYTHON names an absolute interpreter, the job records its real path and hash (part of the
+  digest, checked at every firing) and the command starts with UV_PYTHON set to it, so every
+  uv run in the job uses the interpreter that was approved.
 - The command runs at most once: the runner takes run.lock, records the job as running, and
   removes its launchd agent afterwards. launchd fires a missed time on wake; a run later than
   the grace period is recorded as missed and does not run. A firing up to 26 hours early (the
@@ -87,6 +90,8 @@ HISTORY = ".history"
 GROUP_FILE = "run.group"  # the running command's process-group id, beside run.lock
 EVERY_MIN_MINUTES, EVERY_MAX_MINUTES = 5, 1440
 DEFAULT_TIMEOUT_MINUTES, MAX_TIMEOUT_MINUTES = 30, 240
+PIN_WARNING = ("the interpreter of uv run inside this job is chosen by uv at each firing; "
+               "set UV_PYTHON to an absolute interpreter path to pin it")
 DEFAULT_ONE_SHOT_TIMEOUT_MINUTES = 10  # a one-shot command without timeout_minutes in its command file
 CANCEL_WAIT_SECONDS = 15  # how long cancel waits for a stopped runner to record its own outcome
 TIMEOUT_UNIT_SECONDS = 60  # seconds per timeout minute; tests shorten it in-process
@@ -473,6 +478,19 @@ def snapshot_argv(argv: list[str], cwd: str, copies: dict[Path, str], outputs: s
     return out
 
 
+def pinned_python() -> dict | None:
+    """The interpreter UV_PYTHON names, when it is an absolute path to an executable file: {path, sha256} of the real
+    binary (a link that uv repoints on an upgrade is resolved now). Otherwise None: nothing is pinned."""
+    value = os.environ.get("UV_PYTHON", "")
+    if not os.path.isabs(value) or not os.path.isfile(value) or not os.access(value, os.R_OK | os.X_OK):
+        return None
+    real = os.path.realpath(value)
+    try:
+        return {"path": real, "sha256": sha256(Path(real))}
+    except OSError:  # a link whose target cannot be read: nothing to hash, nothing pinned
+        return None
+
+
 def approval_digest(job: dict) -> str:
     """SHA-256 over everything that decides what runs; printed by the dry run, checked on --confirmed."""
     if job.get("kind") == "recurring":
@@ -481,6 +499,8 @@ def approval_digest(job: dict) -> str:
         keys = ("id", "at", "grace_minutes", "argv", "cwd", "outputs", "program")
         if "timeout_minutes" in job:  # only when the command file sets it: other one-shot digests are unchanged
             keys += ("timeout_minutes",)
+    if "python" in job:  # only a job scheduled with UV_PYTHON set: every other digest is unchanged
+        keys += ("python",)
     fields = {key: job[key] for key in keys}
     fields["files"] = {source: entry["sha256"] for source, entry in job["files"].items()}
     fields["runner"] = job["runner"]["sha256"]
@@ -520,6 +540,9 @@ def plan_job(job_id: str, at: datetime | None, spec: dict, every: int | None = N
         "runner": {"source": str(runner), "copy": str(folder / "runner" / runner.name), "sha256": sha256(runner)},
         "status": "scheduled",
     })
+    pin = pinned_python()
+    if pin:
+        job["python"] = pin
     job["approved"] = approval_digest(job)
     return job
 
@@ -617,13 +640,15 @@ def cmd_schedule(args) -> int:
     if args.dry_run:
         out = {"dry_run": True, "approved": job["approved"], "job": job,
                "plist_path": str(plist_path(job_id)), "plist": plist}
+        if "python" not in job:
+            out["warnings"] = [PIN_WARNING]
         if existing:
             out["replaces_finished_job"] = {"status": existing["status"], "moved_to": str(home() / HISTORY)}
         print(json.dumps(out, indent=2, ensure_ascii=False))
         return EXIT_OK
     if args.approved != job["approved"]:
         raise ProviderError(
-            "the job changed since the dry run (a file, the program, the runner or the command file): "
+            "the job changed since the dry run (a file, the program, the interpreter (UV_PYTHON), the runner or the command file): "
             "run --dry-run again and show the new payload before confirming", EXIT_USAGE)
     launchctl()  # refuse an untrusted launchctl override before writing anything
 
@@ -641,6 +666,8 @@ def cmd_schedule(args) -> int:
         copy_verified(job["runner"]["source"], Path(job["runner"]["copy"]), job["runner"]["sha256"], 0o500)
         if sha256(Path(job["program"]["path"])) != job["program"]["sha256"]:
             raise ProviderError(f"{job['program']['path']} changed after the dry run")
+        if "python" in job and sha256(Path(job["python"]["path"])) != job["python"]["sha256"]:
+            raise ProviderError(f"{job['python']['path']} changed after the dry run")
     except ProviderError:
         shutil.rmtree(folder, ignore_errors=True)
         raise
@@ -779,15 +806,26 @@ def finish(job: dict, status: str, **fields) -> int:
     return EXIT_OK if status == "done" else EXIT_SERVICE
 
 
+def differs(path: Path, expected: str) -> bool:
+    """True when the file is gone, cannot be read or no longer has the hash: all of them are a change."""
+    try:
+        return not path.is_file() or sha256(path) != expected
+    except OSError:
+        return True
+
+
 def changed_since_approval(job: dict) -> str | None:
     """Name what no longer matches its approved hash, or None when everything matches."""
     for source, entry in job["files"].items():
         copy = Path(entry["copy"])
-        if not copy.is_file() or sha256(copy) != entry["sha256"]:
+        if differs(copy, entry["sha256"]):
             return f"the copy of {Path(source).name} changed after scheduling"
     program = Path(job["program"]["path"])
-    if not program.is_file() or sha256(program) != job["program"]["sha256"]:
+    if differs(program, job["program"]["sha256"]):
         return f"the program {program} changed after scheduling"
+    pin = job.get("python")
+    if pin and differs(Path(pin["path"]), pin["sha256"]):
+        return f"the interpreter {pin['path']} changed after scheduling"
     if sha256(Path(__file__).resolve()) != job["runner"]["sha256"]:
         return "the runner script changed after scheduling"
     return None
@@ -948,9 +986,12 @@ def run_command(job: dict, timeout: float, limit: str) -> tuple[dict, bytes | No
     may print anything. Past the limit, or when the runner is told to stop, the whole process group is killed
     and what the command had printed is still returned. The output is (None, None) only when the command could
     not be started. `limit` names the bound in the reason."""
+    env = {**os.environ, "PATH": RUN_PATH}
+    if job.get("python"):
+        env["UV_PYTHON"] = job["python"]["path"]  # every uv run in the command's process tree uses the approved interpreter
     try:
         proc = subprocess.Popen(job["argv"], cwd=job["cwd"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                start_new_session=True, env={**os.environ, "PATH": RUN_PATH})
+                                start_new_session=True, env=env)
     except OSError as exc:
         return {"status": "failed", "exit_code": None, "reason": f"{type(exc).__name__}: {exc}"}, None, None
     folder = job_dir(job["id"])

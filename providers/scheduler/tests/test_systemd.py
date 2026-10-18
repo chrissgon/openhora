@@ -32,6 +32,13 @@ APPEND = ("import sys, json; open(sys.argv[2], 'a').write(open(sys.argv[1]).read
           "print(json.dumps({'post_url': 'https://example.test/post'}))")
 
 
+@pytest.fixture(autouse=True)
+def _no_uv_python(monkeypatch):
+    """A job records the interpreter UV_PYTHON names (the commit hook runs with UV_PYTHON=3.11): no test inherits it.
+    Here and not in conftest.py: the provider suites carry the same conftest.py (providers/store/tests/test_loopback_only.py)."""
+    monkeypatch.delenv("UV_PYTHON", raising=False)
+
+
 @pytest.fixture
 def env(tmp_path):
     calls = tmp_path / "systemctl-calls.txt"
