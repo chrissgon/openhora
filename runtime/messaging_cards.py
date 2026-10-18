@@ -31,6 +31,9 @@ calls nothing.
   language (LR-1) the frames a card adds around the decision's text (the labels, the cut and whole notes, the "Send /approve 12" lines, "Act on it on the page or in the terminal.") and
            the kind of the decision as a word are the phrase table's (runtime/phrases.py) in the language of the `cfg` handed to `build`; the decision's own text, the
            commands and the ids are never changed
+  card     (FND) an effect of a write to the person's own accounts stores, beside its English body, `payload["card"]`: its lines as [key, {field: text}] of
+           the phrase table's family CARD_. `build` says them line by line in the language when the card is well formed and its English lines are the stored body
+           (`effect_card_text`); the hash on the card is the effect's own (`content_sha256`) in every language, and the fields are never translated
 
 Standard library only. Runs on Python 3.9.
 """
@@ -124,6 +127,22 @@ def gated(item: dict) -> bool:
     return item["kind"] == "effect" or (item["kind"] == "plan" and item.get("plan_networked") is True)
 
 
+def effect_card_text(item: dict, cfg=None):
+    """The body of an `effect` decision said line by line in the project's language, or None. An effect of an account write (package FND) stores, beside
+    its English body, its `card`: a list of [key, {field: text}] lines of the phrase table's family CARD_ (runtime/phrases.py card_valid). The lines are
+    said in the language of `cfg` only when the card is well formed AND the English lines are exactly the stored body (so that the card says what the
+    terminal and the page show of the same decision, and what the hash is the hash of); the values of the fields are the person's or a service's words and
+    are never changed. Anything else (no card, a key outside the family, a field that is no text, a body that is not the lines) is None, and the card
+    is built from the stored body as it always was."""
+    payload = item.get("payload")
+    card = payload.get("card") if isinstance(payload, dict) else None
+    if not phrases.card_valid(card):
+        return None
+    if phrases.card_text(card).strip() != (item.get("body") or "").strip():
+        return None
+    return phrases.card_text(card, cfg)
+
+
 def build(project_name: str, item: dict, caps: dict, policy, notices: str = "text", page_url=None, operations=None,
           effect_command: str | None = None, delivery: str | None = None, _blocked: str | None = None, sender: str | None = None, cfg=None) -> dict:
     """The card of one open decision. Returns {"message": the neutral message without action ids (each action is
@@ -196,7 +215,9 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
         else:
             footer.append(page_url)
     header = header_of(project_name, item, cfg)
-    full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg), body=phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
+    shown_body = effect_card_text(item, cfg) if kind == "effect" else None      # an effect that carries its card as lines (FND), said line by line in the language
+    full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg),
+                              body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
     document = None
     whole = False
     if notices == "count":
