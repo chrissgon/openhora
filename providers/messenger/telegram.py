@@ -49,7 +49,8 @@ the media type of a document, else photo, voice, video, audio or sticker) and wh
 asks getFile for the path, builds the address from the fixed base and a path checked against a closed pattern, downloads
 it with no redirect followed, counts the bytes while it streams (over --max-bytes: exit 2, the partial file removed), and writes
 `<out>/content` (O_EXCL, O_NOFOLLOW, mode 0600) and prints {"bytes", "sha256"}. A file Telegram no longer knows is exit 1
-with `gone` as the first word of stderr. No file name is ever used as a path.
+with one sentence on stderr and then the line `gone` alone as the LAST line (the bridge matches exactly that last
+non-empty line). No file name is ever used as a path.
 
 Environment:
   MESSENGER_TELEGRAM_BOT_TOKEN        the bot's token (never printed)
@@ -114,7 +115,8 @@ CHUNK_BYTES = 64 * 1024
 NAME_MAX = 255
 MEDIA_KINDS = (("document", None), ("photo", "photo"), ("voice", "voice"), ("video", "video"), ("video_note", "video"),
                ("audio", "audio"), ("sticker", "sticker"))          # (message key, the word the bridge refuses by; None: the file's own media type)
-GONE_SENTENCE = "gone: Telegram no longer serves this file"
+GONE_SENTENCE = "Telegram no longer serves this file"
+GONE_LINE = "gone"                                                   # the last non-empty line of stderr that says a file is gone (the contract of providers/messenger/README.md)
 clock = time.monotonic
 
 
@@ -125,7 +127,7 @@ class ProviderError(Exception):
 
 
 class Gone(ProviderError):
-    """A file_id Telegram no longer serves (exit 1). Its text is the whole of stderr and starts with `gone`: the bridge reads that word."""
+    """A file_id Telegram no longer serves (exit 1). Stderr is its sentence, then GONE_LINE alone as the last line: the bridge matches that line exactly."""
 
     def __init__(self):
         super().__init__(GONE_SENTENCE, EXIT_SERVICE)
@@ -837,7 +839,8 @@ def main(argv=None) -> int:
     try:
         return run(sys.argv[1:] if argv is None else argv)
     except Gone as e:
-        print(str(e), file=sys.stderr)     # `gone` first, and nothing else: the bridge reads the first word of the tail
+        print(str(e), file=sys.stderr)      # a sentence for a person, then `gone` alone and last: the bridge matches the last non-empty line exactly
+        print(GONE_LINE, file=sys.stderr)
         return e.code
     except ProviderError as e:
         print(f"error: {redact(e)}", file=sys.stderr)

@@ -108,6 +108,11 @@ def fetch(monkeypatch, capsys, opener, out, ref=FILE_ID, cap=1_000_000):
                "--max-bytes", str(cap))
 
 
+def last_line(text):
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
 def got_file(path="documents/file_7.pdf", size=len(PDF)):
     return {"file_id": FILE_ID, "file_unique_id": "AgADu", "file_size": size, "file_path": path}
 
@@ -283,23 +288,24 @@ def test_a_slow_download_stops_at_the_whole_fetch_deadline(monkeypatch, capsys, 
 ])
 def test_a_file_id_telegram_no_longer_knows_is_gone(monkeypatch, capsys, out, failure):
     code, printed, err = fetch(monkeypatch, capsys, Opener(failure), out)
-    assert code == 1 and printed == "" and err.startswith("gone") and TOKEN not in err and not list(out.iterdir())
+    assert code == 1 and printed == "" and last_line(err) == "gone" and TOKEN not in err and not list(out.iterdir())
 
 
 def test_a_file_that_is_not_served_at_its_path_is_gone(monkeypatch, capsys, out):
     url = f"https://api.telegram.org/file/bot{TOKEN}/documents/file_7.pdf"
     code, printed, err = fetch(monkeypatch, capsys, Opener(got_file(), http_error(404, "Not Found", url)), out)
-    assert code == 1 and printed == "" and err.startswith("gone") and TOKEN not in err and not list(out.iterdir())
+    assert code == 1 and printed == "" and last_line(err) == "gone" and TOKEN not in err and not list(out.iterdir())
 
 
-def test_gone_is_the_first_word_of_a_stderr_that_the_bridges_tail_still_holds(monkeypatch, capsys, out):
+def test_gone_is_the_last_non_empty_stderr_line_alone(monkeypatch, capsys, out):
     code, _, err = fetch(monkeypatch, capsys, Opener(http_error(400, "Bad Request: wrong file_id")), out)
-    assert code == 1 and err.startswith("gone") and len(err.strip().splitlines()) == 1 and len(err) < 300     # resolve.py keeps the last 300 characters
+    assert code == 1 and err.endswith("\ngone\n") and last_line(err) == "gone"      # the bridge matches exactly this line (providers/resolve.py stderr_last)
+    assert err.splitlines()[0] == "Telegram no longer serves this file"
 
 
 def test_a_file_telegram_says_is_too_big_is_an_over_the_cap_refusal(monkeypatch, capsys, out):
     code, _, err = fetch(monkeypatch, capsys, Opener(http_error(400, "Bad Request: file is too big")), out)
-    assert code == 2 and not err.startswith("gone") and not list(out.iterdir())
+    assert code == 2 and last_line(err) != "gone" and not list(out.iterdir())
 
 
 def test_a_refused_token_on_get_file_is_not_configured_and_names_no_token(monkeypatch, capsys, out):
@@ -474,9 +480,9 @@ def test_a_real_download_over_loopback_with_the_real_opener(monkeypatch, capsys,
     assert hits[1][1] == f"/file/bot{TOKEN}/documents/file_9.txt" and hits[1][2] is None
 
 
-def test_the_script_as_a_process_prints_the_answer_and_gone_is_the_first_word_of_stderr(tmp_path):
-    """What the bridge sees across the process boundary: stdout JSON and exit 0, or exit 1 with `gone` first on stderr (providers/resolve.py keeps
-    the last 300 characters of stderr, and runtime/messaging_provider.py reads that word)."""
+def test_the_script_as_a_process_prints_the_answer_and_gone_is_the_last_stderr_line(tmp_path):
+    """What the bridge sees across the process boundary: stdout JSON and exit 0, or exit 1 with the last non-empty stderr line exactly `gone`
+    (providers/resolve.py gives it as stderr_last, and runtime/messaging_provider.py matches it)."""
     import subprocess
     out_ok, out_gone = tmp_path / "ok", tmp_path / "gone"
     out_ok.mkdir()
@@ -495,9 +501,37 @@ def test_the_script_as_a_process_prints_the_answer_and_gone_is_the_first_word_of
             assert done.returncode == 0, done.stderr
             assert json.loads(done.stdout) == {"bytes": 5, "sha256": hashlib.sha256(b"hello").hexdigest()} and (folder / "content").read_bytes() == b"hello"
         else:
-            assert done.returncode == 1 and done.stdout == "" and done.stderr.startswith("gone") and not list(folder.iterdir())
-            assert " ".join(done.stderr.split())[-300:].startswith("gone")
+            assert done.returncode == 1 and done.stdout == "" and last_line(done.stderr) == "gone" and not list(folder.iterdir())
         assert TOKEN not in done.stdout + done.stderr
+
+
+def test_the_bridges_resolver_reads_a_gone_file_from_the_real_process(tmp_path, monkeypatch):
+    """The path the bridge takes: providers/resolve.py starts the script (here with this interpreter, since `uv run` would install keyring) and
+    hands the bridge the failed verb's stderr_last, which runtime/messaging_provider.py compares with GONE_LINE."""
+    import subprocess
+    sys.path.insert(0, str(RUNTIME))
+    import messaging_provider as provider
+    resolver_spec = importlib.util.spec_from_file_location("resolve_under_test", SCRIPT.parents[1] / "resolve.py")
+    resolve = importlib.util.module_from_spec(resolver_spec)
+    sys.modules[resolver_spec.name] = resolve
+    resolver_spec.loader.exec_module(resolve)
+
+    def run(argv):
+        at = argv.index(str(SCRIPT))
+        return subprocess.run([sys.executable, *argv[at:]], capture_output=True, text=True, timeout=60, check=False)
+
+    folder = tmp_path / "incoming"
+    folder.mkdir()
+    site = serve(type("S", (Site,), {"behaviour": "file", "getfile": "gone", "hits": []}))
+    monkeypatch.setenv("MESSENGER_TELEGRAM_API_BASE", f"http://127.0.0.1:{site.server_address[1]}")
+    try:
+        with pytest.raises(resolve.ProviderCallError) as caught:
+            resolve.invoke(SCRIPT, "fetch-attachment", ["--platform", "telegram", "--ref", FILE_ID, "--out", str(folder), "--max-bytes", "1000"], run=run)
+    finally:
+        site.shutdown()
+    e = caught.value
+    assert e.kind == "failed" and e.exit_code == 1 and e.stderr_last == provider.GONE_LINE == "gone" and TOKEN not in e.stderr_tail
+    assert not list(folder.iterdir())
 
 
 # --- where the bytes go -------------------------------------------------------------------------------------------------
