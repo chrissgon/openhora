@@ -76,7 +76,7 @@ func TestAFetchRequestIsAnsweredWithTheBytesAndTheHash(t *testing.T) {
 	l, out := newTestListener(&fakeSender{})
 	dl := &fakeDownloader{data: data}
 	l.fetcher = newFetcher(l.refs, dl)
-	ref := l.refs.add("k", docFor(data))
+	ref := l.refs.add("o", "k", docFor(data))
 	dir := privateDir(t)
 	input := fetchLine(5, ref, dir, 1<<20) + fetchLine(6, strings.Repeat("c", 32), dir, 1<<20)
 	serve(t, l, strings.NewReader(input))
@@ -108,7 +108,7 @@ func TestAFetchInFlightDoesNotHoldUpASend(t *testing.T) {
 	started := make(chan struct{})
 	dl := &fakeDownloader{data: data, hook: func(context.Context) { close(started); <-release }}
 	l.fetcher = newFetcher(l.refs, dl)
-	ref := l.refs.add("k", docFor(data))
+	ref := l.refs.add("o", "k", docFor(data))
 	dir := privateDir(t)
 
 	pr, pw := io.Pipe()
@@ -153,7 +153,7 @@ func TestMoreFetchesThanTheQueueHoldsAreRefusedAtOnce(t *testing.T) {
 		<-release
 	}}
 	l.fetcher = newFetcher(l.refs, dl)
-	ref := l.refs.add("k", docFor([]byte("x")))
+	ref := l.refs.add("o", "k", docFor([]byte("x")))
 	dir := privateDir(t)
 	pr, pw := io.Pipe()
 	returned := make(chan struct{})
@@ -201,7 +201,7 @@ func TestTheEndOfInputEndsTheServingEvenWithAFetchInFlight(t *testing.T) {
 	started := make(chan struct{})
 	dl := &fakeDownloader{data: []byte("x"), hook: func(c context.Context) { close(started); <-c.Done() }}
 	l.fetcher = newFetcher(l.refs, dl)
-	ref := l.refs.add("k", docFor([]byte("x")))
+	ref := l.refs.add("o", "k", docFor([]byte("x")))
 	pr, pw := io.Pipe()
 	done := make(chan struct{})
 	returned := make(chan struct{})

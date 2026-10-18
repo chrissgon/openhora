@@ -80,7 +80,7 @@ func newKit(t *testing.T, data []byte) *fetchKit {
 	t.Helper()
 	refs := newRefTable()
 	dl := &fakeDownloader{data: data}
-	return &fetchKit{t: t, refs: refs, dl: dl, f: newFetcher(refs, dl), out: privateDir(t), ref: refs.add("k", docFor(data)), bytes: data}
+	return &fetchKit{t: t, refs: refs, dl: dl, f: newFetcher(refs, dl), out: privateDir(t), ref: refs.add("o", "k", docFor(data)), bytes: data}
 }
 
 func (k *fetchKit) request(ref, out string, max int64) Request {
@@ -151,7 +151,7 @@ func TestAReferenceThatIsNotKnownOrHasExpiredIsGone(t *testing.T) {
 	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
 	refs := newRefTable()
 	refs.now = func() time.Time { return now }
-	ref := refs.add("other", docFor([]byte("y")))
+	ref := refs.add("o", "other", docFor([]byte("y")))
 	now = now.Add(refTTL + time.Second)
 	a = newFetcher(refs, k.dl).Handle(context.Background(), k.request(ref, k.out, 100))
 	if a.Kind != "gone" || k.dl.calls != 0 {
@@ -271,7 +271,7 @@ func TestTheCapNeverPassesWhatTheProgramCanHoldInMemory(t *testing.T) {
 	k2 := newKit(t, []byte("tiny"))
 	huge := docFor([]byte("tiny"))
 	huge.FileLength = ptr(uint64(maxAttachment + 1))
-	ref := k2.refs.add("huge", huge)
+	ref := k2.refs.add("o", "huge", huge)
 	if a := k2.f.Handle(context.Background(), k2.request(ref, k2.out, 1<<40)); a.Kind != "usage" || k2.dl.calls != 0 {
 		t.Fatalf("%+v", a)
 	}
@@ -291,7 +291,7 @@ func TestAMessageWithoutAHashCannotBeCheckedAndIsNotDownloaded(t *testing.T) {
 	k := newKit(t, []byte("x"))
 	noHash := docFor([]byte("x"))
 	noHash.FileSHA256 = nil
-	ref := k.refs.add("nohash", noHash)
+	ref := k.refs.add("o", "nohash", noHash)
 	a := k.f.Handle(context.Background(), k.request(ref, k.out, 100))
 	if a.OK || a.Kind != "failed" || k.dl.calls != 0 {
 		t.Fatalf("%+v", a)
@@ -416,6 +416,10 @@ func TestTheLibraryLogLineNamesNoAddressOfAFile(t *testing.T) {
 	line := redact(`Failed to download media due to network error: Get "https://mmg.whatsapp.net/v/t62.7119-24/abc_def?ccb=11&hash=QUJD": EOF, retrying in 1s`)
 	if strings.Contains(line, "mmg") || strings.Contains(line, "hash=") || !strings.Contains(line, "<url>") || !strings.Contains(line, "retrying in 1s") {
 		t.Fatalf("%q", line)
+	}
+	quoted := redact(`Get "https://mmg.whatsapp.net/v/t62/a\"b=SECRET&hash=QUJD": EOF`)
+	if strings.Contains(quoted, "SECRET") || strings.Contains(quoted, "mmg") || strings.Contains(quoted, "hash") {
+		t.Fatalf("an escaped quote ended the redaction early: %q", quoted)
 	}
 }
 

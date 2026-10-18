@@ -5,6 +5,7 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -158,7 +159,14 @@ func mediaOf(m *waE2E.Message) (att *Attachment, caption, quoted string) {
 // fileOf is the attachment for a downloadable part: a declared type cut short, a declared length of 0 as unknown.
 func fileOf(msg whatsmeow.DownloadableMessage, name *string, kind string, length uint64) *Attachment {
 	a := &Attachment{Name: name, msg: msg}
-	if kind != "" {
+	// the declared type is cleaned as the name is: no control character, then cut
+	kind = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, kind)
+	if strings.TrimSpace(kind) != "" {
 		if r := []rune(kind); len(r) > maxDeclaredType {
 			kind = string(r[:maxDeclaredType])
 		}

@@ -14,8 +14,11 @@ import (
 // no media key, no address and no part of the message, and means nothing outside this process. The table lives in memory
 // only, so a restart of the program makes every earlier reference `gone`, which the bridge answers with "send it again".
 const (
-	maxRefs = 50        // the most references held; the oldest is dropped for a new one
-	refTTL  = time.Hour // a reference is served for this long after it was made
+	maxRefs = 200 // the most references held in all; the oldest is dropped for a new one
+	// maxRefsPerSender is the most one sender holds. The list of senders is applied by the bridge, so any one-to-one chat reaches
+	// this table, and one sender must never push another's references out.
+	maxRefsPerSender = 10
+	refTTL           = time.Hour // a reference is served for this long after it was made
 )
 
 // refRe is the one shape of a reference this program makes (16 random bytes in lower-case hex).
@@ -23,6 +26,7 @@ var refRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 type refEntry struct {
 	ref     string
+	owner   string
 	key     string
 	msg     whatsmeow.DownloadableMessage
 	expires time.Time
@@ -35,10 +39,11 @@ type refTable struct {
 	byRef  map[string]*refEntry
 	byKey  map[string]*refEntry
 	order  []*refEntry // oldest first
+	count  map[string]int
 }
 
 func newRefTable() *refTable {
-	return &refTable{now: time.Now, newRef: randomRef, byRef: map[string]*refEntry{}, byKey: map[string]*refEntry{}}
+	return &refTable{now: time.Now, newRef: randomRef, byRef: map[string]*refEntry{}, byKey: map[string]*refEntry{}, count: map[string]int{}}
 }
 
 func randomRef() string {
@@ -49,10 +54,11 @@ func randomRef() string {
 	return hex.EncodeToString(b[:])
 }
 
-// add keeps msg and returns its reference. The key names the message and its place in it (the sender, the message id and the
-// index of the file), so that WhatsApp delivering the same message twice (delivery is at least once) gives the same reference
-// and the bridge sees one file, not two.
-func (t *refTable) add(key string, msg whatsmeow.DownloadableMessage) string {
+// add keeps msg and returns its reference. The owner is the sender; one owner holds at most maxRefsPerSender references (its own
+// oldest goes first), so no sender can evict another's. The key names the message and its place in it (the sender, the message id
+// and the index of the file), so that WhatsApp delivering the same message again within the hour (delivery is at least once)
+// gives the same reference and the bridge sees one file, not two.
+func (t *refTable) add(owner, key string, msg whatsmeow.DownloadableMessage) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := t.now()
@@ -60,10 +66,19 @@ func (t *refTable) add(key string, msg whatsmeow.DownloadableMessage) string {
 	if found, ok := t.byKey[key]; ok {
 		return found.ref
 	}
-	entry := &refEntry{ref: t.newRef(), key: key, msg: msg, expires: now.Add(refTTL)}
+	entry := &refEntry{ref: t.newRef(), owner: owner, key: key, msg: msg, expires: now.Add(refTTL)}
 	t.byRef[entry.ref] = entry
 	t.byKey[key] = entry
 	t.order = append(t.order, entry)
+	t.count[owner]++
+	for t.count[owner] > maxRefsPerSender {
+		for _, old := range t.order {
+			if old.owner == owner {
+				t.drop(old)
+				break
+			}
+		}
+	}
 	for len(t.order) > maxRefs {
 		t.drop(t.order[0])
 	}
@@ -92,5 +107,13 @@ func (t *refTable) purge(now time.Time) {
 func (t *refTable) drop(entry *refEntry) {
 	delete(t.byRef, entry.ref)
 	delete(t.byKey, entry.key)
-	t.order = t.order[1:]
+	if t.count[entry.owner]--; t.count[entry.owner] <= 0 {
+		delete(t.count, entry.owner)
+	}
+	for i, e := range t.order {
+		if e == entry {
+			t.order = append(t.order[:i], t.order[i+1:]...)
+			break
+		}
+	}
 }

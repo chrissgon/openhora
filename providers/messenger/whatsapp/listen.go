@@ -122,7 +122,7 @@ func (l *listener) message(evt *events.Message) {
 	if u != nil {
 		for i := range u.Attachments {
 			// the key names the message and the place of the file in it, so a message delivered twice keeps its reference
-			u.Attachments[i].Ref = l.refs.add(u.Sender+":"+u.UpdateID+":"+strconv.Itoa(i), u.Attachments[i].msg)
+			u.Attachments[i].Ref = l.refs.add(u.Sender, u.Sender+":"+u.UpdateID+":"+strconv.Itoa(i), u.Attachments[i].msg)
 		}
 	}
 	switch {

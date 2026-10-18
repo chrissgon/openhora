@@ -79,10 +79,17 @@ func TestTheMediaKindsAreNamedByTheirKind(t *testing.T) {
 func TestWhatTheSenderWroteIsCutAndCleanedBeforeItReachesTheBridge(t *testing.T) {
 	doc := docFor([]byte("x"))
 	doc.FileName = ptr("../../etc/pass\x00wd\n" + strings.Repeat("n", 300))
-	doc.Mimetype = ptr(strings.Repeat("m", 500))
+	doc.Mimetype = ptr("appl\x00ication/\x1b[31mpdf\n" + strings.Repeat("m", 500))
 	a := inboundOf(t, &waE2E.Message{DocumentMessage: doc}).Attachments[0]
 	if strings.ContainsAny(*a.Name, "/\\\x00\n") || len([]rune(*a.Name)) > maxDocName || len([]rune(*a.Type)) > maxDeclaredType {
 		t.Fatalf("%q %d", *a.Name, len(*a.Type))
+	}
+	if strings.ContainsAny(*a.Type, "\x00\x1b\n") || !strings.HasPrefix(*a.Type, "application/[31mpdf") {
+		t.Fatalf("the declared type keeps a control character: %q", *a.Type)
+	}
+	doc.Mimetype = ptr("\x00\n")
+	if a := inboundOf(t, &waE2E.Message{DocumentMessage: doc}).Attachments[0]; a.Type != nil {
+		t.Fatalf("a type of control characters alone is no type: %q", *a.Type)
 	}
 }
 
