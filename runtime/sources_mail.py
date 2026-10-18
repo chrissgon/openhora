@@ -60,11 +60,14 @@ from sources import SourcesError, _clean  # noqa: E402
 MAIL_CLASS = "reader:email"
 CALENDAR_CLASS = "integration:calendar"
 VERBS = {MAIL_CLASS: ("search",), CALENDAR_CLASS: ("events",)}   # what the runtime asks a provider: the verbs that read the box or the window
-# The secrets a provider reads from its environment (providers/secrets/resolver.py): its own, and no other.
-SECRETS = {(MAIL_CLASS, "gmail"): ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET"),
-           (MAIL_CLASS, "outlook"): ("OUTLOOK_MAIL_TOKEN",),
-           (CALENDAR_CLASS, "google"): ("GOOGLE_CALENDAR_TOKEN",),
-           (CALENDAR_CLASS, "outlook"): ("OUTLOOK_CALENDAR_TOKEN",)}
+# The secrets a provider reads from its environment (providers/secrets/resolver.py): its own, and no other. Each provider reads the account
+# token of its service first (GOOGLE_ACCOUNT_TOKEN, MICROSOFT_ACCOUNT_TOKEN: one record per account, the platform's whole scope set) and, for one
+# cycle (backlog ACCT-LEGACY), the old record of its own purpose when there is no account record.
+GOOGLE_ACCOUNT_SECRET, MICROSOFT_ACCOUNT_SECRET = "GOOGLE_ACCOUNT_TOKEN", "MICROSOFT_ACCOUNT_TOKEN"
+SECRETS = {(MAIL_CLASS, "gmail"): (GOOGLE_ACCOUNT_SECRET, "GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET"),
+           (MAIL_CLASS, "outlook"): (MICROSOFT_ACCOUNT_SECRET, "OUTLOOK_MAIL_TOKEN"),
+           (CALENDAR_CLASS, "google"): (GOOGLE_ACCOUNT_SECRET, "GOOGLE_CALENDAR_TOKEN"),
+           (CALENDAR_CLASS, "outlook"): (MICROSOFT_ACCOUNT_SECRET, "OUTLOOK_CALENDAR_TOKEN")}
 LABELS = {MAIL_CLASS: "mail", CALENDAR_CLASS: "calendar"}
 BOXES = {"gmail": {"inbox": "in:inbox", "important": "is:important", "starred": "is:starred", "unread": "in:inbox is:unread"},
          "outlook": {"inbox": "in:inbox", "unread": "in:inbox is:unread"}}

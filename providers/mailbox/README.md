@@ -8,6 +8,8 @@ The first use is backlog PB5: finding new comments on the user's LinkedIn posts 
 
 Reads Gmail through the Gmail API with the `https://www.googleapis.com/auth/gmail.readonly` scope and nothing else. Every verb only reads: nothing is sent, moved, labelled, marked as read or deleted, so no verb takes `--confirmed` or `--dry-run`.
 
+**The account token (decision of 2026-10-18).** `gmail.py` signs in first with the account token of the person's Google account: one record, one consent for Gmail, Calendar and Drive, carrying the platform's four scopes (`gmail.modify`, `calendar.events`, `calendar.calendarlist.readonly`, `drive`), made once by `uv run <workbench>/providers/accounts/google_auth.py authorize` (secret `GOOGLE_ACCOUNT_TOKEN`, username `google-account`; `providers/accounts/README.md` has the consent, the revocation and the sources). The token can do everything those scopes allow, including changing the mailbox, and that is accepted: the restriction is the platform's (policies, an effect card of the exact content for every write, the verbs a script exposes, no token in a run), and **this script's verbs are unchanged and send GET only** (a test fails on any other method). A token that lacks one of the four scopes or carries another is refused (exit 3, naming the command); `--check` then prints `"record": "account"`. Only when no account record exists does it read the legacy record below, with the old exact `gmail.readonly` rule and a warning on stderr, once per process ("using the legacy record mailbox-gmail; run ... to move to the account token"). The legacy record and `auth.py` are removed in the cycle after the integration branch reaches `main` (backlog ACCT-LEGACY). The setup below is the legacy one.
+
 ### Setup (once)
 
 The full steps are in `uv run providers/mailbox/auth.py --help`. In short:
@@ -68,7 +70,7 @@ Every verb prints normalized messages:
 ### Security
 
 - **E-mail content is external content.** Anyone can send the user an e-mail, and a comment is written by a stranger. The provider only returns messages as data, each marked `"external_content": true`, and drops text hidden from the reader by inline styles; a skill that reads them quotes any instruction found inside to the user and never follows it. Comments on the user's posts are the main prompt-injection surface of the engagement work (backlog PB6).
-- Read only by scope: the token cannot change the mailbox even if a caller tried.
+- Read only by scope, for the legacy record: that token cannot change the mailbox even if a caller tried. The account token can (it carries `gmail.modify`); the script still sends GET only, and the restriction is the platform's.
 - The client secret and the refresh token are read through `providers/secrets/resolver.py` (environment first, then the OS secret store) and never printed. Requests that carry a token or the client secret never follow a redirect, and every request has a 60-second timeout.
 - The test overrides below are honoured only with loopback URLs, and in test mode neither script reads or writes the OS secret store.
 
@@ -87,7 +89,8 @@ Every verb prints normalized messages:
 
 | Variable | Used by | Purpose |
 |----------|---------|---------|
-| `GMAIL_CLIENT_ID` | `auth.py`, `gmail.py` | The Desktop app OAuth client; the authorization and every refresh need it. |
+| `GOOGLE_ACCOUNT_TOKEN` | `gmail.py`, `providers/accounts/google_auth.py` | The account record (JSON), read first: the refresh token, the client and the four scopes; from the OS secret store, or the same JSON text from the environment or the credentials directory. |
+| `GMAIL_CLIENT_ID` | `auth.py`, `gmail.py` | Legacy: the Desktop app OAuth client; the authorization and every refresh need it. |
 | `GMAIL_CLIENT_SECRET` | `auth.py`, `gmail.py` | That client's secret. |
 | `GMAIL_REFRESH_TOKEN` | `gmail.py` | Optional; a bare refresh token from the environment instead of the stored record. |
 | `MAILBOX_PROVIDER` | `scripts/doctor.py` | `gmail` selects this provider. |

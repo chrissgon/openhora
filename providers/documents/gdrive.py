@@ -24,7 +24,7 @@ Usage:
   uv run providers/documents/gdrive.py read --id <file id> --as-source --out-dir <folder> [--max-bytes <n>]
   uv run providers/documents/gdrive.py pick  [--no-browser]
 
-  --check     refreshes the access token (the one network call) and checks that it carries drive.file and nothing wider;
+  --check     refreshes the access token (the one network call) and checks its scope (the platform's four for the account token; drive.file and nothing wider for the legacy record);
               prints {"ok": true, "scope", "obtained_at"}. Exit 3 when there is no authorization or it was refused.
   stat        the file's name, type, size and `version`, and whether it can be read as a source (`supported`, with the
               `reason` when not). `version` changes when the file changes: it is the Drive `version` and `modifiedTime`
@@ -48,6 +48,11 @@ Every other file is downloaded (`alt=media`) when its size is within --max-bytes
 what arrived, and a file that changed meanwhile is refused.
 
 Credentials (never from a flag or a file; contracts/secrets.md):
+  GOOGLE_ACCOUNT_TOKEN  the account token, read first: one JSON record of the person's Google account (refresh token, the Desktop app client,
+                        the scope, the address), made by providers/accounts/google_auth.py. It carries the platform's four scopes, `drive`
+                        among them: it can read and change every file of the Drive, and this provider sends GET requests only. A token that
+                        lacks one of the four or carries another is refused (exit 3).
+  Legacy, for one cycle, used only when no account record exists (a warning on stderr says so, once per process):
   GDRIVE_SOURCES_TOKEN  one JSON record, read through providers/secrets/resolver.py (the environment, then the OS secret
                         store, username gdrive-sources): {"refresh_token", "client_id", "client_secret", "api_key",
                         "project_number", "scope", "obtained_at"}, written by providers/documents/gdrive_auth.py after the
@@ -114,6 +119,23 @@ class ProviderError(Exception):
         self.status = status
 
 
+def _google_module():
+    """providers/_google.py, by path: next to this folder's parent first (the workbench), then next to this file (a copy)."""
+    here = Path(__file__).resolve()
+    path = next((c for c in (here.parents[1] / "_google.py", here.parent / "_google.py") if c.is_file()), None)
+    if path is None:
+        raise SystemExit("error: providers/_google.py is not next to this script's folder")
+    spec = importlib.util.spec_from_file_location("providers_google_account", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# The account token (one record, the platform's scope set) is read first; the old record is the legacy fallback for one cycle.
+_google = _google_module()
+
+
 def one_line(text, limit: int = 300) -> str:
     return " ".join(str(text or "").split())[:limit]
 
@@ -173,11 +195,28 @@ def parse_record(text: str) -> dict:
     return record
 
 
-def load_record(test_mode: bool) -> dict:
+def load_legacy_record(test_mode: bool) -> dict:
+    """The legacy record (GDRIVE_SOURCES_TOKEN), with the Picker's key when it has one. The Picker needs it, so gdrive_auth.py reads this."""
     found = secret_resolver().resolve(SECRET, allow_store=not test_mode)
     if not found:
         raise ProviderError(f"no Drive authorization: run {AUTH_COMMAND}, or export {SECRET} (the JSON record)", EXIT_NOT_CONFIGURED)
     return parse_record(found[0])
+
+
+def account_record_present(test_mode: bool) -> bool:
+    """Whether the account record (GOOGLE_ACCOUNT_TOKEN) exists; ProviderError (not configured) when it is there and cannot be read."""
+    return _google.find_account_record(secret_resolver(), test_mode, error=ProviderError) is not None
+
+
+def load_record(test_mode: bool) -> dict:
+    """The record to sign in with: the account record (GOOGLE_ACCOUNT_TOKEN) first, else the legacy one for one cycle. The dict carries
+    `kind` ("account" or "legacy"), which decides the scope rule of the refresh."""
+    def legacy():
+        found = secret_resolver().resolve(SECRET, allow_store=not test_mode)
+        return (parse_record(found[0]), found[1]) if found else None
+
+    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=(KEYRING_USERNAME, legacy, AUTH_COMMAND), error=ProviderError)
+    return {**loaded.record, "kind": "legacy" if loaded.legacy else "account"}
 
 
 # --- HTTP ------------------------------------------------------------------------------------------------------------------
@@ -255,7 +294,10 @@ def check_scope(granted) -> None:
 
 
 def refresh_access_token(token_url: str, record: dict) -> str:
-    """A new access token (held in memory, used for this process) from the refresh token; checks the scope."""
+    """A new access token (held in memory, used for this process) from the refresh token; checks the scope: the platform's set for the
+    account record, exactly drive.file for the legacy one."""
+    if record.get("kind") == "account":
+        return _google.refresh_access_token(token_url, record, ProviderError)["access_token"]
     data = token_request(token_url, {"client_id": record["client_id"], "client_secret": record["client_secret"],
                                      "grant_type": "refresh_token", "refresh_token": record["refresh_token"]})
     check_scope(data.get("scope"))
@@ -265,8 +307,8 @@ def refresh_access_token(token_url: str, record: dict) -> str:
 class Drive:
     """The Drive API as this provider uses it: GET requests with one access token."""
 
-    def __init__(self, base: str, access_token: str):
-        self.base, self.token = base, access_token
+    def __init__(self, base: str, access_token: str, command: str = AUTH_COMMAND):
+        self.base, self.token, self.command = base, access_token, command
 
     def get(self, path: str, params: dict, limit: int) -> tuple[int, bytes]:
         url = self.base + path + "?" + urllib.parse.urlencode(params)
@@ -284,7 +326,10 @@ class Drive:
             pass
         detail = f": {message}{f' [{reasons}]' if reasons else ''}" if message or reasons else ""
         if status == 401:
-            return ProviderError(f"Drive rejected the access token ({what}){detail}; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED, status)
+            return ProviderError(f"Drive rejected the access token ({what}){detail}; run: {self.command}", EXIT_NOT_CONFIGURED, status)
+        if status == 404 and self.command != AUTH_COMMAND:   # the account token sees every file of the account: nothing to pick
+            return ProviderError(f"Drive does not know the file for the authorized account ({what}){detail}: check the file id", EXIT_SERVICE,
+                                 status)
         if status == 404:
             return ProviderError(f"Drive does not know the file, or this app was not given it ({what}){detail}: a file is given to the "
                                  "app when the person picks it; pick it again", EXIT_SERVICE, status)
@@ -311,7 +356,8 @@ class Drive:
 
 def open_drive() -> Drive:
     base, token_url, test_mode = endpoints()
-    return Drive(base, refresh_access_token(token_url, load_record(test_mode)))
+    record = load_record(test_mode)
+    return Drive(base, refresh_access_token(token_url, record), _google.AUTH_COMMAND if record["kind"] == "account" else AUTH_COMMAND)
 
 
 # --- the verbs -------------------------------------------------------------------------------------------------------------
@@ -356,6 +402,9 @@ def cmd_check(args: dict) -> int:
     _, token_url, test_mode = endpoints()
     record = load_record(test_mode)
     refresh_access_token(token_url, record)
+    if record["kind"] == "account":
+        return emit({"ok": True, "scope": sorted(_google.PLATFORM_SCOPES), "account": record.get("account"), "record": "account",
+                     "obtained_at": record.get("obtained_at")})
     return emit({"ok": True, "scope": SCOPE, "obtained_at": record.get("obtained_at")})
 
 
@@ -512,7 +561,7 @@ def main(argv=None) -> int:
             raise ProviderError("--no-browser is for the verb pick only", EXIT_USAGE)
         return VERBS[verb](args)
     except ProviderError as e:
-        print(f"error: {e}", file=sys.stderr)
+        print(f"error: {_google.scrub(str(e))}", file=sys.stderr)
         return e.code
 
 

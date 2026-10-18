@@ -29,7 +29,7 @@ Usage:
   uv run providers/calendar/google.py calendars
   uv run providers/calendar/google.py events --calendar <id> --from <ISO-8601 with offset> --to <ISO-8601 with offset> [--max <n>]
 
-  --check     refreshes the access token, checks that it carries exactly the two scopes below and nothing wider, and reads one entry of the
+  --check     refreshes the access token, checks its scope (the platform's four for the account token; exactly the two below for the legacy record), and reads one entry of the
               calendar list; prints {"ok": true, "scope": [...], "account", "obtained_at"}. Exit 3 when there is no authorization or it was
               refused.
   calendars   {"calendars": [{"id", "summary", "primary", "access_role"}], "truncated", "skipped", "external_content": true}: the calendars the
@@ -51,6 +51,11 @@ Usage:
               start or end (a cancelled occurrence can).
 
 Credentials (never from a flag or a file; contracts/secrets.md):
+  GOOGLE_ACCOUNT_TOKEN   the account token, read first: one JSON record of the person's Google account (refresh token, the Desktop app client,
+                         the scope, the address), made by providers/accounts/google_auth.py. It carries the platform's four scopes
+                         (calendar.events among them: the reads of this provider are covered, and nothing else is sent: GET only); a token that
+                         lacks one of the four or carries another is refused (exit 3).
+  Legacy, for one cycle, used only when no account record exists (a warning on stderr says so, once per process):
   GOOGLE_CALENDAR_TOKEN  one JSON record, read through providers/secrets/resolver.py (the environment, then the OS secret store, username
                          calendar-google): {"refresh_token", "client_id", "client_secret", "scope", "account", "obtained_at"}, written by
                          providers/calendar/google_auth.py after the person's consent. The client travels with the token, so this is the only
@@ -62,7 +67,7 @@ Test overrides (tests only, loopback URLs only, both set together; the secret st
 Only GET is sent to the Calendar API (the token endpoint is the one POST). No redirect is followed. A verb never retries: a 429 or 503 is
 reported with its Retry-After. Every request has a 60-second timeout. Prints one JSON object on stdout; diagnostics on stderr. Exit codes:
 0 ok, 1 failed (the service answered an error or could not be reached), 2 usage (a bad flag or id, a verb the provider does not have),
-3 not configured (no authorization, one that expired or was revoked, a rejected client, a token whose scope is not exactly the two below).
+3 not configured (no authorization, one that expired or was revoked, a rejected client, a token whose scope is not the set its record needs).
 """
 from __future__ import annotations
 
@@ -140,10 +145,27 @@ def _email_text_module():
 INVISIBLE_RE = _email_text_module().INVISIBLE_RE
 
 
+def _google_module():
+    """providers/_google.py, by path: next to this folder's parent first (the workbench), then next to this file (a copy)."""
+    here = Path(__file__).resolve()
+    path = next((c for c in (here.parents[1] / "_google.py", here.parent / "_google.py") if c.is_file()), None)
+    if path is None:
+        raise SystemExit("error: providers/_google.py is not next to this script's folder")
+    spec = importlib.util.spec_from_file_location("providers_google_account", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# The account token (one record, the platform's scope set) is read first; the old record is the legacy fallback for one cycle.
+_google = _google_module()
+
+
 def scrub(text: str) -> str:
     for value in _SECRET_VALUES:
         text = text.replace(value, "<hidden>")
-    return text
+    return _google.scrub(text)
 
 
 def one_line(text, limit: int = 300) -> str:
@@ -208,11 +230,19 @@ def parse_record(text: str) -> dict:
     return record
 
 
-def load_record(test_mode: bool) -> dict:
+def legacy_record(test_mode: bool):
+    """(the legacy record, where it was found), or None when GOOGLE_CALENDAR_TOKEN is found nowhere."""
     found = secret_resolver().resolve(SECRET, allow_store=not test_mode)
-    if not found:
-        raise ProviderError(f"no Google Calendar authorization: run {AUTH_COMMAND}, or export {SECRET} (the JSON record)", EXIT_NOT_CONFIGURED)
-    return parse_record(found[0])
+    return (parse_record(found[0]), found[1]) if found else None
+
+
+def load_record(test_mode: bool) -> dict:
+    """The record to sign in with: the account record (GOOGLE_ACCOUNT_TOKEN) first, else the legacy one for one cycle. The dict carries
+    `kind` ("account" or "legacy"), which decides the scope rule of the refresh, and `source`, where it was found."""
+    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=(KEYRING_USERNAME, lambda: legacy_record(test_mode), AUTH_COMMAND),
+                                         error=ProviderError)
+    _SECRET_VALUES.extend(loaded.record[k] for k in RECORD_TEXTS)
+    return {**loaded.record, "kind": "legacy" if loaded.legacy else "account", "source": loaded.source}
 
 
 # --- HTTP --------------------------------------------------------------------------------------------------------------------
@@ -309,7 +339,12 @@ def check_scope(granted) -> None:
 
 
 def refresh_access_token(token_url: str, record: dict) -> str:
-    """A new access token (held in memory, used for this process) from the refresh token; checks the scope."""
+    """A new access token (held in memory, used for this process) from the refresh token; checks the scope: the platform's set for the
+    account record, exactly the two legacy scopes for the legacy one."""
+    if record.get("kind") == "account":
+        data = _google.refresh_access_token(token_url, record, ProviderError)
+        _SECRET_VALUES.append(data["access_token"])
+        return data["access_token"]
     data = token_request(token_url, {"client_id": record["client_id"], "client_secret": record["client_secret"],
                                      "grant_type": "refresh_token", "refresh_token": record["refresh_token"]})
     check_scope(data.get("scope"))
@@ -319,8 +354,8 @@ def refresh_access_token(token_url: str, record: dict) -> str:
 class Calendar:
     """The Calendar API as this provider uses it: GET requests with one access token."""
 
-    def __init__(self, base: str, access_token: str):
-        self.base, self.token = base, access_token
+    def __init__(self, base: str, access_token: str, command: str = AUTH_COMMAND):
+        self.base, self.token, self.command = base, access_token, command
 
     def get(self, path: str, params: dict) -> dict:
         url = self.base + path + "?" + urllib.parse.urlencode(params)
@@ -351,7 +386,7 @@ class Calendar:
         detail = f": {message}{f' [{reasons}]' if reasons else ''}" if message or reasons else ""
         what = f"GET {urllib.parse.urlparse(path).path.rsplit('/', 1)[-1]}"
         if status == 401:
-            return ProviderError(f"Google rejected the access token ({what}){detail}; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED, status)
+            return ProviderError(f"Google rejected the access token ({what}){detail}; run: {self.command}", EXIT_NOT_CONFIGURED, status)
         if status == 404:
             return ProviderError(f"Google does not know this calendar for the authorized account ({what}){detail}: list the ids with the "
                                  "calendars verb", EXIT_SERVICE, status)
@@ -367,7 +402,8 @@ class Calendar:
 
 def open_calendar() -> Calendar:
     base, token_url, test_mode = endpoints()
-    return Calendar(base, refresh_access_token(token_url, load_record(test_mode)))
+    record = load_record(test_mode)
+    return Calendar(base, refresh_access_token(token_url, record), _google.AUTH_COMMAND if record["kind"] == "account" else AUTH_COMMAND)
 
 
 # --- the verbs ---------------------------------------------------------------------------------------------------------------
@@ -460,9 +496,14 @@ def render_event(item) -> dict | None:
 def cmd_check(args) -> int:
     base, token_url, test_mode = endpoints()
     record = load_record(test_mode)
-    calendar = Calendar(base, refresh_access_token(token_url, record))
+    account = record["kind"] == "account"
+    calendar = Calendar(base, refresh_access_token(token_url, record), _google.AUTH_COMMAND if account else AUTH_COMMAND)
     calendar.get("/calendar/v3/users/me/calendarList", {"maxResults": 1, "fields": "items(id)"})
-    return emit({"ok": True, "scope": sorted(SCOPES), "account": record.get("account"), "obtained_at": record.get("obtained_at")})
+    out = {"ok": True, "scope": sorted(_google.PLATFORM_SCOPES if account else SCOPES), "account": record.get("account"),
+           "obtained_at": record.get("obtained_at")}
+    if account:
+        out["record"] = "account"
+    return emit(out)
 
 
 def calendar_items(calendar: Calendar, fields: str, stop=None) -> tuple[list, bool]:
