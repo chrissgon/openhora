@@ -3665,7 +3665,7 @@ def attachment_add(conn: sqlite3.Connection, *, platform: str, ref_sha256: str, 
                    created_at: str | None = None) -> dict:
     """Record one file of a messaging app that reached the hold. `status` is `held` (it waits for a person, or for the add that follows at
     once when `direct`) or `refused` (a rule refused it after its bytes arrived: `code` says which; it still counts against the day's
-    limit, because its bytes were fetched). A file whose platform reference is already held is refused (StoreError, code 1): delivery is at
+    limit, because its bytes were fetched). A held file whose platform reference is already held is refused (StoreError, code 1; a refused record may repeat a reference): delivery is at
     least once. `ref_sha256` is the hash of the reference, never the reference. Returns the row."""
     if status not in ("held", "refused"):
         raise StoreError("an attachment is recorded held or refused", EXIT_USAGE)
@@ -3688,8 +3688,8 @@ def attachment_add(conn: sqlite3.Connection, *, platform: str, ref_sha256: str, 
         raise StoreError("a refused attachment carries the code of its refusal", EXIT_USAGE)
     now = created_at or iso(utcnow())
     with write(conn):
-        if conn.execute("SELECT 1 FROM attachments WHERE platform = ? AND ref_sha256 = ? AND status = 'held'",
-                        (platform, ref_sha256)).fetchone():
+        if status == "held" and conn.execute("SELECT 1 FROM attachments WHERE platform = ? AND ref_sha256 = ? AND status = 'held'",
+                                             (platform, ref_sha256)).fetchone():
             raise StoreError("this file is already held", EXIT_ERROR)
         row_id = conn.execute(
             "INSERT INTO attachments (platform, ref_sha256, sender, profile, name, declared_type, declared_bytes, kind, sha256, bytes, "

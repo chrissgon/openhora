@@ -26,10 +26,9 @@ service = st.load("service")
 
 JS = st.REPO / "interface" / "js"
 KEYS = {"command", "arguments", "help"}
-ORDER = ["/help", "/status", "/progress", "/pending", "/answer", "/release", "/approve", "/reject", "/retry", "/cancel", "/stop-task", "/attachments", "/attachment-add", "/attachment-discard", "/new"]
+ORDER = ["/help", "/status", "/progress", "/pending", "/answer", "/release", "/approve", "/reject", "/retry", "/cancel", "/stop-task", "/attachments", "/new"]
 ARGUMENTS = {"/help": "", "/status": "", "/progress": "[since]", "/pending": "[id]", "/answer": "<id> <text>", "/release": "<id>",
-             "/approve": "<id> [sha256]", "/reject": "<id> [note]", "/retry": "<task id>", "/cancel": "<request id>", "/stop-task": "<task id>", "/attachments": "", "/attachment-add": "<id>",
-             "/attachment-discard": "<id>", "/new": "<text>"}
+             "/approve": "<id> [sha256]", "/reject": "<id> [note]", "/retry": "<task id>", "/cancel": "<request id>", "/stop-task": "<task id>", "/attachments": "", "/new": "<text>"}
 
 
 # --- the rows are what /help prints -----------------------------------------------------------------------------------

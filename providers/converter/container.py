@@ -42,8 +42,9 @@ Usage:
   convert     the folder must exist, be this user's and mode 0700, and be empty; it gets converted.md or converted.csv and info.json
               and prints {"converter", "kind", "outputs", "image"}
 
-Exit codes: 0 ok, 1 failed (the conversion, the container, the docker client), 2 usage, 3 not configured (no docker, a remote
-daemon, no image). Standard library only; the docker command-line client is the one outside tool.
+Exit codes: 0 ok, 1 failed (the container, the docker client, a conversion that did not finish), 2 usage, 3 not configured (no docker, a remote
+daemon, no image), 4 the file is refused (the program in the container exited 3: the content cannot be converted, such as a macro-enabled package or a
+damaged file; a caller that holds the file for a person tells this from a machine that failed). Standard library only; the docker command-line client is the one outside tool.
 """
 from __future__ import annotations
 
@@ -78,6 +79,8 @@ MEMORY_MB, CPUS, SCRATCH_MB, PIDS = 1024, 2, 256, 128
 DEFAULT_TIMEOUT, MAX_TIMEOUT = 120, 600
 BUILD_TIMEOUT = 3600
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
+EXIT_REFUSED = 4          # the converter program refused the file's content (its own exit 3)
+INNER_REFUSED = 3         # what providers/converter/_inner.py exits with when it refuses a file (Failed)
 FRAME_START, FRAME_END = b"OHF1\n", b"END\n"
 FRAME_HEAD = re.compile(rb"FILE ([a-z.]{1,20}) ([0-9]{1,9})\n")
 
@@ -225,7 +228,8 @@ def convert(input_path: str, kind: str, out_dir: str, timeout: int = DEFAULT_TIM
         raise ProviderError(f"the conversion did not finish ({e.code})") from None
     if done.returncode != 0:
         tail = " ".join((done.stderr or "").split())[-300:]
-        raise ProviderError(f"the conversion failed: {tail or 'exit ' + str(done.returncode)}")
+        raise ProviderError(f"the conversion failed: {tail or 'exit ' + str(done.returncode)}",
+                            EXIT_REFUSED if done.returncode == INNER_REFUSED else EXIT_FAILED)
     outputs = parse_frames(done.stdout)
     names = write_outputs(out_dir, outputs)
     try:
