@@ -35,16 +35,18 @@ OTHER_KIND = "account-test-wrong-word"
 NO_GATE_KIND = "account-test-no-gate"
 STUB = "account_stub_effect"
 OPERATION = "account-test-write"
-GROUP = "account-test"
+GROUP = "calendar-write"      # the group of the effect word `calendar`: the operation of these tests is put in it, as W1 will
+TITLE_KEY = "TITLE_TEST_EVENT"
 ACCOUNTS = {"google": {"address": "Ana@Mail.example", "calendars": {"personal": "primary"}, "folders": {"default": "Folder_ID_01"}}}
 TITLE = "Calendar: new event"
+HIDDEN = "Dentist \u202e"      # a right-to-left override: a line that would not say what it does
 ARGS = {"account": "google", "title": "Dentist at 14:00, bring the x-rays", "start": "2026-10-20T14:00"}
 SENDER = "telegram:4242"
 CALLS = []       # what the stand-in effect's execute was asked: it is the only thing in this file that "writes"
 
 
 def _check(args):
-    if not isinstance(args, dict) or set(args) - {"account", "title", "start", "fail"}:
+    if not isinstance(args, dict) or set(args) - {"account", "title", "start", "fail", "mode"}:
         raise steps.StepFailure("bad_args", "args")
     if not isinstance(args.get("title"), str) or not args["title"].strip():
         raise steps.StepFailure("bad_args", "title", "", "give a title")
@@ -54,15 +56,23 @@ def _check(args):
 def _prepare(ctx, state):
     if ctx.args.get("fail"):
         raise steps.StepFailure("not_configured", "calendar", "", "run the authorize command of the account")
-    doc = {"effect": "calendar", "task": ctx.task_id, "account": ctx.args["account"], "title": ctx.args["title"], "start": ctx.args.get("start", "")}
+    doc = {"effect": "mailbox" if ctx.args.get("mode") == "other-word" else "calendar", "task": ctx.task_id, "account": ctx.args["account"], "title": ctx.args["title"], "start": ctx.args.get("start", "")}
     return {"effect_sha256": ctx.services["effect_files"].write(ctx.task_id, int(state.get("cycle", 0)), doc)}
 
 
 def _open(ctx, state):
+    """The gate of the stand-in kind. `mode` makes it misbehave the way a kind could: echo the person's words into the title, put a hidden character in a field,
+    say a body that is not its lines, carry no card, or hold the document of another effect word."""
     recorded = state["steps"]["prepare"]["result"]["effect_sha256"]
     doc = ctx.services["effect_files"].read(ctx.task_id, int(state.get("cycle", 0)), recorded)
-    lines = [["CARD_ACCOUNT", {"account": doc["account"], "address": "ana@mail.example"}]]
-    return {"title": TITLE, "body": phrases.card_text(lines), "payload_sha256": recorded, "payload": {"card": lines}}
+    mode = ctx.args.get("mode")
+    lines = [["CARD_ACCOUNT", {"account": HIDDEN if mode == "hidden" else doc["account"], "address": "ana@mail.example"}]]
+    out = {"title": ctx.args["title"] if mode == "echo-title" else TITLE, "body": phrases.card_text(lines), "payload_sha256": recorded, "payload": {"card": lines}}
+    if mode == "body-mismatch":
+        out["body"] = "Account: google (somebody@mail.example)"
+    if mode == "no-card":
+        out["payload"] = {}
+    return out
 
 
 def _kind(name, word):
@@ -111,17 +121,20 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(operations, "OPERATIONS", operations.OPERATIONS + (row,))
     monkeypatch.setitem(operations.GROUPS, GROUP, {"operations": (OPERATION,), "kind": None})
     monkeypatch.setitem(operations.GROUP_TEXT, GROUP, "prepares a stand-in change; each one waits for approval of its card")
+    monkeypatch.setitem(phrases.TABLE["en"], TITLE_KEY, TITLE)
+    monkeypatch.setitem(phrases.TABLE["pt-BR"], TITLE_KEY, "Agenda: novo evento")
     path = built["project"] / "docs" / "workbench" / "runtime.json"
     raw = json.loads(path.read_text(encoding="utf-8"))
     raw["accounts"] = ACCOUNTS
     path.write_text(json.dumps(raw), encoding="utf-8")
     project = str(built["project"])
-    ops.accept_config(project, ops.project_config.load(project)["sha256"])
+    shown = ops.config(project)      # the accounts are a widening: the person types the hash of what `config` lists
+    ops.accept_config(project, shown["sha256"], widen=shown["widening_sha256"])
     return {**built, "path": project, "tmp": tmp_path}
 
 
-def start(world, args=None, kind=KIND, key=OPERATION, title=TITLE, account="google", **more):
-    return account_start.start(world["path"], kind, ARGS if args is None else args, key_words=key, title=title, account=account, **more)
+def start(world, args=None, kind=KIND, key=OPERATION, title_key=TITLE_KEY, account="google", **more):
+    return account_start.start(world["path"], kind, ARGS if args is None else args, key_words=key, title_key=title_key, account=account, **more)
 
 
 def store_rows(world):
@@ -138,6 +151,12 @@ def refused(world, **kw):
 def made_nothing(world):
     tasks, pending = store_rows(world)
     assert tasks == [] and pending == []
+
+
+def left_nothing(world):
+    """A start that was refused after its task was made leaves no planned or ready row and no open decision: everything it made is cancelled."""
+    tasks, pending = store_rows(world)
+    assert pending == [] and tasks and {t["state"] for t in tasks} == {"cancelled"}, [(t["id"], t["state"]) for t in tasks]
 
 
 # --- the start ---------------------------------------------------------------------------------------------------------------------------------
@@ -180,12 +199,26 @@ def test_the_title_is_the_codes_and_the_persons_words_are_in_no_title_of_the_req
     assert item["title"] == TITLE and "Dentist" not in item["title"]
 
 
-@pytest.mark.parametrize("title", ["Dentist at 14:00, bring the x-rays", "calendar: new event", "Calendar: New Event", "Calendar:\nnew event", "", "A" * 80,
-                                   "Calendar: new event 2", "Calendar: x" + "y" * 70])
-def test_a_title_that_is_not_a_few_plain_words_written_by_code_is_refused_and_nothing_is_made(world, title):
-    error = refused(world, title=title)
+@pytest.mark.parametrize("title_key", ["Dentist at 14:00, bring the x-rays", "TITLE_NOT_IN_THE_TABLE", "title_test_event", "STALE", "", None, 5, "TITLE_" + "X" * 60, "HEADER"])
+def test_a_title_that_is_not_a_fixed_phrase_of_the_family_title_is_refused_and_nothing_is_made(world, title_key):
+    error = refused(world, title_key=title_key)
     assert error.code == 2 and "title" in str(error)
     made_nothing(world)
+
+
+def test_a_title_phrase_with_a_field_is_refused(world, monkeypatch):
+    monkeypatch.setitem(phrases.TABLE["en"], "TITLE_TEST_FIELD", "Calendar: {title}")
+    monkeypatch.setitem(phrases.TABLE["pt-BR"], "TITLE_TEST_FIELD", "Agenda: {title}")
+    assert refused(world, title_key="TITLE_TEST_FIELD").code == 2
+    made_nothing(world)
+
+
+def test_the_title_is_a_phrase_of_the_table_so_a_portuguese_phone_reads_it_in_portuguese(world):
+    started = start(world)
+    ctx = ops_core.context(world["path"])
+    item = ctx["store"].pending_get(ctx["conn"], started["pending"])
+    assert item["title"] == TITLE, "stored in English, like every title"
+    assert phrases.heading(item["title"], {"language": "pt-BR"}) == "Agenda: novo evento" and phrases.heading(item["title"], None) == TITLE
 
 
 @pytest.mark.parametrize("key", ["Event Create", "event_create", "", "event--create", "x" * 60, "event create"])
@@ -227,7 +260,7 @@ def test_the_page_is_asked_the_policy_too(world):
 
 def test_the_terminal_and_a_call_with_no_channel_are_never_narrowed(world):
     assert start(world, channel="terminal")["pending"]
-    assert start(world, args={**ARGS, "title": "Another"}, key="account-test-two")["pending"]
+    assert start(world, args={**ARGS, "title": "Another"})["pending"]
     assert len(store_rows(world)[1]) == 2
 
 
@@ -285,12 +318,21 @@ def test_arguments_the_kind_refuses_are_a_usage_error_naming_the_field_and_nothi
     made_nothing(world)
 
 
-def test_a_preparation_that_fails_says_the_steps_own_sentence_and_leaves_the_task_failed(world):
+def test_a_preparation_that_fails_says_the_steps_own_sentence_and_leaves_nothing_behind(world):
     error = refused(world, args={**ARGS, "fail": True})
     assert error.code == 1 and "not_configured" in str(error) and "run the authorize command of the account" in str(error)
-    tasks, pending = store_rows(world)
-    assert pending == [] and [t["state"] for t in tasks if t["step_kind"] == KIND] == ["failed"]
+    left_nothing(world)
     assert CALLS == []
+    for _ in range(3):      # retries do not pile up planned or ready rows
+        refused(world, args={**ARGS, "fail": True})
+    tasks, _ = store_rows(world)
+    assert len(tasks) == 8 and {t["state"] for t in tasks} == {"cancelled"}
+
+
+def test_a_start_held_by_a_cap_leaves_nothing_behind(world, monkeypatch):
+    monkeypatch.setattr(st.load("parallel"), "admit", lambda *a, **k: (False, "at the limit of running tasks"))
+    assert "limit of running tasks" in str(refused(world))
+    left_nothing(world)
 
 
 # --- limit L55: the start writes nothing; the approval of the exact document does ------------------------------------------------------------------
@@ -345,3 +387,60 @@ def test_the_reply_of_a_messaging_app_is_said_in_the_projects_language(world):
     assert said == phrases.TABLE["pt-BR"]["ACCT_CARD_SENT"].format(pending=started["pending"]) and said != account_start.reply_text(None, started)
     assert phrases.localize(phrases.en("ACCT_NOT_CONFIGURED").format(account="google"), {"language": "pt-BR"}) == \
         phrases.text("ACCT_NOT_CONFIGURED", {"language": "pt-BR"}, account="google")
+
+
+# --- the card is checked, and a card that is not what the operation prepared fails closed -----------------------------------------------------------
+
+
+def test_a_gate_that_echoes_the_persons_words_into_the_title_fails_closed_and_leaves_no_decision(world):
+    error = refused(world, args={**ARGS, "mode": "echo-title"})
+    assert error.code == 1 and "title is not the one written by code" in str(error) and "cancelled" in str(error)
+    left_nothing(world)
+    assert CALLS == [] and ops.pending(world["path"])["pending"] == []
+
+
+@pytest.mark.parametrize("mode, why", [("hidden", "no well-formed card"), ("body-mismatch", "its lines are not its body"), ("no-card", "no well-formed card"),
+                                       ("other-word", "its effect is not the gate's")])
+def test_a_card_with_a_hidden_character_a_body_that_is_not_its_lines_no_lines_or_another_effect_fails_closed(world, mode, why):
+    args = {**ARGS, "mode": mode, "title": HIDDEN} if mode == "hidden" else {**ARGS, "mode": mode}
+    error = refused(world, args=args)
+    assert error.code == 1 and why in str(error)
+    left_nothing(world)
+    assert CALLS == []
+
+
+# --- the group of the word, and the brake --------------------------------------------------------------------------------------------------------
+
+
+def test_the_operation_must_belong_to_the_policy_group_of_the_words_effect(world):
+    error = refused(world, key="account-test-other")
+    assert error.code == 2 and "not one of the group calendar-write" in str(error)
+    made_nothing(world)
+
+
+def test_a_word_whose_group_does_not_exist_yet_starts_nothing(world, monkeypatch):
+    monkeypatch.delitem(operations.GROUPS, GROUP)
+    assert "not one of the group calendar-write" in str(refused(world))
+    made_nothing(world)
+
+
+def test_the_words_of_the_family_have_their_groups_and_send_is_not_one(world):
+    assert account_start.GROUP_OF_WORD == {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write"}
+    assert "send" not in account_start.WORDS and set(account_start.WORDS) == set(ops.project_config.ACCOUNT_EFFECT_WORDS)
+
+
+def test_a_messaging_start_is_refused_while_the_step_brake_is_stopped_and_the_terminals_is_not(world):
+    accept(world["path"], {"messaging": ["read", GROUP]})
+    st.load("ops_steps").set_steps_mode(world["path"], "stopped")
+    error = refused(world, channel="messaging", sender=SENDER)
+    assert error.code == 1 and "stopped" in str(error)
+    made_nothing(world)
+    assert start(world, channel="terminal")["pending"], "the person's own start still runs one"
+    st.load("ops_steps").set_steps_mode(world["path"], "autonomous")
+    assert start(world, channel="messaging", sender=SENDER)["pending"]
+
+
+def test_the_account_named_in_a_refusal_is_cleaned_of_line_ends_and_odd_characters(world):
+    error = refused(world, account="aws\nCalendar: work \u202e", args={**ARGS, "account": "x"})
+    assert "\n" not in str(error) and "\u202e" not in str(error) and error.code == 3
+    made_nothing(world)

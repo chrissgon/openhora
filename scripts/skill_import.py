@@ -938,16 +938,16 @@ def plan_skill(origin_info, tree, files, name, area_flag, declares, drops, previ
             recommended = (f"--declare {key}={','.join(foreign)}" if foreign else f"--declare {key}=none")
             why = ("it decides which credentials a run needs; a class is <role>:<target>, for example integration:issue-tracker"
                    if key == "requires" else
-                   f"it decides what the skill may do outside; one of {', '.join(v.SIDE_EFFECTS)}, and a skill that has any needs a "
+                   f"it decides what the skill may do outside; one of {', '.join(v.SKILL_EFFECTS)}, and a skill that has any needs a "
                    "Confirmation gate section")
             questions.append(ask(key, f"Does the skill {'need an environment requirement' if key == 'requires' else 'act outside the project (publish, send, push, ...)'}?"
                                  " It must be answered before any test.", recommended + (" (the scan will say if a script writes to a remote)" if key == "side_effects" else ""), why))
     for key in MUST_ANSWER + MAY_ASSUME:
         if key in answers and not isinstance(answers[key], list):
             answers[key] = parse_list(answers[key])
-    bad_effects = [e for e in answers.get("side_effects", []) if e not in v.SIDE_EFFECTS]
+    bad_effects = [e for e in answers.get("side_effects", []) if e not in v.SKILL_EFFECTS]      # the runtime's own words (write, calendar, mailbox, files) are no skill's
     if bad_effects:
-        questions.append(ask("side_effects", f"{', '.join(bad_effects)} is not a side effect the workbench knows ({', '.join(v.SIDE_EFFECTS)}).",
+        questions.append(ask("side_effects", f"{', '.join(bad_effects)} is not a side effect a skill may declare ({', '.join(v.SKILL_EFFECTS)}).",
                              "one of those", "the confirmation gate and the guards are tied to these words"))
     bad_requires = [r for r in answers.get("requires", []) if not REQUIRES_RE.match(r)]
     if bad_requires:

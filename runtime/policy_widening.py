@@ -36,6 +36,15 @@ exactly the list that was shown, and nobody types a phone number.
   widening(old, new)         [{"place", "channel", "group", "means"}], channels in the order of ORDER, then senders by key
   widening_sha256(list)      the sha256 of the list written one `<place>:<group>` per line, a newline after each; None for an empty list
 
+The accounts the platform may write to (package FND) are a widening too, of the same kind and with the same hash: a new account, a changed address, a new
+calendar, folder or mail folder name, a changed id behind a name already there, and `move_removes_inbox` turned on. Removals and narrowing need no ceremony. The
+record of what the accepted file named is its own cursor (`config:accounts`, outside the repository), one short digest per item, since a target's name and id
+would not fit with the senders in the 4 KiB of one cursor; an absent record is "nothing was accepted", so the first file that names an account lists all of it.
+
+  account_items(cfg)              [{"place": "accounts", "channel": "accounts", "group", "means", "digest"}] of the accounts a configuration names, in order
+  dump_accounts(cfg), parse_accounts(text)   the cursor's text, and the set of digests it holds (None when the text is not one)
+  account_widening(old_text, cfg) the items of `cfg` that the record does not hold, without the digest; a `move_removes_inbox` only for an account the record held
+
 No module here calls the store or a provider. Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -50,6 +59,7 @@ import operations  # noqa: E402
 
 ORDER = ("messaging", "mcp", "page")   # the order of the widening list: the channel that reaches a person's phone first, then the MCP mode, then the page
 EFFECTIVE = "config:effective"   # the store's cursor that holds the snapshot of the file the person accepted last
+ACCOUNTS = "config:accounts"     # the store's cursor that holds the digests of the account targets the file accepted last named (package FND)
 LEGACY = "config:grants"         # POL-1's cursor: the grants of that file, as a JSON list of "<channel>:<group>" (read when EFFECTIVE is absent)
 
 
@@ -193,6 +203,70 @@ def widening(old: dict, new: dict) -> list:
             before = concrete("messaging", had) if had is not None else (old_channel if listed_before else set())
         after = concrete("messaging", mine) if mine is not None else new_channel
         out += _items(key, "messaging", after - before)
+    return out
+
+
+PROVIDER_NAME = {"google": "Google", "microsoft": "Microsoft"}
+ACCOUNT_KINDS = (("calendars", "calendar", "the platform may create, change and remove events on the {provider} calendar '{name}'"),
+                 ("folders", "folder", "the platform may create files and write new revisions in the {provider} folder '{name}'"),
+                 ("mail_folders", "mail-folder", "the platform may move messages into the {provider} mail folder '{name}' (and mark, archive and trash in the mailbox)"))
+DIGEST = 10     # hexadecimal characters of one item's digest
+
+
+def _digest(group: str) -> str:
+    return hashlib.sha256(group.encode("utf-8")).hexdigest()[:DIGEST]
+
+
+def account_items(cfg: dict) -> list:
+    """The items of the accounts a loaded configuration names (project_config `accounts`), in a fixed order: for each provider the account, its address, its
+    calendars, folders and mail folders by name, and `move_removes_inbox` when it is on. The `group` of an item carries what the hash binds: the provider, the
+    kind, the name AND the id (so a changed id behind a name is another item), or the address."""
+    out = []
+    for provider in ("google", "microsoft"):
+        entry = ((cfg or {}).get("accounts") or {}).get(provider)
+        if not isinstance(entry, dict):
+            continue
+        shown = PROVIDER_NAME[provider]
+        items = [(f"{provider}:account", f"the platform may write in your {shown} account, within the targets listed with it"),
+                 (f"{provider}:address={entry['address']}", f"the {shown} account is {entry['address']}")]
+        for section, kind, means in ACCOUNT_KINDS:
+            for name in sorted(entry.get(section) or {}):
+                items.append((f"{provider}:{kind}:{name}={entry[section][name]}", means.format(provider=shown, name=name)))
+        if entry.get("move_removes_inbox") is True:
+            items.append((f"{provider}:move_removes_inbox", f"moving a message to a mail folder of the {shown} account also takes it out of the Inbox"))
+        out += [{"place": "accounts", "channel": "accounts", "group": group, "means": means, "digest": _digest(group)} for group, means in items]
+    return out
+
+
+def dump_accounts(cfg: dict) -> str:
+    """The cursor's text: the digests of the items, sorted, in one string (two providers of 153 items each fit in a cursor)."""
+    return json.dumps({"v": 1, "items": "".join(sorted(i["digest"] for i in account_items(cfg)))}, separators=(",", ":"))
+
+
+def parse_accounts(text):
+    """The set of digests a cursor holds, or None when there is none or the text is not one this module wrote."""
+    try:
+        found = json.loads(text) if text else None
+    except ValueError:
+        return None
+    items = found.get("items") if isinstance(found, dict) and found.get("v") == 1 else None
+    if not isinstance(items, str) or len(items) % DIGEST or not all(c in "0123456789abcdef" for c in items):
+        return None
+    return {items[i:i + DIGEST] for i in range(0, len(items), DIGEST)}
+
+
+def account_widening(old_text, cfg: dict) -> list:
+    """What `cfg` names of the accounts and the record (`old_text`, the cursor ACCOUNTS) does not hold: the items, in order, without their digest. No record,
+    or one that is not readable, holds nothing, so the first file that names an account lists everything it names. `move_removes_inbox` is listed only for
+    an account the record held (for a new account it is part of the account)."""
+    held = parse_accounts(old_text) or set()
+    out = []
+    for item in account_items(cfg):
+        if item["digest"] in held:
+            continue
+        if item["group"].endswith(":move_removes_inbox") and _digest(item["group"].split(":")[0] + ":account") not in held:
+            continue
+        out.append({k: v for k, v in item.items() if k != "digest"})
     return out
 
 

@@ -506,6 +506,13 @@ def test_an_effect_or_a_requirement_outside_the_vocabulary_stops(capsys):
     assert code == 3 and sorted(q["key"] for q in out["questions"]) == ["requires", "side_effects"]
 
 
+@pytest.mark.parametrize("word", ["write", "calendar", "mailbox", "files"])
+def test_an_effect_that_only_the_runtimes_own_kinds_have_stops(capsys, word):
+    quarantine = fetched(capsys, FIX / "web-notes")
+    code, out = call(capsys, "normalize", "--quarantine", quarantine, "--name", "eng-web-notes", "--declare", "requires=none", "--declare", f"side_effects={word}")
+    assert code == 3 and [q["key"] for q in out["questions"]] == ["side_effects"] and "may declare" in out["questions"][0]["question"]
+
+
 def test_an_unknown_declare_key_is_a_usage_error(capsys):
     with pytest.raises(SystemExit):
         si.main(["normalize", "--name", "eng-web-notes", "--declare", "area=engineering"])

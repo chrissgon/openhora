@@ -107,6 +107,7 @@ def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool 
     core._stored(ctx, ctx["store"].cursor_set, ACCEPTED_BY, by)
     if record:   # only accept_config, and a mode change when a record exists already: nothing else ends the unknown state of a project accepted before the record
         core._stored(ctx, ctx["store"].cursor_set, policy_widening.EFFECTIVE, policy_widening.dump(policy_widening.snapshot(cfg)))   # POL-1/POL-2: what the file accepted now effectively has is what the next acceptance compares with
+        core._stored(ctx, ctx["store"].cursor_set, policy_widening.ACCOUNTS, policy_widening.dump_accounts(cfg))   # FND: the accounts it names, for the same comparison
     core._stored(ctx, ctx["store"].cursor_set, project_config.ACCEPTED, sha256)
     done = {"previous": previous, "checkpoints": write_checkpoints(cfg)}
     if adopted:
@@ -125,7 +126,8 @@ def _widening_of(ctx: dict, cfg: dict) -> list:
     """The widenings of this configuration over the file the person accepted last (policy_widening): read from the store's two cursors."""
     got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)
     before = got(project_config.ACCEPTED) is not None
-    return policy_widening.widening(policy_widening.baseline(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), before), policy_widening.snapshot(cfg))
+    return (policy_widening.widening(policy_widening.baseline(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), before), policy_widening.snapshot(cfg))
+            + policy_widening.account_widening(got(policy_widening.ACCOUNTS), cfg))      # FND: the accounts the platform may write to
 
 
 def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen: str | None = None) -> dict:

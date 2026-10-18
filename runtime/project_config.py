@@ -121,6 +121,7 @@ import math
 import os
 import re
 import sys
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -642,9 +643,10 @@ ACCOUNT_SECTIONS = ("calendars", "folders", "mail_folders")      # the three map
 ACCOUNT_NAME = re.compile(r"[a-z0-9-]{1,32}")
 ACCOUNT_SECTION_MAX = 50                                         # names in one map
 ACCOUNT_DEFAULT_FOLDER = "default"                               # the name of the folder a file goes to when the person names none
-ACCOUNT_PATH_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')      # a character a OneDrive name cannot hold, and a control character
+ACCOUNT_PATH_BAD = re.compile(r'[\\/:*?"<>|#%\x00-\x1f\x7f]')      # a character a OneDrive name cannot hold, a control character, and `#` and `%` (a fragment, a percent-encoded form)
+ACCOUNT_HIDDEN = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")           # control, format (a right-to-left override, a zero-width character), separators: never in an id or a path
 ACCOUNT_ID = {       # (provider, section) -> the full-match pattern of an id; none holds a slash (a OneDrive folder may also be a path: _account_path)
-    ("google", "calendars"): re.compile(r"[A-Za-z0-9._@#+-]{1,254}"),
+    ("google", "calendars"): re.compile(r"(?!\.{1,2}$)[A-Za-z0-9._@+-]{1,254}"),
     ("google", "folders"): re.compile(r"[A-Za-z0-9_-]{1,128}"),
     ("google", "mail_folders"): re.compile(r"[A-Za-z0-9_-]{1,64}"),
     ("microsoft", "calendars"): re.compile(r"[A-Za-z0-9_=-]{1,300}"),
@@ -659,7 +661,8 @@ def _account_path(value: str) -> bool:
     if not value.startswith("/") or len(value) > 400 or value == "/":
         return False
     parts = value[1:].split("/")
-    return all(0 < len(p) <= 100 and p not in (".", "..") and not ACCOUNT_PATH_BAD.search(p) and p == p.strip(" ") and not p.endswith(".") for p in parts)
+    return all(0 < len(p) <= 100 and p not in (".", "..") and not ACCOUNT_PATH_BAD.search(p) and p == p.strip(" ") and not p.endswith(".")
+               and not any(unicodedata.category(c) in ACCOUNT_HIDDEN for c in p) for p in parts)
 
 
 def _account_id(provider: str, section: str, value) -> bool:
@@ -711,22 +714,29 @@ def account_entry(cfg: dict, account):
     return ((cfg or {}).get("accounts") or {}).get(account) if account in ACCOUNT_PROVIDERS else None
 
 
+def clean_name(value, width: int = 40) -> str:
+    """A name a caller gave, as a sentence may echo it: at most `width` characters, and only letters, digits, hyphens, underscores and dots (anything else is `?`)."""
+    return re.sub(r"[^A-Za-z0-9_.-]", "?", str(value)[:width])
+
+
 def account_target(cfg: dict, account, section: str, name=None) -> tuple:
     """(id, None) of a target the project lists for an account, or (None, the sentence that refuses it): the one place the write kinds ask whether the
     platform may write somewhere (limit L55). `section` is calendars, folders or mail_folders. Without a name, calendars means the first one listed and
     folders the one named `default`; a mail folder is always named. Whatever the token could reach, only what is listed is a target."""
     entry = account_entry(cfg, account)
     if entry is None:
-        return None, phrases.en("ACCT_NOT_CONFIGURED").format(account=str(account)[:20])
-    if section not in ACCOUNT_SECTIONS:
-        return None, f"there is no kind of target {section!r}"
+        return None, phrases.en("ACCT_NOT_CONFIGURED").format(account=clean_name(account, 20))
+    if not isinstance(section, str) or section not in ACCOUNT_SECTIONS:
+        return None, f"there is no kind of target {clean_name(section)!r}"
+    if name is not None and not isinstance(name, str):
+        return None, f"a name is a text: {clean_name(name)!r} is not one of the {section.replace('_', ' ')} the project lists for the account {account}"
     listed, what = entry[section], section.replace("_", " ")
     if name is None:
         name = next(iter(listed), None) if section == "calendars" else ACCOUNT_DEFAULT_FOLDER if section == "folders" else None
         if name is None:
             return None, f"name one of the {what} the project lists for the account {account}: {', '.join(listed) or 'none are listed'}"
     if name not in listed:
-        return None, (f"{str(name)[:40]!r} is not one of the {what} the project lists for the account {account} (accounts.{account}.{section} in "
+        return None, (f"{clean_name(name)!r} is not one of the {what} the project lists for the account {account} (accounts.{account}.{section} in "
                       f"runtime.json): {', '.join(listed) or 'none are listed'}")
     return listed[name], None
 

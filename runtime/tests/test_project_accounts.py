@@ -85,6 +85,19 @@ def test_the_hash_of_the_file_covers_the_accounts_so_a_changed_target_asks_to_be
     ({"google": {"address": "a@b.example", "calendars": {"x": "has/slash"}}}, "a Google id holds no slash"),
     ({"google": {"address": "a@b.example", "calendars": {"x": "a b"}}}, "is not the id of a google calendar"),
     ({"google": {"address": "a@b.example", "calendars": {"x": ""}}}, "is not the id of a google calendar"),
+    ({"google": {"address": "a@b.example", "calendars": {"x": ".."}}}, "is not the id of a google calendar"),
+    ({"google": {"address": "a@b.example", "calendars": {"x": "."}}}, "is not the id of a google calendar"),
+    ({"google": {"address": "a@b.example", "calendars": {"x": "victim#"}}}, "is not the id of a google calendar"),
+    ({"google": {"address": "a@b.example", "calendars": {"x": "a%2eb"}}}, "is not the id of a google calendar"),
+    ({"google": {"address": "a@b.example", "calendars": {"x": "a?b=c"}}}, "is not the id of a google calendar"),
+    ({"google": {"address": "a@b.example", "calendars": {"x": "a\u202eb"}}}, "is not the id of a google calendar"),
+    ({"microsoft": {"address": "a@b.example", "folders": {"x": "/Docs/%2e%2e"}}}, "is not the id of a microsoft folder"),
+    ({"microsoft": {"address": "a@b.example", "folders": {"x": "/Docs/%2F..%2F"}}}, "is not the id of a microsoft folder"),
+    ({"microsoft": {"address": "a@b.example", "folders": {"x": "/Docs#x"}}}, "is not the id of a microsoft folder"),
+    ({"microsoft": {"address": "a@b.example", "folders": {"x": "/Docs/a?b"}}}, "is not the id of a microsoft folder"),
+    ({"microsoft": {"address": "a@b.example", "folders": {"x": "/Docs/\u202eabc"}}}, "is not the id of a microsoft folder"),
+    ({"microsoft": {"address": "a@b.example", "folders": {"x": "/Docs/a\u200bb"}}}, "is not the id of a microsoft folder"),
+    ({"microsoft": {"address": "a@b.example", "folders": {"x": "/Docs/a\u2028b"}}}, "is not the id of a microsoft folder"),
     ({"google": {"address": "a@b.example", "folders": {"x": "folder/sub"}}}, "a Google id holds no slash"),
     ({"google": {"address": "a@b.example", "folders": {"x": "/Documents"}}}, "a Google id holds no slash"),
     ({"google": {"address": "a@b.example", "mail_folders": {"x": "INBOX/child"}}}, "a Google id holds no slash"),
@@ -163,6 +176,26 @@ def test_a_long_name_asked_for_is_cut_in_the_sentence(project):
     assert "x" * 41 not in why and len(why) < 400
 
 
+def test_a_name_that_is_not_a_text_or_a_section_that_is_not_a_text_is_a_refusal_never_an_error(project):
+    cfg = write(project, FULL)
+    for name in (["personal"], {"p": 1}, 5, 1.5, True, b"personal", ("a",), object()):
+        found, why = project_config.account_target(cfg, "google", "calendars", name)
+        assert found is None and "is not one of the calendars" in why or "a name is a text" in why, (name, why)
+    for section in (["calendars"], {"calendars": 1}, 5, None):
+        assert project_config.account_target(cfg, "google", section, None)[0] is None
+    for account in (["google"], {"g": 1}, 5):
+        assert project_config.account_target(cfg, account, "calendars")[0] is None
+
+
+def test_a_name_echoed_in_a_refusal_holds_no_line_end_or_hidden_character(project):
+    cfg = write(project, FULL)
+    for name in ("a\nCalendar: work", "x\u202ey", "tab\there"):
+        why = project_config.account_target(cfg, "google", "calendars", name)[1]
+        assert "\n" not in why and "\u202e" not in why and "\t" not in why, repr(why)
+    why = project_config.account_target(cfg, "a\nb", "calendars")[1]
+    assert "\n" not in why
+
+
 def test_the_patterns_have_no_way_to_hold_a_path_traversal_or_a_url(project):
     for provider in project_config.ACCOUNT_PROVIDERS:
         for section in project_config.ACCOUNT_SECTIONS:
@@ -170,3 +203,16 @@ def test_the_patterns_have_no_way_to_hold_a_path_traversal_or_a_url(project):
             for risky in ("../x", "a/b", "http://x", "a?b=c", "a b", "a\n", "a\x00", "a\\b", "%2e%2e", "a;b", "a&b", "a'b", 'a"b'):
                 assert pattern.fullmatch(risky) is None, (provider, section, risky)
     assert re.compile(project_config.ACCOUNT_NAME.pattern).fullmatch("good-name-1") and project_config.ACCOUNT_NAME.fullmatch("Bad") is None
+
+
+def test_the_one_drive_path_branch_has_no_way_to_hold_a_traversal_a_fragment_a_query_or_a_percent_encoding(project):
+    good = ["/Documents/openhora", "/Docs/Résumés (2026)", "/a/b c/d-e_f"]
+    bad = ["/Docs/%2e%2e", "/Docs/%2E%2E", "/Docs/%2F..%2F", "/Docs/..%2f", "/Docs#x", "/Docs/a?b", "/Docs/\u202eabc", "/Docs/\u200b", "/Docs/\ufeff", "/Docs/a\u2028b",
+           "/Docs/a\u2029b", "/Docs/\x00", "/Docs/\x7f", "/a//b", "/a/../b", "/a/./b", "/", "", "rel/ative", "/a\\b", "/a:b", "/a|b", "/a*b", "/a<b", '/a"b']
+    for value in good:
+        assert project_config._account_id("microsoft", "folders", value) is True, value
+    for value in bad:
+        assert project_config._account_id("microsoft", "folders", value) is False, repr(value)
+    for value in (".", "..", "a#b", "a%2eb", "a?b", "a b", "a/b", "a\u202eb", "a\u200bb"):
+        assert project_config._account_id("google", "calendars", value) is False, repr(value)
+    assert project_config._account_id("google", "calendars", "primary") and project_config._account_id("google", "calendars", "a.b@c.example")

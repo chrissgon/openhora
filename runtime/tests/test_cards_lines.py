@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_cards_lines.py
 """
 from __future__ import annotations
 
+import string
+
 import pytest
 
 import standin_tree as st
@@ -25,6 +27,8 @@ TITLE_WORDS = "Dentist, 'Check-up' {account} {n}"      # the person's words: bra
 
 @pytest.fixture
 def table(monkeypatch):
+    monkeypatch.setitem(phrases.TABLE["en"], "CARD_TEST_BODY", "Message:\n{body}")
+    monkeypatch.setitem(phrases.TABLE["pt-BR"], "CARD_TEST_BODY", "Mensagem:\n{body}")
     """Two lines of a pretend kind, in both columns of the table (the real kinds add their own with their packages)."""
     monkeypatch.setitem(phrases.TABLE["en"], "CARD_TEST_TITLE", "Title: {title}")
     monkeypatch.setitem(phrases.TABLE["en"], "CARD_TEST_NOBODY", "No one is invited: no e-mail is sent.")
@@ -76,13 +80,22 @@ def test_a_card_has_a_limit_of_lines(table):
     assert phrases.card_valid([one] * phrases.CARD_LINES_MAX) is True and phrases.card_valid([one] * (phrases.CARD_LINES_MAX + 1)) is False
 
 
-def test_every_card_key_of_the_table_is_in_both_languages_with_the_same_fields_and_the_portuguese_one_differs():
+def placeholders(sentence):
+    """Every placeholder of a sentence whole: (name, format spec, conversion), in order and as many times as it appears."""
+    return [(name, spec, conv) for _lit, name, spec, conv in string.Formatter().parse(sentence) if name]
+
+
+def test_every_card_key_of_the_table_is_in_both_languages_with_the_same_placeholders_format_spec_included_and_the_portuguese_one_differs():
     keys = [k for k in phrases.TABLE["en"] if k.startswith("CARD_")]
     assert "CARD_ACCOUNT" in keys
     for key in keys:
         assert phrases.CARD_FAMILY.fullmatch(key) and key in phrases.TABLE["pt-BR"]
-        assert phrases._fields_of(phrases.TABLE["en"][key]) == phrases._fields_of(phrases.TABLE["pt-BR"][key]), key
+        assert sorted(placeholders(phrases.TABLE["en"][key])) == sorted(placeholders(phrases.TABLE["pt-BR"][key])), key
         assert phrases.TABLE["en"][key] != phrases.TABLE["pt-BR"][key], key
+
+
+def test_a_placeholder_with_another_format_spec_in_the_other_column_is_found_by_the_parity_check():
+    assert sorted(placeholders("Size: {n:>5}")) != sorted(placeholders("Tamanho: {n}")) and sorted(placeholders("A {n!r}")) != sorted(placeholders("B {n}"))
 
 
 # --- the card, said in the language ---------------------------------------------------------------------------------------------------------------
@@ -173,3 +186,30 @@ def test_the_stored_body_of_an_effect_with_lines_is_the_english_lines_joined(tab
     card = lines()
     assert phrases.card_text(card) == "\n".join(phrases.text(k, None, **f) for k, f in card)
     assert phrases.card_text(card, None) == phrases.card_text(card, {"language": "en"})
+
+
+# --- hidden characters ---------------------------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", ["a\nb", "a\tb", "a\rb", "a\x00b", "a\x1bb", "a\u202eb", "a\u200bb", "a\u200db", "a\ufeffb", "a\u2028b", "a\u2029b",
+                                   "a\u2066b", "a\udc80b", "a\ue000b", "\u202e"])
+def test_a_field_with_a_control_format_separator_surrogate_or_private_use_character_makes_the_card_no_card(table, value):
+    assert phrases.card_valid([["CARD_TEST_TITLE", {"title": value}]]) is False
+
+
+@pytest.mark.parametrize("value", ["plain", "Dentist, 'Check-up' {x}", "Café — 14:00 (réunion)", "日本語", "emoji \U0001f600", ""])
+def test_ordinary_text_in_any_script_is_fine(table, value):
+    assert phrases.card_valid([["CARD_TEST_TITLE", {"title": value}]]) is True
+
+
+def test_a_field_declared_multi_line_may_hold_line_ends_and_tabs_but_nothing_hidden(table):
+    assert phrases.card_valid([["CARD_TEST_BODY", {"body": "line one\nline two\n\tindented"}]]) is True
+    for bad in ("a\rb", "a\u202eb", "a\u2028b", "a\u200bb", "a\x00b", "a\x1bb"):
+        assert phrases.card_valid([["CARD_TEST_BODY", {"body": bad}]]) is False, repr(bad)
+    assert set(phrases.CARD_MULTILINE) == {"body", "text", "notes", "content", "change"}
+
+
+def test_a_hidden_character_card_is_not_said_in_the_other_language_the_stored_body_is_shown(table):
+    item = effect([["CARD_TEST_TITLE", {"title": "Dentist \u202e"}]], body="Title: Dentist \u202e")
+    said = build(item, PT)["message"]["text"]
+    assert "Título:" not in said and "Title: Dentist" in said

@@ -50,6 +50,7 @@ import os
 import re
 import string
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import language  # noqa: E402  (the same folder: the order that decides the tag)
@@ -471,15 +472,24 @@ def localize(sentence, cfg=None):
 
 CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,40}")
 CARD_LINES_MAX = 300        # lines in one card
+CARD_MULTILINE = ("body", "text", "notes", "content", "change")      # the fields that may hold line ends and tabs (a message, a note, a file's text, a diff); every other field is one line
+CARD_REFUSED = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")      # control, format (a right-to-left override, a zero-width character), line and paragraph separator, surrogate, private use
 
 
 def _fields_of(sentence: str) -> set:
     return {name for _lit, name, _spec, _conv in string.Formatter().parse(sentence) if name}
 
 
+def _field_ok(name: str, value: str) -> bool:
+    """Whether a field's value can be on a card: no control, format, separator, surrogate or private-use character, except the line end and the tab in a
+    field of CARD_MULTILINE. A card with one is no card (a hidden character could make a line say what it does not)."""
+    allowed = "\n\t" if name in CARD_MULTILINE else ""
+    return all(c in allowed or unicodedata.category(c) not in CARD_REFUSED for c in value)
+
+
 def card_valid(card) -> bool:
     """Whether `card` is a well-formed card: a non-empty list of at most CARD_LINES_MAX pairs [key, {field: text}], every key of the family `CARD_` and in the
-    English table, every field a text, and the fields exactly the ones the English sentence of the key has. Anything else (a key outside the family, a field
+    English table, every field a text with no control, format or separator character (`_field_ok`), and the fields exactly the ones the English sentence of the key has. Anything else (a key outside the family, a field
     that is not a text, a missing or an extra field) is no card, and `text` is never asked about it."""
     if not isinstance(card, (list, tuple)) or not 0 < len(card) <= CARD_LINES_MAX:
         return False
@@ -492,7 +502,7 @@ def card_valid(card) -> bool:
             return False
         if not isinstance(fields, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in fields.items()):
             return False
-        if set(fields) != _fields_of(english[key]):
+        if set(fields) != _fields_of(english[key]) or not all(_field_ok(k, v) for k, v in fields.items()):
             return False
     return True
 

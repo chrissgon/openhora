@@ -38,7 +38,7 @@ def test_the_three_words_are_in_the_validators_list_after_write_and_in_the_contr
 
 def test_the_contract_says_the_words_arrived_with_the_runtime_and_no_skill_declares_them():
     text = (REPO / "contracts" / "environment.md").read_text(encoding="utf-8")
-    assert "`calendar`, `mailbox` and `files`" in text and "not with a skill" in text and "written by code, never the person's words" in text
+    assert "`calendar`, `mailbox` and `files`" in text and "not with a skill" in text and "a fixed phrase written by code" in text and "never the person's words" in text and "RUNTIME_ONLY_EFFECTS" in text
     declared = []
     for skill in sorted((REPO / "skills").glob("*/SKILL.md")):
         front = skill.read_text(encoding="utf-8").split("---", 2)[1]
@@ -48,18 +48,23 @@ def test_the_contract_says_the_words_arrived_with_the_runtime_and_no_skill_decla
     assert declared == [], "a skill declares a word of the runtime's account writes"
 
 
-def test_the_validator_accepts_a_skill_that_declares_a_word_of_the_list_without_a_vocabulary_warning(tmp_path, monkeypatch):
-    """The words are in the list the vocabulary rule reads (the rule is the same for `write`); this is the rule, not a licence for a skill to declare them."""
+def test_the_validator_refuses_a_skill_that_declares_a_word_the_runtime_alone_has_and_accepts_the_words_of_a_skill(tmp_path, monkeypatch):
+    """The four words (write, calendar, mailbox, files) are in the list the contract names, and no skill declares one: an error of the vocabulary rule."""
     helpers = load("validate_rules_for_account_words", REPO / "scripts" / "tests" / "test_validate_rules.py")
     monkeypatch.setattr(helpers.validate, "ROOT", str(tmp_path))
     monkeypatch.setattr(helpers.validate, "SKILLS", str(tmp_path / "skills"))
     monkeypatch.setattr(helpers.validate, "AGENTS", str(tmp_path / "agents"))
     body = "# Demo\n\nText.\n\n## Confirmation gate\n\nAsk first.\n"
-    for word in ("calendar", "teleport"):
+    assert validate.RUNTIME_ONLY_EFFECTS == ("write",) + WORDS and set(validate.SKILL_EFFECTS) == set(validate.SIDE_EFFECTS) - set(validate.RUNTIME_ONLY_EFFECTS)
+    for word in validate.SKILL_EFFECTS:
+        helpers.add_skill(tmp_path, meta={"side_effects": f"[{word}]"}, body=body)
+        assert helpers.run_skill(tmp_path, classes=["search:web"]).errors == [], word
+    for word in validate.RUNTIME_ONLY_EFFECTS + ("teleport",):
         helpers.add_skill(tmp_path, meta={"side_effects": f"[{word}]"}, body=body)
         report = helpers.run_skill(tmp_path, classes=["search:web"])
-        flagged = helpers.messages(report, "side-effects-vocabulary")
-        assert (flagged == []) if word == "calendar" else (len(flagged) == 1 and "side_effects teleport" in flagged[0])
+        flagged = [e["message"] for e in report.errors if e.get("rule") == "side-effects-vocabulary"]
+        assert len(flagged) == 1 and f"side_effects {word}" in flagged[0], word
+        assert ("no skill declares it" in flagged[0]) == (word != "teleport")
 
 
 def test_the_writer_role_is_runtime_only_in_the_resolver_and_in_neither_the_listed_classes_nor_the_contract_table():
