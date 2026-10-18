@@ -35,13 +35,13 @@ def test_a_heading_code_wrote_whole_is_said_on_the_card_and_in_the_list_and_the_
     texts = asks(world, "pt-BR")
     assert texts[0].startswith("northwind-shop · pergunta #2\n\nO roteador pergunta\n\nWhich flow do you want?")
     assert texts[1].startswith("northwind-shop · pergunta #3\n\nHours\n\n"), "a title that is the person's or the model's is not touched"
-    assert texts[2].startswith("northwind-shop · aceite #4\n\nA entrega 2 não foi encaminhada depois do briefing\n\n")
+    assert texts[2].startswith("northwind-shop · aceite #4\n\nA entrega 2 não foi encaminhada depois do briefing\n\n")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     stored = world.items[2]
     card = world.bridge.ledger.last_card(world.projects[0]["id"], 2, "4242")
     assert card["content_sha256"] == cards.sha256_text("The router asks\n\nWhich flow do you want?") == cards.content_sha256(stored), "the hash is of the stored text"
     assert stored["title"] == "The router asks"
     world.say("/pending")
-    assert world.texts()[-1] == ("northwind-shop: #2 pergunta: O roteador pergunta\n#3 pergunta: Hours\n#4 aceite: A entrega 2 não foi encaminhada depois do briefing")
+    assert world.texts()[-1] == ("northwind-shop: #2 pergunta: O roteador pergunta\n#3 pergunta: Hours\n#4 aceite: A entrega 2 não foi encaminhada depois do briefing")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
 def test_the_same_decisions_in_a_project_with_no_language_or_a_tag_with_no_table_read_as_they_always_did(world):
@@ -63,7 +63,7 @@ def test_the_status_of_a_reminder_is_said_on_the_phone_and_stays_english_in_the_
     day.say(OWNER, "/forget 1")
     assert day.texts(OWNER)[-1] == "Lembrete #1 cancelado."
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1] == "O lembrete 1 tem o status cancelado: não está esperando."
+    assert day.texts(OWNER)[-1] == "O lembrete 1 tem o status cancelado: não está esperando."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     with pytest.raises(ops.OpsError) as caught:
         ops.reminder_forget(day.path, 1, channel="terminal")
     assert str(caught.value) == "Reminder 1 is cancelled, not waiting.", "the operations layer, and so the terminal, the MCP mode and the API, keep the store's word"

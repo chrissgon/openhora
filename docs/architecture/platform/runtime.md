@@ -123,6 +123,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/parallel.py` | The rules of tasks that run at once, decided by pure functions: whether a ready task may start beside the ones that run (a slot of its agent, a slot of the project, no code task of its request, no artifact in use), and what a skill's footprint is. |
 | `runtime/path_rule.py` | The path rule: how one path of what a run left goes back to the project. |
 | `runtime/phrases.py` | The phrase table (package LR-1): the sentences the runtime says to a person in the project's language, and the one function that picks them. |
+| `runtime/phrases_pt_br.py` | The Brazilian Portuguese column of the phrase table (package LR-1, runtime/phrases.py): data only, a pure literal, no code and no import. |
 | `runtime/plan.py` | The plan of a request: the tasks code builds from a route, which the person approves before any task exists. |
 | `runtime/policy_grants.py` | What `config` shows of the channel policy (packages POL-1 and POL-2), pure: the grants a file lists, what a configuration widens and the hash a person types to accept it, and the warnings that are never a refusal. |
 | `runtime/policy_widening.py` | What a configuration WIDENS, and the hash a person types to accept it (packages POL-1 and POL-2), pure. |

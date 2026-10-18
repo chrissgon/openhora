@@ -88,6 +88,7 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import contextlib
 import inspect
 import os
 import re
@@ -232,6 +233,7 @@ class Bridge(shell_kit.Jobs):
         self.ticket = 0
         self.queue_lock = threading.Lock()    # guards `waiting` and `ticket`
         self.drain_lock = threading.Lock()    # one drain at a time, so that lines start in order
+        self.scope = threading.local()        # the languages read for the update, the tick or the drain being handled on this thread (`read_once`)
         self.session_ready = None             # a listen provider: whether its session is ready (the loop sets it); no waiting line starts while it is not
 
     # --- the projects and their settings ---------------------------------------------------------------------
@@ -250,13 +252,49 @@ class Bridge(shell_kit.Jobs):
 
     def cfg(self, project=None, chat=None) -> dict:
         """What the phrase table reads of a project: {"language": its `language` setting}, read from its configuration now (an unaccepted one included: the
-        sentence that says so is said in the project's language too), or {} when it cannot be read. With no project, the first project served that lists `chat`."""
+        sentence that says so is said in the project's language too), or {} when it cannot be read. With no project, the first project served that lists `chat`.
+        Inside `read_once` (an update, a tick, a drain, and the jobs they start) a project is read once and the answer is kept until the scope ends."""
+        cache = getattr(self.scope, "cache", None)
         try:
             if project is None and chat is not None:
                 project = next(iter(self.projects_for(chat)), None)
-            return {"language": self.ops.config(project["path"]).get("language")} if project is not None else {}
+            if project is None:
+                return {}
+            if cache is not None and project["id"] in cache:
+                return cache[project["id"]]
+            found = {"language": self.ops.config(project["path"]).get("language")}
+            if cache is not None:
+                cache[project["id"]] = found
+            return found
         except Exception:      # a sentence is never held back by a configuration that cannot be read: it is said in English
             return {}
+
+    @contextlib.contextmanager
+    def read_once(self):
+        """The scope inside which `cfg` reads a project's language once: the handling of one update, one tick, one drain. A job it starts keeps the languages
+        read (`inherit`), so a long job says its last sentence in the language it began with."""
+        if getattr(self.scope, "cache", None) is not None:
+            yield
+            return
+        self.scope.cache = {}
+        try:
+            yield
+        finally:
+            self.scope.cache = None
+
+    def inherit(self, call):
+        """`call` as a job that sees the languages read by the thread that creates it."""
+        cache = getattr(self.scope, "cache", None)
+        if cache is None:
+            return call
+
+        def run():
+            self.scope.cache = cache
+            try:
+                return call()
+            finally:
+                self.scope.cache = None
+        return run
 
     def t(self, key: str, project=None, chat=None, cfg=None, **fields) -> str:
         """The sentence `key` in the project's language (runtime/phrases.py). `cfg` is the language already read (a settings dict), else it is read from
@@ -508,6 +546,10 @@ class Bridge(shell_kit.Jobs):
         return bool(built["approvable"])
 
     def tick(self) -> None:
+        with self.read_once():
+            self._tick()
+
+    def _tick(self) -> None:
         self.recheck()
         for project in self.projects:
             try:
@@ -571,6 +613,10 @@ class Bridge(shell_kit.Jobs):
     # --- updates in ------------------------------------------------------------------------------------------
 
     def handle(self, update: dict) -> None:
+        with self.read_once():
+            self._handle(update)
+
+    def _handle(self, update: dict) -> None:
         sender, chat = str(update.get("sender")), str(update.get("chat"))
         listed = self.projects_for(sender) if update.get("private") and chat == sender else []
         if not listed:
@@ -846,7 +892,7 @@ class Bridge(shell_kit.Jobs):
         held = False
         if not mine:
             try:
-                self.start_job(project["id"], "say", self.line(project, chat, text, None))
+                self.start_job(project["id"], "say", self.inherit(self.line(project, chat, text, None)))
                 return
             except shell_kit.Busy:
                 held = True
@@ -937,6 +983,10 @@ class Bridge(shell_kit.Jobs):
         return True
 
     def drain(self) -> None:
+        with self.read_once():
+            self._drain()
+
+    def _drain(self) -> None:
         """Drop the lines that waited QUEUE_WAIT seconds (each chat is told) and start the oldest line of every project whose slot is free (a listen
         provider whose session is not ready starts none). Called at each iteration of the loops and at the end of each job. One drain at a time: the lines
         of a project start in the order they were kept. A line being started stays in the list, marked, until its run begins."""
@@ -962,7 +1012,7 @@ class Bridge(shell_kit.Jobs):
                             continue
                         oldest["starting"] = True
                     try:
-                        self.start_job(oldest["project"]["id"], "say", self.line(oldest["project"], oldest["chat"], oldest["text"], oldest))
+                        self.start_job(oldest["project"]["id"], "say", self.inherit(self.line(oldest["project"], oldest["chat"], oldest["text"], oldest)))
                     except shell_kit.Stopping:
                         self.leave(oldest)
                         told.append((oldest["chat"], "QUEUE_STOPPED", oldest["project"]))
@@ -1013,7 +1063,7 @@ class Bridge(shell_kit.Jobs):
     def start(self, project: dict, chat: str, op: str, call) -> None:
         """A call that may take minutes runs in a thread; a model call takes the project's slot, one at a time."""
         try:
-            self.start_job(project["id"], op, call)
+            self.start_job(project["id"], op, self.inherit(call))
         except shell_kit.Busy:
             self.reply(chat, self.t("STILL_WORKING", project=project), project)
         except shell_kit.Stopping:

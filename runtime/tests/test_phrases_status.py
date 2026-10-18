@@ -39,26 +39,26 @@ def test_every_status_word_the_store_admits_has_a_word_in_each_language_and_the_
 
 def test_a_status_word_is_said_in_the_language_and_an_unknown_one_or_a_language_with_no_table_leaves_it_as_it_is():
     assert [phrases.status(w, PT_CFG) for w in ("approved", "cancelled", "sent", "missed", "added", "failed", "pending-execution")] == [
-        "aprovado", "cancelado", "enviado", "perdido", "adicionado", "com falha", "aguardando execução"]
+        "aprovado", "cancelado", "enviado", "perdido", "adicionado", "com falha", "aguardando execução"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     for cfg in (None, {}, {"language": "en"}, {"language": "fr"}):
         assert phrases.status("approved", cfg) == "approved", cfg
     assert phrases.status("on hold", PT_CFG) == "on hold" and phrases.status("", PT_CFG) == "" and phrases.status(None, PT_CFG) is None and phrases.status(7, PT_CFG) == 7
-    assert phrases.text("NOT_OPEN", PT_CFG, number=3, status=phrases.status("approved", PT_CFG)) == "A decisão pendente 3 tem o status aprovado: não está aberta."
+    assert phrases.text("NOT_OPEN", PT_CFG, number=3, status=phrases.status("approved", PT_CFG)) == "A decisão pendente 3 tem o status aprovado: não está aberta."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert phrases.text("NOT_OPEN", None, number=3, status=phrases.status("approved", None)) == "Pending decision 3 is approved, not open."
 
 
 def test_a_sentence_an_operation_raised_with_a_status_word_says_the_word_in_the_language_and_an_unknown_word_stays():
-    assert phrases.localize("Reminder 2 is cancelled, not waiting.", PT_CFG) == "O lembrete 2 tem o status cancelado: não está esperando."
-    assert phrases.localize("That file is added, not waiting for your answer.", PT_CFG) == "Esse arquivo tem o status adicionado: não está esperando pela sua resposta."
-    assert phrases.localize("That file is on hold, not waiting for your answer.", PT_CFG) == "Esse arquivo tem o status on hold: não está esperando pela sua resposta."
+    assert phrases.localize("Reminder 2 is cancelled, not waiting.", PT_CFG) == "O lembrete 2 tem o status cancelado: não está esperando."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert phrases.localize("That file is added, not waiting for your answer.", PT_CFG) == "Esse arquivo tem o status adicionado: não está esperando pela sua resposta."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert phrases.localize("That file is on hold, not waiting for your answer.", PT_CFG) == "Esse arquivo tem o status on hold: não está esperando pela sua resposta."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert phrases.localize("Reminder 2 is cancelled, not waiting.", None) == "Reminder 2 is cancelled, not waiting."
 
 
 def test_a_heading_code_wrote_whole_is_said_in_the_language_and_any_other_heading_is_not_touched():
     assert phrases.heading("The router asks", PT_CFG) == "O roteador pergunta"
-    assert phrases.heading("The route was not recognised", PT_CFG) == "A rota não foi reconhecida"
+    assert phrases.heading("The route was not recognised", PT_CFG) == "A rota não foi reconhecida"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert phrases.heading("No delivery was routed", PT_CFG) == "Nenhuma entrega foi encaminhada"
-    assert phrases.heading("Delivery 2 was not routed after its brief", PT_CFG) == "A entrega 2 não foi encaminhada depois do briefing"
+    assert phrases.heading("Delivery 2 was not routed after its brief", PT_CFG) == "A entrega 2 não foi encaminhada depois do briefing"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert phrases.heading("Accept the tasks of delivery 3, routed after its brief", PT_CFG) == "Aceitar as tarefas da entrega 3, encaminhadas depois do briefing"
     for title in ("Plan: flow-demo (3 tasks)", "demo-asks: question", "Pull request: Carry the providers", "The router asks about the budget", "", None):
         assert phrases.heading(title, PT_CFG) == title, title

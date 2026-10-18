@@ -107,7 +107,7 @@ class Attachments:
                 over = True
             elif decision["duplicate"] is not None:
                 if decision["duplicate"]["id"] is not None:        # (the same reference twice in one message is one file, said nothing of)
-                    lines.append(bridge.t("ATT_DUPLICATE", cfg=settings, name=att.clean_name(file.get("name")), id=decision["duplicate"]["id"]))
+                    lines.append(bridge.t("ATT_DUPLICATE", cfg=settings, name=att.clean_name(file.get("name"), bridge.t("FILE_WORD", cfg=settings)), id=decision["duplicate"]["id"]))
             elif decision["refuse"] is not None:
                 lines.append(att.refusal_text(decision["refuse"], file, bridge.platform, cap, settings))
             else:
@@ -151,7 +151,7 @@ class Attachments:
             try:
                 today = bridge.ops.attachments(project["path"])["today"]
                 if today["files"] >= att.DAY_FILES or today["bytes"] >= att.DAY_BYTES:
-                    bridge.reply(chat, bridge.t("ATT_DAY", project=project, n=today["files"], size=att.size_text(today["bytes"])), project)
+                    bridge.reply(chat, bridge.t("ATT_DAY", project=project, n=today["files"], size=att.size_text(today["bytes"], bridge.cfg(project))), project)
                     return
                 budget = att.fetch_budget(cap, today)
                 got = self.fetch(project, chat, file, folder, budget)

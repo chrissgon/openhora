@@ -83,7 +83,7 @@ FIRST_LINE = re.compile(r"Answer:\s*(found|partial|not-found)\s*\.?", re.I)
 QUOTE_LINE = re.compile(r'[\s\-*•>]*Quote \[([^\]\n]*)\]:\s*["“](.*)["”]\s*', re.I)
 QUOTE_WORD = re.compile(r"quote\s*\[")          # read on a folded line (fold() lowers the case)
 QUOTED = re.compile(r'["\u201c]([^"\u201d\n]+)["\u201d]')
-INSTRUCTIONS_LINE = re.compile(r"Instructions found in external content:[ \t]*(.*)", re.I)
+INSTRUCTIONS_LINE = re.compile("(?:" + "|".join(re.escape(heading) for heading in phrases.every("INSTRUCTIONS")) + r")[ \t]*(.*)", re.I)    # the heading in EVERY language of the table: a line imitating the one code writes is read as the skill's own
 BRACKET = re.compile(r"\[([a-z0-9][a-z0-9-]{0,39})\]")
 
 
@@ -129,15 +129,20 @@ def fold(text: str) -> str:
 
 
 CHECKED_HEADS = tuple(dict.fromkeys(h for h in (fold(head) for head in phrases.heads("QUOTE_CHECKED")) if h))   # `checked quote`, `citacao verificada`: the opening of the line code writes, in every language of the table
+DASHES = r"\-\u2010-\u2015\u2212"      # the hyphens a model may put between the words of the opening
+_SEPARATOR = r"[\s" + DASHES + "]*"
+_OPENING = "(?:" + "|".join(_SEPARATOR.join(re.escape(word) for word in head.split()) for head in CHECKED_HEADS) + ")"
+OPENING_AT_START = re.compile(r"[ \t" + DASHES + r"*>\u2022#|]*" + _OPENING)
+OPENING_BEFORE_BRACKET = re.compile(_OPENING + r"\s*:?\s*\[")      # the per-language counterpart of QUOTE_WORD, anywhere in the line
 
 
 def imitates(line: str) -> bool:
-    """Whether a line, folded, has `quote [` in it, starts with the opening of a checked quote or has that opening and a `[` in it: what only
-    code may write. The opening is the phrase table's, in EVERY language of the table whatever the project's language is (a model asked for a
-    Portuguese answer may write the English form and the reverse), so a translated form cannot be imitated."""
-    seen = fold(line)
-    start = seen.lstrip(" \t-*>\u2022#|")
-    return bool(QUOTE_WORD.search(seen)) or any(start.startswith(head) or head + " [" in seen for head in CHECKED_HEADS)
+    """Whether a line, folded and with every run of white space one space, has `quote [` in it, starts with the opening of a checked quote or has that opening
+    (its words apart by any white space or hyphen, or joined) followed by a `[` anywhere in it: what only code may write. The opening is the phrase table's,
+    in EVERY language of the table whatever the project's language is (a model asked for a Portuguese answer may write the English form and the reverse), so a
+    translated form cannot be imitated, with a tab, two spaces, a hyphen, a zero-width space or no space before the bracket."""
+    seen = " ".join(fold(line).split())
+    return bool(QUOTE_WORD.search(seen)) or OPENING_AT_START.match(seen) is not None or OPENING_BEFORE_BRACKET.search(seen) is not None
 
 
 def collapse(text: str) -> str:
@@ -164,7 +169,7 @@ def parse(response: str) -> dict:
     bidi = sum(1 for line in lines[start + 1:] if BIDI.search(line))
     body, tail = [clean(line) for line in lines[start + 1:] if not BIDI.search(line)], []
     for n, line in enumerate(body):
-        found = INSTRUCTIONS_LINE.fullmatch(line.strip()) if line.strip().lower().startswith(INSTRUCTIONS.lower()) else None
+        found = INSTRUCTIONS_LINE.fullmatch(line.strip())
         if found:
             tail = [t.strip() for t in [found.group(1)] + body[n + 1:] if t.strip()]
             body = body[:n]

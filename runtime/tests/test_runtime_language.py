@@ -71,12 +71,12 @@ ENGLISH = [
     ["Act on the card sent to you (send /pending)."], ["Released #3."],
 ]
 PORTUGUESE = [
-    ["Este botão não vale mais. Envie /pending."], [PT["HELP"]], ["Uso: /approve <id>"],
-    ["Suas mensagens vão para northwind-shop. Projetos: northwind-shop."], ["Esse projeto não existe. Projetos: northwind-shop."], ["northwind-shop: nada espera por você."],
-    ["northwind-shop: #1 plano: Northwind shop\n#2 pergunta: Northwind shop\n#3 revisão: Northwind shop"], ["#1 aprovada."], ["#1 rejeitada."], ["#2 respondida."],
-    ["A decisão pendente 2 é do tipo pergunta: aprovar vale só para um plano ou um aceite."],
-    ["O hash que você digitou não é o do cartão que você viu. Envie /pending."],
-    ["Use o cartão que foi enviado a você (envie /pending)."], ["#3 liberada."],
+    ["Este botão não é mais válido. Envie /pending."], [PT["HELP"]], ["Uso: /approve <id>"],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    ["Suas mensagens vão para northwind-shop. Projetos: northwind-shop."], ["Esse projeto não existe. Projetos: northwind-shop."], ["northwind-shop: nada pendente para você."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    ["northwind-shop: #1 plano: Northwind shop\n#2 pergunta: Northwind shop\n#3 revisão: Northwind shop"], ["#1 aprovada."], ["#1 rejeitada."], ["#2 respondida."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    ["A decisão pendente 2 é do tipo pergunta: aprovar vale só para um plano ou um aceite."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    ["O hash que você digitou não é o do card que você viu. Envie /pending."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    ["Use o card que foi enviado a você (envie /pending)."], ["#3 liberada."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 ]
 
 
@@ -124,9 +124,9 @@ def test_the_frames_of_a_card_the_policy_closes_are_in_portuguese(world):
     world.items[2] = decision("question", 2)
     world.bridge.tick()
     plan, question = [s["message"] for s in world.sent()]
-    assert plan["actions"] == [] and PT["PAGE_LINE"] in plan["text"] and "Resolva isso na página ou no terminal." in plan["text"]
+    assert plan["actions"] == [] and PT["PAGE_LINE"] in plan["text"] and "Resolva isso na página ou no terminal." in plan["text"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert plan["link"] == {"label": "Abrir a página", "url": "https://page.example/open"}
-    assert "Responda a esta mensagem para dar a resposta." in question["text"]
+    assert "Responda a esta mensagem com a sua resposta." in question["text"]
 
 
 def test_a_card_with_no_buttons_offers_typed_lines_with_the_same_commands(world):
@@ -166,7 +166,7 @@ def test_an_effect_card_says_where_to_approve_in_portuguese_and_the_command_is_n
     command = bridge.scrub(operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256="e" * 64))
     assert message["text"].rstrip().splitlines()[-1] == f"`{command}`" and "northwind-shop · efeito #7" in message["text"]
     world.say("/approve 7")
-    assert world.calls("approve") == [] and world.texts()[-1].startswith("Um efeito é aprovado na página ou no terminal, com o hash dele:\n") and command in world.texts()[-1]
+    assert world.calls("approve") == [] and world.texts()[-1].startswith("Efeitos são aprovados na página ou no terminal, com o hash:\n") and command in world.texts()[-1]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
 def test_the_count_mode_names_the_kind_of_decision_in_the_language_and_carries_none_of_the_text(world):
@@ -176,7 +176,7 @@ def test_the_count_mode_names_the_kind_of_decision_in_the_language_and_carries_n
     world.items[2] = decision("question", 2, title="Another secret", body="Another body")
     world.bridge.tick()
     blob = " ".join(world.texts())
-    assert "Aguardando você: plano." in blob and "Aguardando você: pergunta." in blob and "ecret" not in blob and "body" not in blob
+    assert "Aguardando você: plano." in blob and "Aguardando você: pergunta." in blob and "ecret" not in blob and "body" not in blob  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
 def test_the_line_about_the_decisions_left_for_the_next_tick_is_in_portuguese(world):
@@ -199,7 +199,7 @@ def test_the_notice_of_a_message_that_could_not_be_read_is_in_the_projects_langu
     lab.bridge.unread_told.clear()
     give(lab, 3)
     lab.bridge.tick()
-    assert unread(lab)[-1] == PT["UNREAD_MANY"].format(n=3) == "3 mensagens enviadas a este canal não puderam ser lidas e foram deixadas de lado: nada foi feito com elas. Se alguma era sua, envie de novo."
+    assert unread(lab)[-1] == PT["UNREAD_MANY"].format(n=3) == "3 mensagens enviadas a este canal não puderam ser lidas e foram deixadas de lado: nada foi feito com elas. Se alguma era sua, envie de novo."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     lab.bridge.unread_told.clear()
     give(lab, 1)
     lab.bridge.tick()
@@ -243,7 +243,7 @@ def test_a_command_the_busy_planning_agent_cannot_take_is_refused_in_the_languag
     planner.refusals = 1
     lab.say(OWNER, "/status")                       # a command is never kept: it is refused with the router's sentence
     assert settle(lab)
-    assert lab.texts(OWNER) == [PT["RUN_BUSY"]] == ["O agente de planejamento está respondendo a outro pedido. Envie de novo daqui a pouco."]
+    assert lab.texts(OWNER) == [PT["RUN_BUSY"]] == ["O agente de planejamento está respondendo a outro pedido. Envie de novo daqui a pouco."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
 # --- reminders (RM-1) ----------------------------------------------------------------------------------------------------------------------------------
@@ -256,19 +256,19 @@ def test_the_replies_to_the_reminder_commands_are_in_portuguese_and_the_words_of
     day.say(OWNER, "/remind")
     assert day.texts(OWNER)[-1] == PT["RM_USAGE"] and day.texts(OWNER)[-1].startswith("Uso: /remind HH:MM <text>, /remind YYYY-MM-DD HH:MM <text> ou /remind in <n>m|h|d <text>")
     day.say(OWNER, "/remind 25:00 call")
-    assert day.texts(OWNER)[-1] == "25:00 não é uma hora do dia (00:00 a 23:59)."
+    assert day.texts(OWNER)[-1] == "25:00 não é uma hora do dia (00:00 a 23:59)."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     day.say(OWNER, "/remind 13:00 x")
     assert day.texts(OWNER)[-1] == "Lembrete #2 marcado para 2026-10-19 13:00 (BRT)."
     day.say(OWNER, "/forget")
     assert day.texts(OWNER)[-1] == "Uso: /forget <n>"
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == f"northwind-shop: lembretes que esperam (BRT)\n#1 2026-10-18 15:00 {DENTIST}\n#2 2026-10-19 13:00 x"
+    assert day.texts(OWNER)[-1] == f"northwind-shop: lembretes pendentes (BRT)\n#1 2026-10-18 15:00 {DENTIST}\n#2 2026-10-19 13:00 x"
     day.say(OWNER, "/forget 99")
-    assert day.texts(OWNER)[-1] == "Não há lembrete 99 esperando por você."
+    assert day.texts(OWNER)[-1] == "Não há lembrete 99 esperando por você."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     day.say(OWNER, "/forget 2")
     assert day.texts(OWNER)[-1] == "Lembrete #2 cancelado."
     day.say(OWNER, "/forget 2")
-    assert day.texts(OWNER)[-1] == "O lembrete 2 tem o status cancelado: não está esperando."
+    assert day.texts(OWNER)[-1] == "O lembrete 2 tem o status cancelado: não está esperando."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
 def test_a_due_reminder_goes_with_a_frame_in_the_language_and_the_late_mark_and_the_count_line_too(day):  # noqa: F811
@@ -276,13 +276,13 @@ def test_a_due_reminder_goes_with_a_frame_in_the_language_and_the_late_mark_and_
     day.say(OWNER, f"/remind 2026-10-19 09:00 {DENTIST}")
     day.clock.set("2026-10-19 14:00")
     day.bridge.tick()
-    assert day.texts(OWNER)[-1] == f"Lembrete: {DENTIST} (era para 09:00)"
+    assert day.texts(OWNER)[-1] == f"Lembrete: {DENTIST} (marcado para 09:00)"
     day.say(OWNER, "/remind 2026-10-20 08:00 Third")
     day.clock.set("2026-10-20 15:00")
     day.bridge.tick()
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == ("northwind-shop: nenhum lembrete espera.\nNão enviados há pouco:\n"
-                                    "#2 2026-10-20 08:00 Third (perdido: já tinham passado mais de 6 horas da hora marcada quando a ponte de mensagens olhou)")
+    assert day.texts(OWNER)[-1] == ("northwind-shop: nenhum lembrete pendente.\nNão enviados recentemente:\n"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+                                    "#2 2026-10-20 08:00 Third (perdido: a ponte de mensagens só o verificou mais de 6 horas depois do horário marcado)")
     listed(day, notices="count")
     accept(day.path, language="pt-BR")
     day.say(OWNER, "/remind 2026-10-21 08:00 Fourth")

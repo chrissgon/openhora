@@ -26,18 +26,18 @@ def test_the_configuration_read_carries_the_language_the_bridge_says_its_sentenc
 
 def test_the_refusals_of_ask_are_in_the_projects_language(tree, monkeypatch):
     speak(tree, "pt-BR")
-    assert ask(tree)["reply"] == "Este projeto não tem fonte com versão para responder. Importe uma primeiro."
+    assert ask(tree)["reply"] == "Este projeto não tem nenhuma fonte com versão para usar na resposta. Importe uma primeiro."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     for n in range(6):
         add_source(tree, f"doc-{n}", f"# Document {n}\n\nSome text about topic {n}.\n")
     assert ask(tree, "qual o prazo do contrato?")["reply"] == ("Nenhuma fonte deste projeto parece tratar disso. Indique uma com @<id>: "
                                                                "@doc-0, @doc-1, @doc-2, @doc-3, @doc-4, @doc-5.")
-    assert ask(tree, " ".join(f"@doc-{n}" for n in range(6)) + " what is in them?")["reply"] == "Uma pergunta lê no máximo 5 fontes, e você indicou 6."
+    assert ask(tree, " ".join(f"@doc-{n}" for n in range(6)) + " what is in them?")["reply"] == "Uma pergunta lê no máximo 5 fontes, e você indicou 6."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     add_source(tree, "ledger-a", "# Ledger\n" + "x" * (200 * 1024))
     add_source(tree, "ledger-b", "# Ledger\n" + "y" * (100 * 1024))
     assert ask(tree, "compare @ledger-a and @ledger-b")["reply"] == ("O texto destas fontes é grande demais para uma pergunta (no máximo 256 KiB no total): "
                                                                      "ledger-a (200 KiB), ledger-b (100 KiB). Indique menos fontes ou fontes menores.")
     monkeypatch.setattr(roles, "answer", lambda root=None, file=None: None)
-    assert ask(tree)["reply"] == "Nenhuma skill desta instalação responde a partir das fontes ainda (asst-answer está planejada)."
+    assert ask(tree)["reply"] == "Nenhuma skill desta instalação responde a partir das fontes ainda (asst-answer está planejada)."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
 def test_the_same_refusals_in_a_project_with_no_language_are_the_english_ones(tree, monkeypatch):
@@ -55,8 +55,8 @@ def test_a_checked_answer_has_its_frame_in_the_language_and_the_skills_own_words
     speak(two, "pt-BR")
     portuguese = ask(two)
     assert portuguese["answer"] == "found" and portuguese["flags"] == []
-    assert "Citação verificada [" in portuguese["reply"] and "Checked quote" not in portuguese["reply"]
-    assert "\n\nLidas: lease-contract (versão 1), meeting-notes (versão 1)" in portuguese["reply"] and "Read:" not in portuguese["reply"]
+    assert "Citação verificada [" in portuguese["reply"] and "Checked quote" not in portuguese["reply"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert "\n\nLidas: lease-contract (versão 1), meeting-notes (versão 1)" in portuguese["reply"] and "Read:" not in portuguese["reply"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert "O prazo do contrato e de 12 meses" in portuguese["reply"], "the answer is the skill's own text, in the language of the question"
     speak(two, "fr")
     assert "Checked quote [" in ask(two)["reply"]
@@ -70,9 +70,9 @@ def test_the_answer_to_a_question_about_the_state_is_in_the_projects_language(tw
     english = ops_say.state_reply(two["path"])
     assert english == "No request is open. 1 finished.\nWhat waits for you: nothing."
     speak(two, "pt-BR")
-    assert ops_say.state_reply(two["path"]) == "Nenhum pedido aberto. Concluídos: 1.\nO que espera por você: nada."
+    assert ops_say.state_reply(two["path"]) == "Nenhum pedido aberto. Concluídos: 1.\nO que espera por você: nada."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     said = ops.say(two["path"], "how are we doing?", channel="terminal")["reply"]
-    assert said == "Nenhum pedido aberto. Concluídos: 1.\nO que espera por você: nada."
+    assert said == "Nenhum pedido aberto. Concluídos: 1.\nO que espera por você: nada."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     speak(two, "fr")
     assert ops_say.state_reply(two["path"]) == english
 
@@ -91,13 +91,13 @@ def test_the_state_of_a_project_with_work_open_names_every_part_in_portuguese(tw
         None: ['Request 4, "Launch": 1 of 6 tasks done (Copy).', "Running now: Images.", "Waiting for you: Review.", 'Ready: task 8, "Post" (held: paused).',
                'Stuck: task 9, "Send", is blocked: needs a key.', 'Stuck: task 10, "Tidy", is failed.',
                'Request 11, "Later": recorded; it waits for its route.', 'What waits for you: plan "Launch" (decision 12); effect "Post" (decision 13).'],
-        "pt-BR": ['Pedido 4, "Launch": 1 de 6 tarefas feitas (Copy).', "Rodando agora: Images.", "Esperando você: Review.", 'Pronta: tarefa 8, "Post" (retida: paused).',
+        "pt-BR": ['Pedido 4, "Launch": 1 de 6 tarefas concluídas (Copy).', "Rodando agora: Images.", "Esperando você: Review.", 'Pronta: tarefa 8, "Post" (retida: paused).',  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
                   'Travada: tarefa 9, "Send", status bloqueado: needs a key.', 'Travada: tarefa 10, "Tidy", status com falha.',
-                  'Pedido 11, "Later": registrado; espera pelo encaminhamento.', 'O que espera por você: plano "Launch" (decisão 12); efeito "Post" (decisão 13).'],
+                  'Pedido 11, "Later": registrado; espera pelo encaminhamento.', 'O que espera por você: plano "Launch" (decisão 12); efeito "Post" (decisão 13).'],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     }
     for tag, lines in expected.items():
         assert ops_say.state_reply(two["path"], cfg={"language": tag}).splitlines() == lines, tag
-    assert ops_say.state_reply(two["path"], "Say hello.", {"language": "pt-BR"}).endswith("\n\nO agente de planejamento propõe: Say hello.")
+    assert ops_say.state_reply(two["path"], "Say hello.", {"language": "pt-BR"}).endswith("\n\nO agente de planejamento propõe: Say hello.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert ops_say.state_reply(two["path"], "Say hello.", {}).endswith("\n\nThe planning agent proposes: Say hello.")
     many = [{"id": n, "title": f"T{n}", "state": "done"} for n in range(20, 28)]
     state["requests"] = [{"id": 4, "title": "Big", "state": "planned", "tasks": many}]
@@ -110,7 +110,7 @@ def test_a_direct_turn_ends_with_the_hint_in_the_language(two, monkeypatch):
     speak(two, "pt-BR")
     said = ops.say(two["path"], "hello there", channel="terminal")["reply"]
     assert said.startswith("Nenhum pedido aberto.") and said.endswith("\n\nPara responder a partir das suas fontes, envie /ask <question>.")
-    assert "Proposes" not in said and "O agente de planejamento propõe: nothing to do." in said
+    assert "Proposes" not in said and "O agente de planejamento propõe: nothing to do." in said  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     speak(two, None)
     assert ops.say(two["path"], "hello again", channel="terminal")["reply"].endswith("\n\nTo answer from your sources, send /ask <question>.")
 
@@ -119,7 +119,7 @@ def test_the_planning_agent_that_may_not_start_is_told_in_the_language(two, monk
     monkeypatch.setattr(ops_say, "_planning_may_start", lambda ctx: (False, "its day is spent"))
     assert ops.say(two["path"], "plan the launch", channel="terminal")["reply"] == "The planning agent may not start now: its day is spent. Nothing was run."
     speak(two, "pt-BR")
-    assert ops.say(two["path"], "plan the launch", channel="terminal")["reply"] == "O agente de planejamento não pode começar agora: its day is spent. Nada foi executado."
+    assert ops.say(two["path"], "plan the launch", channel="terminal")["reply"] == "O agente de planejamento não pode começar agora: its day is spent. Nada foi executado."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
 def test_the_line_of_a_router_that_could_not_run_and_the_queued_request_are_in_the_language(two, monkeypatch):
@@ -131,10 +131,10 @@ def test_the_line_of_a_router_that_could_not_run_and_the_queued_request_are_in_t
     assert ops_say._say_route(two["path"], ctx, "plan it", 10 ** 9, "terminal")[0] == "The router could not run: boom"
     speak(two, "pt-BR")
     ctx = ops_core.context(two["path"])
-    assert ops_say._say_route(two["path"], ctx, "plan it", 10 ** 9, "terminal")[0] == "O roteador não pôde rodar: boom"
+    assert ops_say._say_route(two["path"], ctx, "plan it", 10 ** 9, "terminal")[0] == "O roteador não pôde rodar: boom"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     fake.route = staticmethod(lambda project, request_id, channel=None: {"queued": True})
     assert ops_say._say_route(two["path"], ctx, "plan it", 10 ** 9, "terminal")[0] == (
-        "Registrado como pedido 3. O agente de planejamento o encaminha quando a execução terminar.")
+        "Registrado como pedido 3. O agente de planejamento o encaminha quando a execução terminar.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
 def test_the_placeholder_a_reader_that_did_not_ask_is_shown_is_in_the_language(two):

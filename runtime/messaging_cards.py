@@ -280,7 +280,7 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
         body = t("ATTACH_COUNT")
     else:
         body = t("ATTACH_ASK_VERSION" if row.get("label") == "refresh" else "ATTACH_ASK", platform=row.get("platform") or t("A_MESSAGING_APP"), name=row["name"],
-                 size=att.size_text(row["bytes"]), kind=row.get("kind") or t("FILE_WORD"), project=project_name, id=row["target"], n=next_version)
+                 size=att.size_text(row["bytes"], cfg), kind=row.get("kind") or t("FILE_WORD"), project=project_name, id=row["target"], n=next_version)
     tail = "\n\n" + "\n".join(footer) if footer else ""
     text = _cut(header + "\n\n" + body, int(caps.get("max_text") or 4096) - len(tail), t("CUT")) + tail
     message = {"text": text, "actions": [{"op": w, "label": t("LABEL_" + w.upper())} for w in shown], "link": None, "document": None}

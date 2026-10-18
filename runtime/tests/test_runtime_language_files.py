@@ -25,26 +25,26 @@ def test_a_provider_that_takes_no_file_and_a_channel_without_the_group_are_told_
     w = make_world(case, monkeypatch, caps={"attachments": False})
     speak(w, "pt-BR")
     w.send([w.file()])
-    assert w.texts() == ["A conexão deste aplicativo ainda não recebe arquivos."] and w.fetches() == []
+    assert w.texts() == ["A conexão deste aplicativo ainda não recebe arquivos."] and w.fetches() == []  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     w.reset()
     (w.folder / "caps.json").write_text('{"attachments": true, "max_attachment_bytes": 20971520}')
     w.messenger._caps = None
     accept(case.path, channels={"messaging": ["read", "talk"]}, policies=None, language="pt-BR")
     w.send([w.file()])
-    assert w.texts() == ["Arquivos não são recebidos por este aplicativo neste projeto. Adicione na página ou no terminal (source-import)."]
+    assert w.texts() == ["Arquivos não são recebidos por este aplicativo neste projeto. Adicione na página ou no terminal (source-import)."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert w.fetches() == [] and case.rows() == []
 
 
 def test_the_refusals_before_a_byte_is_fetched_are_in_portuguese(world):
     speak(world, "pt-BR")
     world.send([world.file("p1", "pic.jpg", 5000, "photo")])
-    assert world.texts() == [PT["ATT_MEDIA"]] == ["Fotos, notas de voz, vídeos e figurinhas não são aceitos como fontes: envie um PDF, um documento Word, uma planilha, "
-                                                  "uma apresentação, uma página HTML ou um arquivo de texto."]
+    assert world.texts() == [PT["ATT_MEDIA"]] == ["Fotos, notas de voz, vídeos e figurinhas não são aceitos como fontes: envie um PDF, um documento Word, uma planilha, "  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+                                                  "uma apresentação, uma página HTML ou um arquivo de texto."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     world.send([world.file("big", "Big.pdf", 30 * 1024 * 1024)])
-    assert world.texts()[-1] == "Big.pdf tem 30.0 MiB; um arquivo deste aplicativo pode ter no máximo 20.0 MiB."
+    assert world.texts()[-1] == "Big.pdf tem 30,0 MiB; um arquivo deste aplicativo pode ter no máximo 20,0 MiB."
     before = len(world.texts())
     world.send([world.file()], text="please read the file")
-    assert world.texts()[before] == "O texto enviado junto com um arquivo não é lido; envie-o em uma mensagem separada."
+    assert world.texts()[before] == "O texto enviado junto com um arquivo não é lido; envie-o em uma mensagem separada."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert len(world.fetches()) == 1
 
 
@@ -58,14 +58,14 @@ def test_the_card_of_a_held_file_and_its_answers_are_in_portuguese(world):
     action = card_action(world, "add")
     world.reset()
     world.say("/pending")
-    assert world.texts() == ["northwind-shop: nada espera por você.",
+    assert world.texts() == ["northwind-shop: nada pendente para você.",  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
                              "northwind-shop: arquivos esperando pela sua resposta\narquivo #1 Q3 plan.pdf: /add 1 ou /discard 1"]
     world.say(action=action)
-    assert world.texts()[-1].splitlines()[0] == "Q3 plan.pdf adicionado como `q3-plan`, versão 1."
+    assert world.texts()[-1].splitlines()[0] == "Q3 plan.pdf adicionado como `q3-plan`, versão 1."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     world.say(action=action)
-    assert world.texts()[-1] == "Esse arquivo tem o status adicionado: não está esperando pela sua resposta."
+    assert world.texts()[-1] == "Esse arquivo tem o status adicionado: não está esperando pela sua resposta."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     world.say("/add 77")
-    assert world.texts()[-1] == "Use o cartão que foi enviado a você (envie /pending)."
+    assert world.texts()[-1] == "Use o card que foi enviado a você (envie /pending)."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     world.say("/add")
     assert world.texts()[-1] == "Uso: /add <n>"
 
@@ -82,9 +82,9 @@ def test_what_a_phone_is_told_of_an_error_of_the_operations_layer(world):
     phone = world.bridge.attach.phone
     speak(world, "pt-BR")
     assert phone(ops.OpsError("see /Users/someone/projects/x/ for it"), world.project) == PT["ATT_MACHINE"]
-    assert phone(ops.OpsError("No file 3 waits for you."), world.project) == "Não há arquivo 3 esperando por você."
+    assert phone(ops.OpsError("No file 3 waits for you."), world.project) == "Não há arquivo 3 esperando por você."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert phone(ops.OpsError(attachments.REFUSED.format(name="a.docx", reason="it holds macros, which are never converted")), world.project) == (
-        "a.docx não foi adicionado e foi apagado: contém macros, que nunca são convertidas.")
+        "a.docx não foi adicionado e foi apagado: contém macros, que nunca são convertidas.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert phone(ops.OpsError("Send /add 3 or /discard 3."), world.project) == "Send /add 3 or /discard 3.", "a text the table does not know stays as the operations layer said it"
     assert phone(ops.OpsError("The sources folder cannot be opened", 3), world.project) == PT["ATT_MACHINE"]
     speak(world, None)

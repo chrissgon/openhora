@@ -128,11 +128,11 @@ def expired_before() -> str:
     return iso(utcnow() - datetime.timedelta(days=HELD_DAYS))
 
 
-def size_text(count: int) -> str:
-    """A size for a person: `812 bytes`, `3.5 KiB`, `12.0 MiB`."""
+def size_text(count: int, cfg=None) -> str:
+    """A size for a person: `812 bytes`, `3.5 KiB`, `12.0 MiB` (a decimal comma for a language that writes one: `3,5 KiB`, runtime/phrases.py)."""
     for word, unit in WORD_SIZES:
         if count >= unit:
-            return f"{count / unit:.1f} {word}"
+            return phrases.decimal(f"{count / unit:.1f}", cfg) + f" {word}"
     return f"{count} bytes"
 
 
@@ -271,14 +271,14 @@ def fetch_budget(cap: int, today: dict) -> int:
 
 def refusal_text(refuse: dict, attachment: dict, platform: str, cap: int, cfg=None) -> str:
     """The sentence for a refusal of precheck, in the language of `cfg` (runtime/phrases.py; English when none)."""
-    name = clean_name(attachment.get("name"))
+    name = clean_name(attachment.get("name"), phrases.text("FILE_WORD", cfg))      # the name of a file that has none, in the language
     code = refuse["code"]
     if code == "media":
         return phrases.text("ATT_MEDIA", cfg)
     if code == "too_large":
-        return phrases.text("ATT_TOO_LARGE", cfg, name=name, size=size_text(refuse["size"]), cap=size_text(cap))
+        return phrases.text("ATT_TOO_LARGE", cfg, name=name, size=size_text(refuse["size"], cfg), cap=size_text(cap, cfg))
     if code == "day":
-        return phrases.text("ATT_DAY", cfg, n=refuse["files"], size=size_text(refuse["bytes"]))
+        return phrases.text("ATT_DAY", cfg, n=refuse["files"], size=size_text(refuse["bytes"], cfg))
     if code == "held_max":
         return phrases.text("ATT_HELD_FULL", cfg, n=refuse["n"])
     return phrases.text("ATT_REFUSED", cfg, name=name, reason=code)
