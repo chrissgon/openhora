@@ -146,6 +146,7 @@ def test_the_employee_reads_what_waits_and_never_the_spend_and_the_owner_reads_b
     assert f"#{lab.plan} plan" in lab.texts(STAFF)[0]
     lab.say(STAFF, "/progress")                     # a line that is a command of the table runs in a job thread of the bridge
     assert wait_for(lambda: any(NOT_ENABLED in t for t in lab.texts(STAFF)))
+    assert not any("cost known" in t for t in lab.texts(STAFF)), "the employee never reads the spend"
     lab.settle()                                    # the reply is sent inside the job: the owner's line waits until the job has ended and released the slot
     lab.say(OWNER, "/progress")
     assert wait_for(lambda: any("cost known" in t for t in lab.texts(OWNER)))
