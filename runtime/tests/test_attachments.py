@@ -268,8 +268,9 @@ def test_the_same_reference_twice_is_one_file_and_the_second_answers_with_its_id
     case.hold(PDF, ref="same")
     with pytest.raises(ops.OpsError, match="Q3 plan.pdf already waits for your answer \\(file 1\\)"):
         case.hold(PDF, ref="same")
-    assert len(case.rows()) == 1 and case.tree(case.data / "attachments" / "incoming") == []
-    assert case.hold(PDF, ref="another")["attachment"]["id"] == 2
+    assert [(r["status"], r["code"]) for r in case.rows()] == [("held", None), ("refused", "duplicate")], "the second fetch happened, so it counts"
+    assert case.tree(case.data / "attachments" / "incoming") == []
+    assert case.hold(PDF, ref="another")["attachment"]["id"] == 3
 
 
 def test_a_declared_type_that_the_bytes_contradict_is_refused_and_still_counts_for_the_day(case):
@@ -436,7 +437,7 @@ def test_a_file_the_converter_cannot_read_is_refused_and_deleted_but_a_machine_t
 
     def broken(cfg, call=None):
         def convert(*args):
-            raise sources.SourcesError("the converter failed (failed): the document is broken", "convert")
+            raise sources.SourcesError("the converter failed (failed): the document is broken", "convert")      # the provider's exit 4: the content is refused
         return convert
     monkeypatch.setattr(sources, "provider_convert", broken)
     with pytest.raises(ops.OpsError, match="was not added and was deleted: it could not be read as a document"):
@@ -444,14 +445,16 @@ def test_a_file_the_converter_cannot_read_is_refused_and_deleted_but_a_machine_t
     assert case.rows()[0]["code"] == "convert" and not (case.data / "attachments" / "held" / "1").exists()
     second = case.hold(PDF)
 
-    def not_set_up(cfg, call=None):
-        def convert(*args):
-            raise sources.SourcesError("the converter failed (not-configured): docker is not running", "convert")
-        return convert
-    monkeypatch.setattr(sources, "provider_convert", not_set_up)
-    with pytest.raises(ops.OpsError, match="docker is not running"):
-        ops.attachment_add(case.path, second["attachment"]["id"], channel="messaging", sender=SENDER)
-    assert case.rows()[1]["status"] == "held" and (case.data / "attachments" / "held" / "2" / "original").is_file()
+    for kind in ("not-configured", "failed", "timeout"):          # whatever the machine did: docker down, a hiccup, a timeout; none is the file's doing
+        def not_set_up(cfg, call=None, kind=kind):
+            def convert(*args):
+                raise sources.SourcesError(f"the converter failed ({kind}): docker is not running", "converter")
+            return convert
+        monkeypatch.setattr(sources, "provider_convert", not_set_up)
+        with pytest.raises(ops.OpsError, match="docker is not running") as caught:
+            ops.attachment_add(case.path, second["attachment"]["id"], channel="messaging", sender=SENDER)
+        assert caught.value.phone == attachments.MACHINE and "docker" not in caught.value.phone
+        assert case.rows()[1]["status"] == "held" and (case.data / "attachments" / "held" / "2" / "original").is_file()
 
 
 def test_a_held_file_that_changed_or_vanished_on_this_machine_is_refused(case):
@@ -592,7 +595,143 @@ def test_no_operation_about_attachments_is_a_row_of_the_mcp_mode_and_the_grant_i
     assert operations.group_refusal("page", "add-sources-direct") and operations.group_refusal("page", "add-sources") is None
     assert operations.group_refusal("messaging", "add-sources") is None and operations.group_refusal("messaging", "add-sources-direct") is None
     assert "add-sources" not in operations.default_groups("messaging") and "add-sources-direct" not in operations.default_groups("messaging")
-    assert operations.GRANT_TEXT["messaging:add-sources-direct"] == "a file a listed sender sends becomes a source of the project without a confirmation"
+    assert operations.GRANT_TEXT["messaging:add-sources-direct"] == ("a file a listed sender sends becomes a new source of the project without a confirmation "
+                                                                    "(a file for a source that already exists still waits for a card)")
     assert operations.permitted("attachment-hold", "messaging", {"messaging": ["add-sources"]}, None) is True
     assert operations.granted("attachment-hold", "messaging", {"messaging": ["add-sources"]}, "direct") is False
     assert operations.granted("attachment-hold", "messaging", {"messaging": ["add-sources-direct"]}, "direct") is True
+
+
+# --- the review of ATT-1a --------------------------------------------------------------------------------------------------------------------------
+
+
+OTHER = "5151515151"
+OTHER_KEY = f"telegram:{OTHER}"
+
+
+def desk(case):
+    """IDENT with the profile that holds the grant, and a second listed sender with `staff`."""
+    accept(case.path, policies=dict(POLICIES, desk=["read", "add-sources", "add-sources-direct"]),
+           messaging={"senders": {"telegram": [{"id": IDENT, "policy": "desk"}, OTHER]}})
+
+
+def test_a_sender_lists_adds_and_discards_only_the_files_they_sent_and_the_person_s_own_shells_see_them_all(case):
+    accept(case.path, messaging={"senders": {"telegram": [IDENT, OTHER]}})
+    first = case.hold(PDF)["attachment"]["id"]
+    second = ops.attachment_hold(case.path, case.fetch(make_pdf("The other sender's file")), "telegram", "ref-other", "Other.pdf", None, None, None, False,
+                                 channel="messaging", sender=OTHER_KEY)["attachment"]["id"]
+    assert [r["id"] for r in ops.attachments(case.path, channel="messaging", sender=SENDER)["held"]] == [first]
+    assert [r["id"] for r in ops.attachments(case.path, channel="messaging", sender=OTHER_KEY)["held"]] == [second]
+    assert [r["id"] for r in ops.attachments(case.path)["held"]] == [first, second], "the terminal and the page see every file"
+    assert [r["id"] for r in ops.attachments(case.path, channel="page")["held"]] == [first, second]
+    for call in (ops.attachment_add, ops.attachment_discard):
+        with pytest.raises(ops.OpsError) as caught:
+            call(case.path, first, channel="messaging", sender=OTHER_KEY)
+        assert str(caught.value) == f"No file {first} waits for you.", "the answer tells nothing of a file that is someone else's"
+    assert [r["status"] for r in case.rows()] == ["held", "held"]
+    ops.attachment_discard(case.path, first, channel="messaging", sender=SENDER)
+    with pytest.raises(ops.OpsError) as caught:
+        ops.attachment_add(case.path, first, channel="messaging", sender=OTHER_KEY)
+    assert str(caught.value) == f"No file {first} waits for you.", "not even that it was discarded"
+    assert [r["id"] for r in ops.attachments(case.path, channel="messaging", sender=OTHER_KEY)["recent"]] == []
+    assert [r["id"] for r in ops.attachments(case.path, channel="messaging", sender=SENDER)["recent"]] == [first]
+    assert ops.attachment_add(case.path, second, channel="messaging", sender=OTHER_KEY)["version"] == 1
+    with pytest.raises(ops.OpsError, match="names the sender"):
+        ops.attachments(case.path, channel="messaging")
+
+
+def test_a_direct_add_never_makes_a_new_version_of_a_source_that_exists_and_holds_the_file_for_a_card(case):
+    desk(case)
+    registered = sources.register(case.ctx, "q3-plan", "file", "q3.pdf")             # a source with no version yet is a source that exists
+    declined = case.hold(PDF, target="q3-plan", direct=True)
+    assert declined["direct_declined"] is True and "added" not in declined and declined["attachment"]["status"] == "held"
+    assert case.rows()[0]["direct"] is False and case.ctx["store"].source_latest(case.ctx["conn"], registered["id"]) is None
+    assert (case.data / "attachments" / "held" / "1" / "original").is_file()
+    ops.attachment_add(case.path, 1, channel="messaging", sender=SENDER)
+    again = case.hold(make_pdf("A second draft"), target="q3-plan", direct=True, ref=None)
+    assert again["direct_declined"] is True and again["label"] == "refresh" and case.rows()[1]["status"] == "held"
+    fresh = case.hold(make_pdf("A different file"), name="Brand new.pdf", direct=True)
+    assert fresh["added"]["version"] == 1 and "direct_declined" not in fresh
+    named = case.hold(make_pdf("A file for a source nobody has"), target="free-id", direct=True)
+    assert named["added"]["source"] == "free-id", "a free id the caption named is a new source: the grant covers it"
+
+
+def test_a_fetch_that_ended_with_no_file_is_recorded_and_counts_against_the_day(case, monkeypatch):
+    monkeypatch.setattr(attachments, "DAY_FILES", 3)
+    for n, code in enumerate(("gone", "fetch", "size")):
+        out = ops.attachment_hold(case.path, None, "telegram", f"never-{n}", "Big one.pdf", "application/pdf", 999, None, False, None, code, 4096,
+                                  channel="messaging", sender=SENDER)
+        assert out == {"recorded": True, "code": code}
+    rows = case.rows()
+    assert [(r["status"], r["code"], r["bytes"], r["sha256"], r["kind"]) for r in rows] == [("refused", c, 4096, None, None) for c in ("gone", "fetch", "size")]
+    assert ops.attachments(case.path)["today"] == {"files": 3, "bytes": 3 * 4096} and not (case.data / "attachments" / "held").exists()
+    assert "never-0" not in json.dumps(rows), "the reference is a hash, here too"
+    with pytest.raises(ops.OpsError, match="took 3 files"):
+        case.hold(PDF)
+    with pytest.raises(ops.OpsError, match="one of gone, fetch, size"):
+        ops.attachment_hold(case.path, None, "telegram", "r", "x.pdf", failed="melted", channel="messaging", sender=SENDER)
+    with pytest.raises(ops.OpsError, match="/attachment-hold is not enabled"):
+        accept(case.path, channels={"messaging": ["read"]}, policies=None)
+        ops.attachment_hold(case.path, None, "telegram", "r", "x.pdf", failed="gone", channel="messaging", sender=SENDER)
+
+
+def test_a_fetch_that_reached_the_hold_and_was_refused_still_counts_a_duplicate_a_page_upload_and_a_declared_medium_included(case):
+    case.hold(PDF, ref="same")
+    with pytest.raises(ops.OpsError, match="already waits"):
+        case.hold(PDF, ref="same")
+    assert [(r["status"], r["code"]) for r in case.rows()] == [("held", None), ("refused", "duplicate")]
+    lock = sources.intake.one_at_a_time(sources.upload_lock_path(case.cfg))            # the page is uploading
+    try:
+        with pytest.raises(ops.OpsError, match="Another file is being fetched"):
+            case.hold(PDF)
+    finally:
+        lock.release()
+    assert case.rows()[-1]["code"] == "busy"
+    with pytest.raises(ops.OpsError, match="Photos, voice notes"):
+        case.hold(PDF, declared="photo")                 # the authority checks what the bridge checked before the fetch
+    with pytest.raises(ops.OpsError, match="is 30.0 MiB; a file from this app is at most 25.0 MiB"):
+        case.hold(PDF, declared_bytes=30 * 1024 * 1024)
+    assert [r["code"] for r in case.rows()][-2:] == ["media", "too_large"]
+    assert ops.attachments(case.path)["today"]["files"] == 5
+
+
+def test_the_intake_is_bound_by_the_least_of_the_provider_s_cap_and_the_day_s_bytes_left(case, monkeypatch):
+    big = "Words of a long text file for a cap to cut. " * 40
+    monkeypatch.setattr(attachments, "DAY_BYTES", 3000)
+    with pytest.raises(ops.OpsError, match="was not added and was deleted: the body is 1760 bytes, more than the 500 this route takes"):
+        ops.attachment_hold(case.path, case.fetch(big), "telegram", "r1", "Big.txt", "text/plain", None, None, False, 500,
+                            channel="messaging", sender=SENDER)
+    assert case.rows()[0]["code"] == "size" and case.rows()[0]["bytes"] == len(big)
+    with pytest.raises(ops.OpsError, match="more than the 1240 this route takes"):      # no provider cap: what is left of the day, 3000 less the 1760 fetched
+        case.hold(big, name="Again.txt", declared="text/plain")
+    assert case.rows()[1]["code"] == "size"
+
+
+def test_a_file_with_another_name_is_not_taken_from_the_provider_s_folder(case, tmp_path):
+    token, folder = attachments.make_incoming(case.cfg["data_dir"])
+    elsewhere = tmp_path / "elsewhere.pdf"
+    elsewhere.write_bytes(PDF)
+    os.link(elsewhere, Path(folder, "content"))                # a hard link: the bytes are also a file of someone else's
+    with pytest.raises(attachments.FolderError, match="another name"):
+        attachments.open_content(folder)
+    with pytest.raises(ops.OpsError, match="can no longer be fetched"):
+        ops.attachment_hold(case.path, token, "telegram", "r", "a.pdf", None, None, None, False, channel="messaging", sender=SENDER)
+    assert elsewhere.read_bytes() == PDF and case.rows() == []
+
+
+def test_a_problem_of_this_machine_reaches_a_phone_as_a_fixed_sentence_and_the_terminal_keeps_the_detail(case, monkeypatch):
+    held = case.hold(PDF)["attachment"]["id"]
+
+    def broken(cfg, call=None):
+        def convert(*args):
+            raise sources.SourcesError(f"the converter failed (failed): docker said no at {case.cfg['data_dir']}", "converter")
+        return convert
+    monkeypatch.setattr(sources, "provider_convert", broken)
+    with pytest.raises(ops.OpsError) as caught:
+        ops.attachment_add(case.path, held, channel="messaging", sender=SENDER)
+    assert isinstance(caught.value, st.load("ops_attachments").MachineProblem) and str(case.cfg["data_dir"]) in str(caught.value)
+    assert caught.value.phone == attachments.MACHINE and "/" not in caught.value.phone
+    monkeypatch.setattr(attachments, "keep_held", lambda *a, **k: (_ for _ in ()).throw(attachments.FolderError(f"no room in {case.cfg['data_dir']}")))
+    with pytest.raises(ops.OpsError) as caught:
+        case.hold(make_pdf("Another file"), name="Next.pdf")
+    assert caught.value.phone == "Next.pdf could not be kept on this machine. Send it again in a while." and "/" not in caught.value.phone

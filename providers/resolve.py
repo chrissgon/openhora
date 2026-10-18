@@ -337,12 +337,13 @@ class ProviderCallError(Exception):
     """A provider's verb did not give one JSON object. kind: "usage" (exit 2), "not-configured" (exit 3, or the
     class does not resolve), "failed" (any other exit, no JSON, a program that could not start) or "timeout"."""
 
-    def __init__(self, kind: str, reason: str, exit_code=None, stderr_tail: str = ""):
+    def __init__(self, kind: str, reason: str, exit_code=None, stderr_tail: str = "", stderr_last: str = ""):
         super().__init__(f"{kind}: {reason}")
         self.kind = kind
         self.reason = reason
         self.exit_code = exit_code
         self.stderr_tail = stderr_tail
+        self.stderr_last = stderr_last     # the last non-empty line of stderr, trimmed, at most 200 characters (the tail has lost its line ends)
 
 
 def interpreter_for(path) -> list:
@@ -394,9 +395,10 @@ def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None) ->
             except OSError:
                 pass
     tail = " ".join((done.stderr or "").split())[-STDERR_TAIL:]
+    last = next((line.strip()[:200] for line in reversed((done.stderr or "").splitlines()) if line.strip()), "")
     if done.returncode != 0:
         kind = {2: "usage", 3: "not-configured"}.get(done.returncode, "failed")
-        raise ProviderCallError(kind, tail or f"exit {done.returncode}", done.returncode, tail)
+        raise ProviderCallError(kind, tail or f"exit {done.returncode}", done.returncode, tail, last)
     try:
         out = json.loads(done.stdout)
     except ValueError:

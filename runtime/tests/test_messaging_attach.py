@@ -263,7 +263,8 @@ def test_limit_47_a_file_is_fetched_only_by_the_reference_the_provider_gave_into
     world.reset()
     world.send([world.file("lie", "lie.pdf")])
     world.send([world.file("out", "out.pdf")])
-    assert world.texts() == ["The file could not be fetched. Send it again."] * 2 and len(world.case.rows()) == 1 and world.incoming() == []
+    assert world.texts() == ["The file could not be fetched. Send it again."] * 2 and world.incoming() == []
+    assert [(r["status"], r["code"]) for r in world.case.rows()] == [("held", None), ("refused", "fetch"), ("refused", "fetch")], "the failed attempts count"
 
 
 def test_the_day_s_bytes_left_bound_the_fetch(world, monkeypatch):
@@ -275,17 +276,20 @@ def test_the_day_s_bytes_left_bound_the_fetch(world, monkeypatch):
     [call] = world.fetches()
     assert call["max_bytes"] == 500, "what is left of the day's bytes, not the file's own cap"
     assert world.texts() == ["The file could not be fetched. Send it again."], "the provider refused to write a file over the cap it was given"
-    assert len(world.case.rows()) == 1 and world.incoming() == []
+    assert [(r["status"], r["code"], r["bytes"]) for r in world.case.rows()][1:] == [("refused", "size", 500)], "what the fetch was allowed counts against the day"
+    assert world.incoming() == []
 
 
 def test_a_reference_the_platform_no_longer_serves_and_a_failed_download_are_told_and_leave_nothing(world):
     world.flag("gone.json", ["r1"])
     world.send([world.file()])
-    assert world.texts() == ["That file can no longer be fetched from telegram. Send it again."] and world.case.rows() == [] and world.incoming() == []
+    assert world.texts() == ["That file can no longer be fetched from telegram. Send it again."] and world.incoming() == []
+    assert [(r["status"], r["code"], r["bytes"]) for r in world.case.rows()] == [("refused", "gone", 0)]
     world.put("r2", PDF)
     world.flag("fail.json", ["r2"])
     world.send([world.file("r2")])
-    assert world.texts()[-1] == "The file could not be fetched. Send it again." and world.case.rows() == [] and world.incoming() == []
+    assert world.texts()[-1] == "The file could not be fetched. Send it again." and world.incoming() == []
+    assert [r["code"] for r in world.case.rows()] == ["gone", "fetch"] and not world.case.rows("held")
     assert not any("r1" in x or "r2" in x for x in world.log), "a log line names a class, never a reference"
 
 
@@ -498,7 +502,8 @@ def test_through_a_provider_that_stays_connected_a_gone_reference_a_failure_and_
     chirp.put("r3", make_pdf("x" * 3000))
     chirp.flag("lie.json", ["r3"])
     chirp.send([chirp.file("r3")])
-    assert chirp.texts()[-1] == "The file could not be fetched. Send it again." and chirp.case.rows() == [] and chirp.incoming() == []
+    assert chirp.texts()[-1] == "The file could not be fetched. Send it again." and chirp.incoming() == []
+    assert [r["code"] for r in chirp.case.rows()] == ["gone", "fetch", "fetch"] and not chirp.case.rows("held")
 
 
 def test_a_fetch_answer_is_read_by_its_op_so_a_send_answer_cannot_pass_for_one(case, monkeypatch):
@@ -512,3 +517,141 @@ def test_a_fetch_answer_is_read_by_its_op_so_a_send_answer_cannot_pass_for_one(c
     finally:
         w.bridge.stopping.set()
         w.messenger.close_session()
+
+
+# --- the review of ATT-1b ---------------------------------------------------------------------------------------------------------------------------
+
+OTHER = "5151515151"
+
+
+def test_pending_lists_only_the_files_this_sender_sent_and_the_other_sender_cannot_add_or_discard_them(world):
+    """The review's reproduction: /pending named another sender's file."""
+    accept(world.case.path, messaging={"senders": {"telegram": [IDENT, OTHER]}})
+    world.send([world.file("r1", "Secret merger memo.pdf")])
+    world.reset()
+    world.say("/pending", sender=OTHER)
+    assert "Secret merger memo.pdf" not in json.dumps(world.sent()) and all("file #" not in t for t in world.texts())
+    world.reset()
+    world.say("/add 1", sender=OTHER)
+    world.say("/discard 1", sender=OTHER)
+    assert world.texts() == ["Act on the card sent to you (send /pending)."] * 2 and world.case.rows()[0]["status"] == "held"
+    world.reset()
+    world.say("/pending")
+    assert any("file #1 Secret merger memo.pdf" in t for t in world.texts()), "the sender who sent it sees it"
+    ledger = world.bridge.ledger
+    assert ledger.attachment_card(world.project["id"], 1, OTHER) is None and ledger.attachment_card(world.project["id"], 1, IDENT) is not None
+    # a file of one's own with no card in this chat (its card never went out) is not listed either
+    world.put("r2", make_pdf("A second file"))
+    world.send([world.file("r2", "No card.pdf")], sender=OTHER)
+    ledger.data["cards"] = [c for c in ledger.data["cards"] if c.get("attachment_id") != 2]
+    world.reset()
+    world.say("/pending", sender=OTHER)
+    assert all("No card.pdf" not in t for t in world.texts())
+
+
+def test_twenty_five_attempts_to_fetch_a_file_over_the_cap_stop_at_the_day_s_limit(world, monkeypatch):
+    world.put("big", "plain words of a text file. " * 400)
+    monkeypatch.setattr(attachments, "FILE_CAP", 1000)
+    for _ in range(25):
+        world.send([world.file("big", "Big.txt", None, "text/plain")])
+    assert len(world.fetches()) == attachments.DAY_FILES, "the 21st attempt is refused before a byte is fetched"
+    assert "took 20 files" in world.texts()[-1]
+    rows = world.case.rows()
+    assert len(rows) == 20 and {(r["status"], r["code"], r["bytes"]) for r in rows} == {("refused", "size", 1000)}
+    assert ops.attachments(world.case.path)["today"] == {"files": 20, "bytes": 20000}
+
+
+def test_a_name_and_a_type_from_a_platform_are_cleaned_and_cut_at_validation():
+    check = providers.valid_attachments
+    got = check([{"ref": "r", "name": "plan\u202egpj.exe\x00\n" + "x" * 3000, "size": 5, "type": "Application/PDF; charset=binary"}])
+    assert got[0]["type"] == "application/pdf" and len(got[0]["name"]) == 1024 and "\u202e" not in got[0]["name"] and "\x00" not in got[0]["name"]
+    assert got[0]["name"].startswith("plan gpj.exe x")
+    for kind, kept in (("photo", "photo"), ("Voice", "voice"), ("image/jpeg", "image/jpeg"), ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"), ("text/plain; charset=utf-8", "text/plain"),
+                       ("a" * 200 + "/b", None), ("pdf", None), ("application/pdf\u202e", None), ("../etc/passwd", None), ("", None), ("x/" + "y" * 130, None),
+                       ("TEXT/" + "y" * 122, "text/" + "y" * 122), ("a/b/c", None), ("javascript:alert(1)", None)):
+        assert check([{"ref": "r", "type": kind}])[0]["type"] == kept, kind
+    assert check([{"ref": "r", "name": "\u202e\x00 "}])[0]["name"] is None and check([{"ref": "r"}])[0]["name"] is None
+    assert check([{"ref": "r", "name": "x" * 200_000}])[0]["name"] == "x" * 1024, "a very long name is cut before it is worked on"
+
+
+def test_a_machine_problem_reaches_a_phone_as_a_fixed_sentence_and_the_path_stays_in_the_log_as_a_class_only(world, monkeypatch):
+    data_dir = str(world.case.data)
+    ops_sources = st.load("ops_sources")
+    world.send([world.file("r1", "One.pdf")])
+    action = card_action_for(world, 1, "add")
+    world.put("r2", make_pdf("Another"))
+    with monkeypatch.context() as m:
+        m.setattr(attachments, "keep_held", lambda *a, **k: (_ for _ in ()).throw(attachments.FolderError(f"no room in {data_dir}")))
+        world.reset()
+        world.send([world.file("r2", "Two.pdf")])
+    assert world.texts() == ["Two.pdf could not be kept on this machine. Send it again in a while."]
+    with monkeypatch.context() as m:
+        m.setattr(ops_sources, "import_bytes", lambda *a, **k: (_ for _ in ()).throw(ops.OpsError(f"the sources folder {data_dir}/sources cannot be opened: no", 3)))
+        world.reset()
+        world.say(action=action)
+    assert world.texts() == ["This machine could not do that now. Try again later, or use the page or the terminal."]
+    for text in world.texts() + world.log:
+        assert data_dir not in text and "/private/" not in text and "/var/" not in text, text
+    assert any("a machine problem was told to a phone (MachineProblem)" in x for x in world.log) or any("(OpsError)" in x for x in world.log)
+    # a path anywhere in a sentence that is not a fixed one is replaced, and a plain sentence is not
+    phone = world.bridge.attach.phone
+    assert phone(ops.OpsError("see /Users/someone/projects/x/ for it")) == attachments.MACHINE
+    assert phone(ops.OpsError("see ~/projects/x for it")) == attachments.MACHINE
+    assert phone(ops.OpsError("C:\\Users\\x\\file")) == attachments.MACHINE
+    assert phone(ops.OpsError("Send /add 3 or /discard 3.")) == "Send /add 3 or /discard 3." and phone(ops.OpsError("No file 3 waits for you.")) == "No file 3 waits for you."
+
+
+def card_action_for(w, attachment_id, op):
+    for sent in reversed(w.sent()):
+        for a in sent["message"]["actions"]:
+            if a["id"].endswith(":" + op):
+                return a["id"]
+    raise AssertionError("no card")
+
+
+def test_gone_is_the_last_line_of_stderr_and_nothing_else_is_read_as_gone(world):
+    world.put("r2", PDF)
+    world.flag("notgone.json", ["r2"])
+    world.send([world.file("r2")])
+    assert world.texts() == ["The file could not be fetched. Send it again."], "a message that begins with the word is an ordinary failure"
+    world.flag("gone.json", ["r1"])
+    world.send([world.file("r1")])
+    assert world.texts()[-1] == "That file can no longer be fetched from telegram. Send it again."
+
+
+def test_the_same_reference_twice_in_one_message_is_fetched_once_and_a_busy_lock_stops_the_rest_of_the_message(world):
+    world.send([world.file("r1"), world.file("r1")])
+    assert len(world.fetches()) == 1 and world.texts().count(world.texts()[0]) == 1 and len(world.case.rows()) == 1
+    assert not any("already waits" in t for t in world.texts()), "nothing is said of the second copy"
+    world.reset()
+    for n in (2, 3, 4):
+        world.put(f"b{n}", make_pdf(f"File {n}"))
+    lock = sources.intake.one_at_a_time(sources.upload_lock_path(world.case.cfg))
+    try:
+        world.send([world.file(f"b{n}", f"B{n}.pdf") for n in (2, 3, 4)])
+    finally:
+        lock.release()
+    assert world.texts() == ["Another file is being fetched. Send this one again in a moment."], "told once, not three times"
+    assert world.fetches() == [] and world.incoming() == []
+
+
+def test_a_file_the_provider_left_with_another_name_or_another_hash_is_not_taken(world, tmp_path):
+    folder = tmp_path / "folder"
+    folder.mkdir(mode=0o700)
+    (folder / "content").write_bytes(PDF)
+    told = {"bytes": len(PDF), "sha256": hashlib.sha256(PDF).hexdigest()}
+    left = world.bridge.attach.left_as_told
+    assert left(str(folder), told, 10 ** 6) is True
+    assert left(str(folder), dict(told, sha256="0" * 64), 10 ** 6) is False, "the provider's hash is compared with the bytes"
+    assert left(str(folder), told, len(PDF) - 1) is False
+    os.link(folder / "content", tmp_path / "another-name")
+    assert left(str(folder), told, 10 ** 6) is False, "a file with another name may be written through from elsewhere"
+    assert left(str(tmp_path / "no-such-folder"), told, 10 ** 6) is False
+
+
+@pytest.mark.parametrize("cap,why", [(-1, "below 0"), ("x", "not a int"), (True, "not a int")])
+def test_a_provider_that_says_a_bad_cap_is_refused(case, monkeypatch, cap, why):
+    w = make_world(case, monkeypatch, caps={"attachments": True, "max_attachment_bytes": cap})
+    with pytest.raises(providers.MessengerError, match=why):
+        w.messenger.capabilities()

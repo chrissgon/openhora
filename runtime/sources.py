@@ -1565,6 +1565,7 @@ def _any_case(text: str) -> str:
 
 CONVERTER_CLASS = "converter:document"
 CONVERTER_TIMEOUT = 300
+CONVERTER_REFUSED = 4       # the provider's exit code for a file whose content it refuses (providers/converter/container.py EXIT_REFUSED)
 
 
 def _provider_env(cfg: dict, cls: str, passes=()) -> dict:
@@ -1593,7 +1594,11 @@ def provider_convert(cfg: dict, *, call=None):
             return use(CONVERTER_CLASS, "convert", ["--input", input_path, "--type", subtype, "--out-dir", out_dir], **kwargs)
         except Exception as e:
             reason = getattr(e, "reason", None) or str(e)
-            raise SourcesError(f"the converter failed ({getattr(e, 'kind', type(e).__name__)}): {_clean(reason, 300)}", "convert") from None
+            # The provider's exit 4 is the converter refusing the file's content (a macro-enabled package, a damaged file): code `convert`, the file's doing.
+            # Anything else (the container, docker, a timeout, a resolver that cannot start it) is the machine's: code `converter`, and a caller that holds
+            # the file for a person keeps it (runtime/ops_attachments.py).
+            code = "convert" if getattr(e, "exit_code", None) == CONVERTER_REFUSED else "converter"
+            raise SourcesError(f"the converter failed ({getattr(e, 'kind', type(e).__name__)}): {_clean(reason, 300)}", code) from None
     return convert
 
 

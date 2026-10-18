@@ -363,6 +363,19 @@ def test_the_configuration_goes_in_a_private_file_removed_afterwards(tmp_path):
     assert not Path(out["config"]["path"]).exists()
 
 
+def test_the_last_non_empty_line_of_stderr_is_kept_beside_the_tail_that_lost_its_line_ends(tmp_path):
+    """ATT-1b: a messenger's fetch says a reference is gone by exiting 1 with the word `gone` as the LAST line of stderr; the tail joins the lines, so it cannot say."""
+    import types
+    script = tmp_path / "p.py"
+    script.write_text("# /// script\n# dependencies = []\n# ///\n", encoding="utf-8")
+    for stderr, last in (("detail\ngone\n", "gone"), ("gone: not really\nthe platform said 500\n\n", "the platform said 500"), ("", ""), ("   \n\n", ""),
+                         ("x" * 500 + "\n", "x" * 200)):
+        with pytest.raises(resolve.ProviderCallError) as caught:
+            resolve.invoke(str(script), "v", [], run=lambda argv, e=stderr: types.SimpleNamespace(returncode=1, stdout="", stderr=e))
+        assert caught.value.stderr_last == last and caught.value.exit_code == 1
+        assert " ".join(stderr.split())[-300:] == caught.value.stderr_tail
+
+
 def test_exit_codes_are_mapped_and_the_tail_is_kept(tmp_path):
     root = stand_in_workbench(tmp_path)
     for code, kind in ((2, "usage"), (3, "not-configured"), (1, "failed"), (7, "failed")):
