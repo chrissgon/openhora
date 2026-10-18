@@ -242,7 +242,9 @@ def test_the_sentence_is_the_bridges_own_and_holds_nothing_the_provider_said(lab
     session.take(providers.Run(None), event())
     lab.bridge.messenger.take_unread = session.take_unread
     lab.bridge.tick()
-    sent = " ".join(lab.texts(OWNER))
+    # the tick also sends the owner the cards of the open decisions, which carry a sha256 digest: four hex digits of it can spell "a1b2" or "4242"
+    # by chance, so the planted words are looked for in the notice lines alone, which are the bridge's sentence under test
+    sent = " ".join(unread_texts(lab, OWNER))
     assert bridge.UNREAD_ONE in sent
     for planted in ("4242", "a1b2", "mail.example", "/Users/someone", "uid"):
         assert planted not in sent and planted not in bridge.UNREAD_MANY.format(n=3)
