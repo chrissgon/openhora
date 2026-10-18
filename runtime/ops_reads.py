@@ -40,7 +40,6 @@ import plan
 import prices as price_table
 import project_config
 import proof as proof_rules  # the operation `proof` would hide the module
-import router
 import secret_state
 import skill_meta
 
@@ -442,7 +441,7 @@ def costs(project: str, since: str | None = None) -> dict:
     source, the day they were read, their age and whether they are stale) and is None, never a guess, for a model with no price or a group with a run of unknown usage
     (unknown_runs counts them). A run whose key proxy could not count every answer is counted from what it did count, a
     lower bound, and lower_bound_runs counts such runs; the run's own report is never read in place of the proxy's count
-    (runtime/costs.py, metered_usage). A router run counts for the planning agent. The day is the local day."""
+    (runtime/costs.py, metered_usage). A router run counts for the planning agent, an answer run (ask) for the owner of the answer skill. The day is the local day."""
     ctx = core.context(project)
     cfg, store = ctx["cfg"], ctx["store"]
     if since is None:
@@ -458,11 +457,12 @@ def costs(project: str, since: str | None = None) -> dict:
         used = None
     folder = os.path.realpath(os.path.join(cfg["data_dir"], core.RUNS_DIR)) + os.sep
     runs = []
+    owners = importlib.import_module("ops_ask").run_owners(ctx)    # the agent a run whose task is a request counts against
     for task in core._stored(ctx, store.tasks_list):
         for run in core._stored(ctx, store.task_runs_list, task["id"]):
             agent = task.get("agent")
-            if agent is None and task["parent_id"] is None and run.get("skill") == router.ROUTER_SKILL:
-                agent = plan.PLANNING
+            if agent is None and task["parent_id"] is None:
+                agent = owners.get(run.get("skill"))
             where = run.get("run_dir")
             inside = isinstance(where, str) and os.path.realpath(where).startswith(folder)
             runs.append(dict(run, agent=agent, run_dir=where if inside else None))

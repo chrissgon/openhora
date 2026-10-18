@@ -81,6 +81,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/ops_grants.py", "runtime/policy_grants.py", "runtime/policy_widening.py", "runtime/ops_actor.py",
     # The language the deliverables are written in (LANGUAGE): the rule, the order and the words; the operations that check a request's choice.
     "runtime/language.py", "runtime/ops_language.py",
+    # The answer from sources (AQ-1): the selection of the sources a question reads, the checks of the reply, and the operation `ask`.
+    "runtime/ask_select.py", "runtime/ask_reply.py", "runtime/ops_ask.py",
     # The project script (P9): the step kind, the provider's host side (it loads the two programs that run inside its image, which parse here too).
     "runtime/step_project_script.py", "providers/script/container.py", "providers/script/egress_proxy.py", "providers/script/_inner.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.

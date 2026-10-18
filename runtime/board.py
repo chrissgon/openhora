@@ -25,6 +25,9 @@ fields, written by the runtime and never read back). Only code talks to the boar
                               waits for (the store's waits), before the task's own note. With dry_run, every write is
                               printed by the provider (upsert --dry-run) and nothing changes.
 
+A question answered from the sources (package AQ-1, runtime/ops_ask.py) is not mirrored, while it runs or after: its request has no task and
+a run of the answer skill, and its text is the person's question, which the board's hosts would otherwise keep (asked()).
+
 Only what is still open when the board is configured is mirrored: a task that was already final (done or cancelled)
 at the first sync that writes to the board never gets an item (left_out()). That sync records its time in the
 store's cursor board:configured. A task that becomes final later keeps its item, and the item moves.
@@ -58,6 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
 import project_config  # noqa: E402  (the same folder: the resolver is loaded, and the bounds read, from here)
+import roles  # noqa: E402  (the skill that answers a question: its requests are never mirrored)
 
 CLASS = "integration:issue-tracker"
 TIMEOUT = 120
@@ -160,6 +164,20 @@ def left_out(ctx: dict, tasks=None) -> list:
     tasks = ctx["store"].tasks_list(ctx["conn"]) if tasks is None else tasks
     return [t["id"] for t in tasks
             if not t.get("remote_id") and t["state"] in FINAL and t["updated_at"] <= configured]
+
+
+def asked(ctx: dict, tasks=None) -> list:
+    """The ids of the requests that are a question answered from the sources: a request with no task whose run is a run of the answer
+    skill (roles.json `answer`). Such a request is made together with its run (store.answer_run_start), so none is ever seen without one.
+    Never mirrored: its title and text are the person's question, and the board's host is not where a question goes."""
+    skill = roles.answer()
+    if not skill:
+        return []
+    store, conn = ctx["store"], ctx["conn"]
+    tasks = store.tasks_list(conn) if tasks is None else tasks
+    parents = {t["parent_id"] for t in tasks if t["parent_id"] is not None}
+    return [t["id"] for t in tasks if t["parent_id"] is None and t["id"] not in parents and not t.get("remote_id")
+            and any(r["skill"] == skill for r in store.task_runs_list(conn, t["id"]))]
 
 
 def _open_pending(ctx: dict, task_id: int):
@@ -315,7 +333,7 @@ def push(ctx: dict, dry_run: bool = False) -> dict:
     tasks = store.tasks_list(conn)
     if not dry_run and store.cursor_get(conn, CONFIGURED) is None:
         store.cursor_set(conn, CONFIGURED, _now())  # the board is configured: what is final now is never mirrored
-    never = set(left_out(ctx, tasks))
+    never = set(left_out(ctx, tasks)) | set(asked(ctx, tasks))
     waiting = {}
     for w in store.waits_list(conn):
         waiting.setdefault(w["task_id"], []).append(w)

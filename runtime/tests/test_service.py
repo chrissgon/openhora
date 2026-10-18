@@ -540,7 +540,7 @@ def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
         if row["model"] is not False:
             assert row.get("job") is True, row["name"]
     assert {r["name"] for r in operations.OPERATIONS if r.get("job")} == \
-        {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say"}
+        {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say", "ask"}
 
 
 def test_a_refused_operation_becomes_its_documented_status(world):

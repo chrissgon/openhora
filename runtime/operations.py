@@ -250,6 +250,9 @@ OPERATIONS = (
     {"name": "say", "call": "say", "args": ({"name": "text", "kind": "text", "required": True},),
      "channels": ("terminal", "page", "mcp", "messaging"), "model": "for a new request", "job": True, "channel_arg": True, "queues": True,
      "help": "one turn of the conversation with the planning agent; on the page, while a run is in progress, a line that needs the planner is queued (elsewhere refused); a question about the state is answered at once"},
+    {"name": "ask", "call": "ask", "args": ({"name": "text", "kind": "text", "required": True},),
+     "channels": ("terminal", "chat", "page", "messaging"), "model": True, "job": True, "channel_arg": True, "chat_reply": "reply",
+     "help": "answer a question from the text of the project's sources, with the quotes it rests on and the sources and versions read: one run of the answer skill, no plan to approve; the sources are chosen by code (@<id> to name them), the answer goes only to the shell or chat that asked; never the MCP mode, and on a messaging app only for a sender whose profile lists the group ask"},
     {"name": "agents", "call": "agents", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "each area agent: its mode, its caps, what it used today and how many tasks wait for it"},
     {"name": "conversation", "call": "conversation",
@@ -388,6 +391,7 @@ GROUPS = {
     "approve-effect-send": {"operations": ("approve",), "kind": "effect:send"},           # an e-mail from the project's outbox (effect_send.py APPROVAL_GROUP)
     "approve-effect-publish": {"operations": ("approve",), "kind": "effect:publish"},     # a post (effect_publish.py APPROVAL_GROUP)
     "approve-networked-plans": {"operations": ("approve",), "kind": "plan:networked"},    # a plan that holds a step reaching the network (P9, limit L36): on top of approve-plans
+    "ask": {"operations": ("ask",), "kind": None},   # an answer from the full text of the project's sources: in no default (a messaging sender gets it only from a profile or channel entry accepted with --widen), never on the MCP mode
     "go-ahead": {"operations": ("go-ahead",), "kind": None},
     "reject-cancel": {"operations": ("reject", "cancel"), "kind": None},
     "brakes": {"operations": ("cancel", "stop-task"), "kind": None},   # R18: end what runs, turned on for messaging by listing it (in no default); `cancel` is also in reject-cancel, so a written policy stays valid
@@ -472,6 +476,7 @@ GROUP_TEXT = {
     "approve-effect-send": "approves an e-mail sent from the project's outbox, with its hash",
     "approve-effect-publish": "approves a post to a social platform, with its hash",
     "approve-networked-plans": "approves a plan that holds a script which reaches the network, with the plan's hash",
+    "ask": "asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers)",
     "go-ahead": "goes ahead on a task that waits for another request",
     "reject-cancel": "rejects a decision and cancels a request",
     "brakes": "cancels a request and stops a running task",
