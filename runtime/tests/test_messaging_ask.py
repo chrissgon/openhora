@@ -143,9 +143,15 @@ def test_limit_50_an_answer_leaves_only_as_the_reply_to_the_chat_that_asked_and_
     assert conn.execute("SELECT COUNT(*) AS n FROM actions").fetchone()["n"] == 0        # no recorded action: nothing was sent, published or written
     assert store.approvals_list(conn) == []
     # the actor of each run is kept beside it, and only in the store
-    assert [store.cursor_get(conn, store.ASK_ACTOR_CURSOR.format(run=r["id"])) for r in runs(world.tree)] == [None, None]   # the actor was kept only while a run went
-    texts = [m["text"] for m in ops.conversation(world.project["path"])["messages"]]
-    assert not any("12 meses" in t or "Read:" in t for t in texts)                         # nor the answer in the conversation, which others read
+    assert [store.cursor_get(conn, store.ASK_ACTOR_CURSOR.format(run=r["id"])) for r in runs(world.tree)] == [
+        f"messaging:telegram:asker:{OWNER}", f"messaging:telegram:asker:{STAFF}"]            # who asked stays beside each run
+    # each answer is in the conversation for the chat that asked and for no other reader
+    path = world.project["path"]
+    mine = [m["text"] for m in ops.conversation(path, channel="messaging", sender=f"telegram:{OWNER}")["messages"]]
+    assert sum("12 meses" in t for t in mine) == 1 and not any("aviso previo" in t and "Read:" in t for t in mine)
+    for reader in (dict(channel="mcp"), dict(channel="messaging", sender="telegram:999"), dict(channel=None)):
+        seen = [m["text"] for m in ops.conversation(path, **reader)["messages"]]
+        assert not any("12 meses" in t or "Read:" in t for t in seen), reader
     # a sender not listed is dropped with no reply and no run
     world.bridge.handle(world.update("999", "/ask qual o prazo do contrato?"))
     assert len(world.sent()) == 2 and len(runs(world.tree)) == 2

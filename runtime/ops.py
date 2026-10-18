@@ -1632,7 +1632,7 @@ def task(project: str, task_id: int) -> dict:
     ctx = core.context(project)
     store = ctx["store"]
     found = core._stored(ctx, store.task_get, task_id)
-    return {"task": ops_waits.task_row(ctx, found), "drop": ops_reads.drop_note(found), "runs": core._stored(ctx, store.task_runs_list, task_id),
+    return {"task": ops_waits.task_row(ctx, found), "drop": ops_reads.drop_note(found), "runs": ops_ask.with_asker(ctx, core._stored(ctx, store.task_runs_list, task_id)),
             "pending": [{**ops_actor.shown(item), "agent": found["agent"] if found["parent_id"] is not None else None,
                          "actions": _actions(store, item)}
                         for item in core._stored(ctx, store.pending_list, "all", task_id)]}

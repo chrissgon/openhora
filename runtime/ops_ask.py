@@ -117,6 +117,34 @@ def hint(ctx: dict, channel, sender=None) -> str:
     return "\n\n" + ASK_HINT if ops_sources.known_ids(ctx) else ""
 
 
+def asked_by(actor, channel, sender=None) -> bool:
+    """Whether a reader is the one that asked: `actor` is the label the store keeps beside an answer run (ops_actor.label: `terminal`, `chat`,
+    `page`, `mcp` or `messaging:<platform>:<profile>:<sender id>`), `channel` the reader's channel and `sender` its messaging sender key. The
+    terminal and the conversation's own shell are one reader; the page is one; a messaging app is the sender who asked and nobody else; the
+    MCP mode, a call that names no channel and a run with no recorded asker are never."""
+    if not actor or not channel:
+        return False
+    if channel in ("terminal", "chat"):
+        return actor in ("terminal", "chat")
+    if channel == "page":
+        return actor == "page"
+    if channel == "messaging":
+        platform, ident = ops_actor.split(sender)
+        parts = actor.split(":", 3)
+        return bool(ident) and len(parts) == 4 and parts[0] == "messaging" and (parts[1], parts[3]) == (platform, ident)
+    return False
+
+
+def with_asker(ctx: dict, runs: list) -> list:
+    """The runs of a read with `asked_by` (the public form of the actor beside an answer run: `<profile> on <platform>`, `page`, `terminal`,
+    never a sender's id) on the ones that have one."""
+    store, out = ctx["store"], []
+    for run in runs:
+        who = store.cursor_peek(ctx["conn"], store.ASK_ACTOR_CURSOR.format(run=run["id"]))
+        out.append(dict(run, asked_by=ops_actor.public(who)) if who else run)
+    return out
+
+
 def _outcome(reply: str, **more) -> dict:
     return {"reply": reply, "ran": False, "answer": None, "refusal": None, "request_id": None, "run_id": None, "sources": [],
             "flags": [], **more}
@@ -204,8 +232,7 @@ def ask(project: str, text: str, channel: str | None = None, sender: str | None 
     attended = actor in (None, "terminal", "chat")    # a version the person changed by hand goes only to an ask typed where the person is
     meta, keys, routing = ops_contained.routed(ctx, skill)
     with core._route_lock(cfg):                       # RunBusy: one conversation model call per project at a time
-        importlib.import_module("ops_runs")._recover(ctx, holding_route=True)
-        core._stored(ctx, ctx["store"].answers_abandoned_cancel, skill)       # a question an earlier ask left when its process died
+        importlib.import_module("ops_runs")._recover(ctx, holding_route=True)     # ends the run a dead ask left and cancels its question
         number, dest = ops_contained._contained_folder(cfg)
         prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
         try:

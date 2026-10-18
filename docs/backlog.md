@@ -315,6 +315,9 @@ From the decisions of 2026-10-17 (`SPEC-ANSWER-FROM-SOURCES`, package AQ-1 built
 - [ ] **AQ3. Plain lines routed to answers (after AQ2, before the battery).** A plain question on a phone goes to the planner and gets a hint to send `/ask`; the router should route it to the answer skill itself, with its `Sources:` line, when the sender may ask.
   - What: a row in `skills/core-orchestrator/references/routing.md` and one case (a Y change: its partial test is the 13 guard cases and the new case, 3 runs each); `ops_ask` run with the router's ids, without a plan, only when the sender may `ask`.
   - Done when: the route to the answer skill opens no plan, and without the group a plan opens as today.
+- [ ] **LR1. The sentences of `/ask` in the project's language (package LR-1).** The sentences code adds to an answer, the refusals of `ops_ask` and `ask_reply` are English constants until the phrase table.
+  - What: when LR-1 translates them, the imitated-quote check of `ask_reply` (`imitates`, which compares a folded line with `quote [` and `checked quote`) must compare with the phrase table's words for the form code writes (`Checked quote`), in every language of the table, not with the English words alone, or a translated form could be imitated.
+  - Done when: a test imitates the translated form in each language of the table and the line is left out and flagged.
 - [ ] **AQ4. Chunking and retrieval for a source over 256 KiB.** A question reads at most 256 KiB of converted text and five sources. A larger source is answered only by a task; indexing waits for a real case.
   - Done when: the maintainer has a real source that needs it, and the choice (chunks by heading, a local index, or the task) is decided on that case.
 

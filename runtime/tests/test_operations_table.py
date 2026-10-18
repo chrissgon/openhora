@@ -54,7 +54,7 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "for_run", "guard", "contained_prompt", "hash_of", "proposal", "answer", "vet",
                   # ops_ask.py and ops_contained.py (AQ-1): the owners of the runs of a request, the hint of a direct reply, and the core the contained
                   # run and ask share; ops_core.py: the attribution of those runs to an agent
-                  "run_owners", "hint", "routed", "execute", "attributed", "kept"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "run_owners", "hint", "routed", "execute", "attributed", "asked_by", "with_asker"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.

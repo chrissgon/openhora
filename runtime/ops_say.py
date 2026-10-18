@@ -56,7 +56,7 @@ MEMORY_CUT = 600
 MEMORY_HEAD = "Earlier in this conversation, oldest first:"
 MEMORY_TAIL = "The request now:"
 PLAN_NEXT = "Approve with " + operations.chat_line("approve", pending_id="{pending}")
-ANSWERED_AS = "(answered from the sources: request {request})"   # what the conversation keeps in place of an answer
+ANSWERED_AS = "(answered from the sources: request {request})"   # what `conversation` shows in place of an answer to a reader that did not ask
 ASK_NEXT = "Answer with a plain line, or start again with " + operations.chat_line("new", text="<text>")
 NOT_NAMED = "The planning agent did not name a flow or a skill for request {request}"
 NOT_NAMED_ACTIONS = ["choose-flow", "cancel"]    # the words of the payload's `actions`: the page draws one button for each
@@ -106,20 +106,6 @@ STATE_QUESTIONS = (
 STATE_RE = re.compile("|".join(f"(?:{form})" for form in STATE_QUESTIONS))
 LISTED = 5                  # titles named in a sentence of a state answer
 TITLE_CUT = 80
-
-
-class Answered(str):
-    """The reply of a `/ask` line as the shell that asked shows it, with `stored`, the text the conversation keeps in its place: a
-    fixed placeholder that names the request, never the answer (limit L50: the conversation is a read, and the MCP mode and any
-    other reader of it must not get the text of the person's documents). A refusal made by code, which holds no document text,
-    is kept as it is."""
-
-    stored = ""
-
-
-def kept(reply):
-    """The text the conversation stores for a reply: the placeholder of an answered `/ask`, else the reply."""
-    return getattr(reply, "stored", None) or reply
 
 
 def chat_memory(messages: list, settled: set) -> str:
@@ -176,7 +162,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
             raise core.RunBusy(RUN_BUSY, 1)
     stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=said)
     reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"], sender)
-    core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant", text=kept(reply) or "(no reply)",
+    core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant", text=reply or "(no reply)",
                  task_id=request_id, run_id=run_id)
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
             **({"instruction_proposal": offered} if offered else {})}
@@ -503,7 +489,7 @@ def _drain_line(project: str, ctx: dict, message_id: int) -> dict:
     if not found:
         raise core.OpsError(f"message {message_id} is not in the conversation", 1)
     reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, found[0]["text"], DRAIN, message_id)
-    core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant", text=kept(reply) or "(no reply)",
+    core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant", text=reply or "(no reply)",
                  task_id=request_id, run_id=run_id)
     return {"routed": "line", "message_id": message_id, "request_id": request_id, "pending_id": pending_id, "ran": ran,
             **({"instruction_proposal": offered} if offered else {})}
@@ -583,10 +569,10 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
             out = function(project, **found)
     except core.OpsError as e:
         return f"error: {e}", None, None, False, None
-    if name == "ask" and out.get("request_id") is not None:     # a question was made and run: the conversation keeps the placeholder, not the answer
-        shown = Answered(out["reply"])
-        shown.stored = ANSWERED_AS.format(request=out["request_id"])
-        return shown, None, None, False, None
+    if name == "ask" and out.get("run_id") is not None:
+        # The answer is stored with the id of its answer run and no request (so it is not the router's memory): `conversation` shows it only
+        # to the channel that asked (ops_ask.asked_by), and every other reader gets ANSWERED_AS (limit L50).
+        return out["reply"], None, None, False, out["run_id"]
     if row.get("chat_reply"):
         return out[row["chat_reply"]], None, None, False, None
     return json.dumps(out, ensure_ascii=False, indent=1, default=str), None, None, False, None

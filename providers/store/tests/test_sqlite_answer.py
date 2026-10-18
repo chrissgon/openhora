@@ -146,19 +146,19 @@ def test_the_title_of_a_question_holds_no_text_of_it(conn):
     assert shown["title"] == f"Question {started['request_id']}" and "secret" not in shown["title"] and "secret" in shown["text"]
 
 
-def test_the_actor_cursor_goes_with_the_run_however_it_ends(conn):
+def test_the_actor_cursor_stays_after_the_run_however_it_ends(conn):
     for how in ({"status": "ok"}, {"status": "failed", "failure": "timeout"}):
         started = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="How long?")
         name = store.ASK_ACTOR_CURSOR.format(run=started["run_id"])
         store.cursor_set(conn, name, "messaging:telegram:asker:4242")
         store.answer_run_finish(conn, started["run_id"], **how)
-        assert store.cursor_get(conn, name) is None
+        assert store.cursor_get(conn, name) == "messaging:telegram:asker:4242"       # the same retention as the actor of a decision
     started = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="How long?")
     name = store.ASK_ACTOR_CURSOR.format(run=started["run_id"])
     store.cursor_set(conn, name, "page")
     store.request_stop(conn, started["request_id"], by="page")
     store.answer_run_finish(conn, started["run_id"], status="ok")
-    assert store.cursor_get(conn, name) is None
+    assert store.cursor_get(conn, name) == "page"
 
 
 def test_the_questions_a_dead_process_left_are_cancelled_and_nothing_else_is(conn):
@@ -172,11 +172,11 @@ def test_the_questions_a_dead_process_left_are_cancelled_and_nothing_else_is(con
     planned = store.request_add(conn, title="Planned", text="Planned.", flow="x", tasks=[{"key": "a", "skill": "demo-a", "title": "A", "text": "do a."}])["request"]
     done = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="Answered")
     store.answer_run_finish(conn, done["run_id"], status="ok")
-    assert store.answers_abandoned_cancel(conn, "demo-answers") == [dead["request_id"]]
+    assert store.answers_abandoned_cancel(conn, "demo-router") == [dead["request_id"]]
     assert store.task_get(conn, dead["request_id"])["state"] == "cancelled"
-    assert store.cursor_get(conn, store.ASK_ACTOR_CURSOR.format(run=dead["run_id"])) is None
+    assert store.cursor_get(conn, store.ASK_ACTOR_CURSOR.format(run=dead["run_id"])) == "page"       # the record of who asked stays
     assert [store.task_get(conn, i)["state"] for i in (routed, waiting, planned, done["request_id"])] == ["requested", "requested", "planned", "done"]
-    assert store.answers_abandoned_cancel(conn, "demo-answers") == []                         # and a second call finds nothing
+    assert store.answers_abandoned_cancel(conn, "demo-router") == []                         # and a second call finds nothing
     running = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="Still going")
-    assert store.answers_abandoned_cancel(conn, "demo-answers") == []                         # a run that is running is not abandoned
+    assert store.answers_abandoned_cancel(conn, "demo-router") == []                         # a run that is running is not abandoned
     assert store.task_get(conn, running["request_id"])["state"] == "requested"

@@ -60,3 +60,21 @@ def test_a_question_is_marked_by_what_the_store_holds_and_not_by_the_answer_skil
         monkeypatch.setattr(roles, "answer", lambda root=None, file=None, named=named: named)
         assert board.asked(ctx) == [out["request_id"]]                 # a plan's request (router runs, tasks) is never one
     assert [r for r in ops.sync(project_of(tree))["board"]["pushed"] if r == out["request_id"]] == []
+
+
+def test_a_request_is_a_question_for_the_board_when_it_has_a_run_of_a_skill_other_than_the_routers_and_the_router_is_named_by_roles(tree):
+    """board.asked relies on one fact: the only runs a request has are the router's and an answer run. This pins the naming it reads."""
+    router = st.load("router")
+    assert router.ROUTER_SKILL == roles.load()["router"]
+    ctx = ops_core.context(project_of(tree))
+    store, conn = ctx["store"], ctx["conn"]
+    routed = ops.request(project_of(tree), "A request the router works on")["request"]
+    started = store.route_run_start(conn, routed, skill=router.ROUTER_SKILL, model="m", adapter="h")
+    assert board.asked(ctx) == []                                                  # a router run, running
+    store.route_run_finish(conn, started["run_id"], status="failed", failure="timeout")
+    assert board.asked(ctx) == []                                                  # a router run, ended
+    other = ops.request(project_of(tree), "A request with an answer run")["request"]
+    store.route_run_start(conn, other, skill="some-answer-skill", model="m", adapter="h")
+    assert board.asked(ctx) == [other]                                             # the name of the answer skill does not matter
+    planned_ids = planned(tree)
+    assert board.asked(ctx) == [other] and planned_ids["request"] not in board.asked(ctx)

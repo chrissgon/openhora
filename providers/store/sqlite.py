@@ -2503,7 +2503,7 @@ def route_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, fail
     return {"run_id": run_id, "request_id": request["id"], "pending_id": pending_id, "cancelled": False}
 
 
-ASK_ACTOR_CURSOR = "ask-actor:{run}"   # who asked, kept beside a running answer run only (no column holds it); removed when the run ends
+ASK_ACTOR_CURSOR = "ask-actor:{run}"   # who asked, kept beside an answer run (no column holds it): the same retention as the actor of a decision, never deleted
 ANSWER_FAILED_BY = "code:answer-failed"   # the `by` of the request an answer run that failed cancels
 
 
@@ -2537,12 +2537,12 @@ def answer_run_start(conn: sqlite3.Connection, request_id: int | None = None, *,
     return {"run_id": run_id, "request_id": request_id, "started_at": now}
 
 
-def answers_abandoned_cancel(conn: sqlite3.Connection, skill: str) -> list:
+def answers_abandoned_cancel(conn: sqlite3.Connection, router_skill: str) -> list:
     """Cancel, by `code:answer-failed`, the questions an ask left behind when its process died: a request with no task, in the state
-    `requested`, that has runs, none running, all of the answer `skill` (the recovery of the next ask has ended the run). The actor
-    cursors of those runs go too. A request a router run is working on has no run of this skill, and one whose run is still running is
-    not touched. Returns the ids of the requests cancelled."""
-    skill = text_arg(skill, "skill", LABEL_MAX)
+    `requested`, that has runs, none running (the recovery has ended the run) and none of the router's (`router_skill`: the only other
+    runs a request has). A request a router run is working on has a run of the router's, and one whose run is still running is not
+    touched. Returns the ids of the requests cancelled."""
+    router_skill = text_arg(router_skill, "router_skill", LABEL_MAX)
     now = iso(utcnow())
     cancelled = []
     with write(conn):
@@ -2550,11 +2550,9 @@ def answers_abandoned_cancel(conn: sqlite3.Connection, skill: str) -> list:
             if conn.execute("SELECT 1 FROM tasks WHERE parent_id = ?", (row["id"],)).fetchone():
                 continue
             runs = conn.execute("SELECT id, skill, status FROM task_runs WHERE task_id = ?", (row["id"],)).fetchall()
-            if not runs or any(r["skill"] != skill or r["status"] == "running" for r in runs):
+            if not runs or any(r["skill"] == router_skill or r["status"] == "running" for r in runs):
                 continue
             _cancel_request(conn, row["id"], ANSWER_FAILED_BY, now)
-            for r in runs:
-                conn.execute("DELETE FROM cursors WHERE name = ?", (ASK_ACTOR_CURSOR.format(run=r["id"]),))
             cancelled.append(row["id"])
     return cancelled
 
@@ -2592,7 +2590,6 @@ def answer_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, fai
                 "attempts": int(attempts), "cost_usd": cost_usd, "tokens": tokens, "duration_ms": duration_ms,
                 "skill_loaded": loaded, "image_digest": image_digest, "run_dir": run_dir, "redactions": redactions})
             _complete_cancel(conn, request["id"], now)
-            conn.execute("DELETE FROM cursors WHERE name = ?", (ASK_ACTOR_CURSOR.format(run=run_id),))
             return {"run_id": run_id, "request_id": request["id"], "state": _request(conn, request["id"])["state"], "cancelled": True}
         if status == "ok" and request["state"] != "requested":
             raise StoreError(f"request {request['id']} is {request['state']}: the answer is not recorded")
@@ -2602,7 +2599,6 @@ def answer_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, fai
             "WHERE id = ?",
             (status, failure, "done" if status == "ok" else None, int(attempts), now, cost_usd, tokens, duration_ms, loaded,
              image_digest, run_dir, error, redactions, run_id))
-        conn.execute("DELETE FROM cursors WHERE name = ?", (ASK_ACTOR_CURSOR.format(run=run_id),))
         if status == "ok":
             conn.execute("UPDATE tasks SET state = 'done', updated_at = ? WHERE id = ?", (now, request["id"]))
         else:

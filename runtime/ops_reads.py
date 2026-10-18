@@ -40,6 +40,7 @@ import plan
 import prices as price_table
 import project_config
 import proof as proof_rules  # the operation `proof` would hide the module
+import router
 import secret_state
 import skill_meta
 
@@ -330,13 +331,16 @@ def drop_note(task: dict):
     return {"web": web, "takes": takes, "line": drop.WEB_LINE if web and takes else None}
 
 
-def conversation(project: str, conversation: str | None = ops_say.CONVERSATION, after: int | None = 0) -> dict:
+def conversation(project: str, conversation: str | None = ops_say.CONVERSATION, after: int | None = 0, channel: str | None = None,
+                 sender: str | None = None) -> dict:
     """The messages of a conversation whose id is above `after`, oldest first, at most MESSAGES_PAGE (the newest of
     them when more are waiting): {"conversation", "messages": [{"id", "role", "text", "task_id", "run_id",
     "created_at", "queued"}]}. There is one conversation per project and its name is CONVERSATION (an argument left out
     is the default). For an assistant message task_id is the request the turn made or answered. "queued" is true on
     a line of the person that was stored while a run was in progress and has no reply yet (runtime/ops_say.py, the
-    queue). Reads nothing else."""
+    queue). The answer to a `/ask` is in the conversation, stored with the id of its answer run, and is shown only to the channel that asked
+    (`channel`: the terminal, the page; on a messaging app only to the sender, `sender`): every other reader, the MCP mode always, and a call
+    that names no channel, gets "(answered from the sources: request <n>)" in its place (limit L50). Reads nothing else."""
     ctx = core.context(project)
     conversation, after = ops_say.CONVERSATION if conversation is None else conversation, 0 if after is None else after
     if isinstance(after, bool) or not isinstance(after, int) or after < 0:
@@ -346,8 +350,27 @@ def conversation(project: str, conversation: str | None = ops_say.CONVERSATION, 
     rows = core._stored(ctx, ctx["store"].messages_list, conversation, limit=MESSAGES_PAGE, after_id=after)
     keys = ("id", "role", "text", "task_id", "run_id", "created_at")
     queued = ops_say.queued_ids(ctx) if conversation == ops_say.CONVERSATION else set()
+    asker = importlib.import_module("ops_ask").asked_by
     return {"conversation": conversation,
-            "messages": [{**{key: row[key] for key in keys}, "queued": row["id"] in queued} for row in rows]}
+            "messages": [{**{key: row[key] for key in keys}, "text": _shown_text(ctx, row, asker, channel, sender), "queued": row["id"] in queued}
+                         for row in rows]}
+
+
+def _shown_text(ctx: dict, row: dict, asked_by, channel, sender) -> str:
+    """The text of a message for a reader: the message's own, except the reply to a `/ask` (an assistant message with the id of a run that is
+    not the router's), which is the person's document text and goes only to the channel that asked."""
+    if row["role"] != "assistant" or row["run_id"] is None:
+        return row["text"]
+    store, conn = ctx["store"], ctx["conn"]
+    try:
+        run = store.task_run_get(conn, row["run_id"])
+    except store.StoreError:
+        return row["text"]
+    if run["skill"] == router.ROUTER_SKILL:
+        return row["text"]
+    if asked_by(store.cursor_peek(conn, store.ASK_ACTOR_CURSOR.format(run=run["id"])), channel, sender):
+        return row["text"]
+    return ops_say.ANSWERED_AS.format(request=run["task_id"])
 
 
 def _scope(ctx: dict) -> list:
