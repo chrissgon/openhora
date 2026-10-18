@@ -132,7 +132,15 @@ class Jobs:
             thread = threading.Thread(target=self._run_job, args=(job, call, exclusive), daemon=True)
             self.threads = [t for t in self.threads if t.is_alive()] + [thread]
             shown = self.public(job)
-        thread.start()
+        try:
+            thread.start()
+        except BaseException:      # a thread that cannot start (no resources) leaves no job and no held slot behind
+            with self.lock:
+                self.jobs.pop(job["job"], None)
+                if exclusive and self.exclusive.get(project) == f"job {job['job']}":
+                    del self.exclusive[project]
+                self.threads = [t for t in self.threads if t is not thread]
+            raise
         return job, thread, shown
 
     def job_shown(self, number: int):

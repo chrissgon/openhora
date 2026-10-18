@@ -811,7 +811,8 @@ class Bridge(shell_kit.Jobs):
             except shell_kit.Stopping:
                 return
         # beyond the caps the line gets the sentence it always got: the router's when the lines only wait out a `RunBusy` pause, else the slot's
-        busy_elsewhere = bool(mine) and not held and all(e["after"] for e in mine)
+        now = self.monotonic()
+        busy_elsewhere = bool(mine) and not held and all(e["after"] > now for e in mine)
         self.keep_or_refuse(project, chat, text, RUN_BUSY if busy_elsewhere else STILL_WORKING)
         self.drain()      # the job that held the slot may have ended between the refusal and the keeping
 
@@ -899,36 +900,40 @@ class Bridge(shell_kit.Jobs):
         of a project start in the order they were kept. A line being started stays in the list, marked, until its run begins."""
         if not self.waiting:
             return
-        told = []
-        with self.drain_lock:
-            now = self.monotonic()
-            with self.queue_lock:
-                expired = [e for e in self.waiting if not e["starting"] and now - e["since"] >= QUEUE_WAIT]
-                self.waiting = [e for e in self.waiting if not any(e is x for x in expired)]
-            told += [(e["chat"], QUEUE_EXPIRED) for e in expired]
-            ready = self.session_ready is None or self.session_ready()
-            seen = []
-            while ready:
+        told, expired = [], []
+        try:
+            with self.drain_lock:
+                now = self.monotonic()
                 with self.queue_lock:
-                    oldest = next((e for e in self.waiting if e["project"]["id"] not in seen), None)
-                    if oldest is None:
-                        break
-                    seen.append(oldest["project"]["id"])
-                    if oldest["starting"] or oldest["after"] > now:     # being started, or it met a busy router a moment ago: the lines behind it wait too
-                        continue
-                    oldest["starting"] = True
-                try:
-                    self.start_job(oldest["project"]["id"], "say", self.line(oldest["project"], oldest["chat"], oldest["text"], oldest))
-                except shell_kit.Busy:
+                    expired = [e for e in self.waiting if not e["starting"] and now - e["since"] >= QUEUE_WAIT]
+                    self.waiting = [e for e in self.waiting if not any(e is x for x in expired)]
+                told += [(e["chat"], QUEUE_EXPIRED) for e in expired]
+                ready = self.session_ready is None or self.session_ready()
+                seen = []
+                while ready:
                     with self.queue_lock:
-                        oldest["starting"] = False
-                except shell_kit.Stopping:
-                    self.leave(oldest)
-                    told.append((oldest["chat"], QUEUE_STOPPED))
-        if expired:
-            self.log(f"{len(expired)} waiting line(s) dropped after {QUEUE_WAIT // 60} minutes")
-        for chat, sentence in told:
-            self.reply(chat, sentence)
+                        oldest = next((e for e in self.waiting if e["project"]["id"] not in seen), None)
+                        if oldest is None:
+                            break
+                        seen.append(oldest["project"]["id"])
+                        if oldest["starting"] or oldest["after"] > now:     # being started, or it met a busy router a moment ago: the lines behind it wait too
+                            continue
+                        oldest["starting"] = True
+                    try:
+                        self.start_job(oldest["project"]["id"], "say", self.line(oldest["project"], oldest["chat"], oldest["text"], oldest))
+                    except shell_kit.Stopping:
+                        self.leave(oldest)
+                        told.append((oldest["chat"], QUEUE_STOPPED))
+                    except BaseException as e:      # Busy (the slot is taken), a thread that cannot start, or the shell's Stop: the line is not being started
+                        with self.queue_lock:
+                            oldest["starting"] = False      # it stays, in its place: later drains, its expiry and the stop's message reach it
+                        if not isinstance(e, shell_kit.Busy):
+                            raise
+        finally:
+            if expired:
+                self.log(f"{len(expired)} waiting line(s) dropped after {QUEUE_WAIT // 60} minutes")
+            for chat, sentence in told:
+                self.reply(chat, sentence)
 
     def drain_safely(self) -> None:
         try:
@@ -1044,7 +1049,7 @@ class Bridge(shell_kit.Jobs):
                 due = time.monotonic() + notice_every
             wait = max(1, min(poll, int(due - time.monotonic())))
             self.drain_safely()
-            if any(e["after"] for e in list(self.waiting)):      # a line waits out a `RunBusy` pause: look again soon (a held slot is looked at when its job ends)
+            if any(e["after"] > self.monotonic() for e in list(self.waiting)):      # a line waits out a `RunBusy` pause: look again soon (a held slot is looked at when its job ends)
                 wait = min(wait, QUEUE_POLL)
             try:
                 self.poll_once(wait)

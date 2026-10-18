@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
+import types
 
 import pytest
 
@@ -485,7 +486,7 @@ def test_a_line_that_comes_while_the_oldest_is_being_started_goes_behind_it(lab,
     assert planner.texts() == ["old", "new"] and not lab.bridge.waiting
 
 
-def test_a_stop_between_the_choice_and_the_start_loses_no_line(lab, planner, monkeypatch):  # noqa: F811
+def test_a_start_refused_because_the_bridge_is_stopping_tells_the_chat_and_loses_no_line(lab, planner, monkeypatch):  # noqa: F811
     two(lab)
     project = lab.bridge.projects[0]
     assert lab.bridge.keep(project, STAFF, "old")
@@ -495,6 +496,67 @@ def test_a_stop_between_the_choice_and_the_start_loses_no_line(lab, planner, mon
     monkeypatch.setattr(lab.bridge, "start_job", stopping)
     lab.bridge.drain()
     assert lab.texts(STAFF) == [bridge.QUEUE_STOPPED] and not lab.bridge.waiting and planner.texts() == []
+
+
+def test_a_start_that_fails_leaves_the_line_waiting_in_its_place_and_later_drains_and_expiry_reach_it(lab, planner, monkeypatch):  # noqa: F811
+    two(lab)
+    now = clocked(lab)
+    project = lab.bridge.projects[0]
+    assert lab.bridge.keep(project, STAFF, "old")
+    real = lab.bridge.start_job
+
+    def fails(*args, **kwargs):
+        raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(lab.bridge, "start_job", fails)
+    with pytest.raises(RuntimeError):
+        lab.bridge.drain()
+    assert [e["starting"] for e in lab.bridge.waiting] == [False], "not stuck as 'starting'"
+    lab.bridge.drain_safely()                      # the loops go on: the error is logged by class
+    assert any("could not be looked at: RuntimeError" in line for line in lab.log)
+    monkeypatch.setattr(lab.bridge, "start_job", real)
+    lab.bridge.drain()                             # a later drain starts it
+    assert settle(lab) and planner.texts() == ["old"]
+    monkeypatch.setattr(lab.bridge, "start_job", fails)
+    assert lab.bridge.keep(project, OWNER, "second")
+    with pytest.raises(RuntimeError):
+        lab.bridge.drain()
+    now[0] += bridge.QUEUE_WAIT
+    lab.bridge.drain_safely()                      # the expiry reaches a line whose start failed
+    assert lab.texts(OWNER)[-1] == bridge.QUEUE_EXPIRED and not lab.bridge.waiting
+
+
+def test_a_start_interrupted_by_the_shells_stop_leaves_the_line_for_the_stop_message(lab, planner, monkeypatch):  # noqa: F811
+    two(lab)
+    project = lab.bridge.projects[0]
+    assert lab.bridge.keep(project, STAFF, "old")
+
+    class Stop(BaseException):
+        pass
+
+    def interrupted(*args, **kwargs):
+        raise Stop()
+    monkeypatch.setattr(lab.bridge, "start_job", interrupted)
+    with pytest.raises(Stop):
+        lab.bridge.drain()
+    lab.bridge.stopping.set()
+    lab.bridge.close_queue()
+    assert lab.texts(STAFF) == [bridge.QUEUE_STOPPED] and not lab.bridge.waiting and planner.texts() == []
+
+
+def test_a_thread_that_cannot_start_leaves_no_job_and_no_held_slot_in_the_kit(monkeypatch):
+    kit = st.load("shell_kit")
+    jobs = kit.Jobs(ops, [{"id": "aaaaaaaaaaaa", "name": "p", "path": "/p"}])
+
+    class Refusing:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(kit, "threading", types.SimpleNamespace(Thread=Refusing, Lock=threading.Lock, Event=threading.Event))      # this module's view only
+    with pytest.raises(RuntimeError):
+        jobs.start_job("aaaaaaaaaaaa", "say", lambda: None)
+    assert not jobs.exclusive and not jobs.jobs and not jobs.threads
 
 
 def test_the_stop_messages_have_a_total_deadline_and_a_hanging_provider_holds_nothing_back(lab, planner, monkeypatch):  # noqa: F811
@@ -554,6 +616,10 @@ def test_a_polling_loop_looks_again_soon_only_while_a_line_waits_out_a_router_pa
     assert polled(lab, monkeypatch) == [25, 25, 25], "a held slot is looked at when its job ends, not by shortening the poll"
     assert lab.bridge.keep(project, STAFF, "paused", retry=True)
     assert max(polled(lab, monkeypatch)) <= bridge.QUEUE_POLL, "a pause of the router has no job to end it: look again soon"
+    assert lab.bridge.keep(project, STAFF, "paused again", retry=True)      # the loop above ended as a shell's does and forgot the lines
+    clock = lab.bridge.monotonic
+    lab.bridge.monotonic = lambda: clock() + bridge.QUEUE_RETRY + 1       # the pause is over: `after` is in the past, the poll is long again
+    assert polled(lab, monkeypatch) == [25, 25, 25]
     del lab.bridge.exclusive[project["id"]]
 
 
@@ -623,12 +689,16 @@ def test_a_project_that_became_unaccepted_while_a_line_waits_drops_it_with_no_re
 
 def test_a_second_line_of_a_chat_that_waits_out_a_router_pause_gets_the_routers_sentence(lab, planner):  # noqa: F811
     two(lab)
+    now = clocked(lab)
     planner.refusals = 1
     lab.say(OWNER, "x")
     assert wait_for(lambda: lab.texts(OWNER) == [bridge.QUEUED])
     assert settle(lab)
     lab.say(OWNER, "x again")
     assert lab.texts(OWNER) == [bridge.QUEUED, bridge.RUN_BUSY], "the slot is free: the sentence that fits is the router's"
+    now[0] += bridge.QUEUE_RETRY + 1             # the pause is over (`after` is a time in the past, not a flag): the lines no longer wait out the router
+    lab.say(OWNER, "x once more")
+    assert lab.texts(OWNER)[-1] == bridge.STILL_WORKING
 
 
 # --- /ask: the group the line needs (M1) ---------------------------------------------------------------------------------------------------
