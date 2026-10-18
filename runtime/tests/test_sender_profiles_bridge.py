@@ -76,6 +76,13 @@ def lab(tree, tmp_path, monkeypatch):  # noqa: F811
         w.bridge.handle(update)
     w.say = say
 
+    def settle():
+        """Wait until every job thread the bridge started has ended. A reply is sent inside the job's call, so a reply seen is not yet the end of the
+        job: the project's model slot is released after the call returns, and a command sent at once can find it held (Busy)."""
+        for thread in list(w.bridge.threads):
+            thread.join(30)
+    w.settle = settle
+
     def card(chat, kind="plan"):
         for row in reversed(sent(chat)):
             if f"{kind} #" in row["message"]["text"]:
@@ -98,8 +105,7 @@ def lab(tree, tmp_path, monkeypatch):  # noqa: F811
     w.who = who
     yield w
     w.bridge.stopping.set()
-    for thread in list(w.bridge.threads):
-        thread.join(30)
+    w.settle()
 
 
 def configure(lab, senders, policies=POLICIES_ALL, channel="staff", notices="text"):
@@ -140,6 +146,7 @@ def test_the_employee_reads_what_waits_and_never_the_spend_and_the_owner_reads_b
     assert f"#{lab.plan} plan" in lab.texts(STAFF)[0]
     lab.say(STAFF, "/progress")                     # a line that is a command of the table runs in a job thread of the bridge
     assert wait_for(lambda: any(NOT_ENABLED in t for t in lab.texts(STAFF)))
+    lab.settle()                                    # the reply is sent inside the job: the owner's line waits until the job has ended and released the slot
     lab.say(OWNER, "/progress")
     assert wait_for(lambda: any("cost known" in t for t in lab.texts(OWNER)))
 
@@ -380,6 +387,7 @@ def test_no_message_the_bridge_sends_carries_the_home_folder_whatever_it_is_and_
         "route", lab.path, checkout=str(lab.tmp / "checkout"), request_id=3)})
     lab.say(OWNER, "make a thing")                                                      # an unclassified route
     assert wait_for(lambda: "unclassified" in everything_sent(lab))
+    lab.settle()
     monkeypatch.setattr(ops, "pending", real_pending)
     monkeypatch.setitem(ops.SERVICE, os.path.realpath(lab.path), {"dispatch": "off", "at": "2026-10-17T10:00:00Z"})      # the local service dispatches nothing
     ops.approve(lab.path, lab.plan, lab.digest, channel="terminal")                     # the person approves the plan in the terminal: its tasks are ready, and held
