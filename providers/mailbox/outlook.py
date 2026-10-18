@@ -27,8 +27,9 @@ Usage:
   uv run <workbench>/providers/mailbox/outlook.py search --query "in:inbox" --since 2026-10-10T00:00:00Z [--before <ISO-8601>] [--limit 20] [--jobs 4]
   uv run <workbench>/providers/mailbox/outlook.py get --id <Graph message id>
 
-  --check     refreshes the access token (the one network call) and checks that it carries Mail.Read and nothing wider; prints
-              {"ok": true, "scope", "tenant", "obtained_at", "rotation"}. Exit 3 when there is no authorization or it was refused (an expired
+  --check     refreshes the access token (the one network call) and checks that it carries the platform's set (the account record) or
+              Mail.Read and nothing wider (the legacy record); prints
+              {"ok": true, "record" ("account" or "legacy"), "scope", "tenant", "obtained_at", "rotation"}. Exit 3 when there is no authorization or it was refused (an expired
               or revoked one, a work tenant whose admin has not approved the app, a token with a wider scope).
   search      {"query", "messages": [...], "truncated"}, newest first. --query is one of two fixed boxes, `in:inbox` (the inbox) and
               `in:inbox is:unread` (the unread messages of the inbox): a free query is not supported in this version (exit 2). --since and
@@ -62,8 +63,17 @@ sheets or class names, colours (white on white) or comments: text hidden that wa
 Attachments are listed (name, type, size) and never fetched: only `$select=name,contentType,size` is asked, so a service that ignored it would
 answer more than the 1 MiB read of that call and the list is reported as null.
 
+The account token (ACCT-M, decision of 2026-10-18): this provider reads first the account record MICROSOFT_ACCOUNT_TOKEN (username
+microsoft-account), written once for the person's whole Microsoft account by providers/accounts/microsoft_auth.py with the platform's set
+of permissions (listed in providers/accounts/README.md). That token can do more than this provider does; the restriction is the platform's
+(policies, cards, the verbs a script sends), and this provider still sends GET requests only. A token that lacks one of the set, or carries
+one more, is refused (exit 3). Only when the account record is absent does it read the record below
+(the legacy one, kept for one cycle: backlog ACCT-LEGACY), with its old exact check and a note on stderr once.
+
 Credentials (never from a flag or a file; contracts/secrets.md):
-  OUTLOOK_MAIL_TOKEN  one JSON record, read through providers/secrets/resolver.py (the environment, then the credentials directory, then the
+  MICROSOFT_ACCOUNT_TOKEN the account record (see providers/accounts/README.md): {"slot", "refresh_token", "client_id", "tenant", "scope",
+                          "account_kind", "account", "obtained_at"}; the rotation is written back into this record when it is the one used.
+  OUTLOOK_MAIL_TOKEN  (legacy) one JSON record, read through providers/secrets/resolver.py (the environment, then the credentials directory, then the
                       OS secret store, username outlook-mail): {"refresh_token", "client_id", "tenant", "scope", "obtained_at"}, written by
                       providers/mailbox/outlook_auth.py after the person's consent. There is no client secret: the app is a public client,
                       and it is the registration made for MAIL only (one registration per purpose). Printed nowhere.
@@ -126,6 +136,10 @@ PROFILE = msgraph.Profile(
     not_found="Outlook does not know the message, or it is not in the person's own mailbox",
     forbidden_hint="check that the app registration has the delegated permission Mail.Read and that the mailbox is the person's own",
     client_id_var="OUTLOOK_MAIL_CLIENT_ID", tenant_var="OUTLOOK_MAIL_TENANT")
+ACCOUNT_PROFILE = msgraph.account_profile(
+    run_hint="uv run <workbench>/providers/mailbox/outlook.py", env_prefix="MAILBOX_OUTLOOK", user_agent="openhora-mailbox-outlook",
+    not_found="Outlook does not know the message, or it is not in the person's own mailbox",
+    forbidden_hint="check that the account token carries the platform's whole set and that the mailbox is the person's own")
 REFRESH_SCOPE = PROFILE.refresh_scope
 DEFAULT_API_BASE, TOKEN_URL_TEMPLATE = msgraph.DEFAULT_GRAPH_BASE, msgraph.TOKEN_URL_TEMPLATE
 ENV_BASE, ENV_TOKEN_URL = PROFILE.env_base, PROFILE.env_token_url
@@ -163,6 +177,12 @@ def secret_resolver():
     return msgraph.secret_resolver(__file__)
 
 
+def account_resolver():
+    """The same resolver, asked for the account record (MICROSOFT_ACCOUNT_TOKEN); a function of its own so that a test can replace it apart
+    from the one for the legacy record."""
+    return msgraph.secret_resolver(__file__)
+
+
 def keyring_module(test_mode: bool):
     return msgraph.keyring_module(PROFILE, test_mode)
 
@@ -184,27 +204,39 @@ def usable_access_token(data: dict) -> str:
     return msgraph.usable_access_token(data)
 
 
+def load_record(test_mode: bool) -> tuple:
+    """(record, where it was found): the account record (MICROSOFT_ACCOUNT_TOKEN) first, this provider's own legacy record second (one cycle,
+    backlog ACCT-LEGACY). A record read from the account's secret is the account's whatever it holds (a malformed one is exit 3, never a fall back)."""
+    return msgraph.load_credentials(PROFILE, ACCOUNT_PROFILE, secret_resolver, test_mode, account_resolver)
+
+
+def profile_of(record: dict):
+    """The profile the record belongs to: the account's (the platform's set) or the legacy one's (Mail.Read)."""
+    return msgraph.profile_of(record, PROFILE, ACCOUNT_PROFILE)
+
+
 def refresh_access_token(token_url: str, record: dict) -> tuple:
-    return msgraph.refresh_access_token(PROFILE, token_url, record)
+    return msgraph.refresh_access_token(profile_of(record), token_url, record)
 
 
 def store_rotation(record: dict, rotated, where: str, test_mode: bool) -> str:
-    return msgraph.store_rotation(PROFILE, record, rotated, where, test_mode, lambda: secret_resolver(), lambda mode: keyring_module(mode))
+    resolver = account_resolver if profile_of(record).account else secret_resolver
+    return msgraph.store_rotation(profile_of(record), record, rotated, where, test_mode, lambda: resolver(), lambda mode: keyring_module(mode))
 
 
 class Graph(msgraph.GraphClient):
     """Microsoft Graph as this provider uses it: GET requests with one access token, to one base address."""
 
-    def __init__(self, base: str, access_token: str, hosts: tuple, test_mode: bool):
-        super().__init__(PROFILE, base, access_token, test_mode)
+    def __init__(self, base: str, access_token: str, hosts: tuple, test_mode: bool, profile=None):
+        super().__init__(profile or PROFILE, base, access_token, test_mode)
 
 
 def connect() -> Graph:
     base, token_url, hosts, test_mode = endpoints()
-    record, where = msgraph.load_record(PROFILE, secret_resolver, test_mode)
+    record, where = load_record(test_mode)
     access, rotated = refresh_access_token(token_url or TOKEN_URL_TEMPLATE.format(tenant=record["tenant"]), record)
     store_rotation(record, rotated, where, test_mode)
-    return Graph(base, access, hosts, test_mode)
+    return Graph(base, access, hosts, test_mode, profile_of(record))
 
 
 # --- Graph values into a message ---------------------------------------------------------------------------------------------
@@ -368,10 +400,11 @@ def emit(data: dict) -> None:
 
 def cmd_check(args) -> int:
     _, token_url, _, test_mode = endpoints()
-    record, where = msgraph.load_record(PROFILE, secret_resolver, test_mode)
+    record, where = load_record(test_mode)
     _, rotated = refresh_access_token(token_url or TOKEN_URL_TEMPLATE.format(tenant=record["tenant"]), record)
-    emit({"ok": True, "scope": SCOPE, "tenant": record["tenant"], "obtained_at": record.get("obtained_at"),
-          "rotation": store_rotation(record, rotated, where, test_mode)})
+    profile = profile_of(record)
+    emit({"ok": True, "record": "account" if profile.account else "legacy", "scope": " ".join(profile.scopes), "tenant": record["tenant"],
+          "obtained_at": record.get("obtained_at"), "rotation": store_rotation(record, rotated, where, test_mode)})
     return EXIT_OK
 
 

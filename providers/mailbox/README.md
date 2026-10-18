@@ -122,6 +122,12 @@ Reads the messages of an Outlook inbox (Microsoft 365 and outlook.com) through M
 
 **One app registration per purpose.** Microsoft documents that "refresh tokens are bound to a combination of user and client, but aren't tied to a resource" and that a client can use a refresh token to acquire access tokens for any resource it has permission for [M5]. A single registration that held `Files.Read` (OneDrive), `Mail.Read` and `Calendars.ReadBasic` would let the refresh token of any one of them read all three. So the mail provider has a registration of its own with `Mail.Read` alone, its own client id and its own record (`OUTLOOK_MAIL_TOKEN`, entry `outlook-mail`); the calendar provider and the OneDrive provider each have theirs. The shared code (`providers/_msgraph.py`) shares no registration and no token. The cost is one more registration to make for each purpose.
 
+### The account token
+
+Since 2026-10-18 (package ACCT-M) this provider reads the account record `MICROSOFT_ACCOUNT_TOKEN` first: one consent for the person's whole Microsoft account, with the platform's set of delegated permissions (`Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `Files.ReadWrite`, `User.Read` and `offline_access`), written once by `uv run <workbench>/providers/accounts/microsoft_auth.py authorize` (see `providers/accounts/README.md`). That token can do more than this provider does; the restriction is the platform's (policies, a card of the exact content for every write, the verbs each script sends, no token in a run), and this provider still sends GET requests only. A token that lacks one permission of the set, or carries another, is refused (exit 3, naming that command). The record it used is the one it rewrites when Microsoft replaces the refresh token.
+
+The `OUTLOOK_MAIL_TOKEN` record is the fallback, for one cycle: it is read only when the account record is absent, with its old exact check (`Mail.Read` alone) and one note on stderr per process ("using the legacy record outlook-mail; run ... to move to the account token"). It is removed in the cycle after the integration branch reaches `main` (backlog ACCT-LEGACY). `--check` prints `"record": "account"` or `"legacy"`. The setup steps below are those of the legacy registration; the account's are in `providers/accounts/README.md`.
+
 ### Setup (once; the maintainer of the project does it, not each person)
 
 The full steps are in `uv run <workbench>/providers/mailbox/outlook_auth.py --help`. In short, at https://entra.microsoft.com:
@@ -184,6 +190,7 @@ A verb never retries. Only GET is sent to Graph; the token endpoint is the one P
 
 | Variable | Used by | Purpose |
 |----------|---------|---------|
+| `MICROSOFT_ACCOUNT_TOKEN` | `outlook.py`, `accounts/microsoft_auth.py` | The account record, read first, through the secret resolver (same places); the legacy record below is read only when this one is absent. |
 | `OUTLOOK_MAIL_TOKEN` | `outlook.py`, `outlook_auth.py` | The record, through the secret resolver (the environment, the credentials directory, then the OS secret store). |
 | `OUTLOOK_MAIL_CLIENT_ID`, `OUTLOOK_MAIL_TENANT` | `outlook_auth.py` | Of the one `authorize` command only: the Application (client) ID of the mail registration, and a tenant (default `common`). |
 | `MAILBOX_PROVIDER` | `providers/resolve.py` | `gmail` or `outlook` selects the implementation. |

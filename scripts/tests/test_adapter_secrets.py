@@ -56,6 +56,9 @@ BEFORE = {
     # M1: the person's Outlook mail and calendar as sources, each its own record and its own Microsoft app registration (Mail.Read; Calendars.ReadBasic).
     "OUTLOOK_MAIL_TOKEN": ((), "outlook-mail", ("providers/mailbox/outlook.py", "providers/mailbox/outlook_auth.py")),
     "OUTLOOK_CALENDAR_TOKEN": ((), "outlook-calendar", ("providers/calendar/outlook.py", "providers/calendar/outlook_auth.py")),
+    # ACCT-M: the person's own Microsoft account, one record for the platform's whole set (decision of 2026-10-18).
+    "MICROSOFT_ACCOUNT_TOKEN": ((), "microsoft-account", ("providers/accounts/microsoft_auth.py", "providers/_msgraph.py", "providers/documents/onedrive.py",
+                                                          "providers/mailbox/outlook.py", "providers/calendar/outlook.py")),
     "MESSENGER_TELEGRAM_BOT_TOKEN": ((), "messenger-telegram", ("providers/messenger/telegram.py",)),
     "MESSENGER_DISCORD_BOT_TOKEN": ((), "messenger-discord", ("providers/messenger/discord.py",)),
     "MESSENGER_WHATSAPP_CLOUD_TOKEN": ((), "messenger-whatsapp-cloud", ("providers/messenger/whatsapp-cloud.py",)),
