@@ -221,6 +221,9 @@ The public website (`site/`, published by Netlify at https://openhora.dev).
   - Done when: a card for an e-mail with an attachment either carries the file or says it cannot, and a test holds that an approve action is on no card that does not carry what the hash covers.
 - [ ] **EM4. The page's form for a flow's parameters.** The send-email flow takes `to`, `cc`, `subject` and `body` as parameters; whether the page shows them as a form is to verify on first use.
   - Done when: the page starts `send-email` from a form, or the terminal path is the documented one.
+- [ ] **EM5. A time budget for the HTML-to-text step of the Gmail and Outlook readers.** The e-mail channel converts an HTML part in a child process with a 3 s budget; `gmail.py` and `outlook.py` call `providers/_email_text.py` in their own process with none. The open-element stack there is linear, but the standard library's `html.parser` is not on every interpreter (an unpatched 3.9.6 is quadratic on some inputs: `<a` or `</` repeated), so a message built for it can hold a reader for long. The Outlook scripts say `requires-python >=3.10` so `uv` does not pick such a system interpreter, which only narrows it.
+  - What: a per-message time limit around the conversion (the child process of `providers/messenger/email-imap.py`, or a signal alarm where there is one), with the message returned as `text: ""` and a flag that says it was dropped, and the same in `outlook.py` and `gmail.py`.
+  - Done when: a message of `<a` repeated to the size cap costs at most the budget in both readers, and a test says so. (M1 review, 2026-10-18.)
 
 ## Files from messaging apps
 
