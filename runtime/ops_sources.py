@@ -15,13 +15,15 @@ decides who may call what only through the table of operations (runtime/operatio
 page, the catalog read also the MCP mode and the messaging channel (the group `sources`, which a project's policy turns on); no
 operation here is ever written from a messaging channel, and none approves anything.
 
-  source_add(project, source_id, source_type, origin[, description])   register a source: id, type (file or notion), origin
+  source_add(project, source_id, source_type, origin[, description])   register a source: id, type (file, notion, drive or onedrive), origin
   source_import(project, source_id[, file, url, origin, description])  import a version from a file, or from a Notion page's address
   source_refresh(project, source_id[, file])                           a new version: from a new file, from the page again, or,
                                     with neither, from the file the person changed in the folder (limit L25)
   source_describe(project, source_id, description)                     the person's description of a source
   source_drive(project[, file_id, source_id, description])             Google Drive: pick files in the Picker (a one-shot page on
                                     127.0.0.1) and make each a source, or import one file already picked; terminal only
+  source_onedrive(project[, search, folder, item, source_id, description])   OneDrive (O2): list candidates for a search text or
+                                    a folder (registers nothing), or make the chosen files sources and import them; terminal only
   sources_catalog(project)                                             the catalog: every source, its newest version, its status
 
 For the rest of the layer:
@@ -45,6 +47,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lab
 import ops_core as core
 import sources
+import sources_onedrive
 
 CONVERTER_CLASS = sources.CONVERTER_CLASS
 CODES = {"usage": 2, "folder": 3, "path": 3}   # every other SourcesError is a refusal of the operation (code 1)
@@ -86,9 +89,14 @@ def _convert(ctx):
     return sources.provider_convert(ctx["cfg"])
 
 
-def source_add(project: str, source_id: str, source_type: str, origin: str, description: str | None = None) -> dict:
-    """Register a source: its id, its type (`file`, `notion` or `drive`), its origin (a file's name, the address or the id of a Notion
-    page, or a Drive file's id) and an optional description. Nothing is imported and no credential is kept. Returns {"source": the row}."""
+def source_add(project: str, source_id: str, source_type: str, origin: str, description: str | None = None,
+               channel: str | None = None) -> dict:
+    """Register a source: its id, its type (`file`, `notion`, `drive` or `onedrive`), its origin (a file's name, the address or the id of a
+    Notion page, a Drive file's id, or a OneDrive file's "<drive id>/<item id>") and an optional description. A OneDrive source is registered
+    from the terminal alone (`channel` must be "terminal"): `Files.Read` reaches every file of the person's OneDrive, so the choice of the files is
+    made where the person lists them (`source-onedrive`), never by a token of the page. Nothing is imported and no credential is kept. Returns {"source": the row}."""
+    if source_type == "onedrive" and channel != "terminal":
+        raise core.OpsError("a OneDrive file is chosen in the terminal: use `source-onedrive` (a page, a chat or a model cannot register one)", 2)
     ctx = core.context(project)
     try:
         return {"source": sources.register(ctx, source_id, source_type, origin, description)}
@@ -165,7 +173,7 @@ def _import_notion(ctx, row: dict, address: str, evidence, label: str) -> dict:
 
 
 def source_refresh(project: str, source_id: str, file: str | None = None) -> dict:
-    """A new version of a source. A Drive source asks Drive for the file's version and reads the file only when it moved. A Notion
+    """A new version of a source. A Drive or a OneDrive source asks the service for the file's version and reads the file only when it moved. A Notion
     source reads its page again (a new version only when the text changed). A file source
     with `file` imports that file as a refresh. A file source with no `file` checks the newest version's files against the
     recorded hashes: unchanged, nothing is made; changed outside the runtime (limit L25), the changed file is sniffed, converted
@@ -179,6 +187,11 @@ def source_refresh(project: str, source_id: str, file: str | None = None) -> dic
             if file is not None:
                 raise sources.SourcesError("a Drive source is refreshed from Drive, not from a file", "usage")
             done = sources.drive_refresh(ctx, row, convert=_convert(ctx), evidence_base=evidence)
+            return {**done, "refreshed": bool(done.get("imported"))}
+        if row["type"] == "onedrive":
+            if file is not None:
+                raise sources.SourcesError("a OneDrive source is refreshed from OneDrive, not from a file", "usage")
+            done = sources_onedrive.onedrive_refresh(ctx, row, convert=_convert(ctx), evidence_base=evidence)
             return {**done, "refreshed": bool(done.get("imported"))}
         if row["type"] == "notion":
             if file is not None:
@@ -288,6 +301,81 @@ def source_drive(project: str, file_id: str | None = None, source_id: str | None
         raise _refused(e) from None
     results = [_drive_one(ctx, pick, evidence, source_id=source_id, description=description) for pick in picks if isinstance(pick, dict)]
     return {"picked": len(results), "cancelled": cancelled, "results": results}
+
+
+# --- OneDrive (O2) ----------------------------------------------------------------------------------------------------------
+
+
+def _onedrive_one(ctx, item_id: str, evidence, source_id=None, description=None, convert=None, call=None) -> dict:
+    """Make one chosen OneDrive file a source and import its first version: ask OneDrive about it (a folder, a package, an item shared from
+    another drive, a flagged or deleted item and a legacy Office file stop here, with the provider's reason), register it under `source_id`
+    or an id made from its name (a file chosen again is the source it already is), then import. Returns {"item", "name", "source",
+    "registered", "imported"/"error", ...}; never raises for one file."""
+    out = {"item": item_id, "name": None}
+    try:
+        item_id = sources_onedrive.onedrive_origin(item_id)
+        info = sources_onedrive.onedrive_stat(ctx["cfg"], item_id, call=call)
+        out["name"] = sources._clean(info.get("name") or "", 200) or None
+        if not info["supported"]:
+            raise sources.SourcesError(sources._clean(info.get("reason") or "OneDrive says it cannot be read", 300), "onedrive")
+        existing = next((r for r in sources.list_catalog(ctx, hashes=False) if r["type"] == "onedrive" and r["origin"].lower() == item_id.lower()), None)
+        if existing is not None:
+            row, registered = sources.public_row(ctx["store"].source_get(ctx["conn"], existing["id"])), False
+            if source_id not in (None, row["id"]):
+                raise sources.SourcesError(f"this file is already the source {row['id']}", "usage")
+        else:
+            taken = [r["id"] for r in sources.list_catalog(ctx, hashes=False)]
+            if source_id is not None:
+                sources.check_id(source_id)
+                if source_id in taken:
+                    raise sources.SourcesError(f"the source id {source_id} is taken by another source", "usage")
+            chosen = source_id or sources_onedrive.onedrive_source_id(out["name"] or "", taken)
+            row = sources.register(ctx, chosen, "onedrive", item_id, description if description is not None else out["name"])
+            registered = True
+        out.update({"source": row["id"], "registered": registered})
+        if registered:
+            done = sources_onedrive.onedrive_import(ctx, row, convert=convert or _convert(ctx), label="import", call=call, evidence_base=evidence)
+        else:   # a file chosen again is a refresh: the cTag is asked first, and nothing is read when it has not moved
+            done = sources_onedrive.onedrive_refresh(ctx, row, convert=convert or _convert(ctx), call=call, evidence_base=evidence, info=info)
+        out.update({k: done[k] for k in ("imported", "version", "kind", "warnings") if k in done})
+        if done.get("unchanged"):
+            out["unchanged"] = True
+    except sources.SourcesError as e:
+        out["error"] = str(e)
+    return out
+
+
+def source_onedrive(project: str, search: str | None = None, folder: str | None = None, item: list | None = None,
+                    source_id: str | None = None, description: str | None = None) -> dict:
+    """Make OneDrive files sources. Exactly one way in. With `search` (a text) or `folder` (a folder path from the root of your OneDrive),
+    up to 25 matches of the search, or the items of that folder, are listed for you to choose from, each with its number, name, folder,
+    size, date and the "<drive id>/<item id>" to give back; nothing is registered and nothing is read. With `item` (one or more
+    "<drive id>/<item id>", the ids that listing printed), each FILE becomes a source named from the file (a file you chose before is the
+    source it already is) with its first version imported; with exactly one item, `source_id` names the source. A file that cannot be read
+    stops itself and not the others. Only files: a folder, a OneNote notebook, an item shared from another drive, a flagged or deleted item
+    and a legacy .doc, .xls or .ppt are refused with the reason. Nothing is written to OneDrive: the one scope, Files.Read, reads every
+    file of your own OneDrive and writes none; the runtime reads only the files you chose here. Returns {"mode": "search"|"folder",
+    "candidates": [...], "count", "truncated"} or {"mode": "item", "picked": n, "results": [one per file: "source", "registered",
+    "imported", "version" or "error"]}."""
+    chosen = [i for i in (item or []) if i is not None]
+    if sum(1 for way in (search is not None, folder is not None, bool(chosen)) if way) != 1:
+        raise core.OpsError("give exactly one of --search <text>, --folder <path> and --item <drive id>/<item id> (repeat --item for several files)", 2)
+    if source_id is not None and len(chosen) != 1:
+        raise core.OpsError("--source goes with exactly one --item: with several, each source gets an id made from its file's name", 2)
+    ctx = core.context(project)
+    if not chosen:
+        try:
+            found = sources_onedrive.onedrive_candidates(ctx["cfg"], search=search, folder=folder)
+        except sources.SourcesError as e:
+            raise _refused(e) from None
+        known = {r["origin"].lower(): r["id"] for r in sources.list_catalog(ctx, hashes=False) if r["type"] == "onedrive"}
+        for candidate in found["candidates"]:
+            if candidate["id"].lower() in known:
+                candidate["source"] = known[candidate["id"].lower()]
+        return found
+    evidence = _evidence_base()
+    results = [_onedrive_one(ctx, one, evidence, source_id=source_id, description=description) for one in chosen]
+    return {"mode": "item", "picked": len(results), "results": results}
 
 
 # --- what the rest of the layer asks ----------------------------------------------------------------------------------------
