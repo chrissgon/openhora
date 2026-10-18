@@ -5,8 +5,10 @@
 # ///
 """What the e-mail readers of the workbench share to turn a message into text: the reader of providers/mailbox/gmail.py (class
 reader:email) and the e-mail channel of the messaging bridge (providers/messenger/email-imap.py) both load it by path. A name with an underscore
-is never listed as an implementation by providers/resolve.py, so this file is a module, not a provider. It was moved here from gmail.py
-unchanged; gmail.py binds the same names, so `gmail.html_to_text` and the others are still there.
+is never listed as an implementation by providers/resolve.py, so this file is a module, not a provider. The helpers were moved here from gmail.py
+unchanged; gmail.py binds the same names, so `gmail.html_to_text` and the others are still there. `strip_quoted` and its marker lists were moved
+here from providers/messenger/email-imap.py unchanged (the same text, the same behaviour), so that the Gmail reader's --own-words and the e-mail
+channel cut the quoted history of a reply in one way.
 
   INVISIBLE_RE, HSPACE_RE    the invisible and direction-changing characters, and a run of horizontal space
   HIDDEN_STYLE_RE            an inline style that hides an element from a reader
@@ -15,6 +17,8 @@ unchanged; gmail.py binds the same names, so `gmail.html_to_text` and the others
                              followed, nothing is fetched); an element hidden by an inline style or the hidden attribute gives nothing
   dedupe_links               the links of a body, one for each address
   part_text                  the text of one MIME part, decoded; a wrong charset is read as UTF-8 with replacement
+  strip_quoted               the sender's own words: the text before the first quoted line, signature delimiter, attribution ("On ... wrote:"
+                             and its Portuguese and Spanish forms), forward or original-message marker, or Outlook header block
 
 Standard library only. Runs on Python 3.9.
 """
@@ -157,3 +161,32 @@ def part_text(part) -> str:
         payload = part.get_payload(decode=True) or b""
         content = payload.decode("utf-8", errors="replace")
     return content if isinstance(content, str) else ""
+
+
+# The sender's own words. A reply holds the history it answers; that history was written by someone else, earlier, and is not what the sender
+# of this message said. The forms below are the attribution lines and markers the common mail clients write.
+ATTRIBUTION = re.compile(
+    r"^(?:on|em|el)\b.{1,400}\b(?:wrote|escreveu|escribi[oó]):$",      # validate: allow english-only -- attribution forms of Portuguese and Spanish mail clients
+    re.I)
+MARKERS = re.compile(
+    r"^(?:[-_=]{10,}|[-_=* ]{0,40}(?:"
+    r"original message|forwarded message|begin forwarded message:?|"
+    r"mensagem original|mensagem encaminhada|mensagem reenviada|in[ií]cio da mensagem (?:reenviada|encaminhada):?|"      # validate: allow english-only -- forward markers of Portuguese mail clients
+    r"mensaje original|mensaje reenviado|mensaje remitido|inicio del mensaje reenviado:?"      # validate: allow english-only -- forward markers of Spanish mail clients
+    r")[-_=* ]{0,40})$", re.I)
+HEADER_START = re.compile(r"^(?:from|de|von):", re.I)
+HEADER_FOLLOW = re.compile(r"^(?:sent|date|to|cc|subject|enviado|enviada|enviado el|data|para|assunto|asunto|fecha):", re.I)
+
+
+def strip_quoted(text: str) -> str:
+    """The text before the first quoted line (`>`), signature delimiter (`-- `), attribution ("On ... wrote:", "Em ... escreveu:",
+    "El ... escribio:", on one line or two), forward or original-message marker, or Outlook header block (From: then Sent:/To:/Subject:)."""
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        bare = line.strip()
+        joined = (bare + " " + lines[i + 1].strip()).strip() if i + 1 < len(lines) else bare
+        if bare.startswith(">") or bare == "--" or MARKERS.match(bare) or ATTRIBUTION.match(bare) \
+                or (bare.lower().split(" ", 1)[0] in ("on", "em", "el") and ATTRIBUTION.match(joined)) \
+                or (HEADER_START.match(bare) and any(HEADER_FOLLOW.match(n.strip()) for n in lines[i + 1:i + 5])):
+            return "\n".join(lines[:i]).strip("\n")
+    return text.strip("\n")

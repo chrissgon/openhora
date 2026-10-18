@@ -460,31 +460,7 @@ def text_in_child(raw: bytes) -> str:
     return done.stdout.decode("utf-8", "replace")
 
 
-ATTRIBUTION = re.compile(
-    r"^(?:on|em|el)\b.{1,400}\b(?:wrote|escreveu|escribi[oó]):$",      # validate: allow english-only -- attribution forms of Portuguese and Spanish mail clients
-    re.I)
-MARKERS = re.compile(
-    r"^(?:[-_=]{10,}|[-_=* ]{0,40}(?:"
-    r"original message|forwarded message|begin forwarded message:?|"
-    r"mensagem original|mensagem encaminhada|mensagem reenviada|in[ií]cio da mensagem (?:reenviada|encaminhada):?|"      # validate: allow english-only -- forward markers of Portuguese mail clients
-    r"mensaje original|mensaje reenviado|mensaje remitido|inicio del mensaje reenviado:?"      # validate: allow english-only -- forward markers of Spanish mail clients
-    r")[-_=* ]{0,40})$", re.I)
-HEADER_START = re.compile(r"^(?:from|de|von):", re.I)
-HEADER_FOLLOW = re.compile(r"^(?:sent|date|to|cc|subject|enviado|enviada|enviado el|data|para|assunto|asunto|fecha):", re.I)
-
-
-def strip_quoted(text: str) -> str:
-    """The text before the first quoted line (`>`), signature delimiter (`-- `), attribution ("On ... wrote:", "Em ... escreveu:",
-    "El ... escribio:", on one line or two), forward or original-message marker, or Outlook header block (From: then Sent:/To:/Subject:)."""
-    lines = text.split("\n")
-    for i, line in enumerate(lines):
-        bare = line.strip()
-        joined = (bare + " " + lines[i + 1].strip()).strip() if i + 1 < len(lines) else bare
-        if bare.startswith(">") or bare == "--" or MARKERS.match(bare) or ATTRIBUTION.match(bare) \
-                or (bare.lower().split(" ", 1)[0] in ("on", "em", "el") and ATTRIBUTION.match(joined)) \
-                or (HEADER_START.match(bare) and any(HEADER_FOLLOW.match(n.strip()) for n in lines[i + 1:i + 5])):
-            return "\n".join(lines[:i]).strip("\n")
-    return text.strip("\n")
+strip_quoted = _text.strip_quoted      # moved to providers/_email_text.py unchanged, to be shared with the Gmail reader (--own-words)
 
 
 def command_only(text: str) -> str:
