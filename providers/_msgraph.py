@@ -508,11 +508,27 @@ LOCK_TIMEOUT_SECONDS, LOCK_POLL_SECONDS = 30, 0.05
 _LOCK_NOTED: set = set()
 
 
+class LockBusy(ProviderError):
+    """Another process has held the lock on the Microsoft records for LOCK_TIMEOUT_SECONDS."""
+
+
+def state_folder() -> Path:
+    """The state folder of the workbench, by the convention of runtime/messaging_ledger.py and providers/mailer/smtp.py: OPENHORA_STATE_DIR
+    when set, else $XDG_STATE_HOME/openhora when XDG_STATE_HOME is set and absolute (a relative one is ignored), else ~/.local/state/openhora.
+    Not created here. A runtime and a terminal share the lock only if they see the same folder: set OPENHORA_STATE_DIR in both, or neither."""
+    chosen = os.environ.get("OPENHORA_STATE_DIR")
+    if chosen:
+        return Path(os.path.abspath(chosen))
+    xdg = os.environ.get("XDG_STATE_HOME")
+    if xdg and os.path.isabs(xdg):
+        return Path(xdg) / "openhora"
+    return Path(os.path.expanduser("~")) / ".local" / "state" / "openhora"
+
+
 def lock_file_path() -> Path:
-    """The per-user lock file: `msgraph-records.lock` in the folder `openhora` of the user's state folder ($XDG_STATE_HOME, else
-    ~/.local/state). One file for every Microsoft record (the account's and the legacy ones), so that none is written while another is."""
-    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(base) / "openhora" / "msgraph-records.lock"
+    """The per-user lock file: `msgraph-records.lock` in the state folder (state_folder). One file for every Microsoft record (the account's
+    and the legacy ones), so that none is written while another is."""
+    return state_folder() / "msgraph-records.lock"
 
 
 def _note_once(key: str, message: str) -> None:
@@ -524,8 +540,8 @@ def _note_once(key: str, message: str) -> None:
 def _open_lock_file():
     """A descriptor of the lock file (mode 0600, in a folder of mode 0700 that is this user's, no link followed), or None after one note on
     stderr when it cannot be made safely: the write then goes on under the in-process lock alone."""
-    path = lock_file_path()
     try:
+        path = lock_file_path()
         folder = path.parent
         folder.mkdir(mode=0o700, parents=True, exist_ok=True)
         info = os.lstat(folder)
@@ -551,7 +567,7 @@ def _open_lock_file():
 def record_lock():
     """Held around every write to a Microsoft record in the secret store (the rotation's re-read, comparison and write; an authorization's
     store; a forget): one step per process (ROTATION_LOCK) and, on a platform with fcntl, one step per user across processes (an exclusive
-    flock on lock_file_path()). A lock held for more than LOCK_TIMEOUT_SECONDS by another process is a ProviderError (exit 1) and nothing is
+    flock on lock_file_path()). A lock held for more than LOCK_TIMEOUT_SECONDS by another process is a LockBusy (a ProviderError, exit 1) and nothing is
     written. Without fcntl the in-process lock is all there is, and that is said once on stderr."""
     with ROTATION_LOCK:
         fd = None
@@ -569,8 +585,8 @@ def record_lock():
                         break
                     except OSError:
                         if time.monotonic() >= deadline:
-                            raise ProviderError(f"another process has held the lock on the Microsoft records for {LOCK_TIMEOUT_SECONDS} seconds; "
-                                                "nothing was written: try again") from None
+                            raise LockBusy(f"another process has held the lock on the Microsoft records for {LOCK_TIMEOUT_SECONDS} seconds; "
+                                           "nothing was written: try again") from None
                         time.sleep(LOCK_POLL_SECONDS)
             yield
         finally:
@@ -619,7 +635,7 @@ def store_rotation(profile: Profile, record: dict, rotated, where: str, test_mod
                 log(f"note: the stored {profile.label} authorization changed (or was forgotten) while this ran; the new refresh token was not stored")
                 return "not stored: the record changed meanwhile"
             keyring(test_mode).set_password(profile.keyring_service, profile.keyring_username, json.dumps({**current, "refresh_token": rotated}))
-    except ProviderError as exc:   # the lock was held by another process for too long
+    except LockBusy as exc:   # the lock was held by another process for too long
         log(f"warning: {exc}; carrying on with the old refresh token, which works until it expires")
         return "not stored: the lock on the records is held by another process"
     except Exception as exc:   # a locked or missing store, headless: the old token still works until it expires

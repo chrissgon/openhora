@@ -66,7 +66,7 @@ class World:
 
     def start(self, name: str, mode: str, **more):
         config = {"mode": mode, "name": name, "store": str(self.store), "events": str(self.events), "token_url": self.fake.token_url, **more}
-        env = {**os.environ, "XDG_STATE_HOME": str(self.state)}
+        env = {**os.environ, "OPENHORA_STATE_DIR": str(self.state / "openhora"), "XDG_STATE_HOME": str(self.state)}
         process = subprocess.Popen([sys.executable, str(WORKER), json.dumps(config)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         self.processes.append(process)
         return process
@@ -213,6 +213,7 @@ def test_a_process_that_cannot_get_the_lock_in_time_writes_nothing_and_says_so(w
 
 @pytest.fixture
 def state(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENHORA_STATE_DIR", raising=False)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
     monkeypatch.setattr(msgraph, "_LOCK_NOTED", set())
     return tmp_path / "xdg"
@@ -296,7 +297,12 @@ def test_the_lock_is_released_when_the_body_raises(state):
         with msgraph.record_lock():
             raise RuntimeError("the write failed")
     got = []
-    thread = threading.Thread(target=lambda: [got.append(1) for _ in [msgraph.record_lock().__enter__()]], daemon=True)
+
+    def another_taker():
+        with msgraph.record_lock():
+            got.append(1)
+
+    thread = threading.Thread(target=another_taker, daemon=True)
     thread.start()
     thread.join(5)
     assert got == [1], "another taker gets it at once"
@@ -327,3 +333,107 @@ def test_the_write_steps_of_an_authorization_and_of_forget_take_the_lock(state, 
     msgraph.write_record(profile, store, "text")
     msgraph.forget_record(profile, store)
     assert len(taken) == 2 and store.values == {}
+
+
+# --- where the lock file is --------------------------------------------------------------------------------------------------------
+
+
+def test_the_state_folder_follows_the_convention_of_the_runtime_and_the_mailer(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("OPENHORA_STATE_DIR", raising=False)
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    assert msgraph.state_folder() == home / ".local" / "state" / "openhora"
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+    assert msgraph.state_folder() == tmp_path / "xdg" / "openhora"
+    monkeypatch.setenv("XDG_STATE_HOME", "relative/xdg")
+    assert msgraph.state_folder() == home / ".local" / "state" / "openhora", "a relative XDG_STATE_HOME is ignored"
+    monkeypatch.setenv("XDG_STATE_HOME", "")
+    assert msgraph.state_folder() == home / ".local" / "state" / "openhora"
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(tmp_path / "chosen"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+    assert msgraph.state_folder() == tmp_path / "chosen", "OPENHORA_STATE_DIR wins, and is the folder itself"
+    assert msgraph.lock_file_path() == tmp_path / "chosen" / "msgraph-records.lock"
+    monkeypatch.setenv("OPENHORA_STATE_DIR", "relative/chosen")
+    assert msgraph.state_folder().is_absolute() and msgraph.state_folder().name == "chosen"
+
+
+def test_a_rotation_under_a_fake_home_leaves_nothing_under_it(tmp_path, monkeypatch):
+    """The harness (providers/loopback_only.py and the root conftest) gives every test a state folder of its own: a test that writes a record
+    takes its lock there and never in the home folder of whoever runs the tests."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    assert os.path.isabs(os.environ.get("XDG_STATE_HOME", "")), "the guard sets an absolute state folder instead of deleting the variable"
+    assert os.environ.get("OPENHORA_STATE_DIR") and os.path.isabs(os.environ["OPENHORA_STATE_DIR"])
+    assert not str(msgraph.lock_file_path()).startswith(str(home))
+    profile = msgraph.account_profile(run_hint="x", env_prefix="ACCOUNT_MICROSOFT", user_agent="t", not_found="n", forbidden_hint="f")
+
+    class Store:
+        def __init__(self):
+            self.value = json.dumps({"slot": "main", "refresh_token": "fake-old-not-real", "client_id": "c", "tenant": "common",
+                                     "scope": " ".join(fake_ms_account.PLATFORM)})
+
+        def set_password(self, service, username, value):
+            self.value = value
+
+        def delete_password(self, service, username):
+            self.value = None
+
+    class Resolver:
+        def __init__(self, store):
+            self.store = store
+
+        def resolve(self, name, allow_store=True):
+            return None if self.store.value is None else (self.store.value, "secret store")
+
+    store = Store()
+    record = msgraph.parse_account_record(profile, store.value)
+    assert msgraph.store_rotation(profile, record, "fake-new-not-real", "secret store", False, lambda: Resolver(store), lambda mode: store) == "stored"
+    msgraph.write_record(profile, store, store.value)
+    msgraph.forget_record(profile, store)
+    assert list(home.iterdir()) == [], "nothing was made under the home folder"
+    assert msgraph.lock_file_path().exists()
+
+
+def test_a_holder_killed_with_sigkill_releases_the_lock_at_once(world):
+    import signal
+    a = world.start("A", "rotate", delay=30)
+    world.wait_for("A-refreshed")
+    world.go()
+    world.wait_for("A-writing")             # A holds the flock, sleeping inside its write
+    os.kill(a.pid, signal.SIGKILL)
+    a.wait()
+    started = time.monotonic()
+    b = world.start("B", "write", text=world.fake.account_record_json(refresh_token="fake-after-crash-not-real"), delay=0, lock_timeout=5)
+    assert world.result(b)["code"] == 0 and time.monotonic() - started < 3
+    assert world.record()["refresh_token"] == "fake-after-crash-not-real" and world.writes() == ["B fake-after-crash-not-real"]
+
+
+def test_a_rotation_that_refreshed_before_a_forget_finishes_after_it_writes_nothing(world):
+    a = world.start("A", "rotate", delay=0)
+    world.wait_for("A-refreshed")
+    assert world.result(world.start("F", "forget"))["code"] == 0
+    world.go()
+    assert world.result(a)["outcome"] == "not stored: the record changed meanwhile"
+    assert world.record() is None and world.writes() == []
+
+
+def test_a_keyring_package_that_is_missing_is_not_reported_as_a_busy_lock(state, capsys):
+    profile = msgraph.account_profile(run_hint="x", env_prefix="ACCOUNT_MICROSOFT", user_agent="t", not_found="n", forbidden_hint="f")
+    text = json.dumps({"slot": "main", "refresh_token": "fake-old-not-real", "client_id": "c", "tenant": "common", "scope": " ".join(fake_ms_account.PLATFORM)})
+    record = msgraph.parse_account_record(profile, text)
+
+    class Resolver:
+        @staticmethod
+        def resolve(name, allow_store=True):
+            return text, "secret store"
+
+    def missing(test_mode):
+        raise msgraph.ProviderError("the keyring package is missing; run with: uv run x", 3)
+
+    outcome = msgraph.store_rotation(profile, record, "fake-new-not-real", "secret store", False, lambda: Resolver, missing)
+    err = capsys.readouterr().err
+    assert outcome == "not stored (ProviderError)" and "keyring package is missing" not in outcome
+    assert "held by another process" not in outcome + err and "carrying on with the old one" in err
+    assert issubclass(msgraph.LockBusy, msgraph.ProviderError)
