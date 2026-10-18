@@ -290,7 +290,7 @@ class Attachments:
         row = next((r for r in read["held"] if r["id"] == number), None)
         if row is None:
             decided = next((r for r in read["recent"] if r["id"] == number), None)
-            bridge.reply(chat, bridge.t("ATT_NOT_HELD", project=project, status=decided["status"]) if decided else bridge.t("ATT_NO_SUCH", project=project, n=number), project)
+            bridge.reply(chat, bridge.t("ATT_NOT_HELD", project=project, status=phrases.status(decided["status"], bridge.cfg(project))) if decided else bridge.t("ATT_NO_SUCH", project=project, n=number), project)
             return
         if card.get("content_sha256") != att.card_sha256(row["sha256"], row["target"], row["label"]):
             bridge.reply(chat, bridge.t("CHANGED", project=project), project)

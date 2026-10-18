@@ -268,7 +268,7 @@ def state_reply(project: str, proposed: str | None = None, cfg: dict | None = No
                            held=t("STATE_HELD", reason=held[task["id"]]) if task["id"] in held else ""))
         for task in by("blocked", "failed"):
             note = f': {_short(task["note"])}' if task.get("note") else ""
-            lines.append(t("STATE_STUCK", id=task["id"], title=_short(task["title"]), state=t("STATE_BLOCKED" if task["state"] == "blocked" else "STATE_FAILED"), note=note))
+            lines.append(t("STATE_STUCK", id=task["id"], title=_short(task["title"]), state=phrases.status(task["state"], cfg), note=note))
     if not open_requests:
         finished = sum(1 for r in state["requests"] if r["state"] == "done")
         lines.append(t("STATE_NONE_OPEN") + (t("STATE_FINISHED", n=finished) if finished else ""))

@@ -63,7 +63,7 @@ def test_the_card_of_a_held_file_and_its_answers_are_in_portuguese(world):
     world.say(action=action)
     assert world.texts()[-1].splitlines()[0] == "Q3 plan.pdf adicionado como `q3-plan`, versão 1."
     world.say(action=action)
-    assert world.texts()[-1] == "Esse arquivo tem o status added: não está esperando pela sua resposta."
+    assert world.texts()[-1] == "Esse arquivo tem o status adicionado: não está esperando pela sua resposta."
     world.say("/add 77")
     assert world.texts()[-1] == "Use o cartão que foi enviado a você (envie /pending)."
     world.say("/add")

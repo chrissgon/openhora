@@ -30,6 +30,8 @@ never "bancada" (the maintainer's rule); the maintainer reviews it in the pull r
   kind_word(kind, cfg)        a decision's kind (`plan`, `effect`...) as a word of the language; the kind itself when the table has none
   heads(key)                  the part of a sentence before its first `[` in every language of the table, for the check of an imitated quote
   localize(sentence, cfg)     an English sentence of a reminder or a file, as an operation raised it, in the project's language; any other text unchanged
+  status(word, cfg)           a status word of the store as a word of the language (the word itself when unknown or the language has no table)
+  heading(title, cfg)         the title of a decision that code wrote whole, as a word of the language; any other title unchanged
 
 Standard library only. Runs on Python 3.9: python3 runtime/phrases.py --help
 """
@@ -218,6 +220,11 @@ TABLE = {
         "QUEUE_DROPPED_LINE": "A queued line was not answered: {why}",
         "REQUEST_NOT_ROUTED": "Request {id} was not routed: {why}. Route it again when you want it planned.",
         "QUEUE_DEAD_WHY": "the service stopped while it was routed",
+        "TITLE_ROUTER_ASKS": "The router asks",
+        "TITLE_ROUTE_UNRECOGNISED": "The route was not recognised",
+        "TITLE_NO_DELIVERY_ROUTED": "No delivery was routed",
+        "TITLE_REROUTE_ACCEPT": "Accept the tasks of delivery {k}, routed after its brief",
+        "TITLE_REROUTE_FAILED": "Delivery {k} was not routed after its brief",
         "STATE_RECORDED": "Request {id}, \"{title}\": recorded; it waits for its route.",
         "STATE_PROGRESS": "Request {id}, \"{title}\": {done} of {total} tasks done{names}.",
         "STATE_RUNNING": "Running now: {names}.",
@@ -225,8 +232,6 @@ TABLE = {
         "STATE_READY": "Ready: task {id}, \"{title}\"{held}.",
         "STATE_HELD": " (held: {reason})",
         "STATE_STUCK": "Stuck: task {id}, \"{title}\", is {state}{note}.",
-        "STATE_BLOCKED": "blocked",
-        "STATE_FAILED": "failed",
         "STATE_NONE_OPEN": "No request is open.",
         "STATE_FINISHED": " {n} finished.",
         "STATE_WAITS": "What waits for you: {items}.",
@@ -442,15 +447,18 @@ TABLE = {
         "QUEUE_DROPPED_LINE": "Uma mensagem na fila ficou sem resposta: {why}",
         "REQUEST_NOT_ROUTED": "O pedido {id} não foi encaminhado: {why}. Encaminhe de novo quando quiser que ele seja planejado.",
         "QUEUE_DEAD_WHY": "o serviço parou enquanto ele era encaminhado",
+        "TITLE_ROUTER_ASKS": "O roteador pergunta",
+        "TITLE_ROUTE_UNRECOGNISED": "A rota não foi reconhecida",
+        "TITLE_NO_DELIVERY_ROUTED": "Nenhuma entrega foi encaminhada",
+        "TITLE_REROUTE_ACCEPT": "Aceitar as tarefas da entrega {k}, encaminhadas depois do briefing",
+        "TITLE_REROUTE_FAILED": "A entrega {k} não foi encaminhada depois do briefing",
         "STATE_RECORDED": "Pedido {id}, \"{title}\": registrado; espera pelo encaminhamento.",
         "STATE_PROGRESS": "Pedido {id}, \"{title}\": {done} de {total} tarefas feitas{names}.",
         "STATE_RUNNING": "Rodando agora: {names}.",
         "STATE_WAITING": "Esperando você: {names}.",
         "STATE_READY": "Pronta: tarefa {id}, \"{title}\"{held}.",
         "STATE_HELD": " (retida: {reason})",
-        "STATE_STUCK": "Travada: tarefa {id}, \"{title}\", está {state}{note}.",
-        "STATE_BLOCKED": "bloqueada",
-        "STATE_FAILED": "com falha",
+        "STATE_STUCK": "Travada: tarefa {id}, \"{title}\", status {state}{note}.",
         "STATE_NONE_OPEN": "Nenhum pedido aberto.",
         "STATE_FINISHED": " Concluídos: {n}.",
         "STATE_WAITS": "O que espera por você: {items}.",
@@ -494,7 +502,102 @@ TABLE = {
     },
 }
 
+# The store's own status words (providers/store/sqlite.py: the CHECK lists of the tables and the state lists of its state machines), said to a person. They stay
+# English in the store, the operations layer, the logs, the terminal, the MCP mode and the API; only a sentence rendered for a person in a project whose language
+# has a table shows the translated word (`status`). A test reads the store's lists, so a new status cannot be added without a word here.
+STATUS = {
+    "en": {
+        "requested": "requested",
+        "planned": "planned",
+        "ready": "ready",
+        "running": "running",
+        "waiting": "waiting",
+        "blocked": "blocked",
+        "done": "done",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "pending": "pending",
+        "claimed": "claimed",
+        "to_inbox": "to_inbox",
+        "ok": "ok",
+        "timeout": "timeout",
+        "open": "open",
+        "approved": "approved",
+        "rejected": "rejected",
+        "resolved": "resolved",
+        "mirrored": "mirrored",
+        "read_only": "read_only",
+        "used": "used",
+        "dismissed": "dismissed",
+        "pending-execution": "pending-execution",
+        "executed": "executed",
+        "active": "active",
+        "expired": "expired",
+        "revoked": "revoked",
+        "cleared": "cleared",
+        "dropped": "dropped",
+        "created": "created",
+        "asked": "asked",
+        "skipped": "skipped",
+        "held": "held",
+        "added": "added",
+        "refused": "refused",
+        "discarded": "discarded",
+        "sending": "sending",
+        "sent": "sent",
+        "missed": "missed",
+        "draft": "draft",
+        "paused": "paused",
+        "stopped": "stopped",
+    },
+    "pt-BR": {
+        "requested": "solicitado",
+        "planned": "planejado",
+        "ready": "pronto",
+        "running": "em execução",
+        "waiting": "aguardando",
+        "blocked": "bloqueado",
+        "done": "concluído",
+        "failed": "com falha",
+        "cancelled": "cancelado",
+        "pending": "pendente",
+        "claimed": "assumido",
+        "to_inbox": "enviado à caixa de entrada",
+        "ok": "ok",
+        "timeout": "tempo esgotado",
+        "open": "aberto",
+        "approved": "aprovado",
+        "rejected": "rejeitado",
+        "resolved": "resolvido",
+        "mirrored": "espelhado",
+        "read_only": "somente leitura",
+        "used": "usado",
+        "dismissed": "dispensado",
+        "pending-execution": "aguardando execução",
+        "executed": "executado",
+        "active": "ativo",
+        "expired": "expirado",
+        "revoked": "revogado",
+        "cleared": "encerrado",
+        "dropped": "descartado",
+        "created": "criado",
+        "asked": "perguntado",
+        "skipped": "ignorado",
+        "held": "retido",
+        "added": "adicionado",
+        "refused": "recusado",
+        "discarded": "descartado",
+        "sending": "em envio",
+        "sent": "enviado",
+        "missed": "perdido",
+        "draft": "rascunho",
+        "paused": "pausado",
+        "stopped": "parado",
+    },
+}
+
 DEFAULT = language.DEFAULT
+HEADINGS = ("TITLE_",)      # the family of keys for the headings of a decision that code writes whole
 LOCALIZED = ("ATT_", "RM_")      # the families of keys `localize` knows by their English sentence
 VALUE_FAMILIES = ("ATT_REASON_", "ATT_SUBTYPE_")      # a field of such a sentence that is itself one of these English words is translated too
 _patterns = {}
@@ -545,20 +648,44 @@ def _pattern(key: str):
     return found
 
 
-def localize(sentence, cfg=None):
-    """An English sentence that an operation raised for a reminder or a file (the families LOCALIZED), as it is in the project's language; any
-    other text, and any text in a project whose language has no table, comes back as it was. The sentence is matched against the English
-    template of each key whole (the fields may hold any text), the template with the most fixed words first."""
-    if not isinstance(sentence, str) or tag(cfg) not in TABLE or tag(cfg) == DEFAULT:
-        return sentence
-    keys = sorted((k for k in TABLE[DEFAULT] if k.startswith(LOCALIZED) and not k.startswith(VALUE_FAMILIES)),
-                  key=lambda k: -len(re.sub(r"\{[^}]*\}", "", en(k))))
+def status(word, cfg=None):
+    """A status word of the store (`approved`, `cancelled`, `sent`...) as a word of the project's language, for a sentence rendered for a person; the word unchanged
+    when it is not in the closed list (STATUS) or the language has no table. Never for a status that is parsed, stored, compared, logged or sent to a shell."""
+    table = STATUS.get(tag(cfg))
+    return table.get(word, word) if table and isinstance(word, str) else word
+
+
+def _match(sentence, families, skip=()):
+    """(key, {field: text}) of the English template of a key of `families` that equals `sentence` whole, the template with the most fixed words first; else None."""
+    keys = sorted((k for k in TABLE[DEFAULT] if k.startswith(families) and not k.startswith(skip)), key=lambda k: -len(re.sub(r"\{[^}]*\}", "", en(k))))
     for key in keys:
         found = _pattern(key).fullmatch(sentence)
         if found:
-            words = {en(k): k for k in TABLE[DEFAULT] if k.startswith(VALUE_FAMILIES)}
-            return text(key, cfg, **{n: (text(words[v], cfg) if v in words else v) for n, v in found.groupdict().items()})
-    return sentence
+            return key, found.groupdict()
+    return None
+
+
+def heading(title, cfg=None):
+    """The title of a decision as it is rendered for a person: when code wrote it whole (a key of the family TITLE_, such as "The router asks"), in the project's
+    language; a title with a flow, a skill or any person's or model's word in it, and any title in a project whose language has no table, comes back as it was. The
+    stored title is never changed: a card's hash is made of it."""
+    if not isinstance(title, str) or tag(cfg) not in TABLE or tag(cfg) == DEFAULT:
+        return title
+    found = _match(title, HEADINGS)
+    return text(found[0], cfg, **found[1]) if found else title
+
+
+def localize(sentence, cfg=None):
+    """An English sentence that an operation raised for a reminder or a file (the families LOCALIZED), as it is in the project's language; any
+    other text, and any text in a project whose language has no table, comes back as it was. The sentence is matched against the English
+    template of each key whole (the fields may hold any text), the template with the most fixed words first. A field named `status` is said by `status`."""
+    if not isinstance(sentence, str) or tag(cfg) not in TABLE or tag(cfg) == DEFAULT:
+        return sentence
+    found = _match(sentence, LOCALIZED, VALUE_FAMILIES)
+    if not found:
+        return sentence
+    words = {en(k): k for k in TABLE[DEFAULT] if k.startswith(VALUE_FAMILIES)}
+    return text(found[0], cfg, **{n: (status(v, cfg) if n == "status" else text(words[v], cfg) if v in words else v) for n, v in found[1].items()})
 
 
 if __name__ == "__main__":

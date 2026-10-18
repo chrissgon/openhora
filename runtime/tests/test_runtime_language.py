@@ -268,7 +268,7 @@ def test_the_replies_to_the_reminder_commands_are_in_portuguese_and_the_words_of
     day.say(OWNER, "/forget 2")
     assert day.texts(OWNER)[-1] == "Lembrete #2 cancelado."
     day.say(OWNER, "/forget 2")
-    assert day.texts(OWNER)[-1] == "O lembrete 2 tem o status cancelled: não está esperando."
+    assert day.texts(OWNER)[-1] == "O lembrete 2 tem o status cancelado: não está esperando."
 
 
 def test_a_due_reminder_goes_with_a_frame_in_the_language_and_the_late_mark_and_the_count_line_too(day):  # noqa: F811

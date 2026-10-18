@@ -92,7 +92,7 @@ def test_the_state_of_a_project_with_work_open_names_every_part_in_portuguese(tw
                'Stuck: task 9, "Send", is blocked: needs a key.', 'Stuck: task 10, "Tidy", is failed.',
                'Request 11, "Later": recorded; it waits for its route.', 'What waits for you: plan "Launch" (decision 12); effect "Post" (decision 13).'],
         "pt-BR": ['Pedido 4, "Launch": 1 de 6 tarefas feitas (Copy).', "Rodando agora: Images.", "Esperando você: Review.", 'Pronta: tarefa 8, "Post" (retida: paused).',
-                  'Travada: tarefa 9, "Send", está bloqueada: needs a key.', 'Travada: tarefa 10, "Tidy", está com falha.',
+                  'Travada: tarefa 9, "Send", status bloqueado: needs a key.', 'Travada: tarefa 10, "Tidy", status com falha.',
                   'Pedido 11, "Later": registrado; espera pelo encaminhamento.', 'O que espera por você: plano "Launch" (decisão 12); efeito "Post" (decisão 13).'],
     }
     for tag, lines in expected.items():
@@ -145,3 +145,14 @@ def test_the_placeholder_a_reader_that_did_not_ask_is_shown_is_in_the_language(t
     assert request["text"].startswith("(respondido com base nas fontes: pedido ")
     speak(two, None)
     assert ops.conversation(two["path"], channel="mcp")["messages"][-1]["text"].startswith("(answered from the sources: request ")
+
+
+def test_what_a_shell_reads_keeps_the_english_status_word_in_a_portuguese_project(two):
+    speak(two, "pt-BR")
+    out = ask(two)
+    state = ops.status(two["path"])
+    [row] = [r for r in state["requests"] if r["id"] == out["request_id"]]
+    assert row["state"] == "done", "status, the API and the MCP mode read the operations layer: the store's word"
+    store, conn = two["ctx"]["store"], two["ctx"]["conn"]
+    assert store.task_get(conn, out["request_id"])["state"] == "done" and store.task_run_get(conn, out["run_id"])["status"] == "ok"
+    assert "done" in repr(ops.status(two["path"])["requests"]) and "concluído" not in repr(ops.status(two["path"]))

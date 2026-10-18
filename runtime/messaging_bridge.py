@@ -695,7 +695,7 @@ class Bridge(shell_kit.Jobs):
                     self.reply(chat, files, project)
                 return
         words = lambda kind: phrases.kind_word(kind, settings)  # noqa: E731
-        self.reply(chat, f"{project['name']}: " + "\n".join(f"#{i['id']} {words(i['kind'])}: {i['title']}" for i in found), project)
+        self.reply(chat, f"{project['name']}: " + "\n".join(f"#{i['id']} {words(i['kind'])}: {phrases.heading(i['title'], settings)}" for i in found), project)
         if files:
             self.reply(chat, files, project)
         try:
@@ -805,7 +805,7 @@ class Bridge(shell_kit.Jobs):
             say("NOT_OFFERED")
             return
         if item.get("status", "open") != "open":
-            say("NOT_OPEN", number=number, status=item.get("status"))
+            say("NOT_OPEN", number=number, status=phrases.status(item.get("status"), settings))
             return
         if card["content_sha256"] != item.get("payload_sha256"):
             say("CHANGED")

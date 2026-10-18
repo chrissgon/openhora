@@ -23,3 +23,5 @@ runtime/tests/test_phrases.py english-only -- tests of the phrase table: they ho
 runtime/tests/test_runtime_language.py english-only -- tests of the messaging bridge in a Portuguese project: the expected replies are Portuguese sentences of the phrase table
 runtime/tests/test_runtime_language_ask.py english-only -- tests of the answer from sources and the conversation in a Portuguese project: the expected replies are Portuguese sentences of the phrase table
 runtime/tests/test_runtime_language_files.py english-only -- tests of the files a sender sends in a Portuguese project: the expected replies are Portuguese sentences of the phrase table
+runtime/tests/test_phrases_status.py english-only -- tests of the status words and headings of the phrase table: the expected words are Portuguese sentences of its pt-BR column
+runtime/tests/test_runtime_language_status.py english-only -- tests of the status words and headings on a phone in a Portuguese project: the expected replies are Portuguese sentences of the phrase table
