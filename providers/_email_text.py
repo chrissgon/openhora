@@ -62,14 +62,15 @@ def style_hides(style: str) -> bool:
 def font_zero(style: str, inherited: bool) -> bool:
     """Whether the text in an element is of size zero. The last font-size or font declaration decides when there is one: a size of zero
     (also as the size token of the `font` shorthand, `font:0/0 Arial`) is zero; a size that does not depend on the parent's (13px, large,
-    calc(...), min(...), the size token of `font:14px Arial`) is not; anything else (1em, 120%, smaller, inherit, a shorthand with no size)
+    a calc(...), min(...), max(...) or clamp(...) with a length that is not zero, the size token of `font:14px Arial`) is not; anything else (1em, 120%, smaller, inherit, a shorthand with no size)
     keeps what the parent had. With no declaration the element has what its parent had."""
     found = FONT_DECL_RE.findall(style)
     if not found:
         return inherited
     name, value = found[-1][0].lower(), re.sub(r"\s*!\s*important\s*$", "", found[-1][1].strip(), flags=re.I).lower()
     if value.startswith(("calc(", "clamp(", "min(", "max(")):
-        return False
+        lengths = re.findall(r"[0-9.]+[a-z%]*", value[value.index("(") + 1:])
+        return bool(lengths) and all(FONT_ZERO_RE.fullmatch(length) for length in lengths)   # zero only when every length inside is zero
     tokens = [value] if name == "font-size" else [token.split("/", 1)[0] for token in value.split()]
     for token in tokens:
         if FONT_ZERO_RE.fullmatch(token):
@@ -98,15 +99,24 @@ class HTMLText(HTMLParser):
     """Text and links of an HTML body, with the standard library parser (no script is run). An element hidden by the hidden attribute or
     by an inline style (display:none, visibility:hidden, mso-hide:all, opacity:0, a zero width or height with overflow:hidden) gives no
     text and no link, nor does anything in it; text of font size zero gives none either, unless an element in it sets a size of its own.
+    The content of script, style, head, title, template, noscript, textarea, xmp, iframe, noembed, noframes and the svg desc and metadata
+    elements is not text.
 
-    The open elements are a stack, kept the way a browser keeps them where it matters to what is shown: the cost is linear in the size of
-    the body. An end tag with no open element of its name is ignored at once; one that closes an element with a block (a `special`
-    element: p, div, li, td ...) open inside it is ignored too, as a browser ignores `</span>` when a `<p>` opened in the span is still open
-    (so text after it stays inside the hidden or zero-size element); a start tag that a browser reads as ending an element ends it: a
-    block ends an open p, an li an open li, a td or th an open td or th, a tr an open tr. The stack holds at most DEPTH_CAP elements: past it
-    an element that would hide more than its parent hides the rest of the body, and any other has its parent's state."""
+    The open elements are a stack, kept like a browser keeps them in a few places that matter to what is shown, and the cost is linear in
+    the size of the body: (1) an end tag with no open element of its name is ignored; (2) an end tag of an inline element is ignored when
+    a block (a `special` element: p, div, li, td, button ...) lies open inside the element it names, and no end tag closes past an open
+    table, td, th, caption, button, object, marquee, applet or select (a table's own end tags close past a cell); (3) a start tag that a
+    browser reads as ending an element ends it: a block ends an open p, an li an open li, a dd or dt an open dd or dt, a td or th an open
+    td or th, a tr an open tr. The stack holds at most DEPTH_CAP elements: past it, the rest of the body is not read.
 
-    SKIP = {"script", "style", "head", "title", "template", "noscript"}
+    This is not a browser. NOT modelled: the adoption agency algorithm (misnested b, i, a, font, which reopen formatting), the end tags a
+    browser implies for option, optgroup, rb, rt, rp, tbody and the like, foster parenting of content that sits wrongly in a table, a `</p>`
+    that makes an empty paragraph, a visibility:visible element inside a visibility:hidden one (it stays hidden), style sheets, class names,
+    colours (white on white), position off the page and comments. Where the model and a browser differ, it is meant to differ in the
+    direction of hiding (text dropped that a browser shows) rather than of showing."""
+
+    SKIP = {"script", "style", "head", "title", "template", "noscript", "textarea", "xmp", "iframe", "noembed", "noframes", "desc", "metadata"}
+    RAW = {"textarea", "title", "xmp", "iframe", "noembed", "noframes"}   # their content is text up to the end tag, never markup
     BLOCK = {"p", "div", "br", "tr", "li", "ul", "ol", "table", "h1", "h2", "h3", "h4", "h5", "h6",
              "blockquote", "section", "article", "header", "footer", "hr", "td", "th"}
 
@@ -114,22 +124,25 @@ class HTMLText(HTMLParser):
     # The elements that close what is open around them in a way no end tag of an inline element reaches (HTML's "special" category, in part).
     SPECIAL = {"p", "div", "li", "td", "th", "tr", "table", "tbody", "thead", "tfoot", "ul", "ol", "dl", "dd", "dt", "h1", "h2", "h3", "h4", "h5",
                "h6", "section", "article", "header", "footer", "nav", "aside", "blockquote", "form", "center", "pre", "main", "address",
-               "figure", "fieldset", "menu"}
+               "figure", "fieldset", "menu", "caption", "button", "object", "marquee", "applet", "select"}
+    # No end tag closes past one of these. A table's own end tags close past a cell: only `table` stops them.
+    BARRIERS = {"table", "td", "th", "caption", "button", "object", "marquee", "applet", "select"}
+    TABLE_END_TAGS = {"table", "tbody", "thead", "tfoot", "tr", "td", "th", "caption"}
     # A start tag of one of these ends an open p.
-    CLOSES_P = SPECIAL - {"td", "th", "tr", "tbody", "thead", "tfoot"} | {"hr"}
+    CLOSES_P = SPECIAL - {"td", "th", "tr", "tbody", "thead", "tfoot", "caption", "button", "object", "marquee", "applet", "select"} | {"hr"}
     DEPTH_CAP = 4096
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.links: list[dict] = []
-        self.skip_depth = 0
+        self.skips: list[str] = []   # the open elements whose content is not text; only the innermost one's end tag ends the skip
         self.anchor: dict | None = None
-        # The open elements, as [tag, zero font size, hidden, index of the nearest special element at or below it]; and, for each name, the
-        # indexes in the stack of the open elements of that name (the last is the innermost).
+        # The open elements, as [tag, zero font size, hidden, index of the nearest special element at or below it, of the nearest barrier,
+        # of the nearest table]; and, for each name, the indexes in the stack of the open elements of that name (the last is the innermost).
         self.stack: list[list] = []
         self.at: dict[str, list[int]] = {}
-        self.poisoned = False   # an element past the depth cap hid more than its parent: the rest of the body is not read
+        self.poisoned = False   # the stack went past its cap: the rest of the body is not read
 
     @staticmethod
     def hidden(attrs: dict) -> bool:
@@ -152,12 +165,13 @@ class HTMLText(HTMLParser):
 
     def _push(self, tag: str, zero: bool, hidden: bool) -> None:
         if len(self.stack) >= self.DEPTH_CAP:
-            if hidden and not self.concealed or zero and not self.zero:
-                self.poisoned = True
+            self.poisoned = True   # whatever the element is, nothing that follows it can be told from what it hides
             return
-        nearest = len(self.stack) if tag in self.SPECIAL else (self.stack[-1][3] if self.stack else -1)
-        self.at.setdefault(tag, []).append(len(self.stack))
-        self.stack.append([tag, zero, hidden, nearest])
+        below = self.stack[-1] if self.stack else None
+        here = len(self.stack)
+        self.at.setdefault(tag, []).append(here)
+        self.stack.append([tag, zero, hidden, here if tag in self.SPECIAL else (below[3] if below else -1),
+                           here if tag in self.BARRIERS else (below[4] if below else -1), here if tag == "table" else (below[5] if below else -1)])
 
     def _innermost_special(self) -> str | None:
         return self.stack[self.stack[-1][3]][0] if self.stack and self.stack[-1][3] >= 0 else None
@@ -168,6 +182,8 @@ class HTMLText(HTMLParser):
             return
         if tag in self.CLOSES_P and self._innermost_special() == "p":
             self._pop_to(self.stack[-1][3])
+        if not self.stack:
+            return
         if tag == "li" and self._innermost_special() == "li":
             self._pop_to(self.stack[-1][3])
         elif tag in ("dd", "dt") and self._innermost_special() in ("dd", "dt"):
@@ -181,7 +197,9 @@ class HTMLText(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         if tag in self.SKIP:
-            self.skip_depth += 1
+            self.skips.append(tag)
+            if tag in self.RAW:
+                self.set_cdata_mode(tag)
             return
         attrs = dict(attrs)
         self._auto_close(tag)
@@ -203,19 +221,23 @@ class HTMLText(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag in self.SKIP:
-            self.skip_depth = max(0, self.skip_depth - 1)
+            if self.skips and self.skips[-1] == tag:   # a stray end tag of another skipped element does not end the skip
+                self.skips.pop()
             return
         shown = not self.concealed
         if tag == "a":
             self._close_anchor()
         open_ = self.at.get(tag)
-        if open_ and (tag in self.SPECIAL or self.stack[-1][3] <= open_[-1]):
-            self._pop_to(open_[-1])
+        if open_:
+            top, match = self.stack[-1], open_[-1]
+            blocked = (top[3] > match and tag not in self.SPECIAL) or (top[5] if tag in self.TABLE_END_TAGS else top[4]) > match
+            if not blocked:
+                self._pop_to(match)
         if shown and tag in self.BLOCK:
             self.parts.append("\n")
 
     def handle_data(self, data):
-        if self.skip_depth or self.concealed or self.zero:
+        if self.skips or self.concealed or self.zero:
             return
         self.parts.append(data)
         if self.anchor is not None:

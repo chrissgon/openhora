@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.10"
 # dependencies = ["keyring==25.7.0"]
 # ///
 """Mailbox provider for Outlook (Microsoft 365 and outlook.com): an implementation of the class reader:email that lists and reads the
@@ -55,7 +55,9 @@ display:none, visibility:hidden, mso-hide:all, opacity:0, or a zero width, heigh
 text of a zero font-size, unless an element inside it sets a size of its own (a size, the size token of the font shorthand, calc(...) or
 a font tag's size attribute; template e-mails do). The open elements are kept as a browser keeps them where it matters: a stray end tag closes
 nothing, an end tag with a block open inside the element it names is ignored, and a paragraph, list item or table cell ends at the next of
-its kind. visibility:visible inside a visibility:hidden element stays hidden (the safe direction). It does not read style
+its kind. visibility:visible inside a visibility:hidden element stays hidden (the safe direction), and no end tag closes past an open table, cell,
+caption, button, object, marquee, applet or select. This is not a browser (providers/_email_text.py lists what is not modelled; where it differs it
+hides). It does not read style
 sheets or class names, colours (white on white) or comments: text hidden that way is not removed (a comment is not text, and is dropped).
 Attachments are listed (name, type, size) and never fetched: only `$select=name,contentType,size` is asked, so a service that ignored it would
 answer more than the 1 MiB read of that call and the list is reported as null.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.10"
 # dependencies = ["keyring==25.7.0"]
 # ///
 """Calendar provider for Outlook (Microsoft 365 and outlook.com): an implementation of the class integration:calendar. It lists the person's

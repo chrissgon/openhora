@@ -131,11 +131,62 @@ def test_visibility_visible_in_a_hidden_parent_stays_hidden_the_safe_direction()
     assert text('<div style="visibility:hidden"><span style="visibility:visible">BROWSER SHOWS</span></div>vis') == "vis"
 
 
-def test_a_stack_past_its_depth_cap_hides_the_rest_when_an_element_hides_more_than_its_parent():
-    deep = "<div>" * (et.HTMLText.DEPTH_CAP + 50)
-    assert "HIDDEN" not in text(deep + '<span style="display:none">HIDDEN</span>after')
-    assert "HIDDEN" not in text(deep + '<span style="font-size:0">HIDDEN</span>after')
-    assert text(deep + "plain") == "plain", "an element that hides nothing more has its parent's state"
+def test_a_stack_past_its_depth_cap_reads_nothing_more():
+    cap = et.HTMLText.DEPTH_CAP
+    assert "HIDDEN" not in text("<div>" * (cap + 50) + '<span style="display:none">HIDDEN</span>after')
+    assert text("<div>" * (cap + 50) + "plain") == "", "past the cap nothing that follows can be told from what an element there hides"
+    assert text("<div>" * (cap - 10) + "plain") == "plain", "just under the cap, the body is read"
+
+
+@pytest.mark.parametrize("opened", [-1, 0, 1, 2])
+def test_a_hidden_element_at_the_edge_of_the_cap_hides_what_follows_it(opened):
+    """A hidden element that is the last the stack takes, with one more open element after it, then the end tags that follow."""
+    cap = et.HTMLText.DEPTH_CAP
+    body = "<span>" * (cap - 1 + opened) + '<span style="display:none">' + "<span>a</span>INJECT"
+    assert "INJECT" not in text(body)
+    assert "INJECT" not in text("<b>" * (cap - 1 + opened) + '<b style="display:none">' + "<b>a</b>INJECT")
+    assert "INJECT" not in text("<div>" * (cap - 1 + opened) + '<div style="font-size:0">' + "<span>a</span>INJECT")
+
+
+def test_a_stray_end_tag_of_another_skipped_element_does_not_end_the_skip():
+    assert text("<template></title>INJECT</template>after") == "after"
+    assert text("<style></template>INJECT</style>after") == "after"
+    assert text("<template><title></template>INJECT") == "", "the innermost open skip is the title, and its content is raw text up to its own end tag"
+    assert text("<title><template></title>INJECT") == "INJECT", "a template inside a title is raw text: the title ends at its end tag"
+    assert text("<noscript>a<template>b</template>INJECT</noscript>after") == "after"
+    assert text("<script>a</style>INJECT</script>after") == "after"
+
+
+@pytest.mark.parametrize("barrier", ["td", "th", "caption", "button", "object", "marquee", "applet", "select", "table"])
+@pytest.mark.parametrize("hide", ['style="display:none"', 'style="font-size:0"'])
+def test_no_end_tag_closes_past_an_open_cell_table_or_control(barrier, hide):
+    assert text(f"<p>seen</p><span {hide}><{barrier}>a</span>INJECT</{barrier}></span>after") == "seen\nafter"
+    assert text(f"<p>seen</p><div {hide}><{barrier}>a</div>INJECT</{barrier}></div>after") == "seen\nafter"
+
+
+def test_a_tables_own_end_tags_close_past_a_cell():
+    assert text('<table><tr><td style="font-size:0">a</table>vis') == "vis"
+    assert text('<table><tr style="font-size:0"><td>a</tr>b</table>vis') == "b\nvis", "b sits in the table, outside the row that ended"
+    assert text('<table><tr><td style="display:none">a</td>b</tr>c</table>vis') == "b\nc\nvis"
+
+
+@pytest.mark.parametrize("raw", ["textarea", "title", "xmp", "iframe", "noembed", "noframes"])
+def test_raw_text_elements_are_not_text_and_their_markup_is_not_read(raw):
+    assert text(f'x<{raw}><b style="font-size:13px">T</b><p>INNER</p></{raw}>y') == "xy"
+    assert text(f'x<{raw}><span style="display:none"></{raw}>y') == "xy", "the end tag ends it though markup came before it"
+
+
+def test_svg_desc_title_and_metadata_are_not_text():
+    assert text("<svg><desc>D</desc><title>S</title><metadata>M</metadata><text>shown</text></svg>y") == "showny"
+
+
+def test_calc_min_max_clamp_are_zero_only_when_every_length_in_them_is_zero():
+    wrap = '<div style="font-size:0">{}</div>'
+    for zero in ("calc(0px + 0px)", "calc(0)", "min(0, 0px)", "max(0px, 0em)", "clamp(0, 0, 0px)"):
+        assert text(wrap.format(f'<span style="font-size:{zero}">Z</span>')) == "", zero
+    for sized in ("calc(1px + 0px)", "min(0, 12px)", "max(0px, 1rem)", "clamp(0, 1vw, 0px)", "calc(10px + 2px)"):
+        assert text(wrap.format(f'<span style="font-size:{sized}">V</span>')) == "V", sized
+    assert text('<span style="font-size:calc(0px)">Z</span>after') == "after"
 
 
 @pytest.mark.parametrize("shape", ["stray", "far", "blocked", "deep", "zero", "prepost", "bigstyle"])

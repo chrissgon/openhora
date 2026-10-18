@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.10"
 # dependencies = ["keyring==25.7.0"]
 # ///
 """One-time OAuth 2.0 authorization for the Outlook calendar provider (outlook.py).

@@ -30,8 +30,11 @@ that chat. `action` and `action_ref` are null, `private` is true. Hidden text is
 `font-size` of zero (the text written in that element, unless an element inside it sets a size of its own: a size, the `font` shorthand,
 `calc(...)` or a `font` tag's `size`; template e-mails do). The open elements are kept as a browser keeps them where it matters: a stray end
 tag closes nothing, an end tag with a block open inside the element it names is ignored, a `p`, `li`, `td`/`th` or `tr` ends at the next of its
-kind, and `visibility:visible` inside a `visibility:hidden` element stays hidden. Text hidden
-by colour (white on white), position, a class or a style sheet is read as text, which is why a command is honoured only as the first line of a
+kind, no end tag closes past an open table, cell, caption, button, object, marquee, applet or select, and `visibility:visible` inside a
+`visibility:hidden` element stays hidden. This is not a browser: the adoption agency algorithm, the end tags implied for option, rb, rt, rp and
+tbody, foster parenting in tables and an empty paragraph made by a stray `</p>` are not modelled, and where the model differs it hides (some text
+a browser shows can be dropped). The content of script, style, head, title, template, noscript, textarea, xmp, iframe, noembed, noframes and the
+SVG desc and metadata is not text. Text hidden by colour (white on white), position, a class, a style sheet or a comment is read as text, which is why a command is honoured only as the first line of a
 message and the bridge still needs the reply to the card for any act.
 
 The mailbox is never changed: IMAP EXAMINE (read only), UID SEARCH, UID FETCH with BODY.PEEK and RFC822.SIZE, NOOP, LOGOUT; no flag, move,
