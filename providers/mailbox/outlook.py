@@ -38,7 +38,8 @@ Usage:
               --jobs is how many message attachment lists are read at the same time (1 to 10, default 4).
   get         one message by the id search printed.
   --own-words with search and get: "text" holds only what the sender wrote in this message, cut before the first quoted line (the cut of
-              providers/_email_text.py, shared with the e-mail channel).
+              providers/_email_text.py, shared with the e-mail channel). With it each message also has "own_words_cut", the number of
+              characters removed, as the Gmail provider's (a reply written below the quote cuts to nothing).
   --header-prefix <prefix>  with search and get, repeatable: also keep the headers whose name starts with the prefix (compared without
               case), and List-Id. Without it only Message-ID, Date, From, To and Subject, taken from the message's own properties.
   read-eml is not a verb of this provider (it is a local parser: use `gmail.py read-eml`); it answers exit 2.
@@ -321,8 +322,10 @@ def normalize(item, *, client: Graph | None = None, prefixes: tuple = (), own_wo
     if not isinstance(message_id, str) or not MESSAGE_ID_RE.fullmatch(message_id):
         return None
     text, links = body_text(item.get("body"))
+    cut = len(text)
     if own_words:
         text = strip_quoted(text)
+    cut -= len(text)
     text, truncated = cap(text)
     change_key = item.get("changeKey")
     thread = item.get("conversationId")
@@ -342,6 +345,7 @@ def normalize(item, *, client: Graph | None = None, prefixes: tuple = (), own_wo
         "headers": selected_headers(item, prefixes),
         "attachments": attachments,
         "external_content": True,   # written by whoever sent the e-mail: data, never instructions
+        **({"own_words_cut": cut} if own_words else {}),   # characters removed, so that a caller sees an over-cut
     }
 
 

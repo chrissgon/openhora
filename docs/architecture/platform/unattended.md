@@ -99,6 +99,15 @@ The consent page of the Picker (`gdrive_auth.py pick`) also needs a browser; the
 
 **OneDrive as a source** (`ONEDRIVE_SOURCES_TOKEN`) is the same kind of record (JSON: refresh token, client id, tenant, scope, account kind, date; no client secret exists), made by `uv run providers/documents/onedrive_auth.py authorize` on a machine with a browser, and copied whole to the credentials directory the same way. Microsoft replaces the refresh token on every use and the old one lives out its 90 days. A record in the OS secret store is rewritten with the new token after each refresh (`onedrive.py`); a record in the environment or in the credentials directory is never rewritten, so it ages **90 days from the consent**, used or not: a server that runs for months needs `authorize` run again, and the file copied again, before then (`onedrive.py --check` prints `rotation`, which says whether a new token was stored).
 
+**Google Calendar as a source** (`GOOGLE_CALENDAR_TOKEN`) is the same shape: its consent is `uv run <workbench>/providers/calendar/google_auth.py authorize`, on a machine with a browser, and the secret is **one JSON record** (refresh token, the Desktop app client, the two scopes, the account and the date) under the store username `calendar-google`. It is a record of its own, not the Gmail one: copy the whole record, not a field of it.
+
+```sh
+( umask 077; uv run --with keyring==25.7.0 keyring get openhora calendar-google \
+    | ssh deploy@runtime-host.example 'umask 077; cat > ~/.config/openhora/credentials/GOOGLE_CALENDAR_TOKEN' )
+```
+
+The same seven-day expiry of a project left in "Testing" applies; `google_auth.py check` says whether a record is found without calling Google, and `google_auth.py forget` removes the local record (it does not tell Google: the app's access is also removed in the Google Account).
+
 **Outlook mail and calendar as sources** (`OUTLOOK_MAIL_TOKEN`, `OUTLOOK_CALENDAR_TOKEN`) are two more records of the same kind (JSON: refresh token, client id, tenant, scope, date; no client secret), each made by its own `uv run <workbench>/providers/mailbox/outlook_auth.py authorize` and `uv run <workbench>/providers/calendar/outlook_auth.py authorize`, with the client id of its own Microsoft app registration (one registration per purpose: Microsoft binds a refresh token to a user and a client, not to a resource), and each copied whole to the credentials directory the same way. The rotation is the OneDrive one, from the shared code (`providers/_msgraph.py`): a record in the OS secret store is rewritten after a refresh only if it still holds the token the provider used; a record in the environment or the credentials directory ages **90 days from the consent**, used or not, so a server that runs for months needs `authorize` run again, and the file copied again, before then (`outlook.py --check` prints `rotation`). The runtime side (mail and calendar as source types, with a freshness bound) is a later package (RT-1) and is not built here.
 
 ## Retention (I6)

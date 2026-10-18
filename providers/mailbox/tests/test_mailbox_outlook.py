@@ -317,7 +317,10 @@ def test_own_words_cuts_the_quoted_history_when_the_checkout_has_the_cut(fake):
         assert code == 2 and "strip_quoted" in said, "this checkout has no cut yet (package G1): the flag says so instead of doing nothing"
     else:
         assert code == 0 and out["text"] == "Yes, Friday works."
+        full = run(fake, "get", "--id", "r1")[1]["text"]
+        assert out["own_words_cut"] == len(full) - len(out["text"]) > 0, "the characters removed, as the Gmail provider says them"
     assert run(fake, "get", "--id", "r1")[1]["text"].endswith("> Is Friday ok?")
+    assert "own_words_cut" not in run(fake, "get", "--id", "r1")[1], "only with the flag"
 
 
 def test_get_of_an_unknown_message_is_exit_1_and_a_bad_id_never_reaches_a_path(fake):

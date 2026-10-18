@@ -188,10 +188,13 @@ def bad_text(value) -> bool:
     return not isinstance(value, str) or not value or any(ch.isspace() or not ch.isprintable() for ch in value)
 
 
-def plain_ascii(value) -> bool:
-    """True for a non-empty string of printable ASCII with no space (the characters \\x21 to \\x7e): the only kind of token or id this code
-    sends, stores or prints. Anything else is refused without being shown."""
-    return isinstance(value, str) and bool(value) and all("!" <= ch <= "~" for ch in value)
+TOKEN_LIMIT, ACCESS_TOKEN_LIMIT = 4096, 16384   # a refresh token or an id (the bound of the Google providers' TOKEN_RE); an access token may be a long JWT
+
+
+def plain_ascii(value, limit: int = TOKEN_LIMIT) -> bool:
+    """True for a string of 1 to `limit` characters of printable ASCII with no space (the characters \\x21 to \\x7e): the only kind of token
+    or id this code sends, stores or prints. Anything else is refused without being shown."""
+    return isinstance(value, str) and 0 < len(value) <= limit and all("!" <= ch <= "~" for ch in value)
 
 
 def parse_record(profile: Profile, text: str) -> dict:
@@ -328,7 +331,7 @@ def usable_access_token(data: dict) -> str:
     """The access token of a token response, when it is something this provider will put in a header: printable ASCII, no space. A value
     with a line break could add a header, and the library would print it in an error; it is refused without being shown."""
     token = data.get("access_token")
-    if not plain_ascii(token):
+    if not plain_ascii(token, ACCESS_TOKEN_LIMIT):
         raise ProviderError("the token response holds an access token this provider will not send (a space, a control character or a "
                             "non-ASCII character in it); nothing was read")
     return token

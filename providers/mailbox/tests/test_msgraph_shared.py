@@ -100,6 +100,8 @@ def test_plain_ascii_accepts_only_the_characters_a_header_may_carry():
     assert shared.plain_ascii("abc-DEF_123.~") and shared.plain_ascii("!~")
     for bad in ("", None, 5, ["a"], "a b", "a\tb", "a\r\nb", "café", "ő", "a\x00b", "a\x7fb"):
         assert not shared.plain_ascii(bad), repr(bad)
+    assert shared.plain_ascii("a" * 4096) and not shared.plain_ascii("a" * 4097), "the bound of the Google providers' token check"
+    assert shared.plain_ascii("a" * 16384, shared.ACCESS_TOKEN_LIMIT) and not shared.plain_ascii("a" * 16385, shared.ACCESS_TOKEN_LIMIT)
 
 
 def test_a_record_that_a_refresh_could_not_send_is_not_configured():
