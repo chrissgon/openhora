@@ -27,19 +27,28 @@ resource, so a client that held two permissions could use one token to reach bot
 own registration, their own client id and their own record.
 
 Microsoft Entra setup (once), at https://entra.microsoft.com (the maintainer of the project does this, not each person):
-  1. Identity, Applications, App registrations, New registration: a name (for example "openhora calendar"), and the supported account
-     types "Accounts in any organizational directory and personal Microsoft accounts". No redirect URI yet.
-  2. Authentication, Add a platform, "Mobile and desktop applications", custom redirect URI {redirect}  (the port is ignored for
+  1. A personal Microsoft account (outlook.com, hotmail.com) first needs a directory (tenant) of its own: Microsoft no longer lets an app be
+     registered outside a directory, and an app made under a personal account cannot be moved into one. Create a free Azure account (it
+     creates a Default Directory; it asks for a phone number and a non-prepaid credit or debit card, with a temporary authorization of about
+     US$1): https://azure.microsoft.com/pricing/purchase-options/azure-account
+     or join the Microsoft 365 Developer Program: https://developer.microsoft.com/microsoft-365/dev-program
+     Then switch to that directory (Settings icon, then "Directories + subscriptions") before registering. Sources, accessed 2026-10-18:
+     https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app
+     https://learn.microsoft.com/en-us/answers/questions/2127352/how-to-move-an-azure-application-created-under-a-p
+  2. Entra ID, App registrations, New registration: a name (for example "openhora calendar"), and the supported account types "Any Entra ID Tenant + Personal
+     Microsoft accounts" (formerly "Accounts in any organizational directory and personal Microsoft accounts"; "Personal accounts only"
+     also serves a personal account). The default tenant "common" serves both. No redirect URI yet.
+  3. Authentication, Add a platform, "Mobile and desktop applications", custom redirect URI {redirect}  (the port is ignored for
      localhost, so the random port this script listens on matches). No client secret, no certificate.
-  3. API permissions: remove `User.Read`; add Microsoft Graph, Delegated permissions, `Calendars.ReadBasic` (and `offline_access`). Do not
+  4. API permissions: remove `User.Read`; add Microsoft Graph, Delegated permissions, `Calendars.ReadBasic` (and `offline_access`). Do not
      grant admin consent for a personal test. Any other permission left on the registration is refused by the check.
-  4. Copy the Application (client) ID. Run:
+  5. Copy the Application (client) ID. Run:
      OUTLOOK_CALENDAR_CLIENT_ID=<the id> uv run <workbench>/providers/calendar/outlook_auth.py authorize
      (or run it in a terminal and type the id at the hidden prompt). The id never goes on the command line. An office with its own
      single-tenant registration also sets OUTLOOK_CALENDAR_TENANT=<its tenant id or domain> for that one command; the default is "common".
-  5. Sign in with the account whose calendar to read and approve. A work or school tenant whose admin has blocked user consent answers
+  6. Sign in with the account whose calendar to read and approve. A work or school tenant whose admin has blocked user consent answers
      with a consent error: your Microsoft 365 admin must approve the app, and the command stops (exit 3).
-  6. Verify: uv run <workbench>/providers/calendar/outlook.py --check
+  7. Verify: uv run <workbench>/providers/calendar/outlook.py --check
 The authorization (the refresh token, the client id, the tenant) is stored as one record in the OS secret store (service "openhora",
 username "{username}"; the secret {secret}), never on disk. Microsoft replaces the refresh token on every use; outlook.py writes the new
 one into the same record.
