@@ -236,12 +236,18 @@ def precheck(attachments: list, *, cap: int, today: dict, held: list, platform: 
     out = []
     files, used, waiting = today.get("files", 0), today.get("bytes", 0), len(held)
     known = {row["ref_sha256"]: row for row in held}
+    seen = set()
     for index, attachment in enumerate(attachments):
         if index >= PER_MESSAGE:
             out.append({"index": index, "attachment": attachment, "over": True, "refuse": None, "duplicate": None})
             continue
         entry = {"index": index, "attachment": attachment, "over": False, "refuse": declared_problem(attachment, cap), "duplicate": None}
         digest = ref_digest(platform, attachment["ref"])
+        if digest in seen:
+            entry["refuse"], entry["duplicate"] = None, {"id": None}        # the same reference twice in one message is one file: fetched once
+            out.append(entry)
+            continue
+        seen.add(digest)
         if entry["refuse"] is None and digest in known:
             entry["duplicate"] = known[digest]
         elif entry["refuse"] is None and (files >= DAY_FILES or used >= DAY_BYTES):

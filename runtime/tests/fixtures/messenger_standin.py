@@ -8,7 +8,8 @@ verbs of providers/messenger/README.md from files in the folder STANDIN_DIR: cap
 (the updates a test queued: a list), and it records what it was sent in sent.jsonl and acks.jsonl. No network.
 
 `fetch-attachment --platform p --ref r --out d --max-bytes n` (ATT-1) writes the file `files/<r>` of STANDIN_DIR as `<d>/content` (O_EXCL, mode 0600) and prints
-{"bytes", "sha256"}. A ref in gone.json (a list) is a file the platform no longer serves: exit 1, "gone" first on stderr. A ref in fail.json exits 1 with another
+{"bytes", "sha256"}. A ref in gone.json (a list) is a file the platform no longer serves: exit 1, the last line of stderr exactly "gone".
+A ref in notgone.json exits 1 with "gone" first on stderr and another last line (a message that merely mentions it). A ref in fail.json exits 1 with another
 reason. A file over --max-bytes is not written: exit 2. A ref in lie.json is written with one byte more than the count it prints (a provider that cannot be taken
 at its word). A ref in outside.json is written as a link to a file elsewhere. Every call is recorded in fetches.jsonl (the ref, the folder, the cap). The
 capabilities gain `attachments` and `max_attachment_bytes` from caps.json."""
@@ -48,16 +49,22 @@ def append(name: str, value) -> int:
 def fetch(a) -> int:
     append("fetches.jsonl", {"ref": a.ref, "out": a.out, "max_bytes": a.max_bytes})
     if a.ref in read("gone.json", []):
-        print("gone: the platform no longer serves this file", file=sys.stderr)
+        print("the platform no longer serves this file", file=sys.stderr)
+        print("gone", file=sys.stderr)         # the rule: exit 1 and the last non-empty line of stderr is exactly `gone`
         return 1
     if a.ref in read("fail.json", []):
+        print("the platform refused the download", file=sys.stderr)
+        return 1
+    if a.ref in read("notgone.json", []):
+        print("gone: not really, the platform answered 500 and the file is not gone", file=sys.stderr)
         print("the platform refused the download", file=sys.stderr)
         return 1
     try:
         with open(os.path.join(folder(), "files", a.ref), "rb") as f:
             data = f.read()
     except OSError:
-        print("gone: no such file", file=sys.stderr)
+        print("no such file", file=sys.stderr)
+        print("gone", file=sys.stderr)
         return 1
     if len(data) > a.max_bytes:
         print("the file is over the cap", file=sys.stderr)
