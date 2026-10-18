@@ -230,7 +230,7 @@ def test_the_run_the_request_and_the_versions_read_are_in_the_store_and_the_requ
     store, conn = two["ctx"]["store"], two["ctx"]["conn"]
     request = store.task_get(conn, out["request_id"])
     assert (request["state"], request["parent_id"], request["title"], request["text"]) == \
-        ("done", None, "Question: qual o prazo do contrato?", "qual o prazo do contrato?")
+        ("done", None, f"Question {out['request_id']}", "qual o prazo do contrato?")
     run = store.task_run_get(conn, out["run_id"])
     assert (run["task_id"], run["skill"], run["status"], run["ending"], run["model"], run["web"], run["tokens"]) == \
         (out["request_id"], ANSWER, "ok", "done", "m", 0, 100)
@@ -240,7 +240,7 @@ def test_the_run_the_request_and_the_versions_read_are_in_the_store_and_the_requ
         [(out["run_id"], out["request_id"], "lease-contract", 1), (out["run_id"], out["request_id"], "meeting-notes", 1)]
     latest = store.source_latest(conn, "lease-contract")
     assert rows[0]["sha256"] == latest["converted_sha256"]
-    assert store.cursor_get(conn, f"ask-actor:{out['run_id']}") == "terminal"           # who asked, beside the run
+    assert store.cursor_get(conn, store.ASK_ACTOR_CURSOR.format(run=out["run_id"])) is None      # who asked was kept while the run went; the finish removed it
     assert ops.pending(two["path"])["pending"] == []                                    # no plan, no review, no card: nothing waits for the person
 
 
@@ -323,10 +323,10 @@ def test_a_version_changed_by_hand_is_given_to_an_ask_typed_in_the_terminal_and_
     person_version(two)
     accept(two["path"], policies=PROFILES, messaging={"senders": SENDERS})
     refused = ask(two, channel="page")
-    assert refused["ran"] is False and refused["refusal"] == "source" and "starts on its own" in refused["reply"]
-    assert refused["reply"].endswith("Nothing was run.")
+    assert refused["ran"] is False and refused["refusal"] == "source" and "read only by a question asked in the terminal" in refused["reply"]
+    assert refused["reply"].endswith("Nothing was run.") and "run-next" not in refused["reply"]
     from_phone = ask(two, channel="messaging", sender=OWNER_KEY)
-    assert from_phone["refusal"] == "source" and "starts on its own" in from_phone["reply"]
+    assert from_phone["refusal"] == "source" and "read only by a question asked in the terminal" in from_phone["reply"]
     assert st.calls(two["adapter"]) == [] and requests(two) == []                       # no request, no run for a refusal
     typed = ask(two, channel="terminal")
     assert typed["ran"] is True and typed["sources"][0] == {"source": "lease-contract", "version": 2}
@@ -369,7 +369,7 @@ def test_the_reply_is_checked_against_the_copies_the_run_received(two):
     out = ask(two)
     assert out["answer"] == "found" and out["flags"] == []
     assert out["reply"] == ("The contract answers it [lease-contract].\n\n"
-                            'Quote [lease-contract]: "Clausula 3. O prazo do contrato e de 12 meses, a contar de 1 de marco."\n\n'
+                            'Checked quote [lease-contract]: "Clausula 3. O prazo do contrato e de 12 meses, a contar de 1 de marco."\n\n'
                             "Read: lease-contract (version 1), meeting-notes (version 1)")
     (two["adapter"] / "answer.txt").write_text('Answer: found\nIt is 99 months [lease-contract].\nQuote [lease-contract]: "O prazo e de 99 meses"\n', encoding="utf-8")
     invented = ask(two)
@@ -423,7 +423,7 @@ def test_the_group_ask_is_off_by_default_on_messaging_and_on_for_the_sender_whos
     ops.accept_config(two["path"], shown["sha256"], widen=shown["widening_sha256"])
     out = ask(two, channel="messaging", sender=OWNER_KEY)
     assert out["ran"] is True
-    assert two["ctx"]["store"].cursor_get(two["ctx"]["conn"], f"ask-actor:{out['run_id']}").startswith(f"messaging:telegram:asker:{OWNER}")
+    assert two["ctx"]["store"].cursor_get(two["ctx"]["conn"], two["ctx"]["store"].ASK_ACTOR_CURSOR.format(run=out["run_id"])) is None
     with pytest.raises(ops.OpsError, match="is not enabled for this channel"):
         ask(two, channel="messaging", sender=STAFF_KEY)                                   # the other sender's profile does not list it
     with pytest.raises(ops.OpsError, match="names the sender who acts"):
@@ -450,6 +450,7 @@ def test_a_slash_ask_line_of_the_conversation_answers_with_the_reply_and_leaves_
     assert out["ran"] is False and out["request_id"] is None and "Read: lease-contract (version 1)" in out["reply"]
     messages = ops.conversation(two["path"])["messages"]
     assert [m["role"] for m in messages] == ["user", "assistant"] and messages[1]["task_id"] is None and messages[1]["run_id"] is None
+    assert messages[1]["text"] == f"(answered from the sources: request {requests(two)[0]['id']})" and "Read:" not in messages[1]["text"]
     assert ops_say.chat_memory(messages, set()) == ""                                    # the answer never enters the router's memory
     assert len(runs(two)) == 1 and requests(two)[0]["state"] == "done"
     help_text = ops.say(two["path"], "/ask", channel="terminal")["reply"]                # no question: the help
@@ -483,7 +484,7 @@ def test_on_the_page_a_slash_ask_line_met_by_a_busy_router_is_queued_and_answere
     done = ops.route_queued(two["path"])
     assert done["routed"] == "line" and runs(two) and requests(two)[0]["state"] == "done"
     last = ops.conversation(two["path"])["messages"][-1]
-    assert last["role"] == "assistant" and "Read: lease-contract (version 1)" in last["text"]
+    assert last["role"] == "assistant" and last["text"] == f"(answered from the sources: request {requests(two)[0]['id']})"   # the answer is not kept
     accept(two["path"], channels={"page": ["read", "talk"]})                              # the queue's drain asks the policy as it is now
     held = ops_core._try_lock(two["ctx"]["cfg"], "route.lock")
     try:
@@ -575,3 +576,105 @@ def test_a_failure_while_the_copies_are_recorded_still_ends_the_run_and_the_requ
     store, conn = two["ctx"]["store"], two["ctx"]["conn"]
     assert store.task_run_get(conn, out["run_id"])["status"] == "failed" and store.task_get(conn, out["request_id"])["state"] == "cancelled"
     assert st.calls(two["adapter"]) == []                                                    # the model never ran
+
+
+# --- the review of package AQ-1 --------------------------------------------------------------------------------------------------------------------
+
+
+def as_asker(tree):
+    accept(tree["path"], policies={"asker": ["read", "talk", "ask"]}, messaging={"senders": {"telegram": [{"id": OWNER, "policy": "asker"}]}})
+
+
+def test_limit_50_the_conversation_keeps_a_placeholder_and_no_text_of_the_documents_for_a_messaging_answer(two):
+    as_asker(two)
+    out = ops.say(two["path"], "/ask qual o prazo do contrato?", channel="messaging", sender=OWNER_KEY)
+    assert "O prazo do contrato e de 12 meses" in out["reply"]                                   # the sender who asked gets the answer
+    messages = ops.conversation(two["path"])["messages"]
+    request = requests(two)[0]["id"]
+    assert [m["text"] for m in messages] == ["/ask qual o prazo do contrato?", f"(answered from the sources: request {request})"]
+    assert messages[1]["task_id"] is None and messages[1]["run_id"] is None
+    # everything a reader of the conversation or of the requests can read holds no text of the answer: the MCP mode's reads included
+    policy = ops.config(two["path"]).get("channels")
+    assert operations.permitted("conversation", "mcp", policy) and operations.permitted("status", "mcp", policy)
+    shown = json.dumps([ops.conversation(two["path"]), ops.status(two["path"]), ops.task(two["path"], request), ops.progress(two["path"]),
+                        ops.pending(two["path"]), ops_say.state_reply(two["path"])], default=str)
+    assert "12 meses" not in shown and "Checked quote" not in shown and "Read:" not in shown
+    # the same on the terminal, and a refusal made by code (it holds no text of a document) is kept as it is
+    ops.say(two["path"], "/ask @meeting-notes when is the renewal?", channel="terminal")
+    assert ops.conversation(two["path"])["messages"][-1]["text"].startswith("(answered from the sources: request ")
+
+
+def test_a_refusal_made_by_code_before_any_run_is_kept_in_the_conversation_as_it_is(tree):
+    out = ops.say(tree["path"], "/ask qual o prazo do contrato?", channel="terminal")
+    assert out["reply"] == ops_ask.NO_SOURCES
+    assert ops.conversation(tree["path"])["messages"][-1]["text"] == ops_ask.NO_SOURCES
+
+
+def test_the_actor_is_kept_beside_a_run_while_it_goes_and_removed_when_it_ends(two, monkeypatch):
+    seen = []
+    real = lab.run_skill
+
+    def spy(*a, **k):
+        store, conn = two["ctx"]["store"], two["ctx"]["conn"]
+        [running] = [r for r in store.task_runs_running(conn)]
+        seen.append(store.cursor_get(conn, store.ASK_ACTOR_CURSOR.format(run=running["id"])))
+        return real(*a, **k)
+    monkeypatch.setattr(lab, "run_skill", spy)
+    as_asker(two)
+    out = ops.ask(two["path"], "qual o prazo do contrato?", channel="messaging", sender=OWNER_KEY)
+    assert seen == [f"messaging:telegram:asker:{OWNER}"]
+    assert two["ctx"]["store"].cursor_get(two["ctx"]["conn"], two["ctx"]["store"].ASK_ACTOR_CURSOR.format(run=out["run_id"])) is None
+
+
+def test_no_line_that_lists_requests_shows_the_text_of_a_question(two):
+    out = ask(two, "qual o prazo do contrato? segredo-xyz")
+    request = out["request_id"]
+    assert [r["title"] for r in ops.status(two["path"])["requests"]] == [f"Question {request}"]
+    for shown in (ops_say.state_reply(two["path"]), json.dumps(ops.status(two["path"]), default=str), json.dumps(ops.progress(two["path"]), default=str),
+                  json.dumps(ops.pending(two["path"]), default=str)):
+        assert "segredo-xyz" not in shown
+    assert ops.task(two["path"], request)["task"]["text"] == "qual o prazo do contrato? segredo-xyz"      # the text is the request's own row, the person's
+
+
+def test_a_question_an_earlier_ask_left_when_its_process_died_is_cancelled_by_the_next_ask(two, monkeypatch):
+    real = lab.run_skill
+
+    def dies(*a, **k):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(lab, "run_skill", dies)
+    with pytest.raises(KeyboardInterrupt):
+        ask(two)
+    monkeypatch.setattr(lab, "run_skill", real)
+    [stale] = requests(two)
+    assert stale["state"] == "requested" and [r["status"] for r in runs(two)] == ["running"]
+    out = ask(two)                                                                         # the next ask recovers the run row and cancels the question
+    assert out["ran"] is True
+    states = {r["id"]: r["state"] for r in requests(two)}
+    assert states == {stale["id"]: "cancelled", out["request_id"]: "done"}
+    assert "waits for its route" not in ops_say.state_reply(two["path"])
+    assert two["ctx"]["store"].cursor_get(two["ctx"]["conn"], two["ctx"]["store"].ASK_ACTOR_CURSOR.format(run=runs(two)[0]["id"])) is None
+
+
+def test_a_sender_removed_or_narrowed_while_the_run_goes_on_gets_no_answer_and_the_run_is_recorded(two, monkeypatch):
+    real = lab.run_skill
+    as_asker(two)
+    for change in ({"messaging": {"senders": {"telegram": [{"id": STAFF, "policy": "asker"}]}}},          # removed from the list
+                   {"policies": {"asker": ["read", "talk"]}}):                                              # narrowed to a profile without ask
+
+        def changed(*a, change=change, **k):
+            accept(two["path"], **change)
+            return real(*a, **k)
+        monkeypatch.setattr(lab, "run_skill", changed)
+        out = ops.ask(two["path"], "qual o prazo do contrato?", channel="messaging", sender=OWNER_KEY)
+        assert out["ran"] is True and out["refusal"] == "withheld" and out["reply"] == ops_ask.WITHHELD and "12 meses" not in json.dumps(out)
+        run = two["ctx"]["store"].task_run_get(two["ctx"]["conn"], out["run_id"])
+        assert run["status"] == "ok" and two["ctx"]["store"].task_get(two["ctx"]["conn"], out["request_id"])["state"] == "done"
+        monkeypatch.setattr(lab, "run_skill", real)
+        as_asker(two)
+    # the page: a policy narrowed meanwhile withholds the answer too; the terminal is never narrowed
+    def narrowed(*a, **k):
+        accept(two["path"], channels={"page": ["read", "talk"]})
+        return real(*a, **k)
+    monkeypatch.setattr(lab, "run_skill", narrowed)
+    assert ops.ask(two["path"], "qual o prazo do contrato?", channel="page")["refusal"] == "withheld"
+    assert ops.ask(two["path"], "qual o prazo do contrato?", channel="terminal")["answer"] == "found"

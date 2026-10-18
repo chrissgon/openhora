@@ -87,14 +87,15 @@ def test_a_telegram_slash_ask_is_answered_with_the_quote_and_the_footer_in_the_c
     assert sent["chat"] == OWNER
     text = sent["message"]["text"]
     assert text == ("The contract answers it [lease-contract].\n\n"
-                    'Quote [lease-contract]: "Clausula 3. O prazo do contrato e de 12 meses, a contar de 1 de marco."\n\n'
+                    'Checked quote [lease-contract]: "Clausula 3. O prazo do contrato e de 12 meses, a contar de 1 de marco."\n\n'
                     "Read: lease-contract (version 1), meeting-notes (version 1)")
     assert sent["message"]["actions"] == [] and sent["message"].get("document") is None
     state = world.tree
-    assert len(runs(state)) == 1 and requests(state)[0]["title"] == "Question: qual o prazo do contrato?"
+    assert len(runs(state)) == 1 and requests(state)[0]["title"] == f"Question {requests(state)[0]['id']}"
     assert requests(state)[0]["state"] == "done" and ops.pending(world.project["path"])["pending"] == []     # no plan, no card
     messages = ops.conversation(world.project["path"])["messages"]
     assert [m["role"] for m in messages] == ["user", "assistant"] and messages[0]["text"] == "/ask qual o prazo do contrato?"
+    assert messages[1]["text"] == f"(answered from the sources: request {requests(state)[0]['id']})"       # the answer is not kept (limit L50)
 
 
 def test_the_help_of_the_bridge_lists_ask(world):
@@ -130,9 +131,9 @@ def test_limit_50_an_answer_leaves_only_as_the_reply_to_the_chat_that_asked_and_
     parameters = list(inspect.signature(ops.ask).parameters)
     assert parameters == ["project", "text", "channel", "sender"]                        # no recipient, no address, no chat id
     world.bridge.handle(world.update(OWNER, "/ask qual o prazo do contrato?"))
-    assert wait_for(lambda: len(world.sent()) == 1)
+    assert wait_for(lambda: len(world.sent()) == 1 and all(not t.is_alive() for t in world.bridge.threads))      # the job ends before the next sender asks
     world.bridge.handle(world.update(STAFF, "/ask qual o aviso previo para a rescisao?"))
-    assert wait_for(lambda: len(world.sent()) == 2)
+    assert wait_for(lambda: len(world.sent()) == 2 and all(not t.is_alive() for t in world.bridge.threads))
     assert [s["chat"] for s in world.sent()] == [OWNER, STAFF]
     assert all("Read: lease-contract (version 1)" in s["message"]["text"] for s in world.sent())
     data = Path(world.tree["ctx"]["cfg"]["data_dir"])
@@ -142,8 +143,9 @@ def test_limit_50_an_answer_leaves_only_as_the_reply_to_the_chat_that_asked_and_
     assert conn.execute("SELECT COUNT(*) AS n FROM actions").fetchone()["n"] == 0        # no recorded action: nothing was sent, published or written
     assert store.approvals_list(conn) == []
     # the actor of each run is kept beside it, and only in the store
-    actors = sorted(store.cursor_get(conn, f"ask-actor:{r['id']}") for r in runs(world.tree))
-    assert actors == [f"messaging:telegram:asker:{OWNER}", f"messaging:telegram:asker:{STAFF}"]
+    assert [store.cursor_get(conn, store.ASK_ACTOR_CURSOR.format(run=r["id"])) for r in runs(world.tree)] == [None, None]   # the actor was kept only while a run went
+    texts = [m["text"] for m in ops.conversation(world.project["path"])["messages"]]
+    assert not any("12 meses" in t or "Read:" in t for t in texts)                         # nor the answer in the conversation, which others read
     # a sender not listed is dropped with no reply and no run
     world.bridge.handle(world.update("999", "/ask qual o prazo do contrato?"))
     assert len(world.sent()) == 2 and len(runs(world.tree)) == 2
@@ -164,3 +166,17 @@ def test_a_long_answer_is_split_to_the_limit_of_the_platform_and_every_piece_goe
     assert {s["chat"] for s in world.sent()} == {OWNER} and all(len(s["message"]["text"]) <= 120 for s in world.sent())
     joined = "".join(s["message"]["text"] for s in world.sent())
     assert "Read: lease-contract (version 1)" in joined
+
+
+def test_a_profile_with_ask_and_no_talk_can_ask_and_cannot_talk(world):
+    accept(world.project["path"], policies={"asker": ["read", "ask"], "plain": ["read", "talk"]},
+           messaging={"senders": {"telegram": [{"id": OWNER, "policy": "asker"}, {"id": STAFF, "policy": "plain"}]}})
+    world.bridge.handle(world.update(OWNER, "/ask qual o prazo do contrato?"))
+    assert wait_for(lambda: len(world.sent()) == 1 and all(not t.is_alive() for t in world.bridge.threads))
+    assert "Checked quote [lease-contract]" in world.sent()[0]["message"]["text"] and len(runs(world.tree)) == 1
+    world.bridge.handle(world.update(OWNER, "hello there"))                                      # a plain line needs talk, which this profile lacks
+    assert wait_for(lambda: len(world.sent()) == 2 and all(not t.is_alive() for t in world.bridge.threads))
+    assert "not enabled for this channel" in world.sent()[1]["message"]["text"] and len(runs(world.tree)) == 1
+    world.bridge.handle(world.update(STAFF, "/ask qual o prazo do contrato?"))                   # talk without ask cannot ask
+    assert wait_for(lambda: len(world.sent()) == 3 and all(not t.is_alive() for t in world.bridge.threads))
+    assert "not enabled for this channel" in world.sent()[2]["message"]["text"] and len(runs(world.tree)) == 1

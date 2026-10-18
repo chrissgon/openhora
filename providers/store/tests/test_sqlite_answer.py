@@ -113,9 +113,9 @@ def test_a_run_of_a_request_is_read_by_runs_since_with_no_agent_for_the_layer_ab
 
 
 def test_a_question_and_its_run_are_one_transaction_when_no_request_is_given(conn):
-    started = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question: how long?", text="How long?")
+    started = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="How long?")
     request = store.task_get(conn, started["request_id"])
-    assert (request["state"], request["parent_id"], request["title"], request["text"]) == ("requested", None, "Question: how long?", "How long?")
+    assert (request["state"], request["parent_id"], request["title"], request["text"]) == ("requested", None, f"Question {started['request_id']}", "How long?")
     assert store.task_run_get(conn, started["run_id"])["task_id"] == started["request_id"]
     # a start that is refused leaves no request behind: the one-at-a-time check and the request are one transaction
     before = len(store.tasks_list(conn))
@@ -138,3 +138,45 @@ def test_route_run_start_keeps_its_behaviour_after_its_checks_moved_into_a_share
     store.request_cancel(conn, request, by="test")
     with pytest.raises(store.StoreError, match="only a request waiting for its plan is routed"):
         store.route_run_start(conn, request, skill="demo-router", model="m", adapter="h")
+
+
+def test_the_title_of_a_question_holds_no_text_of_it(conn):
+    started = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="What does the secret clause say?")
+    [shown] = [t for t in store.tasks_list(conn) if t["id"] == started["request_id"]]
+    assert shown["title"] == f"Question {started['request_id']}" and "secret" not in shown["title"] and "secret" in shown["text"]
+
+
+def test_the_actor_cursor_goes_with_the_run_however_it_ends(conn):
+    for how in ({"status": "ok"}, {"status": "failed", "failure": "timeout"}):
+        started = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="How long?")
+        name = store.ASK_ACTOR_CURSOR.format(run=started["run_id"])
+        store.cursor_set(conn, name, "messaging:telegram:asker:4242")
+        store.answer_run_finish(conn, started["run_id"], **how)
+        assert store.cursor_get(conn, name) is None
+    started = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="How long?")
+    name = store.ASK_ACTOR_CURSOR.format(run=started["run_id"])
+    store.cursor_set(conn, name, "page")
+    store.request_stop(conn, started["request_id"], by="page")
+    store.answer_run_finish(conn, started["run_id"], status="ok")
+    assert store.cursor_get(conn, name) is None
+
+
+def test_the_questions_a_dead_process_left_are_cancelled_and_nothing_else_is(conn):
+    dead = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="Left behind?")
+    store.cursor_set(conn, store.ASK_ACTOR_CURSOR.format(run=dead["run_id"]), "page")
+    store.task_fail_orphans(conn, [], [dead["run_id"]], "the process died")                   # the next ask's recovery
+    routed = question(conn, "A request the router is working on")
+    store.route_run_start(conn, routed, skill="demo-router", model="m", adapter="h")
+    store.route_run_finish(conn, store.task_runs_list(conn, routed)[0]["id"], status="failed", failure="timeout")
+    waiting = question(conn, "A request that waits for its route")
+    planned = store.request_add(conn, title="Planned", text="Planned.", flow="x", tasks=[{"key": "a", "skill": "demo-a", "title": "A", "text": "do a."}])["request"]
+    done = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="Answered")
+    store.answer_run_finish(conn, done["run_id"], status="ok")
+    assert store.answers_abandoned_cancel(conn, "demo-answers") == [dead["request_id"]]
+    assert store.task_get(conn, dead["request_id"])["state"] == "cancelled"
+    assert store.cursor_get(conn, store.ASK_ACTOR_CURSOR.format(run=dead["run_id"])) is None
+    assert [store.task_get(conn, i)["state"] for i in (routed, waiting, planned, done["request_id"])] == ["requested", "requested", "planned", "done"]
+    assert store.answers_abandoned_cancel(conn, "demo-answers") == []                         # and a second call finds nothing
+    running = store.answer_run_start(conn, skill="demo-answers", model="m", adapter="h", title="Question", text="Still going")
+    assert store.answers_abandoned_cancel(conn, "demo-answers") == []                         # a run that is running is not abandoned
+    assert store.task_get(conn, running["request_id"])["state"] == "requested"

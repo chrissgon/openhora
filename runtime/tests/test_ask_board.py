@@ -52,7 +52,11 @@ def test_a_question_is_never_pushed_to_the_board_and_the_requests_of_plans_still
     assert again["pushed"] == [] and again["failed"] == []                            # and the next sync writes nothing either
 
 
-def test_with_no_answer_skill_the_mirror_has_no_question_to_skip(tree, monkeypatch):
-    monkeypatch.setattr(roles, "answer", lambda root=None, file=None: None)
+def test_a_question_is_marked_by_what_the_store_holds_and_not_by_the_answer_skill_the_configuration_names_now(tree, monkeypatch):
+    out = ops.ask(project_of(tree), "what is the term of the contract?", channel="terminal")
+    planned(tree)
     ctx = ops_core.context(project_of(tree))
-    assert board.asked(ctx) == []
+    for named in (None, "renamed-answer-skill"):
+        monkeypatch.setattr(roles, "answer", lambda root=None, file=None, named=named: named)
+        assert board.asked(ctx) == [out["request_id"]]                 # a plan's request (router runs, tasks) is never one
+    assert [r for r in ops.sync(project_of(tree))["board"]["pushed"] if r == out["request_id"]] == []

@@ -65,8 +65,7 @@ def _ops():
 
 
 ASK_TIMEOUT = 300                     # seconds one answer run may last (the gate file's timeout is a task's)
-TITLE = "Question: "
-TITLE_CHARS = 60
+TITLE = "Question"                    # the store adds the request's number: no text of a question is in a title
 NOT_BUILT = "No skill answers from the sources in this checkout yet (asst-answer is planned)."
 NO_SOURCES = "This project has no source with a version to answer from. Import one first."
 NO_MATCH = "No source of this project seems to be about this. Name one with @<id>: {ids}."
@@ -75,6 +74,9 @@ TOO_LARGE = "The text of these sources is too large for one question (at most {k
 SKIPPED = "Not read, too large for one question: {named}."
 NOT_STARTED = "The {agent} agent may not start now: {why}. Nothing was run."
 SOURCE_REFUSED = "A source could not be handed over: {why} Nothing was run."
+HAND_CHANGED = ("The newest version of a source for this question is a file you changed by hand: it is read only by a question asked in the "
+                "terminal. Ask there, or import a new file for the source. Nothing was run.")
+WITHHELD = "The answer was withheld: you may no longer ask on this channel."
 FAILED = "The answer run failed ({kind}): {reason}. Nothing was answered."
 ASK_HINT = "To answer from your sources, send /ask <question>."
 TOO_LONG = "The question is over {max} characters."
@@ -153,12 +155,32 @@ def _check_policy(ctx: dict, channel, sender) -> None:
             raise core.OpsError(refused, 1)
 
 
+def _still_may_ask(project: str, channel, sender) -> bool:
+    """Whether the sender may still ask, read from the configuration as it is NOW (the answer took minutes): a sender removed from the list,
+    narrowed to a profile without `ask`, or a configuration that is no longer the accepted one gets nothing. The terminal and the
+    conversation's own shell are never narrowed."""
+    try:
+        fresh = core.context(project)
+    except core.OpsError:
+        return False
+    cfg = fresh["cfg"]
+    where = ops_actor.label(cfg, channel, sender)
+    if where in (None, "terminal", "chat"):
+        return True
+    if channel == "messaging":
+        platform, ident = ops_actor.split(sender)
+        if ident not in ((cfg.get("messaging") or {}).get("senders") or {}).get(platform, ()):
+            return False
+        return operations.permitted("ask", "messaging", cfg["channels"], None, sender)
+    return operations.permitted("ask", where, cfg["channels"])
+
+
 def ask(project: str, text: str, channel: str | None = None, sender: str | None = None) -> dict:
     """Answer one question from the project's sources (see the module's text). `channel` is the shell that carries it (the terminal, the
     page, a messaging app, or `chat`, with the carrying channel recorded by ops_actor.carried_by when a typed line made the call);
     `sender` is the messaging sender (`<platform>:<id>`) who asked. Returns {"reply": the text for the person, "ran": whether a model
     ran, "answer": found | partial | not-found | unchecked | None, "refusal": the word of ask_select or "not-built" or "not-started"
-    or "source" or "failed" when nothing was answered, "request_id", "run_id", "sources": [{"source", "version"}], "flags"}. Raises
+    or "source" or "failed" or "cancelled" or "withheld" when nothing was answered, "request_id", "run_id", "sources": [{"source", "version"}], "flags"}. Raises
     OpsError for what is not an answer: a refused channel (1), an empty or long question (2), a configuration that names an answer
     skill no enabled agent owns (2), RunBusy while the router answers another request."""
     ctx = core.context(project)
@@ -183,10 +205,11 @@ def ask(project: str, text: str, channel: str | None = None, sender: str | None 
     meta, keys, routing = ops_contained.routed(ctx, skill)
     with core._route_lock(cfg):                       # RunBusy: one conversation model call per project at a time
         importlib.import_module("ops_runs")._recover(ctx, holding_route=True)
+        core._stored(ctx, ctx["store"].answers_abandoned_cancel, skill)       # a question an earlier ask left when its process died
         number, dest = ops_contained._contained_folder(cfg)
         prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
         try:
-            out = _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir)
+            out = _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel, sender)
         finally:
             shutil.rmtree(prepared_dir, ignore_errors=True)
             with contextlib.suppress(OSError):
@@ -194,11 +217,13 @@ def ask(project: str, text: str, channel: str | None = None, sender: str | None 
     return out
 
 
-def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir) -> dict:
+def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel=None, sender=None) -> dict:
     cfg, store = ctx["cfg"], ctx["store"]
     try:
         got = ops_sources.copies_for(ctx, {"sources": picked["ids"]}, prepared_dir, not attended)
     except ops_sources.SourcesRefused as e:
+        if e.code == "unattended":                # the sentence of a task says to start it with run-next: a question is asked in the terminal
+            return _outcome(HAND_CHANGED, refusal="source")
         return _outcome(SOURCE_REFUSED.format(why=str(e).rstrip(".") + "."), refusal="source")
     sizes = {r["source"]: os.path.getsize(path) for (path, _rel), r in zip(got["files"], got["records"])}
     if sum(sizes.values()) > ask_select.ASK_BYTES_MAX:
@@ -217,10 +242,9 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
         if not ok:
             return _outcome(NOT_STARTED.format(agent=agent, why=why), refusal="not-started")
         budget = _ops()._budget(ctx, agent, routing, keys)
-        title = TITLE + " ".join(said.split())[:TITLE_CHARS]
         started = core._stored(ctx, store.answer_run_start, skill=skill, model=routing["model"], adapter=routing["adapter"],
                                skill_version=identity["version"], skill_sha256=identity["content_sha256"],
-                               billing=routing["billing"] or "unknown", autonomy=routing["autonomy"], title=title, text=said)
+                               billing=routing["billing"] or "unknown", autonomy=routing["autonomy"], title=TITLE, text=said)
         request_id, run_id = started["request_id"], started["run_id"]      # the request and its run are one transaction
     base = {"request_id": request_id, "run_id": run_id, "sources": given}
 
@@ -237,7 +261,7 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
 
     try:
         if actor:
-            core._stored(ctx, store.cursor_set, f"ask-actor:{run_id}", actor)       # who asked, beside the run (no column holds it)
+            core._stored(ctx, store.cursor_set, store.ASK_ACTOR_CURSOR.format(run=run_id), actor)   # who asked, beside the run while it goes (no column holds it; the finish removes it)
         ops_sources.record_copies(ctx, run_id, {"id": request_id}, got["records"])
         result = ops_contained.execute(ctx, skill, meta, keys, routing, prompt, timeout=ASK_TIMEOUT, dest=dest, prepared_dir=prepared_dir,
                                        max_cost=budget, sourced=got["files"], around=ops_cancel.watch(ctx, request_id))
@@ -266,6 +290,8 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
                        tokens=every.get("tokens", number_of("total_tokens", int)), duration_ms=number_of("duration_ms", int),
                        skill_loaded=_ops()._skill_loaded(timing, skill), image_digest=result["image_digest"],
                        redactions=_ops()._count(counts.get("redactions")))
+    if not cancelled and not _still_may_ask(ctx["cfg"]["project"], channel, sender):
+        return _outcome(WITHHELD, ran=True, refusal="withheld", **base)     # the run is recorded: it was made and spent
     return cancelled or _outcome(text, ran=True, answer=checked["outcome"], flags=checked["flags"], **base)
 
 

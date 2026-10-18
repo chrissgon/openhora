@@ -2503,6 +2503,7 @@ def route_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, fail
     return {"run_id": run_id, "request_id": request["id"], "pending_id": pending_id, "cancelled": False}
 
 
+ASK_ACTOR_CURSOR = "ask-actor:{run}"   # who asked, kept beside a running answer run only (no column holds it); removed when the run ends
 ANSWER_FAILED_BY = "code:answer-failed"   # the `by` of the request an answer run that failed cancels
 
 
@@ -2513,8 +2514,9 @@ def answer_run_start(conn: sqlite3.Connection, request_id: int | None = None, *,
     checks as `route_run_start` (the request is `requested`, has no open decision and is not being cancelled; no router or answer run
     is running: one conversation model call per project at a time), on the web never. The row is a row of task_runs whose task is the
     request, so no new column, state or trigger exists. With no `request_id`, the request is made in the same transaction from `title`
-    and `text`, so that no request of a question exists without its run (a mirror that reads the store between the two never sees it).
-    Returns {"run_id", "request_id", "started_at"}."""
+    and `text`, so that no request of a question exists without its run (a mirror that reads the store between the two never sees it);
+    its title is `title` and the request's number ("Question 7"), so that the text of a question is in the request's `text` and in no
+    line that lists requests. Returns {"run_id", "request_id", "started_at"}."""
     billing = _billing_arg(billing)
     autonomy = _autonomy_arg(autonomy)
     skill = text_arg(skill, "skill", LABEL_MAX)
@@ -2529,9 +2531,32 @@ def answer_run_start(conn: sqlite3.Connection, request_id: int | None = None, *,
     with write(conn):
         if request_id is None:
             request_id = _request_in(conn, title, text, None, [], None, None, None, now)["request"]
+            conn.execute("UPDATE tasks SET title = ? WHERE id = ?", (f"{title} {request_id}", request_id))
         run_id = _router_run_in(conn, request_id, skill=skill, model=model, adapter=adapter, skill_version=skill_version,
                                 skill_sha256=skill_sha256, web=False, reroute=False, billing=billing, autonomy=autonomy, now=now)
     return {"run_id": run_id, "request_id": request_id, "started_at": now}
+
+
+def answers_abandoned_cancel(conn: sqlite3.Connection, skill: str) -> list:
+    """Cancel, by `code:answer-failed`, the questions an ask left behind when its process died: a request with no task, in the state
+    `requested`, that has runs, none running, all of the answer `skill` (the recovery of the next ask has ended the run). The actor
+    cursors of those runs go too. A request a router run is working on has no run of this skill, and one whose run is still running is
+    not touched. Returns the ids of the requests cancelled."""
+    skill = text_arg(skill, "skill", LABEL_MAX)
+    now = iso(utcnow())
+    cancelled = []
+    with write(conn):
+        for row in conn.execute("SELECT id FROM tasks WHERE parent_id IS NULL AND state = 'requested' ORDER BY id").fetchall():
+            if conn.execute("SELECT 1 FROM tasks WHERE parent_id = ?", (row["id"],)).fetchone():
+                continue
+            runs = conn.execute("SELECT id, skill, status FROM task_runs WHERE task_id = ?", (row["id"],)).fetchall()
+            if not runs or any(r["skill"] != skill or r["status"] == "running" for r in runs):
+                continue
+            _cancel_request(conn, row["id"], ANSWER_FAILED_BY, now)
+            for r in runs:
+                conn.execute("DELETE FROM cursors WHERE name = ?", (ASK_ACTOR_CURSOR.format(run=r["id"]),))
+            cancelled.append(row["id"])
+    return cancelled
 
 
 def answer_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, failure: str | None = None, attempts: int = 0,
@@ -2567,6 +2592,7 @@ def answer_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, fai
                 "attempts": int(attempts), "cost_usd": cost_usd, "tokens": tokens, "duration_ms": duration_ms,
                 "skill_loaded": loaded, "image_digest": image_digest, "run_dir": run_dir, "redactions": redactions})
             _complete_cancel(conn, request["id"], now)
+            conn.execute("DELETE FROM cursors WHERE name = ?", (ASK_ACTOR_CURSOR.format(run=run_id),))
             return {"run_id": run_id, "request_id": request["id"], "state": _request(conn, request["id"])["state"], "cancelled": True}
         if status == "ok" and request["state"] != "requested":
             raise StoreError(f"request {request['id']} is {request['state']}: the answer is not recorded")
@@ -2576,6 +2602,7 @@ def answer_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, fai
             "WHERE id = ?",
             (status, failure, "done" if status == "ok" else None, int(attempts), now, cost_usd, tokens, duration_ms, loaded,
              image_digest, run_dir, error, redactions, run_id))
+        conn.execute("DELETE FROM cursors WHERE name = ?", (ASK_ACTOR_CURSOR.format(run=run_id),))
         if status == "ok":
             conn.execute("UPDATE tasks SET state = 'done', updated_at = ? WHERE id = ?", (now, request["id"]))
         else:

@@ -18,7 +18,7 @@ from test_service_conversation import Page
 
 @pytest.fixture
 def served(two, monkeypatch):
-    monkeypatch.setattr(service, "QUEUE_EVERY", 0.1)
+    monkeypatch.setattr(service, "QUEUE_EVERY", 3600)       # the loop that drains the queue takes the model slot for a moment: this page queues nothing
     run = run_serve(ops, [two["path"]], service.Server, dispatch_every=None, token_file=str(two["data"] / "service.token"))
     try:
         yield Page(run, two["project"]), two, run

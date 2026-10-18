@@ -292,10 +292,11 @@ class Bridge(shell_kit.Jobs):
             raise Refused(operations.not_enabled(op, CHANNEL))
         return settings
 
-    def run_op(self, project: dict, op: str, kind=None, sender=None, **args):
+    def run_op(self, project: dict, op: str, kind=None, sender=None, allow_as=None, **args):
         """The one call path: the policy first (for the sender's profile), then the operation, as the channel `messaging` and, when it takes one,
-        as that sender (the layer asks the policy again for them and records who acted)."""
-        self.allow(project, op, kind, sender)         # raises when no sender is named
+        as that sender (the layer asks the policy again for them and records who acted). `allow_as` names the operation whose group the
+        policy is asked for when it is not the one called: a typed `/ask` is a `say`, and needs the group `ask`, not `talk`."""
+        self.allow(project, allow_as or op, kind, sender)         # raises when no sender is named
         row = self.ops.operations.by_name(op)
         function = getattr(self.ops, row["call"])
         if row.get("channel_arg"):
@@ -732,7 +733,9 @@ class Bridge(shell_kit.Jobs):
     def say(self, project: dict, chat: str, text: str) -> None:
         def call():
             try:
-                result = self.run_op(project, "say", sender=chat, text=text)
+                named = self.ops.operations.parse_chat(text)
+                asking = named is not None and named[0] == "ask"      # `/ask <question>`: the group `ask` is what it needs (a profile may ask and not talk)
+                result = self.run_op(project, "say", sender=chat, allow_as="ask" if asking else None, text=text)
                 self.reply(chat, result.get("reply") or "(no reply)")
             except Refused as e:
                 self.reply(chat, str(e))

@@ -317,7 +317,6 @@ From the decisions of 2026-10-17 (`SPEC-ANSWER-FROM-SOURCES`, package AQ-1 built
   - Done when: the route to the answer skill opens no plan, and without the group a plan opens as today.
 - [ ] **AQ4. Chunking and retrieval for a source over 256 KiB.** A question reads at most 256 KiB of converted text and five sources. A larger source is answered only by a task; indexing waits for a real case.
   - Done when: the maintainer has a real source that needs it, and the choice (chunks by heading, a local index, or the task) is decided on that case.
-- [ ] **AQ5. An ask whose process died.** Its run is ended by the next recovery but its request stays `requested` ("recorded; it waits for its route" in the state reply). Cancel the request when the recovery ends an answer run, or let the store do it.
 
 ## Next skills
 
