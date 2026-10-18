@@ -348,6 +348,9 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `routine-pause` | `--id` | `routine_pause` |
 | `routine-resume` | `--id` | `routine_resume` |
 | `routine-cancel` | `--id` | `routine_cancel` |
+| `event-create` | `--account` `--title` `--start` `[--end]` `[--calendar]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_create` |
+| `event-change` | `--account` `--event` `[--title]` `[--start]` `[--end]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_change` |
+| `event-cancel` | `--account` `--event` | `event_cancel` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -467,6 +470,9 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/reminders` | `reminders` | - | none | - | - |
 | POST | `/projects/{p}/reminders` | `remind` | - | every other argument | - | - |
 | POST | `/projects/{p}/reminders/{id}/forget` | `reminder-forget` | `reminder_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/events` | `event-create` | - | every other argument | - | - |
+| POST | `/projects/{p}/events/change` | `event-change` | - | every other argument | - | - |
+| POST | `/projects/{p}/events/cancel` | `event-cancel` | - | every other argument | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->

@@ -2689,6 +2689,8 @@ from ops_sources import (source_add, source_calendar, source_describe, source_dr
 from ops_attachments import attachment_add, attachment_discard, attachment_hold, attachments  # noqa: E402,F401
 # Reminders (runtime/ops_reminders.py): the three operations, and what the messaging bridge asks of the store to send them.
 from ops_reminders import remind, reminder_forget, reminders_due, reminders_read, reminders_retry, reminders_sent  # noqa: E402,F401
+# The person's own calendar (runtime/ops_calendar.py, package W1): create, change and remove an event; each one prepares a card and writes nothing.
+from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)

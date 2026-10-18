@@ -57,7 +57,7 @@ export const ASKED = Object.freeze([
   ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["verdict"], ["say"], ["request"], ["route"], ["give-consent"],
   ["stage-file"], ["flow-save"], ["routine-create"], ["routine-change"], ["routine-approve"], ["routine-resume"], ["instructions-set"], ["instructions-add"], ["attachments"], ["attachment-add"], ["attachment-discard"],
   ["approve", "plan"], ["approve", "acceptance"], ["approve", "effect"], ["approve", "go-ahead"],
-  ["approve", "effect:create"], ["approve", "effect:write"], ["approve", "effect:send"], ["approve", "effect:publish"],
+  ["approve", "effect:create"], ["approve", "effect:write"], ["approve", "effect:send"], ["approve", "effect:publish"], ["approve", "effect:calendar"],
 ]);
 
 /** The list the project entry holds, or null when the page decides nothing (no key, null, or a shape that is not a list). */
