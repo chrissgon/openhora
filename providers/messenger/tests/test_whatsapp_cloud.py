@@ -53,7 +53,8 @@ def free_port():
 
 def test_capabilities_are_the_documented_ones_and_the_resolver_finds_the_script_by_its_platform_line():
     assert wc.CAPABILITIES == {"max_text": 4096, "buttons": True, "max_buttons": 3, "max_button_label": 20, "lists": False,
-                               "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": True, "listen": True}
+                               "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": True, "listen": True,
+                               "attachments": True, "max_attachment_bytes": 104857600}
     assert wc.PLATFORMS == ("whatsapp-cloud",) and kit.SCRIPT.name == "whatsapp-cloud.py"
     done = subprocess.run([sys.executable, str(kit.SCRIPT), "capabilities", "--platform", "whatsapp-cloud"], capture_output=True, text=True)
     assert json.loads(done.stdout) == wc.CAPABILITIES and done.returncode == 0
