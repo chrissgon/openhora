@@ -50,12 +50,14 @@ Usage:
   python3 runtime/cli.py verdict  --project <dir> --run <run id> --word worked|corrected|failed
   python3 runtime/cli.py sync     --project <dir> [--dry-run] [--take page|project --path <relative path>]
   python3 runtime/cli.py hand-over --project <dir> --task <task id> --file <path>
-  python3 runtime/cli.py source-add --project <dir> --source <id> --type file|notion|drive|onedrive --origin <file name | Notion page address | Drive file id | OneDrive <drive id>/<item id>> [--description <text>]
+  python3 runtime/cli.py source-add --project <dir> --source <id> --type file|notion|drive|onedrive|mail|calendar --origin <file name | Notion page address | Drive file id | OneDrive <drive id>/<item id> | mail or calendar window> [--description <text>]
   python3 runtime/cli.py source-import --project <dir> --source <id> (--file <path> | --url <Notion page address or id>) [--origin <text>] [--description <text>]
   python3 runtime/cli.py source-refresh --project <dir> --source <id> [--file <path>]
   python3 runtime/cli.py source-describe --project <dir> --source <id> [--description <text>]
   python3 runtime/cli.py source-drive --project <dir> [--file-id <Drive file id> --source <id>] [--description <text>]
   python3 runtime/cli.py source-onedrive --project <dir> (--search <text> | --folder <path> | --item <drive id>/<item id> [--item ...] [--source <id>]) [--description <text>]
+  python3 runtime/cli.py source-mail --project <dir> --source <id> [--origin gmail:box=<inbox|important|starred|unread>;days=<1-31>;max=<1-100> | outlook:box=<inbox|unread>;days=<1-31>;max=<1-100>] [--description <text>]
+  python3 runtime/cli.py source-calendar --project <dir> --source <id> [--origin google:calendar=<id>;past=<0-7>;ahead=<0-31> | outlook:calendar=<default|id>;past=<0-7>;ahead=<0-31>] [--description <text>]
   python3 runtime/cli.py sources  --project <dir>
   python3 runtime/cli.py attachments --project <dir>
   python3 runtime/cli.py attachment-add --project <dir> --id <attachment id>
@@ -286,6 +288,21 @@ source-onedrive  makes OneDrive files sources. There is no picker: you choose in
           (its cTag) and reads it only when it moved. Needs the one-time authorization: uv run providers/documents/onedrive_auth.py authorize.
           The scope, Files.Read, lets the token READ every file of your own OneDrive (Microsoft has no scope per chosen file) and write none; the
           runtime reads only the files you chose here. File names and search results are shown as the text they are, never run.
+source-mail  makes a window of your mailbox a source: a SNAPSHOT, read once by the runtime and kept as a dated, immutable version. --origin names
+          the reader (gmail or outlook), one fixed box (inbox, important, starred or unread; Outlook has inbox and unread), how many days back
+          and the most messages to read (up to 100), such as gmail:box=inbox;days=7;max=50. The first call registers the source and reads it; with
+          no --origin a registered source is read again (source-refresh does the same, and so does a routine's ingest step). Each message becomes
+          cleaned text: only what the sender wrote in it (the earlier messages quoted in a reply are cut), every link replaced by <link: host>, a
+          message with what looks like a credential left out on its own and counted by date and sender domain, attachments listed by name, type and
+          size and never opened. No run reads your mailbox: a task is given the text of the version its plan chose, and a snapshot older than 26
+          hours is never given to a task that starts on its own. A source keeps its origin: another window is another source. Needs the one-time
+          authorization of the reader (uv run providers/mailbox/auth.py --provider gmail, or providers/mailbox/outlook_auth.py authorize). The
+          token reads your whole mailbox (gmail.readonly, Mail.Read) and changes none; the narrowing to the box and the days is the runtime's.
+source-calendar  makes one calendar's window a source, the same way: --origin names the reader (google or outlook), the calendar (an id, primary
+          or default) and the days before today and after it, such as google:calendar=primary;past=0;ahead=14. The text lists each day's events
+          with time, title, place, who organises, your answer, cancelled, online meeting and recurring; no description and no attendee. Titles
+          and places are text somebody else wrote, shown as data. Needs the one-time authorization of the reader (providers/calendar/google_auth.py
+          authorize, or providers/calendar/outlook_auth.py authorize). Read only.
 sources   the catalog of the sources: each one's newest version (name, type, size, date, sheets and columns with sample values,
           first headings), your description, and whether its files changed outside the runtime. It calls no model.
 attachments  the files people sent through a messaging app that wait for your answer (what each is, the source it would become, when it expires), the

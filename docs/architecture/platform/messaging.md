@@ -270,7 +270,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `routine-approve` | `routine-approve`, `routine-resume` | - | `page` | - | approves a routine by its hash and resumes it |
 | `instructions-write` | `instructions-set`, `instructions-add` | - | `page` | - | writes the person's standing instructions |
 | `verdict` | `verdict` | - | `page` | - | records a verdict on a skill's use |
-| `sources` | `source-add`, `source-import`, `source-refresh`, `source-describe`, `sources` | - | `page`, `mcp`, `messaging` | - | adds, imports, refreshes and describes the project's sources |
+| `sources` | `source-add`, `source-import`, `source-refresh`, `source-describe`, `source-mail`, `source-calendar`, `sources` | - | `page`, `mcp`, `messaging` | - | adds, imports, refreshes and describes the project's sources, and reads a window of its mailbox or calendar as a snapshot |
 | `add-sources` | `attachments`, `attachment-hold`, `attachment-add`, `attachment-discard` | - | `page`, `messaging` | - | takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files |
 | `add-sources-direct` | `attachment-hold` | `direct` | `messaging` | - | a file a listed sender sends becomes a new source of the project without a confirmation; a file for an existing source still waits for a card (it holds the hold alone, and adds nothing else) |
 

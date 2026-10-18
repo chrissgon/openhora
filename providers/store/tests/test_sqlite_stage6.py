@@ -79,7 +79,7 @@ def test_migration_6_adds_the_conversation_table_and_leaves_every_earlier_row(tm
               for table in ("tasks", "approvals")}
     old.close()
     out = store.init_db(db)
-    assert out["migrated_from"] == 5 and out["applied"] == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] and out["schema_version"] == 19
+    assert out["migrated_from"] == 5 and out["applied"] == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21] and out["schema_version"] == 21
     conn = store.open_db(db)
     for table, rows in before.items():
         assert kept([tuple(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY id")], rows)
@@ -100,7 +100,7 @@ def test_a_database_at_the_earlier_version_is_migrated_by_init_and_refused_by_ev
     verb = subprocess.run([sys.executable, str(SCRIPT), "action-count", "--db", str(db), "--kind", "k", "--since",
                            "2026-10-01T00:00:00Z"], capture_output=True, text=True, timeout=60)
     assert verb.returncode == 3 and "run init" in verb.stderr
-    assert store.init_db(db)["applied"] == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    assert store.init_db(db)["applied"] == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21]
     assert store.messages_list(store.open_db(db), "project") == []
 
 

@@ -288,11 +288,11 @@ OPERATIONS = (
      "help": "what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project)"},
     {"name": "source-add", "call": "source_add",
      "args": ({"name": "source_id", "kind": "str", "required": True, "flag": "source", "label": "source id"},
-              {"name": "source_type", "kind": "choice", "choices": ("file", "notion", "drive", "onedrive"), "required": True, "flag": "type"},
+              {"name": "source_type", "kind": "choice", "choices": ("file", "notion", "drive", "onedrive", "mail", "calendar"), "required": True, "flag": "type"},
               {"name": "origin", "kind": "str", "required": True},
               {"name": "description", "kind": "str"}),
      "channels": ("terminal", "page"), "model": False, "channel_arg": True,
-     "help": "register a source of this project: its id, its type (file, notion, drive or onedrive) and its origin (a file's name, a Notion page's address or id, a Drive file's id, or a OneDrive file's <drive id>/<item id>, which only the terminal registers); nothing is imported and no credential is kept"},
+     "help": "register a source of this project: its id, its type (file, notion, drive, onedrive, mail or calendar) and its origin (a file's name, a Notion page's address or id, a Drive file's id, a OneDrive file's <drive id>/<item id>, which only the terminal registers, or the closed line of a mail or calendar window); nothing is imported and no credential is kept"},
     {"name": "source-import", "call": "source_import",
      "args": ({"name": "source_id", "kind": "str", "required": True, "flag": "source", "label": "source id"},
               {"name": "file", "kind": "str"}, {"name": "url", "kind": "str"}, {"name": "origin", "kind": "str"},
@@ -316,6 +316,16 @@ OPERATIONS = (
               {"name": "description", "kind": "str"}),
      "channels": ("terminal",), "model": False,
      "help": "make OneDrive files sources: --search <text> or --folder <path> lists up to 25 candidates (name, folder, size, date and the <drive id>/<item id>) and registers nothing; --item <drive id>/<item id>, repeated for several files, makes each chosen file a source and imports its first version (never a folder)"},
+    {"name": "source-mail", "call": "source_mail",
+     "args": ({"name": "source_id", "kind": "str", "required": True, "flag": "source", "label": "source id"},
+              {"name": "origin", "kind": "str"}, {"name": "description", "kind": "str"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "a window of your mailbox as a source: --origin gmail:box=<inbox|important|starred|unread>;days=<1-31>;max=<1-100> (or outlook:box=<inbox|unread>;...) registers the source and reads its first snapshot; with no origin, a source already registered is read again; each snapshot is a dated version with the links replaced and every message scanned for credentials, never read by a run"},
+    {"name": "source-calendar", "call": "source_calendar",
+     "args": ({"name": "source_id", "kind": "str", "required": True, "flag": "source", "label": "source id"},
+              {"name": "origin", "kind": "str"}, {"name": "description", "kind": "str"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "one calendar's window as a source: --origin google:calendar=<id>;past=<0-7>;ahead=<0-31> (or outlook:calendar=<default|id>;...) registers the source and reads its first snapshot; with no origin, a source already registered is read again; each snapshot is a dated version of the events (no description, no attendee), never read by a run"},
     {"name": "source-describe", "call": "source_describe",
      "args": ({"name": "source_id", "kind": "str", "required": True, "flag": "source", "label": "source id"},
               {"name": "description", "kind": "str"}),
@@ -435,7 +445,7 @@ GROUPS = {
     "routine-approve": {"operations": ("routine-approve", "routine-resume"), "kind": None},   # the approval of a routine's exact content by its hash, and the lifting of a pause
     "instructions-write": {"operations": ("instructions-set", "instructions-add"), "kind": None},   # writing the person's standing instructions (L40): the terminal and the page alone BY DEFAULT, whatever a policy lists today (a later package makes it a grant); not `instructions`, the read operation of the group `read`
     "verdict": {"operations": ("verdict",), "kind": None},
-    "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "sources"), "kind": None},
+    "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "source-mail", "source-calendar", "sources"), "kind": None},
     # ATT-1: files sent through a messaging app. `add-sources` is the group of everything about them (a messaging app takes a file only when its policy lists it,
     # by default none does; the page keeps its ceiling unless its policy narrows it; the MCP mode has no row). `add-sources-direct` is a grant of the messaging
     # channel: the file a listed sender sends becomes a version of a source at once, with no card; it holds the one call the bridge makes after a fetch
@@ -524,7 +534,7 @@ GROUP_TEXT = {
     "routine-approve": "approves a routine by its hash and resumes it",
     "instructions-write": "writes the person's standing instructions",
     "verdict": "records a verdict on a skill's use",
-    "sources": "adds, imports, refreshes and describes the project's sources",
+    "sources": "adds, imports, refreshes and describes the project's sources, and reads a window of its mailbox or calendar as a snapshot",
     "add-sources": "takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files",
     "add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation; a file for an existing source still waits for a card (it holds the hold alone, and adds nothing else)",
 }

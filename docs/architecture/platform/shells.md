@@ -328,6 +328,8 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `source-refresh` | `--source` `[--file]` | `source_refresh` |
 | `source-drive` | `[--file-id]` `[--source]` `[--description]` | `source_drive` |
 | `source-onedrive` | `[--search]` `[--folder]` `[--item]` `[--source]` `[--description]` | `source_onedrive` |
+| `source-mail` | `--source` `[--origin]` `[--description]` | `source_mail` |
+| `source-calendar` | `--source` `[--origin]` `[--description]` | `source_calendar` |
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
 | `attachments` | - | `attachments` |
@@ -451,6 +453,8 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/sync` | `sync` | - | every other argument | - | - |
 | GET | `/projects/{p}/sources` | `sources` | - | none | - | - |
 | POST | `/projects/{p}/sources` | `source-add` | - | every other argument | - | - |
+| POST | `/projects/{p}/sources/mail` | `source-mail` | - | every other argument | - | - |
+| POST | `/projects/{p}/sources/calendar` | `source-calendar` | - | every other argument | - | - |
 | POST | `/projects/{p}/sources/{name}/files` | `source-import` | `source_id` from `{name}` | every other argument | `file`, `url`, `origin`, `description` | file upload |
 | POST | `/projects/{p}/sources/{name}/import` | `source-import` | `source_id` from `{name}` | `url`, `origin`, `description` | `file` | - |
 | POST | `/projects/{p}/sources/{name}/refresh` | `source-refresh` | `source_id` from `{name}` | none | `file` | - |

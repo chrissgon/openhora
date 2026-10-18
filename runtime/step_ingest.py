@@ -18,6 +18,12 @@ Arguments (checked when the task is planned, so the plan's hash covers exactly w
                                                                               source checks the newest version against its hashes
                                                                               a Drive source asks Drive for the file's version and reads
                                                                               it only when it moved (P7)
+                                                                              a mail or calendar source (RT-1) reads its window again: a new
+                                                                              version only when the listing changed or the day did; this is how a
+                                                                              routine keeps a snapshot younger than the 26 hours limit L52 allows
+                                                                              an unattended task. The arguments hold no query, box, window or
+                                                                              calendar: those are fixed by the source's origin, which only the
+                                                                              person sets (limit L51)
 
 A file is never read from an arbitrary path: the task reads the plain name it is given from its own file drop,
 `.workbench-local/drop/<task id>/` (runtime/drop.py: a regular file, no link, no credential in it, put there by the person with
