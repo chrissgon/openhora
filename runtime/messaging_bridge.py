@@ -101,6 +101,7 @@ import messaging_cards as cards
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
+import natural
 import phrases
 import shell_kit
 
@@ -922,6 +923,8 @@ class Bridge(shell_kit.Jobs):
                         return
                 result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text), text=text)
                 self.reply(chat, result.get("reply") or self.t("NO_REPLY", project=project), project)
+                if result.get("resend") is not None:      # a decision named in words (NR-2): its card goes out again; the decision is made from the card
+                    self.resend(project, chat, result["resend"])
             except Refused as e:
                 self.reply(chat, str(e), project)
             except self.ops.OpsError as e:
@@ -948,7 +951,21 @@ class Bridge(shell_kit.Jobs):
         `talk` (a profile may ask and not talk, or talk and not ask). None for every other line. The one place that chooses: `keep_or_refuse` asks the
         policy for it when the line comes and `line` when it runs."""
         named = self.ops.operations.parse_chat(text)
-        return "ask" if named is not None and named[0] == "ask" else None
+        if named is not None:
+            return "ask" if named[0] == "ask" else None
+        return natural.needs(text)      # NR-2: a plain line that is a form of a read or a notice needs that operation's group, not `talk` (it runs no model)
+
+    def resend(self, project: dict, chat: str, pending_id: int) -> None:
+        """Send the card of an open decision again to the chat that named it in words (NR-2): the same card, under the same rules, so the decision is
+        made from it. Nothing is sent for a decision that is not open, or that the sender is not sent a card for."""
+        try:
+            item = self.ops.pending(project["path"], pending_id=pending_id)
+            settings = self.settings(project)
+            if settings is None or item.get("status", "open") != "open" or not self.wants(project, settings, item, chat):
+                return
+            self.send_card(project, settings, item, chat)
+        except self.ops.OpsError as e:
+            self.log(f"a card could not be sent again ({e.__class__.__name__})")
 
     def keep_or_refuse(self, project: dict, chat: str, text: str, refusal: str) -> None:
         """Keep the line and say so, or say `refusal` (the phrase table's key of the sentence the line always got when the project was busy: `RUN_BUSY` or

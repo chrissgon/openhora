@@ -439,6 +439,10 @@ GROUPS = {
     "approve-effect-publish": {"operations": ("approve",), "kind": "effect:publish"},     # a post (effect_publish.py APPROVAL_GROUP)
     "approve-networked-plans": {"operations": ("approve",), "kind": "plan:networked"},    # a plan that holds a step reaching the network (P9, limit L36): on top of approve-plans
     "ask": {"operations": ("ask",), "kind": None},   # an answer from the full text of the project's sources: in no default (a messaging sender gets it only from a profile or channel entry accepted with --widen), never on the MCP mode
+    # NR-2 (the maintainer's decision of 2026-10-18, superseding the RT-1 rule for its holders): the sender may ask about the mail and calendar sources of the project from a
+    # messaging app, and those sources join the automatic selection of their questions. It adds a capability to `ask` and never grants `ask` (KIND_ONLY): a profile lists both.
+    # In no default; the accepted file widens it only with accept-config --widen like every other group.
+    "ask-mail": {"operations": ("ask",), "kind": "mail"},
     "go-ahead": {"operations": ("go-ahead",), "kind": None},
     "reject-cancel": {"operations": ("reject", "cancel"), "kind": None},
     "brakes": {"operations": ("cancel", "stop-task"), "kind": None},   # R18: end what runs, turned on for messaging by listing it (in no default); `cancel` is also in reject-cancel, so a written policy stays valid
@@ -474,7 +478,8 @@ NEVER_NARROWED = ("terminal",)
 POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's configuration narrows; `chat` (local access, equal to the terminal) and `terminal` never are
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
-MESSAGING_ONLY_GROUPS = ("read-limited",)          # valid on a messaging app alone (the page and the MCP mode list `read`)
+MESSAGING_ONLY_GROUPS = ("read-limited", "ask-mail")          # valid on a messaging app alone (the page and the MCP mode list `read`; the page and the terminal name a mail source with @<id> as they always did)
+KIND_ONLY = ("ask-mail",)                           # groups that add a capability to an operation another group grants: they never grant the operation when no kind is asked (policy_allows)
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
@@ -534,6 +539,7 @@ GROUP_TEXT = {
     "approve-effect-publish": "approves a post to a social platform, with its hash",
     "approve-networked-plans": "approves a plan that holds a script which reaches the network, with the plan's hash",
     "ask": "asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers)",
+    "ask-mail": "asks about the mail and calendar sources from a messaging app and has them read for questions that name no source: their text goes to a model and the answer passes the platform (adds to `ask`, never grants it)",
     "go-ahead": "goes ahead on a task that waits for another request",
     "reject-cancel": "rejects a decision and cancels a request",
     "brakes": "cancels a request and stops a running task",
@@ -722,9 +728,20 @@ def policy_allows(op_name: str, channel: str, policy, kind: str | None = None, s
         return True
     for name in groups:
         group = GROUPS.get(name)
+        if name in KIND_ONLY and kind is None:
+            continue
         if group and op_name in group["operations"] and _covers(group["kind"], kind):
             return True
     return False
+
+
+def holds(group: str, channel: str, policy, sender=None) -> bool:
+    """Whether the project's own entry for the channel (or the sender's profile) LISTS the group, and the channel takes it (pure). A channel with no entry,
+    which keeps its whole ceiling, holds nothing here: a capability such as `ask-mail` is held only by being listed, so the page and the terminal never do."""
+    given = _explicit(channel, policy, sender)
+    if given is None:
+        given = DEFAULT_POLICY.get(channel)
+    return group in GROUPS and group in (given or ()) and group_refusal(channel, group) is None
 
 
 def permitted(op_name: str, channel: str, policy, kind: str | None = None, sender=None) -> bool:

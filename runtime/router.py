@@ -34,12 +34,26 @@ A reply that asks (a line `Q<n>: ...`, also on the template's `Next:` line) is a
 its route line says. A reply with exactly one route line is a route; anything else (no route line, `Route: none`,
 a name in prose, two route lines) is unclassified and reaches the person whole. Nothing here guesses.
 
+A reply whose route line is `Route: none (operation)` (package NR-2) names an operation of the table of natural requests (runtime/natural.py) instead
+of a route:
+
+  Route: none (operation)
+  Operation: <name>
+  Argument <slot>: <words copied from the person's line>         (zero or more, one per slot)
+  When: YYYY-MM-DD HH:MM                                          (optional: a time the router normalised)
+
+Code reads it as `{"kind": "operation", ...}` only when the person's line is given (`read_route(reply, line=...)`) and `natural.check_operation`
+believes it: the operation is in the table, each Argument is a slot of its row and a number, a word or a text of the person's line, and the When line has
+the shape of its slot. Anything else (two Operation lines, an Argument the row lacks, words that are not in the line, a bad When, no line given) is
+unclassified; a Sources or Language line is not read for an operation. The reply is never executed here: runtime/ops_natural.py executes an operation,
+checked as the typed command is.
+
 A reply whose route line carries the shape word `direct` (`Route: none (direct)`, or a name with `(direct, ready)`) is
 the skill's answer for a one-step request that no skill is needed for: a direct turn. Code reads it as such, with the
 text of the template's `Next:` line, and the person is answered from the project's records (runtime/ops_say.py).
 
 Functions:
-  read_route(reply)                             {"kind": "question"} | {"kind": "direct", "next"} | {"kind": "route", ...} | {"kind": "unclassified", "why"}
+  read_route(reply, ignore_language=False, line=None)   {"kind": "question"} | {"kind": "direct", "next"} | {"kind": "operation", "name", "args", "when"} | {"kind": "route", ...} | {"kind": "unclassified", "why"}
   check_route(route, flow_names, pack_skills, known_sources=None)   {"ok": true, "flow" | "skill"} | {"ok": false, "why"}
 
 Pure: text in, a route out. It imports nothing of the lab or the store and calls no model.
@@ -56,6 +70,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import language  # noqa: E402  (the same folder: the rule of a language tag)
+import natural  # noqa: E402  (the same folder: the table of natural requests, pure)
 import roles  # noqa: E402  (the same folder)
 
 ROUTER_SKILL = roles.load()["router"]  # runtime/roles.json
@@ -71,6 +86,11 @@ QUESTION_RE = re.compile(r"^(?:Next: )?Q[0-9]+: ")
 # and a status. The template's `Next:` line is what the planner proposes to do.
 DIRECT_RE = re.compile(r"^Route: (?:none|[a-z0-9]+(?:-[a-z0-9]+)*) \(direct(?:, (?:ready|pending))?\)$")
 NEXT_RE = re.compile(r"^Next: (.*\S)\s*$")
+# The operation shape (package NR-2): `Route: none (operation)`, the name, the arguments and an optional normalised time.
+OPERATION_ROUTE_RE = re.compile(r"^Route: none \(operation\)$")
+OPERATION_RE = re.compile(r"^Operation: ([a-z0-9]+(?:-[a-z0-9]+)*)$")
+ARGUMENT_RE = re.compile(r"^Argument ([a-z][a-z0-9_]{0,23}): (.*\S)\s*$")
+WHEN_LINE = re.compile(r"^When: (.*\S)\s*$")
 DIRECT_SHAPE = "direct"
 FLOW_PREFIX = "flow-"
 NO_ROUTE = "none"  # `Route: none`: the skill's stop rule for a request nothing installed can handle
@@ -123,12 +143,39 @@ def read_sources(lines) -> dict:
     return {"sources": chosen}
 
 
-def read_route(reply: str, ignore_language: bool = False) -> dict:
+def read_operation(lines, said) -> dict:
+    """The operation a reply named: {"kind": "operation", "name", "args", "when"}, or {"kind": "unclassified", "why"}. `said` is the person's line
+    (None: no operation is read, as for one of several deliveries). The checks are natural.check_operation's."""
+    names = [m.group(1) for m in map(OPERATION_RE.match, lines) if m]
+    if len(names) != 1:
+        return {"kind": "unclassified", "why": "no Operation line" if not names else f"{len(names)} Operation lines"}
+    slots = {}
+    for found in filter(None, map(ARGUMENT_RE.match, lines)):
+        if found.group(1) in slots:
+            return {"kind": "unclassified", "why": f"two Argument lines for {found.group(1)!r}"}
+        slots[found.group(1)] = found.group(2)
+    times = [m.group(1) for m in map(WHEN_LINE.match, lines) if m]
+    if len(times) > 1:
+        return {"kind": "unclassified", "why": f"{len(times)} When lines"}
+    checked = natural.check_operation(names[0], slots, times[0] if times else None, said)
+    if not checked["ok"]:
+        return {"kind": "unclassified", "why": checked["why"]}
+    return {"kind": "operation", "name": checked["name"], "args": checked["args"], "when": checked["when"]}
+
+
+def read_route(reply: str, ignore_language: bool = False, said: str | None = None) -> dict:
     """What the reply of a router run says, read from its lines only. ignore_language: the request carries the person's own choice of
-    language, so a `Language:` line of the reply is not read at all (two lines or a bad tag do not make the reply unclassified)."""
+    language, so a `Language:` line of the reply is not read at all (two lines or a bad tag do not make the reply unclassified). `said` is the
+    person's own line, given only for a request of one line: a reply that names an operation is believed against it (read_operation), and without it
+    such a reply is unclassified."""
     lines = [line.rstrip() for line in (reply or "").splitlines()]
     if any(QUESTION_RE.match(line) for line in lines):
         return {"kind": "question"}
+    operations = sum(1 for line in lines if OPERATION_ROUTE_RE.match(line))
+    if operations:
+        if operations > 1 or any(ROUTE_RE.match(line) or DIRECT_RE.match(line) for line in lines):
+            return {"kind": "unclassified", "why": "the reply mixes an operation with a route"}
+        return read_operation(lines, said)
     if sum(1 for line in lines if DIRECT_RE.match(line)) == 1 and not any(ROUTE_RE.match(line) for line in lines):
         proposed = next((m.group(1) for m in map(NEXT_RE.match, lines) if m), "")
         return {"kind": "direct", "next": proposed}

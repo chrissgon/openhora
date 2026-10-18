@@ -35,8 +35,10 @@ import ops_core as core
 import autonomy
 import lab
 import language as language_rules
+import natural
 import operations
 import ops_actor
+import ops_natural
 import phrases
 import plan
 import router
@@ -122,7 +124,8 @@ def chat_memory(messages: list, settled: set) -> str:
     for n, m in enumerate(messages):
         if m["role"] == "assistant" and m.get("task_id") in settled:
             start = n + 1
-    kept = [m for m in messages[start:] if (m["role"] == "user" and not m["text"].startswith("/") and not state_question(m["text"])) or
+    kept = [m for m in messages[start:] if (m["role"] == "user" and not m["text"].startswith("/") and not state_question(m["text"])
+                                            and natural.match(m["text"]) is None and not ops_natural.is_placeholder(m["text"])) or
             (m["role"] == "assistant" and m.get("task_id") is not None)][-MEMORY_TURNS:]
     lines = [f"{m['role']}: {' '.join(m['text'].split())[:MEMORY_CUT]}" for m in kept]
     while lines and len("\n".join([MEMORY_HEAD, *lines])) > MEMORY_CHARS:
@@ -153,7 +156,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     ctx = core.context(project)
     said = core._text(text, "the line")
     store = ctx["store"]
-    if _turn_routes(said) and not asks_state(ctx, said):
+    if _turn_routes(said) and not asks_state(ctx, said) and not asks_natural(ctx, said, channel, sender):
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
         # router is free again; a shell that drains nothing is refused while the router answers another request.
         if channel in QUEUING_CHANNELS and (route_busy(ctx) or _queue_read(ctx, peek=True)):
@@ -162,15 +165,38 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
                     "message_id": stored["id"]}
         if channel not in QUEUING_CHANNELS and route_busy(ctx):
             raise core.RunBusy(RUN_BUSY, 1)
-    stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=said)
-    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"], sender)
-    core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant", text=reply or phrases.text("NO_REPLY", ctx["cfg"]),
-                 task_id=request_id, run_id=run_id)
+    stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=ops_natural.stored_line(ctx, said))
+    extras = {}
+    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"], sender, extras)
+    core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
+                 text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=request_id, run_id=extras.get("run_id", run_id))
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
-            **({"instruction_proposal": offered} if offered else {})}
+            **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {})}
 
 
-def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender=None) -> tuple:
+def person_line(text: str) -> str:
+    """The person's own line out of the text of a request: the text itself, or, for a line routed with the conversation's memory in front of it, the line
+    after `MEMORY_TAIL`. The memory's lines are one line each, so the first marker is the real one; what a router names is believed against this line alone."""
+    if text.startswith(MEMORY_HEAD):
+        marker = f"\n\n{MEMORY_TAIL}\n"
+        at = text.find(marker)
+        if at >= 0:
+            return text[at + len(marker):]
+    return text
+
+
+def _natural_channel(channel: str) -> str:
+    """The channel a natural request is checked under: the queue's drain acts as the page (the one channel that queues)."""
+    return "page" if channel == DRAIN else channel
+
+
+def asks_natural(ctx: dict, said: str, channel: str, sender=None) -> bool:
+    """Whether a plain line is handled by code as a natural request (a tier-1 form, or the answer to the sender's draft): it runs no model, so it takes
+    no route lock and is never queued. As with the state, an open question of the router means the line is its answer."""
+    return _router_question(ctx, _last_request(ctx)) is None and ops_natural.peek(ctx, said, _natural_channel(channel), sender)
+
+
+def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender=None, extras=None) -> tuple:
     """(reply, request_id, pending_id, ran, run_id, proposal) of one stored line of the person: a command, a question about the
     state, the answer to the router's question, or a new request. `line_id` is the line's message id: the memory
     the router is given is the messages before it. proposal is None, or the proposal to add the line to the project's
@@ -183,7 +209,12 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
             return f"error: {operations.not_enabled('status', channel)}", None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
         return state_reply(project, cfg=ctx["cfg"]), None, None, False, None, None
-    out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender)
+    extras = extras if extras is not None else {}
+    if asked is None:      # a tier-1 form or the answer to a draft: code, no model, no route lock (package NR-2); any other line drops the sender's draft
+        natural_reply = ops_natural.take(project, ctx, said, _natural_channel(channel), sender, extras)
+        if natural_reply is not None:
+            return natural_reply, None, None, False, extras.get("run_id"), None
+    out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender, extras=extras)
     offered = importlib.import_module("ops_instructions").proposal(ctx, out[1], said, channel) if asked is not None else None
     return (out[0] + "\n\n" + offered["text"], *out[1:], offered) if offered else (*out, None)
 
@@ -492,9 +523,10 @@ def _drain_line(project: str, ctx: dict, message_id: int) -> dict:
              if m["id"] == message_id]
     if not found:
         raise core.OpsError(f"message {message_id} is not in the conversation", 1)
-    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, found[0]["text"], DRAIN, message_id)
-    core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant", text=reply or phrases.text("NO_REPLY", ctx["cfg"]),
-                 task_id=request_id, run_id=run_id)
+    extras = {}
+    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, found[0]["text"], DRAIN, message_id, None, extras)
+    core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant",
+                 text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=request_id, run_id=extras.get("run_id", run_id))
     return {"routed": "line", "message_id": message_id, "request_id": request_id, "pending_id": pending_id, "ran": ran,
             **({"instruction_proposal": offered} if offered else {})}
 
@@ -573,6 +605,8 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
             out = function(project, **found)
     except core.OpsError as e:
         return f"error: {e}", None, None, False, None
+    if name == "ask":
+        ops_natural.keep_which(ctx, _natural_channel(channel), sender, found["text"], out)      # the files to choose from: the next line may be the number of one
     if name == "ask" and out.get("run_id") is not None:
         # The answer is stored with the id of its answer run and no request (so it is not the router's memory): `conversation` shows it only
         # to the channel that asked (ops_ask.asked_by), and every other reader gets ANSWERED_AS (limit L50).
@@ -601,7 +635,7 @@ def _planning_may_start(ctx: dict) -> tuple:
     return ok, why
 
 
-def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, answer_to=None, after=None, sender=None) -> tuple:
+def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, answer_to=None, after=None, sender=None, extras=None) -> tuple:
     """A plain line: the answer to the router's question (then the router runs again), or a new request with the
     memory in front of it (the messages before the line). Either way the router runs only when the planning agent may
     start. A reply of the router that is a direct turn cancels the request by code and is answered from the store's
@@ -630,6 +664,15 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:direct", context=ctx)
         return (state_reply(project, routed.get("next"), ctx["cfg"]) + importlib.import_module("ops_ask").hint(ctx, channel, sender),
                 None, None, True, routed.get("run_id"))
+    if routed.get("kind") == "operation":
+        # An operation of the table of natural requests (NR-2): the router only named it. The request the line recorded is cancelled by code, and the
+        # dispatcher believes the operation against the line the request holds, checks the policy as the typed command is, and executes it.
+        import ops_cancel
+        line = person_line(core._stored(ctx, ctx["store"].task_get, request_id)["text"])
+        core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:operation", context=ctx)
+        extras = extras if extras is not None else {}
+        reply = ops_natural.run_routed(project, ctx, routed["operation"], line, _natural_channel(channel), sender, extras)
+        return reply, None, None, True, extras.get("run_id", routed.get("run_id"))
     item = core._stored(ctx, ctx["store"].pending_get, routed["pending_id"]) if routed.get("pending_id") else None
     if item is None:
         failure = (routed.get("failure") or {}).get("reason") or "the router's run failed"
