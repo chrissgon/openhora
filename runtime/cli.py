@@ -329,12 +329,12 @@ event-create  prepares a new event on a calendar of your own Google or Microsoft
           or YYYY-MM-DD for an all-day event; the end defaults to an hour after the start (the same day, all-day). --calendar is a name of the
           account's calendars in runtime.json (the key accounts); the first is used when it is absent. Nobody is invited and no e-mail is sent; no
           recurrence. It calls no model, and the account's token is read by the calendar writer alone.
-event-change  prepares a change to an event of your own calendar (--account, --event <source>#<n> or created:<decision>, and any of --title,
+event-change  prepares a change to an event of your own calendar (--account, --event <source>#<n> or created:<decision>, optionally --calendar, and any of --title,
           --start, --end, --location, --reminder-minutes, --notes) and stops at a card that shows each part as it was and as it will be. The event is
           read from the calendar first and must be yours alone: organized by you, with no other attendee, not repeating. It is written only if it
           is still as it was read. A start alone moves the event and keeps its length. Nobody is told. It calls no model.
-event-cancel  prepares the removal of such an event (--account, --event) and stops at a card. Google moves it to the calendar's trash, where it stays
-          30 days; removing an event from Outlook is not available yet. Nobody is told. It calls no model.
+event-cancel  prepares the removal of such an event (--account, --event, optionally --calendar) and stops at a card. Google is expected to move it to the
+          calendar's trash, where it stays 30 days (to verify live); removing an event from Outlook is not available yet. Nobody is told. It calls no model.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.

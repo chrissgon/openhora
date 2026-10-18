@@ -418,16 +418,16 @@ OPERATIONS = (
     {"name": "event-change", "call": "event_change",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
               {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"},
-              {"name": "title", "kind": "str"}, {"name": "start", "kind": "str", "label": "YYYY-MM-DDTHH:MM | YYYY-MM-DD"},
+              {"name": "calendar", "kind": "str"}, {"name": "title", "kind": "str"}, {"name": "start", "kind": "str", "label": "YYYY-MM-DDTHH:MM | YYYY-MM-DD"},
               {"name": "end", "kind": "str", "label": "YYYY-MM-DDTHH:MM | YYYY-MM-DD"}, {"name": "location", "kind": "str"},
               {"name": "reminder_minutes", "kind": "int", "flag": "reminder-minutes"}, {"name": "notes", "kind": "str"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
-     "help": "prepare a change to an event of your own calendar and stop at a card that shows each part as it was and as it will be (nothing is written until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; a start alone moves the event and keeps its length; --event is <source>#<n> (the n-th item of a calendar snapshot) or created:<decision>; nobody is told"},
+     "help": "prepare a change to an event of your own calendar and stop at a card that shows each part as it was and as it will be (nothing is written until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; a start alone moves the event and keeps its length; --event is <source>#<n> (the n-th item of a calendar snapshot) or created:<decision> and the calendar is the one it is on (--calendar names it; another one is refused); nobody is told"},
     {"name": "event-cancel", "call": "event_cancel",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
-              {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"}),
+              {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"}, {"name": "calendar", "kind": "str"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
-     "help": "prepare the removal of an event of your own calendar and stop at a card (nothing is removed until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; Google moves it to the calendar's trash for 30 days; on Outlook this is not available yet; nobody is told"},
+     "help": "prepare the removal of an event of your own calendar and stop at a card (nothing is removed until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; Google is expected to move it to the calendar's trash for 30 days (to verify live); on Outlook this is not available yet; nobody is told"},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.

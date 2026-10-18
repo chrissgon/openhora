@@ -254,6 +254,36 @@ def test_a_server_error_on_a_read_is_a_refusal_not_an_unknown_outcome_because_a_
     assert proc.returncode == 1 and "Graph returned 500" in proc.stderr and "may or may not have landed" not in proc.stderr
 
 
+def test_a_503_on_a_write_is_unknown_and_the_key_stays_pending(fake, tmp_path, state):
+    fake.refuse_next = (503, "serviceNotAvailable")
+    proc = run(fake, tmp_path, state, *create_args(tmp_path))
+    assert proc.returncode == 4 and "may or may not have landed" in proc.stderr
+    assert out(run(fake, tmp_path, state, *create_args(tmp_path, mode="--dry-run")))["ledger"] == "pending"
+
+
+def test_an_all_day_event_east_of_utc_is_read_in_its_own_zone_so_its_date_is_not_a_day_off(fake, tmp_path, state):
+    own = {"start": {"dateTime": "2026-10-19T00:00:00.0000000", "timeZone": "Tokyo Standard Time"},
+           "end": {"dateTime": "2026-10-20T00:00:00.0000000", "timeZone": "Tokyo Standard Time"}}
+    an_event(fake, isAllDay=True, start={"dateTime": "2026-10-18T15:00:00.0000000", "timeZone": "UTC"},      # asked in UTC, Graph shifts the midnight of +09:00
+             end={"dateTime": "2026-10-19T15:00:00.0000000", "timeZone": "UTC"}, _own=own)
+    event = out(run(fake, tmp_path, state, "event-get", "--calendar", "default", "--event", "AAMkEvent9999="))["event"]
+    assert event["all_day"] is True and event["start"] == "2026-10-19" and event["end"] == "2026-10-20"
+    assert [r["prefer"] for r in fake.graph_requests()] == ['outlook.timezone="UTC", outlook.body-content-type="text"', 'outlook.body-content-type="text"']
+    fake.requests.clear()
+    timed = fake.add_event("AAMkTimed00001=", "Dentist", "2026-10-19T16:00:00", "2026-10-19T17:00:00")
+    assert timed and out(run(fake, tmp_path, state, "event-get", "--calendar", "default", "--event", "AAMkTimed00001="))["event"]["start"] == "2026-10-19T16:00:00Z"
+    assert len(fake.graph_requests()) == 1, "a timed event is read once"
+
+
+def test_an_id_a_key_or_a_calendar_that_starts_with_a_hyphen_is_a_usage_error(fake, tmp_path, state):
+    spec = spec_file(tmp_path, CREATE_SPEC)
+    for args in (["event-create", "--calendar", "-x", "--spec-file", spec, "--idempotency-key", KEY, "--dry-run"],
+                 ["event-create", "--calendar", "default", "--spec-file", spec, "--idempotency-key", "-k", "--dry-run"],
+                 ["event-patch", "--calendar", "default", "--event", "-e", "--base-etag", "CQ1", "--spec-file", spec, "--idempotency-key", KEY, "--dry-run"],
+                 ["event-patch", "--calendar", "default", "--event", "e1", "--base-etag", "-1", "--spec-file", spec, "--idempotency-key", KEY, "--dry-run"]):
+        assert run(fake, tmp_path, state, *args).returncode == 2, args
+
+
 @pytest.mark.parametrize("more", [{"type": "seriesMaster"}, {"type": "occurrence"}, {"type": "exception"}, {"seriesMasterId": "AAMkSeries0001="}], ids=str)
 def test_event_get_says_recurring_for_a_series_an_occurrence_and_an_exception(fake, tmp_path, state, more):
     an_event(fake, **more)

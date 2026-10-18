@@ -36,10 +36,10 @@ STATE_ENV = "OPENHORA_STATE_DIR"
 LEDGER, LOCK = "ledger.json", "ledger.lock"
 LOCK_SECONDS = 10
 SPEC_MAX_BYTES = 64 * 1024
-KEY = re.compile(r"[A-Za-z0-9._-]{1,128}")
-EVENT_ID = re.compile(r"[A-Za-z0-9=_+-]{1,600}")
-CALENDAR_ID = re.compile(r"(?!\.{1,2}$)[A-Za-z0-9._@+=-]{1,300}")
-ETAG = re.compile(r"[A-Za-z0-9_=+/.\"-]{1,200}")
+KEY = re.compile(r"(?!-)[A-Za-z0-9._-]{1,128}")      # an id, a key or an etag never starts with a hyphen: a flag would read it
+EVENT_ID = re.compile(r"(?!-)[A-Za-z0-9=_+-]{1,600}")
+CALENDAR_ID = re.compile(r"(?!\.{1,2}$)(?!-)[A-Za-z0-9._@+=-]{1,300}")
+ETAG = re.compile(r"(?!-)[A-Za-z0-9_=+/.\"-]{1,200}")
 INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 TITLE_MAX, LOCATION_MAX, NOTES_MAX, REMINDER_MAX = 200, 200, 2000, 40320

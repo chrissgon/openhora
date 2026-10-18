@@ -61,11 +61,11 @@ DEFAULT_MINUTES = 60            # a timed event with no end lasts an hour
 SPAN_MAX_DAYS = 31              # no event, timed or all-day, covers more than this
 YEARS = (2000, 2100)
 SHA256 = re.compile(r"[0-9a-f]{64}")
-KEY = re.compile(r"cal-[0-9a-f]{32}")
+KEY = re.compile(r"cal-[0-9a-f]{32}")      # (ids below never start with a hyphen: a flag would read it)
 NAME = re.compile(r"[a-z0-9-]{1,32}")
-CALENDAR_ID = re.compile(r"(?!\.{1,2}$)[A-Za-z0-9._@+=-]{1,300}")
-EVENT_ID = re.compile(r"[A-Za-z0-9=_+-]{1,600}")
-ETAG = re.compile(r"[A-Za-z0-9_=+/.\"-]{1,200}")
+CALENDAR_ID = re.compile(r"(?!\.{1,2}$)(?!-)[A-Za-z0-9._@+=-]{1,300}")
+EVENT_ID = re.compile(r"(?!-)[A-Za-z0-9=_+-]{1,600}")
+ETAG = re.compile(r"(?!-)[A-Za-z0-9_=+/.\"-]{1,200}")
 ZONE = re.compile(r"[A-Za-z0-9_+/:-]{1,64}")
 WALL = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -432,14 +432,18 @@ def facts(doc: dict, kind: str, got: dict) -> dict:
             "event_id": got.get("event_id") or doc["event_id"], "etag": got.get("etag"), "idempotency_key": doc["idempotency_key"]}
 
 
-def _event_lines(event: dict, zone: str) -> list:
-    out = [["CARD_CAL_TITLE", {"title": event["title"]}], ["CARD_CAL_WHEN", {"when": when_text(event, zone)}]]
+def _event_lines(event: dict, zone: str, current: bool = False) -> list:
+    """The lines of an event. `current` is an event as the service holds it (the one a removal is about): its title, place and notes are under the keys of
+    phrases.CARD_PRIVATE, which a messaging app draws only for a sender who may read the person's own mail and calendar."""
+    prefix = "DROP" if current else None
+    key = lambda word: f"CARD_CAL_{prefix}_{word}" if prefix else f"CARD_CAL_{word}"      # noqa: E731
+    out = [[key("TITLE"), {"title": event["title"]}], ["CARD_CAL_WHEN", {"when": when_text(event, zone)}]]
     if event["location"]:
-        out.append(["CARD_CAL_WHERE", {"location": event["location"]}])
+        out.append([key("WHERE"), {"location": event["location"]}])
     if event["reminder_minutes"] is not None:
         out.append(["CARD_CAL_REMIND", {"minutes": str(event["reminder_minutes"])}])
     if event["notes"]:
-        out.append(["CARD_CAL_NOTES", {"notes": event["notes"]}])
+        out.append([key("NOTES"), {"notes": event["notes"]}])
     return out
 
 
@@ -458,9 +462,10 @@ def card_lines(doc: dict, digest: str) -> list:
     head = [["CARD_ACCOUNT", {"account": doc["account"], "address": doc["address"]}], ["CARD_CAL_CALENDAR", {"calendar": doc["calendar"]}]]
     if operation == "create":
         return [["CARD_CAL_CREATE", {}]] + head + _event_lines(doc["event"], zone) + [["CARD_CAL_NOBODY", {}]]
+    head.append(["CARD_CAL_EVENT", {"event_id": doc["event_id"]}])
     base = [["CARD_CAL_BASE", {"etag_short": etag_short(doc["base_etag"])}]]
     if operation == "cancel":
-        return [["CARD_CAL_CANCEL", {}]] + head + _event_lines(doc["before"], zone) + base
+        return [["CARD_CAL_CANCEL", {}]] + head + _event_lines(doc["before"], zone, current=True) + base
     changed, out = doc["changed"], [["CARD_CAL_CHANGE", {"read_at": doc["read_at"]}]] + head
     before, after = doc["before"], doc["event"]
     out += _part_lines("BEFORE", before, zone, changed) + _part_lines("AFTER", after, zone, changed)

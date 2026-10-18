@@ -297,9 +297,11 @@ class CalendarReader:
             shutil.rmtree(folder, ignore_errors=True)
 
     def event_ref(self, reference) -> dict:
-        """What a reference to an event names: {"event_id", "account" (or None), "calendar" (a name the project gives it, or None)}. `created:<decision>` is an
-        event this runtime created, read from the result of that decision; `<source>#<n>` is the n-th item of a snapshot, resolved through the index of the
-        snapshot (package SNAP-IDX: runtime/item_refs.py), which this checkout may not have yet. StepServiceError `refused` otherwise."""
+        """What a reference to an event names: {"event_id", "account", "calendar" (the name the project gives the calendar, or None), "calendar_id" (the id the
+        reference puts the event on, or None)}. It FAILS CLOSED: a reference that names no account, or whose account is not google or microsoft, is refused; the
+        caller compares the account and the calendar id with the project's `accounts` exactly. `created:<decision>` is an event this runtime created, read from the
+        result of that decision; `<source>#<n>` is the n-th item of a snapshot, resolved through the index of the snapshot (package SNAP-IDX: runtime/item_refs.py),
+        which this checkout may not have yet. StepServiceError `refused` otherwise."""
         if not isinstance(reference, str):
             raise StepServiceError("refused", "an event is named by a reference")
         created = CREATED_REF.fullmatch(reference)
@@ -312,13 +314,14 @@ class CalendarReader:
         except ImportError:
             raise StepServiceError("refused", "a reference to an event of a snapshot needs the index of the snapshots (package SNAP-IDX), which this checkout does not have") from None
         try:
-            found = item_refs.resolve(self._ctx, reference)      # ASSUMED shape, to be aligned with the merged module: a dict with `id` and, when it knows them, `calendar` (an id) and `account`
+            found = item_refs.resolve(self._ctx, reference)      # ASSUMED shape, to be aligned with the merged module: a dict with `id`, `calendar` (an id) and `account`
         except Exception as e:      # its refusal ("refresh <source> first", a number past the end...) is the sentence the person reads
             raise StepServiceError("refused", " ".join(str(e).split())[:200] or "the reference does not name an event") from None
-        if not isinstance(found, dict) or not isinstance(found.get("id"), str):
-            raise StepServiceError("refused", "the reference does not name an event")
-        account = found.get("account") if found.get("account") in calendar_document.ACCOUNTS else None
-        return {"event_id": found["id"], "account": account, "calendar": self.calendar_label(account, found.get("calendar")) if account else None}
+        account = found.get("account") if isinstance(found, dict) else None
+        if not isinstance(found, dict) or not isinstance(found.get("id"), str) or account not in calendar_document.ACCOUNTS:
+            raise StepServiceError("refused", "the reference does not name an event of an account")
+        calendar_id = found.get("calendar") if isinstance(found.get("calendar"), str) else None
+        return {"event_id": found["id"], "account": account, "calendar": self.calendar_label(account, calendar_id) if calendar_id else None, "calendar_id": calendar_id}
 
     def _created(self, pending_id: int) -> dict:
         store = self._ctx["store"]
@@ -330,9 +333,11 @@ class CalendarReader:
         result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
         step = payload.get("step") if isinstance(payload.get("step"), dict) else {}
         if item.get("kind") != "effect" or item.get("resolution") != "approved" or step.get("kind") != "calendar-event" or result.get("operation") != "create" \
-                or not isinstance(result.get("event_id"), str):
+                or not isinstance(result.get("event_id"), str) or result.get("account") not in calendar_document.ACCOUNTS:
             raise StepServiceError("refused", f"decision {pending_id} did not create an event")
-        return {"event_id": result["event_id"], "account": result.get("account"), "calendar": result.get("calendar")}
+        name = result.get("calendar") if isinstance(result.get("calendar"), str) else None
+        listed = (project_config.account_entry(self._cfg, result["account"]) or {}).get("calendars") or {}
+        return {"event_id": result["event_id"], "account": result["account"], "calendar": name if name in listed else None, "calendar_id": listed.get(name)}
 
 
 class EffectFiles:

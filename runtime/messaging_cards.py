@@ -127,7 +127,17 @@ def gated(item: dict) -> bool:
     return item["kind"] == "effect" or (item["kind"] == "plan" and item.get("plan_networked") is True)
 
 
-def effect_card_text(item: dict, cfg=None):
+def reads_private(policy, sender, operations) -> bool:
+    """Whether the sender may be shown the current text of the person's own items on a card (the lines of phrases.CARD_PRIVATE): only a sender who holds the group
+    `ask-mail` (the answer from mail and calendar). No sender, or a policy with no entry, is not."""
+    try:
+        groups = operations.effective_groups(CHANNEL, policy, sender)
+    except Exception:      # a policy this function cannot read shows nothing private
+        return False
+    return bool(sender) and bool(groups) and phrases.CARD_PRIVATE_GROUP in groups
+
+
+def effect_card_text(item: dict, cfg=None, private: bool = True):
     """The body of an `effect` decision said line by line in the project's language, or None. An effect of an account write (package FND) stores, beside
     its English body, its `card`: a list of [key, {field: text}] lines of the phrase table's family CARD_ (runtime/phrases.py card_valid). The lines are
     said in the language of `cfg` only when the card is well formed AND the English lines are exactly the stored body (so that the card says what the
@@ -140,7 +150,9 @@ def effect_card_text(item: dict, cfg=None):
         return None
     if phrases.card_text(card).strip() != (item.get("body") or "").strip():
         return None
-    return phrases.card_text(card, cfg)
+    shown = card if private else phrases.card_without_private(card)
+    text = phrases.card_text(shown, cfg)
+    return text + "\n" + phrases.text("CARD_HIDDEN_NOTE", cfg) if len(shown) < len(card) else text
 
 
 def build(project_name: str, item: dict, caps: dict, policy, notices: str = "text", page_url=None, operations=None,
@@ -166,7 +178,9 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     needs_whole = gated(item)
     blocked = _blocked or ("document" if delivery == "failed" else None)
     approval_ok = False
-    if needs_whole and not blocked and notices == "text":
+    private = reads_private(policy, sender, operations)
+    cut_private = kind == "effect" and not private and effect_card_text(item, None, True) != effect_card_text(item, None, False)      # a line of the current text is left out
+    if needs_whole and not blocked and notices == "text" and not cut_private:
         if kind == "effect":
             approval_ok = item.get("effect_on_cards") is True and operations.permitted("approve", CHANNEL, policy, effect_kind(item), sender)
         else:
@@ -215,7 +229,7 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
         else:
             footer.append(page_url)
     header = header_of(project_name, item, cfg)
-    shown_body = effect_card_text(item, cfg) if kind == "effect" else None      # an effect that carries its card as lines (FND), said line by line in the language
+    shown_body = effect_card_text(item, cfg, private) if kind == "effect" else None      # an effect that carries its card as lines (FND), said line by line in the language
     full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg),
                               body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
     document = None

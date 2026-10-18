@@ -513,8 +513,8 @@ def test_a_reference_names_an_event_of_a_snapshot_only_when_the_index_is_in_the_
     assert "no such item" in str(past.value)
     seed_google(world)
     with pytest.raises(ops.OpsError) as other:      # the reference says the event is on a calendar the project names `side`, and the call is for `personal`
-        ops.event_change(world["path"], "google", "calendar#1", title="New")
-    assert "another account or calendar" in str(other.value)
+        ops.event_change(world["path"], "google", "calendar#1", title="New", calendar="personal")
+    assert "not on the calendar asked for" in str(other.value)
 
 
 # --- a removal ----------------------------------------------------------------------------------------------------------------------------------
@@ -526,8 +526,9 @@ def test_limit_57_a_removal_is_one_delete_with_if_match_and_send_updates_none_th
     item = item_of(world, started)
     assert item["title"] == "Calendar: remove an event"
     lines = item["body"].splitlines()
-    assert lines[0] == "Code removes this event after your approval. It goes to the calendar's trash, where you can restore it for 30 days (Google Calendar, Trash)."
-    assert f"Title: {TITLE}" in lines and lines[-1].startswith("Based on version ")
+    assert lines[0] == ("Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days "
+                        "(Google Calendar, Trash); this has not been verified yet.")
+    assert f"Removing, title: {TITLE}" in lines and "Event: ev0001" in lines and lines[-1].startswith("Based on version ")
     doc = effect_doc(world, started)
     assert doc["operation"] == "cancel" and doc["event"] is None and doc["changed"] == [] and doc["before"]["title"] == TITLE
     world["google"].requests.clear()
@@ -797,3 +798,99 @@ def test_times_follow_the_forms_and_the_defaults_and_a_change_keeps_what_it_is_n
             times(*bad)
     with pytest.raises(effects.EffectError):
         times(None, "2026-10-19", current)      # an end that is a day for a timed event
+
+
+# --- the reference fails closed (review of #479, M1) -------------------------------------------------------------------------------------------------
+
+
+def nothing_left(world):
+    tasks, pending = rows(world)
+    assert pending == [] and {t["state"] for t in tasks} <= {"cancelled"}
+
+
+def test_limit_55_an_event_the_index_puts_on_a_calendar_the_project_does_not_list_is_never_changed(world, monkeypatch):
+    install_item_refs(monkeypatch, {"cal#1": {"id": GRAPH_SEEDED, "calendar": "AAMkUnlistedCalendar=", "account": "microsoft"}})
+    seed_graph(world)
+    for call in (lambda: ops.event_change(world["path"], "microsoft", "cal#1", title="Hijacked"),
+                 lambda: ops.event_change(world["path"], "microsoft", "cal#1", title="Hijacked", calendar="personal")):
+        with pytest.raises(ops.OpsError) as why:
+            call()
+        assert "do not list" in str(why.value) or "not on the calendar asked for" in str(why.value)
+    assert world["graph"].events[GRAPH_SEEDED]["subject"] == "Dentist" and not [r for r in world["graph"].graph_requests() if r["method"] != "GET"]
+    nothing_left(world)
+
+
+def test_limit_55_a_reference_that_names_no_account_or_another_account_than_the_call_is_refused(world, monkeypatch):
+    seed_google(world)
+    install_item_refs(monkeypatch, {"cal#1": {"id": SEEDED, "calendar": fgw.CALENDAR}, "cal#2": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "microsoft"},
+                                    "cal#3": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "other"}})
+    for reference in ("cal#1", "cal#2", "cal#3"):
+        with pytest.raises(ops.OpsError) as why:
+            ops.event_change(world["path"], "google", reference, title="X")
+        assert "account" in str(why.value), reference
+    assert world["google"].requests == []
+    nothing_left(world)
+
+
+def test_limit_55_an_index_that_names_the_calendar_by_another_id_than_the_projects_is_refused_exactly(world, monkeypatch):
+    seed_google(world)
+    install_item_refs(monkeypatch, {"cal#1": {"id": SEEDED, "calendar": "primary", "account": "google"}, "cal#2": {"id": SEEDED, "account": "google"},
+                                    "cal#3": {"id": SEEDED, "calendar": fgw.CALENDAR.upper(), "account": "google"}})
+    for reference in ("cal#1", "cal#2", "cal#3"):
+        with pytest.raises(ops.OpsError):
+            ops.event_change(world["path"], "google", reference, title="X")
+    assert world["google"].requests == []
+    install_item_refs(monkeypatch, {"cal#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}})
+    assert ops.event_change(world["path"], "google", "cal#1", title="X")["pending"]
+
+
+def test_an_event_created_on_a_second_calendar_is_changed_and_removed_on_that_calendar_without_naming_it(world):
+    started = create(world, account="microsoft", calendar="work")
+    approve(world, started)
+    assert effect_doc(world, started)["calendar_id"] == fgc.NAMED
+    world["graph"].requests.clear()
+    changed = ops.event_change(world["path"], "microsoft", f"created:{started['pending']}", title="New")
+    assert effect_doc(world, changed)["calendar"] == "work" and effect_doc(world, changed)["calendar_id"] == fgc.NAMED
+    assert [r["path"] for r in world["graph"].graph_requests()] == [f"/v1.0/me/calendars/{fgc.NAMED}/events/AAMkEvent0001="]
+    with pytest.raises(ops.OpsError) as other:       # naming another calendar than the one the event is on is refused, not guessed
+        ops.event_change(world["path"], "microsoft", f"created:{started['pending']}", title="New", calendar="personal")
+    assert "not on the calendar asked for" in str(other.value)
+    google = create(world, calendar="side")
+    with pytest.raises(ops.OpsError):       # the stand-in serves one calendar: this only proves the second calendar is the one asked
+        approve(world, google)
+
+
+def test_a_created_reference_to_a_calendar_the_project_no_longer_lists_is_refused(world):
+    started = create(world, calendar="side")
+    world["google"].events.clear()
+    ctx = ops_core.context(world["path"])
+    ctx["store"].pending_get(ctx["conn"], started["pending"])
+    path = Path(world["path"]) / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    made = create(world)
+    approve(world, made)
+    raw["accounts"]["google"]["calendars"] = {"other": "other.calendar@example.com"}
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    ops.accept_config(world["path"], ops.config(world["path"])["sha256"], widen=ops.config(world["path"])["widening_sha256"])
+    with pytest.raises(ops.OpsError) as why:
+        ops.event_change(world["path"], "google", f"created:{made['pending']}", title="X")
+    assert "do not list" in str(why.value)
+
+
+def test_a_reminder_is_not_changed_on_an_event_with_several_reminders(world, monkeypatch):
+    seed_google(world, reminders={"useDefault": False, "overrides": [{"method": "popup", "minutes": 15}, {"method": "email", "minutes": 60}]})
+    install_item_refs(monkeypatch, {"cal#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}})
+    with pytest.raises(ops.OpsError) as why:
+        ops.event_change(world["path"], "google", "cal#1", reminder_minutes=5)
+    assert "several reminders" in str(why.value)
+    started = ops.event_change(world["path"], "google", "cal#1", title="Renamed")      # another part of the same event is changed as usual
+    assert effect_doc(world, started)["changed"] == ["title"]
+
+
+def test_a_503_on_a_write_is_unknown_for_the_runtime_too(world):
+    started = create(world)
+    world["google"].refuse_next = (503, "backendError")
+    with pytest.raises(ops.OpsError) as why:
+        approve(world, started)
+    assert "outcome is unknown" in str(why.value) or "may or may not have landed" in str(why.value)
+    assert task_state(world, started["task"]) == "waiting"

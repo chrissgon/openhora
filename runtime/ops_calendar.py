@@ -11,11 +11,12 @@ runtime/effect_calendar.py `execute`, reached only by `approve` with the hash of
 
   event_create(project, account, title, start[, end, calendar, location, reminder_minutes, notes])
         a new event on a calendar of the account (the first one the project lists when `calendar` is absent); nobody is invited; no recurrence
-  event_change(project, account, event[, title, start, end, location, reminder_minutes, notes])
+  event_change(project, account, event[, title, start, end, location, reminder_minutes, notes, calendar])
         change parts of an event you organize with no other attendee and no recurrence; `event` is a reference: `<source>#<n>` (the n-th item of a calendar
-        snapshot, once the index of the snapshots is in the checkout) or `created:<decision>` (an event this runtime created)
-  event_cancel(project, account, event)
-        remove such an event: Google sends it to the calendar's trash (30 days); on Outlook this is not available yet
+        snapshot, once the index of the snapshots is in the checkout) or `created:<decision>` (an event this runtime created). The calendar is the one the
+        reference puts the event on (it must be one the project's `accounts` lists); `calendar` names it when the person wants to be sure, and a different one is refused
+  event_cancel(project, account, event[, calendar])
+        remove such an event: Google is expected to send it to the calendar's trash (30 days; to verify live); on Outlook this is not available yet
 
 Who may call what is the table of operations (runtime/operations.py: the group `calendar-write`, in no default policy, never on the MCP mode) and, for a messaging
 sender, runtime/account_start.py (the profile of THAT sender, read from the configuration loaded for this call). The words of the person (a title, notes) reach a
@@ -52,15 +53,15 @@ def event_create(project: str, account: str, title: str, start: str, end: str | 
 
 def event_change(project: str, account: str, event: str, title: str | None = None, start: str | None = None, end: str | None = None,
                  location: str | None = None, reminder_minutes: int | None = None, notes: str | None = None, channel: str | None = None,
-                 sender: str | None = None) -> dict:
+                 sender: str | None = None, calendar: str | None = None) -> dict:
     """Prepare a change to an event and stop at its card (each part as it was and as it will be). See the module's text."""
-    return _start(project, "change", account, {"event": event, "title": title, "start": start, "end": end, "location": location,
+    return _start(project, "change", account, {"event": event, "calendar": calendar, "title": title, "start": start, "end": end, "location": location,
                                                "reminder_minutes": reminder_minutes, "notes": notes}, channel, sender)
 
 
-def event_cancel(project: str, account: str, event: str, channel: str | None = None, sender: str | None = None) -> dict:
+def event_cancel(project: str, account: str, event: str, channel: str | None = None, sender: str | None = None, calendar: str | None = None) -> dict:
     """Prepare the removal of an event and stop at its card. See the module's text."""
-    return _start(project, "cancel", account, {"event": event}, channel, sender)
+    return _start(project, "cancel", account, {"event": event, "calendar": calendar}, channel, sender)
 
 
 if __name__ == "__main__":

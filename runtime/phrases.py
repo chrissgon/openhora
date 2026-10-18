@@ -293,7 +293,12 @@ TABLE = {
         "TITLE_CAL_CANCEL": "Calendar: remove an event",
         "CARD_CAL_CREATE": "Code creates this event after your approval, and nothing else.",
         "CARD_CAL_CHANGE": "Code changes this event after your approval, only if it is still as read at {read_at}.",
-        "CARD_CAL_CANCEL": "Code removes this event after your approval. It goes to the calendar's trash, where you can restore it for 30 days (Google Calendar, Trash).",
+        "CARD_CAL_CANCEL": "Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days (Google Calendar, Trash); this has not been verified yet.",
+        "CARD_CAL_EVENT": "Event: {event_id}",
+        "CARD_CAL_DROP_TITLE": "Removing, title: {title}",
+        "CARD_CAL_DROP_WHERE": "Removing, where: {location}",
+        "CARD_CAL_DROP_NOTES": "Removing, notes: {notes}",
+        "CARD_HIDDEN_NOTE": "Some of the event's current text is not shown here: the page and the terminal show all of it.",
         "CARD_CAL_CALENDAR": "Calendar: {calendar}",
         "CARD_CAL_TITLE": "Title: {title}",
         "CARD_CAL_WHEN": "When: {when}",
@@ -502,6 +507,10 @@ def localize(sentence, cfg=None):
 
 CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,40}")
 CARD_LINES_MAX = 300        # lines in one card
+# The lines that show the CURRENT text of something the person owns (an event's title, place and notes as the service holds them): a messaging app draws them only for a
+# sender who also holds the group CARD_PRIVATE_GROUP (the answer from mail and calendar), and a card with such a line left out is not whole, so it is not approved there.
+CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES"))
+CARD_PRIVATE_GROUP = "ask-mail"
 CARD_MULTILINE = ("body", "text", "notes", "content", "change")      # the fields that may hold line ends and tabs (a message, a note, a file's text, a diff); every other field is one line
 CARD_REFUSED = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")      # control, format (a right-to-left override, a zero-width character), line and paragraph separator, surrogate, private use
 
@@ -535,6 +544,11 @@ def card_valid(card) -> bool:
         if set(fields) != _fields_of(english[key]) or not all(_field_ok(k, v) for k, v in fields.items()):
             return False
     return True
+
+
+def card_without_private(card) -> list:
+    """The lines of a valid card that are not in CARD_PRIVATE."""
+    return [line for line in card if line[0] not in CARD_PRIVATE]
 
 
 def card_text(card, cfg=None) -> str:

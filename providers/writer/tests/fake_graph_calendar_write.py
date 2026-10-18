@@ -193,6 +193,9 @@ class FakeGraphCalendar:
             return 404, {"error": {"code": "ErrorItemNotFound", "message": "The specified object was not found in the store."}}, {}, None
         if method == "GET":
             shown = dict(item)
+            own = shown.pop("_own", None)      # an all-day event's own zone: asked in UTC (a Prefer header) Graph shifts its midnight, asked with none it does not
+            if own and "outlook.timezone" not in (entry["prefer"] or ""):
+                shown["start"], shown["end"] = own["start"], own["end"]
             if "singleValueExtendedProperties" not in entry["query"].get("$expand", ""):
                 shown.pop("singleValueExtendedProperties", None)
             return 200, shown, {}, None

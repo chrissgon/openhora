@@ -175,10 +175,23 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
     if account == "microsoft" and operation == "cancel":
         raise steps.StepFailure("not_available", "operation", "writer", "removing an event from an Outlook calendar is not available yet: Microsoft does not say where "
                                 "a removed event goes, so it is off until that is shown")
-    calendar_id, why = reader.target(account, args.get("calendar"))
+    named = None
+    if operation == "create":
+        name = reader.calendar_name(account, args.get("calendar"))
+    else:
+        # The reference decides what the event is; the project's `accounts` decides where it may be written. Both must name the same account and the same
+        # calendar, exactly (limit L55): a reference that names no account, or a calendar the project does not list, is refused.
+        named = _asked(reader.event_ref, args["event"])
+        if named.get("account") != account:
+            raise steps.StepFailure("not_eligible", "event", "", "this event is not on the account asked for, or the reference does not say which account it is on")
+        name = args.get("calendar") if args.get("calendar") is not None else named.get("calendar")      # an event on a second calendar goes by the calendar it is on
+        if name is None:
+            raise steps.StepFailure("not_eligible", "event", "", "this event is on a calendar the project's accounts do not list: nothing is changed there")
+    calendar_id, why = reader.target(account, name)
     if why:
         raise steps.StepFailure("target_refused", "calendar", "", why[:200])
-    name = reader.calendar_name(account, args.get("calendar"))
+    if named is not None and named.get("calendar_id") != calendar_id:
+        raise steps.StepFailure("not_eligible", "event", "", "this event is not on the calendar asked for (name it with the calendar argument, or ask for the calendar it is on)")
     pieces = dict(task_id=ctx.task_id, account=account, address=reader.address(account), calendar=name, calendar_id=calendar_id, operation=operation,
                   zone=calendar_document.zone_name())
     try:
@@ -187,14 +200,13 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
             event = calendar_document.event_of(args["title"], args.get("location", ""), args.get("reminder_minutes"), args.get("notes", ""), when)
             pieces.update(event=event)
         else:
-            named = _asked(reader.event_ref, args["event"])
-            if named.get("account") not in (None, account) or named.get("calendar") not in (None, name):
-                raise steps.StepFailure("not_eligible", "event", "", "this event is on another account or calendar than the one asked for")
             read = _asked(reader.event_get, account, calendar_id, named["event_id"])
             raw = read.get("event") if isinstance(read, dict) and read.get("found") is True else None
             if raw is None:
                 raise steps.StepFailure("event_gone", "event", "writer", "that event is not on this calendar any more (it was removed, or it is on another calendar)")
             _eligible(raw)
+            if args.get("reminder_minutes") is not None and raw.get("reminders_extra"):
+                raise steps.StepFailure("not_eligible", "reminder_minutes", "writer", "this event has several reminders: change them in the calendar, here a reminder is one number of minutes")
             if not isinstance(raw.get("etag"), str):
                 raise steps.StepFailure("provider_failed", "event", "writer", "the calendar gave no version of the event, so nothing is changed")
             before = calendar_document.from_service(raw)

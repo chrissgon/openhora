@@ -54,7 +54,7 @@ Test overrides (tests only, loopback URLs only, both set together; the secret st
   WRITER_CALENDAR_OUTLOOK_TOKEN_URL   replaces https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token
 
 Limits. The request function sends only the methods and paths of ALLOWED, and refuses anything else (limits L57, L58); there is no removal in it. No redirect is
-followed. A verb never retries: a 429 or 503 is reported with its Retry-After and nothing is changed. Every request has a 60-second timeout. Prints one JSON object
+followed. A verb never retries: a 429, or a 503 on a read, is reported with its Retry-After and nothing is changed; a 503 or another server error on a write is exit 4 (it may have landed) and the key stays pending. Every request has a 60-second timeout. Prints one JSON object
 on stdout; diagnostics on stderr. Exit codes: 0 ok, 1 refused with nothing changed (the service said no, or the event changed since it was read: the message starts
 with `changed:`), 2 usage (a bad flag, id or spec, a verb this writer does not have), 3 not configured, 4 unknown (the request may have landed: send the same key again).
 """
@@ -114,7 +114,7 @@ NOTES_SHOWN = 2000
 RECURRING_TYPES = ("seriesMaster", "occurrence", "exception")
 GRAPH_LOCAL_RE = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?")
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-CHANGE_KEY_RE = re.compile(r"[A-Za-z0-9_=+/.-]{1,200}")
+CHANGE_KEY_RE = re.compile(r"(?!-)[A-Za-z0-9_=+/.-]{1,200}")
 
 
 class Lost(WriterError):
@@ -194,7 +194,7 @@ def failure(session: Session, status: int, headers, body: bytes, what: str):
     """The error for an answer that is not the one wanted. A write answered with a redirect or a server error may have landed (Lost)."""
     if status == 404 or status == 409 or status == 410:
         return WriterError(f"changed: the event is not as it was read ({what}, {status})", EXIT_REFUSED, status)
-    if not what.startswith("GET") and (status in msgraph.REDIRECT_STATUSES or (status >= 500 and status != 503)):      # a read changes nothing: only a write may have landed
+    if not what.startswith("GET") and (status in msgraph.REDIRECT_STATUSES or status >= 500):      # a read changes nothing: only a write may have landed
         return Lost(f"Graph answered {status} ({what}): the request may or may not have landed")
     problem = session.client.failure(status, headers, body, what)
     return WriterError(str(problem), problem.code, status)
@@ -204,7 +204,7 @@ def failure(session: Session, status: int, headers, body: bytes, what: str):
 
 
 def calendar_id(value) -> str:
-    if value != "default" and (not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9=_-]{1,300}", value)):
+    if value != "default" and (not isinstance(value, str) or not re.fullmatch(r"(?!-)[A-Za-z0-9=_-]{1,300}", value)):
         raise WriterError("--calendar is `default` or an Outlook calendar id (letters, digits, = _ and -)", EXIT_USAGE)
     return value
 
@@ -336,10 +336,8 @@ def json_body(body: bytes):
     return found if isinstance(found, dict) else None
 
 
-def fetch_event(session: Session, calendar: str, event: str, extra_select: str = ""):
-    """The event as Graph holds it, or None when it is gone (404 or cancelled)."""
-    status, headers, body = request(entry_for("GET", calendar, True), session, events_path(calendar, event),
-                                    {"$select": SELECT + extra_select}, {"Prefer": 'outlook.timezone="UTC", outlook.body-content-type="text"'})
+def read_once(session: Session, calendar: str, event: str, prefer: dict):
+    status, headers, body = request(entry_for("GET", calendar, True), session, events_path(calendar, event), {"$select": SELECT}, prefer)
     if status == 404:
         return None
     if status != 200:
@@ -347,7 +345,17 @@ def fetch_event(session: Session, calendar: str, event: str, extra_select: str =
     item = json_body(body)
     if item is None:
         raise WriterError("Graph answered something this writer does not understand")
-    return None if item.get("isCancelled") is True else item
+    return item
+
+
+def fetch_event(session: Session, calendar: str, event: str):
+    """The event as Graph holds it, or None when it is gone (404 or cancelled). A timed event is read in UTC. An all-day event is read AGAIN in its own zone:
+    asked in UTC, Graph shifts its midnight and the date can come out a day off east or west of UTC."""
+    item = read_once(session, calendar, event, {"Prefer": 'outlook.timezone="UTC", outlook.body-content-type="text"'})
+    if item is not None and item.get("isAllDay") is True:
+        own = read_once(session, calendar, event, {"Prefer": 'outlook.body-content-type="text"'})
+        item = own if own is not None else None
+    return None if item is None or item.get("isCancelled") is True else item
 
 
 # --- the verbs -----------------------------------------------------------------------------------------------------------------

@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 import standin_tree as st
-from test_calendar_write import (EVENTS, PIECES, TITLE, approve, create, effect_doc, item_of, ops, ops_core, operations, rows, world)  # noqa: F401  (the calendar world)
+from test_calendar_write import (EVENTS, PIECES, TITLE, approve, create, effect_doc, item_of, made_event, ops, ops_core, operations, rows, world)  # noqa: F401  (the calendar world)
 from test_channel_grants import accept
 
 cards = st.load("messaging_cards")
@@ -143,3 +143,47 @@ def test_a_widening_that_lists_the_calendar_groups_is_shown_in_words_and_changes
     with pytest.raises(ops.OpsError):
         prepare(world)
     assert world["google"].requests == []
+
+
+def card_for(world, started, groups):
+    full = ops.pending(world["path"], started["pending"])
+    return cards.build("office", full, CAPS, {"messaging": groups}, "text", None, operations=operations, sender=SENDER)
+
+
+def test_a_change_card_shows_the_events_current_text_on_messaging_only_to_a_sender_who_holds_ask_mail(world):
+    made = made_event(world)
+    started = ops.event_change(world["path"], "google", f"created:{made['pending']}", title="Haircut with Pat", start="2026-10-20T10:00", notes="New notes")
+    body = item_of(world, started)["body"]
+    assert f"Before: Title: {TITLE}" in body and "Before: Notes: Bring cash" in body and "Unchanged: Where: Main Street" in body      # the terminal and the page: all of it
+    holder = card_for(world, started, ["read", "approve-effect-calendar", "ask-mail"])
+    other = card_for(world, started, ["read", "approve-effect-calendar"])
+    assert f"Before: Title: {TITLE}" in holder["message"]["text"] and holder["approvable"] is True
+    text = other["message"]["text"]
+    for hidden in (f"Before: Title: {TITLE}", "Before: Notes: Bring cash", "Unchanged: Where: Main Street", TITLE + "\n"):
+        assert hidden not in text, hidden
+    for shown in ("Event: ev0001", "After: Title: Haircut with Pat", "After: Notes: New notes", "Before: When: Mon 19/10/2026 13:00-14:00", "Some of the event's current text is not shown here"):
+        assert shown in text, shown
+    assert other["approvable"] is False and "Approve this exact content" not in labels(other), "a card that leaves a line out is not approved where it is partial"
+    assert other["content_sha256"] == holder["content_sha256"], "the hash is the effect's, whatever is drawn"
+    portuguese = cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, {"messaging": ["read"]}, "text", None, operations=operations, sender=SENDER,
+                             cfg={"language": "pt-BR"})["message"]["text"]
+    assert "Parte do texto atual do evento n\u00e3o aparece aqui" in portuguese and "Evento: ev0001" in portuguese
+    assert "Antes: T\u00edtulo" not in portuguese and "Depois: T\u00edtulo: Haircut with Pat" in portuguese
+
+
+def test_a_removal_card_hides_title_place_and_notes_from_a_sender_without_ask_mail_but_not_the_time(world):
+    made = made_event(world)
+    started = ops.event_cancel(world["path"], "google", f"created:{made['pending']}")
+    other = card_for(world, started, ["read", "approve-effect-calendar"])["message"]["text"]
+    assert TITLE not in other and "Main Street" not in other and "Bring cash" not in other
+    assert "Mon 19/10/2026 13:00-14:00" in other and "Event: ev0001" in other
+    holder = card_for(world, started, ["read", "approve-effect-calendar", "ask-mail"])["message"]["text"]
+    assert f"Removing, title: {TITLE}" in holder and "Removing, notes: Bring cash" in holder and "not shown here" not in holder
+    assert cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, {"messaging": ["read", "approve-effect-calendar", "ask-mail"]}, "text", None,
+                       operations=operations, sender=None)["approvable"] is False, "no sender, no private text"
+
+
+def test_a_create_card_has_no_private_line_so_it_is_whole_for_every_sender(world):
+    started = create(world, **PIECES)
+    card = card_for(world, started, ["read", "approve-effect-calendar"])
+    assert card["approvable"] is True and "not shown here" not in card["message"]["text"] and f"Title: {TITLE}" in card["message"]["text"]

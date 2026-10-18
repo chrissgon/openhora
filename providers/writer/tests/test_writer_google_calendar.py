@@ -277,6 +277,34 @@ def test_a_server_error_on_a_write_is_unknown_and_the_key_stays_pending(fake, tm
     assert out(run(fake, tmp_path, state, *insert_args(tmp_path, mode="--dry-run")))["ledger"] == "pending"
 
 
+def test_a_503_on_a_write_is_unknown_with_its_retry_after_and_the_key_stays_pending_but_on_a_read_it_is_a_refusal(fake, tmp_path, state):
+    fake.refuse_next = (503, "backendError")
+    proc = run(fake, tmp_path, state, *insert_args(tmp_path))
+    assert proc.returncode == 4 and "Retry-After: 30" in proc.stderr and "may or may not have landed" in proc.stderr
+    assert out(run(fake, tmp_path, state, *insert_args(tmp_path, mode="--dry-run")))["ledger"] == "pending"
+    a_event(fake)
+    fake.fail_get_next = 503
+    assert run(fake, tmp_path, state, "event-get", "--calendar", fgw.CALENDAR, "--event", "evabc12345").returncode == 1
+
+
+def test_event_get_counts_the_reminders_besides_the_one_it_shows(fake, tmp_path, state):
+    a_event(fake, reminders={"useDefault": False, "overrides": [{"method": "popup", "minutes": 15}, {"method": "email", "minutes": 60}, {"method": "popup", "minutes": 5}]})
+    event = out(run(fake, tmp_path, state, "event-get", "--calendar", fgw.CALENDAR, "--event", "evabc12345"))["event"]
+    assert event["reminder_minutes"] == 15 and event["reminders_extra"] == 2
+    fake.events["evabc12345"]["reminders"] = {"useDefault": True}
+    event = out(run(fake, tmp_path, state, "event-get", "--calendar", fgw.CALENDAR, "--event", "evabc12345"))["event"]
+    assert event["reminder_minutes"] is None and event["reminders_extra"] == 0
+
+
+def test_an_id_a_key_or_an_etag_that_starts_with_a_hyphen_is_a_usage_error(fake, tmp_path, state):
+    spec = spec_file(tmp_path, CREATE_SPEC)
+    for args in (["event-insert", "--calendar", "-x", "--spec-file", spec, "--idempotency-key", KEY, "--dry-run"],
+                 ["event-insert", "--calendar", fgw.CALENDAR, "--spec-file", spec, "--idempotency-key", "-k", "--dry-run"],
+                 ["event-patch", "--calendar", fgw.CALENDAR, "--event", "-e", "--base-etag", '"1"', "--spec-file", spec, "--idempotency-key", KEY, "--dry-run"],
+                 ["event-patch", "--calendar", fgw.CALENDAR, "--event", "e1", "--base-etag", "-1", "--spec-file", spec, "--idempotency-key", KEY, "--dry-run"]):
+        assert run(fake, tmp_path, state, *args).returncode == 2, args
+
+
 def test_event_get_says_recurring_for_a_series_and_for_an_occurrence_and_found_false_for_a_gone_event(fake, tmp_path, state):
     a_event(fake, recurrence=["RRULE:FREQ=WEEKLY"])
     assert out(run(fake, tmp_path, state, "event-get", "--calendar", fgw.CALENDAR, "--event", "evabc12345"))["event"]["recurring"] is True
