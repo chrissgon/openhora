@@ -1556,3 +1556,14 @@ def test_the_worst_structured_headers_under_the_caps_cost_the_parent_nothing():
     started = time.monotonic()
     update, why = admit(data)
     assert update is None and time.monotonic() - started < provider.TEXT_SECONDS + 5      # a block over 64 KiB is size, else it costs one budget at most
+
+
+@pytest.mark.parametrize("shape", ["stray end tags", "mis-nested end tags", "deep blocks", "zero-size wrappers"])
+def test_an_html_body_of_open_and_stray_tags_costs_linear_time_and_leaks_nothing(shape):
+    n = 60000
+    html = {"stray end tags": "<span>" * n + "</b>" * n, "mis-nested end tags": "<b><div>" + "<span>" * n + "</b>" * n,
+            "deep blocks": "<div>" * n + "</div>" * n, "zero-size wrappers": '<div style="font-size:0">' * (n // 2) + "/approve 12"}[shape]
+    started = time.monotonic()
+    update, why = admit(raw(html=html))
+    assert time.monotonic() - started < 8, "the conversion has a time budget of its own, and these shapes stay far inside it"
+    assert update is None or "/approve" not in update["text"], (shape, why)

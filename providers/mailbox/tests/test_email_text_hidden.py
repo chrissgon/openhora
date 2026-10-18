@@ -82,3 +82,69 @@ def test_the_two_helpers_are_pure_functions_of_the_style():
     assert et.style_hides("display:none") and et.style_hides("height:0;overflow:hidden") and not et.style_hides("height:0") and not et.style_hides("font-size:0")
     assert et.font_zero("font-size:0", False) and not et.font_zero("font-size:13px", True) and et.font_zero("color:red", True)
     assert et.font_zero("font-size:1em", True) and not et.font_zero("font-size:1em", False) and not et.font_zero("font-size:0;font-size:13px", False)
+
+
+# --- the open elements are kept the way a browser keeps them where it matters to what is shown --------------------------------------
+
+
+@pytest.mark.parametrize("hide", ['style="font-size:0"', 'style="display:none"', 'style="visibility:hidden"', 'style="opacity:0"', 'hidden'])
+@pytest.mark.parametrize("block", ["p", "div", "li", "td", "table", "h2", "blockquote"])
+def test_an_end_tag_that_a_browser_ignores_does_not_let_hidden_text_out(hide, block):
+    """</span> with a <block> opened inside the span is ignored by a browser: the text after it is still inside the hidden span."""
+    assert text(f"<p>seen</p><span {hide}><{block}>a</span>INJECT</{block}></span>after") == "seen\nafter"
+
+
+def test_stray_and_surplus_end_tags_close_nothing():
+    assert text('<div style="font-size:0"></span></b></p>HIDDEN</div>vis') == "vis"
+    assert text('<div style="display:none"></span></b></p>HIDDEN</div>vis') == "vis"
+    assert text('<div style="font-size:0"><div>a</div></div>vis') == "vis"
+    assert text('<span style="display:none">a</div>HIDDEN</span>vis') == "vis", "an end tag with nothing of its name open closes nothing"
+
+
+def test_what_a_browser_ends_by_itself_is_ended():
+    assert text('<p style="font-size:0">x<p>/approve 12') == "/approve 12"
+    assert text('<p style="font-size:0">A<p>B') == "B"
+    assert text('<ul><li style="font-size:0">A<li>B</ul>') == "B"
+    assert text('<p style="font-size:0">A<div>B</div>') == "B"
+    assert text('<table><tr><td style="font-size:0">A<td>B<tr><td>C</table>') == "B\nC"
+    assert text('<table><tr style="font-size:0"><td>A<tr><td>B</table>') == "B"
+    assert text('<dl><dt style="display:none">A<dd>B<dt>C</dl>') == "BC"
+    assert text('<p style="display:none">A<p>B') == "B", "a hidden paragraph ends at the next one"
+    assert text('<ul><li style="font-size:0">A<ul><li>nested hidden</ul><li>B</ul>') == "B", "a nested list's li does not end the outer li"
+
+
+def test_the_size_of_an_element_is_read_from_the_font_shorthand_the_font_tag_and_calc():
+    wrap = '<div style="font-size:0">{}</div>'
+    assert text(wrap.format('<span style="font:14px Arial">A</span>')) == "A"
+    assert text(wrap.format('<span style="font: italic bold 12px/1.5 Arial">A</span>')) == "A"
+    assert text(wrap.format('<span style="font:large serif">A</span>')) == "A"
+    assert text(wrap.format('<span style="font:0/0 Arial">A</span>')) == ""
+    assert text(wrap.format('<span style="font:inherit">A</span>')) == ""
+    assert text(wrap.format('<span style="font:1.2em Arial">A</span>')) == "", "relative to a parent of size zero"
+    assert text(wrap.format('<font size="3">A</font><font size=2 style="font-size:0">B</font>')) == "A"
+    assert text(wrap.format('<span style="font-size:calc(10px + 2px)">A</span><span style="font-size:min(12px, 1em)">B</span>')) == "AB"
+    assert text('<span style="font:0 Arial">A</span>B') == "B"
+    assert text('<span style="font-size:13px;font:0/0 Arial">A</span>B') == "B", "the last declaration decides"
+
+
+def test_visibility_visible_in_a_hidden_parent_stays_hidden_the_safe_direction():
+    assert text('<div style="visibility:hidden"><span style="visibility:visible">BROWSER SHOWS</span></div>vis') == "vis"
+
+
+def test_a_stack_past_its_depth_cap_hides_the_rest_when_an_element_hides_more_than_its_parent():
+    deep = "<div>" * (et.HTMLText.DEPTH_CAP + 50)
+    assert "HIDDEN" not in text(deep + '<span style="display:none">HIDDEN</span>after')
+    assert "HIDDEN" not in text(deep + '<span style="font-size:0">HIDDEN</span>after')
+    assert text(deep + "plain") == "plain", "an element that hides nothing more has its parent's state"
+
+
+@pytest.mark.parametrize("shape", ["stray", "far", "blocked", "deep", "zero", "prepost", "bigstyle"])
+def test_the_cost_is_linear_in_the_size_of_the_body(shape):
+    import time
+    n = 50000
+    html = {"stray": "<span>" * n + "</b>" * n, "far": "<b>" + "<span>" * n + "</b>" * n, "blocked": "<b><div>" + "<span>" * n + "</b>" * n,
+            "deep": "<div>" * n + "x" + "</div>" * n, "zero": '<div style="font-size:0">' * n + "x", "prepost": "<span>" * n + "</span>" * n,
+            "bigstyle": '<div style="' + "font-size:0;" * n + '">x</div>'}[shape]
+    started = time.monotonic()
+    et.html_to_text(html)
+    assert time.monotonic() - started < 2, shape

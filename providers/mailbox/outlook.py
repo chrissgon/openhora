@@ -52,7 +52,10 @@ The message was written by its sender: external_content is always true, and a me
 turned into text here (never asked as text from the service): an HTML body goes through providers/_email_text.py, which removes invisible
 and direction-changing characters and any element hidden (with all that is in it) by the hidden attribute or by an inline style that sets
 display:none, visibility:hidden, mso-hide:all, opacity:0, or a zero width, height, max-width or max-height together with overflow:hidden; and
-text of a zero font-size, unless an element inside it sets a size of its own (template e-mails do). It does not read style
+text of a zero font-size, unless an element inside it sets a size of its own (a size, the size token of the font shorthand, calc(...) or
+a font tag's size attribute; template e-mails do). The open elements are kept as a browser keeps them where it matters: a stray end tag closes
+nothing, an end tag with a block open inside the element it names is ignored, and a paragraph, list item or table cell ends at the next of
+its kind. visibility:visible inside a visibility:hidden element stays hidden (the safe direction). It does not read style
 sheets or class names, colours (white on white) or comments: text hidden that way is not removed (a comment is not text, and is dropped).
 Attachments are listed (name, type, size) and never fetched: only `$select=name,contentType,size` is asked, so a service that ignored it would
 answer more than the 1 MiB read of that call and the list is reported as null.
