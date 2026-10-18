@@ -1710,7 +1710,10 @@ def fetch_notion(cfg: dict, address: str, *, call=None) -> dict:
 
 DRIVE_CLASS = "integration:documents"
 DRIVE_IMPLEMENTATION = "gdrive"
-DRIVE_SECRET = "GDRIVE_SOURCES_TOKEN"   # providers/secrets/resolver.py: the one record (token, client, Picker key); read by the provider alone
+DRIVE_SECRET = "GDRIVE_SOURCES_TOKEN"   # providers/secrets/resolver.py: the legacy record (token, client, Picker key); read by the provider alone
+# What the provider is given: the account token of the person's Google account first (one record, the platform's whole scope set), and, for one
+# cycle (backlog ACCT-LEGACY), the legacy record, which the Picker still needs. Both are read by the provider alone, never by a run.
+DRIVE_SECRETS = ("GOOGLE_ACCOUNT_TOKEN", DRIVE_SECRET)
 DRIVE_TIMEOUT = 300
 DRIVE_PICK_TIMEOUT = 900                # the Picker session stops itself after 10 minutes
 DRIVE_PREFIX = "drive:"
@@ -1744,7 +1747,7 @@ def drive_call(cfg: dict, verb: str, args: list, *, call=None, timeout: int = DR
     if call is None:
         resolver = _lazy("workbench_sources_resolve", os.path.join(cfg["workbench"], "providers", "resolve.py"))
         call = resolver.call
-    extra = {"env": _provider_env(cfg, DRIVE_CLASS, (DRIVE_SECRET,))} if resolver is not None else {}
+    extra = {"env": _provider_env(cfg, DRIVE_CLASS, DRIVE_SECRETS)} if resolver is not None else {}
     try:
         out = call(DRIVE_CLASS, verb, args, root=cfg["workbench"], implementation=DRIVE_IMPLEMENTATION, timeout=timeout, **extra)
     except Exception as e:
@@ -1953,7 +1956,7 @@ def pick_drive(cfg: dict, *, run=None) -> dict:
     open) go to this process's own error output. `run(argv, env, timeout)` -> (exit code, output) is the seam a test replaces; argv is
     the verb and its arguments. SourcesError (drive) when the command fails or answers something else."""
     resolver = _lazy("workbench_sources_resolve", os.path.join(cfg["workbench"], "providers", "resolve.py"))
-    env = _provider_env(cfg, DRIVE_CLASS, (DRIVE_SECRET,))
+    env = _provider_env(cfg, DRIVE_CLASS, DRIVE_SECRETS)
     if run is None:
         code, out = _run_pick(resolver, cfg, env, DRIVE_PICK_TIMEOUT)
     else:
