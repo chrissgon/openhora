@@ -215,6 +215,17 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            note="one JSON record (refresh_token, client_id, client_secret, api_key, project_number, scope, obtained_at) written by "
                 "providers/documents/gdrive_auth.py; the Desktop app client and the Picker's API key travel with the refresh token so "
                 "that this is the only entry; from the environment, the same JSON text"),
+    Secret("ONEDRIVE_SOURCES_TOKEN",
+           "read the OneDrive files the person chose as sources of a project (their content and version)",
+           "Microsoft Graph delegated Files.Read only (providers/documents/onedrive_auth.py): it reads every file of the person's own "
+           "OneDrive and writes none; the runtime reads only the files registered as sources",
+           ("providers/documents/onedrive.py", "providers/documents/onedrive_auth.py"),
+           store_username="onedrive-sources",
+           set_local="uv run providers/documents/onedrive_auth.py authorize (writes the record after the browser consent)",
+           note="one JSON record (refresh_token, client_id, tenant, scope, account_kind, obtained_at) written by "
+                "providers/documents/onedrive_auth.py and rewritten by providers/documents/onedrive.py when Microsoft replaces the refresh "
+                "token (the one provider that writes its record back, only when it was found in the OS secret store); no client secret "
+                "exists (a public client); from the environment, the same JSON text"),
     Secret("MESSENGER_TELEGRAM_BOT_TOKEN",
            "receive the person's messages and send the notices of the messaging bridge, as a Telegram bot",
            "a bot created for this person with the platform's bot service, used only by this bridge",

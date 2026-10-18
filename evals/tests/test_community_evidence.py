@@ -72,6 +72,15 @@ def community(folder, model="old-model", adapter="oh", repo_id=111, run_id=None,
     return folder_ev / f"{name}.jsonl"
 
 
+def pair(folder, model, adapter, second_date="2030-01-02", **kw):
+    """The two community full tests that make a pair rankable: a community full test counts only through its pool, which needs
+    lines from two forks (ana's, then bo's). Both forks pass the same scores; kw goes to both."""
+    first = community(folder, model=model, adapter=adapter, **kw)
+    kw.pop("repo_id", None), kw.pop("repository", None), kw.pop("date", None)
+    second = community(folder, model=model, adapter=adapter, repo_id=222, repository="bo/openhora", date=second_date, **kw)
+    return first, second
+
+
 @pytest.fixture
 def root(tmp_path):
     git(tmp_path, "init", "-q", "-b", "main")
@@ -236,18 +245,20 @@ def test_the_walk_over_the_evidence_folder_reads_community_files_and_refuses_wha
 
 # --- the column of its own ----------------------------------------------------------------------------------
 
+SCORE_18 = 0.7736  # the pessimistic score of 18 runs of mean 0.9 (the pair of forks); 9 runs of the same mean gave 0.705
+
 def test_community_evidence_has_a_column_of_its_own_and_never_changes_a_lab_figure(root, repo):
     tb.full(repo)
     commit(root, "Owner <owner@mail.example>", "lab evidence")
     before = es.all_status(str(root), "core-demo")
     assert "community" not in before
-    community(repo, model="f-model", adapter="fh")
+    pair(repo, "f-model", "fh")  # a community full test counts only through its pool: two forks' full tests
     commit(root)
     after = es.all_status(str(root), "core-demo")
     assert {k: v for k, v in after.items() if k != "community"} == before  # the rows, the counts and the bands are the lab's
     figures = after["community"]["skills"]["core-demo"]["f-model"]
-    assert (figures["runs"], figures["current_runs"], figures["files"], figures["contributors"]) == (9, 9, 1, 1)
-    assert figures["mean"] == pytest.approx(0.9) and figures["score"] == pytest.approx(0.705, abs=0.001)
+    assert (figures["runs"], figures["current_runs"], figures["files"], figures["contributors"]) == (18, 18, 2, 2)
+    assert figures["mean"] == pytest.approx(0.9) and figures["score"] == pytest.approx(SCORE_18, abs=0.001)
     assert figures["band"] == "reliable" and figures["capped"] == 0 and figures["gaps"] == 0
     assert after["community"]["cap"] == es.COMMUNITY_CAP and after["community"]["gaps"] == 0
     assert "mail.example" not in json.dumps(after)  # who contributed is never printed
@@ -263,7 +274,7 @@ def test_the_inventory_gains_the_column_only_once_community_evidence_exists(root
     commit(root, "Owner <owner@mail.example>", "lab evidence")
     (root / "docs").mkdir()
     assert "Community verified" not in es.inventory_block(str(root))
-    community(repo, model="f-model", adapter="fh")
+    pair(repo, "f-model", "fh")
     commit(root)
     block = es.inventory_block(str(root))
     assert "Community verified: runs, mean, score" in block and "(community only)" in block
@@ -377,15 +388,15 @@ def only(root, model):
 
 
 def test_community_only_is_set_exactly_when_the_pair_is_reliable_only_through_community_evidence(root, repo):
-    # A pair with no lab evidence at all, reliable in the community column: only through community evidence.
-    community(repo, model="old-model", adapter="oh")
+    # A pair with no lab evidence at all, reliable in the community column (two forks' full tests): only through community evidence.
+    pair(repo, "old-model", "oh")
     commit(root)
     assert only(root, "old-model") is True
     # A pair whose lab band is reliable too is not "only": the lab proves it.
     tb.event(repo, "full", "1.0.0", "2030-01-01", [(c, v, 0.9 if v == "with" else 0.5, None) for c in (1, 2, 3)
                                                      for v in ("with", "without") for _ in range(3)])
     commit(root, "Owner <owner@mail.example>", "lab evidence")
-    community(repo, model="s-model", adapter="h", repo_id=222)
+    pair(repo, "s-model", "h")
     commit(root)
     assert section(root)["skills"]["core-demo"]["s-model"]["band"] == "reliable"
     assert only(root, "s-model") is False
@@ -406,7 +417,7 @@ def test_a_pair_that_is_not_reliable_in_the_community_column_is_not_community_on
 def test_a_pair_with_a_lab_row_that_is_not_reliable_is_community_only_when_the_community_makes_it_reliable(root, repo):
     tb.event(repo, "partial", "1.0.0", "2030-01-01", [(1, "with", 0.9, {"model": "f-model", "adapter": "fh"})])  # f-model: a partial test only
     commit(root, "Owner <owner@mail.example>", "lab evidence")
-    community(repo, model="f-model", adapter="fh")
+    pair(repo, "f-model", "fh")
     commit(root)
     lab = es.all_status(str(root), "core-demo")["skills"][0]["models"]["f-model"]
     assert lab["band"] == "needs a test"
@@ -417,7 +428,7 @@ def test_a_pair_with_a_lab_row_that_is_not_reliable_is_community_only_when_the_c
 def test_three_failed_verdicts_demote_a_community_ranked_pair_as_they_do_a_lab_pair(root, repo, failed, band, held):
     tb.full(repo)
     commit(root, "Owner <owner@mail.example>", "lab evidence")  # the repository's owner added lab evidence: all of their failures count
-    community(repo, model="old-model", adapter="oh", date="2030-01-01")
+    pair(repo, "old-model", "oh", date="2030-01-01")
     commit(root)
     assert only(root, "old-model") is True
     field(repo, [l for n in range(1, failed + 1) for l in use(n, "failed", model="old-model", week="2030-W20")])
