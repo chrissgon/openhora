@@ -16,6 +16,7 @@ import os
 import stat
 import sys
 import threading
+import time
 import urllib.error
 from pathlib import Path
 
@@ -372,6 +373,18 @@ class Site(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
+        if self.behaviour == "drip":      # one byte every 0.4 s: a read that waits for a whole chunk would outlive the deadline
+            self.send_response(200)
+            self.send_header("Content-Length", "1000")
+            self.end_headers()
+            try:
+                for _ in range(40):
+                    self.wfile.write(b"x")
+                    self.wfile.flush()
+                    time.sleep(0.4)
+            except OSError:
+                pass
+            return
         self.send_response(200)
         self.send_header("Content-Length", "5")
         self.end_headers()
@@ -409,6 +422,42 @@ def test_a_real_redirect_off_the_host_is_refused_and_the_other_host_is_never_ask
         other.shutdown()
     assert code == 1 and printed == "" and "redirect" in err and TOKEN not in err and not list(out.iterdir())
     assert other_hits == [] and [h[0] for h in site_hits] == ["POST", "GET"]
+
+
+def test_a_host_that_drips_one_byte_at_a_time_cannot_outlive_the_deadline(monkeypatch, capsys, out):
+    site = serve(type("S", (Site,), {"behaviour": "drip", "hits": []}))
+    monkeypatch.setattr(telegram, "FETCH_TOTAL_SECONDS", 1)
+    try:
+        monkeypatch.setenv("MESSENGER_TELEGRAM_API_BASE", f"http://127.0.0.1:{site.server_address[1]}")
+        began = time.time()
+        code, printed, err = run(monkeypatch, capsys, telegram.OPENER, "fetch-attachment", "--platform", "telegram", "--ref", FILE_ID,
+                                 "--out", str(out), "--max-bytes", "100000")
+        took = time.time() - began
+    finally:
+        site.shutdown()
+    assert code == 1 and printed == "" and "took longer" in err and not list(out.iterdir())
+    assert took < 4, took      # a blocking read(65536) would wait for the host to stop dripping (16 s)
+
+
+def test_read_some_prefers_read1_and_falls_back_to_read():
+    class Both:
+        def read1(self, n):
+            return b"one"
+
+        def read(self, n):
+            return b"all"
+
+    class OnlyRead:
+        def read(self, n):
+            return b"all"
+
+    assert telegram.read_some(Both(), 10) == b"one" and telegram.read_some(OnlyRead(), 10) == b"all"
+
+
+def test_a_content_length_that_is_not_ascii_digits_is_not_read():
+    assert telegram._declared_length(type("R", (), {"headers": {"Content-Length": "\u0663\u0664"}})()) is None
+    assert telegram._declared_length(type("R", (), {"headers": {"Content-Length": "34"}})()) == 34
+    assert telegram._declared_length(type("R", (), {"headers": {"Content-Length": "9" * 19}})()) is None
 
 
 def test_a_real_download_over_loopback_with_the_real_opener(monkeypatch, capsys, out):

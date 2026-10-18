@@ -12,10 +12,11 @@ Sources (the Bot API reference, https://core.telegram.org/bots/api, read 2026-10
 later offset is not delivered again), sendMessage (`chat_id`, `text` of 1 to 4096 characters, `reply_markup`,
 InlineKeyboardMarkup of InlineKeyboardButton with `text` and either `callback_data` of 1 to 64 bytes or `url`),
 sendDocument (multipart/form-data, `document`, `reply_to_message_id`), answerCallbackQuery (`callback_query_id`),
-getMe, getFile (`file_id`; the result has `file_size` and `file_path`; a bot may download files up to 20 MB), the file
-download (GET `https://api.telegram.org/file/bot<token>/<file_path>`), the messages' `document`, `photo`, `voice`, `video`,
-`video_note`, `audio` and `sticker` and their `caption`, and the rule that getUpdates cannot be used while a webhook is set
-(the service answers 409).
+getMe, and the rule that getUpdates cannot be used while a webhook is set (the service answers 409).
+What the files need was written from the documented behaviour of the Bot API and was NOT re-read when ATT-2 was built (it had no
+network); the maintainer's live test confirms it: getFile (`file_id`; the result has `file_size` and `file_path`; a bot may
+download files up to 20 MB), the file download (GET `https://api.telegram.org/file/bot<token>/<file_path>`), and the
+messages' `document`, `photo`, `voice`, `video`, `video_note`, `audio` and `sticker` and their `caption`.
 
 Verbs (JSON on stdout, diagnostics on stderr, input by flags or files, no prompt):
   capabilities --platform telegram
@@ -46,7 +47,7 @@ Attachments (ATT-2). A message with a document, photo, voice note, video, audio 
 `attachments` holds {"ref": the file_id, "name", "size", "type"} (a photo is the largest size Telegram made; `type` is
 the media type of a document, else photo, voice, video, audio or sticker) and whose `text` is the caption. `fetch-attachment`
 asks getFile for the path, builds the address from the fixed base and a path checked against a closed pattern, downloads
-it with no redirect followed, counts the bytes while it streams (over --max-bytes: exit 2, nothing left), and writes
+it with no redirect followed, counts the bytes while it streams (over --max-bytes: exit 2, the partial file removed), and writes
 `<out>/content` (O_EXCL, O_NOFOLLOW, mode 0600) and prints {"bytes", "sha256"}. A file Telegram no longer knows is exit 1
 with `gone` as the first word of stderr. No file name is ever used as a path.
 
@@ -88,10 +89,10 @@ KEYRING_USERNAME = "messenger-telegram"
 ENV_BASE = "MESSENGER_TELEGRAM_API_BASE"
 DEFAULT_API_BASE = "https://api.telegram.org"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
-MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024   # the Bot API serves a download of at most 20 MB (getFile answers "file is too big" above it)
 CAPABILITIES = {"max_text": 4096, "buttons": True, "max_buttons": 6, "max_button_label": 40, "lists": False,
                 "max_list_rows": 0, "url_buttons": True, "reply_context": True, "documents": True,
-                "attachments": True, "max_attachment_bytes": 20971520}
+                "attachments": True, "max_attachment_bytes": 20971520}   # 20 MiB: the Bot API serves a download of at most 20 MB (getFile answers "file is too big" above it); a literal, because the architecture tables read it
+MAX_ATTACHMENT_BYTES = CAPABILITIES["max_attachment_bytes"]
 CALLBACK_DATA_BYTES = 64
 HTTP_MARGIN_SECONDS = 15
 SEND_TIMEOUT_SECONDS = 30
@@ -678,12 +679,20 @@ def open_content(out_dir: str) -> tuple:
 def _declared_length(response):
     headers = getattr(response, "headers", None)
     value = headers.get("Content-Length") if headers is not None else None
-    return int(value) if isinstance(value, str) and value.isdigit() and len(value) < 19 else None
+    return int(value) if isinstance(value, str) and re.fullmatch(r"[0-9]{1,18}", value) else None
+
+
+def read_some(response, size: int) -> bytes:
+    """Up to `size` bytes, returned as soon as any arrive: read1 waits for one read of the socket, where read(size) waits for all `size` bytes, so a host
+    that drips one byte at a time could outlive the whole-fetch deadline. What one read can add to the deadline is bounded by the 10 s socket wait."""
+    reader = getattr(response, "read1", None) or response.read
+    return reader(size)
 
 
 def stream_file(response, out_dir: str, max_bytes: int, started: float) -> dict:
     """Write what `response` yields to `<out_dir>/content`, counting while it streams; over `max_bytes` is a usage error (exit 2) and a file cut short
-    or slower than the whole-fetch deadline fails. Whatever fails leaves no file."""
+    or slower than the whole-fetch deadline fails. A failure removes the file it made (a process killed mid-write can leave a partial one, which the bridge
+    removes with its folder)."""
     declared = _declared_length(response)
     if declared is not None and declared > max_bytes:
         raise ProviderError(f"the file is {declared} bytes; at most {max_bytes} are taken", EXIT_USAGE)
@@ -693,7 +702,7 @@ def stream_file(response, out_dir: str, max_bytes: int, started: float) -> dict:
         while True:
             if clock() - started > FETCH_TOTAL_SECONDS:
                 raise ProviderError(f"the download took longer than {FETCH_TOTAL_SECONDS} seconds", EXIT_SERVICE)
-            chunk = response.read(min(CHUNK_BYTES, max_bytes + 1 - total))
+            chunk = read_some(response, min(CHUNK_BYTES, max_bytes + 1 - total))
             if not chunk:
                 break
             total += len(chunk)

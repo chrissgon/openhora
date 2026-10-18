@@ -338,6 +338,60 @@ def test_the_content_host_is_asked_through_an_opener_that_follows_no_redirect():
     assert "attacker" not in str(e.value)
 
 
+def test_a_host_that_drips_one_byte_at_a_time_cannot_outlive_the_deadline(monkeypatch, out):
+    class Drip(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", "1000")
+            self.end_headers()
+            try:
+                for _ in range(40):
+                    self.wfile.write(b"x")
+                    self.wfile.flush()
+                    time.sleep(0.4)
+            except OSError:
+                pass
+
+    site = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Drip)
+    threading.Thread(target=site.serve_forever, daemon=True).start()
+    monkeypatch.setattr(discord, "FETCH_TOTAL_SECONDS", 1.0)
+    connection = http.client.HTTPConnection("127.0.0.1", site.server_address[1], timeout=5)
+    try:
+        connection.request("GET", "/f")
+        began = time.time()
+        with pytest.raises(discord.ProviderError) as e:
+            discord.stream_file(connection.getresponse(), str(out), 100_000, time.monotonic, time.monotonic())
+        took = time.time() - began
+    finally:
+        connection.close()
+        site.shutdown()
+    assert "took longer" in str(e.value) and not list(out.iterdir())
+    assert took < 4, took      # a blocking read(65536) would wait for the host to stop dripping (16 s)
+
+
+def test_read_some_prefers_read1_and_falls_back_to_read():
+    class Both:
+        def read1(self, n):
+            return b"one"
+
+        def read(self, n):
+            return b"all"
+
+    class OnlyRead:
+        def read(self, n):
+            return b"all"
+
+    assert discord.read_some(Both(), 10) == b"one" and discord.read_some(OnlyRead(), 10) == b"all"
+
+
+def test_a_content_length_that_is_not_ascii_digits_is_not_read():
+    assert discord._declared_length(type("R", (), {"headers": {"Content-Length": "\u0663\u0664"}})()) is None
+    assert discord._declared_length(type("R", (), {"headers": {"Content-Length": "34"}})()) == 34
+
+
 def test_a_real_redirect_is_refused_by_the_content_opener():
     seen = []
 

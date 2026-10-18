@@ -109,10 +109,10 @@ EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 API_BASE = "https://discord.com/api/v10"
 USER_AGENT = "DiscordBot (https://github.com/chrissgon/openhora, 0.1)"
 GATEWAY_QUERY = "/?v=10&encoding=json"
-MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024   # Discord states no download limit for a bot; this is the most the bridge takes for a source (sources.ORIGINAL_CAP)
 CAPABILITIES = {"max_text": 1900, "buttons": True, "max_buttons": 5, "max_button_label": 80, "lists": False,
                 "max_list_rows": 0, "url_buttons": True, "reply_context": True, "documents": True, "listen": True,
-                "attachments": True, "max_attachment_bytes": 26214400}
+                "attachments": True, "max_attachment_bytes": 26214400}   # 25 MiB: Discord states no download limit for a bot; this is the most the bridge takes for a source (sources.ORIGINAL_CAP); a literal, because the architecture tables read it
+MAX_ATTACHMENT_BYTES = CAPABILITIES["max_attachment_bytes"]
 DISCORD_TEXT_LIMIT = 2000
 CUSTOM_ID_LIMIT = 100
 LINK_URL_LIMIT = 512
@@ -623,12 +623,20 @@ def open_content(out_dir: str) -> tuple:
 def _declared_length(response):
     headers = getattr(response, "headers", None)
     value = headers.get("Content-Length") if headers is not None else None
-    return int(value) if isinstance(value, str) and value.isdigit() and len(value) < 19 else None
+    return int(value) if isinstance(value, str) and re.fullmatch(r"[0-9]{1,18}", value) else None
+
+
+def read_some(response, size: int) -> bytes:
+    """Up to `size` bytes, returned as soon as any arrive: read1 waits for one read of the socket, where read(size) waits for all `size` bytes, so a host
+    that drips one byte at a time could outlive the whole-fetch deadline. What one read can add to the deadline is bounded by the 10 s socket wait."""
+    reader = getattr(response, "read1", None) or response.read
+    return reader(size)
 
 
 def stream_file(response, out_dir: str, max_bytes: int, clock, started: float) -> dict:
     """Write what `response` yields to `<out_dir>/content`, counting while it streams; over `max_bytes` is a usage answer and a file cut short or
-    slower than the whole-fetch deadline fails. Whatever fails leaves no file."""
+    slower than the whole-fetch deadline fails. A failure removes the file it made (a process killed mid-write can leave a partial one, which the
+    bridge removes with its folder)."""
     declared = _declared_length(response)
     if declared is not None and declared > max_bytes:
         raise ProviderError(f"the file is {declared} bytes; at most {max_bytes} are taken", EXIT_USAGE, "usage")
@@ -638,7 +646,7 @@ def stream_file(response, out_dir: str, max_bytes: int, clock, started: float) -
         while True:
             if clock() - started > FETCH_TOTAL_SECONDS:
                 raise ProviderError(f"the download took longer than {int(FETCH_TOTAL_SECONDS)} seconds")
-            chunk = response.read(min(CHUNK_BYTES, max_bytes + 1 - total))
+            chunk = read_some(response, min(CHUNK_BYTES, max_bytes + 1 - total))
             if not chunk:
                 break
             total += len(chunk)
