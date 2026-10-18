@@ -390,8 +390,9 @@ class Twilio:
             return ProviderError("Twilio no longer serves that file", EXIT_SERVICE, "gone")
         if not first:
             return ProviderError(f"Twilio's media host answered {status}", EXIT_SERVICE, "failed")
-        if status == 403 or code == CODE_NOT_ALLOWED:
-            return TwilioError(status, code, f"Twilio answered {status}: the API key may lack the permission to read media")
+        if status in (401, 403) or code in (CODE_NOT_ALLOWED, CODE_CREDENTIALS):
+            # a failure of this fetch, not a stop of the provider: a key that was really revoked is caught by the next send
+            return ProviderError(f"Twilio answered {status}: the API key may lack the permission to read media", EXIT_SERVICE, "failed")
         return TwilioError(status, code)
 
     def post_message(self, fields: dict) -> str:
@@ -748,8 +749,8 @@ class Webhook(meta.HookBase):
         for n in range(count):
             url = fields.get(f"MediaUrl{n}")
             parts = MEDIA_URL.fullmatch(url) if isinstance(url, str) else None
-            if parts is None or parts.group(1) != self.settings["account_sid"]:
-                return None
+            if parts is None or parts.group(1) != self.settings["account_sid"] or parts.group(2) != fields.get("MessageSid"):
+                return None      # the address must be of this account and of this very message
             found.append({"ref": f"{parts.group(2)}:{parts.group(3)}", "name": None, "size": None,
                           "type": type_for_mime(fields.get(f"MediaContentType{n}"))})
         return found

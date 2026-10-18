@@ -1019,7 +1019,7 @@ def url_on_hosts(url, hosts):
         host, port = parts.hostname, parts.port
     except ValueError:
         return None
-    if parts.scheme != "https" or host not in hosts or parts.username is not None or parts.password is not None or port not in (None, 443):
+    if "[" in parts.netloc or "]" in parts.netloc or parts.scheme != "https" or host not in hosts or parts.username is not None or parts.password is not None or port not in (None, 443):
         return None
     return urllib.parse.urlunsplit(("https", host, parts.path, parts.query, ""))
 
@@ -1063,6 +1063,13 @@ def open_folder(path) -> int:
     return fd
 
 
+def read_some(response, n: int) -> bytes:
+    """Up to `n` bytes of the body, returned after ONE receive: `read1` where the response has it. `read(n)` blocks until `n` bytes have arrived (or the
+    body ends), so a host that sends a byte at a time would hold a fetch past its deadline; with `read1` the deadline is looked at after every receive."""
+    reader = getattr(response, "read1", None) or response.read
+    return reader(n)
+
+
 def save_stream(response, out_dir, max_bytes: int, declared=None, until=None, clock=time.monotonic) -> dict:
     """Write the body of `response` (an object with `read(n)` and, optionally, `headers`) as `<out_dir>/content` and return {"bytes", "sha256"}.
     The file is created with O_EXCL and O_NOFOLLOW, mode 0600, in the folder opened by descriptor, so an existing file or a link is never written
@@ -1086,12 +1093,17 @@ def save_stream(response, out_dir, max_bytes: int, declared=None, until=None, cl
         done = False
         try:
             digest, total = hashlib.sha256(), 0
-            with os.fdopen(fd, "wb") as f:
+            try:
+                f = os.fdopen(fd, "wb")
+            except BaseException:
+                os.close(fd)
+                raise
+            with f:
                 while True:
                     if clock() > end:
                         raise ProviderError("the download took too long", EXIT_SERVICE, "failed")
                     try:
-                        chunk = response.read(min(FETCH_CHUNK, max_bytes - total + 1))
+                        chunk = read_some(response, min(FETCH_CHUNK, max_bytes - total + 1))
                     except (OSError, ValueError, http.client.HTTPException) as e:
                         raise ProviderError(f"the download failed ({type(e).__name__})", EXIT_SERVICE, "failed") from None
                     if not chunk:

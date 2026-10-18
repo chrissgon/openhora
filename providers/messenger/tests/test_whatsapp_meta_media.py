@@ -10,7 +10,11 @@ import base64
 import hashlib
 import http.client
 import os
+import http.server
 import stat
+import threading
+import time
+import urllib.request
 
 import pytest
 
@@ -222,3 +226,81 @@ def test_a_media_type_the_bridge_refuses_early_is_named_as_the_kind_it_is():
     assert meta.type_for_mime("audio/ogg") == "audio" and meta.type_for_mime("video/mp4") == "video"
     assert meta.type_for_mime("application/pdf") == "application/pdf"
     assert meta.type_for_mime(None) is None and meta.type_for_mime("nonsense") is None
+
+
+# --- the deadline is hard ----------------------------------------------------------------------------------------------------
+
+
+class Dripping(http.server.BaseHTTPRequestHandler):
+    """A host that sends a byte every 0.2 seconds for a minute and never finishes the body it declared."""
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Length", "1000000")
+        self.end_headers()
+        try:
+            for _ in range(300):
+                self.wfile.write(b"x")
+                self.wfile.flush()
+                time.sleep(0.2)
+        except OSError:
+            pass
+
+    def log_message(self, *args):
+        pass
+
+
+def test_a_host_that_drips_a_byte_at_a_time_cannot_hold_the_fetch_past_its_deadline(tmp_path, monkeypatch):
+    for name in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("NO_PROXY", "*")
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Dripping)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    out = out_dir(tmp_path)
+    try:
+        # a real response over a real socket: a read(n) of 65536 bytes would wait for all of them, minutes at this pace
+        response = urllib.request.build_opener().open(f"http://127.0.0.1:{server.server_address[1]}/m", timeout=30)
+        started = time.monotonic()
+        err = fail(lambda: meta.save_stream(response, out, 10**7, until=started + 1.0))
+        elapsed = time.monotonic() - started
+        response.close()
+        assert err.kind == "failed" and "too long" in str(err), str(err)
+        assert elapsed < 3.0, f"the deadline of 1 second was looked at after {elapsed:.1f} seconds"
+        assert os.listdir(out) == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_response_with_read1_is_read_one_receive_at_a_time_and_one_without_falls_back_to_read(tmp_path):
+    class WithRead1(StreamResponse):
+        calls = []
+
+        def read1(self, n=-1):
+            WithRead1.calls.append(n)
+            return super().read(min(n, 7))          # a receive hands over a few bytes
+
+        def read(self, n=-1):
+            raise AssertionError("read(n) waits for n bytes; read1 must be used")
+
+    found = meta.save_stream(WithRead1(BODY), out_dir(tmp_path), 10**6)
+    assert found["bytes"] == len(BODY) and len(WithRead1.calls) > 10
+    other = tmp_path / "plain"
+    other.mkdir(mode=0o700)
+    assert meta.save_stream(StreamResponse(BODY), str(other), 10**6)["bytes"] == len(BODY)
+
+
+def test_the_descriptor_is_closed_when_the_file_object_cannot_be_made(tmp_path, monkeypatch):
+    out = out_dir(tmp_path)
+    before = len(os.listdir("/dev/fd"))
+    monkeypatch.setattr(meta.os, "fdopen", lambda *a, **k: (_ for _ in ()).throw(OSError("no memory")))
+    with pytest.raises(OSError):
+        meta.save_stream(StreamResponse(BODY), out, 1000)
+    monkeypatch.undo()
+    assert len(os.listdir("/dev/fd")) == before, "no descriptor is left open"
+    assert os.listdir(out) == [], "and the empty file that was created is removed"
+
+
+def test_a_bracketed_host_is_refused_on_every_python():
+    for url in ("https://[lookaside.fbsbx.com]/x", "https://[::1]/x", "https://[lookaside.fbsbx.com/x", "https://lookaside.fbsbx.com]/x"):
+        assert meta.url_on_hosts(url, HOSTS) is None

@@ -155,6 +155,16 @@ def test_a_media_address_that_is_not_exactly_twilios_for_this_account_drops_the_
     assert r.out.updates() == [] and r.store.window == {}
 
 
+def test_the_message_sid_in_a_media_address_must_be_the_sid_of_the_message_that_carries_it(rig):
+    r = rig()
+    other = with_media(1, ("application/pdf",), MediaUrl0=media_url(2))              # the address of another message's medium
+    assert r.post(other)[0] == 200 and r.out.updates() == []
+    sm = with_media(3, ("application/pdf",), MessageSid="SM%032x" % 3)               # an SM message sid: the address (MM) cannot be its own
+    assert r.post(sm)[0] == 200 and r.out.updates() == []
+    assert r.post(with_media(4, ("application/pdf",)))[0] == 200 and len(r.out.updates()) == 1
+    assert any("media" in line for line in r.logs), "a dropped message leaves a log line by class"
+
+
 def test_a_message_with_a_medium_that_cannot_be_read_among_good_ones_is_dropped_whole(rig):
     r = rig()
     fields = with_media(1, ("application/pdf", "application/pdf"))
@@ -385,11 +395,13 @@ def test_the_cdn_saying_the_medium_is_gone_is_gone(rig, out, status):
     assert r.fetch(1, REF, out, 10**6)["kind"] == "gone"
 
 
-def test_a_key_twilio_refuses_answers_not_configured_and_stops_the_provider_with_exit_3(rig, out):
-    r = rig(media=MediaOpener(rules=[("api.twilio.com", lambda c: http_error(401, 20003))]))
+@pytest.mark.parametrize("status, code", [(401, 20003), (401, None), (403, 20003), (403, 20403)])
+def test_a_refusal_of_the_key_on_the_media_path_fails_that_fetch_and_does_not_stop_the_provider(rig, out, status, code):
+    r = opened(rig(media=MediaOpener(rules=[("api.twilio.com", lambda c: http_error(status, code))])))
     done = r.fetch(1, REF, out, 10**6)
-    assert done["ok"] is False and done["kind"] == "not-configured"
-    assert kit.wait_for(lambda: not r.thread.is_alive()) and r.result == [3]
+    assert done["ok"] is False and done["kind"] == "failed" and "permission to read media" in done["reason"]
+    assert r.thread.is_alive() and r.result == [], "a key really revoked is caught by the next send"
+    assert r.ask(2, PERSON, kit.plain("still here"))["ok"] is True
 
 
 def test_a_key_that_may_not_read_media_is_a_failure_that_says_so_and_does_not_stop_the_provider(rig, out):

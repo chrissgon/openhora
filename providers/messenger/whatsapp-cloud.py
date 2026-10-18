@@ -250,6 +250,8 @@ class Graph:
         if url is None:
             raise ProviderError("WhatsApp did not give the address of the file on its media host", EXIT_SERVICE, "failed")
         size = found.get("file_size")
+        if isinstance(size, str) and re.fullmatch(r"[0-9]{1,18}", size):      # Graph may give the size as a string of digits
+            size = int(size)
         if type(size) is int and size > max_bytes:
             raise too_large()
         declared = declared_digest(found.get("sha256"))

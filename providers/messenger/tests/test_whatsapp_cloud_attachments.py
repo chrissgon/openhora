@@ -258,6 +258,19 @@ def test_a_size_graph_declares_over_the_cap_is_refused_before_the_download(rig, 
     assert done["ok"] is False and done["kind"] == "usage" and r.media.calls == [] and os.listdir(out) == []
 
 
+@pytest.mark.parametrize("size", ["5000000", "999999999999999999"])
+def test_a_size_given_as_a_string_of_digits_is_checked_before_the_download_too(rig, out, size):
+    r = rig(opener=served(size=size), media=MediaOpener(payload=BODY))
+    done = r.fetch(1, MEDIA_ID, out, 1_000_000)
+    assert done["kind"] == "usage" and r.media.calls == [] and os.listdir(out) == []
+
+
+@pytest.mark.parametrize("size", ["", "12ab", "-5", "1" * 19, True, 1.5, None, "١٢٣"])
+def test_a_size_that_is_neither_a_whole_number_nor_digits_is_not_a_check_and_the_stream_decides(rig, out, size):
+    r = rig(opener=served(size=size), media=MediaOpener(payload=BODY))
+    assert r.fetch(1, MEDIA_ID, out, 10**6)["ok"] is True
+
+
 def test_a_length_the_media_host_declares_over_the_cap_is_refused_before_a_byte_is_read(rig, out):
     body = StreamResponse(BODY, headers={"Content-Length": "99999999"})
     r = rig(opener=served(), media=MediaOpener(rule=lambda c: body))
