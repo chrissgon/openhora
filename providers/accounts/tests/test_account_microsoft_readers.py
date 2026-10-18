@@ -2,7 +2,7 @@
 account token (package ACCT-M): each reads the account record (MICROSOFT_ACCOUNT_TOKEN) first and, when it is absent, its own legacy record
 with the old exact check and one note; with both it uses the account one and does not fall back when that one is refused; a token that lacks
 a permission of the platform's set, or carries another, is refused (exit 3) naming the account command; the readers still send GET requests
-only (limit L58), and no token is on stdout or stderr (limit L59). The stand-in services are the readers' own (their fakes are loaded from
+only, and no token is on stdout or stderr (the output half of limit L59; what environment a provider is given is the runtime's half). The stand-in services are the readers' own (their fakes are loaded from
 their test folders). No network but loopback, no real account, no real credential.
 
 Run: uv run --with pytest==9.1.1 pytest providers/accounts/tests/test_account_microsoft_readers.py
@@ -136,7 +136,7 @@ def test_a_reader_works_with_the_account_record_alone_and_says_which_record_it_u
 
 
 def test_a_reader_sends_get_requests_only_to_graph_with_the_account_token(case):
-    """Limit L58: the readers send GET only (and the token POST), whatever the token could do."""
+    """The readers send GET only (and the token POST), whatever the token could do."""
     case.accept_account_token()
     assert case.run(*case.command, account=case.account_record())[0] == 0
     assert case.fake.methods and set(case.fake.methods) == {"GET"}, case.fake.methods
@@ -145,7 +145,7 @@ def test_a_reader_sends_get_requests_only_to_graph_with_the_account_token(case):
 
 
 def test_no_token_is_on_stdout_or_stderr_on_any_path(case):
-    """Limit L59: the account token reaches a provider process and no output of it."""
+    """The output half of limit L59: the account token reaches a provider process and no output of it."""
     case.accept_account_token()
     outputs = []
     for argv, record in ((("--check",), case.account_record()), (case.command, case.account_record()),
@@ -176,6 +176,7 @@ def test_a_token_that_lacks_a_permission_of_the_set_is_refused_before_anything_i
         code, _, _, stderr = case.run(*case.command, account=case.account_record())
         assert code == 3, missing
         assert f"lacks {missing}" in stderr and ACCOUNT_COMMAND in stderr and "keep every box ticked" in stderr, stderr
+        assert "nothing was read" in stderr and "nothing was stored" not in stderr
         assert len(case.fake.requests) == before, "no Graph call was made with the token"
 
 
@@ -261,11 +262,19 @@ def test_an_account_record_that_the_service_refuses_does_not_fall_back_to_the_le
     assert code == 3 and "another set of permissions" in stderr, "a wrong account record is an error to fix, not a reason to use the old one"
 
 
-def test_something_under_the_accounts_name_that_is_not_an_account_record_does_not_hide_the_legacy_record_but_is_an_error_alone(case):
-    code, _, _, stderr = case.run("--check", account=json.dumps({"hello": "world"}))
-    assert code == 3 and "unreadable or incomplete" in stderr and ACCOUNT_COMMAND in stderr
-    code, out, _, _ = case.run("--check", account="garbage", legacy=case.legacy_record())
-    assert code == 0 and out["record"] == "legacy"
+@pytest.mark.parametrize("malformed", ["garbage", "[]", json.dumps({"hello": "world"}), json.dumps({"refresh_token": "x", "client_id": "y", "scope": "Mail.Read"}),
+                                       json.dumps({"slot": "main"})])
+def test_a_malformed_account_record_is_exit_3_naming_the_entry_and_never_a_fall_back_to_the_legacy_record(case, malformed):
+    """The fall back is for an account record that is ABSENT. One that exists under microsoft-account and is not whole is an error to fix."""
+    case.accept_account_token()
+    for legacy in (None, case.legacy_record()):
+        before = len(case.fake.token_forms)
+        code, _, _, stderr = case.run("--check", account=malformed, legacy=legacy)
+        assert code == 3, (malformed, legacy, stderr)
+        assert "microsoft-account" in stderr and ACCOUNT_COMMAND in stderr and "microsoft_auth.py forget" in stderr, stderr
+        assert "unreadable or incomplete" in stderr
+        assert len(case.fake.token_forms) == before, "no token of either record was sent"
+        assert "using the legacy record" not in stderr
 
 
 def test_with_no_record_at_all_both_commands_are_named(case):

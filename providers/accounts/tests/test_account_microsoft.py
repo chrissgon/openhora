@@ -1,7 +1,8 @@
 """Unit tests of what the Microsoft account token adds to providers/_msgraph.py (package ACCT-M): the platform's set and its check, the account
 record and how a reader chooses between it and its legacy record, the profile a record belongs to, the profile's refresh scope, the account's
-address, and the static facts the limits rest on (the readers send GET only, L58; the token enters a provider process through one secret
-and nothing prints it, L59; no script holds a permanent delete). No network at all.
+address, and the static facts the limits rest on (the readers send GET only; the provider environment is built from one named secret;
+the registry row; no script of this work holds a permanent delete). The runtime's half of limit L59 (which names a source operation hands a provider, and that
+no run's environment holds the token) is tested in the runtime's tests, not here. No network at all.
 
 Run: uv run --with pytest==9.1.1 pytest providers/accounts/tests/test_account_microsoft.py
 """
@@ -129,11 +130,12 @@ def test_a_tenant_that_is_not_a_tenant_name_is_not_configured():
         assert refused.value.code == 3 and "not a tenant name" in str(refused.value)
 
 
-def test_a_record_with_a_slot_is_the_accounts_and_one_without_is_not():
-    assert msgraph.account_shaped(json.dumps(record())) and msgraph.account_shaped(json.dumps({"slot": 3}))
-    assert not msgraph.account_shaped(json.dumps({"refresh_token": "x", "client_id": "y"}))
-    assert not msgraph.account_shaped("not json") and not msgraph.account_shaped("[]") and not msgraph.account_shaped(None)
-    assert msgraph.profile_of(record(), LEGACY, ACCOUNT) is ACCOUNT
+def test_a_record_is_the_accounts_by_the_secret_it_was_read_from_and_not_by_what_it_holds():
+    parsed = msgraph.parse_account_record(ACCOUNT, json.dumps(record()))
+    assert isinstance(parsed, msgraph.AccountRecord) and json.loads(json.dumps(parsed)) == parsed
+    assert msgraph.profile_of(parsed, LEGACY, ACCOUNT) is ACCOUNT
+    legacy_with_a_slot = msgraph.parse_record(LEGACY, json.dumps({"refresh_token": "x", "client_id": "y", "slot": "main"}))
+    assert msgraph.profile_of(legacy_with_a_slot, LEGACY, ACCOUNT) is LEGACY, "a legacy record that holds a slot key is still the legacy one"
     assert msgraph.profile_of({"refresh_token": "x", "client_id": "y"}, LEGACY, ACCOUNT) is LEGACY
 
 
@@ -193,13 +195,15 @@ def test_a_wrong_account_record_is_an_error_even_when_a_legacy_record_exists():
     assert "another set of permissions" in str(refused.value)
 
 
-def test_something_under_the_accounts_name_that_is_not_an_account_record_is_unreadable_alone_and_ignored_beside_a_legacy_record():
+@pytest.mark.parametrize("found", ["just-a-token", "[]", json.dumps({"refresh_token": "x", "client_id": "y"}), json.dumps({"slot": "main"}), "{"])
+def test_a_malformed_record_under_the_accounts_name_is_exit_3_naming_the_entry_even_beside_a_legacy_record(found):
     legacy = json.dumps({"refresh_token": "x", "client_id": "y"})
-    with pytest.raises(msgraph.ProviderError) as refused:
-        credentials({"MICROSOFT_ACCOUNT_TOKEN": ("just-a-token", "environment")})
-    assert "unreadable or incomplete" in str(refused.value) and ACCOUNT.auth_command in str(refused.value)
-    (rec, _), _, _ = credentials({"MICROSOFT_ACCOUNT_TOKEN": ("just-a-token", "environment"), "OUTLOOK_MAIL_TOKEN": (legacy, "environment")})
-    assert "slot" not in rec
+    for others in ({}, {"OUTLOOK_MAIL_TOKEN": (legacy, "environment")}):
+        with pytest.raises(msgraph.ProviderError) as refused:
+            credentials({"MICROSOFT_ACCOUNT_TOKEN": (found, "environment"), **others})
+        message = str(refused.value)
+        assert refused.value.code == 3 and "microsoft-account" in message and "unreadable or incomplete" in message
+        assert ACCOUNT.auth_command in message and msgraph.FORGET_COMMAND in message
 
 
 def test_the_legacy_note_is_once_per_record_and_per_process_and_holds_no_content(capsys):
@@ -230,7 +234,7 @@ def test_only_a_plain_address_is_kept_as_the_accounts_name(value, kept):
 # --- the static facts the limits rest on ----------------------------------------------------------------------------------------------
 
 
-def test_l58_the_graph_client_and_the_three_readers_send_no_write_method_to_graph():
+def test_the_graph_client_and_the_three_readers_send_no_write_method_to_graph():
     shared = (PROVIDERS / "_msgraph.py").read_text(encoding="utf-8")
     for method in ("PUT", "PATCH", "DELETE"):
         assert f'"{method}"' not in shared and f"'{method}'" not in shared, method
@@ -244,14 +248,14 @@ def test_l58_the_graph_client_and_the_three_readers_send_no_write_method_to_grap
         assert not re.search(r"\.(post|put|patch|delete)\(", code), path.name
 
 
-def test_l57_no_script_of_the_account_work_holds_a_permanent_delete_call():
+def test_no_script_of_the_account_work_holds_a_permanent_delete_call():
     for path in (PROVIDERS / "_msgraph.py", PROVIDERS / "accounts" / "microsoft_auth.py", *READER_FILES):
         code = re.sub(r'"""[\s\S]*?"""', "", path.read_text(encoding="utf-8"))
         for word in ("permanentDelete", "batchDelete", "emptyTrash", "DELETE"):
             assert word not in code, (path.name, word)
 
 
-def test_l59_the_account_secret_reaches_a_provider_process_through_one_name_and_a_run_never_gets_it():
+def test_provider_environment_passes_the_one_account_secret_it_is_named_for_and_no_legacy_or_other_record():
     env = {"PATH": "/usr/bin", "MICROSOFT_ACCOUNT_TOKEN": '{"refresh_token": "x"}', "OUTLOOK_MAIL_TOKEN": "legacy", "ONEDRIVE_SOURCES_TOKEN": "legacy",
            "VCS_GITHUB_TOKEN": "t", "MAILBOX_PROVIDER": "outlook"}
     for cls in ("reader:email", "integration:calendar", "integration:documents"):
@@ -262,7 +266,7 @@ def test_l59_the_account_secret_reaches_a_provider_process_through_one_name_and_
     assert "MICROSOFT_ACCOUNT_TOKEN" not in without, "a provider is given only the secrets it is named for"
 
 
-def test_l59_the_registry_row_names_the_set_the_record_and_the_readers_and_the_resolver_finds_it_in_the_environment():
+def test_the_registry_row_names_the_set_the_record_and_the_readers_and_the_resolver_finds_it_in_the_environment():
     secret = resolver.REGISTRY["MICROSOFT_ACCOUNT_TOKEN"]
     assert secret.store_username == "microsoft-account" and secret.aliases == ()
     for name in PLATFORM:

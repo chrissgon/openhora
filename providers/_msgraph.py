@@ -37,10 +37,11 @@ in a run). The legacy functions above keep their behaviour; the account ones are
 
   PLATFORM_SCOPES, account_profile   the five permissions (and offline_access) and the Profile of the account record (`Profile.scopes`)
   check_platform_scope               a token that lacks one of the set, or carries one more, is refused (exit 3) naming the authorize command
-  parse_account_record               the account record (a `slot` marks it), and load_credentials: account first, legacy second, one note
-  profile_of                         which profile a record belongs to (a record with a slot is the account's), for the refresh and the write-back
-  authorize_account, check_account   the commands of providers/accounts/microsoft_auth.py (its `forget` is `forget` above); ROTATION_LOCK, the
-                          write-back of the shared record as one step per process
+  parse_account_record               the account record, and load_credentials: account first, legacy only when the account's is absent, one note
+  profile_of                         which profile a record belongs to (one read from the account's secret is an AccountRecord), for the refresh and the write-back
+  authorize_account, check_account   the commands of providers/accounts/microsoft_auth.py (its `forget` is `forget` above)
+  record_lock                        every write to a Microsoft record in the secret store (rotation, authorization, forget) is one step per
+                          process and, with fcntl, one advisory file lock per user across processes (write_record, delete_record)
 
 Standard library only (the OS secret store is reached through the `keyring` package a provider imports, never here). Runs on Python 3.9.
 """
@@ -48,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import getpass
 import hashlib
 import hmac
@@ -56,8 +58,10 @@ import json
 import os
 import secrets
 import socket
+import stat
 import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -67,6 +71,11 @@ from http.client import HTTPException   # not `import http.client`: onedrive.py 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import re
+
+try:   # POSIX only: a platform without it keeps the in-process lock alone (record_lock says so on stderr, once)
+    import fcntl
+except ImportError:   # pragma: no cover (Windows)
+    fcntl = None
 
 SCOPE_PREFIX = "https://graph.microsoft.com/"
 DEFAULT_GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -87,6 +96,7 @@ EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 PLATFORM_SCOPES = ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read")
 ACCOUNT_SECRET, ACCOUNT_KEYRING_USERNAME, ACCOUNT_LABEL = "MICROSOFT_ACCOUNT_TOKEN", "microsoft-account", "Microsoft account"
 ACCOUNT_AUTH_COMMAND = "uv run <workbench>/providers/accounts/microsoft_auth.py authorize"
+FORGET_COMMAND = "uv run <workbench>/providers/accounts/microsoft_auth.py forget"
 ACCOUNT_CLIENT_ID_VAR, ACCOUNT_TENANT_VAR = "MICROSOFT_CLIENT_ID", "MICROSOFT_TENANT"
 ACCOUNT_SLOT = "main"                       # v1 ships this slot only; the record carries it so that a second account moves nothing
 SLOT = re.compile(r"[a-z0-9]{1,12}")
@@ -257,35 +267,31 @@ def load_record(profile: Profile, resolver, test_mode: bool) -> tuple:
     return parse_record(profile, found[0]), found[1]
 
 
-def account_shaped(text) -> bool:
-    """True when `text` is the JSON object of an account record: it carries a `slot`. A record without one is never the account's (a legacy
-    record found under the account's name, by a stand-in resolver that ignores the name, is the legacy record and is read as such)."""
-    try:
-        record = json.loads(text)
-    except (ValueError, TypeError):
-        return False
-    return isinstance(record, dict) and "slot" in record
+class AccountRecord(dict):
+    """A record that came from the account's secret (MICROSOFT_ACCOUNT_TOKEN) and passed parse_account_record. What a record is, is decided by
+    the secret it was found under, never by what it holds: profile_of tells the two kinds apart by this class."""
 
 
-def parse_account_record(profile: Profile, text: str) -> dict:
+def parse_account_record(profile: Profile, text: str) -> AccountRecord:
     """The account record from its JSON text; ProviderError (not configured) when it is unreadable, incomplete or made for another set of
     permissions. The scope the record names must be the platform's set exactly (the authorization command writes it)."""
-    command = profile.auth_command
+    command = f"{profile.auth_command} (or remove the entry with: {FORGET_COMMAND})"
     try:
         record = json.loads(text)
     except ValueError:
         record = None
     if (not isinstance(record, dict) or not isinstance(record.get("slot"), str) or not SLOT.fullmatch(record["slot"])
             or not plain_ascii(record.get("refresh_token")) or not plain_ascii(record.get("client_id"))):
-        raise ProviderError(f"the stored {profile.label} authorization is unreadable or incomplete; run: {command}", EXIT_NOT_CONFIGURED)
+        raise ProviderError(f"the {profile.label} record ({profile.keyring_username}) is unreadable or incomplete; run: {command}", EXIT_NOT_CONFIGURED)
     stored = scopes_of(record.get("scope")) if isinstance(record.get("scope"), str) else set()
     if {n.lower() for n in stored} != {n.lower() for n in profile.scopes}:
-        raise ProviderError(f"the stored {profile.label} authorization was made for another set of permissions than the platform's "
-                            f"({', '.join(profile.scopes)}); run: {command}", EXIT_NOT_CONFIGURED)
+        raise ProviderError(f"the {profile.label} record ({profile.keyring_username}) was made for another set of permissions than the "
+                            f"platform's ({', '.join(profile.scopes)}); run: {command}", EXIT_NOT_CONFIGURED)
     tenant = record.get("tenant") or "common"
     if not isinstance(tenant, str) or not TENANT.fullmatch(tenant):
-        raise ProviderError(f"the {profile.label} authorization holds a tenant that is not a tenant name; run: {command}", EXIT_NOT_CONFIGURED)
-    return {**record, "tenant": tenant}
+        raise ProviderError(f"the {profile.label} record ({profile.keyring_username}) holds a tenant that is not a tenant name; run: {command}",
+                            EXIT_NOT_CONFIGURED)
+    return AccountRecord({**record, "tenant": tenant})
 
 
 _NOTED_LEGACY: set = set()   # the legacy usernames this process has already said it used
@@ -300,16 +306,16 @@ def note_legacy(legacy: Profile, account: Profile) -> None:
 
 def load_credentials(legacy: Profile, account: Profile, resolver, test_mode: bool, account_resolver=None) -> tuple:
     """(record, where it was found) for a reader: the account record first, the reader's own legacy record second (backlog ACCT-LEGACY removes
-    the second). The record says which it is: an account record carries a `slot`, a legacy one does not (profile_of). When both exist the
-    account record is used and the legacy one is not read. `resolver` is the provider's own function for its legacy secret and
-    `account_resolver` its function for the account's (the same resolver in the workbench; two functions so that a test can replace one)."""
+    the second), and the legacy one only when the account record is ABSENT. Whatever is found under the account's secret is the account's
+    record: when it is malformed (not JSON, no slot, another shape or scope set) the answer is exit 3 naming `microsoft-account` and the
+    authorize and forget commands, never a silent fall back to the legacy record. When both exist and the account's is whole, the account
+    record is used and the legacy one is not read. `resolver` is the provider's own function for its legacy secret and `account_resolver` its
+    function for the account's (the same resolver in the workbench; two functions so that a test can replace one)."""
     found = (account_resolver or resolver)().resolve(account.secret, allow_store=not test_mode)
-    if found and account_shaped(found[0]):
+    if found:
         return parse_account_record(account, found[0]), found[1]
     older = resolver().resolve(legacy.secret, allow_store=not test_mode)
     if not older:
-        if found:   # something is stored under the account's name, and it is not an account record
-            raise ProviderError(f"the stored {account.label} authorization is unreadable or incomplete; run: {account.auth_command}", EXIT_NOT_CONFIGURED)
         raise ProviderError(f"no {legacy.label} authorization: run {account.auth_command} (the account token), or, for the legacy record, run "
                             f"{legacy.auth_command}; or export {account.secret} (the account record) or {legacy.secret} (the legacy record), as JSON",
                             EXIT_NOT_CONFIGURED)
@@ -319,8 +325,9 @@ def load_credentials(legacy: Profile, account: Profile, resolver, test_mode: boo
 
 
 def profile_of(record: dict, legacy: Profile, account: Profile) -> Profile:
-    """The profile a loaded record belongs to: the account's when it carries a slot, the legacy one's otherwise."""
-    return account if isinstance(record, dict) and "slot" in record else legacy
+    """The profile a loaded record belongs to: the account's when it was read from the account's secret (an AccountRecord), the legacy one's
+    otherwise."""
+    return account if isinstance(record, AccountRecord) else legacy
 
 
 # --- HTTP --------------------------------------------------------------------------------------------------------------------
@@ -429,10 +436,12 @@ def check_scope(profile: Profile, granted) -> str:
     return profile.scope
 
 
-def check_platform_scope(profile: Profile, granted) -> str:
+def check_platform_scope(profile: Profile, granted, authorizing: bool = False) -> str:
     """Refuse a token whose reported scope is not exactly the platform's set (plus the scopes that grant no access): one that lacks a
     permission cannot do what the platform needs, and one that carries another is a setup error to fix (a permission left on the
-    registration), not a token to use. Compared without case. Returns the set as the record stores it (the permissions, a space between)."""
+    registration), not a token to use. Compared without case. Returns the set as the record stores it (the permissions, a space between).
+    `authorizing` words the refusal for the authorization command ("nothing stored") and not for a reader ("nothing was read")."""
+    nothing = "nothing was stored" if authorizing else "nothing was read"
     wanted = {name.lower(): name for name in profile.scopes}
     got = {name.lower(): name for name in scopes_of(granted)}
     lacking = [wanted[key] for key in wanted if key not in got]
@@ -440,10 +449,10 @@ def check_platform_scope(profile: Profile, granted) -> str:
     if lacking:
         more = (f" (it also carries {', '.join(extra)}, which the platform does not ask: revoke the app's access in your Microsoft account first)"
                 if extra else "")
-        raise ProviderError(f"the account token lacks {', '.join(lacking)}: nothing was read. Run {profile.auth_command} and keep every box "
+        raise ProviderError(f"the account token lacks {', '.join(lacking)}: {nothing}. Run {profile.auth_command} and keep every box "
                             f"ticked on the consent screen{more}", EXIT_NOT_CONFIGURED)
     if extra:
-        raise ProviderError(f"the account token carries {', '.join(extra)}, which the platform does not ask: nothing was read. Remove it from "
+        raise ProviderError(f"the account token carries {', '.join(extra)}, which the platform does not ask: {nothing}. Remove it from "
                             f"the app registration (API permissions), revoke the app's access in your Microsoft account, and run: "
                             f"{profile.auth_command}", EXIT_NOT_CONFIGURED)
     return " ".join(profile.scopes)
@@ -475,6 +484,93 @@ def refresh_access_token(profile: Profile, token_url: str, record: dict) -> tupl
 
 
 ROTATION_LOCK = threading.Lock()
+LOCK_TIMEOUT_SECONDS, LOCK_POLL_SECONDS = 30, 0.05
+_LOCK_NOTED: set = set()
+
+
+def lock_file_path() -> Path:
+    """The per-user lock file: `msgraph-records.lock` in the folder `openhora` of the user's state folder ($XDG_STATE_HOME, else
+    ~/.local/state). One file for every Microsoft record (the account's and the legacy ones), so that none is written while another is."""
+    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(base) / "openhora" / "msgraph-records.lock"
+
+
+def _note_once(key: str, message: str) -> None:
+    if key not in _LOCK_NOTED:
+        _LOCK_NOTED.add(key)
+        log(message)
+
+
+def _open_lock_file():
+    """A descriptor of the lock file (mode 0600, in a folder of mode 0700 that is this user's, no link followed), or None after one note on
+    stderr when it cannot be made safely: the write then goes on under the in-process lock alone."""
+    path = lock_file_path()
+    try:
+        folder = path.parent
+        folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = os.lstat(folder)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            raise OSError("the folder is not this user's")
+        if info.st_mode & 0o077:
+            os.chmod(folder, 0o700)
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.getuid():
+            os.close(fd)
+            raise OSError("the lock file is not a file of this user's")
+        if opened.st_mode & 0o077:
+            os.fchmod(fd, 0o600)
+        return fd
+    except OSError as exc:
+        _note_once("open", f"note: no file lock for the Microsoft records ({type(exc).__name__}): a write goes on under this process's lock alone, "
+                           "so two processes that write at the same moment are not kept apart")
+        return None
+
+
+@contextlib.contextmanager
+def record_lock():
+    """Held around every write to a Microsoft record in the secret store (the rotation's re-read, comparison and write; an authorization's
+    store; a forget): one step per process (ROTATION_LOCK) and, on a platform with fcntl, one step per user across processes (an exclusive
+    flock on lock_file_path()). A lock held for more than LOCK_TIMEOUT_SECONDS by another process is a ProviderError (exit 1) and nothing is
+    written. Without fcntl the in-process lock is all there is, and that is said once on stderr."""
+    with ROTATION_LOCK:
+        fd = None
+        if fcntl is None:
+            _note_once("fcntl", "note: this platform has no fcntl: the Microsoft records are protected from two threads of one process and not from "
+                                "two processes writing at the same moment")
+        else:
+            fd = _open_lock_file()
+        try:
+            if fd is not None:
+                deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+                while True:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            raise ProviderError(f"another process has held the lock on the Microsoft records for {LOCK_TIMEOUT_SECONDS} seconds; "
+                                                "nothing was written: try again") from None
+                        time.sleep(LOCK_POLL_SECONDS)
+            yield
+        finally:
+            if fd is not None:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
+
+
+def write_record(profile: Profile, store, text: str) -> None:
+    """Store `text` as the profile's record, under the lock (so that no rotation's re-read, comparison and write is half done around it)."""
+    with record_lock():
+        store.set_password(profile.keyring_service, profile.keyring_username, text)
+
+
+def delete_record(profile: Profile, store) -> None:
+    """Delete the profile's record, under the lock."""
+    with record_lock():
+        store.delete_password(profile.keyring_service, profile.keyring_username)
 
 
 def store_rotation(profile: Profile, record: dict, rotated, where: str, test_mode: bool, resolver, keyring) -> str:
@@ -488,11 +584,12 @@ def store_rotation(profile: Profile, record: dict, rotated, where: str, test_mod
     try:
         # Write only into the record this process used: read it again through the resolver, and leave it alone when it is gone (forgotten)
         # or holds another refresh token (a newer authorization, or another process that rotated first). Several providers now share the one
-        # account record (ACCT-M): the read, the comparison and the write are one step per process (a lock), so that two refreshes of this
-        # process that interleave write back once; the loser keeps its own token, which Microsoft leaves valid (the old one stays valid
-        # until it expires, to verify). Between two processes the secret store has no compare-and-swap: the window is the two calls, and the
-        # worst case is a token that is still valid replacing another that is still valid.
-        with ROTATION_LOCK:
+        # account record (ACCT-M): the read, the comparison and the write are one step, under record_lock (one step per process, and across
+        # processes an advisory file lock where the platform has fcntl), so that two refreshes that interleave write back once, and a forget or
+        # a new authorization in the window is not written over; the loser keeps its own token, which Microsoft leaves valid (the old one
+        # stays valid until it expires, to verify). The OS secret store has no compare-and-swap of its own: this lock binds the processes
+        # of the workbench that take it, not another program that writes the same entry.
+        with record_lock():
             again = resolver().resolve(profile.secret, allow_store=True)
             try:
                 current = json.loads(again[0]) if again and again[1] == "secret store" else None
@@ -502,6 +599,9 @@ def store_rotation(profile: Profile, record: dict, rotated, where: str, test_mod
                 log(f"note: the stored {profile.label} authorization changed (or was forgotten) while this ran; the new refresh token was not stored")
                 return "not stored: the record changed meanwhile"
             keyring(test_mode).set_password(profile.keyring_service, profile.keyring_username, json.dumps({**current, "refresh_token": rotated}))
+    except ProviderError as exc:   # the lock was held by another process for too long
+        log(f"warning: {exc}; carrying on with the old refresh token, which works until it expires")
+        return "not stored: the lock on the records is held by another process"
     except Exception as exc:   # a locked or missing store, headless: the old token still works until it expires
         log(f"warning: Microsoft issued a new refresh token and it could not be stored ({type(exc).__name__}); carrying on with the old one, "
             f"which works until it expires. If a later call is refused, run: {profile.auth_command}")
@@ -812,7 +912,9 @@ def authorize(profile: Profile, provider, server_cls, open_browser: bool, accoun
         record["account_kind"] = shown["account_kind"] = kind
     shown.update({"tenant": given["tenant"], "obtained_at": record["obtained_at"]})
     try:
-        store.set_password(profile.keyring_service, profile.keyring_username, json.dumps(record))
+        write_record(profile, store, json.dumps(record))
+    except ProviderError:
+        raise
     except Exception as exc:
         raise ProviderError(f"cannot write to the OS secret store: {type(exc).__name__}") from None
     print(json.dumps(shown, indent=2))
@@ -824,8 +926,10 @@ def forget(profile: Profile, provider) -> int:
     _, _, _, test_mode = provider.endpoints()
     store = provider.keyring_module(test_mode)
     try:
-        store.delete_password(profile.keyring_service, profile.keyring_username)
+        delete_record(profile, store)
         forgotten = True
+    except ProviderError:
+        raise
     except Exception as exc:
         if type(exc).__name__ != "PasswordDeleteError":   # the library's word for "nothing was stored"
             raise ProviderError(f"cannot delete from the OS secret store: {type(exc).__name__}") from None
@@ -904,7 +1008,7 @@ def authorize_account(profile: Profile, provider, server_cls, open_browser: bool
     data = provider.token_request(token_url or TOKEN_URL_TEMPLATE.format(tenant=given["tenant"]), {
         "client_id": given["client_id"], "grant_type": "authorization_code", "code": code, "redirect_uri": server.redirect_uri,
         "code_verifier": verifier, "scope": profile.refresh_scope})
-    scope = check_platform_scope(profile, data.get("scope"))   # a missing or an extra permission: nothing is stored
+    scope = check_platform_scope(profile, data.get("scope"), authorizing=True)   # a missing or an extra permission: nothing is stored
     refresh = data.get("refresh_token")
     if not plain_ascii(refresh):
         raise ProviderError("Microsoft returned no refresh token that can be kept (is offline_access on the registration?); nothing stored")
@@ -914,7 +1018,9 @@ def authorize_account(profile: Profile, provider, server_cls, open_browser: bool
     record = {"slot": slot, "refresh_token": refresh, "client_id": given["client_id"], "tenant": given["tenant"], "scope": scope,
               "account_kind": kind, "account": address, "obtained_at": now_iso()}
     try:
-        store.set_password(profile.keyring_service, profile.keyring_username, json.dumps(record))
+        write_record(profile, store, json.dumps(record))
+    except ProviderError:
+        raise
     except Exception as exc:
         raise ProviderError(f"cannot write to the OS secret store: {type(exc).__name__}") from None
     print(json.dumps({"authorized": True, "secret_store": {"service": profile.keyring_service, "username": profile.keyring_username},

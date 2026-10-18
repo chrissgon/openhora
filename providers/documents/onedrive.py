@@ -188,7 +188,7 @@ def parse_record(text: str) -> dict:
 
 def load_record(test_mode: bool) -> tuple:
     """(record, where it was found): "environment", "credentials directory" or "secret store". The account record (MICROSOFT_ACCOUNT_TOKEN)
-    first, this provider's own legacy record second (one cycle, backlog ACCT-LEGACY); an account record carries a `slot`."""
+    first, this provider's own legacy record second (one cycle, backlog ACCT-LEGACY); a record read from the account's secret is the account's (a malformed one is exit 3, never a fall back)."""
     return msgraph.load_credentials(PROFILE, ACCOUNT_PROFILE, secret_resolver, test_mode, account_resolver)
 
 

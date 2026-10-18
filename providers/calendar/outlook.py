@@ -185,7 +185,7 @@ def usable_access_token(data: dict) -> str:
 
 def load_record(test_mode: bool) -> tuple:
     """(record, where it was found): the account record (MICROSOFT_ACCOUNT_TOKEN) first, this provider's own legacy record second (one cycle,
-    backlog ACCT-LEGACY). An account record carries a `slot`."""
+    backlog ACCT-LEGACY). A record read from the account's secret is the account's whatever it holds (a malformed one is exit 3, never a fall back)."""
     return msgraph.load_credentials(PROFILE, ACCOUNT_PROFILE, secret_resolver, test_mode, account_resolver)
 
 

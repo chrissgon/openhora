@@ -228,7 +228,7 @@ def test_authorize_stores_one_record_of_its_own_reads_the_address_once_and_print
     assert set(fake.methods) == {"GET"}
     for text in (out, err):
         for secret in SECRETS:
-            assert secret not in text, "L59: no token on stdout or stderr"
+            assert secret not in text, "no token on stdout or stderr"
     assert seen["url"] in err and fake_ms_account.CLIENT_ID in seen["url"], "the printed URL holds the public client id, the state and the challenge"
 
 
@@ -276,6 +276,7 @@ def test_a_consent_that_lacks_one_permission_of_the_set_stores_nothing_and_names
     out, err = capsys.readouterr()
     assert env.values == {} and fake.api_requests() == [], "nothing stored and the token was not even used"
     assert f"lacks {missing}" in err and "microsoft_auth.py authorize" in err and "keep every box ticked" in err
+    assert "nothing was stored" in err and "nothing was read" not in err
     assert out == "" and not any(s in out + err for s in SECRETS)
 
 
@@ -287,6 +288,7 @@ def test_a_consent_that_carries_another_permission_stores_nothing_and_says_how_t
     err = capsys.readouterr().err
     assert env.values == {} and fake.api_requests() == []
     assert f"carries {extra}" in err and "does not ask" in err and "revoke the app's access" in err and "microsoft_auth.py authorize" in err
+    assert "nothing was stored" in err and "nothing was read" not in err
 
 
 def test_a_consent_that_both_lacks_and_carries_says_so_and_stores_nothing(fake, env, monkeypatch, capsys):
