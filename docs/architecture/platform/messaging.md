@@ -277,6 +277,8 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `reminders` | `remind`, `reminders`, `reminder-forget` | - | `page`, `messaging` | - | makes, lists and forgets reminders: one-shot lines of the sender's own words that the bridge sends back to their own chat at the time they chose |
 | `calendar-write` | `event-create`, `event-change`, `event-cancel` | - | `page`, `messaging` | - | prepares changes to your own calendars (create, change, remove an event); each one waits for approval of its card |
 | `approve-effect-calendar` | `approve` | `effect:calendar` | `page`, `messaging` | - | approves an event on the person's own calendars (create, change or remove), with its hash |
+| `files-write` | `file-create`, `file-replace`, `file-save` | - | `page`, `messaging` | - | prepares new files and new revisions in your own Drive and OneDrive, and the saving of a file you sent; each one waits for approval of its card |
+| `approve-effect-files` | `approve` | `effect:files` | `page`, `messaging` | - | approves a new file or a new revision in your own Drive or OneDrive, with its hash |
 
 A grant (`GRANTS`) widens a channel and counts only when the project's own entry for the channel lists it, never through the default policy; accepting a file that gives a channel or a sender any group the accepted file did not effectively give them, a grant or not, asks for the hash of the widening list (`accept-config --widen`).
 
@@ -289,6 +291,7 @@ A grant (`GRANTS`) widens a channel and counts only when the project's own entry
 | `messaging` | `approve-networked-plans` | a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash |
 | `messaging` | `add-sources-direct` | a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card) |
 | `messaging` | `approve-effect-calendar` | a messaging app may approve an event on your own calendars (create, change or remove), from a card that carries the whole event, with its hash |
+| `messaging` | `approve-effect-files` | a messaging app may approve a new file or a new revision in your own Drive or OneDrive, from a card that carries the whole text, with its hash; a file you sent from the phone is saved on a card that names it, its size and its hash, and only the sender who sent it approves it |
 | `mcp` | `approve-plans` | a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain |
 | `mcp` | `approve-acceptances` | a connected AI client may accept what a request delivered or proposed: a model then authorises more work |
 | `mcp` | `reject-cancel` | a connected AI client may reject a decision and cancel a request |
@@ -1047,3 +1050,4 @@ Dates are the UTC merge date of each pull request (`gh pr view <n> --json merged
 - 2026-10-18: a queued line instead of "busy" on a messaging app (BQ-1): `QUEUED`, `QUEUE_EXPIRED`, `QUEUE_STOPPED`, `queueable`, `Bridge.keep`, `drain`, `close_queue`, `job_ended` (a no-op hook added to `shell_kit.Jobs`, called at the end of each job outside the lock), `serve_loop` split into `serve_loop` and `loop`, rules Q1 to Q7; one line per chat and 5 per project in the bridge's memory, 30 minutes, told on a clean stop.
 - 2026-10-18: reminders (RM-1; decision M-46): the group `reminders` and the operations `remind`, `reminders` and `reminder-forget`, `runtime/reminders.py`, `runtime/ops_reminders.py`, `runtime/messaging_remind.py`, the intents `remind`, `reminders` and `forget`, the delivery at the end of each tick, migration 20, rules R1 to R7 and limit L51.
 - 2026-10-18: the card of an account write, line by line (FND): `payload["card"]`, `phrases.card_valid` and `card_text`, `messaging_cards.effect_card_text`, and the replies `ACCT_CARD_SENT` and `ACCT_NOT_CONFIGURED`; the groups and grants of the family arrive with their kinds (W1 to W4a).
+- 2026-10-18: the group `files-write` and the grant `approve-effect-files` (W4a): a file write is asked for and approved from a phone only when the sender's profile lists them (in no default policy); a file of the project that is not text is never whole on a card, and a save of a file the sender sent is approved only by that sender (`ops_grants._sender_problem`, decision Q9 of SPEC-SECRETARY-WRITES).

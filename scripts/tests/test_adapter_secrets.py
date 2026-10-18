@@ -46,7 +46,7 @@ BEFORE = {
     "GOOGLE_CALENDAR_TOKEN": ((), "calendar-google", ("providers/calendar/google.py", "providers/calendar/google_auth.py")),
     # ACCT-G (decision of 2026-10-18): one token for the person's own Google account, the platform's four scopes, read first by the three readers.
     "GOOGLE_ACCOUNT_TOKEN": ((), "google-account", ("providers/mailbox/gmail.py", "providers/calendar/google.py", "providers/documents/gdrive.py",
-                                                     "providers/_google.py", "providers/accounts/google_auth.py")),
+                                                     "providers/_google.py", "providers/accounts/google_auth.py", "providers/writer/gdrive.py")),
     # Decision D13 and secret S7 of the delegation plan (P4): the read-only token of the pages chosen as sources, never the one that writes.
     "NOTION_SOURCES_TOKEN": ((), "notion-sources", ("providers/documents/notion.py",)),
     # P7: the Google Drive files the person picked as sources; one record (token, client, Picker key), scope drive.file.
@@ -58,7 +58,7 @@ BEFORE = {
     "OUTLOOK_CALENDAR_TOKEN": ((), "outlook-calendar", ("providers/calendar/outlook.py", "providers/calendar/outlook_auth.py")),
     # ACCT-M: the person's own Microsoft account, one record for the platform's whole set (decision of 2026-10-18).
     "MICROSOFT_ACCOUNT_TOKEN": ((), "microsoft-account", ("providers/accounts/microsoft_auth.py", "providers/_msgraph.py", "providers/documents/onedrive.py",
-                                                          "providers/mailbox/outlook.py", "providers/calendar/outlook.py")),
+                                                          "providers/mailbox/outlook.py", "providers/calendar/outlook.py", "providers/writer/onedrive.py")),
     "MESSENGER_TELEGRAM_BOT_TOKEN": ((), "messenger-telegram", ("providers/messenger/telegram.py",)),
     "MESSENGER_DISCORD_BOT_TOKEN": ((), "messenger-discord", ("providers/messenger/discord.py",)),
     "MESSENGER_WHATSAPP_CLOUD_TOKEN": ((), "messenger-whatsapp-cloud", ("providers/messenger/whatsapp-cloud.py",)),

@@ -346,6 +346,9 @@ ROUTES = (
     _route("POST", "/projects/{p}/events", "event-create"),
     _route("POST", "/projects/{p}/events/change", "event-change"),
     _route("POST", "/projects/{p}/events/cancel", "event-cancel"),
+    _route("POST", "/projects/{p}/files", "file-create", take=("account", "file_name", "content", "from_path", "folder")),      # W4a: each only prepares a card
+    _route("POST", "/projects/{p}/files/replace", "file-replace", take=("account", "file", "content", "from_path")),
+    _route("POST", "/projects/{p}/files/save", "file-save", take=("account", "attachment", "file_name", "folder")),
     _route("POST", "/projects/{p}/dispatch", "dispatch", take=()),
     _route("GET", "/jobs/{id}", own="job"),
 )

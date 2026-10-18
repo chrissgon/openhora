@@ -279,12 +279,6 @@ def test_every_class_of_the_environment_contract_is_listed():
     assert classes and sorted(classes) == sorted(resolve.LISTED)
 
 
-def serves(folder, name):
-    """The class a provider file declares it serves (`SERVES = "writer:calendar"`), or None: the writers of several classes share the folder providers/writer/."""
-    found = re.search(r'^SERVES\s*=\s*"([^"\n]+)"', (REPO / "providers" / folder / f"{name}.py").read_text(encoding="utf-8"), re.M)
-    return found.group(1) if found else None
-
-
 def test_a_verbs_row_says_when_no_implementation_ships():
     # CT6: the verbs table listed verbs for classes that no provider implements, as if one answered them.
     contract = (REPO / "providers" / "CONTRACT.md").read_text(encoding="utf-8")
@@ -293,7 +287,7 @@ def test_a_verbs_row_says_when_no_implementation_ships():
     assert rows
     for row in rows:
         cls = row.split("|")[1].strip().strip("`")
-        shipped = bool([n for n in resolve.implementations_in(resolve.folder(cls), root=REPO) if serves(resolve.folder(cls), n) in (None, cls)])
+        shipped = bool(resolve.implementations(cls, root=REPO))      # a writer that declares it serves another class is not one of this class
         reserved = row.split("|")[2].strip().startswith("No implementation ships.")
         assert shipped != reserved, cls
     assert 'A row that starts "No implementation ships" is a reserved shape' in contract

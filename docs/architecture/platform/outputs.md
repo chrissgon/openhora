@@ -224,6 +224,38 @@ step task "send-email"                 person                           code
 
 **What code cannot enforce, and the live checks.** What a server does with a message once it said 250 (the host's); whether the host files a copy in the Sent folder, which `lookup` depends on; the size the host accepts (the cap is 18 MB of attachments, about 24 MB after encoding). To verify on first use: [providers/mailer/README.md](../../../providers/mailer/README.md).
 
+## A file in the person's own Drive or OneDrive
+
+Package W4a of SPEC-SECRETARY-WRITES. The secretary creates a file, writes a new revision of a file the person registered as a source, and saves a file a sender sent through a messaging app, in the person's own Google Drive or OneDrive. The same four-part shape as an e-mail (a step task that prepares, a gate, an effect module that executes, a provider), with three differences: the provider is a writer of the account (`providers/writer/`, one token per account, no secret of its own), the target is a thing the project lists (limit L55), and the previous revision is never lost (limit L57).
+
+```
+step task "file-write"                 person                           code
+  prepare: check the arguments (operation create | replace | save, account google | microsoft)
+           the address and, for a new file, the folder come from `accounts` in runtime.json
+           read the service through the read-only seam (file-meta): is the name taken? what is the file now?
+           take the content: the person's text (<= 64 KiB), a file under docs/ (no link), or the held file
+           write effect.json (account, writer, target, name, content by hash, base, dry-run hash, key)
+  approve (gate): opens an `effect` decision  ->  reads the account, the file, the folder or the revision,
+                  the hash covers all of it         the text whole (or size and hash), the hash
+                                                    approve --sha256 <hash>  (terminal, page, or a phone that was granted it)
+                                                                         ->  execute: read the content again (its sha256 must be the document's),
+                                                                             a replace re-reads the file and compares the base (moved: stale),
+                                                                             the writer's dry run must hash to the document's, then
+                                                                             create | update | replace --confirmed once; record
+```
+
+**The document** (`runtime/files_document.py`): `effect` ("files"), `operation`, `task`, `account`, `implementation` (`gdrive` or `onedrive`), `address`, `target` ({kind, label, id}: the folder under the name `accounts` lists, or the source and the file's id), `name`, `content` ({kind text | file | held, bytes, sha256, media_type, text, path, attachment, gdoc}), `base` (a replace: Drive version, modified time, type, checksum and head revision, or OneDrive eTag, cTag, size and modified time, and `source_version`), `read_at`, `dry_run_sha256`, `idempotency_key`. The hash covers every field, so an approval of a file covers no other target and no other byte. The sender of a held file is in the store alone, never in the document (limit L48).
+
+**What the person sees.** The card is the document's lines (`card_lines`, phrase keys `CARD_FILE_*`, said in the project's language on a phone and in English in the terminal and on the page; the values are the person's and the service's words and are never translated): the code line, the account and its address, the file and the service, the folder or the source, the revision a replace replaces ("that revision stays in the file's history"), the text whole between two rules (or the file's size and a short hash for a save and for a file of the project), the hash and the command that approves.
+
+**Refused by structure.** `ctx.services.files_read` has one method, `meta`, and it starts the one verb `file-meta` of the writer of the account's implementation (`runtime/ops_step_seams.py`; a test holds the names). The only code that writes is `effect_files.execute`, reached only from the operation `approve`, and the only modules that name the class `writer:files` are that one and the seam (limit L58: a grep of `runtime/`). A new file never replaces one: Drive's writer reads the name in the folder just before, OneDrive's asks `conflictBehavior=fail` (409). A replace is `stale` when the file moved since it was read (limit L56): the base (a Drive file's version, modified time, checksum and head revision; a OneDrive file's eTag, cTag and size) is in the hash, read again by `execute` and by the writer, and on OneDrive sent as the `If-Match` of the upload session. A replaced Drive file's head revision is marked `keepForever` before the write, recorded as a request by the writer's tests; OneDrive keeps its own versions. Nothing deletes (limit L57).
+
+**Formats.** A new file: `.md`, `.txt`, `.docx` (from a `.docx` of the project) or `.gdoc` (a Google Doc made from Markdown text). A replace: the file's own type (a Google Doc takes Markdown text; `.md`, `.txt` and `.csv` take text; the others take a file of the project of the same type). A save: `.md`, `.txt`, `.csv`, `.pdf`, `.docx`, `.xlsx`, `.pptx`, and the bytes of the held file must be that type (its sniffed subtype). A Google Sheet or Slides file is not written. A `.docx` is replaced from a `.docx`, never from text.
+
+**Results, and where it can be approved.** `written`; `replayed` (an earlier attempt of this approval landed and its answer was lost: the writer found the file by its private mark and wrote nothing again); `unknown` (exit 4 or a timeout: the file may be there; the decision stays open and approving it again finds it); a refusal with nothing written. In the terminal and on the page (`operations.EFFECT_CHANNELS`); a messaging app only when the project's accepted policy grants `approve-effect-files` (limit L44), from a card that carried the whole text; a file of the project that is not text is never whole on a card (`effect_files.on_cards`). **A save is approved on a phone only by the sender who sent the file**: `ops_grants._sender_problem` reads the held file's row (the sender is in the store alone) and answers another sender as a file that does not exist. Starting any of the three from a phone needs the group `files-write` (in no default policy).
+
+**What code cannot enforce, and the live checks.** The gap between the last read and a Drive media update (Drive v3 has no precondition); what a service does with a Markdown body sent to a Google Doc; which host Graph names for an upload session. To verify on first use: [providers/writer/README.md](../../../providers/writer/README.md).
+
 ## Publishing a post
 
 ```
@@ -330,4 +362,5 @@ The record is `{"examined": true, "count": n, "kinds": {kind: n}, "hints": ["dis
 - The renderer's image is about 500 MB and is built once by a step the person starts; the lock of WeasyPrint's wheels is refreshed by hand.
 - An e-mail is sent from the plain text the task prepared: no HTML, no inline image, no threading beyond `in_reply_to`, no read of the replies (that is the e-mail channel's, a later package). A recipient is a plain address. Starting an e-mail from a phone needs the router to route it (a later package, EMAIL-ROUTE); today it is started in the terminal or on the page.
 - A post is published from the one file the publishing skill's script builds: no scheduling (the skill's), no second post in a decision, no edit of the text in the approval (change the content file and start again), no read of how the post did. The first comment is the provider's: it may fail after the post is out, and approving again retries only the comment. Starting a post from a phone needs the router to route it (a later package); today it is started in the terminal or on the page.
+- Files in the person's own accounts (W4a): a Google Sheet, Slides or Form is not written; a `.docx` is replaced whole from a `.docx` (no edit of a designed layout from text: W4b makes an edited copy); a PDF is a new file or a save, never an edit; a file named in words is found by the layers above (FIND-1, NR-2), not here; one folder per account is the default and any other is a name the project lists; a text over 64 KiB is a file of the project.
 - A write-back replaces the whole document; there is no merge and no diff against the page beyond the hash. A person who wants to see what changes compares the preview with the page.

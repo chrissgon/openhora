@@ -10,7 +10,8 @@ from `approve` and `pending`; it reads the effect document by the decision's own
   effect_facts(ctx, item)                   {"word", "on_cards"} of an `effect` decision
   effect_kind(facts)                        the kind the policy is asked about: `effect:<word>`, or `effect` when the word is unknown
   effect_refusal(ctx, item, channel, facts, sender)  the sentence that refuses an effect to a channel outside operations.EFFECT_CHANNELS, or None
-                                            (for a messaging app, the grant is asked of the sender's profile: POL-2)
+                                            (for a messaging app, the grant is asked of the sender's profile: POL-2; and an effect that saves a file a sender
+                                            sent is approved only by that sender: the kind's `held_attachment`, package W4a)
 
 The word is the `effect` key of the effect document (effects.KINDS), read only when the file's bytes have the hash of the decision
 (effects.read_document: a file changed since the gate is not read), from the file the gate path recorded in the payload or the file of the
@@ -27,10 +28,12 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import attachments as att  # noqa: E402
 import effects  # noqa: E402
 import item_refs  # noqa: E402
 import operations  # noqa: E402
 import phrases  # noqa: E402
+import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
 
@@ -108,7 +111,34 @@ def effect_refusal(ctx: dict, item: dict, channel, facts: dict, sender=None):
         return ("this effect carries more than a card can show (the hash covers something the card does not carry: a file, an image, every row of "
                 "a table, or the code of a change), so it is not approved from a card: approve it in the terminal or on the page, with its hash: "
                 + command)
-    return None
+    return _sender_problem(ctx, item, facts, sender)
+
+
+def _sender_problem(ctx: dict, item: dict, facts: dict, sender):
+    """The sentence that refuses the approval of an effect that writes a file a sender sent (a kind that exposes `held_attachment(doc)`, package W4a, Q9) to
+    anyone but the sender who sent it, or None. The sender's account is in the store alone (limit L48): the row of the held file is read now, and a file that
+    is gone, or is another sender's, is answered as one that does not exist, so that the answer tells nothing of it. Fails closed."""
+    word = (facts or {}).get("word")
+    if not word:
+        return None
+    try:
+        asked = getattr(effects.module_for(word), "held_attachment", None)
+    except effects.EffectError:
+        return None
+    if asked is None:
+        return None
+    doc = effect_document(ctx, item)
+    number = asked(doc) if doc else None
+    if number is None:
+        return None
+    try:
+        row = ctx["store"].attachment_get(ctx["conn"], number)
+        platform, ident = ops_actor.split(sender)
+        if row["status"] == "held" and (row["platform"], row["sender"]) == (platform, ident):
+            return None
+    except (ctx["store"].StoreError, TypeError, ValueError, KeyError):
+        pass
+    return att.NO_SUCH.format(n=number)
 
 
 if __name__ == "__main__":

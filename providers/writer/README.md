@@ -2,6 +2,14 @@
 
 Implementations of the `writer:*` classes (a role of `providers/resolve.py`, in `ROLES` and in neither `LISTED` nor `contracts/environment.md`, so no skill may require one): the providers that **write** to the person's own Google and Microsoft accounts. They are the only providers that do: the readers (`reader:email`, `integration:calendar`, `integration:documents`) send GET only. Interface and the rules every writer keeps: `providers/CONTRACT.md` (the `writer:calendar`, `writer:mailbox` and `writer:files` rows). Specification: `SPEC-SECRETARY-WRITES` (decision D-B of 2026-10-18).
 
+| Class | Implementation | Service | Package | Verbs |
+|---|---|---|---|---|
+| `writer:calendar` | `google-calendar.py`, `outlook-calendar.py` | Google Calendar, Outlook calendar | W1 | `--check`, `event-get`, `event-insert`/`event-create`, `event-patch`, `event-delete` (Google) |
+| `writer:files` | `gdrive.py` | Google Drive | W4a | `--check`, `file-meta`, `create`, `update` |
+| `writer:files` | `onedrive.py` | OneDrive | W4a | `--check`, `file-meta`, `create`, `replace` |
+
+`_files_common.py` is the plumbing the two file writers share (exit codes, the allow-list guard, the canonical dry run, the content reader, the ledger). A name with an underscore is no implementation.
+
 A writer is called with an **explicit implementation**, never `auto`, and declares one line `SERVES = "writer:<x>"` that the runtime reads before it starts the script. It is started only by its effect module (`runtime/effect_<x>.py`, the write verbs, after the person approved the hash of the exact request) and by one read-only seam of the runtime (`runtime/ops_step_seams.py`: the one read the preparation needs, and the dry run of a write verb). Never by a skill, a run, a handler or a step kind (limit L58).
 
 **What the token can do, said plainly.** The account token (`GOOGLE_ACCOUNT_TOKEN`, `MICROSOFT_ACCOUNT_TOKEN`, `providers/accounts/README.md`) can do everything its scopes allow. What stops misuse is not the token but the platform: this script sends only the methods and paths of its constant `ALLOWED`; the runtime calls it only after the approval of the exact request; the calendars it writes to are the ones the project's `accounts` names; nothing is removed for good. Revoking the app's access in the Google or Microsoft account stops every reader and writer of the account at once.
@@ -50,3 +58,52 @@ The writers read the account record through `providers/secrets/resolver.py` (the
 - Outlook: that `singleValueExtendedProperties` on create and on update, and a `$filter` on them, work as [the extended-properties overview](https://learn.microsoft.com/en-us/graph/api/resources/extended-properties-overview) says; that `$expand=singleValueExtendedProperties($filter=id eq '...')` returns the property on a single event; that an event read with `Prefer: outlook.timezone="UTC"` comes in UTC (the writer refuses one that does not); that an all-day event created with midnight UTC bounds shows as the same days in the person's zone.
 - That a Google calendar event removed with `events.delete` lands in the calendar's trash for 30 days (restorable there): [the Calendar help page](https://support.google.com/calendar/answer/37113) says it, [the API page](https://developers.google.com/workspace/calendar/api/v3/reference/events/delete) does not. Delete a test event by hand through the writer and look in the trash BEFORE relying on the card's words; the card says it is expected and not verified.
 - Q12 of the spec: delete a test event in Outlook by hand and see whether it lands in Deleted Items; only then is a removal verb added to the Outlook writer, with its pair in the allow-list of `test_limits_account_writes.py`.
+
+## File writers (package W4a): what `gdrive.py` and `onedrive.py` do
+
+- **One secret.** `GOOGLE_ACCOUNT_TOKEN` or `MICROSOFT_ACCOUNT_TOKEN`, the account record made by `providers/accounts/google_auth.py` or `microsoft_auth.py`, read through `providers/secrets/resolver.py`. The runtime starts the process with the minimum environment and that one secret. A token that lacks a scope of the platform's set, or carries another, is refused (exit 3, naming the authorize command). There is no legacy record for a writer.
+- **An allow-list in code (L58).** Each writer has a constant `ALLOWED`, a tuple of `(method, path regex)` pairs, and one function that sends a request and refuses any other. There is no DELETE in either list, no request that sets `trashed`, no call on a trash, no move or rename, no sharing or permission call (L57; the static scan of `runtime/tests/test_limits_account_writes.py` reads both files and `providers/writer/tests/` shows the fake servers saw nothing else).
+- **Ids are percent-encoded** with `urllib.parse.quote(value, safe='')` wherever they enter a URL, after a full-match pattern; a name is a closed set of characters (letters and digits of any script, space, `. _ - ( )`).
+- **Fixed hosts.** The API and token hosts are constants; the test overrides are loopback only and set together. No redirect is followed with a credential. A request times out at 60 s. A 429 or 503 is reported with its `Retry-After` and never retried by a verb. The token is never printed (`_google.scrub`), and an error names a host, never an address that is a credential.
+- **Dry run and confirmed.** `--dry-run` reads no credential, opens no connection, and prints the exact list of requests the verb would send (`{"method", "path", "query", "body"[, "if_match"]}`, the body of an upload described by its content type, byte count and sha256) and `would_sha256`, the sha256 of the canonical text of that list (sorted keys, no spaces, ASCII). `--confirmed` sends exactly that list. The runtime builds the same list from the document the person approved (`runtime/files_document.py` `requests`) and refuses `--confirmed` unless the writer's dry run hashes to the document's `dry_run_sha256`; a test starts each writer's dry run for every shape of document and compares.
+- **The content is the approved bytes.** `--content-file` is an absolute path to a regular file the runtime wrote in a private folder; the writer refuses it unless its size and sha256 are the flags' (`--bytes`, `--sha256`). At most 25 MiB.
+- **Idempotency.** `--idempotency-key files-<32 hex>` (derived by the runtime from the task, the operation, the account, the target, the name, the content and the base) and a ledger in `<state>/writer-<impl>/ledger.json` (the state folder is `$OPENHORA_STATE_DIR`, else `$XDG_STATE_HOME/openhora`, else `~/.local/state/openhora`; folders 0700, files 0600; an exclusive file lock): `pending` before the request that changes the account, `done` after the answer. A `done` key is answered again with no request (`replayed`); a key bound to other requests is refused; a key whose request the service refused outright is given back.
+- **Exit codes.** 0 ok; 1 refused with nothing changed (including `changed:`, a moved base); 2 usage; 3 not configured; 4 unknown (the connection failed or timed out, or the service answered a server error: the request may have landed). The key stays pending after a 4, and the next attempt looks for its own mark first.
+
+## `writer:files`: Drive and OneDrive (package W4a)
+
+The operations are `file-create`, `file-replace` and `file-save` (`runtime/ops_files.py`); the card, the document and the rules are in `contracts/runtime.md` ("Files (package W4a)").
+
+### `gdrive.py` (Drive)
+
+Scopes: the platform's four (`drive` is what lets a writer create a file and write a revision of any file the person names; the Picker is not needed). Endpoints (accessed 2026-10-18: https://developers.google.com/workspace/drive/api/reference/rest/v3/files/create, `.../files/update`, `.../revisions/update`, https://developers.google.com/workspace/drive/api/guides/manage-uploads, https://developers.google.com/workspace/drive/api/guides/manage-revisions):
+
+| Verb | Requests, in order |
+|---|---|
+| `file-meta --id` | `GET /drive/v3/files/{id}?fields=...` |
+| `file-meta --folder --name` | `GET /drive/v3/files/{folder}`, `GET /drive/v3/files?q='<folder>' in parents and name = '<name>' and trashed = false` |
+| `create` | the folder read (it must be a folder, not in the trash), the name read (any file of that name, whatever its content, is exit 1: it never overwrites), `POST /upload/drive/v3/files?uploadType=multipart` with the metadata (`name`, `parents`, `mimeType`, the private mark `appProperties.openhora_key`) and the media. `--gdoc` makes a Google Doc (metadata `mimeType` is the Google type, the media is `text/markdown`; Drive converts it on import) |
+| `update` | the file read again and compared with the base (`--base-version`, `--base-modified`, `--base-mime`, `--base-md5`, `--base-head-revision`; a difference is exit 1 `changed:`), then, for a file with binary content, `PATCH /drive/v3/files/{id}/revisions/{head}` with `{"keepForever": true}` BEFORE the content is written (Drive purges an old revision 30 days after newer content; at most 200 revisions of a file can be kept), then `PATCH /upload/drive/v3/files/{id}?uploadType=multipart` with the media and the mark. A Google-native file keeps its own history and has no such revision |
+
+**Where code cannot enforce it.** Drive v3 has no precondition on a media update (no etag on v3 files): between the read and the write there is the time of one request. The mark makes a retry find what an earlier attempt wrote.
+
+**To verify live (the maintainer's step 10 of SPEC-SECRETARY-WRITES section 10):** that `files.create` with `mimeType` Google Doc and a `text/markdown` media is converted; that `files.update` of a Google Doc with a `text/markdown` media body replaces its content in place and keeps the revision history (if it does not, the fallback is a new Doc beside it, "<name> (edited)"); that `appProperties` set by a multipart update are returned by the list.
+
+### `onedrive.py` (OneDrive)
+
+Permission: `Files.ReadWrite` (of the platform's set). Endpoints (accessed 2026-10-18: https://learn.microsoft.com/en-us/graph/api/driveitem-put-content, `.../driveitem-createuploadsession`, https://learn.microsoft.com/en-us/graph/api/resources/driveitem):
+
+| Verb | Requests, in order |
+|---|---|
+| `file-meta --id <drive>/<item>` | `GET /drives/{drive}/items/{item}?$select=...` |
+| `file-meta --folder --name` | `GET` of the folder (`/me/drive/items/{id}` or `/me/drive/root:/path`), `GET` of `<folder>:/{name}` (404 is "not there") |
+| `create` | the folder read, then `PUT <folder>:/{name}:/content?@microsoft.graph.conflictBehavior=fail` with the bytes (at most 25 MiB here; Graph takes 250 MB): a file of that name makes Graph answer 409 and the verb exit 1 |
+| `replace` | the item read again and compared with the base (`--base-etag`, `--base-ctag`, `--base-size`), `POST /drives/{d}/items/{i}/createUploadSession` with `If-Match: <eTag>` and `{"item": {"@microsoft.graph.conflictBehavior": "replace"}}` (412 is exit 1 `changed:`), then one `PUT` of the bytes to the upload address Graph names, with `Content-Range: bytes 0-{n-1}/{n}` |
+
+The upload address is a pre-authenticated bearer credential: it must be https (http to a loopback host in test mode), carry no user or password, the default port, and be on a host of the closed list (`api.onedrive.com`, `1drv.com`, `sharepoint.com`, or a subdomain), it is sent NO Authorization header, it is named to the allow-list as `/upload-session` (its own path is Graph's and secret), and it is never printed. **To verify live:** the host Graph names for a personal account's upload session (the list above is the one seen in the documentation's examples), and `If-Match` on `createUploadSession`. OneDrive keeps the earlier version in the file's history (retention is the service's own setting).
+
+### Tests of the file writers
+
+`providers/writer/tests/` runs both writers as processes against stand-ins on 127.0.0.1 (`fake_drive_write.py`, `fake_onedrive_write.py`), which answer 405 to any request the writers do not name and record every request: the tests assert the exact list for each verb, the order of the keep before the write, a refusal of a moved base, a lost answer found again, the upload address rules, the allow-list and the absence of any delete in the source.
+
+Run: `uv run --with pytest==9.1.1 pytest providers/writer/tests`

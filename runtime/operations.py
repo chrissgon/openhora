@@ -364,6 +364,28 @@ OPERATIONS = (
      "args": ({"name": "reminder_id", "kind": "int", "required": True, "flag": "id", "label": "id"},),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "cancel a reminder that waits (from a messaging app, only one made for you: /forget); one that is being sent or has ended is not changed"},
+    # W4a: files in the person's own Drive or OneDrive. Each prepares one change as an effect card of the exact content and writes nothing until the person approves
+    # its hash (limit L55); in no default policy (the group files-write is listed by a profile and confirmed with accept-config --widen); never on the MCP mode.
+    {"name": "file-create", "call": "file_create",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "file_name", "kind": "str", "required": True, "flag": "name"},
+              {"name": "content", "kind": "str"}, {"name": "content_file", "kind": "file", "flag": "content-file"},
+              {"name": "from_path", "kind": "str", "flag": "from"}, {"name": "folder", "kind": "str"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "prepare a NEW file in a folder of your Google Drive (account google) or OneDrive (account microsoft) and ask for the approval of its card: --name ends in .md, .txt or .docx (or .gdoc for a Google Doc made from Markdown text); give the text (--content or --content-file, at most 64 KiB) or a file of the project (--from docs/<path>); --folder is a name the project lists under accounts.<account>.folders (default: the one named default); a file of that name in the folder is refused, a new file never replaces one; nothing is written until you approve the card's hash"},
+    {"name": "file-replace", "call": "file_replace",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "file", "kind": "str", "required": True},
+              {"name": "content", "kind": "str"}, {"name": "content_file", "kind": "file", "flag": "content-file"},
+              {"name": "from_path", "kind": "str", "flag": "from"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "prepare a NEW REVISION of a file that is a source of the project (--file is its source id; it must be a file of that account and its source must be up to date: refresh it first) and ask for the approval of its card, which shows the revision it replaces; the previous revision stays in the service's history; give the text (--content or --content-file) or a file of the project of the same type (--from docs/<path>); nothing is written until you approve the card's hash, and not if the file moved since it was read"},
+    {"name": "file-save", "call": "file_save",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "attachment", "kind": "int", "required": True, "label": "id"},
+              {"name": "file_name", "kind": "str", "flag": "name"}, {"name": "folder", "kind": "str"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "prepare the saving of a file someone sent through a messaging app (--attachment is the number of a held file, see attachments) in a folder of your Drive or OneDrive, named as it was sent or by --name, and ask for the approval of its card, which names the file, its size and its hash; from a messaging app, only a file you sent, approved only by you; the held file stays held (add or discard it as before)"},
     {"name": "instructions", "call": "instructions_read", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the project's standing instructions (docs/workbench/instructions.md, written only by you): whether the file is there, its sha256, its characters against the cap, the problem that would stop a run, and the text; every model run of the project receives it in its prompt, and it never replaces a skill's stop rule, a confirmation gate or an approval"},
     {"name": "instructions-set", "call": "instructions_set",
@@ -493,6 +515,11 @@ GROUPS = {
     # --widen; never on the MCP mode. It prepares a card and writes nothing: the write is the approval of the card's hash (`approve-effect-calendar` on a messaging app).
     "calendar-write": {"operations": ("event-create", "event-change", "event-cancel"), "kind": None},
     "approve-effect-calendar": {"operations": ("approve",), "kind": "effect:calendar"},      # a change to the person's own calendar (effect_calendar.py APPROVAL_GROUP)
+    # W4a: new files and new revisions in the person's own Drive and OneDrive. In no default policy: a messaging app takes it only when the project's configuration
+    # lists the group (accept-config --widen confirms it); never on the MCP mode. Each operation only prepares a card; the write waits for approve-effect-files or the
+    # terminal and the page.
+    "files-write": {"operations": ("file-create", "file-replace", "file-save"), "kind": None},
+    "approve-effect-files": {"operations": ("approve",), "kind": "effect:files"},          # a file in the person's own Drive or OneDrive (effect_files.py APPROVAL_GROUP)
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -506,7 +533,7 @@ MESSAGING_ONLY_GROUPS = ("read-limited",)          # valid on a messaging app al
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
-           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-effect-calendar")}
+           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files")}
 SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy mapping (never in runtime.json), {"<platform>:<sender id>": [groups]} of each listed sender whose entry names a profile
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
@@ -528,10 +555,10 @@ BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel") 
 # Profiles (POL-2). A policy is a named set of groups, a profile (runtime.json `policies`); a channel's entry may name one, and on a messaging
 # app each listed sender may have their own, which REPLACES the channel's groups for that sender (SENDERS_KEY in the loaded policy mapping;
 # effective_groups(channel, cfg, sender)). Nothing but accept-config in the terminal changes a profile, and nothing a sender sends names one.
-EFFECT_APPROVAL_WORDS = ("create", "write", "send", "publish", "calendar")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
+EFFECT_APPROVAL_WORDS = ("create", "write", "send", "publish", "calendar", "files")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
     "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans",
-                  "add-sources-direct", "approve-effect-calendar"),
+                  "add-sources-direct", "approve-effect-calendar", "approve-effect-files"),
     "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
 }
 GRANT_TEXT = {
@@ -540,6 +567,7 @@ GRANT_TEXT = {
     "messaging:approve-effect-send": "a messaging app may approve an e-mail sent from your outbox (never one with an attachment), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-publish": "a messaging app may approve a post to a social platform (never one with an image), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-calendar": "a messaging app may approve an event on your own calendars (create, change or remove), from a card that carries the whole event, with its hash",
+    "messaging:approve-effect-files": "a messaging app may approve a new file or a new revision in your own Drive or OneDrive, from a card that carries the whole text, with its hash; a file you sent from the phone is saved on a card that names it, its size and its hash, and only the sender who sent it approves it",
     "messaging:approve-networked-plans": "a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash",
     "messaging:add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card)",
     "mcp:approve-plans": "a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain",
@@ -562,6 +590,7 @@ GROUP_TEXT = {
     "approve-effect-send": "approves an e-mail sent from the project's outbox, with its hash",
     "approve-effect-publish": "approves a post to a social platform, with its hash",
     "approve-effect-calendar": "approves an event on the person's own calendars (create, change or remove), with its hash",
+    "approve-effect-files": "approves a new file or a new revision in your own Drive or OneDrive, with its hash",
     "approve-networked-plans": "approves a plan that holds a script which reaches the network, with the plan's hash",
     "ask": "asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers)",
     "go-ahead": "goes ahead on a task that waits for another request",
@@ -583,6 +612,7 @@ GROUP_TEXT = {
     "add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation; a file for an existing source still waits for a card (it holds the hold alone, and adds nothing else)",
     "calendar-write": "prepares changes to your own calendars (create, change, remove an event); each one waits for approval of its card",
     "reminders": "makes, lists and forgets reminders: one-shot lines of the sender's own words that the bridge sends back to their own chat at the time they chose",
+    "files-write": "prepares new files and new revisions in your own Drive and OneDrive, and the saving of a file you sent; each one waits for approval of its card",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

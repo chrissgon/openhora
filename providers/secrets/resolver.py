@@ -203,7 +203,7 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "calendar.events can delete events, and what prevents it is code, limit L57 and the writers' allow-lists, not the scope); the restriction is the platform's (policies, an effect card of the exact "
            "content, the verbs each provider script exposes, no token in a run), not a narrower token (decision of 2026-10-18)",
            ("providers/mailbox/gmail.py", "providers/calendar/google.py", "providers/documents/gdrive.py", "providers/_google.py",
-            "providers/accounts/google_auth.py"),
+            "providers/accounts/google_auth.py", "providers/writer/gdrive.py"),
            store_username="google-account",
            set_local="uv run providers/accounts/google_auth.py authorize (writes the record after the browser consent)",
            note="one JSON record (slot, refresh_token, client_id, client_secret, scope, account, obtained_at) written by "
@@ -278,7 +278,7 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "allow-lists, policies, a card of the exact content for each write, the verbs each script sends, no token in a run), not the "
            "token's. A token that lacks one of the set or carries another is refused",
            ("providers/accounts/microsoft_auth.py", "providers/_msgraph.py", "providers/documents/onedrive.py", "providers/mailbox/outlook.py",
-            "providers/calendar/outlook.py"),
+            "providers/calendar/outlook.py", "providers/writer/onedrive.py"),
            store_username="microsoft-account",
            set_local="uv run providers/accounts/microsoft_auth.py authorize (writes the record after the browser consent)",
            note="one JSON record (slot, refresh_token, client_id, tenant, scope, account_kind, account, obtained_at) written by "

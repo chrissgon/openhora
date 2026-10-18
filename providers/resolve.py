@@ -107,6 +107,7 @@ ALIASES = {"mailbox": "reader:email", "mailer": "sender:email", "scheduler": "sc
 # The roles whose part after the colon is a parameter handed to the implementation (--platform).
 PARAMETER_ROLES = {"publisher", "messenger"}
 PLATFORMS_LINE = re.compile(r"^PLATFORMS\s*=\s*([(\[].*?[)\]])\s*(?:#.*)?$", re.M)
+SERVES_LINE = re.compile(r'^SERVES\s*=\s*"([^"\n]*)"', re.M)
 # Documented defaults per platform (sys.platform prefix -> implementation).
 PLATFORM_DEFAULTS = {"scheduler:job": {"darwin": "launchd", "linux": "systemd"}}
 
@@ -226,9 +227,21 @@ def implementations_in(folder_name: str, root=None, env=None) -> list[str]:
                   if p.is_file() and NAME.fullmatch(p.stem) and p.stem not in NOT_IMPLEMENTATIONS)
 
 
+def serves_class(cls: str, name: str, root=None, env=None) -> bool:
+    """Whether providers/<folder>/<name>.py serves the class: true unless the file declares, in one line at the top level, `SERVES = "<class>"` (read as
+    text, never imported) and the class it names is another. The writers share one folder, `providers/writer/`, and each declares the one class it
+    serves, so a caller of `writer:calendar` can never start the writer of files."""
+    path = workbench_root(root, env) / "providers" / folder(cls) / f"{name}.py"
+    try:
+        found = SERVES_LINE.search(path.read_text(encoding="utf-8")[:8192])
+    except OSError:
+        return True
+    return found is None or found.group(1) == canonical(cls)
+
+
 def implementations(cls: str, root=None, env=None) -> list[str]:
-    """Implementation names shipped for a class."""
-    return implementations_in(folder(cls), root, env)
+    """Implementation names shipped for a class (a file that declares it serves another class is not one)."""
+    return [name for name in implementations_in(folder(cls), root, env) if serves_class(cls, name, root, env)]
 
 
 def served_platforms(cls: str, name: str, root=None, env=None) -> list[str]:

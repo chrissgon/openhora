@@ -2691,6 +2691,8 @@ from ops_attachments import attachment_add, attachment_discard, attachment_hold,
 from ops_reminders import remind, reminder_forget, reminders_due, reminders_read, reminders_retry, reminders_sent  # noqa: E402,F401
 # The person's own calendar (runtime/ops_calendar.py, package W1): create, change and remove an event; each one prepares a card and writes nothing.
 from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,F401
+# Files in the person's own Drive and OneDrive (runtime/ops_files.py, package W4a): prepare a new file, a new revision or the saving of a file a sender sent.
+from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)

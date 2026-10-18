@@ -65,6 +65,9 @@ Usage:
   python3 runtime/cli.py remind --project <dir> --when <HH:MM | YYYY-MM-DD HH:MM | in <n>m|h|d> (--text <words> | --text-file <path>) --to <platform>:<sender id>
   python3 runtime/cli.py reminders --project <dir>
   python3 runtime/cli.py reminder-forget --project <dir> --id <reminder id>
+  python3 runtime/cli.py file-create --project <dir> --account google|microsoft --name <name>.md|.txt|.docx|.gdoc (--content <text> | --content-file <path> | --from docs/<path>) [--folder <name>]
+  python3 runtime/cli.py file-replace --project <dir> --account google|microsoft --file <source id> (--content <text> | --content-file <path> | --from docs/<path>)
+  python3 runtime/cli.py file-save --project <dir> --account google|microsoft --attachment <held file number> [--name <name>] [--folder <name>]
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -335,6 +338,17 @@ event-change  prepares a change to an event of your own calendar (--account, --e
           is still as it was read. A start alone moves the event and keeps its length. Nobody is told. It calls no model.
 event-cancel  prepares the removal of such an event (--account, --event, optionally --calendar) and stops at a card. Google is expected to move it to the
           calendar's trash, where it stays 30 days (to verify live); removing an event from Outlook is not available yet. Nobody is told. It calls no model.
+file-create  prepares a NEW file in a folder of your Google Drive (--account google) or OneDrive (--account microsoft) and stops at its card: the account, the
+          file, the folder and the text whole, with the hash you approve. --name ends in .md, .txt or .docx (or .gdoc: a Google Doc made from Markdown text);
+          the content is a text (--content, or --content-file to read it from a file; at most 64 KiB) or a file of the project (--from docs/<path>); --folder is
+          a name the project lists under accounts.<account>.folders in runtime.json (default: the one named default). A file of that name already in the
+          folder is refused: a new file never replaces one. Nothing is written until you approve the card's hash (approve --sha256, limit L55). No model.
+file-replace  prepares a NEW REVISION of a file that is a source of the project (--file is its source id; the source must be up to date) and stops at its
+          card, which shows the revision it replaces; the previous revision stays in the service's history. The content is a text or a file of the project of
+          the same type. Nothing is written until you approve the hash, and nothing is if the file moved since it was read. No model.
+file-save  prepares the saving of a file someone sent through a messaging app (--attachment is the number of a held file, see attachments), named as it was
+          sent or by --name, in a folder the project lists (--folder), and stops at its card, which names the file, its size and its hash. The held file stays held.
+          No model.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.
