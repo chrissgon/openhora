@@ -217,6 +217,7 @@ import ops_config  # noqa: E402  (the configuration's acceptance: accept_config,
 import ops_models  # noqa: E402  (which model a run goes to: the choice, the key, the billing and the consent)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
 import ops_language  # noqa: E402  (the language of a deliverable: the check of a request's choice and the line of a run)
+import phrases  # noqa: E402  (the runtime's own sentences in the project's language)
 import language as language_rules  # noqa: E402  (the rule and the words; the operation `request` has an argument of the same name)
 import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
 import board  # noqa: E402
@@ -1606,8 +1607,8 @@ def status(project: str) -> dict:
 
 def config(project: str) -> dict:
     """What a shell may know of a project's configuration, and the one read that never refuses an unaccepted one:
-    {"path", "sha256", "accepted", "data_dir", "messaging", "channels", "policies", "channel_profiles", "grants", "widening", "widening_sha256", "warnings"}. "accepted" says
-    whether the file's hash is the one the person accepted last; "policies" are the profiles of the file; "grants" are the widenings of operations.GRANTS
+    {"path", "sha256", "accepted", "data_dir", "messaging", "channels", "policies", "channel_profiles", "language", "grants", "widening", "widening_sha256", "warnings"}. "accepted" says
+    whether the file's hash is the one the person accepted last; "policies" are the profiles of the file; "language" is the key of that name (None when it is not set), which the messaging bridge reads to say its sentences in the project's language (runtime/phrases.py); "grants" are the widenings of operations.GRANTS
     the file lists ([{"channel", "group", "means"}], a sender's also "sender"); "widening" is every group a channel or a listed sender has in this file
     and did not effectively have in the one accepted before ([{"place", "channel", "group", "means"}], POL-1 and POL-2: a place is a channel or
     `<platform>:<sender id>`), "widening_sha256" the hash accept-config --widen takes for it (None when there is none). A configuration that cannot be read at all, or that names another checkout, is still refused
@@ -1618,7 +1619,7 @@ def config(project: str) -> dict:
     got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)
     return {"path": cfg["path"], "sha256": cfg["sha256"], "accepted": accepted == cfg["sha256"],
             "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"], "policies": cfg["policies"],
-            "channel_profiles": cfg["channel_profiles"],
+            "channel_profiles": cfg["channel_profiles"], "language": cfg.get("language"),
             **policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None)}   # POL-1/POL-2: grants, widening, its hash, warnings
 
 
@@ -1907,19 +1908,19 @@ def _route_run(ctx: dict, request: dict) -> dict:
                     "payload": {"ending": "question", **common}}
         ending = "question"
     else:
-        decision = _not_recognised(store, request, body, why, common)
+        decision = _not_recognised(store, request, body, why, common, ctx["cfg"])
         ending = "unclassified"
     done = core._stored(ctx, store.route_run_finish, out["run_id"], ending=ending, pending=decision, **finish)
     out.update(status="ok", ending=ending, kind="question", pending_id=done["pending_id"])
     return out
 
 
-def _not_recognised(store, request: dict, body: str, why, common: dict) -> dict:
+def _not_recognised(store, request: dict, body: str, why, common: dict, cfg=None) -> dict:
     """The question of a reply that names no route: its body is one sentence, and the reply whole is in the payload
     (`raw`) with the two actions the page offers (`actions`: choose a flow, cancel the request)."""
     raw = body.encode("utf-8")[:ops_say.RAW_MAX].decode("utf-8", errors="ignore")
     return {"kind": "question", "title": "The route was not recognised",
-            "body": ops_say.NOT_NAMED.format(request=request["id"]),
+            "body": phrases.text("NOT_NAMED", cfg, request=request["id"]),
             "payload": {"ending": "unclassified", "why": why, "raw": raw, "actions": list(ops_say.NOT_NAMED_ACTIONS), **common}}
 
 
@@ -1967,7 +1968,7 @@ def _route_deliveries(ctx: dict, request: dict, parts: dict) -> dict:
     else:
         replies = "\n\n".join(f"--- delivery {n}: {e['item']} ---\n{e['reply'].rstrip()}" for n, e in enumerate(routed, 1))
         decision = _not_recognised(store, request, (why or "No delivery of the request was routed.") + "\n\n" + replies,
-                                   why or "no delivery was routed", {**call["common"], "router_runs": runs})
+                                   why or "no delivery was routed", {**call["common"], "router_runs": runs}, ctx["cfg"])
         decision["title"] = "No delivery was routed"
         kind = "question"
     done = core._stored(ctx, store.route_run_finish, out["run_id"], ending=ending, pending=decision, **call["finish"])

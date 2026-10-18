@@ -33,12 +33,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import phrases  # noqa: E402
 import reminders as rm  # noqa: E402
 
 CHANNEL = "messaging"
-WHY_TEXT = {"late": "missed, it was more than 6 hours past its time when the bridge looked",
-            "sender removed": "not sent, you are no longer a listed sender", "not permitted": "not sent, reminders are off for you now"}
-NONE_WAIT = "no reminders wait."
+# The English words of why a reminder did not go out, and the phrase-table key of each (runtime/phrases.py, package LR-1: the lines below are said in the project's language).
+WHY_KEYS = {"late": "RM_WHY_LATE", "sender removed": "RM_WHY_SENDER_REMOVED", "not permitted": "RM_WHY_NOT_PERMITTED"}
+WHY_TEXT = {why: phrases.en(key) for why, key in WHY_KEYS.items()}
+NONE_WAIT = phrases.en("RM_NONE_WAIT")
 
 
 class Reminders:
@@ -55,9 +57,9 @@ class Reminders:
         try:
             done = bridge.run_op(project, "remind", sender=chat, when=intent["when"], text=intent["text"])
         except (bridge.Refused, bridge.ops.OpsError) as e:
-            bridge.reply(chat, bridge.attach.phone(e))
+            bridge.reply(chat, bridge.attach.phone(e, project), project)
             return
-        bridge.reply(chat, done["reply"])
+        bridge.reply(chat, phrases.localize(done["reply"], bridge.cfg(project)), project)
 
     def listing(self, project: dict, chat: str) -> None:
         """`/reminders`: the sender's own that wait, and the ones that did not go out lately."""
@@ -65,17 +67,19 @@ class Reminders:
         try:
             found = bridge.run_op(project, "reminders", sender=chat)
         except (bridge.Refused, bridge.ops.OpsError) as e:
-            bridge.reply(chat, bridge.attach.phone(e))
+            bridge.reply(chat, bridge.attach.phone(e, project), project)
             return
+        cfg = bridge.cfg(project)
         lines = [f"#{r['id']} {r['due']}" + (f" {r['text']}" if "text" in r else "") for r in found["open"]]
-        gone = [f"#{r['id']} {r['due']}" + (f" {r['text']}" if "text" in r else "") + f" ({WHY_TEXT.get(r.get('why'), 'not sent')})" for r in found["not_sent"]]
+        gone = [f"#{r['id']} {r['due']}" + (f" {r['text']}" if "text" in r else "") + f" ({phrases.text(WHY_KEYS.get(r.get('why'), 'RM_WHY_OTHER'), cfg)})"
+                for r in found["not_sent"]]
         if not lines and not gone:
-            bridge.reply(chat, f"{project['name']}: {NONE_WAIT}")
+            bridge.reply(chat, f"{project['name']}: {phrases.text('RM_NONE_WAIT', cfg)}", project)
             return
-        out = [f"{project['name']}: " + (f"reminders that wait ({found['zone']})" if lines else NONE_WAIT)] + lines
+        out = [f"{project['name']}: " + (phrases.text("RM_WAITING_HEAD", cfg, zone=found["zone"]) if lines else phrases.text("RM_NONE_WAIT", cfg))] + lines
         if gone:
-            out += ["Not sent lately:"] + gone
-        bridge.reply(chat, "\n".join(out))
+            out += [phrases.text("RM_NOT_SENT_HEAD", cfg)] + gone
+        bridge.reply(chat, "\n".join(out), project)
 
     def forget(self, project: dict, chat: str, number: int) -> None:
         """`/forget <n>`."""
@@ -83,9 +87,9 @@ class Reminders:
         try:
             done = bridge.run_op(project, "reminder-forget", sender=chat, reminder_id=number)
         except (bridge.Refused, bridge.ops.OpsError) as e:
-            bridge.reply(chat, bridge.attach.phone(e))
+            bridge.reply(chat, bridge.attach.phone(e, project), project)
             return
-        bridge.reply(chat, done["reply"])
+        bridge.reply(chat, phrases.localize(done["reply"], bridge.cfg(project)), project)
 
     # --- what is due ------------------------------------------------------------------------------------------------------------------
 
@@ -104,7 +108,7 @@ class Reminders:
                 bridge.log(f"reminders not sent: {due['missed']} missed, {due['dropped']} dropped")
             for item in due["send"]:
                 try:
-                    line = rm.line(item["id"], item.get("text"), item["due_local"], item["late"])
+                    line = rm.line(item["id"], item.get("text"), item["due_local"], item["late"], bridge.cfg(project))
                     sent = bridge.reply(item["chat"], line)      # True: went out; False: the send failed (logged by `reply`); None: the platform deferred it
                 except Exception as e:
                     bridge.log(f"a reminder could not be sent ({e.__class__.__name__})")      # it stays claimed and is open again when the claim goes stale

@@ -38,9 +38,10 @@ sys.path.insert(0, HERE)
 import attachments as att  # noqa: E402
 import messaging_cards as cards  # noqa: E402
 import messaging_provider as provider  # noqa: E402
+import phrases  # noqa: E402
 
 CHANNEL = "messaging"
-CHANGED = "This decision changed since you saw it."
+CHANGED = phrases.en("CHANGED")
 WORDS = {"add": "attachment-add", "discard": "attachment-discard"}
 PATH = re.compile(r"(?<![\w:.-])(?:~|[A-Za-z]:)?/[\w.~-]+/|[A-Za-z]:\\|(?<!\w)~/")      # a folder of this machine in a sentence: `/a/b`, `~/b`, `C:\`
 
@@ -51,18 +52,25 @@ class Attachments:
     def __init__(self, bridge):
         self.bridge = bridge
 
-    def phone(self, error) -> str:
+    def phone(self, error, project=None) -> str:
         """What a phone is told of an error of the operations layer: its message, unless the message is a problem of this machine (an operation's `phone`
-        sentence, a code of a folder, or any path in the text), which becomes a fixed sentence; the class alone is logged."""
+        sentence, a code of a folder, or any path in the text), which becomes a fixed sentence; the class alone is logged. A sentence of a file or of a reminder
+        (the operations raise them in English) is said in the project's language (phrases.localize); any other message is the operations layer's own and stays."""
+        cfg = self.bridge.cfg(project)
         said = getattr(error, "phone", None)
         if said:
             self.bridge.log(f"a machine problem was told to a phone ({error.__class__.__name__})")
-            return said
+            return phrases.localize(said, cfg)
         text = str(error)
         if PATH.search(text) or getattr(error, "code", 1) == 3:
             self.bridge.log(f"a machine problem was told to a phone ({error.__class__.__name__})")
-            return att.MACHINE
-        return text
+            return phrases.text("ATT_MACHINE", cfg)
+        return phrases.localize(text, cfg)
+
+    def said(self, text: str, project) -> str:
+        """The reply of an operation that adds or discards a file (one sentence, then a `Note:` line for each warning of the import) in the project's language."""
+        cfg = self.bridge.cfg(project)
+        return "\n".join(phrases.localize(line, cfg) for line in str(text).split("\n"))
 
     # --- what arrives ------------------------------------------------------------------------------------------------------------
 
@@ -71,17 +79,17 @@ class Attachments:
         bridge = self.bridge
         caps = bridge.messenger.capabilities()
         if not caps.get("attachments"):
-            bridge.reply(chat, att.NO_FILES)
+            bridge.reply(chat, bridge.t("ATT_NO_FILES", project=project), project)
             return
         settings = bridge.settings(project)
         if settings is None:
-            bridge.reply(chat, bridge.NOT_ACCEPTED)
+            bridge.reply(chat, bridge.t("NOT_ACCEPTED", project=project), project)
             return
         operations = bridge.ops.operations
         key = bridge.key(chat)
         if not operations.permitted("attachment-hold", CHANNEL, settings["policy"], None, key):
             bridge.log("a file was not fetched: the channel's policy takes none")
-            bridge.reply(chat, att.OFF)
+            bridge.reply(chat, bridge.t("ATT_OFF", cfg=settings), project)
             return
         direct = operations.granted("attachment-hold", CHANNEL, settings["policy"], "direct", key)
         files = intent["attachments"]
@@ -90,7 +98,7 @@ class Attachments:
         try:
             held = bridge.ops.attachments(project["path"])
         except bridge.ops.OpsError as e:
-            bridge.reply(chat, self.phone(e))
+            bridge.reply(chat, self.phone(e, project), project)
             return
         lines, todo, over = [], [], False
         for decision in att.precheck(files, cap=cap, today=held["today"], held=held["held"], platform=bridge.platform, sender=chat):
@@ -99,17 +107,17 @@ class Attachments:
                 over = True
             elif decision["duplicate"] is not None:
                 if decision["duplicate"]["id"] is not None:        # (the same reference twice in one message is one file, said nothing of)
-                    lines.append(att.DUPLICATE.format(name=att.clean_name(file.get("name")), id=decision["duplicate"]["id"]))
+                    lines.append(bridge.t("ATT_DUPLICATE", cfg=settings, name=att.clean_name(file.get("name")), id=decision["duplicate"]["id"]))
             elif decision["refuse"] is not None:
-                lines.append(att.refusal_text(decision["refuse"], file, bridge.platform, cap))
+                lines.append(att.refusal_text(decision["refuse"], file, bridge.platform, cap, settings))
             else:
                 todo.append(file)
         if over:
-            lines.append(att.OVER_MESSAGE.format(n=att.PER_MESSAGE))
+            lines.append(bridge.t("ATT_OVER_MESSAGE", cfg=settings, n=att.PER_MESSAGE))
         if ignored:
-            lines.append(att.CAPTION_IGNORED)
+            lines.append(bridge.t("ATT_CAPTION_IGNORED", cfg=settings))
         if lines:
-            bridge.reply(chat, "\n".join(dict.fromkeys(lines)))
+            bridge.reply(chat, "\n".join(dict.fromkeys(lines)), project)
         if todo:
             bridge.start(project, chat, "attachment-hold", lambda: self.fetch_all(project, chat, todo, target, direct, cap))
 
@@ -122,7 +130,7 @@ class Attachments:
                     return       # another fetch holds the lock: the person was told once, and the rest of the message is not asked for
             except Exception as e:       # one file never takes the job down, and the class is all that is logged
                 self.bridge.log(f"a file could not be taken ({e.__class__.__name__})")
-                self.bridge.reply(chat, att.FETCH_FAILED)
+                self.bridge.reply(chat, self.bridge.t("ATT_FETCH_FAILED", project=project), project)
 
     def fetch_one(self, project: dict, chat: str, file: dict, target, direct: bool, cap: int):
         """One file of the message: fetched, checked and held. Returns "busy" when the lock was taken by another fetch (nothing was fetched)."""
@@ -132,25 +140,25 @@ class Attachments:
             token, folder = att.make_incoming(data_dir)
         except att.FolderError:
             bridge.log("the folder of a fetch could not be made")
-            bridge.reply(chat, att.FETCH_FAILED)
+            bridge.reply(chat, bridge.t("ATT_FETCH_FAILED", project=project), project)
             return
         try:
             try:
                 lock = att.fetch_lock(data_dir)
             except att.FetchBusy:
-                bridge.reply(chat, att.BUSY)
+                bridge.reply(chat, bridge.t("ATT_BUSY", project=project), project)
                 return "busy"
             try:
                 today = bridge.ops.attachments(project["path"])["today"]
                 if today["files"] >= att.DAY_FILES or today["bytes"] >= att.DAY_BYTES:
-                    bridge.reply(chat, att.DAY.format(n=today["files"], size=att.size_text(today["bytes"])))
+                    bridge.reply(chat, bridge.t("ATT_DAY", project=project, n=today["files"], size=att.size_text(today["bytes"])), project)
                     return
                 budget = att.fetch_budget(cap, today)
                 got = self.fetch(project, chat, file, folder, budget)
                 if got is not None and not self.left_as_told(folder, got, budget):
                     bridge.log("a provider's file did not match its answer")
                     self.failed(project, chat, file, "fetch", self.written(folder))      # recorded before the lock is released: no other fetch runs one over the count
-                    bridge.reply(chat, att.FETCH_FAILED)
+                    bridge.reply(chat, bridge.t("ATT_FETCH_FAILED", project=project), project)
                     got = None
             finally:
                 lock.release()
@@ -169,10 +177,10 @@ class Attachments:
             bridge.log(f"a file could not be fetched ({e.kind})")
             if e.kind == "gone":
                 self.failed(project, chat, file, "gone", 0)
-                bridge.reply(chat, att.GONE.format(platform=bridge.platform))
+                bridge.reply(chat, bridge.t("ATT_GONE", project=project, platform=bridge.platform), project)
             else:
                 self.failed(project, chat, file, "size" if e.kind == "usage" else "fetch", self.written(folder))      # a cap that stopped it is a usage; the bytes are what was written (a file counts for one)
-                bridge.reply(chat, att.FETCH_FAILED)
+                bridge.reply(chat, bridge.t("ATT_FETCH_FAILED", project=project), project)
             return None
 
     def failed(self, project: dict, chat: str, file: dict, code: str, nbytes: int) -> None:
@@ -223,10 +231,10 @@ class Attachments:
             result = bridge.run_op(project, "attachment-hold", sender=chat, incoming=token, platform=bridge.platform, ref=file["ref"], name=file.get("name") or "",
                                    declared_type=file.get("type"), declared_bytes=file.get("size"), target=target, direct=direct, max_bytes=budget)
         except (bridge.Refused, bridge.ops.OpsError) as e:
-            bridge.reply(chat, self.phone(e))
+            bridge.reply(chat, self.phone(e, project), project)
             return
         if direct and isinstance(result.get("added"), dict):
-            bridge.reply(chat, result["added"]["reply"])
+            bridge.reply(chat, self.said(result["added"]["reply"], project), project)
             return
         self.send_card(project, chat, result)
 
@@ -239,7 +247,7 @@ class Attachments:
             return
         row = dict(result["attachment"], target=result["target"], label=result["label"])
         card = cards.attachment_card(project["name"], row, result["next_version"], bridge.messenger.capabilities(), settings["policy"], settings["notices"],
-                                     operations=bridge.ops.operations, sender=bridge.key(chat))
+                                     operations=bridge.ops.operations, sender=bridge.key(chat), cfg=settings)
         seq = bridge.ledger.next_seq()
         message = dict(card["message"])
         made = {f"{seq}:{a['op']}": a["op"] for a in message["actions"]}
@@ -267,7 +275,7 @@ class Attachments:
         bridge = self.bridge
         card = bridge.ledger.attachment_card(project["id"], number, chat)
         if card is None:
-            bridge.reply(chat, bridge.NO_CARD)
+            bridge.reply(chat, bridge.t("NO_CARD", project=project), project)
             return
         self.decide(project, chat, word, number, card)
 
@@ -277,23 +285,23 @@ class Attachments:
             bridge.allow(project, WORDS[word], None, chat)
             read = bridge.ops.attachments(project["path"])
         except (bridge.Refused, bridge.ops.OpsError) as e:
-            bridge.reply(chat, self.phone(e))
+            bridge.reply(chat, self.phone(e, project), project)
             return
         row = next((r for r in read["held"] if r["id"] == number), None)
         if row is None:
             decided = next((r for r in read["recent"] if r["id"] == number), None)
-            bridge.reply(chat, att.NOT_HELD.format(status=decided["status"]) if decided else att.NO_SUCH.format(n=number))
+            bridge.reply(chat, bridge.t("ATT_NOT_HELD", project=project, status=decided["status"]) if decided else bridge.t("ATT_NO_SUCH", project=project, n=number), project)
             return
         if card.get("content_sha256") != att.card_sha256(row["sha256"], row["target"], row["label"]):
-            bridge.reply(chat, CHANGED)
+            bridge.reply(chat, bridge.t("CHANGED", project=project), project)
             return
 
         def call():
             try:
                 done = bridge.run_op(project, WORDS[word], sender=chat, attachment_id=number)
-                bridge.reply(chat, done["reply"])
+                bridge.reply(chat, self.said(done["reply"], project), project)
             except (bridge.Refused, bridge.ops.OpsError) as e:
-                bridge.reply(chat, self.phone(e))
+                bridge.reply(chat, self.phone(e, project), project)
         if word == "add":
             bridge.start(project, chat, WORDS[word], call)
         else:
@@ -313,5 +321,6 @@ class Attachments:
         held = [r for r in held if bridge.ledger.attachment_card(project["id"], r["id"], chat) is not None]
         if not held:
             return None
-        return f"{project['name']}: files waiting for your answer\n" + "\n".join(
-            f"file #{r['id']} {r['name']}: /add {r['id']} or /discard {r['id']}" for r in held)
+        cfg = bridge.cfg(project)
+        return phrases.text("ATT_WAITING_HEAD", cfg, project=project["name"]) + "\n" + "\n".join(
+            phrases.text("ATT_WAITING_LINE", cfg, id=r["id"], name=r["name"]) for r in held)

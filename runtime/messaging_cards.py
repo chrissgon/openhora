@@ -28,31 +28,41 @@ calls nothing.
   sender   (POL-2) the card is drawn for one sender, and what it offers is what THAT sender's profile permits: the owner's card of a plan has
            Approve and Reject, an employee's card of the same plan, whose profile lists neither, has no button; the result says whether the card
            offers its sender anything to act on or answer (`actionable`), which a profile with `notices: actionable` is sent a card for
+  language (LR-1) the frames a card adds around the decision's text (the labels, the cut and whole notes, the "Send /approve 12" lines, "Act on it on the page or in the terminal.") and
+           the kind of the decision as a word are the phrase table's (runtime/phrases.py) in the language of the `cfg` handed to `build`; the decision's own text, the
+           commands and the ids are never changed
 
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
-import re
 import hashlib
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import phrases  # noqa: E402  (the same folder: the sentences of a card, in the project's language)
 
 CHANNEL = "messaging"
 WORD_OPERATION = {"approved": "approve", "accepted": "approve", "rejected": "reject", "released": "release"}
-LABELS = {"approve": "Approve", "reject": "Reject", "release": "Release"}
+# The English frames of a card, kept under their old names; the phrase table (runtime/phrases.py) is their source and `build` says them in the language of
+# the `cfg` it is given (the project's settings: anything that maps `language`), package LR-1.
+LABELS = {"approve": phrases.en("LABEL_APPROVE"), "reject": phrases.en("LABEL_REJECT"), "release": phrases.en("LABEL_RELEASE")}
 ORDER = ("approve", "release", "reject")
-CUT = "(continues on the page)"
-WHOLE = "(the whole text follows as a document)"
-WHOLE_ABOVE = "(the whole text is in the file above)"
-DOCUMENT_NOTE = "The whole text of this decision, as a file. The card with the buttons follows once this file has arrived."
-DOCUMENT_LINE = "The file with the whole text did not arrive, so this card cannot be approved here: approve it on the page or in the terminal, or send /pending to try the file again."
-PAGE_LINE = "Act on it on the page or in the terminal."
-REPLY_LINE = "Reply to this message to answer."
-EFFECT_LINE = "Approve it on the page or in the terminal:"
-TOO_LONG_LINE = "Too long to approve here: approve it on the page or in the terminal."
-APPROVES_LINE = "Approving applies exactly the text above (sha256 {sha})."
-EFFECT_LABEL = "Approve this exact content"
-MORE_LINE = "And {n} more waiting. Send /pending to list them."
-PAGE_LABEL = "Open the page"
+CUT = phrases.en("CUT")
+WHOLE = phrases.en("WHOLE")
+WHOLE_ABOVE = phrases.en("WHOLE_ABOVE")
+DOCUMENT_NOTE = phrases.en("DOCUMENT_NOTE")
+DOCUMENT_LINE = phrases.en("DOCUMENT_LINE")
+PAGE_LINE = phrases.en("PAGE_LINE")
+REPLY_LINE = phrases.en("REPLY_LINE")
+EFFECT_LINE = phrases.en("EFFECT_LINE")
+TOO_LONG_LINE = phrases.en("TOO_LONG_LINE")
+APPROVES_LINE = phrases.en("APPROVES_LINE")
+EFFECT_LABEL = phrases.en("EFFECT_LABEL")
+MORE_LINE = phrases.en("MORE_LINE")
+PAGE_LABEL = phrases.en("PAGE_LABEL")
 
 
 def sha256_text(text: str) -> str:
@@ -76,8 +86,8 @@ def content_sha256(item: dict) -> str:
     return sha256_text(decision_text(item))
 
 
-def header_of(project_name: str, item: dict) -> str:
-    return f"{project_name} · {item['kind']} #{item['id']}"
+def header_of(project_name: str, item: dict, cfg=None) -> str:
+    return phrases.text("HEADER", cfg, project=project_name, kind=phrases.kind_word(item["kind"], cfg), id=item["id"])
 
 
 def typed(op: str, pending_id: int) -> str:
@@ -115,7 +125,7 @@ def gated(item: dict) -> bool:
 
 
 def build(project_name: str, item: dict, caps: dict, policy, notices: str = "text", page_url=None, operations=None,
-          effect_command: str | None = None, delivery: str | None = None, _blocked: str | None = None, sender: str | None = None) -> dict:
+          effect_command: str | None = None, delivery: str | None = None, _blocked: str | None = None, sender: str | None = None, cfg=None) -> dict:
     """The card of one open decision. Returns {"message": the neutral message without action ids (each action is
     {"op", "label"}), "content_sha256", "kind", "pending_id", "whole", "approvable", "gated", "blocked"} ("approvable": the card offers an approval, as a
     button or a typed line; "gated": its approval needs the whole text; "blocked": "document" when its file did not arrive). `operations` is the table module (operations.py);
@@ -127,7 +137,10 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     `_blocked` is the second pass of a card whose first pass was not whole.
     `sender` (POL-2) is the sender the card is for (`<platform>:<sender id>`, operations.sender_key): what a button offers is what THAT sender's profile
     permits, so a card drawn for a limited profile has fewer buttons than the same decision's card for the owner. "actionable" says whether the card
-    offers its sender anything to act on or answer (the profile's `notices: actionable` sends a card only then)."""
+    offers its sender anything to act on or answer (the profile's `notices: actionable` sends a card only then).
+    `cfg` maps `language` to the project's setting (the bridge hands over its settings): the frames the card adds around the decision's text are said in it
+    (runtime/phrases.py); the decision's own text, the commands and the ids are not changed."""
+    t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     kind, pending_id = item["kind"], item["id"]
     words = list(item.get("actions") or [])
     allowed, refused = [], False
@@ -163,31 +176,31 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     shown, lines = allowed[:room], [typed(op, pending_id) for op in allowed[room:]]
     footer = []
     if lines:
-        footer += [f"Send {line}" for line in lines]
+        footer += [t("SEND_LINE", line=line) for line in lines]
     if reply:
-        footer.append(REPLY_LINE)
+        footer.append(t("REPLY_LINE"))
     if needs_whole and blocked:
-        footer.append(DOCUMENT_LINE if blocked == "document" else TOO_LONG_LINE)
+        footer.append(t("DOCUMENT_LINE") if blocked == "document" else t("TOO_LONG_LINE"))
     if kind == "effect" and approval_ok:
-        footer.append(APPROVES_LINE.format(sha=item.get("payload_sha256") or ""))
+        footer.append(t("APPROVES_LINE", sha=item.get("payload_sha256") or ""))
     elif kind == "effect":
-        footer.append(EFFECT_LINE)
+        footer.append(t("EFFECT_LINE"))
         if effect_command:
             footer.append(code_span(effect_command))
     elif refused:
-        footer.append(PAGE_LINE)
+        footer.append(t("PAGE_LINE"))
     link = None
     if page_url and (kind == "effect" or refused or notices == "count"):
         if caps.get("url_buttons"):
-            link = {"label": PAGE_LABEL, "url": page_url}
+            link = {"label": t("PAGE_LABEL"), "url": page_url}
         else:
             footer.append(page_url)
-    header = header_of(project_name, item)
+    header = header_of(project_name, item, cfg)
     full = decision_text(item)
     document = None
     whole = False
     if notices == "count":
-        body = f"A {kind} waits for you."
+        body = t("WAITS_COUNT", kind=phrases.kind_word(kind, cfg))
     else:
         body = full
     tail = "\n\n" + "\n".join(footer) if footer else ""
@@ -195,20 +208,20 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     room_for_body = limit - len(header) - 2 - len(tail)
     if notices != "count" and len(body) > room_for_body:
         if delivery == "failed" or not caps.get("documents"):
-            body = _cut(body, room_for_body, CUT)
+            body = _cut(body, room_for_body, t("CUT"))
         elif delivery == "sent":
-            body = _cut(body, room_for_body, WHOLE_ABOVE)
+            body = _cut(body, room_for_body, t("WHOLE_ABOVE"))
             whole = True      # the whole text went first, as a document the provider confirmed
         else:
-            body = _cut(body, room_for_body, WHOLE)
+            body = _cut(body, room_for_body, t("WHOLE"))
             document = {"name": f"{kind}-{pending_id}.txt", "text": full}
             whole = True      # the whole text follows as a document
     else:
         whole = notices != "count"
     if needs_whole and approval_ok and not whole:    # a cut card approves nothing: the same card again, with the command and the line
-        return build(project_name, item, caps, policy, notices, page_url, operations, effect_command, delivery, _blocked="long", sender=sender)
+        return build(project_name, item, caps, policy, notices, page_url, operations, effect_command, delivery, _blocked="long", sender=sender, cfg=cfg)
     text = header + "\n\n" + body + tail if body else header + tail
-    labels = dict(LABELS, approve=EFFECT_LABEL) if kind == "effect" else LABELS
+    labels = {op: t("EFFECT_LABEL" if op == "approve" and kind == "effect" else "LABEL_" + op.upper()) for op in ORDER}
     message = {"text": text, "actions": [{"op": op, "label": labels[op]} for op in shown], "link": link, "document": document}
     if footer and caps.get("actions_need_reply"):
         message["footer"] = list(footer)      # the lines this function appended, handed over so that a provider never has to infer them (e-mail)
@@ -217,9 +230,9 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
             "blocked": "document" if (needs_whole and blocked == "document") else None}
 
 
-def document_message(project_name: str, item: dict, document: dict) -> dict:
+def document_message(project_name: str, item: dict, document: dict, cfg=None) -> dict:
     """The message that carries a gated card's whole text, sent before the card: a line that names the decision, and the document."""
-    return {"text": f"{header_of(project_name, item)}\n\n{DOCUMENT_NOTE}", "actions": [], "link": None, "document": document}
+    return {"text": f"{header_of(project_name, item, cfg)}\n\n{phrases.text('DOCUMENT_NOTE', cfg)}", "actions": [], "link": None, "document": document}
 
 
 def split(text: str, limit: int) -> list:
@@ -239,13 +252,14 @@ def split(text: str, limit: int) -> list:
 # --- the card of a file a sender sent (ATT-1) ----------------------------------------------------------------------------------------
 
 ATTACH_OPERATION = {"add": "attachment-add", "discard": "attachment-discard"}
-ATTACH_LABELS = {"add": "Add", "discard": "Discard"}
-ATTACH_ASK = "File from you on {platform}: {name} ({size}, {kind}).\nAdd it to {project} as the source `{id}`?"
-ATTACH_ASK_VERSION = "File from you on {platform}: {name} ({size}, {kind}).\nAdd it to {project} as version {n} of the source `{id}`?"
-ATTACH_COUNT = "A file from you waits for your answer."
+ATTACH_LABELS = {"add": phrases.en("LABEL_ADD"), "discard": phrases.en("LABEL_DISCARD")}
+ATTACH_ASK = phrases.en("ATTACH_ASK")
+ATTACH_ASK_VERSION = phrases.en("ATTACH_ASK_VERSION")
+ATTACH_COUNT = phrases.en("ATTACH_COUNT")
 
 
-def attachment_card(project_name: str, row: dict, next_version: int, caps: dict, policy, notices: str = "text", operations=None, sender: str | None = None) -> dict:
+def attachment_card(project_name: str, row: dict, next_version: int, caps: dict, policy, notices: str = "text", operations=None, sender: str | None = None,
+                    cfg=None) -> dict:
     """The card of one held file (kind `attachment`), drawn for the sender who sent it: a question with **Add** and **Discard**, each only when the sender's profile
     permits `attachment-add` / `attachment-discard`; a platform with no buttons gets the typed lines `Send /add 3` and `Send /discard 3`; what the policy refuses is
     neither drawn nor offered (the card says to act on the page or in the terminal). With notices "count" the card carries nothing of the project or of the file.
@@ -253,23 +267,23 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
     (the one of attachments.card_sha256), "kind": "attachment", "attachment_id", "actionable"}; the bridge records it in the ledger with the file's number in place of a
     decision's."""
     import attachments as att
+    t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     words = [w for w in ("add", "discard") if operations.permitted(ATTACH_OPERATION[w], CHANNEL, policy, None, sender)]
     buttons_ok = bool(caps.get("buttons")) and caps.get("max_buttons", 0) > 0
     room = caps.get("max_buttons", 0) if buttons_ok else 0
     shown, typed_words = words[:room], words[room:]
-    footer = [f"Send /{w} {row['id']}" for w in typed_words]
+    footer = [t("SEND_LINE", line=f"/{w} {row['id']}") for w in typed_words]
     if len(words) < 2:
-        footer.append(PAGE_LINE)
-    header = f"{project_name} · file #{row['id']}"
+        footer.append(t("PAGE_LINE"))
+    header = t("HEADER_FILE", project=project_name, id=row["id"])
     if notices == "count":
-        body = ATTACH_COUNT
+        body = t("ATTACH_COUNT")
     else:
-        fields = dict(platform=row.get("platform") or "a messaging app", name=row["name"], size=att.size_text(row["bytes"]), kind=row.get("kind") or "file",
-                      project=project_name, id=row["target"], n=next_version)
-        body = (ATTACH_ASK_VERSION if row.get("label") == "refresh" else ATTACH_ASK).format(**fields)
+        body = t("ATTACH_ASK_VERSION" if row.get("label") == "refresh" else "ATTACH_ASK", platform=row.get("platform") or t("A_MESSAGING_APP"), name=row["name"],
+                 size=att.size_text(row["bytes"]), kind=row.get("kind") or t("FILE_WORD"), project=project_name, id=row["target"], n=next_version)
     tail = "\n\n" + "\n".join(footer) if footer else ""
-    text = _cut(header + "\n\n" + body, int(caps.get("max_text") or 4096) - len(tail), CUT) + tail
-    message = {"text": text, "actions": [{"op": w, "label": ATTACH_LABELS[w]} for w in shown], "link": None, "document": None}
+    text = _cut(header + "\n\n" + body, int(caps.get("max_text") or 4096) - len(tail), t("CUT")) + tail
+    message = {"text": text, "actions": [{"op": w, "label": t("LABEL_" + w.upper())} for w in shown], "link": None, "document": None}
     if footer and caps.get("actions_need_reply"):
         message["footer"] = list(footer)
     return {"message": message, "content_sha256": att.card_sha256(row["sha256"], row["target"], row["label"]), "kind": "attachment", "attachment_id": row["id"],

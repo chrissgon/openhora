@@ -37,6 +37,7 @@ import lab
 import language as language_rules
 import operations
 import ops_actor
+import phrases
 import plan
 import router
 import skill_meta
@@ -55,19 +56,20 @@ MEMORY_CHARS = 4000
 MEMORY_CUT = 600
 MEMORY_HEAD = "Earlier in this conversation, oldest first:"
 MEMORY_TAIL = "The request now:"
-PLAN_NEXT = "Approve with " + operations.chat_line("approve", pending_id="{pending}")
-ANSWERED_AS = "(answered from the sources: request {request})"   # what `conversation` shows in place of an answer to a reader that did not ask
-ASK_NEXT = "Answer with a plain line, or start again with " + operations.chat_line("new", text="<text>")
-NOT_NAMED = "The planning agent did not name a flow or a skill for request {request}"
+# The conversation's sentences are the phrase table's (runtime/phrases.py, package LR-1): these names keep the English text (a test pins that it is what
+# operations.chat_line spells), and each place below says the sentence in the project's language.
+PLAN_NEXT = phrases.en("PLAN_NEXT")
+ANSWERED_AS = phrases.en("ANSWERED_AS")   # what `conversation` shows in place of an answer to a reader that did not ask
+ASK_NEXT = phrases.en("ASK_NEXT")
+NOT_NAMED = phrases.en("NOT_NAMED")
 NOT_NAMED_ACTIONS = ["choose-flow", "cancel"]    # the words of the payload's `actions`: the page draws one button for each
-NOT_NAMED_NEXT = ("Cancel it with " + operations.chat_line("cancel", request_id="{request}") + ", name a flow in the "
-                  "terminal with: {route}, or start again with " + operations.chat_line("new", text="<text>"))
+NOT_NAMED_NEXT = phrases.en("NOT_NAMED_NEXT")
 RAW_MAX = 32 * 1024                              # bytes of the router's block kept in the payload's `raw`
 QUEUING_CHANNELS = ("page",)  # the shells that drain the queue: only the local service runs `route_queued` on a loop
 QUEUE_GROUPS = {"talk": "say", "request": "route"}  # the groups an entry stores, and the operation each stands for
 DRAIN = "queue"               # the channel the drain acts as: it may queue again (the lock can be taken meanwhile), never jump the queue
-QUEUED_REQUEST = "Recorded as request {request}. The planning agent routes it when the run ends."
-PROPOSES = "The planning agent proposes: "
+QUEUED_REQUEST = phrases.en("QUEUED_REQUEST")
+PROPOSES = phrases.en("PROPOSES")
 RUN_BUSY = "the planning agent is answering another request of this project"
 
 # The queue: lines of the person and requests that wait for the planning agent while the router holds the project's
@@ -162,7 +164,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
             raise core.RunBusy(RUN_BUSY, 1)
     stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=said)
     reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"], sender)
-    core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant", text=reply or "(no reply)",
+    core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant", text=reply or phrases.text("NO_REPLY", ctx["cfg"]),
                  task_id=request_id, run_id=run_id)
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
             **({"instruction_proposal": offered} if offered else {})}
@@ -180,7 +182,7 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
     if asked is None and state_question(said):
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
             return f"error: {operations.not_enabled('status', channel)}", None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
-        return state_reply(project), None, None, False, None, None
+        return state_reply(project, cfg=ctx["cfg"]), None, None, False, None, None
     out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender)
     offered = importlib.import_module("ops_instructions").proposal(ctx, out[1], said, channel) if asked is not None else None
     return (out[0] + "\n\n" + offered["text"], *out[1:], offered) if offered else (*out, None)
@@ -230,19 +232,21 @@ def _short(text) -> str:
     return one if len(one) <= TITLE_CUT else one[:TITLE_CUT - 1].rstrip() + "..."
 
 
-def _names(rows: list) -> str:
+def _names(rows: list, cfg=None) -> str:
     """'a, b, c and 2 more' for the titles of rows."""
     titles = [_short(r["title"]) for r in rows]
     shown = ", ".join(titles[:LISTED])
-    return shown + (f" and {len(titles) - LISTED} more" if len(titles) > LISTED else "")
+    return shown + (phrases.text("NAMES_MORE", cfg, n=len(titles) - LISTED) if len(titles) > LISTED else "")
 
 
-def state_reply(project: str, proposed: str | None = None) -> str:
+def state_reply(project: str, proposed: str | None = None, cfg: dict | None = None) -> str:
     """Where the project stands, in prose, written by code from `status` and `progress` (the store's records): for each
     open request what finished, what runs, what waits for the person, what is ready or held, and what is stuck, then
     what waits for the person across the project. No model is called and nothing is estimated: every number and name
     is a value of the two reads. `proposed`, the router's `Next` line of a direct turn, closes it as what the planning
-    agent proposes."""
+    agent proposes. The sentences are the phrase table's, in the project's language (`cfg`, read from the project when not given)."""
+    cfg = cfg if cfg is not None else core._config_of(project)
+    t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     state, progress = _ops().status(project), _ops().progress(project)["progress"]
     held = {h["task_id"]: h["reason"] for h in state.get("held") or []}
     lines = []
@@ -250,28 +254,28 @@ def state_reply(project: str, proposed: str | None = None) -> str:
     for r in open_requests:
         tasks = r["tasks"]
         by = lambda *states: [t for t in tasks if t["state"] in states]  # noqa: E731
-        head = f'Request {r["id"]}, "{_short(r["title"])}": '
+        title = _short(r["title"])
         if r["state"] == "requested":
-            lines.append(head + "recorded; it waits for its route.")
+            lines.append(t("STATE_RECORDED", id=r["id"], title=title))
             continue
         done = by("done")
-        text = head + f"{len(done)} of {len(tasks)} tasks done" + (f" ({_names(done)})" if done else "") + "."
-        lines.append(text)
-        for label, rows in (("Running now", by("running")), ("Waiting for you", by("waiting"))):
+        lines.append(t("STATE_PROGRESS", id=r["id"], title=title, done=len(done), total=len(tasks), names=f" ({_names(done, cfg)})" if done else ""))
+        for key, rows in (("STATE_RUNNING", by("running")), ("STATE_WAITING", by("waiting"))):
             if rows:
-                lines.append(f"{label}: {_names(rows)}.")
-        for t in by("ready"):
-            lines.append(f'Ready: task {t["id"]}, "{_short(t["title"])}"' + (f" (held: {held[t['id']]})" if t["id"] in held else "") + ".")
-        for t in by("blocked", "failed"):
-            note = f': {_short(t["note"])}' if t.get("note") else ""
-            lines.append(f'Stuck: task {t["id"]}, "{_short(t["title"])}", is {t["state"]}{note}.')
+                lines.append(t(key, names=_names(rows, cfg)))
+        for task in by("ready"):
+            lines.append(t("STATE_READY", id=task["id"], title=_short(task["title"]),
+                           held=t("STATE_HELD", reason=held[task["id"]]) if task["id"] in held else ""))
+        for task in by("blocked", "failed"):
+            note = f': {_short(task["note"])}' if task.get("note") else ""
+            lines.append(t("STATE_STUCK", id=task["id"], title=_short(task["title"]), state=t("STATE_BLOCKED" if task["state"] == "blocked" else "STATE_FAILED"), note=note))
     if not open_requests:
         finished = sum(1 for r in state["requests"] if r["state"] == "done")
-        lines.append("No request is open." + (f" {finished} finished." if finished else ""))
-    waiting = [f'{w["kind"]} "{_short(w["title"])}" (decision {w["pending_id"]})' for w in progress["waiting_for_you"]]
-    lines.append("What waits for you: " + ("; ".join(waiting) if waiting else "nothing") + ".")
+        lines.append(t("STATE_NONE_OPEN") + (t("STATE_FINISHED", n=finished) if finished else ""))
+    waiting = [t("STATE_WAIT_ITEM", kind=phrases.kind_word(w["kind"], cfg), title=_short(w["title"]), id=w["pending_id"]) for w in progress["waiting_for_you"]]
+    lines.append(t("STATE_WAITS", items="; ".join(waiting) if waiting else t("STATE_NOTHING")))
     if proposed:
-        lines += ["", PROPOSES + proposed]
+        lines += ["", t("PROPOSES") + proposed]
     return "\n".join(lines)
 
 
@@ -417,9 +421,9 @@ def _take(ctx: dict):
     for e in dead:
         if e["kind"] == "line":
             core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant",
-                         text="A queued line was not answered: the service stopped while it was routed. Send it again.")
+                         text=phrases.text("QUEUE_DEAD_LINE", ctx["cfg"]))
         else:
-            _note_request(ctx, e["id"], "the service stopped while it was routed")
+            _note_request(ctx, e["id"], phrases.text("QUEUE_DEAD_WHY", ctx["cfg"]))
     return head
 
 
@@ -428,7 +432,7 @@ def _note_request(ctx: dict, request_id: int, why: str) -> None:
     request that stays on "Route it" does not look forgotten."""
     try:
         core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant", task_id=request_id,
-                     text=f"Request {request_id} was not routed: {why}. Route it again when you want it planned.")
+                     text=phrases.text("REQUEST_NOT_ROUTED", ctx["cfg"], id=request_id, why=why))
     except core.OpsError:
         pass
 
@@ -470,7 +474,7 @@ def route_queued(project: str) -> dict:
         try:
             if head["kind"] == "line":
                 core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant",
-                             text=f"A queued line was not answered: {e}")
+                             text=phrases.text("QUEUE_DROPPED_LINE", ctx["cfg"], why=str(e)))
             else:
                 _note_request(ctx, head["id"], str(e))
         finally:
@@ -489,7 +493,7 @@ def _drain_line(project: str, ctx: dict, message_id: int) -> dict:
     if not found:
         raise core.OpsError(f"message {message_id} is not in the conversation", 1)
     reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, found[0]["text"], DRAIN, message_id)
-    core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant", text=reply or "(no reply)",
+    core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant", text=reply or phrases.text("NO_REPLY", ctx["cfg"]),
                  task_id=request_id, run_id=run_id)
     return {"routed": "line", "message_id": message_id, "request_id": request_id, "pending_id": pending_id, "ran": ran,
             **({"instruction_proposal": offered} if offered else {})}
@@ -604,7 +608,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
     records, with the router's `Next` line; one that names no route opens the question of an unrecognised route."""
     ok, why = _planning_may_start(ctx)
     if not ok:
-        return f"The planning agent may not start now: {why}. Nothing was run.", None, None, False, None
+        return phrases.text("PLANNING_NOT_STARTED", ctx["cfg"], why=why), None, None, False, None
     if answer_to is not None:
         request_id = core._stored(ctx, ctx["store"].pending_get, answer_to)["task_id"]
         _ops().answer(project, answer_to, said, actor=ops_actor.label(ctx["cfg"], channel, sender))
@@ -620,31 +624,31 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
     if routed.get("queued"):  # the router was taken after the check: the request waits for the end of its run
         if not already:  # an entry that was queued before keeps the group that created it (never widened by a line)
             _retag(ctx, "route", request_id, "talk")  # a line made this request: the drain checks `talk`, not `request`
-        return QUEUED_REQUEST.format(request=request_id), request_id, None, False, None
+        return phrases.text("QUEUED_REQUEST", ctx["cfg"], request=request_id), request_id, None, False, None
     if routed.get("kind") == "direct":
         import ops_cancel      # at call time, like the other operations this sibling reaches (it imports no sibling above it at the top)
         core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:direct", context=ctx)
-        return (state_reply(project, routed.get("next")) + importlib.import_module("ops_ask").hint(ctx, channel, sender),
+        return (state_reply(project, routed.get("next"), ctx["cfg"]) + importlib.import_module("ops_ask").hint(ctx, channel, sender),
                 None, None, True, routed.get("run_id"))
     item = core._stored(ctx, ctx["store"].pending_get, routed["pending_id"]) if routed.get("pending_id") else None
     if item is None:
         failure = (routed.get("failure") or {}).get("reason") or "the router's run failed"
-        return f"The router could not run: {failure}", request_id, None, True, routed.get("run_id")
+        return phrases.text("ROUTER_FAILED", ctx["cfg"], failure=failure), request_id, None, True, routed.get("run_id")
     if item["kind"] == "plan":
         payload = item["payload"]
         lines = [item["title"]]
-        lines += [f"- {t['key']}: {t['title']} ({t.get('skill') or 'step ' + t['step']})" for t in payload.get("tasks") or []]
+        lines += [f"- {t['key']}: {t['title']} ({t.get('skill') or phrases.text('PLAN_STEP', ctx['cfg'], step=t['step'])})" for t in payload.get("tasks") or []]
         lines.append(language_rules.payload_line(payload))     # the language the plan writes in, before the person approves
         estimate = payload.get("estimate") or {}
-        lines += [f"Estimate: {estimate.get('runs', estimate.get('runs_at_least'))} runs"
+        lines += [phrases.text("PLAN_ESTIMATE", ctx["cfg"], runs=estimate.get("runs", estimate.get("runs_at_least")))
                   + (f" ({estimate['formula']})" if estimate.get("formula") else ""), ""]
         for n, u in enumerate(payload.get("unrouted") or [], 1):
-            lines += [f"Not planned {n}: {u['item']}. The router's reply:", u["reply"].rstrip("\n"), ""]
-        lines.append(PLAN_NEXT.format(pending=item["id"]))
+            lines += [phrases.text("PLAN_NOT_PLANNED", ctx["cfg"], n=n, item=u["item"]), u["reply"].rstrip("\n"), ""]
+        lines.append(phrases.text("PLAN_NEXT", ctx["cfg"], pending=item["id"]))
         reply = "\n".join(lines)
     elif (item.get("payload") or {}).get("ending") == "unclassified":
         command = core._command("route", project, request_id=request_id, flow="<name>")
-        reply = item["body"].rstrip("\n") + "\n\n" + NOT_NAMED_NEXT.format(request=request_id, route=command)
+        reply = item["body"].rstrip("\n") + "\n\n" + phrases.text("NOT_NAMED_NEXT", ctx["cfg"], request=request_id, route=command)
     else:
-        reply = item["body"].rstrip("\n") + "\n\n" + ASK_NEXT
+        reply = item["body"].rstrip("\n") + "\n\n" + phrases.text("ASK_NEXT", ctx["cfg"])
     return reply, request_id, item["id"], True, routed.get("run_id")

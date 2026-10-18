@@ -45,6 +45,7 @@ import unicodedata
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import intake  # noqa: E402
+import phrases  # noqa: E402
 import sources  # noqa: E402
 
 CHANNEL = "messaging"
@@ -66,33 +67,34 @@ CODES = ("off", "media", "too_large", "day", "held_max", "gone", "mismatch", "ty
          "fetch", "busy", "duplicate")
 FAILED_FETCH = ("gone", "fetch", "size")      # the codes of a fetch that did not end held, as the bridge reports it (attachment_hold, failed=)
 
-# The sentences a person reads. English constants, each tested. `{name}` is the cleaned name, never the file's content.
-OFF = "Files are not taken from this app for this project. Add it on the page or in the terminal (source-import)."
-NO_FILES = "This app's connection does not take files yet."
-MEDIA = ("Photos, voice notes, videos and stickers are not taken as sources: send a PDF, a Word document, a spreadsheet, a presentation, "
-         "an HTML page or a text file.")
-TOO_LARGE = "{name} is {size}; a file from this app is at most {cap}."
-DAY = "This project took {n} files ({size}) from messaging apps today, its limit. Send it again tomorrow, or add it on the page."
-HELD_FULL = "{n} files wait for your answer already. Answer them first (/pending)."
-GONE = "That file can no longer be fetched from {platform}. Send it again."
-MISMATCH = "{name} says it is a {declared} and its bytes are a {sniffed}, so it was not taken."
-REFUSED = "{name} was not added and was deleted: {reason}."
-DUPLICATE = "{name} already waits for your answer (file {id})."
-CAPTION_IGNORED = "The text sent with a file is not read; send it as its own message."
-OVER_MESSAGE = "At most {n} files are taken from one message; the rest were not."
-BUSY = "Another file is being fetched. Send this one again in a moment."
-FETCH_FAILED = "The file could not be fetched. Send it again."
-ADDED = "Added {name} as `{id}`, version {n}."
-ADDED_SAME = "{name} is already the newest version of `{id}` (version {n}): nothing changed."
-TARGET_TYPE = "`{id}` is a {type} source: a file cannot be added to it. Send the file without that text, or name a source of the type file."
-TARGET_CHANGED = "The source `{id}` changed since this file arrived. Discard it (/discard {n}) and send it again."
-DISCARDED = "Discarded {name}."
-NOT_HELD = "That file is {status}, not waiting for your answer."
-NO_SUCH = "No file {n} waits for you."
-EXPIRED = "{name} waited more than {days} days and was deleted. Send it again."
-LOST = "The held file is gone from this machine. Send it again."
-KEPT_FAILED = "{name} could not be kept on this machine. Send it again in a while."
-MACHINE = "This machine could not do that now. Try again later, or use the page or the terminal."
+# The sentences a person reads. English constants kept under their old names (an operation raises them as the text of an OpsError and the terminal shows them
+# as they are); the phrase table (runtime/phrases.py) is their source, and the messaging bridge says them on a phone in the project's language (package LR-1).
+# `{name}` is the cleaned name, never the file's content.
+OFF = phrases.en("ATT_OFF")
+NO_FILES = phrases.en("ATT_NO_FILES")
+MEDIA = phrases.en("ATT_MEDIA")
+TOO_LARGE = phrases.en("ATT_TOO_LARGE")
+DAY = phrases.en("ATT_DAY")
+HELD_FULL = phrases.en("ATT_HELD_FULL")
+GONE = phrases.en("ATT_GONE")
+MISMATCH = phrases.en("ATT_MISMATCH")
+REFUSED = phrases.en("ATT_REFUSED")
+DUPLICATE = phrases.en("ATT_DUPLICATE")
+CAPTION_IGNORED = phrases.en("ATT_CAPTION_IGNORED")
+OVER_MESSAGE = phrases.en("ATT_OVER_MESSAGE")
+BUSY = phrases.en("ATT_BUSY")
+FETCH_FAILED = phrases.en("ATT_FETCH_FAILED")
+ADDED = phrases.en("ATT_ADDED")
+ADDED_SAME = phrases.en("ATT_ADDED_SAME")
+TARGET_TYPE = phrases.en("ATT_TARGET_TYPE")
+TARGET_CHANGED = phrases.en("ATT_TARGET_CHANGED")
+DISCARDED = phrases.en("ATT_DISCARDED")
+NOT_HELD = phrases.en("ATT_NOT_HELD")
+NO_SUCH = phrases.en("ATT_NO_SUCH")
+EXPIRED = phrases.en("ATT_EXPIRED")
+LOST = phrases.en("ATT_LOST")
+KEPT_FAILED = phrases.en("ATT_KEPT_FAILED")
+MACHINE = phrases.en("ATT_MACHINE")
 WORD_SIZES = (("MiB", 1024 * 1024), ("KiB", 1024))
 
 
@@ -191,8 +193,7 @@ OFFICE_TYPES = {"application/pdf": ("pdf",),
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ("docx", "ooxml"),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ("xlsx", "ooxml"),
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation": ("pptx", "ooxml")}
-SUBTYPE_WORDS = {"pdf": "PDF", "docx": "Word document", "xlsx": "spreadsheet", "pptx": "presentation", "ooxml": "Office document",
-                 "html": "HTML page", "csv": "spreadsheet (csv)", "text": "text file"}
+SUBTYPE_WORDS = {kind: phrases.en("ATT_SUBTYPE_" + kind.upper()) for kind in ("pdf", "docx", "xlsx", "pptx", "ooxml", "html", "csv", "text")}
 
 
 def media_type(declared) -> str:
@@ -268,19 +269,19 @@ def fetch_budget(cap: int, today: dict) -> int:
     return max(1, min(cap, DAY_BYTES - today.get("bytes", 0)))
 
 
-def refusal_text(refuse: dict, attachment: dict, platform: str, cap: int) -> str:
-    """The sentence for a refusal of precheck."""
+def refusal_text(refuse: dict, attachment: dict, platform: str, cap: int, cfg=None) -> str:
+    """The sentence for a refusal of precheck, in the language of `cfg` (runtime/phrases.py; English when none)."""
     name = clean_name(attachment.get("name"))
     code = refuse["code"]
     if code == "media":
-        return MEDIA
+        return phrases.text("ATT_MEDIA", cfg)
     if code == "too_large":
-        return TOO_LARGE.format(name=name, size=size_text(refuse["size"]), cap=size_text(cap))
+        return phrases.text("ATT_TOO_LARGE", cfg, name=name, size=size_text(refuse["size"]), cap=size_text(cap))
     if code == "day":
-        return DAY.format(n=refuse["files"], size=size_text(refuse["bytes"]))
+        return phrases.text("ATT_DAY", cfg, n=refuse["files"], size=size_text(refuse["bytes"]))
     if code == "held_max":
-        return HELD_FULL.format(n=refuse["n"])
-    return REFUSED.format(name=name, reason=code)
+        return phrases.text("ATT_HELD_FULL", cfg, n=refuse["n"])
+    return phrases.text("ATT_REFUSED", cfg, name=name, reason=code)
 
 
 # --- the folders -----------------------------------------------------------------------------------------------------------------

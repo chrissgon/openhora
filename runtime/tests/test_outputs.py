@@ -1464,7 +1464,7 @@ def cancel_by(world, how, request, monkeypatch):
                                 "route": staticmethod(lambda project, request_id, channel=None: {"kind": "direct", "next": None, "run_id": None})})
     monkeypatch.setattr(say, "_ops", lambda: fake_ops)
     monkeypatch.setattr(say, "_planning_may_start", lambda ctx: (True, ""))
-    monkeypatch.setattr(say, "state_reply", lambda project, nxt: "a direct reply")
+    monkeypatch.setattr(say, "state_reply", lambda project, nxt, cfg=None: "a direct reply")
     say._say_route(world["path"], ctx, "what is the plan?", 10**9, "terminal")
     return None
 

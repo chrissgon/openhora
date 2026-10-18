@@ -25,7 +25,7 @@ one minute ahead (MIN_AHEAD) and at most 366 days ahead (MAX_AHEAD).
   clean_text(text)            the text as it is stored (one line, control characters and runs of blanks become one space, format characters dropped), or ValueError(sentence)
   retry_delay(attempts)       how long a reminder whose send failed waits before the next try (1, 2, 4, 8 ... minutes)
   verdict(due, now)           what to do with an open reminder: "wait", "send" or "missed" (the late window), and how late it is
-  line(id, text, due_local, late)  the line a due reminder goes out as, with the mark "(due at HH:MM)" when it went out late
+  line(id, text, due_local, late[, cfg])  the line a due reminder goes out as, with the mark "(due at HH:MM)" when it went out late, in the language of `cfg` (runtime/phrases.py)
 
 `now` is an aware datetime; `at(naive)` is the aware datetime of a local wall time, by the rules of the zone (the host's own, or a stand-in's). The
 caps and the sentences are constants of this file, read by the operations and the tests. Standard library only. Runs on Python 3.9.
@@ -33,9 +33,13 @@ caps and the sentences are constants of this file, read by the operations and th
 from __future__ import annotations
 
 import datetime
+import os
 import re
 import sys
 import unicodedata
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import phrases  # noqa: E402  (the same folder: the sentences, in the project's language)
 
 UTC = datetime.timezone.utc
 
@@ -56,30 +60,32 @@ STATUSES = ("open", "sending", "sent", "cancelled", "missed", "dropped")
 FINAL = ("sent", "cancelled", "missed", "dropped")
 WHYS = ("late", "sender removed", "not permitted")    # the closed words kept with a reminder that ended `missed` or `dropped`
 
-USAGE = "Usage: /remind HH:MM <text>, /remind YYYY-MM-DD HH:MM <text> or /remind in <n>m|h|d <text> (24-hour clock, two digits)."
-USAGE_FORGET = "Usage: /forget <n>"
-TEXT_LINE = "Reminder: {text}"
-COUNT_LINE = "A reminder is due (#{id})."
-NO_SUCH = "No reminder {n} waits for you."
-NOT_WAITING = "Reminder {n} is {status}, not waiting."
-BEING_SENT = "Reminder {n} is being sent now."
-OPEN_FULL = "There are already {n} reminders waiting in this project. Forget one first."
-CHAT_FULL = "There are already {n} reminders waiting for this chat. Forget one first."
-DAY_FULL = "{n} reminders were already made for this chat today. Try again tomorrow."
-SET = "Reminder #{id} set for {wall} ({zone})."
-FORGOT = "Forgot reminder #{id}."
-NOT_LISTED = "You are not a listed sender of this project."
+# The English sentences, kept under their old names (the operations raise them as the text of an OpsError, and the terminal shows them as they are); the phrase
+# table (runtime/phrases.py) is their source, and the messaging bridge says them on a phone in the project's language (package LR-1).
+USAGE = phrases.en("RM_USAGE")
+USAGE_FORGET = phrases.en("USAGE_FORGET")
+TEXT_LINE = phrases.en("RM_TEXT_LINE")
+COUNT_LINE = phrases.en("RM_COUNT_LINE")
+NO_SUCH = phrases.en("RM_NO_SUCH")
+NOT_WAITING = phrases.en("RM_NOT_WAITING")
+BEING_SENT = phrases.en("RM_BEING_SENT")
+OPEN_FULL = phrases.en("RM_OPEN_FULL")
+CHAT_FULL = phrases.en("RM_CHAT_FULL")
+DAY_FULL = phrases.en("RM_DAY_FULL")
+SET = phrases.en("RM_SET")
+FORGOT = phrases.en("RM_FORGOT")
+NOT_LISTED = phrases.en("RM_NOT_LISTED")
 TERMINAL_USAGE = ("--when is HH:MM, YYYY-MM-DD HH:MM or in <n>m|h|d (24-hour clock, two digits), and --text is what to say; "
                   "--to <platform>:<id> names the listed sender it goes to.")
-NOT_A_TIME = "{given} is not a time of day (00:00 to 23:59)."
-NO_SUCH_DATE = "{given} is not a day of the calendar."
-NO_SUCH_TIME = "{given} does not exist on that day (the clock skips it). Pick another time."
-PAST = "That time has passed. Now it is {now}."
-TOO_SOON = "A reminder is at least one minute ahead. Now it is {now}."
-TOO_FAR = "A reminder is at most 366 days ahead."
-NO_TEXT = "A reminder needs the words to send."
-TOO_LONG = "A reminder is at most {max} characters; yours has {n}."
-CREDENTIAL = "That text looks like a credential ({labels}); a reminder is a message sent to your phone, so it is not stored."
+NOT_A_TIME = phrases.en("RM_NOT_A_TIME")
+NO_SUCH_DATE = phrases.en("RM_NO_SUCH_DATE")
+NO_SUCH_TIME = phrases.en("RM_NO_SUCH_TIME")
+PAST = phrases.en("RM_PAST")
+TOO_SOON = phrases.en("RM_TOO_SOON")
+TOO_FAR = phrases.en("RM_TOO_FAR")
+NO_TEXT = phrases.en("RM_NO_TEXT")
+TOO_LONG = phrases.en("RM_TOO_LONG")
+CREDENTIAL = phrases.en("RM_CREDENTIAL")
 
 _TIME = re.compile(r"([01][0-9]|2[0-3]):([0-5][0-9])")
 _LOOSE_TIME = re.compile(r"[0-9]{1,2}:[0-9]{2}")
@@ -206,13 +212,14 @@ def verdict(due: datetime.datetime, now: datetime.datetime) -> tuple:
     return ("send" if late <= LATE_WINDOW else "missed"), late
 
 
-def line(reminder_id: int, text, due_local: str, late: int) -> str:
+def line(reminder_id: int, text, due_local: str, late: int, cfg=None) -> str:
     """The line a due reminder goes out as: "Reminder: <text>", or, when the project's notices carry no text (`text` is None), "A reminder is due
-    (#<id>)."; either followed by the mark "(due at HH:MM)" when it went out later than LATE_MARK (the wall time it was asked for, from `due_local`)."""
+    (#<id>)."; either followed by the mark "(due at HH:MM)" when it went out later than LATE_MARK (the wall time it was asked for, from `due_local`).
+    `cfg` maps `language` to the project's setting (runtime/phrases.py): the frame is said in it; the person's own words are never touched."""
     at = due_local[11:16] if late > LATE_MARK and len(due_local) >= 16 else ""
     if text is None:
-        return COUNT_LINE.format(id=reminder_id) + (f" It was due at {at}." if at else "")
-    return TEXT_LINE.format(text=text) + (f" (due at {at})" if at else "")
+        return phrases.text("RM_COUNT_LINE", cfg, id=reminder_id) + (phrases.text("RM_COUNT_LATE", cfg, at=at) if at else "")
+    return phrases.text("RM_TEXT_LINE", cfg, text=text) + (phrases.text("RM_TEXT_LATE", cfg, at=at) if at else "")
 
 
 if __name__ == "__main__":
