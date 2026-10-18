@@ -151,7 +151,7 @@ def test_reminders_lists_the_senders_own_and_forget_cancels_only_theirs(day):
     assert day.texts(OTHER)[-1] == "No reminder 99 waits for you."
     assert [r["status"] for r in day.all()["open"]] == ["open", "open"]
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1] == "Forgot reminder #1."
+    assert day.texts(OWNER)[-1] == f"Reminder #1 cancelled: today, Sun 18/10, at 15:00 (BRT): {DENTIST}. To get it back, send: undo"
     day.say(OWNER, "/reminders")
     assert day.texts(OWNER)[-1] == "northwind-shop: no reminders wait."
     day.say(OWNER, "/forget 1")
@@ -183,7 +183,7 @@ def test_the_three_commands_are_never_kept_by_the_queue_and_are_handled_at_once_
     day.say(OWNER, "/reminders")
     assert day.texts(OWNER)[-1] == f"northwind-shop: reminders that wait (BRT)\n#1 today, Sun 18/10, at 15:00: {DENTIST}"
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1] == "Forgot reminder #1."
+    assert day.texts(OWNER)[-1] == f"Reminder #1 cancelled: today, Sun 18/10, at 15:00 (BRT): {DENTIST}. To get it back, send: undo"
     day.say(OWNER, "/remind 15:00 again")
     assert day.texts(OWNER)[-1] == "Reminder #2: today, Sun 18/10, at 15:00 (BRT): again. To undo: /forget 2."
     assert len(day.bridge.waiting) == waiting and not any(bridge.QUEUED == t for t in day.texts(OWNER)[before:]), "the queue holds what it held"

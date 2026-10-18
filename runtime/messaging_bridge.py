@@ -237,6 +237,7 @@ class Bridge(shell_kit.Jobs):
         self.unread_waiting = {}              # chat -> how many skipped messages it has not been told of (memory only)
         self.unread_told = {}                 # chat -> time.monotonic() of the last line about skipped messages
         self.monotonic = time.monotonic       # the clock of the waiting lines (a test moves it)
+        self.last_message = {}                # chat -> the id of the last message sent to it (memory only): the question a draft asked is answered by a reply to it
         self.waiting = []                     # the lines kept for a busy project, oldest first (memory only): {"n", "project", "chat", "text", "since", "after"}
         self.ticket = 0
         self.queue_lock = threading.Lock()    # guards `waiting` and `ticket`
@@ -392,7 +393,8 @@ class Bridge(shell_kit.Jobs):
         caps = self.messenger.capabilities()
         for piece in cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"]):
             try:
-                self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None})
+                sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None})
+                self.last_message[chat] = str(sent) if sent else None
             except provider.MessengerError as e:
                 if e.kind == "deferred":
                     return None
@@ -641,7 +643,11 @@ class Bridge(shell_kit.Jobs):
         kind = intent["kind"]
         if kind == "ignore":
             return
-        if kind != "action" and chat in self.remind.drafts and self.remind.answer(project, chat, kind, update.get("text") or ""):
+        replied = update.get("reply_to")
+        if kind == "natural" and replied and self.ledger.by_message(chat, replied):          # a reply to a card answers THAT card, not a reminder (NR-1)
+            intent = {"kind": "reply", "reply_to": replied, "text": update.get("text") or ""}
+            kind = "reply"
+        if kind != "action" and chat in self.remind.drafts and self.remind.answer(project, chat, kind, update.get("text") or "", replied):
             return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line
         if kind == "attachment":
             self.attach.arrived(project, chat, intent)

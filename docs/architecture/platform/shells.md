@@ -338,6 +338,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `remind` | `--when` `--text \| --text-file` `[--to]` | `remind` |
 | `reminders` | - | `reminders_read` |
 | `reminder-forget` | `--id` | `reminder_forget` |
+| `reminder-restore` | `[--id]` | `reminder_restore` |
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
 | `instructions-add` | `--line` `--base-sha256` | `instructions_add` |
@@ -467,6 +468,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/reminders` | `reminders` | - | none | - | - |
 | POST | `/projects/{p}/reminders` | `remind` | - | every other argument | - | - |
 | POST | `/projects/{p}/reminders/{id}/forget` | `reminder-forget` | `reminder_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/reminders/{id}/restore` | `reminder-restore` | `reminder_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->

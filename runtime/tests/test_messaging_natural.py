@@ -1,10 +1,10 @@
-"""Reminders asked in the person's own words, through a messaging bridge (package NR-1): `me lembra amanha as 13h da aula de violao`, `/remind aula de violao as 13hrs amanha`,
-the question asked back when a line can be read two ways or lacks the hour or holds a time word it did not use, the draft that finishes it (ten minutes, one per
-chat, lost on a restart, swept on the tick, dropped by any other line), the calendar that is not built yet, the scheduling verb that is not a calendar word, the
-lists and the forgets in words, a profile without the group, and the rule behind all of it: code reads the line, so no model runs, no route lock is taken and no model
-slot is held. Over the REAL operations layer, a stand-in messenger, a stand-in planner that records every line a model would have been given, and a stand-in clock
-(Sunday 2026-10-18 14:00 at -03:00). The parser is in test_natural_time.py, the pure rules and the operation in test_natural_reminders.py. Offline, no model, no
-network; invented words.
+"""Reminders asked in the person's own words, through a messaging bridge (package NR-1): `me lembra amanha as 13h da aula de violao`, `/remind aula de violao as 13hrs
+amanha`, the question asked back when a line can be read two ways or lacks the hour, the reading shown and confirmed when something about it is uncertain, the draft that
+finishes it (ten minutes, one per chat, lost on a restart, swept on the tick, dropped by any other line, answered by a reply only to its own question), the calendar
+that is not built yet, the scheduling verb that is not a calendar word, the lists, the forgets and the undo in words, a profile without the group, and the rule behind
+all of it: code reads the line, so no model runs, no route lock is taken and no model slot is held. Over the REAL operations layer, a stand-in messenger, a stand-in
+planner that records every line a model would have been given, and a stand-in clock (Sunday 2026-10-18 14:00 at -03:00). The parser is in test_natural_time.py, the
+pure rules and the operation in test_natural_reminders.py, a reply to a card in test_messaging_natural_reply.py. Offline, no model, no network; invented words.
 
 The Portuguese lines and the sentences they must get are in natural_cases_pt_br.py, the one test file written in Portuguese on purpose.
 
@@ -12,6 +12,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_natural.py
 """
 from __future__ import annotations
 
+import datetime
 import json
 from pathlib import Path
 
@@ -42,6 +43,11 @@ def no_model(planner):  # noqa: F811
 
 def update(sender, text, **fields):
     return {"update_id": 9, "sender": sender, "chat": sender, "private": True, "text": text, "action": None, "action_ref": None, "reply_to": None, **fields}
+
+
+def last_id(day):  # noqa: F811
+    """The id the stand-in messenger gave the message it sent last."""
+    return str(100 + len(day.sent()))
 
 
 # --- 1. the lines that make a reminder at once ---------------------------------------------------------------------------------------------------------
@@ -104,10 +110,12 @@ def test_a_time_of_day_that_has_passed_says_so_and_gives_tomorrows_but_a_day_the
     no_model(planner)
 
 
-def test_a_reminder_not_in_this_year_shows_its_year(day, planner):  # noqa: F811
+def test_a_date_that_has_passed_this_year_is_confirmed_with_its_year_and_the_year_stays_in_the_reply(day, planner):  # noqa: F811
     portuguese(day)
     day.say(OWNER, pt.LINE_YEAR)
-    assert day.texts(OWNER) == [pt.REPLY_YEAR]
+    assert day.texts(OWNER) == [pt.CONFIRM_YEAR] and day.all()["open"] == []
+    day.say(OWNER, "sim")
+    assert day.texts(OWNER)[-1] == pt.REPLY_YEAR and day.all()["open"][0]["due"] == "2027-01-05 09:00"
     no_model(planner)
 
 
@@ -194,14 +202,17 @@ def test_the_question_is_forgotten_after_ten_minutes_swept_on_the_tick_lost_on_a
     assert len(day.all()["open"]) == 1 and settle(day)
 
 
-def test_a_reply_gesture_is_the_answer_to_a_question_open_and_a_reminder_asked_as_a_reply_is_still_a_reminder(day, planner):  # noqa: F811
+def test_a_question_is_answered_by_a_reply_only_to_its_own_message_and_a_reminder_asked_as_a_reply_is_still_a_reminder(day, planner):  # noqa: F811
     portuguese(day)
     day.say(OWNER, pt.LINE_NINE)
-    day.say(OWNER, "21h", reply_to="m-1")
-    assert day.all()["open"][0]["due"] == "2026-10-23 21:00"
+    day.say(OWNER, "21h", reply_to="m-9")
+    assert day.all()["open"] == [] and day.bridge.remind.drafts == {} and settle(day) and planner.texts() == ["21h"], "a reply to another message is not the answer"
+    day.say(OWNER, pt.LINE_NINE)
+    day.say(OWNER, "21h", reply_to=last_id(day))
+    assert day.all()["open"][0]["due"] == "2026-10-23 21:00", "a reply to the question itself is"
     day.say(OWNER, pt.LINE_CLASS, reply_to="m-2")
     assert day.texts(OWNER)[-1] == pt.REPLY_CLASS.replace("#1", "#2").replace("/forget 1", "/forget 2")
-    no_model(planner)
+    assert planner.texts() == ["21h"]
 
 
 def test_a_day_with_no_hour_asks_the_hour_and_a_remind_word_with_no_time_asks_when(day, planner):  # noqa: F811
@@ -220,28 +231,67 @@ def test_a_day_with_no_hour_asks_the_hour_and_a_remind_word_with_no_time_asks_wh
     no_model(planner)
 
 
-def test_a_time_word_the_parse_did_not_use_asks_instead_of_making_a_reminder(day, planner):  # noqa: F811
+def test_a_reading_with_something_uncertain_is_shown_and_confirmed_and_the_answer_replaces_only_what_it_names(day, planner):  # noqa: F811
     portuguese(day)
     for line in pt.UNSURE_LINES:
         day.say(OWNER, line)
-        assert day.texts(OWNER)[-1] == pt.ASK_UNSURE, line
+        assert day.texts(OWNER)[-1].startswith("Entendi: ") and day.texts(OWNER)[-1].endswith("Confirma? (sim / outra hora)"), line
         day.bridge.remind.drafts.clear()
     assert day.all()["open"] == []
+    day.say(OWNER, "me lembra amnha às 9h de pagar a conta")      # validate: allow english-only -- a Portuguese line, the case of the tests
+    assert day.texts(OWNER)[-1] == pt.CONFIRM_AMNHA
+    day.say(OWNER, "sim")
+    assert day.texts(OWNER)[-1] == pt.REPLY_AMNHA
     day.say(OWNER, pt.LINE_UNSURE)
-    day.say(OWNER, "sexta às 10h")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert day.all()["open"][0]["due"] == "2026-10-23 10:00"
+    day.say(OWNER, "sexta")
+    newest = lambda: max(day.all()["open"], key=lambda r: r["id"])      # noqa: E731
+    assert newest()["due"] == "2026-10-23 10:00", "a day alone replaces the day and keeps the hour"
+    day.say(OWNER, pt.LINE_UNSURE)
+    day.say(OWNER, "11h")
+    assert newest()["due"] == "2026-10-19 11:00", "an hour alone replaces the hour"
+    day.say(OWNER, pt.LINE_UNSURE)
+    day.say(OWNER, "não")      # validate: allow english-only -- a Portuguese line, the case of the tests
+    assert day.texts(OWNER)[-1] == pt.CANCELLED and day.bridge.remind.drafts == {} and len(day.all()["open"]) == 3
     no_model(planner)
 
 
-def test_the_words_missing_are_asked_and_the_next_line_is_them_only_when_it_is_short_and_not_work(day, planner):  # noqa: F811
+def test_words_that_only_look_like_a_day_are_made_at_once(day, planner):  # noqa: F811
+    portuguese(day)
+    for line in pt.PLAIN_LINES:
+        day.say(OWNER, line)
+        assert day.texts(OWNER)[-1].startswith("Lembrete #"), line
+    no_model(planner)
+
+
+def test_a_line_that_repeats_is_said_to_be_a_routines_and_nothing_is_kept_or_made(day, planner):  # noqa: F811
+    portuguese(day)
+    for line in pt.RECURRING_LINES:
+        day.say(OWNER, line)
+        assert day.texts(OWNER)[-1] == pt.RECURRING, line
+    assert day.all()["open"] == [] and day.bridge.remind.drafts == {}
+    day.say(OWNER, "remind me every monday at 8am to water the plants")
+    assert day.texts(OWNER)[-1] == pt.RECURRING
+    no_model(planner)
+
+
+def test_the_words_missing_are_asked_and_the_next_line_is_them_only_when_it_is_short_and_not_work_or_thanks(day, planner):  # noqa: F811
     day.say(OWNER, "remind me tomorrow at 9am")
     assert day.texts(OWNER)[-1] == "What should I remind you of? Reply with the words to send."
     day.say(OWNER, "water the plants")
     assert day.all()["open"][0]["text"] == "water the plants" and day.all()["open"][0]["due"] == "2026-10-19 09:00"
-    day.say(OWNER, "remind me tomorrow at 9am")
-    day.say(OWNER, "write the launch post for the shop")
-    assert day.bridge.remind.drafts == {} and settle(day) and planner.texts() == ["write the launch post for the shop"], "a work request is a new line, not the words"
+    for answer in ("write the launch post for the shop", "thanks", "yes", "please send the report to the whole team now"):
+        day.say(OWNER, "remind me tomorrow at 9am")
+        day.say(OWNER, answer)
+        assert day.bridge.remind.drafts == {}, answer
+    assert settle(day) and planner.texts() == ["write the launch post for the shop", "thanks", "yes", "please send the report to the whole team now"]
     assert len(day.all()["open"]) == 1
+    day.say(OWNER, "remind me tomorrow at 9am")
+    day.say(OWNER, "never mind")
+    assert day.texts(OWNER)[-1] == "Ok, no reminder was made." and day.bridge.remind.drafts == {}
+    day.say(OWNER, "remind me tomorrow at 9am")
+    day.say(OWNER, "2pm")
+    assert day.texts(OWNER)[-1] == "What should I remind you of? Reply with the words to send." and day.bridge.remind.drafts[OWNER]["readings"][0]["when"] == "2026-10-19 14:00", \
+        "a bare time completes the time, not the text"
 
 
 def test_a_line_with_a_time_and_neither_kind_of_word_asks_a_reminder_or_a_calendar_event(day, planner):  # noqa: F811
@@ -286,9 +336,18 @@ def test_the_calendar_is_not_built_and_a_line_that_asks_for_it_makes_no_reminder
     portuguese(day)
     day.say(OWNER, pt.LINE_CALENDAR)
     assert day.texts(OWNER) == [pt.NOT_BUILT] and day.all()["open"] == [] and day.bridge.remind.drafts == {}
+    day.say(OWNER, pt.LINE_MARCA)
+    assert day.texts(OWNER)[-1] == pt.NOT_BUILT, "marca with a time is an event write: it ends in a card the person approves, so it is claimed"
     day.say(OWNER, "put on my calendar the florist friday at 9")
     assert day.texts(OWNER)[-1] == pt.NOT_BUILT
     no_model(planner)
+
+
+def test_a_bare_calendar_word_is_a_read_and_goes_to_the_planning_agent(day, planner):  # noqa: F811
+    portuguese(day)
+    day.say(OWNER, pt.LINE_AGENDA_READ)
+    day.say(OWNER, "calendar for tomorrow?")
+    assert settle(day) and planner.texts() == [pt.LINE_AGENDA_READ, "calendar for tomorrow?"] and day.all()["open"] == [] and day.bridge.remind.drafts == {}
 
 
 def test_a_scheduling_verb_with_no_calendar_word_asks_event_or_something_else_and_something_else_goes_to_the_planning_agent(day, planner):  # noqa: F811
@@ -300,6 +359,9 @@ def test_a_scheduling_verb_with_no_calendar_word_asks_event_or_something_else_an
     day.say(OWNER, pt.LINE_LOOSE)
     day.say(OWNER, "agenda")
     assert day.texts(OWNER)[-1] == pt.NOT_BUILT and planner.texts() == [pt.LINE_LOOSE]
+    day.say(OWNER, pt.LINE_LOOSE)
+    day.say(OWNER, "lembrete")
+    assert day.all()["open"][0]["due"] == "2026-10-19 10:00", "a reminder was chosen: the line is kept, not lost"
     day.say(OWNER, pt.LINE_LOOSE)
     day.say(OWNER, "quando abre a loja")      # validate: allow english-only -- a Portuguese line, the case of the tests
     assert settle(day) and planner.texts()[-1] == "quando abre a loja" and day.bridge.remind.drafts == {}      # validate: allow english-only -- a Portuguese line, the case of the tests
@@ -330,7 +392,8 @@ def test_a_profile_without_the_group_gets_the_typed_refusal_for_a_remind_word_an
     day.say(STAFF, "forget the reminder about the florist")
     assert NOT_ENABLED in day.texts(STAFF)[-1]
     day.say(STAFF, "violin class tomorrow 1pm")
-    assert settle(day) and planner.texts() == ["violin class tomorrow 1pm"], "a line that only looks like a request is a plain line for a sender who cannot remind"
+    day.say(STAFF, "undo")
+    assert settle(day) and planner.texts() == ["violin class tomorrow 1pm", "undo"], "a line that only looks like a request is a plain line for a sender who cannot remind"
     assert day.all()["open"] == [] and day.bridge.remind.drafts == {}
 
 
@@ -354,10 +417,10 @@ def test_a_reminder_in_words_goes_only_to_the_chat_that_asked_for_it(day, planne
     assert not any("florist" in t or "bread" in t or t.startswith("Reminder") for t in day.texts(STAFF)), "nobody else is told"
 
 
-# --- 5. lists and forgets in words --------------------------------------------------------------------------------------------------------------------
+# --- 5. lists, forgets and the undo in words ----------------------------------------------------------------------------------------------------------
 
 
-def test_the_list_shows_human_dates_in_the_projects_language_and_the_forget_in_words_does_what_the_typed_command_does(day, planner):  # noqa: F811
+def test_the_list_shows_human_dates_in_the_projects_language_and_the_forget_by_number_says_what_it_cancelled(day, planner):  # noqa: F811
     portuguese(day)
     day.say(OWNER, pt.LINE_LIST)
     assert day.texts(OWNER)[-1] == pt.LIST_NONE
@@ -385,7 +448,7 @@ def test_a_forget_by_the_words_the_person_says_cancels_the_one_that_matches_and_
     assert day.texts(OWNER)[-1] == pt.WHICH and day.texts(OWNER)[-2].startswith(pt.LIST_HEAD) and len(day.all()["open"]) == 2, "two match: the list and the question"
     day.say(OWNER, pt.LINE_FORGET_NUM)
     day.say(OWNER, pt.LINE_FORGET_WORDS)
-    assert day.texts(OWNER)[-1] == pt.FORGOT_BY_WORDS.replace("#1", "#2") and day.all()["open"] == [], "one matches: cancelled, and said what it was"
+    assert day.texts(OWNER)[-1] == pt.FORGOT_BY_WORDS and day.all()["open"] == [], "one matches: cancelled, and said what it was"
     day.say(OTHER, "remind me tomorrow at 1 pm to take the bread out")
     day.say(OWNER, pt.LINE_CLASS)
     day.say(OWNER, "cancela o lembrete do pão")      # validate: allow english-only -- a Portuguese line, the case of the tests
@@ -394,10 +457,56 @@ def test_a_forget_by_the_words_the_person_says_cancels_the_one_that_matches_and_
     no_model(planner)
 
 
-def test_a_list_request_is_list_shaped_and_a_question_about_reminders_goes_to_the_planning_agent(day, planner):  # noqa: F811
+def test_a_number_inside_the_words_is_a_word_and_never_the_number_of_a_reminder_and_a_work_line_is_not_swallowed(day, planner):  # noqa: F811
     portuguese(day)
-    day.say(OWNER, "lembretes funcionam no whatsapp?")
-    assert settle(day) and planner.texts() == ["lembretes funcionam no whatsapp?"]
+    day.say(OWNER, pt.LINE_CLASS)
+    day.say(OWNER, pt.LINE_TWO_BOLETOS)
+    day.say(OWNER, pt.LINE_FORGET_NINE)
+    assert day.texts(OWNER)[-1] == pt.NO_MATCH and len(day.all()["open"]) == 2, '"das 1" is the word 1, not reminder #1'
+    day.say(OWNER, pt.LINE_FORGET_BOLETOS)
+    assert day.texts(OWNER)[-1].startswith("Lembrete #2 cancelado: amanhã, seg 19/10, às 15:00 (BRT): pagar 2 boletos.")      # validate: allow english-only -- the expected Portuguese sentence
+    day.say(OWNER, "delete reminder emails from inbox")
+    day.say(OWNER, "remove the reminder banner from the site")
+    assert settle(day) and planner.texts() == ["delete reminder emails from inbox", "remove the reminder banner from the site"]
+
+
+def test_undo_brings_back_the_last_reminder_the_sender_cancelled_within_ten_minutes_as_a_new_one(day, planner):  # noqa: F811
+    portuguese(day)
+    day.say(OWNER, pt.LINE_CLASS)
+    day.say(OWNER, pt.LINE_FORGET_NUM)
+    assert day.all()["open"] == []
+    day.say(OWNER, pt.LINE_UNDO)
+    assert day.texts(OWNER)[-1] == pt.RESTORED
+    row = day.all()["open"][0]
+    assert row["id"] == 2 and row["text"] == "aula de violão" and row["due"] == "2026-10-19 13:00"      # validate: allow english-only -- the words of the lines above
+    day.say(OWNER, pt.LINE_UNDO)
+    assert day.texts(OWNER)[-1] == "O lembrete 1 já está de volta." and len(day.all()["open"]) == 1, "the second undo is told it is already back"      # validate: allow english-only -- the expected Portuguese sentence
+    day.say(OWNER, "/forget 2")
+    day.clock.moment += datetime.timedelta(minutes=11)
+    day.say(OWNER, "undo")
+    assert settle(day) and planner.texts()[-1] == "undo" and day.all()["open"] == [], "ten minutes is the limit"
+
+
+def test_undo_brings_back_only_the_senders_own_and_not_one_whose_time_is_too_close(day, planner):  # noqa: F811
+    day.say(OWNER, ENGLISH)
+    day.say(OWNER, "/forget 1")
+    day.say(OTHER, "undo")
+    assert settle(day) and planner.texts() == ["undo"] and day.all()["open"] == [], "another sender's cancelled reminder is not theirs to bring back"
+    day.say(OWNER, "undo")
+    assert day.texts(OWNER)[-1].startswith("Reminder #1 is back as #2: tomorrow, Mon 19/10, at 13:00 (BRT): call the florist.")
+    day.clock.set("2026-10-19 12:59")
+    day.clock.moment += datetime.timedelta(seconds=30)
+    day.say(OWNER, "/forget 2")
+    day.say(OWNER, "undo")
+    assert "too close to its time" in day.texts(OWNER)[-1] and day.all()["open"] == []
+
+
+def test_a_list_request_is_list_shaped_and_a_report_about_reminders_goes_to_the_planning_agent(day, planner):  # noqa: F811
+    portuguese(day)
+    for line in ("lembretes funcionam no whatsapp?", "meus lembretes não chegaram", "lembrete 3 não chegou"):      # validate: allow english-only -- Portuguese lines, the cases of the tests
+        day.say(OWNER, line)
+    day.say(OWNER, "reminders are broken")
+    assert settle(day) and planner.texts() == ["lembretes funcionam no whatsapp?", "meus lembretes não chegaram", "lembrete 3 não chegou", "reminders are broken"]      # validate: allow english-only -- Portuguese lines, the cases of the tests
 
 
 # --- 6. no model, no route lock, no model slot, nothing in the log -------------------------------------------------------------------------------------------
@@ -427,11 +536,12 @@ def test_the_words_of_a_reminder_are_never_in_the_log_nor_in_a_file_of_the_proje
     day.say(OWNER, "veterinário amanhã 13h")      # validate: allow english-only -- a Portuguese line, the case of the tests
     day.say(OWNER, "agenda")
     day.say(OWNER, pt.LINE_FORGET_WORDS)
+    day.say(OWNER, pt.LINE_UNDO)
     log = " ".join(day.log)
     assert not any(w in log for w in ("violão", "gráfica", "veterinário", "ligar")), day.log      # validate: allow english-only -- words of the lines above
     files = "".join(p.read_text(errors="ignore") for p in Path(day.path).rglob("*.md"))
     assert "violão" not in files and "gráfica" not in files      # validate: allow english-only -- words of the lines above
-    assert "violão" not in json.dumps([m for m in day.sent() if not m["message"]["text"].startswith("Lembrete #")])      # validate: allow english-only -- a word of the lines above
+    assert "violão" not in json.dumps([m for m in day.sent() if not m["message"]["text"].startswith(("Lembrete #", "O lembrete #"))])      # validate: allow english-only -- a word of the lines above
 
 
 def test_a_bridge_stops_at_start_with_a_sentence_when_a_language_table_is_broken(day, monkeypatch):  # noqa: F811

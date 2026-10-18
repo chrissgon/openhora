@@ -266,7 +266,7 @@ def test_the_replies_to_the_reminder_commands_are_in_portuguese_and_the_words_of
     day.say(OWNER, "/forget 99")
     assert day.texts(OWNER)[-1] == "Não há lembrete 99 esperando por você."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     day.say(OWNER, "/forget 2")
-    assert day.texts(OWNER)[-1] == "Lembrete #2 cancelado."
+    assert day.texts(OWNER)[-1] == "Lembrete #2 cancelado: amanhã, seg 19/10, às 13:00 (BRT): x. Para tê-lo de volta, envie: desfaz" # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     day.say(OWNER, "/forget 2")
     assert day.texts(OWNER)[-1] == "O lembrete 2 tem o status cancelado: não está esperando."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 

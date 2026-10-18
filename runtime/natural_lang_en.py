@@ -20,7 +20,8 @@ from __future__ import annotations
 
 TABLE = {
     "tag": "en",
-    # words that mark a line as this language (they decide how a date such as 5/6 is read, and whether a weak word of this table counts)
+    # words that mark a line as this language (they decide how a date such as 5/6 is read, and whether a weak word of this table counts); only words that are
+    # not common in the other languages of the tables
     "markers": ["remind", "reminder", "reminders", "tomorrow", "today", "tonight", "the", "to", "about", "next", "please", "my", "of", "and", "on", "at"],
     # how a date written x/y reads when both numbers are 12 or less: "ask" (month first or day first, the person is asked) or "day-first"
     "slash_dates": "ask",
@@ -34,8 +35,10 @@ TABLE = {
     "weekday_after": [],
     "months": [["january", "jan"], ["february", "feb"], ["march", "mar"], ["april", "apr"], ["may"], ["june", "jun"], ["july", "jul"], ["august", "aug"],
                ["september", "sep", "sept"], ["october", "oct"], ["november", "nov"], ["december", "dec"]],
-    # words of this table that are also common words of other languages or of this one (an abbreviation, "may"): they count only when the line is in this language
+    # words of this table that are also common words (an abbreviation, "may"): they count only when the line is in this language, and never as a capitalised name
     "weak": ["mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec", "may"],
+    # weak words that count only with a cue before them ("on may 5": "I may 2 people" is not a date)
+    "cued": ["may"],
     "month_joiners": ["of"],
     "day_words": [],
     "ordinal_prefixes": ["the"],
@@ -44,7 +47,9 @@ TABLE = {
     "prefixes": ["at", "on", "for"],
     # after a number: a 24-hour clock ("13h" is rare in English, "1300 hours" is not read)
     "hour_words_24": [],
-    "meridiem": {"am": ["am"], "pm": ["pm"]},
+    # after a number with a bare-hour prefix: "at 10 o'clock"
+    "hour_words_long": ["o'clock", "oclock"],
+    "meridiem": {"am": ["am", "a.m.", "a.m"], "pm": ["pm", "p.m.", "p.m"]},
     # a number and a part of the day: "9 in the morning"
     "dayparts": {"morning": ["in the morning"], "dawn": [], "afternoon": ["in the afternoon"], "evening": ["in the evening"], "night": ["at night", "in the night"]},
     "vague": ["later", "later today", "this morning", "this afternoon", "this evening", "tonight", "in the morning", "in the afternoon", "in the evening", "soon"],
@@ -61,10 +66,16 @@ TABLE = {
     "and_half": ["and a half", "and half"],
     "joiners": [],
     "half_words": [],
-    # a word left in the line after the time is taken out that means the time was not fully understood (a recurrence, a week, a month): the line is asked back
-    "time_words": ["next", "last", "week", "weeks", "weekend", "month", "months", "year", "years", "every", "each", "daily", "weekly", "monthly", "yearly",
-                   "yesterday", "early", "morning", "afternoon", "evening", "night", "tonight", "hour", "hours", "minute", "minutes", "soon", "ago", "before",
-                   "after", "until", "till"],
+    # a word left in the line near the time that shows the time was not fully understood (a week, a month): the reading is shown and confirmed
+    "time_words": ["next", "last", "week", "weeks", "weekend", "month", "months", "year", "years", "yesterday", "early", "morning", "afternoon", "evening", "night",
+                   "tonight", "hour", "hours", "minute", "minutes", "soon", "ago", "before", "after", "until", "till"],
+    # a word one letter away from a day word that is a word of its own: never read as a typo
+    "not_typos": ["match", "matches", "mayor", "toady", "sundae", "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays", "sundays", "march",
+                  "august", "toast", "monday", "money", "funday"],
+    # a repetition: reminders here are one-time, so a line that repeats is said not to be one (a routine does that)
+    "recurrence": ["every", "each", "daily", "weekly", "monthly", "yearly", "annually", "recurring", "repeat", "repeating"],
+    "recurrence_before_day": [],
+    "recurrence_joiners": [],
     # a word just before or just after x/y that makes it a fraction or a count and not a date ("installment 3/10", "3/10 of the rent")
     "fraction_before": ["installment", "installments", "part", "page", "pages", "chapter", "item", "episode", "score", "volume", "vol", "step", "round", "slide",
                         "question"],
@@ -72,27 +83,43 @@ TABLE = {
     # a word just before x/y that makes it a date
     "date_cues": ["on", "until", "by", "for", "before", "due"],
     # words at the edge of the reminder's words that are not part of them ("to call mom", "mom for")
-    "edge_words": ["to", "about", "of", "that", "for", "and", "at", "on", "in"],
+    "edge_words": ["to", "about", "of", "that", "for", "and", "or", "at", "on", "in"],
+    # words that say a line is about reminders not working, not a request about them
+    "problem_words": ["not", "never", "broken", "bug", "bugs", "fail", "fails", "failed", "failing", "error", "errors", "doesnt", "dont", "wont", "isnt", "arent",
+                      "late", "why", "stuck", "wrong", "missing", "work", "works", "working"],
+    # a verb or the opening of a request for work: a line that holds one is not the words of a reminder
+    "work_verbs": ["write", "create", "make", "generate", "build", "draft", "prepare", "review", "analyze", "analyse", "summarize", "summarise", "search", "find",
+                   "send", "publish", "post", "plan", "design", "implement", "fix", "check", "run", "show", "list", "give", "tell", "please", "want", "need",
+                   "could", "would", "can", "schedule", "book", "update", "delete", "remove"],
+    # the words after a bare calendar noun that make it a question about the calendar, not a request to write to it
+    "calendar_noun_reads": ["of", "for", "on", "today", "tomorrow", "this", "next", "view", "full"],
     # the words that start a line the engine reads as a request of the tier
     "triggers": {
         "remind": ["remind me", "reminder", "set a reminder", "set reminder", "create a reminder", "make a reminder", "add a reminder", "new reminder"],
         # a verb phrase that makes a reminder wherever it stands in the line, when the line holds a time
         "remind_anywhere": ["remind me"],
         "reminders": ["my reminders", "list my reminders", "list reminders", "show my reminders", "show reminders", "what reminders", "which reminders"],
-        # a word that is a list request only when it is nearly the whole line
+        # a word that is a list request only when it is the whole line
         "reminders_bare": ["reminders"],
+        # a verb with a calendar word: an event write (not built)
         "calendar": ["put on my calendar", "put it on my calendar", "add to my calendar", "add it to my calendar", "put in my calendar", "create an event",
-                     "create event", "add an event", "put on the calendar", "calendar"],
+                     "create event", "add an event", "put on the calendar", "add to the calendar"],
+        # a verb that is an event write when it has a time
+        "calendar_verb": [],
+        # a calendar noun: a read ("calendar for tomorrow?"), or with a time and nothing that makes it a read, a request that is asked about
+        "calendar_noun": ["calendar"],
         # a scheduling verb with no calendar word: the person is asked whether it is an event or something else
         "calendar_loose": ["schedule", "book"],
         "note": ["note"],
+        "undo": ["undo", "undo that", "undo it", "bring it back", "bring that back", "restore it"],
     },
     "forget": {"verbs": ["forget", "cancel", "delete", "remove", "drop"], "nouns": ["reminder"], "fillers": ["the", "my", "number", "no", "n"]},
     "polite": ["please", "can you", "could you", "would you", "hey", "hi"],
     # one of these directly after the trigger is not part of the reminder's words
     "connectors": ["to", "about", "of", "that"],
     "answers": {"yes": ["yes", "y", "yeah", "yep", "ok", "okay", "sure", "confirm", "do it"], "notice": ["reminder", "notice", "alert", "ping", "notification"],
-                "event": ["event", "calendar", "agenda", "appointment"], "other": ["other", "something else", "else", "no", "nope", "nothing", "neither"]},
+                "event": ["event", "calendar", "agenda", "appointment"], "other": ["other", "something else", "else", "no", "nope", "nothing", "neither"],
+                "cancel": ["cancel", "never mind", "nevermind", "forget it", "stop", "drop it", "skip it"], "thanks": ["thanks", "thank you", "thx", "ty", "cheers"]},
     # a line that starts with one of these is a request for work, never a reminder with no trigger
     "work_starters": ["write", "create", "make", "generate", "build", "draft", "prepare", "review", "analyze", "analyse", "summarize", "summarise", "search",
                       "find", "send", "publish", "post", "plan", "design", "implement", "fix", "check", "run", "show", "list", "give", "tell", "what", "how",

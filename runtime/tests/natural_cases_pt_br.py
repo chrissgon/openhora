@@ -79,6 +79,12 @@ PARSER_CASES = [
     ("2a feira às 9h", "2026-10-26 09:00"),
     ("6a feira 14h", "2026-10-23 14:00"),
     ("sábado 10h", "2026-10-24 10:00"),
+    ("hj às 15h", "2026-10-22 15:00"),
+    ("na 2a às 9h", "2026-10-26 09:00"),
+    ("2ª feira às 9h", "2026-10-26 09:00"),
+    ("sexta dia 23 às 9h", "2026-10-23 09:00"),
+    ("sexta dia 24 às 9h", ("ask", ["2026-10-23 09:00", "2026-10-24 09:00"])),
+    ("dia 3 de mar às 9h", "2027-03-03 09:00"),
     ("domingo às 20h", "2026-10-25 20:00"),
     ("na quarta às 8h", "2026-10-28 08:00"),
     # day of the month and dates
@@ -155,9 +161,16 @@ CANDIDATE_CASES = [
     ("esquece o lembrete 3 4", {"op": "reminder-forget", "how": "trigger", "id": None, "many": True}),
     ("cancela o lembrete da aula de violão", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["aula", "violao"]}),
     ("marca na agenda o oculista sexta às 9", {"op": "calendar-event-create", "how": "trigger"}),
-    ("agenda reunião com o arquiteto quinta que vem às 15h30 no escritório", {"op": "calendar-event-create", "how": "trigger"}),
+    ("agenda reunião com o arquiteto quinta que vem às 15h30 no escritório", {"op": "calendar-event-create", "how": "ask"}),
     ("agende reunião amanhã 10h", {"op": "calendar-event-create", "how": "ask"}),
-    ("marca aula de violão segunda 13h", {"op": "calendar-event-create", "how": "ask"}),
+    ("marca aula de violão segunda 13h", {"op": "calendar-event-create", "how": "trigger"}),
+    ("desfaz", {"op": "reminder-restore", "how": "trigger"}),
+    ("desfaz isso", {"op": "reminder-restore", "how": "trigger"}),
+    ("esquece o lembrete #9", {"op": "reminder-forget", "how": "trigger", "id": 9}),
+    ("cancela o lembrete 9", {"op": "reminder-forget", "how": "trigger", "id": 9}),
+    ("cancela o lembrete das 9", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["9"]}),
+    ("esquece o lembrete de pagar 2 boletos", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["pagar", "2", "boletos"]}),
+    ("cancela o lembrete do dia 3", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["dia", "3"]}),
     ("anote aula de violão amanhã às 13hrs", {"op": "remind", "how": "bare"}),
     ("anota: comprar areia do gato", {"op": "remind", "how": "note"}),
     ("aula de violão amanhã 13h", {"op": "remind", "how": "bare"}),
@@ -172,6 +185,13 @@ CANDIDATE_CASES = [
     ("amanhã", None),
     ("lembretes funcionam no whatsapp?", None),
     ("lembretes não chegam no meu celular", None),
+    ("meus lembretes não chegaram", None),
+    ("lembrete 3 não chegou", None),
+    ("agenda de amanhã?", None),
+    ("agenda da semana", None),
+    ("calendário de outubro?", None),
+    ("toda segunda às 8h me manda um resumo da semana", None),
+    ("cancela o lembrete aviso de vencimento do site", None),
     ("agende", None),
     ("marca", None),
     ("preciso revisar o relatório de vendas do trimestre e mandar para a diretoria até amanhã às 15h", None),
@@ -194,9 +214,24 @@ TEXT_CASES = [
 UNSURE_LINES = [
     "me lembra amnha às 9h de pagar a conta",
     "me lembra semana que vem às 10h de pagar o aluguel",
-    "me lembra toda segunda às 8h de regar as plantas",
     "me lembra fim de semana às 10h de ligar para a Ana",
     "me lembra amanhã às 9h do próximo mês",
+]
+# Lines that repeat: a reminder here happens once.
+RECURRING_LINES = [
+    "me lembra toda segunda às 8h de regar as plantas",
+    "me lembra de tomar o xarope de 8 em 8 horas",
+    "me lembra todo dia às 7h de abrir a janela",
+    "me lembra a cada 2 horas de beber água",
+]
+# Lines with words that look like a day or a time and are not: made at once.
+PLAIN_LINES = [
+    "me lembra amanhã às 9h de arrumar o quarto",
+    "me lembra amanhã às 9h de ligar para a Amanda",
+    "me lembra amanhã às 9h do segundo andar",
+    "me lembra amanhã às 9h do quintal",
+    "me lembra amanhã às 9h de falar com o Marcos",
+    "me lembra amanhã às 9h de abrir a loja",
 ]
 
 # The bridge's conversations (the clock reads Sunday 2026-10-18 14:00 at -03:00, the project's language is pt-BR). Each step: the line, then the replies it must get.
@@ -217,8 +252,8 @@ NOT_BUILT = "Ainda não sei fazer isso: colocar um evento na sua agenda (planeja
 PAST_TODAY = "Lembrete #1: 13:00 de hoje já passou: amanhã, seg 19/10, às 13:00 (BRT): aula de violão. Para desfazer: /forget 1."
 ASK_TIME_TOMORROW = "Amanhã, seg 19/10: a que horas? Responda com uma hora, por exemplo 13h."
 WHICH = "Qual deles? Envie /forget <n>."
-FORGOT = "Lembrete #1 cancelado."
-FORGOT_BY_WORDS = "Lembrete #1 cancelado: amanhã, seg 19/10, às 13:00 (BRT): aula de violão. Para tê-lo de volta, peça de novo."
+FORGOT = "Lembrete #1 cancelado: amanhã, seg 19/10, às 13:00 (BRT): aula de violão. Para tê-lo de volta, envie: desfaz"
+FORGOT_BY_WORDS = "Lembrete #2 cancelado: amanhã, seg 19/10, às 13:00 (BRT): aula de violão. Para tê-lo de volta, envie: desfaz"
 NO_MATCH = "Nenhum lembrete seu pendente corresponde a isso. Envie /reminders para ver a lista."
 
 # The lines the bridge tests send, and a few more replies. (Fictional: a class, an optician, a cat, a stove, a friend.)
@@ -248,11 +283,24 @@ LINE_THURSDAY = "me lembra quinta que vem às 15h30 do arquiteto"
 LINE_WORK = "escreva o post de lançamento para amanhã às 9"
 REPLY_FORTY = "Lembrete #1: hoje, dom 18/10, às 14:40 (BRT): desligar o forno. Para desfazer: /forget 1."
 ASK_NINE_FIRST = "Qual horário você quer: amanhã, seg 19/10, às 09:00 ou hoje, dom 18/10, às 21:00? Responda com a hora."
-REPLY_PLANTS = "Lembrete #1: 09:00 de hoje já passou: amanhã, seg 19/10, às 09:00 (BRT): regar as plantas. Para desfazer: /forget 1."
+REPLY_PLANTS = "Lembrete #1: amanhã, seg 19/10, às 09:00 (BRT): regar as plantas. Para desfazer: /forget 1."
 REPLY_NOTE = "Lembrete #1: amanhã, seg 19/10, às 10:00 (BRT): comprar areia do gato. Para desfazer: /forget 1."
 REPLY_YEAR = "Lembrete #1: ter 05/01/2027 às 09:00 (BRT): renovar o seguro. Para desfazer: /forget 1."
-REPLY_PAST_DAY = "Esse horário já passou. Agora são 2026-10-18 14:00."
+REPLY_PAST_DAY = "Esse horário já passou. Agora são 18/10/2026 14:00."
 LIST_HEAD = "northwind-shop: lembretes pendentes (BRT)"
 LIST_ONE = "#1 amanhã, seg 19/10, às 13:00: aula de violão"
 LIST_NONE = "northwind-shop: nenhum lembrete pendente."
 REPLY_THURSDAY = "Lembrete #1: qui 22/10 às 15:30 (BRT): arquiteto. Para desfazer: /forget 1."
+LINE_UNDO = "desfaz"
+LINE_RECURRING = "me lembra toda segunda às 8h de regar as plantas"
+LINE_TWO_BOLETOS = "me lembra amanhã às 15h de pagar 2 boletos"
+LINE_FORGET_BOLETOS = "esquece o lembrete de pagar 2 boletos"
+LINE_FORGET_NINE = "cancela o lembrete das 1"
+LINE_AGENDA_READ = "agenda de amanhã?"
+LINE_MARCA = "marca aula de violão segunda 13h"
+CONFIRM_YEAR = "Entendi: ter 05/01/2027 às 09:00: renovar o seguro. Confirma? (sim / outra hora)"
+CONFIRM_AMNHA = "Entendi: amanhã, seg 19/10, às 09:00: pagar a conta. Confirma? (sim / outra hora)"
+REPLY_AMNHA = "Lembrete #1: amanhã, seg 19/10, às 09:00 (BRT): pagar a conta. Para desfazer: /forget 1."
+RECURRING = "Um lembrete aqui acontece uma vez. O que se repete é uma rotina: configure no terminal ou na página. Para um lembrete único, diga quando."
+CANCELLED = "Certo, nenhum lembrete foi criado."
+RESTORED = "O lembrete #1 está de volta como #2: amanhã, seg 19/10, às 13:00 (BRT): aula de violão."

@@ -364,6 +364,10 @@ OPERATIONS = (
      "args": ({"name": "reminder_id", "kind": "int", "required": True, "flag": "id", "label": "id"},),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "cancel a reminder that waits (from a messaging app, only one made for you: /forget); one that is being sent or has ended is not changed"},
+    {"name": "reminder-restore", "call": "reminder_restore",
+     "args": ({"name": "reminder_id", "kind": "int", "flag": "id", "label": "id"},),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "bring back a reminder cancelled in the last 10 minutes, as a new one with the same words, time and chat (from a messaging app: the last one you cancelled, asked as `undo`; the terminal and the page may name one with --id); not when its time is less than a minute away, and not when it is already back"},
     {"name": "instructions", "call": "instructions_read", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the project's standing instructions (docs/workbench/instructions.md, written only by you): whether the file is there, its sha256, its characters against the cap, the problem that would stop a run, and the text; every model run of the project receives it in its prompt, and it never replaces a skill's stop rule, a confirmation gate or an approval"},
     {"name": "instructions-set", "call": "instructions_set",
@@ -464,7 +468,7 @@ GROUPS = {
     "add-sources-direct": {"operations": ("attachment-hold",), "kind": "direct"},
     # RM-1: reminders, a one-shot notice the messaging bridge sends to the chat that made it (limit L51). In no default policy: a messaging app takes it only when the
     # project's configuration lists the group (accept-config --widen confirms it); never on the MCP mode (no row lists it). The group is a notice and never an effect.
-    "reminders": {"operations": ("remind", "reminders", "reminder-forget"), "kind": None},
+    "reminders": {"operations": ("remind", "reminders", "reminder-forget", "reminder-restore"), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a

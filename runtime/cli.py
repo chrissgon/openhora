@@ -65,6 +65,7 @@ Usage:
   python3 runtime/cli.py remind --project <dir> --when <HH:MM | YYYY-MM-DD HH:MM | in <n>m|h|d> (--text <words> | --text-file <path>) --to <platform>:<sender id>
   python3 runtime/cli.py reminders --project <dir>
   python3 runtime/cli.py reminder-forget --project <dir> --id <reminder id>
+  python3 runtime/cli.py reminder-restore --project <dir> --id <reminder id>
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -323,6 +324,7 @@ remind    makes a reminder: one line of your own words (--text or --text-file, u
 reminders the reminders that wait and the ones that did not go out in the last 7 days (missed: the bridge was down more than 6 hours past the time;
           dropped: the sender was removed or lost the group before it fired), with their text. It calls no model.
 reminder-forget  cancels a reminder that waits (--id); one that is being sent or has ended is not changed.
+reminder-restore  brings back a reminder cancelled in the last 10 minutes (--id), as a new one with the same words, time and chat.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.

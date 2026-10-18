@@ -101,6 +101,16 @@ ENGLISH_CASES = [
     ("installment 3/10 tomorrow 9am", "2026-10-23 09:00"),
     ("3/10 of the rent tomorrow 9am", "2026-10-23 09:00"),
     ("on 3/10 at 9am", ("ask", ["2027-10-03 09:00", "2027-03-10 09:00"])),
+    ("1.30pm", "13:30"),
+    ("9.30 pm", "21:30"),
+    ("at 1.30pm", "13:30"),
+    ("10 a.m.", "10:00"),
+    ("at 10 p.m.", "22:00"),
+    ("at 10 o'clock", ("ask", ["10:00", "22:00"])),
+    ("email Seg at 9am", "09:00"),
+    ("on may 5 at 9am", "2027-05-05 09:00"),
+    ("read the may 5 report", None),
+    ("5/6 at 10:00 pay Maria da Silva", ("ask", ["2027-06-05 10:00", "2027-05-06 10:00"])),
     ("tomorrow", "missing"),
     ("later", "missing"),
     ("tonight", "missing"),
@@ -256,10 +266,12 @@ STUB = {      # an invented language: "morgen" is tomorrow, "heute" today, and a
     "ordinal_suffixes": [], "prefixes": ["um", "am"], "hour_words_24": ["u"], "meridiem": {"am": [], "pm": []},
     "dayparts": {"morning": [], "dawn": [], "afternoon": [], "evening": [], "night": []}, "vague": ["spaeter"], "noon": ["mittag"], "midnight": [],
     "bare_hour_prefixes": ["um"], "relative_in": ["in"], "relative_units": {"m": ["min"], "h": ["std"], "d": ["tagen"], "w": []}, "number_words": {"ein": 1},
-    "half_hour": [], "triggers": {"remind": ["erinnere mich"], "remind_anywhere": [], "reminders": [], "reminders_bare": [], "calendar": [], "calendar_loose": [], "note": []},
-    "forget": {"verbs": [], "nouns": [], "fillers": []}, "polite": [], "connectors": ["an"], "answers": {"yes": ["ja"], "notice": [], "event": [], "other": []},
+    "half_hour": [], "triggers": {"remind": ["erinnere mich"], "remind_anywhere": [], "reminders": [], "reminders_bare": [], "calendar": [], "calendar_verb": [], "calendar_noun": [],
+                 "calendar_loose": [], "note": [], "undo": []},
+    "forget": {"verbs": [], "nouns": [], "fillers": []}, "polite": [], "connectors": ["an"], "answers": {"yes": ["ja"], "notice": [], "event": [], "other": [], "cancel": [], "thanks": []},
     "work_starters": [],
 }
+STUB = {**{key: [] for key in nt.LISTS}, **STUB, "markers": ["bitte"]}          # every list a table must hold, empty, unless the stub says otherwise
 
 
 def test_a_third_language_plugs_in_as_a_table_with_no_edit_of_the_engine():
@@ -361,3 +373,50 @@ def test_the_engine_holds_no_word_of_any_language_and_no_import_of_the_runtime()
     assert len(words) > 100 and found == [], "a word of a language is data in a table, not in the engine"
     imports = set(re.findall(r"^\s*(?:import|from)\s+(\w+)", source, re.M))
     assert imports <= {"__future__", "ast", "calendar", "datetime", "json", "os", "re", "sys", "unicodedata"}, imports
+
+
+# --- what is left near the time, what repeats, and the checks of the tables' list ---------------------------------------------------------------------------
+
+
+def test_a_word_of_the_time_near_it_and_a_typo_of_a_day_word_are_doubts_and_a_name_or_a_far_word_is_not():
+    for line in ("remind me next week at 10am to pay", "me lembra semana que vem às 10h de pagar", "me lembra amnha às 9h", "remind me tomorow at 9am",      # validate: allow english-only -- Portuguese lines, the cases of the tests
+                 "me lembra amanhã às 9h do próximo mês", "me lembra amanhã às 9h de levar todos os documentos"):      # validate: allow english-only -- Portuguese lines, the cases of the tests
+        assert nt.doubt(line), line
+    for line in ("me lembra amanhã às 9h de arrumar o quarto", "me lembra amanhã às 9h de ligar para a Amanda", "me lembra amanhã às 9h do segundo andar",      # validate: allow english-only -- Portuguese lines, the cases of the tests
+                 "me lembra amanhã às 9h do quintal", "remind me tomorrow at 9am to call Marcos", "remind me tomorrow at 9am to match the invoices",      # validate: allow english-only -- Portuguese lines, the cases of the tests
+                 "remind me to pay the rent for the whole month and call the bank, tomorrow at 9am", "remind me tomorrow at 9am"):
+        assert not nt.doubt(line), line
+    assert not nt.doubt("no time here at all")
+
+
+def test_a_line_that_repeats_is_recognised_in_every_language_and_a_noun_is_not_a_repetition_far_from_the_time():
+    for line in ("me lembra toda segunda às 8h", "me lembra de tomar o xarope de 8 em 8 horas", "me lembra todo dia às 7h", "me lembra a cada 2 horas", "me lembra diariamente às 9h",      # validate: allow english-only -- Portuguese lines, the cases of the tests
+                 "remind me every monday", "remind me daily at 9am", "remind me each week on friday at 3pm", "remind me to stretch every 2 hours"):
+        assert nt.recurring(line), line
+    for line in ("me lembra amanhã às 9h", "me lembra de levar todos os documentos", "remind me tomorrow at 9am", "remind me to pay 8 in 2 hours"):      # validate: allow english-only -- Portuguese lines, the cases of the tests
+        assert not nt.recurring(line), line
+
+
+def test_a_relative_time_is_elapsed_time_across_a_clock_change():
+    zone = lisbon()
+    now = clock("2026-10-24 12:00", zone)
+    reading = nt.parse("in 24 hours", now)["reading"]
+    assert reading["date"] == "2026-10-25" and reading["time"] == "11:00", "twenty-four hours later is an hour earlier on the wall after the clocks go back"
+
+
+def test_a_moment_is_built_from_a_day_and_an_hour_the_person_names():
+    now = clock()
+    assert nt.moment("2026-10-30", "09:00", now)["when"] == "2026-10-30 09:00" and nt.moment("2026-10-30", "09:00", now)["dated"] is True
+    assert nt.moment(None, "13:00", now)["rolled"] is True and nt.moment("2027-02-30", "09:00", now)["when"] == "2027-02-30 09:00"
+
+
+def test_the_shipped_list_cannot_be_empty_and_a_listed_file_that_is_missing_stops_with_a_sentence(tmp_path):
+    (tmp_path / "natural_languages.json").write_text(json.dumps({"languages": []}), encoding="utf-8")
+    with pytest.raises(ValueError) as e:
+        nt.load_languages(str(tmp_path))
+    assert "empty" in str(e.value)
+    (tmp_path / "natural_languages.json").write_text(json.dumps({"languages": ["natural_lang_en"]}), encoding="utf-8")
+    with pytest.raises(ValueError) as e:
+        nt.load_languages(str(tmp_path))
+    assert "natural_lang_en.py cannot be read" in str(e.value)
+    assert [t["tag"] for t in nt.load_languages()] == ["en", "pt-BR"], "the list shipped with the runtime"
