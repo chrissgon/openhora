@@ -146,7 +146,7 @@ def parse_account_record(text, error=AccountError) -> dict:
     except (ValueError, TypeError):
         record = None
     if not isinstance(record, dict) or not all(isinstance(record.get(k), str) and record[k] for k in RECORD_TEXTS):
-        raise error(f"the stored Google account authorization ({SECRET}, store username {KEYRING_USERNAME}) is unreadable or incomplete: it is "
+        raise error(f"the stored Google account authorization ({SECRET}, store username {KEYRING_USERNAME}) is unreadable or incomplete; "
                     f"no older record takes its place; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
     for key in RECORD_TEXTS:
         if any(ch.isspace() or not ch.isprintable() for ch in record[key]):
@@ -175,9 +175,18 @@ def check_slot(slot, error=AccountError) -> str:
 
 
 def find_account_record(resolver, test_mode, slot=MAIN_SLOT, error=AccountError):
-    """(the record's JSON text, where it was found) through the secret resolver, or None. The slot main is GOOGLE_ACCOUNT_TOKEN."""
+    """(the record's JSON text, where it was found) through the secret resolver, or None when the record is ABSENT. The slot main is
+    GOOGLE_ACCOUNT_TOKEN. A record that is there and cannot be read now (the OS secret store is locked or unavailable, the credentials
+    directory or its file is not safe: any state but "missing") is not absent: `error` (exit 3) with the lookup's own detail, and no
+    legacy record takes its place."""
     check_slot(slot, error)
-    return resolver.resolve(SECRET, allow_store=not test_mode)
+    found = resolver.resolve_state(SECRET, allow_store=not test_mode)
+    if found.state == "found":
+        return found.value, found.source
+    if found.state != "missing":
+        raise error(f"the Google account authorization ({SECRET}, store username {KEYRING_USERNAME}) cannot be read ({found.state}): "
+                    f"{one_line(found.detail, 300) or 'no detail'}; no older record takes its place", EXIT_NOT_CONFIGURED)
+    return None
 
 
 def legacy_warning(username) -> None:

@@ -11,6 +11,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,9 +40,12 @@ class Resolver:
     def __init__(self, values=None):
         self.values, self.asked = values or {}, []
 
-    def resolve(self, name, allow_store=True):
+    def resolve_state(self, name, allow_store=True):
         self.asked.append((name, allow_store))
-        return self.values.get(name)
+        found = self.values.get(name)
+        if found is None:
+            return SimpleNamespace(state="missing", value="", source=None, detail="")
+        return SimpleNamespace(state="found", value=found[0], source=found[1], detail="")
 
 
 @pytest.fixture(autouse=True)

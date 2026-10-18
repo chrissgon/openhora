@@ -199,7 +199,8 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "OAuth scopes https://www.googleapis.com/auth/gmail.modify, https://www.googleapis.com/auth/calendar.events, "
            "https://www.googleapis.com/auth/calendar.calendarlist.readonly and https://www.googleapis.com/auth/drive, exactly those four "
            "(providers/accounts/google_auth.py): one token that reads and changes mail, calendars and Drive files, sends mail and moves "
-           "mail to the trash, and never deletes mail permanently; the restriction is the platform's (policies, an effect card of the exact "
+           "mail to the trash (only gmail.modify is limited by Google itself; drive can delete files permanently and empty the trash and "
+           "calendar.events can delete events, and what prevents it is code, limit L57 and the writers' allow-lists, not the scope); the restriction is the platform's (policies, an effect card of the exact "
            "content, the verbs each provider script exposes, no token in a run), not a narrower token (decision of 2026-10-18)",
            ("providers/mailbox/gmail.py", "providers/calendar/google.py", "providers/documents/gdrive.py", "providers/_google.py",
             "providers/accounts/google_auth.py"),

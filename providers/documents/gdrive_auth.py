@@ -209,7 +209,13 @@ def authorize(open_browser: bool) -> int:
 
 def pick(open_browser: bool) -> int:
     _, token_url, test_mode = gdrive.endpoints()
-    record = gdrive.load_legacy_record(test_mode)   # the Picker's key lives in the legacy record; the account record has none
+    try:
+        record = gdrive.load_legacy_record(test_mode)   # the Picker's key lives in the legacy record; the account record has none
+    except ProviderError as exc:
+        if exc.code == EXIT_NOT_CONFIGURED and gdrive.account_record_present(test_mode):
+            raise ProviderError("the Picker is not needed with the Google account token (GOOGLE_ACCOUNT_TOKEN): under its drive scope any "
+                                "file id you name is readable; register it with `source-drive --file-id <id>`", EXIT_USAGE) from None
+        raise
     if not record.get("api_key") or not str(record.get("project_number") or "").isdigit():
         raise ProviderError(f"the stored authorization has no Picker API key; run: {gdrive.AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
     token = gdrive.refresh_access_token(token_url, record)

@@ -1956,7 +1956,7 @@ def pick_drive(cfg: dict, *, run=None) -> dict:
     open) go to this process's own error output. `run(argv, env, timeout)` -> (exit code, output) is the seam a test replaces; argv is
     the verb and its arguments. SourcesError (drive) when the command fails or answers something else."""
     resolver = _lazy("workbench_sources_resolve", os.path.join(cfg["workbench"], "providers", "resolve.py"))
-    env = _provider_env(cfg, DRIVE_CLASS, DRIVE_SECRETS)
+    env = _provider_env(cfg, DRIVE_CLASS, (DRIVE_SECRET,))   # the Picker reads the legacy record alone (its key lives there), never the account token
     if run is None:
         code, out = _run_pick(resolver, cfg, env, DRIVE_PICK_TIMEOUT)
     else:

@@ -203,6 +203,11 @@ def load_legacy_record(test_mode: bool) -> dict:
     return parse_record(found[0])
 
 
+def account_record_present(test_mode: bool) -> bool:
+    """Whether the account record (GOOGLE_ACCOUNT_TOKEN) exists; ProviderError (not configured) when it is there and cannot be read."""
+    return _google.find_account_record(secret_resolver(), test_mode, error=ProviderError) is not None
+
+
 def load_record(test_mode: bool) -> dict:
     """The record to sign in with: the account record (GOOGLE_ACCOUNT_TOKEN) first, else the legacy one for one cycle. The dict carries
     `kind` ("account" or "legacy"), which decides the scope rule of the refresh."""

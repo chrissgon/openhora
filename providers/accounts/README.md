@@ -27,9 +27,11 @@ uv run <workbench>/providers/accounts/google_auth.py forget    [--account main]
 | Scope | What Google says it grants | Class | What the platform uses it for |
 |---|---|---|---|
 | `https://www.googleapis.com/auth/gmail.modify` | "Read, compose, and send emails from your Gmail account"; it "does not allow immediate, permanent deletion of threads and messages, bypassing the trash" | Restricted | Reading messages (the Gmail reader today); in later packages drafts, sending, labels and the trash |
-| `https://www.googleapis.com/auth/calendar.events` | "View and edit events on all your calendars" | not stated on Google's pages (to verify in the console) | Reading events (the Calendar reader today); in later packages creating, changing and removing an event |
+| `https://www.googleapis.com/auth/calendar.events` | "View and edit events on all your calendars" (it also lets a client delete an event) | not stated on Google's pages (to verify in the console) | Reading events (the Calendar reader today); in later packages creating, changing and removing an event |
 | `https://www.googleapis.com/auth/calendar.calendarlist.readonly` | "See the list of Google calendars you're subscribed to" | not stated (to verify) | The reader's `calendars` verb (`calendar.events` does not cover the calendar list) |
-| `https://www.googleapis.com/auth/drive` | "View and manage all your Drive files" | Restricted | Reading any file the person names (the Drive reader today); in later packages new files and new revisions |
+| `https://www.googleapis.com/auth/drive` | "View and manage all your Drive files" (it also lets a client delete files permanently and empty the trash) | Restricted | Reading any file the person names (the Drive reader today); in later packages new files and new revisions |
+
+**What the scopes allow and what prevents it.** Said plainly: `drive` can also delete Drive files permanently and empty the trash, and `calendar.events` can delete events: the scopes allow it, and what prevents it is code (limit L57 and the writers' allow-lists, no script holds such a call), not the scope. Only `gmail.modify` is limited by Google itself (it "does not allow immediate, permanent deletion"). The platform's promise "nothing is deleted permanently" (limit L57) is therefore kept by the verbs each script exposes and by static tests, never by the token.
 
 The pair `calendar.events` and `calendar.calendarlist.readonly` is used in place of the full `https://www.googleapis.com/auth/calendar`, whose text is "See, edit, share, and permanently delete all the calendars you can access": nothing the platform does needs sharing or deleting whole calendars, which is the same reasoning that prefers `gmail.modify` to `https://mail.google.com/`. If the maintainer prefers the full scope it is one constant in `providers/_google.py` (and the set the stand-in service grants in the tests).
 
@@ -43,7 +45,7 @@ One JSON record in the secret `GOOGLE_ACCOUNT_TOKEN` (OS secret store: service `
 {"slot": "main", "refresh_token": ..., "client_id": ..., "client_secret": ..., "scope": "<the four, space separated>", "account": "<address>", "obtained_at": "<UTC time>"}
 ```
 
-The Desktop app client travels with the token, so this is the only entry (the pattern of the Drive and Calendar records before it): `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` are not needed by the account path. The `slot` is always `main` in this version. A second account later takes the rows `GOOGLE_ACCOUNT_<S>_TOKEN` and `google-account-<s>` (a registry row added by a person's change, never at run time) and a `--account <slot>` that every provider already accepts; nothing about the record moves (backlog ACCT-SLOT).
+The Desktop app client travels with the token, so this is the only entry (the pattern of the Drive and Calendar records before it): `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` are not needed by the account path. The `slot` is always `main` in this version. A second account later would take the rows `GOOGLE_ACCOUNT_<S>_TOKEN` and `google-account-<s>` (a registry row added by a person's change, never at run time) and a `--account <slot>` on every provider (the authorize command takes it already; the providers do not yet); nothing about the record would move (backlog ACCT-SLOT, not built).
 
 ### What each provider checks
 
@@ -64,17 +66,18 @@ A public app that asks for restricted scopes (`gmail.modify`, `drive`) needs Goo
 
 ### The legacy records, for one cycle
 
-Each Google reader reads the account record first and, when it is absent, its old record with its old exact scope rule: `GMAIL_REFRESH_TOKEN` with `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` (username `mailbox-gmail`, `gmail-client-id`, `gmail-client-secret`; scope `gmail.readonly`), `GOOGLE_CALENDAR_TOKEN` (`calendar-google`; the two read scopes), `GDRIVE_SOURCES_TOKEN` (`gdrive-sources`; `drive.file`). A reader that used a legacy record prints on stderr, once per process, "using the legacy record <username>; run <authorize command> to move to the account token". An account record that exists but is unreadable is an error, never a reason to fall back. The old `*_auth.py authorize` commands still work, unchanged. The Drive Picker (`gdrive_auth.py pick`) still needs the legacy record's Picker key and reads that record explicitly.
+Each Google reader reads the account record first and, when it is absent, its old record with its old exact scope rule: `GMAIL_REFRESH_TOKEN` with `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` (username `mailbox-gmail`, `gmail-client-id`, `gmail-client-secret`; scope `gmail.readonly`), `GOOGLE_CALENDAR_TOKEN` (`calendar-google`; the two read scopes), `GDRIVE_SOURCES_TOKEN` (`gdrive-sources`; `drive.file`). A reader that used a legacy record prints on stderr, once per process, "using the legacy record <username>; run <authorize command> to move to the account token". An account record that exists but is unreadable is an error, never a reason to fall back. The old `*_auth.py authorize` commands still work, unchanged. The Drive Picker (`gdrive_auth.py pick`) keeps the legacy record until then: it needs that record's Picker key and reads it explicitly. With only the account record, `pick` says the Picker is not needed, because under `drive` any file id the person names is readable: register it with `python3 runtime/cli.py source-drive --project <dir> --file-id <Drive file id> --source <id>`.
 
-The fallback, the old authorize commands and, with the full `drive` scope, the Picker (`providers/documents/gdrive_picker.py`, `gdrive_auth.py pick`, `gdrive.py pick`, the `api_key` and `project_number` of the legacy record, and the rule "a folder is not a source" as the scope's doing) are removed in the cycle after the integration branch reaches `main` (backlog ACCT-LEGACY). The old records are never deleted by code. Once `check` passes and each reader has worked with the account record, remove them yourself, one command each:
+The fallback, the old authorize commands and, with the full `drive` scope, the Picker (`providers/documents/gdrive_picker.py`, `gdrive_auth.py pick`, `gdrive.py pick`, the `api_key` and `project_number` of the legacy record, and the rule "a folder is not a source" as the scope's doing) are removed in the cycle after the integration branch reaches `main` (backlog ACCT-LEGACY). The old records are never deleted by code. Once `check` passes and each reader has worked with the account record, remove the first four yourself, one command each. **Keep `gdrive-sources` until ACCT-LEGACY has removed the Picker**: the Picker needs it, and nothing else does once the account record works.
 
 ```
 uv run --with keyring==25.7.0 keyring del openhora mailbox-gmail
 uv run --with keyring==25.7.0 keyring del openhora gmail-client-id
 uv run --with keyring==25.7.0 keyring del openhora gmail-client-secret
 uv run --with keyring==25.7.0 keyring del openhora calendar-google
-uv run --with keyring==25.7.0 keyring del openhora gdrive-sources
 ```
+
+After ACCT-LEGACY: `uv run --with keyring==25.7.0 keyring del openhora gdrive-sources`.
 
 ### Tests
 

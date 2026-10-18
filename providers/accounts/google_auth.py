@@ -293,6 +293,8 @@ def authorize(slot: str, open_browser: bool) -> int:
     code = server.wait()
     token = exchange_code(token_url, code, verifier, client_id, client_secret, server.redirect_uri)
     account = google.account_address(gmail_base, token["access_token"], ProviderError)
+    if not account:
+        raise ProviderError("the Gmail profile gave no usable address for the account, so the record would not name it; nothing stored")
     record = {"slot": slot, "refresh_token": token["refresh_token"], "client_id": client_id, "client_secret": client_secret,
               "scope": token.get("scope"), "account": account, "obtained_at": now_iso()}
     try:

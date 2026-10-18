@@ -14,6 +14,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -102,3 +103,86 @@ def test_limit_59_the_account_token_is_registered_for_providers_only_and_under_i
     assert not any(reader.startswith(("runtime/", "scripts/", "evals/", "adapters/")) for reader in google.readers)
     runtime_text = "\n".join(p.read_text(encoding="utf-8") for p in (REPO / "runtime").glob("*.py") if p.name != "__init__.py")
     assert "get_password" not in runtime_text and "keyring.get" not in runtime_text, "the runtime never reads the store itself"
+
+
+# --- what the real calls of the Drive and OneDrive modules hand a provider (captured as test_sources_mail.py does) -------------------
+
+
+def capture_resolver(monkeypatch):
+    seen = {}
+
+    def capture(cls, verb, args, **kwargs):
+        seen.update(cls=cls, verb=verb, args=list(args), kwargs=kwargs)
+        return {"items": [], "count": 0, "truncated": False}
+    monkeypatch.setitem(sys.modules, "workbench_sources_resolve", SimpleNamespace(call=capture, provider_environment=resolve.provider_environment))
+    return seen
+
+
+def set_everything(monkeypatch):
+    for name in (GOOGLE, MICROSOFT) + LEGACY + ("OPENROUTER_API_KEY", "VCS_GITHUB_TOKEN", "NOTION_TOKEN", "NOTION_SOURCES_TOKEN"):
+        monkeypatch.setenv(name, f"value-of-{name}")
+
+
+def test_limit_59_the_real_drive_call_hands_the_provider_the_google_account_token_and_its_legacy_record_and_nothing_else(cfg, monkeypatch):
+    set_everything(monkeypatch)
+    seen = capture_resolver(monkeypatch)
+    sources.drive_call(cfg, "stat", ["--id", "x", "--as-source"])
+    env = seen["kwargs"]["env"]
+    assert (seen["cls"], seen["kwargs"]["implementation"]) == ("integration:documents", "gdrive")
+    assert {GOOGLE, "GDRIVE_SOURCES_TOKEN"} <= set(env) and MICROSOFT not in env
+    assert set(env) <= set(resolve.ENV_MINIMUM) | {GOOGLE, "GDRIVE_SOURCES_TOKEN"}, sorted(set(env) - set(resolve.ENV_MINIMUM))
+
+
+def test_limit_59_the_real_onedrive_call_hands_the_provider_the_microsoft_account_token_and_its_legacy_record_and_nothing_else(cfg, monkeypatch):
+    set_everything(monkeypatch)
+    seen = capture_resolver(monkeypatch)
+    sources_onedrive.onedrive_call(cfg, "search", ["--query", "notes"])
+    env = seen["kwargs"]["env"]
+    assert (seen["cls"], seen["kwargs"]["implementation"]) == ("integration:documents", "onedrive")
+    assert {MICROSOFT, "ONEDRIVE_SOURCES_TOKEN"} <= set(env) and GOOGLE not in env
+    assert set(env) <= set(resolve.ENV_MINIMUM) | {MICROSOFT, "ONEDRIVE_SOURCES_TOKEN"}, sorted(set(env) - set(resolve.ENV_MINIMUM))
+
+
+def test_limit_59_the_picker_is_handed_the_legacy_record_it_reads_and_never_the_account_token(cfg, monkeypatch):
+    set_everything(monkeypatch)
+    capture_resolver(monkeypatch)
+    seen = {}
+
+    def run(argv, env, timeout):
+        seen.update(argv=argv, env=env)
+        return 0, json.dumps({"picked": [], "cancelled": True})
+    sources.pick_drive(cfg, run=run)
+    assert seen["argv"] == ["pick"]
+    assert seen["env"]["GDRIVE_SOURCES_TOKEN"] == "value-of-GDRIVE_SOURCES_TOKEN"
+    assert GOOGLE not in seen["env"] and MICROSOFT not in seen["env"], "the Picker reads the legacy record alone"
+    assert set(seen["env"]) <= set(resolve.ENV_MINIMUM) | {"GDRIVE_SOURCES_TOKEN"}
+
+
+# --- the credential scan of the runtime knows the account tokens' formats (limit L6) ------------------------------------------------
+
+GOOGLE_RECORD = json.dumps({"slot": "main", "refresh_token": "1//0gFakeRefreshNotReal0123456789abcdefXYZ", "client_id": "fake-client-id.example",
+                            "client_secret": "GOCSPX-FakeNotReal0123456789abcdefgh", "scope": "x", "account": "pat@example.com"})
+MICROSOFT_RECORD = json.dumps({"refresh_token": "0.AFakeNotRealMicrosoft0123456789abcdefXYZ", "client_id": "fake-client-id.example",
+                               "tenant": "common", "scope": "Mail.ReadWrite"})
+
+
+@pytest.mark.parametrize("text", [
+    GOOGLE_RECORD, MICROSOFT_RECORD,
+    f"export GOOGLE_ACCOUNT_TOKEN='{GOOGLE_RECORD}'", f"MICROSOFT_ACCOUNT_TOKEN={MICROSOFT_RECORD}",
+    "GOOGLE_ACCOUNT_TOKEN: {\"refresh_token\": \"x\"}",
+    "1//0gFakeRefreshNotReal0123456789abcdefXYZ", "GOCSPX-FakeNotReal0123456789abcdefgh", "ya29.a0FakeNotReal0123456789abcdefghijklmnop",
+    "refresh_token = 'fake-microsoft-refresh-0123456789abc'", "client_secret: \"fake-client-secret-not-real-0123\"",
+    "notes: the token is 1//0gFakeRefreshNotReal0123456789abcdefXYZ, keep it",
+], ids=["google-record", "microsoft-record", "export-line", "microsoft-assignment", "assigned-object", "bare-refresh", "bare-client-secret",
+        "bare-access", "key-equals", "key-colon", "inside-prose"])
+def test_the_credential_scan_finds_the_account_token_formats(text):
+    assert st.load("workcopy").credential_findings(text), text
+
+
+@pytest.mark.parametrize("text", [
+    "GOOGLE_ACCOUNT_TOKEN is the secret that holds the record", "export GOOGLE_ACCOUNT_TOKEN=<the JSON record>", "refresh_token: <your refresh token>",
+    "the client_secret field is typed at a hidden prompt", "refresh_token = 'short'", "see https://example.com/a//0path/segment",
+    "{\"refresh_token\": \"no-digit-here-just-words-in-it\"}", "API_KEY=<x>",
+], ids=["name-only", "placeholder-record", "placeholder-key", "prose", "short", "url", "words-only", "existing-placeholder"])
+def test_the_credential_scan_leaves_a_name_a_placeholder_and_plain_words_alone(text):
+    assert st.load("workcopy").credential_findings(text) == [], text
