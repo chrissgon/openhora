@@ -24,8 +24,9 @@ Usage:
   uv run providers/documents/onedrive.py search --query <text> [--top <n, at most 25>]
   uv run providers/documents/onedrive.py children --path <folder path in OneDrive> [--top <n, at most 200>]
 
-  --check     refreshes the access token (the one network call) and checks that it carries Files.Read and nothing wider; prints
-              {"ok": true, "scope", "account_kind", "tenant", "obtained_at", "rotation"}. Exit 3 when there is no authorization or it
+  --check     refreshes the access token (the one network call) and checks that it carries the platform's set (the account record) or
+              Files.Read and nothing wider (the legacy record); prints
+              {"ok": true, "record" ("account" or "legacy"), "scope", "account_kind", "tenant", "obtained_at", "rotation"}. Exit 3 when there is no authorization or it
               was refused (an expired or revoked one, a work tenant whose admin has not approved the app, a token with a wider scope).
   stat        the item's name, type, size and `version`, and whether it can be read as a source (`supported`, with the `reason`
               when not). `version` is the item's cTag, which changes when the CONTENT changes and not when only metadata does; the
@@ -55,8 +56,17 @@ The identity code (the token request, the scope check, the refresh and its rotat
 providers/_msgraph.py, which the Outlook mail and calendar providers share; this file keeps every name it had. Sharing the code shares no
 registration: this provider has its own Microsoft app registration, its own permission (Files.Read) and its own record.
 
+The account token (ACCT-M, decision of 2026-10-18): this provider reads first the account record MICROSOFT_ACCOUNT_TOKEN (username
+microsoft-account), written once for the person's whole Microsoft account by providers/accounts/microsoft_auth.py with the platform's set
+of permissions (listed in providers/accounts/README.md). That token can do more than this provider does; the restriction is the platform's
+(policies, cards, the verbs a script sends), and this provider still sends GET requests only. A token that lacks one of the set, or carries
+one more, is refused (exit 3). Only when the account record is absent does it read the record below
+(the legacy one, kept for one cycle: backlog ACCT-LEGACY), with its old exact check and a note on stderr once.
+
 Credentials (never from a flag or a file; contracts/secrets.md):
-  ONEDRIVE_SOURCES_TOKEN  one JSON record, read through providers/secrets/resolver.py (the environment, then the credentials
+  MICROSOFT_ACCOUNT_TOKEN the account record (see providers/accounts/README.md): {"slot", "refresh_token", "client_id", "tenant", "scope",
+                          "account_kind", "account", "obtained_at"}; the rotation is written back into this record when it is the one used.
+  ONEDRIVE_SOURCES_TOKEN  (legacy) one JSON record, read through providers/secrets/resolver.py (the environment, then the credentials
                           directory, then the OS secret store, username onedrive-sources): {"refresh_token", "client_id", "tenant",
                           "scope", "account_kind", "obtained_at"}, written by providers/documents/onedrive_auth.py after the person's
                           consent. There is no client secret: the app is a public client. Printed nowhere.
@@ -128,7 +138,11 @@ PROFILE = msgraph.Profile(
     not_found="OneDrive does not know the item, or it is not in the person's own OneDrive",
     forbidden_hint="check that the app has Files.Read and that the item is the person's own",
     client_id_var="ONEDRIVE_CLIENT_ID", tenant_var="ONEDRIVE_TENANT", download_hosts=True, keyring_service=KEYRING_SERVICE)
-REFRESH_SCOPE = PROFILE.refresh_scope          # what the authorization and every refresh name
+ACCOUNT_PROFILE = msgraph.account_profile(
+    run_hint="uv run providers/documents/onedrive.py", env_prefix="INTEGRATION_DOCUMENTS_ONEDRIVE", user_agent="openhora-documents-onedrive",
+    not_found="OneDrive does not know the item, or it is not in the person's own OneDrive",
+    forbidden_hint="check that the account token carries the platform's whole set and that the item is the person's own", download_hosts=True)
+REFRESH_SCOPE = PROFILE.refresh_scope          # what the legacy authorization and every legacy refresh name
 DEFAULT_MAX_BYTES = 25 * 1024 * 1024    # runtime/sources.py ORIGINAL_CAP: what the intake takes
 HARD_MAX_BYTES = 256 * 1024 * 1024      # no --max-bytes goes past this
 SEARCH_TOP_MAX, CHILDREN_TOP_MAX, LIST_TOP_DEFAULT = 25, 200, 25
@@ -154,6 +168,12 @@ def secret_resolver():
     return msgraph.secret_resolver(__file__)
 
 
+def account_resolver():
+    """The same resolver, asked for the account record (MICROSOFT_ACCOUNT_TOKEN); a function of its own so that a test can replace it apart
+    from the one for the legacy record."""
+    return msgraph.secret_resolver(__file__)
+
+
 def keyring_module(test_mode: bool):
     """The OS secret store. Test mode never touches it: tests replace this function with a fake store. Used to write: the rotated
     refresh token here, the record of an authorization in onedrive_auth.py."""
@@ -167,8 +187,14 @@ def parse_record(text: str) -> dict:
 
 
 def load_record(test_mode: bool) -> tuple:
-    """(record, where it was found): "environment", "credentials directory" or "secret store"."""
-    return msgraph.load_record(PROFILE, secret_resolver, test_mode)
+    """(record, where it was found): "environment", "credentials directory" or "secret store". The account record (MICROSOFT_ACCOUNT_TOKEN)
+    first, this provider's own legacy record second (one cycle, backlog ACCT-LEGACY); a record read from the account's secret is the account's (a malformed one is exit 3, never a fall back)."""
+    return msgraph.load_credentials(PROFILE, ACCOUNT_PROFILE, secret_resolver, test_mode, account_resolver)
+
+
+def profile_of(record: dict):
+    """The profile the record belongs to: the account's (the platform's set) or the legacy one's (Files.Read)."""
+    return msgraph.profile_of(record, PROFILE, ACCOUNT_PROFILE)
 
 
 # --- HTTP ------------------------------------------------------------------------------------------------------------------
@@ -196,21 +222,22 @@ def check_scope(granted) -> str:
 
 def refresh_access_token(token_url: str, record: dict) -> tuple:
     """(a new access token held in memory for this process, the refresh token Microsoft issued with it or None); checks the scope."""
-    return msgraph.refresh_access_token(PROFILE, token_url, record)
+    return msgraph.refresh_access_token(profile_of(record), token_url, record)
 
 
 def store_rotation(record: dict, rotated, where: str, test_mode: bool) -> str:
     """Microsoft replaces the refresh token on every use. When the record was found in the OS secret store, write the new token into that
     one record, only if it still holds the token this process used; when the write fails, carry on with the old token and say so. Returns
     what happened: "stored", "not rotated", "not stored (<why>)". The resolver and the store are this module's, so a test can replace them."""
-    return msgraph.store_rotation(PROFILE, record, rotated, where, test_mode, lambda: secret_resolver(), lambda mode: keyring_module(mode))
+    resolver = account_resolver if profile_of(record).account else secret_resolver
+    return msgraph.store_rotation(profile_of(record), record, rotated, where, test_mode, lambda: resolver(), lambda mode: keyring_module(mode))
 
 
 class Graph(msgraph.GraphClient):
     """Microsoft Graph as this provider uses it: GET requests with one access token, to one base address."""
 
-    def __init__(self, base: str, access_token: str, hosts: tuple, test_mode: bool):
-        super().__init__(PROFILE, base, access_token, test_mode)
+    def __init__(self, base: str, access_token: str, hosts: tuple, test_mode: bool, profile=None):
+        super().__init__(profile or PROFILE, base, access_token, test_mode)
         self.hosts = hosts
 
     def meta(self, drive: str, item: str) -> dict:
@@ -237,7 +264,7 @@ def open_graph() -> Graph:
     record, where = load_record(test_mode)
     access, rotated = refresh_access_token(token_url or TOKEN_URL_TEMPLATE.format(tenant=record["tenant"]), record)
     store_rotation(record, rotated, where, test_mode)
-    return Graph(base, access, hosts, test_mode)
+    return Graph(base, access, hosts, test_mode, profile_of(record))
 
 
 # --- the verbs -------------------------------------------------------------------------------------------------------------
@@ -323,7 +350,9 @@ def cmd_check(args: dict) -> int:
     _, token_url, _, test_mode = endpoints()
     record, where = load_record(test_mode)
     _, rotated = refresh_access_token(token_url or TOKEN_URL_TEMPLATE.format(tenant=record["tenant"]), record)
-    return emit({"ok": True, "scope": SCOPE, "account_kind": record.get("account_kind"), "tenant": record["tenant"],
+    profile = profile_of(record)
+    return emit({"ok": True, "record": "account" if profile.account else "legacy", "scope": " ".join(profile.scopes),
+                 "account_kind": record.get("account_kind"), "tenant": record["tenant"],
                  "obtained_at": record.get("obtained_at"), "rotation": store_rotation(record, rotated, where, test_mode)})
 
 
