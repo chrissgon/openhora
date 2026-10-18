@@ -17,6 +17,7 @@ import pytest
 
 import standin_tree as st
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
+from test_messaging_queue import WAIT, planner, settle  # noqa: F401  (the planner stand-in and the waiting for the bridge's jobs)
 from test_reminders import BRT, Clock
 from test_sender_profiles import OWNER, OWNER_KEY, POLICIES, STAFF, STAFF_KEY
 from test_sender_profiles_bridge import NOT_ENABLED, OTHER, POLICIES_ALL, configure, lab  # noqa: F401  (the lab fixture)
@@ -150,6 +151,37 @@ def test_in_count_mode_the_list_names_the_time_and_not_the_words(day):
     listed(day, notices="count")
     day.say(OWNER, "/reminders")
     assert day.texts(OWNER)[-1] == "northwind-shop: reminders that wait (BRT)\n#1 2026-10-18 15:00" and "dentist" not in day.texts(OWNER)[-1]
+
+
+# --- the queue of waiting lines (BQ-1) never keeps these ---------------------------------------------------------------------------------------
+
+
+def test_the_three_commands_are_never_kept_by_the_queue_and_are_handled_at_once_while_the_project_is_busy(day, planner):  # noqa: F811
+    for line in ("/remind 15:00 x", "/remind@openhora_bot 15:00 x", "/remind\n15:00 x", "/remind\u00a015:00 x", "/REMINDERS", "/forget 1", "/forget\n1"):
+        assert not bridge.queueable(line), line
+    planner.hold = {0}
+    day.say(OWNER, "when does the shop open")                     # a plain line takes the project's slot and holds it
+    assert planner.reached(0).wait(WAIT)
+    day.say(OWNER, "another plain line")                           # a plain line meets the busy project and waits
+    assert day.texts(OWNER)[-1] == bridge.QUEUED and len(day.bridge.waiting) == 1
+    waiting = len(day.bridge.waiting)
+    before = len(day.texts(OWNER))
+    day.say(OWNER, f"/remind 15:00 {DENTIST}")
+    assert day.texts(OWNER)[before:] == ["Reminder #1 set for 2026-10-18 15:00 (BRT)."], "answered at once, not kept and not refused as busy"
+    day.say(OWNER, "/reminders")
+    assert day.texts(OWNER)[-1] == f"northwind-shop: reminders that wait (BRT)\n#1 2026-10-18 15:00 {DENTIST}"
+    day.say(OWNER, "/forget 1")
+    assert day.texts(OWNER)[-1] == "Forgot reminder #1."
+    day.say(OWNER, "/remind 15:00 again")
+    assert day.texts(OWNER)[-1] == "Reminder #2 set for 2026-10-18 15:00 (BRT)."
+    assert len(day.bridge.waiting) == waiting and not any(bridge.QUEUED == t for t in day.texts(OWNER)[before:]), "the queue holds what it held"
+    assert all("remind" not in c for c in planner.texts()), "no model run saw a reminder command"
+    day.clock.set("2026-10-18 15:00")
+    day.bridge.tick()                                              # the delivery goes on while the slot is held
+    assert reminder_texts(day, OWNER) == ["Reminder: again"]
+    planner.open_all()
+    assert settle(day)
+    assert planner.texts() == ["when does the shop open", "another plain line"] and not any("remind" in t.lower() for t in planner.texts())
 
 
 # --- 2. the delivery -------------------------------------------------------------------------------------------------------------------------------
@@ -316,6 +348,43 @@ def test_a_phone_is_never_told_a_path_a_machine_problem_is_one_fixed_sentence(da
         day.say(OWNER, line)
         assert day.texts(OWNER)[-1] == attachments.MACHINE and "/Users" not in day.texts(OWNER)[-1], line
     assert not any("/Users" in x for x in day.log), "only the class of the error is logged"
+
+
+def test_a_raw_error_of_the_store_never_ends_the_bridge_and_the_next_tick_delivers(day, monkeypatch):
+    """A locked database raises the store's own sqlite3.OperationalError, not an OpsError: `tick()` (and so `serve_loop`, which catches only the
+    messenger's errors) must not see it. The reminder is delivered by the tick after."""
+    import sqlite3
+    day.say(OWNER, f"/remind 15:00 {DENTIST}")
+    day.clock.set("2026-10-18 15:00")
+    real_due, real_sent = ops.reminders_due, ops.reminders_sent
+    monkeypatch.setattr(ops, "reminders_due", lambda *a, **k: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked: /Users/someone/x")))
+    day.bridge.tick()                                                      # does not raise
+    assert any("reminders could not be read (OperationalError)" in x for x in day.log) and not any("/Users" in x or "locked" in x for x in day.log)
+    assert reminder_texts(day, OWNER) == []
+    monkeypatch.setattr(ops, "reminders_due", real_due)
+    monkeypatch.setattr(ops, "reminders_sent", lambda *a, **k: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")))
+    day.bridge.tick()                                                      # the line goes out; marking it fails; the tick goes on
+    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"]
+    assert any("a reminder could not be marked (OperationalError)" in x for x in day.log)
+    monkeypatch.setattr(ops, "reminders_sent", real_sent)
+    day.bridge.tick()
+    assert len(reminder_texts(day, OWNER)) == 1, "still claimed: not sent twice at once"
+    # a send that raises something other than the messenger's error leaves the claim, logs its class, and the other reminders of the tick still go
+    day.say(OWNER, "/remind 15:30 Second")
+    day.say(OWNER, "/remind 15:30 Third")
+    day.clock.set("2026-10-18 15:30")
+    real_reply = day.bridge.reply
+    calls = []
+
+    def reply(chat, text):
+        calls.append(text)
+        if text == "Reminder: Second":
+            raise RuntimeError("boom with " + text)
+        return real_reply(chat, text)
+    monkeypatch.setattr(day.bridge, "reply", reply)
+    day.bridge.tick()
+    assert "Reminder: Third" in reminder_texts(day, OWNER) and "Reminder: Second" not in reminder_texts(day, OWNER)
+    assert any("a reminder could not be sent (RuntimeError)" in x for x in day.log) and not any("boom" in x or "Second" in x for x in day.log)
 
 
 def test_a_delivery_that_cannot_read_the_store_logs_its_class_and_goes_on(day, monkeypatch):

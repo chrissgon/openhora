@@ -278,3 +278,29 @@ def test_a_store_with_no_version_table_is_refused_by_open_ready_and_missing_list
     plain.close()
     with pytest.raises(store.StoreError):
         store.open_db(path)
+
+
+def test_a_dev_store_that_applied_the_earlier_shape_of_migration_20_is_refused_with_a_sentence(tmp_path):
+    path = tmp_path / "old20.sqlite"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, description TEXT NOT NULL)")
+    for version in sorted(store.MIGRATIONS):
+        if version == 20:
+            old.execute("CREATE TABLE reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, due_local TEXT NOT NULL, due_utc TEXT NOT NULL, "
+                        "zone TEXT NOT NULL, platform TEXT NOT NULL, chat TEXT NOT NULL, created_by TEXT NOT NULL, status TEXT NOT NULL, why TEXT, "
+                        "created_at TEXT NOT NULL, claimed_at TEXT, ended_at TEXT)")      # the shape of migration 20 before it merged: no attempts, no retry_after
+        else:
+            for statement in store.MIGRATIONS[version][1]:
+                old.execute(statement)
+        old.execute("INSERT INTO schema_version VALUES (?, '2026-10-18T00:00:00.000000Z', 'x')", (version,))
+    old.commit()
+    old.close()
+    for call in (lambda: store.open_db(path), lambda: store.init_db(path)):
+        with pytest.raises(store.StoreError) as e:
+            call()
+        assert "applied an unmerged migration 20" in str(e.value) and "delete the test store or re-create it" in str(e.value)
+        assert e.value.code == store.EXIT_NOT_CONFIGURED
+    healthy = tmp_path / "healthy.sqlite"
+    store.init_db(healthy)
+    assert store.shape_problem(sqlite3.connect(healthy)) is None
+    assert tuple(r[1] for r in sqlite3.connect(healthy).execute("PRAGMA table_info(reminders)")) == store.EXPECTED_COLUMNS["reminders"]

@@ -90,23 +90,29 @@ class Reminders:
     # --- what is due ------------------------------------------------------------------------------------------------------------------
 
     def deliver(self) -> None:
-        """Send the reminders that are due, for every served project (see the module's text)."""
+        """Send the reminders that are due, for every served project (see the module's text). Nothing here ends the bridge: a project that cannot be read
+        (an error of the operations layer, or the store's own, such as a locked database) and a reminder that cannot be sent or marked are logged by the
+        class of the error alone, and the next tick tries again (as `Bridge.handle_safely` does for an update)."""
         bridge = self.bridge
         for project in bridge.projects:
             try:
                 due = bridge.ops.reminders_due(project["path"], bridge.platform)
-            except bridge.ops.OpsError as e:
+            except Exception as e:
                 bridge.log(f"reminders could not be read ({e.__class__.__name__})")
                 continue
             if due["missed"] or due["dropped"]:
                 bridge.log(f"reminders not sent: {due['missed']} missed, {due['dropped']} dropped")
             for item in due["send"]:
-                line = rm.line(item["id"], item.get("text"), item["due_local"], item["late"])
-                sent = bridge.reply(item["chat"], line)      # True: went out; False: the send failed (logged by `reply`); None: the platform deferred it
+                try:
+                    line = rm.line(item["id"], item.get("text"), item["due_local"], item["late"])
+                    sent = bridge.reply(item["chat"], line)      # True: went out; False: the send failed (logged by `reply`); None: the platform deferred it
+                except Exception as e:
+                    bridge.log(f"a reminder could not be sent ({e.__class__.__name__})")      # it stays claimed and is open again when the claim goes stale
+                    continue
                 try:
                     if sent is True:
                         bridge.ops.reminders_sent(project["path"], item["id"])
                     else:
                         bridge.ops.reminders_retry(project["path"], item["id"])
-                except bridge.ops.OpsError as e:
+                except Exception as e:
                     bridge.log(f"a reminder could not be marked ({e.__class__.__name__})")

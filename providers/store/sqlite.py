@@ -999,6 +999,22 @@ def private_files(path: Path) -> None:
             pass
 
 
+# The columns that a migration which was changed before it merged defines (a dev store that applied the earlier shape passes the version check and
+# then fails on a raw column error): {table: columns in order}. Only a table whose migration was reworded after a store could have applied it is listed.
+EXPECTED_COLUMNS = {"reminders": ("id", "text", "due_local", "due_utc", "zone", "platform", "chat", "created_by", "status", "why", "created_at",
+                                  "claimed_at", "ended_at", "attempts", "retry_after")}
+UNMERGED = "this store applied an unmerged migration {number} (the table {table} has other columns than this script defines); delete the test store or re-create it"
+
+
+def shape_problem(conn: sqlite3.Connection) -> str | None:
+    """The sentence that refuses a store whose table of EXPECTED_COLUMNS has other columns than the migration of this script defines, else None."""
+    for table, columns in EXPECTED_COLUMNS.items():
+        found = tuple(r[1] for r in conn.execute(f"PRAGMA table_info({table})"))
+        if found and found != columns:
+            return UNMERGED.format(number=20, table=table)
+    return None
+
+
 def missing_migrations(conn: sqlite3.Connection) -> list:
     """The numbers of MIGRATIONS that the store has not applied, ascending (all of them when it has no version table)."""
     found = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'").fetchone()
@@ -1020,6 +1036,9 @@ def open_ready(args) -> sqlite3.Connection:
     if version > SCHEMA_VERSION:
         raise StoreError(f"{path} is at schema version {version}, newer than this script ({SCHEMA_VERSION}): "
                          "update the workbench", EXIT_ERROR)
+    problem = shape_problem(conn)
+    if problem:
+        raise StoreError(f"{path}: {problem}", EXIT_NOT_CONFIGURED)
     gaps = missing_migrations(conn)
     if gaps:
         raise StoreError(f"{path} has not applied migration {', '.join(map(str, gaps))} of this script: run init to migrate", EXIT_NOT_CONFIGURED)
@@ -1083,6 +1102,9 @@ def _init(path: Path) -> dict:
         # Every number the script knows that the store lacks, ascending: not only those above the highest applied. A store that reached 20 before 19
         # was merged (two packages took neighbouring numbers) gets 19 applied now, and `open_ready` refuses it until then.
         have = {r[0] for r in conn.execute("SELECT version FROM schema_version")}
+        problem = shape_problem(conn)
+        if problem:
+            raise StoreError(f"{path}: {problem}", EXIT_NOT_CONFIGURED)
         for version in sorted(MIGRATIONS):
             if version in have:
                 continue
