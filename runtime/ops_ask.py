@@ -55,6 +55,7 @@ import ops_contained
 import ops_instructions
 import ops_say
 import ops_sources
+import phrases
 import plan
 import roles
 import router
@@ -69,22 +70,23 @@ def _ops():
 
 ASK_TIMEOUT = 300                     # seconds one answer run may last (the gate file's timeout is a task's)
 TITLE = "Question"                    # = store.ANSWER_TITLE; the store adds the request's number: no text of a question is in a title, and the title marks it as one
-NOT_BUILT = "No skill answers from the sources in this checkout yet (asst-answer is planned)."
-NO_SOURCES = "This project has no source with a version to answer from. Import one first."
-NO_MATCH = "No source of this project seems to be about this. Name one with @<id>: {ids}."
-TOO_MANY = "A question reads at most {max} sources, and you named {n}."
-TOO_LARGE = "The text of these sources is too large for one question (at most {kib} KiB in all): {named}. Name fewer or smaller ones."
-SKIPPED = "Not read, too large for one question: {named}."
-NOT_STARTED = "The {agent} agent may not start now: {why}. Nothing was run."
-SOURCE_REFUSED = "A source could not be handed over: {why} Nothing was run."
-HAND_CHANGED = ("The newest version of a source for this question is a file you changed by hand: it is read only by a question asked in the "
-                "terminal. Ask there, or import a new file for the source. Nothing was run.")
-WITHHELD = "The answer was withheld: you may no longer ask on this channel."
-FAILED = "The answer run failed ({kind}): {reason}. Nothing was answered."
-ASK_HINT = "To answer from your sources, send /ask <question>."
+# The English sentences, kept under their old names (the tests and the answer skill's cases read them); the phrase table (runtime/phrases.py) is their
+# source, and each place below says them in the project's language (package LR-1). TOO_LONG is an OpsError (the operations layer's own text) and stays here.
+NOT_BUILT = phrases.en("NOT_BUILT")
+NO_SOURCES = phrases.en("NO_SOURCES")
+NO_MATCH = phrases.en("NO_MATCH")
+TOO_MANY = phrases.en("TOO_MANY")
+TOO_LARGE = phrases.en("ASK_TOO_LARGE")
+SKIPPED = phrases.en("SKIPPED")
+NOT_STARTED = phrases.en("NOT_STARTED")
+SOURCE_REFUSED = phrases.en("SOURCE_REFUSED")
+HAND_CHANGED = phrases.en("HAND_CHANGED")
+WITHHELD = phrases.en("WITHHELD")
+FAILED = phrases.en("ASK_FAILED")
+ASK_HINT = phrases.en("ASK_HINT")
 TOO_LONG = "The question is over {max} characters."
-CANCELLED = "The question was cancelled. Nothing was answered."
-SNAPSHOT_HERE = ("A mailbox or a calendar is read only by a question asked in the terminal or on the page: ask there. Nothing was run.")
+CANCELLED = phrases.en("ASK_CANCELLED")
+SNAPSHOT_HERE = phrases.en("SNAPSHOT_HERE")
 SNAPSHOT_ASKERS = (None, "terminal", "chat", "page")   # the actors (ops_actor.label) that may name a mail or calendar snapshot with @<id>; never the MCP mode or a messaging app
 
 # The text the answer run is given after the question: the measured one. The cases of the answer skill carry it byte for byte
@@ -119,7 +121,7 @@ def hint(ctx: dict, channel, sender=None) -> str:
         return ""
     if not operations.permitted("ask", "page" if channel == ops_say.DRAIN else (channel or "terminal"), ctx["cfg"]["channels"], None, sender):
         return ""
-    return "\n\n" + ASK_HINT if ops_sources.known_ids(ctx) else ""
+    return "\n\n" + phrases.text("ASK_HINT", ctx["cfg"]) if ops_sources.known_ids(ctx) else ""
 
 
 def asked_by(actor, channel, sender=None) -> bool:
@@ -155,15 +157,15 @@ def _outcome(reply: str, **more) -> dict:
             "flags": [], **more}
 
 
-def _refusal(word: str, picked: dict) -> str:
+def _refusal(word: str, picked: dict, cfg=None) -> str:
     detail = picked["detail"]
     if word == ask_select.NO_SOURCES:
-        return NO_SOURCES
+        return phrases.text("NO_SOURCES", cfg)
     if word == ask_select.NO_MATCH:
-        return NO_MATCH.format(ids=", ".join("@" + i for i in detail))
+        return phrases.text("NO_MATCH", cfg, ids=", ".join("@" + i for i in detail))
     if word == ask_select.TOO_MANY:
-        return TOO_MANY.format(max=ask_select.ASK_SOURCES_MAX, n=detail)
-    return TOO_LARGE.format(kib=ask_select.ASK_BYTES_MAX // 1024, named=_sized(detail))
+        return phrases.text("TOO_MANY", cfg, max=ask_select.ASK_SOURCES_MAX, n=detail)
+    return phrases.text("ASK_TOO_LARGE", cfg, kib=ask_select.ASK_BYTES_MAX // 1024, named=_sized(detail))
 
 
 def _sized(rows: list) -> str:
@@ -224,14 +226,14 @@ def ask(project: str, text: str, channel: str | None = None, sender: str | None 
         raise core.OpsError(TOO_LONG.format(max=ask_select.ASK_TEXT_MAX), 2)
     skill = roles.answer()
     if not skill:
-        return _outcome(NOT_BUILT, refusal="not-built")
+        return _outcome(phrases.text("NOT_BUILT", cfg), refusal="not-built")
     ops_contained._contained_scope(ctx, skill)
     picked = ask_select.select(said, _catalog(ctx))
     if picked["refusal"]:
-        return _outcome(_refusal(picked["refusal"], picked), refusal=picked["refusal"])
+        return _outcome(_refusal(picked["refusal"], picked, cfg), refusal=picked["refusal"])
     kinds = {r["id"]: r["type"] for r in _catalog(ctx)}
     if any(kinds.get(i) in sources.SNAPSHOT_TYPES for i in picked["ids"]) and ops_actor.label(cfg, channel, sender) not in SNAPSHOT_ASKERS:
-        return _outcome(SNAPSHOT_HERE, refusal="snapshot-channel")      # decided by the maintainer: the text of a mailbox or a calendar goes to a model only for a question typed where the person is
+        return _outcome(phrases.text("SNAPSHOT_HERE", cfg), refusal="snapshot-channel")      # decided by the maintainer: the text of a mailbox or a calendar goes to a model only for a question typed where the person is
     try:
         agent = plan.agent_of(skill, plan.agent_skills(cfg, core.ROOT))
     except (plan.PlanError, ValueError) as e:
@@ -258,12 +260,12 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
         got = ops_sources.copies_for(ctx, {"sources": picked["ids"]}, prepared_dir, not attended)
     except ops_sources.SourcesRefused as e:
         if e.code == "unattended":                # the sentence of a task says to start it with run-next: a question is asked in the terminal
-            return _outcome(HAND_CHANGED, refusal="source")
-        return _outcome(SOURCE_REFUSED.format(why=str(e).rstrip(".") + "."), refusal="source")
+            return _outcome(phrases.text("HAND_CHANGED", cfg), refusal="source")
+        return _outcome(phrases.text("SOURCE_REFUSED", cfg, why=str(e).rstrip(".") + "."), refusal="source")
     sizes = {r["source"]: os.path.getsize(path) for (path, _rel), r in zip(got["files"], got["records"])}
     if sum(sizes.values()) > ask_select.ASK_BYTES_MAX:
-        return _outcome(TOO_LARGE.format(kib=ask_select.ASK_BYTES_MAX // 1024,
-                                         named=_sized([{"id": i, "bytes": n} for i, n in sizes.items()])), refusal=ask_select.TOO_LARGE)
+        return _outcome(phrases.text("ASK_TOO_LARGE", cfg, kib=ask_select.ASK_BYTES_MAX // 1024,
+                                     named=_sized([{"id": i, "bytes": n} for i, n in sizes.items()])), refusal=ask_select.TOO_LARGE)
     prompt = ops_instructions.contained_prompt(cfg["project"], _ops().task_prompt(said, ASK_TASK_TEXT, [], sourced=got["lines"]))
     given = [{"source": r["source"], "version": r["version"]} for r in got["records"]]
     try:
@@ -275,7 +277,7 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
         ok, why = autonomy.may_start(agent, cfg["area_agents"], found["facts"], found["spent"], routing["billing"]) \
             if found else (False, "stopped")
         if not ok:
-            return _outcome(NOT_STARTED.format(agent=agent, why=why), refusal="not-started")
+            return _outcome(phrases.text("NOT_STARTED", cfg, agent=agent, why=why), refusal="not-started")
         budget = _ops()._budget(ctx, agent, routing, keys)
         started = core._stored(ctx, store.answer_run_start, skill=skill, model=routing["model"], adapter=routing["adapter"],
                                skill_version=identity["version"], skill_sha256=identity["content_sha256"],
@@ -287,12 +289,12 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
         """End the run and its request (one transaction). A request being cancelled meanwhile has the run recorded cancelled: nothing is
         answered, and this returns the outcome that says so; None otherwise."""
         done = core._stored(ctx, store.answer_run_finish, run_id, run_dir=dest, **fields)
-        return _outcome(CANCELLED, refusal="cancelled", ran=True, **base) if done["cancelled"] else None
+        return _outcome(phrases.text("ASK_CANCELLED", cfg), refusal="cancelled", ran=True, **base) if done["cancelled"] else None
 
     def fail(kind: str, reason: str, counts=None, image=None, reported=None) -> dict:
         return finish(status="failed", failure=kind, attempts=(counts or {}).get("attempts", 0), image_digest=image,
                       error=_ops()._note(reason), **_ops()._reported_usage(reported, routing)) or \
-            _outcome(FAILED.format(kind=kind, reason=_ops()._note(reason)), refusal="failed", ran=True, **base)
+            _outcome(phrases.text("ASK_FAILED", cfg, kind=kind, reason=_ops()._note(reason)), refusal="failed", ran=True, **base)
 
     try:
         if actor:
@@ -314,10 +316,10 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
     for (path, _rel), record in zip(got["files"], got["records"]):
         with open(path, encoding="utf-8", errors="replace") as f:
             texts[record["source"]] = f.read()
-    checked = ask_reply.check(body, given, texts, routing["autonomy"] == "proven", skill, routing["model"])
+    checked = ask_reply.check(body, given, texts, routing["autonomy"] == "proven", skill, routing["model"], cfg)
     text, _ = workcopy.masked_reply(checked["text"])
     if picked["skipped"]:
-        text += "\n\n" + SKIPPED.format(named=_sized(picked["skipped"]))
+        text += "\n\n" + phrases.text("SKIPPED", cfg, named=_sized(picked["skipped"]))
     number_of = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None  # noqa: E731
     every = _ops()._reported_usage(lab.reported_usage(dest), routing)
     cancelled = finish(status="ok", attempts=counts["attempts"],
@@ -326,7 +328,7 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
                        skill_loaded=_ops()._skill_loaded(timing, skill), image_digest=result["image_digest"],
                        redactions=_ops()._count(counts.get("redactions")))
     if not cancelled and not _still_may_ask(ctx["cfg"]["project"], channel, sender):
-        return _outcome(WITHHELD, ran=True, refusal="withheld", **base)     # the run is recorded: it was made and spent
+        return _outcome(phrases.text("WITHHELD", cfg), ran=True, refusal="withheld", **base)     # the run is recorded: it was made and spent
     return cancelled or _outcome(text, ran=True, answer=checked["outcome"], flags=checked["flags"], **base)
 
 

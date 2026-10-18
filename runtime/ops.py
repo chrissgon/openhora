@@ -1606,8 +1606,8 @@ def status(project: str) -> dict:
 
 def config(project: str) -> dict:
     """What a shell may know of a project's configuration, and the one read that never refuses an unaccepted one:
-    {"path", "sha256", "accepted", "data_dir", "messaging", "channels", "policies", "channel_profiles", "grants", "widening", "widening_sha256", "warnings"}. "accepted" says
-    whether the file's hash is the one the person accepted last; "policies" are the profiles of the file; "grants" are the widenings of operations.GRANTS
+    {"path", "sha256", "accepted", "data_dir", "messaging", "channels", "policies", "channel_profiles", "language", "grants", "widening", "widening_sha256", "warnings"}. "accepted" says
+    whether the file's hash is the one the person accepted last; "policies" are the profiles of the file; "language" is the key of that name (None when it is not set), which the messaging bridge reads to say its sentences in the project's language (runtime/phrases.py); "grants" are the widenings of operations.GRANTS
     the file lists ([{"channel", "group", "means"}], a sender's also "sender"); "widening" is every group a channel or a listed sender has in this file
     and did not effectively have in the one accepted before ([{"place", "channel", "group", "means"}], POL-1 and POL-2: a place is a channel or
     `<platform>:<sender id>`), "widening_sha256" the hash accept-config --widen takes for it (None when there is none). A configuration that cannot be read at all, or that names another checkout, is still refused
@@ -1618,7 +1618,7 @@ def config(project: str) -> dict:
     got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)
     return {"path": cfg["path"], "sha256": cfg["sha256"], "accepted": accepted == cfg["sha256"],
             "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"], "policies": cfg["policies"],
-            "channel_profiles": cfg["channel_profiles"],
+            "channel_profiles": cfg["channel_profiles"], "language": cfg.get("language"),
             **policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None)}   # POL-1/POL-2: grants, widening, its hash, warnings
 
 
@@ -1919,7 +1919,7 @@ def _not_recognised(store, request: dict, body: str, why, common: dict) -> dict:
     (`raw`) with the two actions the page offers (`actions`: choose a flow, cancel the request)."""
     raw = body.encode("utf-8")[:ops_say.RAW_MAX].decode("utf-8", errors="ignore")
     return {"kind": "question", "title": "The route was not recognised",
-            "body": ops_say.NOT_NAMED.format(request=request["id"]),
+            "body": ops_say.NOT_NAMED.format(request=request["id"]),      # stored in English; a card and the conversation say it in the language (phrases.body)
             "payload": {"ending": "unclassified", "why": why, "raw": raw, "actions": list(ops_say.NOT_NAMED_ACTIONS), **common}}
 
 

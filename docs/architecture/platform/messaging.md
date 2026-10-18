@@ -848,6 +848,12 @@ Principle 11 of [AGENTS.md](../../../AGENTS.md): what must never happen is preve
 |---|---|---|
 | 52 | A message the provider gave up reaches the senders the "N more waiting" line goes to as one sentence of the bridge's own (`UNREAD_ONE`, `UNREAD_MANY`), at most once an hour to a chat, and only to a sender the policy still lets hear the count when the line goes out; never the provider's reason, a uid, a Message-ID, an address or a subject; it passes `deliver`, so the home-folder filter applies. Only a `skipped` event counts: `failed` (a Discord or WhatsApp retry) never does, and an exception on one e-mail message writes no event | `runtime/messaging_provider.py` `ListenSession.take`, `take_unread`, `Messenger.take_unread`; `runtime/messaging_bridge.py` `Bridge.notify_unread`; `providers/messenger/email-imap.py` `retry_pending`, `run_mailbox` |
 
+**The language of the bridge's sentences.**
+
+| # | Rule | Enforced at |
+|---|---|---|
+| 54 | Every sentence the bridge says (a reply, the frames of a card, `/help`, a usage line, the notice of a message set aside, the sentences of a waiting line, the fixed sentences of the files and the reminders, the answer from sources) is the phrase table's (`runtime/phrases.py`) in the project's language: the key `language` that `config` carries, read once for each update, tick or drain (`Bridge.cfg`, `Bridge.t`, `Bridge.read_once`; an unaccepted file too), and `en` for a project with no key and for a tag with no table. A store status word shown inside a sentence (`phrases.status`) and a heading or a body code wrote whole (`phrases.heading`: "The router asks"...; `phrases.body`: the question of an unrecognised route) are said in the language at the reading layer only, never in the store, the operations layer, the logs, the terminal, the MCP mode or the API, and the card's hash is of the stored heading. A decision's own text, the project's name, the commands in a sentence (`/approve 12`, `/pending`), ids and the text of an `OpsError` are not translated; a sentence about a file or a reminder that an operation raised is said in the language when it is exactly one the table knows (`phrases.localize`, used by `Attachments.phone`). Tests pin the English sentences with exact strings and show the Portuguese ones on the stand-in messenger | `runtime/messaging_bridge.py` (`cfg`, `t`), `runtime/messaging_cards.py` (`build`'s `cfg`), `runtime/messaging_attach.py`, `runtime/messaging_remind.py`; `runtime/tests/test_phrases.py`, `test_phrases_status.py`, `test_runtime_language.py`, `test_runtime_language_files.py`, `test_runtime_language_ask.py`, `test_runtime_language_status.py` |
+
 **An answer from the sources.**
 
 | # | Rule | Enforced at |
@@ -1014,6 +1020,7 @@ How to add a platform: add one file, `providers/messenger/<impl>.py`, that decla
 
 ## Changes
 
+- 2026-10-18: the bridge's sentences in the project's language (LR-1; the maintainer's approval of the recommendation): `runtime/phrases.py`, rule 54, `Bridge.cfg` and `Bridge.t`, the `cfg` of `cards.build`, `config` carries `language`.
 - 2026-10-17: files a listed sender sends through a messaging app (ATT-1b): the update's `attachments`, the capabilities `attachments` and `max_attachment_bytes`, the verb `fetch-attachment` and the listen op `fetch`, the answer kind `gone`, `runtime/messaging_attach.py`, the intents `attachment`, `add` and `discard`, the ledger's card kind `attachment`, the attachment card, `/pending` listing the files that wait, limit L47 and decision M-43.
 
 - 2026-10-11: the bridge, the channel `messaging` and Telegram (MSG-1, #328); the MCP route for a gateway documented outside the core (MSG-2, #326).

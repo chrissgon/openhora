@@ -22,6 +22,9 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
                                                       the operations layer decides, by the channel's policy)
   {"kind": "usage", "text": "Usage: ..."}             a command it handles with arguments it cannot read
 
+The sentences it names (HELP, the usage lines) are the phrase table's English text (runtime/phrases.py); the bridge says them in the project's language, and `usage_key`
+maps the sentence of a `usage` intent to its key. The intents themselves are the same in every language.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -30,19 +33,19 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import phrases  # noqa: E402  (the same folder: the sentences, in the project's language; the bridge says them, this module only names them)
 import reminders  # noqa: E402  (the same folder: the pure part of a reminder, which reads the words after /remind)
 
 USAGE = {"approve": "/approve <id>", "reject": "/reject <id> [note]", "release": "/release <id>", "answer": "/answer <id> <text>",
          "add": "/add <n>", "discard": "/discard <n>", "forget": "/forget <n>"}
-HELP = ("Commands:\n/pending            what waits for you\n/approve <id>       approve what the last card of <id> showed\n"
-        "/reject <id> [note] reject it\n/release <id>       release a delivery\n/answer <id> <text> answer a question\n"
-        "/ask <question>     answer a question from the project's sources\n"
-        "/add <n>            add a file you sent as a source\n/discard <n>        delete a file you sent\n"
-        "/remind <time> <text> a reminder sent back to you once (15:00, 2026-10-20 09:30 or in 2h)\n/reminders          the reminders that wait\n"
-        "/forget <n>         cancel a reminder\n"
-        "/project [name]     choose the project your lines go to\n/help               this list\n"
-        "Any other line goes to the planning agent. Which of these your project turns on is in its configuration "
-        "(channels.messaging).")
+HELP = phrases.en("HELP")
+USAGE_KEYS = {phrases.en("USAGE_" + name.upper()): "USAGE_" + name.upper() for name in USAGE}      # the phrase-table key of each usage sentence
+USAGE_KEYS[phrases.en("RM_USAGE")] = "RM_USAGE"
+
+
+def usage_key(text: str):
+    """The phrase-table key of a usage sentence this module returned in a `usage` intent (the bridge says it in the project's language), else None."""
+    return USAGE_KEYS.get(text)
 
 
 def _id(text: str):

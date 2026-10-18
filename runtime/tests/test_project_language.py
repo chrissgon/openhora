@@ -242,7 +242,7 @@ def test_a_proposal_from_the_router_is_on_the_card_in_the_task_rows_after_approv
     reply(chat_tree, FLOW + "Language: en\n")
     out = say(chat_tree, "Write the market spec in English for the invented studio.")
     assert "Language: en (requested)" in out["reply"].splitlines(), "the conversation's reply shows it before the estimate"
-    assert out["reply"].index("Language: en (requested)") < out["reply"].index("Estimate:")
+    assert out["reply"].index("Language: en (requested)") < out["reply"].index("Estimativa de execuções:"), "the estimate line is the project's language (pt-BR), LR-1"  # validate: allow english-only -- the estimate line of a pt-BR project is the phrase table's Portuguese sentence
     item = ops.pending(path, out["pending_id"])
     assert "Language: en (requested)" in item["body"].splitlines() and [t["language"] for t in item["payload"]["tasks"]] == ["en", "en"]
     request = next(r for r in rows(chat_tree) if r["id"] == out["request_id"])

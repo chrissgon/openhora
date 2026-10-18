@@ -36,6 +36,7 @@ import lab
 import manifest
 import operations
 import path_rule
+import phrases
 import plan
 import prices as price_table
 import project_config
@@ -370,7 +371,7 @@ def _shown_text(ctx: dict, row: dict, asked_by, channel, sender) -> str:
         return row["text"]
     if asked_by(store.cursor_peek(conn, store.ASK_ACTOR_CURSOR.format(run=run["id"])), channel, sender):
         return row["text"]
-    return ops_say.ANSWERED_AS.format(request=run["task_id"])
+    return phrases.text("ANSWERED_AS", ctx["cfg"], request=run["task_id"])
 
 
 def _scope(ctx: dict) -> list:

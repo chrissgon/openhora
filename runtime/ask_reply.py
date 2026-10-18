@@ -20,10 +20,12 @@ and this module reads only those lines and decides what is sent. A model's text 
      found in its source's prepared copy (Unicode NFC, white space collapsed) and is at least QUOTE_MIN_CHARS characters AND
      QUOTE_MIN_WORDS words long is printed by code as `Checked quote [<id>]: "..."`, a form only code writes; any other quote is shown
      after a sentence that says what is wrong with it (QUOTE_NOT_FOUND, QUOTE_TOO_SHORT, QUOTE_TOO_LONG, UNKNOWN_SOURCE).
-  3. Any other line that has `quote [` in it, or whose start is `checked quote`, is left out of the answer and flagged QUOTE_IMITATED.
+  3. Any other line that has `quote [` in it, or whose start is the opening of a checked quote (`checked quote`, and the same words of
+     every other language of the phrase table, runtime/phrases.py: the form code writes is translated, so the check reads all of them), is
+     left out of the answer and flagged QUOTE_IMITATED.
      The line is compared after NFKC, with the Unicode format characters (zero-width space and the like) removed, the look-alike
      letters of Cyrillic and Greek folded to Latin and the case folded (fold()), so that `Checked quоte` (a Cyrillic o), a zero-width
-     space and a full-width bracket do not pass. (Once the sentences are translated, the words to compare with are the phrase table's.)
+     space and a full-width bracket do not pass.
   4. A `[<id>]` of the form of a source id that the run was not given is flagged UNKNOWN_SOURCE (`[1]`, a footnote, is not).
   5. `found` or `partial` with no verified quote: UNVERIFIED.
   6. `not-found`: the model's prose is dropped; only NOT_FOUND, the instructions lines and the footer are sent.
@@ -37,16 +39,21 @@ and this module reads only those lines and decides what is sent. A model's text 
      those languages. The imitation check (fold()) drops every combining mark, so that they cannot hide the form code writes. A line that holds a text-direction control (U+202A to U+202E, U+2066 to U+2069, U+200E, U+200F, U+061C) is left
      out and flagged BIDI_CONTROL, since such a character can make a line read differently from how it is stored.
 
-Code appends the footer: READ (each source and version read) and, when the run is not proven, UNPROVEN. The sentences are English
-constants; the project's language is applied to them by a later package (LR-1).
+Code appends the footer: READ (each source and version read) and, when the run is not proven, UNPROVEN. The sentences are the phrase
+table's (runtime/phrases.py, package LR-1) and `check` says them in the project's language (`cfg`); the form the skill writes, and the
+`Instructions found in external content:` heading this module reads, stay English.
 
 Standard library only. Runs on Python 3.9: python3 runtime/ask_reply.py --help
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 import unicodedata
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import phrases  # noqa: E402  (the same folder: the sentences, in the project's language)
 
 QUOTE_MAX = 300
 QUOTE_MIN_CHARS = 20
@@ -54,28 +61,29 @@ QUOTE_MIN_WORDS = 3
 INSTRUCTION_MIN_WORDS = 2
 ANSWERS = ("found", "partial", "not-found")
 
-UNCHECKED = "This answer is not in the expected form; check it against the sources."
-UNKNOWN_SOURCE = "This source was not given to the run: {id}."
-QUOTE_NOT_FOUND = "This quote is not in {id}:"
-QUOTE_TOO_LONG = "This quote is longer than " + str(QUOTE_MAX) + " characters and was not checked ({id}):"
-QUOTE_TOO_SHORT = "This quote is too short to check ({id}):"
-QUOTE_CHECKED = 'Checked quote [{id}]: "{text}"'
-QUOTE_IMITATED = "A line of the answer imitated a checked quote and was left out."
-AFTER_INSTRUCTIONS = "Text after the instructions line was left out."
-INSTRUCTION_UNVERIFIED = "An instruction found in a source was left out: its quoted passage is not in that source."
-BIDI_LEFT_OUT = "A line with text-direction controls was left out."
-INSTRUCTION_LINE = '[{id}] "{passage}" (not followed)'
-UNVERIFIED = "No quote of this answer could be checked against the sources; check it yourself."
-NOT_FOUND = "Not found in the sources read: {read}."
-READ = "Read: {read}"
-UNPROVEN = "Unproven: {skill} has no passing test on {model}; check the answer against the quotes."
-INSTRUCTIONS = "Instructions found in external content:"
+# The English sentences, kept under their old names; the phrase table (runtime/phrases.py) is their source and `check` says them in the project's language.
+UNCHECKED = phrases.en("UNCHECKED")
+UNKNOWN_SOURCE = phrases.en("UNKNOWN_SOURCE")
+QUOTE_NOT_FOUND = phrases.en("QUOTE_NOT_FOUND")
+QUOTE_TOO_LONG = phrases.en("QUOTE_TOO_LONG").replace("{max}", str(QUOTE_MAX))
+QUOTE_TOO_SHORT = phrases.en("QUOTE_TOO_SHORT")
+QUOTE_CHECKED = phrases.en("QUOTE_CHECKED")
+QUOTE_IMITATED = phrases.en("QUOTE_IMITATED")
+AFTER_INSTRUCTIONS = phrases.en("AFTER_INSTRUCTIONS")
+INSTRUCTION_UNVERIFIED = phrases.en("INSTRUCTION_UNVERIFIED")
+BIDI_LEFT_OUT = phrases.en("BIDI_LEFT_OUT")
+INSTRUCTION_LINE = phrases.en("INSTRUCTION_LINE")
+UNVERIFIED = phrases.en("UNVERIFIED")
+NOT_FOUND = phrases.en("NOT_FOUND")
+READ = phrases.en("READ")
+UNPROVEN = phrases.en("UNPROVEN")
+INSTRUCTIONS = phrases.en("INSTRUCTIONS")      # the line the SKILL writes (the form this module reads); the line code writes is the table's, in the project's language
 
 FIRST_LINE = re.compile(r"Answer:\s*(found|partial|not-found)\s*\.?", re.I)
 QUOTE_LINE = re.compile(r'[\s\-*•>]*Quote \[([^\]\n]*)\]:\s*["“](.*)["”]\s*', re.I)
 QUOTE_WORD = re.compile(r"quote\s*\[")          # read on a folded line (fold() lowers the case)
 QUOTED = re.compile(r'["\u201c]([^"\u201d\n]+)["\u201d]')
-INSTRUCTIONS_LINE = re.compile(r"Instructions found in external content:[ \t]*(.*)", re.I)
+INSTRUCTIONS_LINE = re.compile("(?:" + "|".join(re.escape(heading) for heading in phrases.every("INSTRUCTIONS")) + r")[ \t]*(.*)", re.I)    # the heading in EVERY language of the table: a line imitating the one code writes is read as the skill's own
 BRACKET = re.compile(r"\[([a-z0-9][a-z0-9-]{0,39})\]")
 
 
@@ -120,10 +128,21 @@ def fold(text: str) -> str:
     return plain.casefold().translate(CONFUSABLES)
 
 
+CHECKED_HEADS = tuple(dict.fromkeys(h for h in (fold(head) for head in phrases.heads("QUOTE_CHECKED")) if h))   # `checked quote`, `citacao verificada`: the opening of the line code writes, in every language of the table
+DASHES = r"\-\u2010-\u2015\u2212"      # the hyphens a model may put between the words of the opening
+_SEPARATOR = r"[\s" + DASHES + "]*"
+_OPENING = "(?:" + "|".join(_SEPARATOR.join(re.escape(word) for word in head.split()) for head in CHECKED_HEADS) + ")"
+OPENING_AT_START = re.compile(r"[ \t" + DASHES + r"*>\u2022#|]*" + _OPENING)
+OPENING_BEFORE_BRACKET = re.compile(_OPENING + r"\s*:?\s*\[")      # the per-language counterpart of QUOTE_WORD, anywhere in the line
+
+
 def imitates(line: str) -> bool:
-    """Whether a line, folded, has `quote [` in it or starts with `checked quote`: what only code may write."""
-    seen = fold(line)
-    return bool(QUOTE_WORD.search(seen)) or seen.lstrip(" \t-*>\u2022#|").startswith("checked quote")
+    """Whether a line, folded and with every run of white space one space, has `quote [` in it, starts with the opening of a checked quote or has that opening
+    (its words apart by any white space or hyphen, or joined) followed by a `[` anywhere in it: what only code may write. The opening is the phrase table's,
+    in EVERY language of the table whatever the project's language is (a model asked for a Portuguese answer may write the English form and the reverse), so a
+    translated form cannot be imitated, with a tab, two spaces, a hyphen, a zero-width space or no space before the bracket."""
+    seen = " ".join(fold(line).split())
+    return bool(QUOTE_WORD.search(seen)) or OPENING_AT_START.match(seen) is not None or OPENING_BEFORE_BRACKET.search(seen) is not None
 
 
 def collapse(text: str) -> str:
@@ -131,9 +150,9 @@ def collapse(text: str) -> str:
     return " ".join(clean(text).split())
 
 
-def read_line(given: list) -> str:
-    """'a (version 1), b (version 2)' for the sources the run received."""
-    return ", ".join(f"{g['source']} (version {g['version']})" for g in given)
+def read_line(given: list, cfg=None) -> str:
+    """'a (version 1), b (version 2)' for the sources the run received (the word for `version` is the language's own)."""
+    return ", ".join(phrases.text("READ_VERSION", cfg, source=g["source"], version=g["version"]) for g in given)
 
 
 def parse(response: str) -> dict:
@@ -150,7 +169,7 @@ def parse(response: str) -> dict:
     bidi = sum(1 for line in lines[start + 1:] if BIDI.search(line))
     body, tail = [clean(line) for line in lines[start + 1:] if not BIDI.search(line)], []
     for n, line in enumerate(body):
-        found = INSTRUCTIONS_LINE.fullmatch(line.strip()) if line.strip().lower().startswith(INSTRUCTIONS.lower()) else None
+        found = INSTRUCTIONS_LINE.fullmatch(line.strip())
         if found:
             tail = [t.strip() for t in [found.group(1)] + body[n + 1:] if t.strip()]
             body = body[:n]
@@ -171,7 +190,7 @@ def parse(response: str) -> dict:
     return {"answer": answer, "prose": prose, "quotes": quotes, "imitated": imitated, "bidi": bidi, "tail": tail}
 
 
-def _verified_instruction(line: str, ids: set, copies_flat: dict):
+def _verified_instruction(line: str, ids: set, copies_flat: dict, cfg=None):
     """The instruction line as code writes it, `[<id>] "<passage>" (not followed)`, for the first quoted passage of INSTRUCTION_MIN_WORDS words
     or more that is in the copy of a source the line names; None when there is none."""
     named = [i for i in sorted(ids) if _names(line, {i})]
@@ -179,7 +198,7 @@ def _verified_instruction(line: str, ids: set, copies_flat: dict):
         flat = collapse(passage)
         for source_id in named:
             if len(flat.split()) >= INSTRUCTION_MIN_WORDS and flat in copies_flat.get(source_id, ""):
-                return INSTRUCTION_LINE.format(id=source_id, passage=flat)
+                return phrases.text("INSTRUCTION_LINE", cfg, id=source_id, passage=flat)
     return None
 
 
@@ -187,17 +206,19 @@ def _names(line: str, ids: set) -> bool:
     return any(re.search(r"(?<![\w-])" + re.escape(i) + r"(?![\w-])", line) for i in ids)
 
 
-def check(response: str, given: list, copies: dict, proven: bool, skill: str, model: str) -> dict:
+def check(response: str, given: list, copies: dict, proven: bool, skill: str, model: str, cfg=None) -> dict:
     """The reply the person is sent and what was found: {"text", "outcome": "found" | "partial" | "not-found" | "unchecked",
     "flags": [words], "verified": the number of quotes found in their sources}. `given` is [{"source", "version"}] of the copies
-    the run received, `copies` {source id: the text of that copy}, `proven` whether the run was proven (autonomy "proven")."""
-    read = read_line(given)
-    footer = [] if proven else [UNPROVEN.format(skill=skill, model=model)]
+    the run received, `copies` {source id: the text of that copy}, `proven` whether the run was proven (autonomy "proven"). `cfg` carries
+    the project's `language` (runtime/phrases.py): the sentences code adds are said in it; the form the skill writes is English."""
+    say = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
+    read = read_line(given, cfg)
+    footer = [] if proven else [say("UNPROVEN", skill=skill, model=model)]
     parsed = parse(response)
     ids = {g["source"] for g in given}
     flags = []
     if parsed["answer"] is None:
-        text = "\n\n".join([UNCHECKED, clean(response or "").strip() or "(empty reply)", READ.format(read=read), *footer])
+        text = "\n\n".join([say("UNCHECKED"), clean(response or "").strip() or say("EMPTY_REPLY"), say("READ", read=read), *footer])
         return {"text": text, "outcome": "unchecked", "flags": ["UNCHECKED"], "verified": 0}
     copies_flat = {i: collapse(t) for i, t in copies.items()}
     kept, other, unverified = [], 0, 0
@@ -206,12 +227,12 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
         if not form:
             other += 1
         else:
-            written = _verified_instruction(line, ids, copies_flat)
+            written = _verified_instruction(line, ids, copies_flat, cfg)
             if written:
                 kept.append(written)
             else:
                 unverified += 1
-    instructions = (INSTRUCTIONS + " " + kept[0] + "".join("\n" + t for t in kept[1:])) if kept else ""
+    instructions = (say("INSTRUCTIONS") + " " + kept[0] + "".join("\n" + t for t in kept[1:])) if kept else ""
     if parsed["bidi"]:
         flags.append("BIDI_CONTROL")
     if other:
@@ -219,45 +240,45 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
     if unverified:
         flags.append("INSTRUCTION_UNVERIFIED")
     if parsed["answer"] == "not-found":
-        return {"text": "\n\n".join([NOT_FOUND.format(read=read)] + ([instructions] if instructions else []) + footer),
+        return {"text": "\n\n".join([say("NOT_FOUND", read=read)] + ([instructions] if instructions else []) + footer),
                 "outcome": "not-found", "flags": flags, "verified": 0}
     shown, verified = [], 0
     for source_id, passage in parsed["quotes"]:
         flat = collapse(passage)
         if source_id not in ids:
             flags.append("UNKNOWN_SOURCE")
-            shown.append(f'{UNKNOWN_SOURCE.format(id=source_id)} "{passage}"')
+            shown.append(f'{say("UNKNOWN_SOURCE", id=source_id)} "{passage}"')
         elif len(passage) > QUOTE_MAX:
             flags.append("QUOTE_TOO_LONG")
-            shown.append(f'{QUOTE_TOO_LONG.format(id=source_id)} "{passage[:QUOTE_MAX]}..."')
+            shown.append(f'{say("QUOTE_TOO_LONG", max=QUOTE_MAX, id=source_id)} "{passage[:QUOTE_MAX]}..."')
         elif len(flat) < QUOTE_MIN_CHARS or len(flat.split()) < QUOTE_MIN_WORDS:
             flags.append("QUOTE_TOO_SHORT")
-            shown.append(f'{QUOTE_TOO_SHORT.format(id=source_id)} "{passage}"')
+            shown.append(f'{say("QUOTE_TOO_SHORT", id=source_id)} "{passage}"')
         elif flat in copies_flat.get(source_id, ""):
             verified += 1
-            shown.append(QUOTE_CHECKED.format(id=source_id, text=passage))
+            shown.append(say("QUOTE_CHECKED", id=source_id, text=passage))
         else:
             flags.append("QUOTE_NOT_FOUND")
-            shown.append(f'{QUOTE_NOT_FOUND.format(id=source_id)} "{passage}"')
+            shown.append(f'{say("QUOTE_NOT_FOUND", id=source_id)} "{passage}"')
     prose = "\n".join(parsed["prose"]).strip()
     unknown = [i for i in dict.fromkeys(BRACKET.findall(prose)) if i not in ids and not i.isdigit()]
-    notes = [UNKNOWN_SOURCE.format(id=i) for i in unknown]
+    notes = [say("UNKNOWN_SOURCE", id=i) for i in unknown]
     if unknown:
         flags.append("UNKNOWN_SOURCE")
     if parsed["imitated"]:
         flags.append("QUOTE_IMITATED")
-        notes.append(QUOTE_IMITATED)
+        notes.append(say("QUOTE_IMITATED"))
     if parsed["bidi"]:
-        notes.append(BIDI_LEFT_OUT)
+        notes.append(say("BIDI_LEFT_OUT"))
     if other:
-        notes.append(AFTER_INSTRUCTIONS)
+        notes.append(say("AFTER_INSTRUCTIONS"))
     if unverified:
-        notes.append(INSTRUCTION_UNVERIFIED)
+        notes.append(say("INSTRUCTION_UNVERIFIED"))
     if verified == 0:
         flags.append("UNVERIFIED")
-        notes.append(UNVERIFIED)
+        notes.append(say("UNVERIFIED"))
     pieces = [p for p in (prose, "\n".join(shown), "\n".join(notes), instructions) if p]
-    text = "\n\n".join(pieces + [READ.format(read=read), *footer])
+    text = "\n\n".join(pieces + [say("READ", read=read), *footer])
     return {"text": text, "outcome": parsed["answer"], "flags": list(dict.fromkeys(flags)), "verified": verified}
 
 
