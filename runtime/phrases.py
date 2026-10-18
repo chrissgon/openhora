@@ -38,6 +38,7 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
   localize(sentence, cfg)     an English sentence of a reminder or a file, as an operation raised it, in the project's language; any other text unchanged
   status(word, cfg)           a status word of the store as a word of the language (the word itself when unknown or the language has no table)
   heading(title, cfg)         the title of a decision that code wrote whole, as a word of the language; any other title unchanged
+  body(text, cfg)             the body of a decision that code wrote whole, in the language; any other body unchanged
 
 Standard library only. Runs on Python 3.9: python3 runtime/phrases.py --help
 """
@@ -214,7 +215,7 @@ TABLE = {
         "PLAN_NEXT": "Approve with /approve {pending}",
         "ASK_NEXT": "Answer with a plain line, or start again with /new <text>",
         "ANSWERED_AS": "(answered from the sources: request {request})",
-        "NOT_NAMED": "The planning agent did not name a flow or a skill for request {request}",
+        "BODY_NOT_NAMED": "The planning agent did not name a flow or a skill for request {request}",
         "NOT_NAMED_NEXT": "Cancel it with /cancel {request}, name a flow in the terminal with: {route}, or start again with /new <text>",
         "QUEUED_REQUEST": "Recorded as request {request}. The planning agent routes it when the run ends.",
         "PROPOSES": "The planning agent proposes: ",
@@ -336,6 +337,7 @@ STATUS = {
 
 DEFAULT = language.DEFAULT
 HEADINGS = ("TITLE_",)      # the family of keys for the headings of a decision that code writes whole
+BODIES = ("BODY_",)         # ... and for a body that code writes whole, with nothing of a person's or a model's in it
 LOCALIZED = ("ATT_", "RM_")      # the families of keys `localize` knows by their English sentence
 VALUE_FAMILIES = ("ATT_REASON_", "ATT_SUBTYPE_")      # a field of such a sentence that is itself one of these English words is translated too
 VALUE_FIELDS = ("reason", "declared", "sniffed")      # ... but only in these fields: a file named `presentation` is not a word of the table
@@ -386,17 +388,18 @@ def heads(key: str) -> list:
     return [t[key].split("[", 1)[0].strip() for t in TABLE.values() if key in t]
 
 
-def _pattern(key: str):
-    """The regular expression that matches the English sentence of `key` with any text in its fields (cached)."""
-    found = _patterns.get(key)
+def _pattern(key: str, numbers: bool = False):
+    """The regular expression that matches the English sentence of `key` with any text in its fields, or with whole numbers only (a heading or a body that code
+    writes whole holds the number of a delivery or a request and nothing else of anyone's), cached."""
+    found = _patterns.get((key, numbers))
     if found is None:
         seen, parts = set(), []
         for literal, name, _spec, _conv in string.Formatter().parse(en(key)):
             parts.append(re.escape(literal))
             if name is not None:
-                parts.append(f"(?P={name})" if name in seen else f"(?P<{name}>.+?)")
+                parts.append(f"(?P={name})" if name in seen else f"(?P<{name}>" + (r"\d+" if numbers else ".+?") + ")")
                 seen.add(name)
-        found = _patterns[key] = re.compile("".join(parts), re.S)
+        found = _patterns[(key, numbers)] = re.compile("".join(parts), re.S)
     return found
 
 
@@ -411,7 +414,7 @@ def _match(sentence, families, skip=()):
     """(key, {field: text}) of the English template of a key of `families` that equals `sentence` whole, the template with the most fixed words first; else None."""
     keys = sorted((k for k in TABLE[DEFAULT] if k.startswith(families) and not k.startswith(skip)), key=lambda k: -len(re.sub(r"\{[^}]*\}", "", en(k))))
     for key in keys:
-        found = _pattern(key).fullmatch(sentence)
+        found = _pattern(key, numbers=families in (HEADINGS, BODIES)).fullmatch(sentence)
         if found:
             return key, found.groupdict()
     return None
@@ -425,6 +428,16 @@ def heading(title, cfg=None):
         return title
     found = _match(title, HEADINGS)
     return text(found[0], cfg, **found[1]) if found else title
+
+
+def body(text_, cfg=None):
+    """The body of a decision as it is rendered for a person: when code wrote it whole (a key of the family BODY_, such as the question of an unrecognised route), in
+    the project's language; any other body, and any body in a project whose language has no table, comes back as it was. The stored body is never changed: it is
+    English in the store, the operations layer, the terminal, the MCP mode and the API, and a card's hash is made of it."""
+    if not isinstance(text_, str) or tag(cfg) not in TABLE or tag(cfg) == DEFAULT:
+        return text_
+    found = _match(text_, BODIES)
+    return text(found[0], cfg, **found[1]) if found else text_
 
 
 def localize(sentence, cfg=None):

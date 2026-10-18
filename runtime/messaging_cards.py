@@ -196,7 +196,7 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
         else:
             footer.append(page_url)
     header = header_of(project_name, item, cfg)
-    full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg)))      # the heading code wrote whole, said in the language; the hash above is made of the stored one
+    full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg), body=phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
     document = None
     whole = False
     if notices == "count":

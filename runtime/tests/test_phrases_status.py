@@ -21,16 +21,16 @@ def store_words() -> set:
     words = set()
     for body in re.findall(r"\b(?:status|state) IN \(([^)]*)\)", source, re.S):
         words |= set(re.findall(r"'([a-z_-]+)'", body))
-    for name in ("TASK_STATES", "STEP_STATES", "PENDING_STATUSES", "APPROVAL_STATUSES", "WAIT_STATUSES", "DOCUMENT_STATUSES", "COMMENT_STATUSES", "ROUTINE_STATES",
-                 "FIRE_STATUSES", "RUN_END_STATUSES", "EVENT_DONE_STATUSES", "INBOX_STATUSES", "REROUTE_STATES"):
+    for name in re.findall(r"^([A-Z_]+_(?:STATES|STATUSES)) = \(", source, re.M):         # every tuple of the kind, so that a new one is read too
         body = re.search(rf"^{name} = \(([^)]*)\)", source, re.M)
-        assert body, name
         words |= set(re.findall(r'"([a-z_-]+)"', body.group(1)))
     return words
 
 
 def test_every_status_word_the_store_admits_has_a_word_in_each_language_and_the_table_holds_no_other():
     words = store_words()
+    assert re.findall(r"^([A-Z_]+_(?:STATES|STATUSES)) = \(", (st.REPO / "providers" / "store" / "sqlite.py").read_text(encoding="utf-8"), re.M).count("REMINDER_STATUSES") == 1
+    assert phrases.STATUS["pt-BR"]["dropped"] != phrases.STATUS["pt-BR"]["discarded"], "two words of the store are two words"
     assert len(words) >= 40 and {"approved", "cancelled", "pending-execution", "read_only", "to_inbox", "requested"} <= words
     assert set(phrases.STATUS["en"]) == set(phrases.STATUS["pt-BR"]) == words, sorted(words ^ set(phrases.STATUS["pt-BR"]))
     assert all(phrases.STATUS["en"][w] == w for w in words), "English is the store's own word"

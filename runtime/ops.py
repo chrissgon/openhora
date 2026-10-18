@@ -217,7 +217,6 @@ import ops_config  # noqa: E402  (the configuration's acceptance: accept_config,
 import ops_models  # noqa: E402  (which model a run goes to: the choice, the key, the billing and the consent)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
 import ops_language  # noqa: E402  (the language of a deliverable: the check of a request's choice and the line of a run)
-import phrases  # noqa: E402  (the runtime's own sentences in the project's language)
 import language as language_rules  # noqa: E402  (the rule and the words; the operation `request` has an argument of the same name)
 import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
 import board  # noqa: E402
@@ -1908,19 +1907,19 @@ def _route_run(ctx: dict, request: dict) -> dict:
                     "payload": {"ending": "question", **common}}
         ending = "question"
     else:
-        decision = _not_recognised(store, request, body, why, common, ctx["cfg"])
+        decision = _not_recognised(store, request, body, why, common)
         ending = "unclassified"
     done = core._stored(ctx, store.route_run_finish, out["run_id"], ending=ending, pending=decision, **finish)
     out.update(status="ok", ending=ending, kind="question", pending_id=done["pending_id"])
     return out
 
 
-def _not_recognised(store, request: dict, body: str, why, common: dict, cfg=None) -> dict:
+def _not_recognised(store, request: dict, body: str, why, common: dict) -> dict:
     """The question of a reply that names no route: its body is one sentence, and the reply whole is in the payload
     (`raw`) with the two actions the page offers (`actions`: choose a flow, cancel the request)."""
     raw = body.encode("utf-8")[:ops_say.RAW_MAX].decode("utf-8", errors="ignore")
     return {"kind": "question", "title": "The route was not recognised",
-            "body": phrases.text("NOT_NAMED", cfg, request=request["id"]),
+            "body": ops_say.NOT_NAMED.format(request=request["id"]),      # stored in English; a card and the conversation say it in the language (phrases.body)
             "payload": {"ending": "unclassified", "why": why, "raw": raw, "actions": list(ops_say.NOT_NAMED_ACTIONS), **common}}
 
 
@@ -1968,7 +1967,7 @@ def _route_deliveries(ctx: dict, request: dict, parts: dict) -> dict:
     else:
         replies = "\n\n".join(f"--- delivery {n}: {e['item']} ---\n{e['reply'].rstrip()}" for n, e in enumerate(routed, 1))
         decision = _not_recognised(store, request, (why or "No delivery of the request was routed.") + "\n\n" + replies,
-                                   why or "no delivery was routed", {**call["common"], "router_runs": runs}, ctx["cfg"])
+                                   why or "no delivery was routed", {**call["common"], "router_runs": runs})
         decision["title"] = "No delivery was routed"
         kind = "question"
     done = core._stored(ctx, store.route_run_finish, out["run_id"], ending=ending, pending=decision, **call["finish"])

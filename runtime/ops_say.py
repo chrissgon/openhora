@@ -61,7 +61,7 @@ MEMORY_TAIL = "The request now:"
 PLAN_NEXT = phrases.en("PLAN_NEXT")
 ANSWERED_AS = phrases.en("ANSWERED_AS")   # what `conversation` shows in place of an answer to a reader that did not ask
 ASK_NEXT = phrases.en("ASK_NEXT")
-NOT_NAMED = phrases.en("NOT_NAMED")
+NOT_NAMED = phrases.en("BODY_NOT_NAMED")
 NOT_NAMED_ACTIONS = ["choose-flow", "cancel"]    # the words of the payload's `actions`: the page draws one button for each
 NOT_NAMED_NEXT = phrases.en("NOT_NAMED_NEXT")
 RAW_MAX = 32 * 1024                              # bytes of the router's block kept in the payload's `raw`
@@ -648,7 +648,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         reply = "\n".join(lines)
     elif (item.get("payload") or {}).get("ending") == "unclassified":
         command = core._command("route", project, request_id=request_id, flow="<name>")
-        reply = item["body"].rstrip("\n") + "\n\n" + phrases.text("NOT_NAMED_NEXT", ctx["cfg"], request=request_id, route=command)
+        reply = phrases.body(item["body"], ctx["cfg"]).rstrip("\n") + "\n\n" + phrases.text("NOT_NAMED_NEXT", ctx["cfg"], request=request_id, route=command)
     else:
         reply = item["body"].rstrip("\n") + "\n\n" + phrases.text("ASK_NEXT", ctx["cfg"])
     return reply, request_id, item["id"], True, routed.get("run_id")

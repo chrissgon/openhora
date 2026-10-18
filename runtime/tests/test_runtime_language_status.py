@@ -44,6 +44,25 @@ def test_a_heading_code_wrote_whole_is_said_on_the_card_and_in_the_list_and_the_
     assert world.texts()[-1] == ("northwind-shop: #2 pergunta: O roteador pergunta\n#3 pergunta: Hours\n#4 aceite: A entrega 2 não foi encaminhada depois do briefing")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
+def test_the_body_of_an_unrecognised_route_is_stored_in_english_and_a_card_says_it_in_the_language_with_the_hash_unchanged(world):
+    stored = ops._not_recognised(None, {"id": 3}, "the router's reply", "no route named", {})
+    assert stored["body"] == "The planning agent did not name a flow or a skill for request 3" and stored["title"] == "The route was not recognised"
+    world.config["language"] = "pt-BR"
+    world.items[6] = decision("question", 6, title=stored["title"], body=stored["body"])
+    world.items[7] = decision("question", 7, title="Hours", body="The planning agent did not name a flow or a skill for request 3, but the shop opens at nine")
+    world.bridge.tick()
+    first, second = [s["message"]["text"] for s in world.sent()]
+    assert first.startswith("northwind-shop · pergunta #6\n\nA rota não foi reconhecida\n\nO agente de planejamento não indicou um fluxo nem uma skill para o pedido 3")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert "O agente de planejamento" not in second, "a body that is not exactly the one code wrote is a person's or a model's text and is not touched"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    card = world.bridge.ledger.last_card(world.projects[0]["id"], 6, "4242")
+    assert card["content_sha256"] == cards.sha256_text(stored["title"] + "\n\n" + stored["body"]), "the card is bound to the stored text"
+    assert world.items[6]["body"] == stored["body"]
+    world.config.pop("language")
+    world.items[8] = decision("question", 8, title=stored["title"], body=stored["body"])
+    world.bridge.tick()
+    assert world.sent()[-1]["message"]["text"].startswith("northwind-shop · question #8\n\nThe route was not recognised\n\nThe planning agent did not name a flow")
+
+
 def test_the_same_decisions_in_a_project_with_no_language_or_a_tag_with_no_table_read_as_they_always_did(world):
     texts = asks(world, None)
     assert texts[0].startswith("northwind-shop · question #2\n\nThe router asks\n\nWhich flow do you want?")
