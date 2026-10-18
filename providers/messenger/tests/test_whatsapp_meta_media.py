@@ -291,13 +291,37 @@ def test_a_response_with_read1_is_read_one_receive_at_a_time_and_one_without_fal
 
 
 def test_the_descriptor_is_closed_when_the_file_object_cannot_be_made(tmp_path, monkeypatch):
+    # Not a count of the open descriptors of the process: other threads and libraries open and close their own at any time, so a count
+    # races. This records every descriptor this thread opens during save_stream (the folder's and the file's) and asserts each was closed.
     out = out_dir(tmp_path)
-    before = len(os.listdir("/dev/fd"))
+    me = threading.get_ident()
+    opened, file_fds, closed = [], [], []
+    real_open, real_close = os.open, os.close
+
+    def spy_open(*a, **k):
+        fd = real_open(*a, **k)
+        if threading.get_ident() == me:
+            opened.append(fd)
+            if k.get("dir_fd") is not None:
+                file_fds.append(fd)
+        return fd
+
+    def spy_close(fd):
+        if threading.get_ident() == me:
+            closed.append(fd)
+        return real_close(fd)
+
+    monkeypatch.setattr(meta.os, "open", spy_open)
+    monkeypatch.setattr(meta.os, "close", spy_close)
     monkeypatch.setattr(meta.os, "fdopen", lambda *a, **k: (_ for _ in ()).throw(OSError("no memory")))
-    with pytest.raises(OSError):
-        meta.save_stream(StreamResponse(BODY), out, 1000)
-    monkeypatch.undo()
-    assert len(os.listdir("/dev/fd")) == before, "no descriptor is left open"
+    try:
+        with pytest.raises(OSError):
+            meta.save_stream(StreamResponse(BODY), out, 1000)
+    finally:
+        monkeypatch.undo()
+    assert len(file_fds) == 1, "save_stream opened exactly one descriptor for the file"
+    assert len(opened) >= 2, "and one for the folder"
+    assert set(opened) <= set(closed), "every descriptor it opened was closed, so none is left open"
     assert os.listdir(out) == [], "and the empty file that was created is removed"
 
 
