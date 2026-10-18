@@ -50,7 +50,7 @@ def test_a_store_at_18_migrates_to_20_keeps_every_row_and_adds_one_table(tmp_pat
     before = [tuple(r) for r in old.execute("SELECT * FROM tasks")]
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 18 and out["applied"] == [19, 20] and out["schema_version"] == 20 == store.SCHEMA_VERSION
+    assert out["migrated_from"] == 18 and out["applied"] == [19, 20, 21] and out["schema_version"] == 21 == store.SCHEMA_VERSION
     conn = store.open_db(path)
     assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables | {"reminders"}
     assert [tuple(r) for r in conn.execute("SELECT * FROM tasks")] == before
@@ -254,7 +254,7 @@ def test_a_store_that_reached_20_without_19_gets_19_applied_and_is_refused_until
             old.execute(statement)
         old.execute("INSERT INTO schema_version VALUES (?, '2026-10-17T00:00:00.000000Z', 'x')", (version,))
     old.commit()
-    assert [r[0] for r in old.execute("SELECT version FROM schema_version ORDER BY 1")][-3:] == [17, 18, 20]
+    assert [r[0] for r in old.execute("SELECT version FROM schema_version ORDER BY 1")][-3:] == [18, 20, 21]
     old.close()
     plain = sqlite3.connect(path)
     assert store.missing_migrations(plain) == [19]
@@ -263,10 +263,10 @@ def test_a_store_that_reached_20_without_19_gets_19_applied_and_is_refused_until
         store.open_db(path)
     assert "migration 19" in str(e.value) and "run init" in str(e.value) and e.value.code == store.EXIT_NOT_CONFIGURED
     out = store.init_db(path)
-    assert out["applied"] == [19] and out["migrated_from"] == 20 and out["schema_version"] == store.SCHEMA_VERSION
+    assert out["applied"] == [19] and out["migrated_from"] == 21 and out["schema_version"] == store.SCHEMA_VERSION
     conn = store.open_db(path)
     assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'gap_probe'").fetchone() is not None
-    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY 1")][-3:] == [18, 19, 20]
+    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY 1")][-3:] == [19, 20, 21]
     assert store.init_db(path)["applied"] == []
 
 

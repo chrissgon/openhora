@@ -56,7 +56,7 @@ ON_SYSTEM_PYTHON = [
     "runtime/intake.py",
     # The sources of a project (P4): the registry, the versions, the catalog and the guardrails of the folder, and the ingest operations.
     # The document converter's provider runs a container; the host side is plain Python and runs on the scheduler's interpreter too.
-    "runtime/sources.py", "runtime/sources_onedrive.py", "runtime/ops_sources.py", "providers/converter/container.py",
+    "runtime/sources.py", "runtime/sources_onedrive.py", "runtime/sources_mail.py", "runtime/snapshot_text.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # Files sent through a messaging app (ATT-1): the limits and folders of the hold, and the operations over it.
     "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",
     # Reminders (RM-1): the pure part, the operations and the bridge's part.

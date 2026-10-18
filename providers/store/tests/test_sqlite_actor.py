@@ -69,7 +69,7 @@ def test_a_store_at_16_migrates_to_17_keeps_every_row_adds_two_columns_and_touch
     before = {t: [tuple(r) for r in old.execute(f"SELECT * FROM {t} ORDER BY 1")] for t in ("tasks", "pending_decisions", "approvals")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 16 and out["applied"] == [17, 18, 19, 20] and out["schema_version"] == 20
+    assert out["migrated_from"] == 16 and out["applied"] == [17, 18, 19, 20, 21] and out["schema_version"] == 21
     conn = store.open_db(path)
     assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables | {"attachments", "reminders"}, "migration 18 adds its one table and drops none"
     for table, names in columns.items():

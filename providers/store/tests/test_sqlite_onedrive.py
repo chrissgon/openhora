@@ -53,7 +53,7 @@ def test_a_store_at_18_migrates_to_19_keeps_every_source_and_version_and_admits_
     before = {t: old.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("sources", "source_versions", "task_sources")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 18 and out["applied"] == [19, 20] and out["schema_version"] == 20
+    assert out["migrated_from"] == 18 and out["applied"] == [19, 20, 21] and out["schema_version"] == 21
     conn = store.open_db(path)
     assert {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} == tables | {"reminders"}, "migration 19 adds no table and leaves none over (migration 20 adds the reminders)"
     assert [r[1] for r in conn.execute("PRAGMA table_info(sources)")] == columns
@@ -78,12 +78,12 @@ def test_a_store_at_18_migrates_to_19_keeps_every_source_and_version_and_admits_
     conn.execute("INSERT INTO source_versions VALUES (" + ", ".join("?" * 19) + ")", version_row("weekly"))
 
 
-def test_a_store_made_at_19_admits_the_onedrive_type_and_refuses_one_outside_the_list(tmp_path):
+def test_a_store_made_today_admits_the_onedrive_type_and_refuses_one_outside_the_list(tmp_path):
     path = tmp_path / "state" / "tasks.sqlite"
     store.init_db(path)
     conn = store.open_db(path)
-    assert store.SOURCE_TYPES == ("file", "notion", "drive", "onedrive")
+    assert store.SOURCE_TYPES == ("file", "notion", "drive", "onedrive", "mail", "calendar")
     assert store.source_add(conn, source_id="weekly", source_type="onedrive", origin=ITEM, description="The weekly note.")["origin"] == ITEM
-    with pytest.raises(store.StoreError, match="type is one of file, notion, drive, onedrive"):
+    with pytest.raises(store.StoreError, match="type is one of file, notion, drive, onedrive, mail, calendar"):
         store.source_add(conn, source_id="x", source_type="ftp", origin="y")
     assert "'onedrive'" in conn.execute("SELECT sql FROM sqlite_master WHERE name = 'sources'").fetchone()[0], "the CHECK holds the same words"

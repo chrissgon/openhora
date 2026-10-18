@@ -58,7 +58,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -674,6 +674,30 @@ MIGRATIONS = {
               OR (OLD.status = 'open' AND NEW.status NOT IN ('open', 'sending', 'cancelled', 'missed', 'dropped'))
               OR (OLD.status = 'sending' AND NEW.status NOT IN ('sending', 'sent', 'open', 'missed', 'dropped'))
             BEGIN SELECT RAISE(ABORT, 'a reminder that ended stays as it ended, and is sent only after it was claimed'); END""",
+    ]),
+    # RT-1: a mail window and a calendar window as sources. Number 20 is the reminders package's (RM-1, merged before this one): a store that applied 21 without 20, or the other way, is refused by
+    # `open_ready` (`missing_migrations`) until `_init` applies every number the store lacks, so the two can reach a store in either order. The sources table is rebuilt to admit
+    # `mail` and `calendar` exactly as migrations 14 and 19 rebuilt it: the same columns, the same two triggers, every row copied as it is (no row is
+    # rewritten, and the versions are not touched).
+    21: ("the mail and calendar source types", [
+        "PRAGMA defer_foreign_keys = ON",
+        "CREATE TABLE sources_before_21 AS SELECT * FROM sources",
+        "DROP TABLE sources",
+        """CREATE TABLE sources (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL CHECK (type IN ('file', 'notion', 'drive', 'onedrive', 'mail', 'calendar')),
+            origin TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL)""",
+        """INSERT INTO sources (id, type, origin, description, created_at, updated_at)
+            SELECT id, type, origin, description, created_at, updated_at FROM sources_before_21""",
+        "DROP TABLE sources_before_21",
+        """CREATE TRIGGER sources_never_deleted BEFORE DELETE ON sources
+            BEGIN SELECT RAISE(ABORT, 'a source is never deleted'); END""",
+        """CREATE TRIGGER sources_only_description_moves BEFORE UPDATE ON sources
+            WHEN NEW.id IS NOT OLD.id OR NEW.type IS NOT OLD.type OR NEW.origin IS NOT OLD.origin OR NEW.created_at IS NOT OLD.created_at
+            BEGIN SELECT RAISE(ABORT, 'a source keeps its id, type and origin: only its description changes'); END""",
     ]),
 }
 
@@ -1465,7 +1489,7 @@ def _language_arg(value):
 
 
 SOURCE_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
-SOURCE_TYPES = ("file", "notion", "drive", "onedrive")   # the CHECK of the sources table (migration 19) admits the same words
+SOURCE_TYPES = ("file", "notion", "drive", "onedrive", "mail", "calendar")   # the CHECK of the sources table (migration 21) admits the same words
 SOURCE_LABELS = ("import", "refresh", "changed-by-person")
 SOURCE_BYS = ("runtime", "person")
 
@@ -3732,7 +3756,7 @@ def routine_of_request(conn: sqlite3.Connection, request_id: int):
 
 
 def source_add(conn: sqlite3.Connection, *, source_id: str, source_type: str, origin: str, description: str | None = None) -> dict:
-    """Register a source: an id (lowercase letters, digits, hyphens), a type (`file`, `notion`, `drive` or `onedrive`), an origin (a file's name, or a
+    """Register a source: an id (lowercase letters, digits, hyphens), a type (`file`, `notion`, `drive`, `onedrive`, `mail` or `calendar`), an origin (a file's name, or a
     Notion page's address or id: no credential is ever kept here) and an optional description. An id taken is refused: the
     registry only grows. Returns the row."""
     if not isinstance(source_id, str) or not SOURCE_ID_RE.fullmatch(source_id):

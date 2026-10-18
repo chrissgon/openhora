@@ -57,7 +57,7 @@ def test_a_store_at_13_with_a_drive_row_migrates_to_the_type_and_the_bare_id_and
     before = {t: old.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall() for t in ("source_versions", "task_sources")}
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 13 and out["applied"] == [14, 15, 16, 17, 18, 19, 20] and out["schema_version"] == 20
+    assert out["migrated_from"] == 13 and out["applied"] == [14, 15, 16, 17, 18, 19, 20, 21] and out["schema_version"] == 21
     conn = store.open_db(path)
     rows = {r["id"]: r for r in store.sources_list(conn)}
     assert (rows["notes"]["type"], rows["notes"]["origin"]) == ("drive", DOC)

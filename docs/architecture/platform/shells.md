@@ -328,6 +328,8 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `source-refresh` | `--source` `[--file]` | `source_refresh` |
 | `source-drive` | `[--file-id]` `[--source]` `[--description]` | `source_drive` |
 | `source-onedrive` | `[--search]` `[--folder]` `[--item]` `[--source]` `[--description]` | `source_onedrive` |
+| `source-mail` | `--source` `[--origin]` `[--description]` | `source_mail` |
+| `source-calendar` | `--source` `[--origin]` `[--description]` | `source_calendar` |
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
 | `attachments` | - | `attachments` |
