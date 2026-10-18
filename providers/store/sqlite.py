@@ -58,7 +58,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -608,6 +608,30 @@ MIGRATIONS = {
               OR NEW.sha256 IS NOT OLD.sha256 OR NEW.bytes IS NOT OLD.bytes OR NEW.target IS NOT OLD.target OR NEW.label IS NOT OLD.label
               OR NEW.direct IS NOT OLD.direct OR NEW.created_at IS NOT OLD.created_at
             BEGIN SELECT RAISE(ABORT, 'an attachment leaves held once: its decision is final and the rest of the row never changes'); END""",
+    ]),
+    # O2: OneDrive files as sources. The sources table is rebuilt to admit `onedrive` exactly as migration 14 rebuilt it to admit `drive`:
+    # the same columns, the same two triggers, every row copied as it is (no row is rewritten, and the versions are not touched). The next
+    # source type (mail, calendar: RT-1) is one more migration that rebuilds the table the same way, with its word added to the CHECK and
+    # to SOURCE_TYPES below.
+    19: ("the OneDrive source type", [
+        "PRAGMA defer_foreign_keys = ON",
+        "CREATE TABLE sources_before_19 AS SELECT * FROM sources",
+        "DROP TABLE sources",
+        """CREATE TABLE sources (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL CHECK (type IN ('file', 'notion', 'drive', 'onedrive')),
+            origin TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL)""",
+        """INSERT INTO sources (id, type, origin, description, created_at, updated_at)
+            SELECT id, type, origin, description, created_at, updated_at FROM sources_before_19""",
+        "DROP TABLE sources_before_19",
+        """CREATE TRIGGER sources_never_deleted BEFORE DELETE ON sources
+            BEGIN SELECT RAISE(ABORT, 'a source is never deleted'); END""",
+        """CREATE TRIGGER sources_only_description_moves BEFORE UPDATE ON sources
+            WHEN NEW.id IS NOT OLD.id OR NEW.type IS NOT OLD.type OR NEW.origin IS NOT OLD.origin OR NEW.created_at IS NOT OLD.created_at
+            BEGIN SELECT RAISE(ABORT, 'a source keeps its id, type and origin: only its description changes'); END""",
     ]),
 }
 
@@ -1363,7 +1387,7 @@ def _language_arg(value):
 
 
 SOURCE_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
-SOURCE_TYPES = ("file", "notion", "drive")
+SOURCE_TYPES = ("file", "notion", "drive", "onedrive")   # the CHECK of the sources table (migration 19) admits the same words
 SOURCE_LABELS = ("import", "refresh", "changed-by-person")
 SOURCE_BYS = ("runtime", "person")
 
@@ -3514,7 +3538,7 @@ def routine_of_request(conn: sqlite3.Connection, request_id: int):
 
 
 def source_add(conn: sqlite3.Connection, *, source_id: str, source_type: str, origin: str, description: str | None = None) -> dict:
-    """Register a source: an id (lowercase letters, digits, hyphens), a type (`file`, `notion` or `drive`), an origin (a file's name, or a
+    """Register a source: an id (lowercase letters, digits, hyphens), a type (`file`, `notion`, `drive` or `onedrive`), an origin (a file's name, or a
     Notion page's address or id: no credential is ever kept here) and an optional description. An id taken is refused: the
     registry only grows. Returns the row."""
     if not isinstance(source_id, str) or not SOURCE_ID_RE.fullmatch(source_id):

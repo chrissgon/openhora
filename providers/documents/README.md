@@ -38,6 +38,8 @@ The token is `NOTION_TOKEN`, read only through `providers/secrets/resolver.py` (
 
 Choices made where the plan left one (the smallest call table the verbs need): no request nests children (the reference allows two levels; one call per parent block costs calls, not endpoints); the new body before the old one is deleted; a creation carries the title only, and the body follows by appends.
 
+**In the runtime (package O2).** The runtime calls this provider through `providers/resolve.py` with the minimum environment plus `ONEDRIVE_SOURCES_TOKEN` and nothing else (`runtime/sources_onedrive.py`; `docs/architecture/platform/sources.md`, rule 17). `python3 runtime/cli.py source-onedrive --project <dir> --search <text>` (or `--folder <path>`) calls `search` and `children` to list up to 25 candidates for the person's terminal and registers nothing; `source-onedrive --item <drive id>/<item id>` calls `stat` and then `read` and makes the file a source of type `onedrive`; `source-refresh` calls `stat` and reads only when `version` moved. The runtime checks `supported` before `version` (a folder prints no version). Its tests (`runtime/tests/test_sources_onedrive.py`) run this provider as a real process against `tests/fake_graph.py`.
+
 ### Calls this provider makes
 
 The one table of calls is `CALLS` at the top of `notion.py`; every row below is read from the public reference, none from memory.

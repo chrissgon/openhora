@@ -326,6 +326,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `source-import` | `--source` `[--file]` `[--url]` `[--origin]` `[--description]` | `source_import` |
 | `source-refresh` | `--source` `[--file]` | `source_refresh` |
 | `source-drive` | `[--file-id]` `[--source]` `[--description]` | `source_drive` |
+| `source-onedrive` | `[--search]` `[--folder]` `[--item]` `[--source]` `[--description]` | `source_onedrive` |
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
 | `attachments` | - | `attachments` |
