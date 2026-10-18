@@ -50,6 +50,9 @@ BEFORE = {
     "GDRIVE_SOURCES_TOKEN": ((), "gdrive-sources", ("providers/documents/gdrive.py", "providers/documents/gdrive_auth.py")),
     # O1: the OneDrive files the person chose as sources; one record (refresh token, client id, tenant), scope Files.Read.
     "ONEDRIVE_SOURCES_TOKEN": ((), "onedrive-sources", ("providers/documents/onedrive.py", "providers/documents/onedrive_auth.py")),
+    # M1: the person's Outlook mail and calendar as sources, each its own record and its own Microsoft app registration (Mail.Read; Calendars.ReadBasic).
+    "OUTLOOK_MAIL_TOKEN": ((), "outlook-mail", ("providers/mailbox/outlook.py", "providers/mailbox/outlook_auth.py")),
+    "OUTLOOK_CALENDAR_TOKEN": ((), "outlook-calendar", ("providers/calendar/outlook.py", "providers/calendar/outlook_auth.py")),
     "MESSENGER_TELEGRAM_BOT_TOKEN": ((), "messenger-telegram", ("providers/messenger/telegram.py",)),
     "MESSENGER_DISCORD_BOT_TOKEN": ((), "messenger-discord", ("providers/messenger/discord.py",)),
     "MESSENGER_WHATSAPP_CLOUD_TOKEN": ((), "messenger-whatsapp-cloud", ("providers/messenger/whatsapp-cloud.py",)),

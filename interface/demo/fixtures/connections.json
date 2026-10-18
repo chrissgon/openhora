@@ -131,6 +131,16 @@
       "where": null
     },
     {
+      "name": "OUTLOOK_CALENDAR_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "OUTLOOK_MAIL_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
       "name": "VCS_GITHUB_PR_TOKEN",
       "found": false,
       "where": null

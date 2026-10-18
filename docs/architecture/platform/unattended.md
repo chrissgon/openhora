@@ -108,6 +108,8 @@ The consent page of the Picker (`gdrive_auth.py pick`) also needs a browser; the
 
 The same seven-day expiry of a project left in "Testing" applies; `google_auth.py check` says whether a record is found without calling Google, and `google_auth.py forget` removes the local record (it does not tell Google: the app's access is also removed in the Google Account).
 
+**Outlook mail and calendar as sources** (`OUTLOOK_MAIL_TOKEN`, `OUTLOOK_CALENDAR_TOKEN`) are two more records of the same kind (JSON: refresh token, client id, tenant, scope, date; no client secret), each made by its own `uv run <workbench>/providers/mailbox/outlook_auth.py authorize` and `uv run <workbench>/providers/calendar/outlook_auth.py authorize`, with the client id of its own Microsoft app registration (one registration per purpose: Microsoft binds a refresh token to a user and a client, not to a resource), and each copied whole to the credentials directory the same way. The rotation is the OneDrive one, from the shared code (`providers/_msgraph.py`): a record in the OS secret store is rewritten after a refresh only if it still holds the token the provider used; a record in the environment or the credentials directory ages **90 days from the consent**, used or not, so a server that runs for months needs `authorize` run again, and the file copied again, before then (`outlook.py --check` prints `rotation`). The runtime side (mail and calendar as source types, with a freshness bound) is a later package (RT-1) and is not built here.
+
 ## Retention (I6)
 
 Two keys of `runtime.json`, both optional, accepted in the terminal like every key of the file:
