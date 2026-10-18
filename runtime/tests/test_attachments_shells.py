@@ -59,7 +59,8 @@ def test_the_grant_that_adds_without_a_card_is_a_widening_that_accept_config_tak
     file.write_text(json.dumps(raw))
     shown = ops.config(path)
     assert [(g["channel"], g["group"], g["sender"]) for g in shown["grants"]] == [("messaging", "add-sources-direct", f"telegram:{IDENT}")]
-    assert shown["grants"][0]["means"] == "a file a listed sender sends becomes a source of the project without a confirmation"
+    assert shown["grants"][0]["means"] == ("a file a listed sender sends becomes a new source of the project without a confirmation "
+                                           "(a file for a source that already exists still waits for a card)")
     assert [w["group"] for w in shown["widening"]] == ["add-sources-direct"] and shown["widening_sha256"], "only what the sender did not have before: add-sources was already theirs"
     with pytest.raises(ops.OpsError, match="widen"):
         ops.accept_config(path, shown["sha256"])
@@ -88,9 +89,11 @@ def test_the_terminal_has_a_verb_for_the_three_and_none_for_the_bridge_s_hold():
         assert verb in operations.terminal_verbs() and verb in cli.__doc__
     assert "attachment-hold" not in operations.terminal_verbs()
     assert operations.command_line("attachment-add", "/p", checkout=None, attachment_id=3) == "python3 runtime/cli.py attachment-add --project /p --id 3"
-    assert operations.chat_line("attachment-add", attachment_id=3) == "/attachment-add 3"
-    assert operations.parse_chat("/attachment-discard 12") == ("attachment-discard", {"attachment_id": 12})
     assert operations.parse_chat("/attachments") == ("attachments", {})
+    # a typed command never adds or discards: the conversation (and a messaging app's typed line) has no such command; the page has buttons, a phone the card's /add
+    for name in ("attachment-add", "attachment-discard", "attachment-hold"):
+        assert "chat" not in operations.by_name(name)["channels"], name
+        assert operations.parse_chat(f"/{name} 12") is None, name
 
 
 def test_the_page_lists_adds_and_discards_a_held_file_through_the_service_and_never_holds_one(case):
@@ -125,17 +128,19 @@ def test_a_page_whose_policy_does_not_list_the_group_is_refused_before_anything_
     assert "attachment-add" not in operations.permissions("page", permissions)
 
 
-def test_a_typed_command_from_the_page_s_conversation_is_checked_against_the_page_s_policy(case):
+def test_a_typed_command_never_adds_or_discards_a_held_file_from_the_page_or_from_a_phone(case):
+    """The review's reproduction: another listed sender typing `/attachment-add 1` used to add the first sender's file."""
     held = case.hold(PDF)["attachment"]["id"]
     ops_say = st.load("ops_say")
-    reply = ops_say._say_command(case.path, case.ctx, f"/attachment-add {held}", "page", 1)[0]
-    assert "Added Q3 plan.pdf as `q3-plan`, version 1." in reply
-    accept(case.path, channels={"messaging": "staff", "page": ["read", "talk"]})
-    ctx = st.load("ops_core").context(case.path)
-    other = case.hold(make_pdf("Another plan"), name="Other.pdf")["attachment"]["id"]
-    reply = ops_say._say_command(case.path, ctx, f"/attachment-discard {other}", "page", 2)[0]
-    assert reply.startswith("error: /attachment-discard is not enabled for this channel")
-    assert case.rows()[1]["status"] == "held"
+    other = "5151515151"
+    accept(case.path, messaging={"senders": {"telegram": [IDENT, other]}})
+    for channel, sender in (("page", None), ("messaging", f"telegram:{other}"), ("messaging", SENDER)):
+        for word in ("attachment-add", "attachment-discard"):
+            reply = ops_say._say_command(case.path, st.load("ops_core").context(case.path), f"/{word} {held}", channel, 1, sender)[0]
+            assert reply.startswith("Commands, one per line"), (channel, word)       # the help: the line is not a command of the conversation
+    assert case.rows()[0]["status"] == "held" and (case.data / "attachments" / "held" / "1" / "original").is_file()
+    said = ops.say(case.path, f"/attachment-add {held}", channel="messaging", sender=f"telegram:{other}")
+    assert case.rows()[0]["status"] == "held" and "Added" not in json.dumps(said)
 
 
 def test_a_macro_enabled_package_is_refused_like_a_file_the_converter_will_not_read(case, monkeypatch):

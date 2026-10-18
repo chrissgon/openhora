@@ -135,7 +135,7 @@ def build_choices() -> tuple:
 
 def test_a_chat_command_is_read_back_from_the_line_that_writes_it():
     assert [r["name"] for r in chat_rows()] == ["status", "progress", "pending", "answer", "release", "approve", "reject",
-                                                "retry", "cancel", "stop-task", "attachments", "attachment-add", "attachment-discard"]
+                                                "retry", "cancel", "stop-task", "attachments"]
     for row in chat_rows():
         for optional in (False, True):
             values = example(row, optional)

@@ -270,7 +270,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `verdict` | `verdict` | - | `page` | - | records a verdict on a skill's use |
 | `sources` | `source-add`, `source-import`, `source-refresh`, `source-describe`, `sources` | - | `page`, `mcp`, `messaging` | - | adds, imports, refreshes and describes the project's sources |
 | `add-sources` | `attachments`, `attachment-hold`, `attachment-add`, `attachment-discard` | - | `page`, `messaging` | - | takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files |
-| `add-sources-direct` | `attachment-hold` | `direct` | `messaging` | - | a file a listed sender sends becomes a source of the project without a confirmation (it implies add-sources) |
+| `add-sources-direct` | `attachment-hold` | `direct` | `messaging` | - | a file a listed sender sends becomes a new source of the project without a confirmation; a file for an existing source still waits for a card (it holds the hold alone, and adds nothing else) |
 
 A grant (`GRANTS`) widens a channel and counts only when the project's own entry for the channel lists it, never through the default policy; accepting a file that gives a channel or a sender any group the accepted file did not effectively give them, a grant or not, asks for the hash of the widening list (`accept-config --widen`).
 
@@ -281,7 +281,7 @@ A grant (`GRANTS`) widens a channel and counts only when the project's own entry
 | `messaging` | `approve-effect-send` | a messaging app may approve an e-mail sent from your outbox (never one with an attachment), from a card that carries the whole text, with its hash |
 | `messaging` | `approve-effect-publish` | a messaging app may approve a post to a social platform (never one with an image), from a card that carries the whole text, with its hash |
 | `messaging` | `approve-networked-plans` | a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash |
-| `messaging` | `add-sources-direct` | a file a listed sender sends becomes a source of the project without a confirmation |
+| `messaging` | `add-sources-direct` | a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card) |
 | `mcp` | `approve-plans` | a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain |
 | `mcp` | `approve-acceptances` | a connected AI client may accept what a request delivered or proposed: a model then authorises more work |
 | `mcp` | `reject-cancel` | a connected AI client may reject a decision and cancel a request |
