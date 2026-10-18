@@ -57,10 +57,11 @@ def warnings(cfg: dict) -> list:
     return out
 
 
-def view(effective_text, legacy_text, cfg: dict, accepted_before: bool = False) -> dict:
+def view(effective_text, legacy_text, cfg: dict, accepted_before: bool = False, accounts_text=None, secret: str = "") -> dict:
     """What `config` adds to its answer: {"grants", "widening", "widening_sha256", "warnings"} for the file as it is, accepted or not.
-    The texts are the cursors of the store (policy_widening.EFFECTIVE and LEGACY); `accepted_before` says that a file was accepted at some time."""
-    wide = policy_widening.widening(policy_widening.baseline(effective_text, legacy_text, accepted_before), policy_widening.snapshot(cfg))
+    The texts are the cursors of the store (policy_widening.EFFECTIVE and LEGACY; `accounts_text` is ACCOUNTS; `secret` is the project's key of the digests, policy_widening.KEY); `accepted_before` says that a file was accepted at some time."""
+    wide = policy_widening.widening(policy_widening.baseline(effective_text, legacy_text, accepted_before), policy_widening.snapshot(cfg), secret)
+    wide += policy_widening.account_widening(accounts_text, cfg, secret)      # FND: the accounts the platform may write to are a widening of the same kind
     return {"grants": grants(cfg), "widening": wide, "widening_sha256": policy_widening.widening_sha256(wide), "warnings": warnings(cfg)}
 
 

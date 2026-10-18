@@ -44,7 +44,10 @@ from sources import SourcesError, _clean  # noqa: E402
 
 ONEDRIVE_CLASS = "integration:documents"
 ONEDRIVE_IMPLEMENTATION = "onedrive"
-ONEDRIVE_SECRET = "ONEDRIVE_SOURCES_TOKEN"   # providers/secrets/resolver.py: the one record (refresh token, client id, tenant); read by the provider alone
+ONEDRIVE_SECRET = "ONEDRIVE_SOURCES_TOKEN"   # providers/secrets/resolver.py: the legacy record (refresh token, client id, tenant); read by the provider alone
+# What the provider is given: the account token of the person's Microsoft account first (one record, the platform's whole permission set) and, for
+# one cycle (backlog ACCT-LEGACY), the legacy record. Both are read by the provider alone, never by a run.
+ONEDRIVE_SECRETS = ("MICROSOFT_ACCOUNT_TOKEN", ONEDRIVE_SECRET)
 ONEDRIVE_TIMEOUT = 300
 ONEDRIVE_PART = re.compile(r"[A-Za-z0-9!._-]{1,200}")    # a drive id or an item id (providers/documents/onedrive.py ID_PART)
 ONEDRIVE_CONTENT = "content"                              # the name of the file the provider writes in its --out-dir
@@ -74,7 +77,7 @@ def onedrive_call(cfg: dict, verb: str, args: list, *, call=None, timeout: int =
     if call is None:
         resolver = sources._lazy("workbench_sources_resolve", os.path.join(cfg["workbench"], "providers", "resolve.py"))
         call = resolver.call
-    extra = {"env": sources._provider_env(cfg, ONEDRIVE_CLASS, (ONEDRIVE_SECRET,))} if resolver is not None else {}
+    extra = {"env": sources._provider_env(cfg, ONEDRIVE_CLASS, ONEDRIVE_SECRETS)} if resolver is not None else {}
     try:
         out = call(ONEDRIVE_CLASS, verb, args, root=cfg["workbench"], implementation=ONEDRIVE_IMPLEMENTATION, timeout=timeout, **extra)
     except Exception as e:

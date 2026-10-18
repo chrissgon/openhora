@@ -825,13 +825,13 @@ def test_limit_53_a_run_next_receives_an_old_snapshot_and_the_dispatcher_does_no
 # --- no credential anywhere ----------------------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("cls, implementation, own", [("reader:email", "gmail", ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET")),
-                                                      ("reader:email", "outlook", ("OUTLOOK_MAIL_TOKEN",)),
-                                                      ("integration:calendar", "google", ("GOOGLE_CALENDAR_TOKEN",)),
-                                                      ("integration:calendar", "outlook", ("OUTLOOK_CALENDAR_TOKEN",))])
+@pytest.mark.parametrize("cls, implementation, own", [("reader:email", "gmail", ("GOOGLE_ACCOUNT_TOKEN", "GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET")),
+                                                      ("reader:email", "outlook", ("MICROSOFT_ACCOUNT_TOKEN", "OUTLOOK_MAIL_TOKEN")),
+                                                      ("integration:calendar", "google", ("GOOGLE_ACCOUNT_TOKEN", "GOOGLE_CALENDAR_TOKEN")),
+                                                      ("integration:calendar", "outlook", ("MICROSOFT_ACCOUNT_TOKEN", "OUTLOOK_CALENDAR_TOKEN"))])
 def test_a_provider_gets_the_minimum_environment_and_its_own_secret_and_no_other(desk, monkeypatch, cls, implementation, own):
     everything = ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "OUTLOOK_MAIL_TOKEN", "GOOGLE_CALENDAR_TOKEN", "OUTLOOK_CALENDAR_TOKEN",
-                  "ONEDRIVE_SOURCES_TOKEN", "OPENROUTER_API_KEY", "VCS_GITHUB_TOKEN", "NOTION_TOKEN", "MAILBOX_OUTLOOK_API_BASE",
+                  "GOOGLE_ACCOUNT_TOKEN", "MICROSOFT_ACCOUNT_TOKEN", "GDRIVE_SOURCES_TOKEN", "ONEDRIVE_SOURCES_TOKEN", "OPENROUTER_API_KEY", "VCS_GITHUB_TOKEN", "NOTION_TOKEN", "MAILBOX_OUTLOOK_API_BASE",
                   "INTEGRATION_CALENDAR_GOOGLE_API_BASE", "GMAIL_API_BASE", "MAILBOX_PROVIDER", "INTEGRATION_CALENDAR_PROVIDER")
     for name in everything:
         monkeypatch.setenv(name, f"value-of-{name}")
@@ -893,7 +893,8 @@ def test_no_secret_is_in_a_file_of_the_sources_a_manifest_the_catalog_nor_what_a
 
 
 def test_the_environment_of_a_run_holds_no_mail_or_calendar_secret_whatever_the_model_passes(desk, monkeypatch, tmp_path):
-    names = ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "OUTLOOK_MAIL_TOKEN", "GOOGLE_CALENDAR_TOKEN", "OUTLOOK_CALENDAR_TOKEN")
+    names = ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "OUTLOOK_MAIL_TOKEN", "GOOGLE_CALENDAR_TOKEN", "OUTLOOK_CALENDAR_TOKEN",
+             "GOOGLE_ACCOUNT_TOKEN", "MICROSOFT_ACCOUNT_TOKEN")
     for name in names:
         monkeypatch.setenv(name, f"value-of-{name}")
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))

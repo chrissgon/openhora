@@ -59,6 +59,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/sources.py", "runtime/sources_onedrive.py", "runtime/sources_mail.py", "runtime/snapshot_text.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # Files sent through a messaging app (ATT-1): the limits and folders of the hold, and the operations over it.
     "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",
+    # The start of a write to the person's own accounts (FND): the one function an operation of the family calls.
+    "runtime/account_start.py",
     # Reminders (RM-1): the pure part, the operations and the bridge's part.
     "runtime/reminders.py", "runtime/ops_reminders.py", "runtime/messaging_remind.py",
     # Reminders asked in the person's own words (NR-1): the intent rows, the time parser and the language tables it reads (data, loaded by path).

@@ -332,6 +332,24 @@ From the decisions of 2026-10-17 (`SPEC-ANSWER-FROM-SOURCES`, package AQ-1 built
 - [ ] **AQ4. Chunking and retrieval for a source over 256 KiB.** A question reads at most 256 KiB of converted text and five sources. A larger source is answered only by a task; indexing waits for a real case.
   - Done when: the maintainer has a real source that needs it, and the choice (chunks by heading, a local index, or the task) is decided on that case.
 
+## Accounts
+
+From the decision of 2026-10-18 (`SPEC-SECRETARY-WRITES`, package ACCT-G built): one token for the person's own Google account, the platform's whole scope set, read first by the Gmail, Calendar and Drive providers; the restriction is the platform's.
+
+- [ ] **ACCT-LEGACY. Remove the legacy Google records.** Each Google reader still falls back, for one cycle, to its old record (`mailbox-gmail` with `gmail-client-id` and `gmail-client-secret`, `calendar-google`, `gdrive-sources`) with a warning on stderr.
+  - From: the maintainer's approval of 2026-10-18 (question 13 of `SPEC-SECRETARY-WRITES`): the old records keep working for one cycle.
+  - What: delete the fallback in `gmail.py`, `calendar/google.py` and `documents/gdrive.py`, the old `mailbox/auth.py`, `calendar/google_auth.py` and `documents/gdrive_auth.py` authorize commands, and with the full `drive` scope the Picker (`documents/gdrive_picker.py`, `gdrive_auth.py pick`, `gdrive.py pick`, the `api_key` and `project_number` of the old record, `runtime/sources.py` `pick_drive` and the Picker branch of `ops_sources.source_drive`); take the old names out of `runtime/sources_mail.py`, `sources.py` (`DRIVE_SECRETS`) and the registry; the Microsoft half (package ACCT-M) goes the same way.
+  - Trigger: the integration branch reaches `main`, then one cycle.
+  - Done when: no reader names a legacy record, the registry and `contracts/secrets.md` lose the old rows, and the maintainer has removed the old records with `keyring del openhora <username>`.
+- [ ] **HOSTED-VERIFY. Google's verification for the hosted product.** `gmail.modify` and `drive` are restricted scopes: a public app that asks for them needs restricted-scope verification, and one that stores or transmits their data on servers needs a security assessment, renewed at least every 12 months. Personal use under 100 users, development, internal Workspace use and service accounts are exceptions, so this is not a blocker now.
+  - From: `providers/accounts/README.md` ("Later: the hosted product"), sources accessed 2026-10-18.
+  - Trigger: the day a hosted product with other people's Google accounts is planned.
+  - Done when: the verification and the assessment are scheduled and costed, or the product is decided not to need them.
+- [ ] **ACCT-SLOT. A second Google account.** The record carries a `slot` (`main`, the only one) and every provider takes the slot from the record. Another account needs a registry row `GOOGLE_ACCOUNT_<S>_TOKEN` (store username `google-account-<s>`), a `--account <slot>` on every provider and an `accounts` entry or an origin that names the slot.
+  - From: `SPEC-SECRETARY-WRITES` 2.3, not built in version 1.
+  - Trigger: a person who needs two Google accounts at once.
+  - Done when: a second slot works end to end for the readers, with a test that the two tokens never mix.
+
 ## Next skills
 
 What is built next is the maintainer's call, made when a real project needs it. Two rules decide it: a skill is written alongside a real task that needs it (a release for `ops-release`, a launch for `mkt-launch-plan`), never from generic knowledge; and the cheapest come first, the flows whose phases are all built. Details per skill are in [inventory.md](inventory.md), where each row that is not built says what it produces and reads.
@@ -442,3 +460,7 @@ Not listed: the degraded-mode cases proposed for `design-execute`, `design-syste
 - [ ] **K24.** `mkt-content-plan`: a slot whose pillar has no material: an empty topic and a question that names the pillar; also the stop on a missing strategy. (group-6, mkt-content-plan, should-fix 2.)
 - [ ] **K25.** `mkt-social-copy`: a sensitive hit that blocks a post: the content file is `blocked` or not written, the reply says why; also a slot without material. (group-6, mkt-social-copy, should-fix 4.)
 - [ ] **K26.** `mkt-vote-round`: fewer than three topics with material: the reply asks for material and names the pillar, no third option invented; also nothing pending. (group-6, mkt-vote-round, should-fix 7.)
+
+## Forward notes of the writes to the person's own accounts
+
+- [ ] **W-FRAME.** The kinds of the writes to the person's own accounts that put a person's text on a card (a mail body, a note, the text of a file: W1 to W4a, fields of `phrases.CARD_MULTILINE`) frame it with their own start and end lines (`CARD_MAIL_START`/`CARD_MAIL_END`, `CARD_FILE_START`/`CARD_FILE_END`), because a multi-line field can hold a line that looks like another line of the card; and each decides whether a combining character or a no-break space in a one-line field is refused at the kind (`phrases.card_valid` refuses control, format, separator, surrogate and private-use characters only). (Review of #476, minor 2.)
