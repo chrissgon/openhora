@@ -406,3 +406,17 @@ def test_a_reader_who_cannot_approve_is_not_shown_the_line_that_says_how(desk):
     assert with_line in view("messaging", SENDER)["body"], "a reader who may approve reads it"
     assert with_line not in card_for(desk, started, ["read", "ask-mail"])["message"]["text"], "the messaging card of a reader without the grant leaves it out"
     assert with_line in card_for(desk, started, ["read", "ask-mail", "approve-effect-mailbox"])["message"]["text"]
+
+
+def test_the_private_card_of_a_mailbox_change_a_holder_reads_is_not_kept_in_the_conversation_the_mcp_mode_reads(desk):
+    """A messaging read of the card drawn for a holder of `ask-mail` (the senders and subjects of the messages) goes to that chat alone; the conversation keeps a
+    neutral word."""
+    accept(desk["path"], {"messaging": ["read", "talk", "mail-organize", "ask-mail"]})
+    started = archive(desk, channel="messaging", sender=SENDER)
+    neutral = phrases.text("NAT_READ_REPLY", None)
+    typed = ops.say(desk["path"], f"/pending {started['pending']}", channel="messaging", sender=SENDER)
+    assert "ana@clinic.example" in typed["reply"], "the holder reads the whole card"
+    ops.say(desk["path"], f"task {started['task']}", channel="messaging", sender=SENDER)
+    messages = ops.conversation(desk["path"], channel="mcp")["messages"]
+    assert [m["text"] for m in messages if m["role"] == "assistant"] == [neutral, neutral]
+    assert not any("ana@clinic.example" in m["text"] or "bob@shop.example" in m["text"] for m in messages)

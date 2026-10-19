@@ -75,7 +75,7 @@ def test_a_tier_1_form_is_checked_against_its_own_group_not_talk_and_a_plain_lin
 
 def test_the_bridge_needs_for_a_tier_1_line_is_the_group_of_the_operation(rig):
     assert rig.bridge.needs("quais arquivos voce tem?") == "sources" and rig.bridge.needs("Which market first?") is None
-    assert rig.bridge.needs("/ask qual o prazo?") == "ask" and rig.bridge.needs("aprova o plano 3") == "pending"
+    assert rig.bridge.needs("/ask qual o prazo?") == "ask" and rig.bridge.needs("aprova o pedido 7") == "pending"
 
 
 def test_a_decision_named_in_words_is_answered_and_its_card_goes_out_again_and_nothing_is_decided(rig):
@@ -85,7 +85,7 @@ def test_a_decision_named_in_words_is_answered_and_its_card_goes_out_again_and_n
     rig.bridge.notify_project(rig.project)                                         # and its card, as the bridge's tick sends it
     assert any(s["message"].get("actions") for s in rig.sent())
     cards = len([s for s in rig.sent() if s["message"].get("actions")])
-    rig.bridge.handle(rig.update(OWNER, "aprova o plano 1"))
+    rig.bridge.handle(rig.update(OWNER, "aprova a entrega 1"))
     assert wait_for(lambda: phrases.text("NAT_DECISION_CARD", None, id=1) in [s["message"]["text"] for s in rig.sent()])
     assert len([s for s in rig.sent() if s["message"].get("actions")]) == cards + 1
     assert ops.pending(rig.project["path"], 1)["status"] == "open"
@@ -117,3 +117,22 @@ def test_a_new_bridge_starts_with_no_question_open_and_the_project_key_is_the_sh
     fresh = bridge.Bridge(ops, [rig.project], providers.Messenger("telegram", root=rig.bridge.messenger.root) if hasattr(rig.bridge.messenger, "root") else rig.bridge.messenger,
                           rig.bridge.ledger, "telegram", [].append, clock=lambda: "2026-10-17T10:00:00+00:00")
     assert dict(fresh.remind.drafts) == {} and drafts.get("messaging", f"telegram:{OWNER}") is None, "lost on a restart"
+
+
+@pytest.mark.parametrize("language, line, text, when, yes", [
+    ("Spanish", "recuerdame el domingo a las 13 cortarme el pelo", "cortarme el pelo", "2026-10-25 13:00", "sí"),      # validate: allow english-only -- a foreign-language line is the input under test
+    ("Japanese", "日曜の13時に散髪を思い出させて", "散髪", "2026-10-25 13:00", "はい"),
+])
+def test_a_foreign_language_yes_confirms_a_routed_reminder_through_the_real_bridge(rig, language, line, text, when, yes):
+    """The bridge answers the question with the same yes and no lists as the operations layer (the language data: one source), so the word of a language no table
+    ships confirms the reading the router chose; before the yes nothing exists."""
+    router_says(rig.world, f"Route: none (operation)\nOperation: remind\nArgument text: {text}\nWhen: {when}\n")
+    rig.bridge.handle(rig.update(OWNER, line))
+    assert wait_for(lambda: len(rig.sent()) == 1 and not rig.bridge.exclusive), language
+    assert ops.reminders_read(rig.project["path"], channel="terminal")["open"] == []
+    router_says(rig.world, "Route: none (direct)\nNext: nothing\n")
+    rig.bridge.handle(rig.update(OWNER, yes))
+    assert wait_for(lambda: len(rig.sent()) == 2), language
+    assert rig.sent()[1]["message"]["text"].startswith("Reminder #1: ") and text in rig.sent()[1]["message"]["text"], rig.sent()[1]["message"]["text"]
+    assert [r["text"] for r in ops.reminders_read(rig.project["path"], channel="terminal")["open"]] == [text]
+    assert drafts.count() == 0

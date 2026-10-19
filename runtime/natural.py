@@ -613,10 +613,24 @@ def _complete_when(draft: dict, said: str, now, tables: list, settled: dict):
     return {"ask": _draft("time", draft["how"], f"{draft['text']} {said}".strip(), draft["text"], day=parsed.get("day"))}
 
 
+def engine_word(draft, said, languages=None):
+    """The line as the engine reads the answer to a question that asks for a confirmation: one word of the lists `yes` and `no` of the tables (a language no table
+    ships, in any script: the one source of those words is the language data) is the engine's own "yes" or "no". Any other line is returned as it is."""
+    if isinstance(said, str) and draft.get("need") in ("confirm", "forget"):
+        word = normal(said)
+        if word in words_of("yes", languages):
+            return "yes"
+        if word in words_of("no", languages):
+            return "no"
+    return said
+
+
 def complete(draft, said, now, languages=None):
     """The next line of the chat finishing `draft` (see the module's text), or None when it is not an answer to it. A short reply that does not fit is asked once
-    more (the same draft, `retries` 1) instead of being dropped."""
+    more (the same draft, `retries` 1) instead of being dropped. The yes and no words of the language data count for every caller, the bridge's and the operations
+    layer's alike (`engine_word`)."""
     tables = _tables(languages)
+    said = engine_word(draft, said, languages)
     said = said if isinstance(said, str) else ""
     need, how = draft["need"], draft["how"]
     if not said.strip() or said.lstrip().startswith("/"):
@@ -993,10 +1007,15 @@ NATURAL = {
 # the router). The only argument a form gives is an integer, the group `n`. The table of EVERY language is tried on EVERY line, as for the time words.
 LINE_WORDS = 40          # a longer line is a request, not a form
 PRIVATE = ("remind",)    # the operations whose line is the person's private words: the conversation does not store them (limit L51)
+# The only constructs a tier-1 form may use (the whitelist `check_requests` applies): literal characters, groups `( )` and `(?: )`, alternation `|`, an optional `?`, and a
+# class `[..]` of listed characters. Anything that matches an unbounded run (`.`, `*`, `+`, `{n,}`, `\w`, `\S`, a range, a look-around) is refused, so a form can only be a
+# closed phrase and a request for work that starts with the same words is never taken.
+CLOSED_FORM = re.compile(r"(?:[^\\.*+{}^$\[\]()|?]|\(\?:|\((?!\?)|\)|\||\?|\[[^\]\\^\-*+.?]+\])*")
 NUMBER = r"(?P<n>[0-9]{1,9})"          # what `{n}` stands for in a form
 REQUEST_KEYS = ("forms", "aliases", "cues", "generic", "short_stop", "yes", "no")
 _COMPILED = {}
 WHEN_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}")
+WORD_EDGE = ".,;:!?()\"'"      # punctuation around a word of the line that is not part of it
 WORD_RE = re.compile(r"[^\s]{1,200}")
 SPAN_MAX = 300           # characters of a text slot
 
@@ -1029,8 +1048,9 @@ def check_requests(table: dict) -> None:
                 if op not in CLASSES or not isinstance(forms, list) or not all(isinstance(f, str) for f in forms):
                     raise ValueError(f"{where}.forms: {op!r} is not an operation with a list of regular expressions")
                 for form in forms:
-                    if re.search(r"\.\*|\.\+", form):
-                        raise ValueError(f"{where}.forms: {form!r} has an open tail; a form is a closed phrase")
+                    if not CLOSED_FORM.fullmatch(form.replace("{n}", "")):
+                        raise ValueError(f"{where}.forms: {form!r} is not a closed phrase: a form is words, spaces, groups, `|` and `?` (and `[..]` of listed letters) with the "
+                                         "integer written `{n}`, and nothing that matches an unbounded run (`.`, `*`, `+`, `{n,}`, `\\w`, `\\S`, a range)")
                     re.compile(form.replace("{n}", NUMBER))
         elif key == "aliases":
             if not isinstance(value, list) or not all(isinstance(g, list) and all(isinstance(w, str) and w for w in g) for g in value):
@@ -1172,7 +1192,8 @@ def check_operation(name, slots: dict, when, line) -> dict:
                 return {"ok": False, "why": f"the argument {slot!r} is not a number written in the line"}
             args[param] = int(words)
         elif kind == "word":
-            if not WORD_RE.fullmatch(words) or words not in unicodedata.normalize("NFKC", line):
+            tokens = [t.strip(WORD_EDGE) for t in unicodedata.normalize("NFKC", line).split()]      # a whole word of the line, as written: never a piece inside a longer word
+            if not WORD_RE.fullmatch(words) or words not in tokens:
                 return {"ok": False, "why": f"the argument {slot!r} is not a piece of the line"}
             args[param] = words
         else:

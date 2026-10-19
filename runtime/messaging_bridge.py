@@ -688,7 +688,9 @@ class Bridge(shell_kit.Jobs):
                     return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line
             elif chat in self.remind.expired and self.remind.late(project, chat, kind, update.get("text") or ""):
                 return          # a "yes" to a question that expired is told so (NR-1)
-        if kind == "attachment":
+        if kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands":      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project)
+            self.reply(chat, self.t("HELP", project=project), project)
+        elif kind == "attachment":
             self.attach.arrived(project, chat, intent)
         elif kind in ("add", "discard"):
             self.attach.typed(project, chat, kind, intent["id"])

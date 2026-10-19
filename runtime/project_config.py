@@ -454,7 +454,7 @@ def _messaging(value, policies=None) -> dict:
     if not isinstance(senders, dict):
         raise ConfigError("runtime.json messaging.senders must be an object from a platform to a list of sender ids")
     policies = policies or {}
-    out_senders, out_profiles, checked = {}, {}, set()
+    out_senders, out_profiles, checked, holders = {}, {}, set(), {}
     for platform, entries in senders.items():
         if not isinstance(platform, str) or not PLATFORM_NAME.fullmatch(platform) or len(platform) > PLATFORM_MAX:
             raise ConfigError(f"runtime.json messaging.senders: {platform!r} is not a platform name (lowercase words joined by hyphens, at most {PLATFORM_MAX} characters)")
@@ -471,12 +471,18 @@ def _messaging(value, policies=None) -> dict:
             ids.append(sender)
             if profile:
                 named[sender] = profile
+                if "ask-mail" in policies[profile]["groups"]:
+                    holders.setdefault(profile, set()).add((platform, sender))
                 if profile not in checked:
                     checked.add(profile)
                     _check_assigned(f"messaging.senders.{platform}", "messaging", policies[profile]["groups"], profile, own=True)
         out_senders[platform] = ids
         if named:
             out_profiles[platform] = named
+    for profile, who in sorted(holders.items()):
+        if len(who) > 1:      # the text of a mailbox or a calendar is read for the person it belongs to: a profile that lists ask-mail is one person's
+            raise ConfigError(f"runtime.json messaging.senders: the profile {profile!r} lists the group 'ask-mail' and is named by {len(who)} senders; "
+                              "a profile with 'ask-mail' belongs to one sender, so give each sender who reads their own mail and calendar a profile of their own")
     if sum(len(ids) for ids in out_senders.values()) > SENDERS_MAX:
         raise ConfigError(f"runtime.json messaging.senders lists more than {SENDERS_MAX} senders in all: the record of what the file gives them "
                           "is kept in the store (a cursor of 4 KiB) and is bounded")

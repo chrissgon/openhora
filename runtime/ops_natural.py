@@ -91,6 +91,8 @@ def _answers(ctx: dict, draft: dict, said: str, owner: str):
     """What a line says to a draft, or None for a line that is not an answer. The choice of a file: its number in the list, or its id (an integer). A question about a
     reminder: the reminders' own rules decide (natural.complete); the line answers it when they say anything but 'not an answer'."""
     if owner == "ops":
+        if draft.get("project") != project_key(ctx["cfg"]["project"]):      # the store is of the process: a choice offered in another project is never answered in this one
+            return None
         word = natural.normal(said)
         digits = unicodedata.normalize("NFKC", word)
         if digits.isdigit() and 1 <= int(digits) <= len(draft["ids"]):
@@ -103,16 +105,21 @@ def _answers(ctx: dict, draft: dict, said: str, owner: str):
         return None
     if said.lstrip().startswith("/"):
         return None
-    return natural.complete(draft, _engine_word(draft, said), _clock())
+    return natural.complete(draft, said, _clock())
 
 
-def _engine_word(draft: dict, said: str) -> str:
-    """The line as the engine reads an answer: a yes or a no in a language no table ships (the lists `yes` and `no` of the tables, in any script) is the engine's own word."""
-    if draft.get("need") in ("confirm", "forget"):
-        kind = natural.confirm_kind(said)
-        if kind in ("yes", "no"):
-            return kind
-    return said
+def _expired(draft: dict) -> bool:
+    return draft.get("at") is not None and monotonic() - draft["at"] > DRAFT_TTL
+
+
+def _live(slot: tuple):
+    """This sender's draft, or None; a question about a reminder that waited more than ten minutes outside a messaging app (the page, the conversation: nothing else
+    sweeps it) is dropped here. On a messaging app the bridge sweeps its own on its tick and tells the sender a late yes is late."""
+    draft = drafts.get(*slot)
+    if draft is not None and slot[0] != "messaging" and draft.get("kind") != "which" and _expired(draft):
+        drafts.drop(*slot)
+        return None
+    return draft
 
 
 def peek(ctx: dict, said: str, channel, sender) -> bool:
@@ -120,7 +127,7 @@ def peek(ctx: dict, said: str, channel, sender) -> bool:
     if natural.match(said) is not None:
         return True
     slot = _slot(channel, sender)
-    draft, entry = drafts.get(*slot), None
+    draft = _live(slot)
     if draft is None:
         return False
     owner = "ops" if draft.get("kind") == "which" else "remind"
@@ -138,7 +145,7 @@ def needs(ctx: dict, said: str, channel, sender):
     """The operation whose group a sender must hold for this plain line to be handled here, or None (the line needs `talk`, as every plain line does): the
     group of a tier-1 form that the channel's rows list (a read or a notice its own, a decision `pending`), `ask` for the choice of a file, `remind` for the
     answer to a question about a reminder. Never an operation whose row does not list the channel: its refusal would say that a configuration turns on what none can."""
-    draft = drafts.get(*_slot(channel, sender))
+    draft = _live(_slot(channel, sender))
     if draft is not None:
         owner = "ops" if draft.get("kind") == "which" else "remind"
         if _answers(ctx, draft, said, owner) is not None:
@@ -154,6 +161,15 @@ def stored_line(ctx: dict, said: str) -> str:
     return phrases.text("NAT_PRIVATE_LINE", ctx["cfg"]) if natural.private(said) else said
 
 
+PRIVATE_READS = ("pending", "task")      # the reads that draw a decision's card or a task's pending list: the private lines of a card are drawn for a holder of ask-mail
+
+
+def keeps_private(ctx: dict, name, channel, sender) -> bool:
+    """Whether the reply of this read, drawn for THIS sender, may hold lines that only a holder of `ask-mail` reads (the recipient, the subject, the text of a mail or
+    an event): such a reply goes to the chat that asked and the conversation, which the MCP mode reads, keeps a neutral word (limit L51), typed command or words."""
+    return channel == "messaging" and name in PRIVATE_READS and bool(sender) and importlib.import_module("item_refs").may_read(ctx, "messaging", sender)
+
+
 def is_placeholder(text) -> bool:
     return isinstance(text, str) and text in phrases.every("NAT_PRIVATE_LINE") + phrases.every("NAT_PRIVATE_REPLY")
 
@@ -166,7 +182,7 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     `channel` is the carrying channel (the queue's drain already acts as the page). Fills `extras` with `stored` (the text the conversation keeps for
     the reply), `resend` (the decision whose card the bridge sends again) and `run_id` (the answer run an `ask` made)."""
     slot = _slot(channel, sender)
-    draft = drafts.get(*slot)
+    draft = _live(slot)
     if draft is not None:
         owner = "ops" if draft.get("kind") == "which" else "remind"
         answer = _answers(ctx, draft, said, owner)
@@ -204,7 +220,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         if refused:
             return f"error: {refused}"
     if cls == "R":
-        if "mcp" not in row["channels"]:      # the MCP mode reads the conversation: what it could not read itself (reminders, files people sent) is stored as a neutral word (limits L50, L51)
+        if "mcp" not in row["channels"] or keeps_private(ctx, name, channel, sender):      # the MCP mode reads the conversation: what it could not read itself (reminders, files people sent, the private lines of a card drawn for a holder of ask-mail) is stored as a neutral word (limits L50, L51)
             extras["stored"] = t("NAT_READ_REPLY")
         return _read(project, ctx, name, row, args, channel, sender)
     if cls == "N":
@@ -382,7 +398,9 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
         return _ask_draft(ctx, asked, channel, sender, "command")
     if _missing(row, args):
         return t("NAT_ASK_ID")
-    if name == "reminder-restore" or not routed:
+    if name == "reminder-restore" and routed:      # the router chose it and no code can check the choice against the line: nothing is brought back from it, the reply is the command
+        return t("NAT_TYPE_IT", command=_command(ctx, name, args, channel, channel))
+    if not routed:
         try:
             done = _call(project, row, args, channel, sender)
         except core.OpsError as e:
@@ -416,8 +434,9 @@ def _ask_draft(ctx: dict, asked: dict, channel, sender, how: str) -> str:
 
 def _complete(project: str, ctx: dict, draft: dict, answer, said: str, channel, sender, extras: dict) -> str:
     cfg = ctx["cfg"]
+    where = "terminal" if channel == "chat" else channel      # the conversation's own shell is the terminal's equal (as in `run`)
     if draft.get("kind") == "which":
-        refused = operations.refusal("ask", channel, cfg["channels"], sender=sender)      # the policy again, now, as for any operation a line reaches
+        refused = operations.refusal("ask", where, cfg["channels"], sender=sender)      # the policy again, now, as for any operation a line reaches
         if refused:
             return f"error: {refused}"
         text = draft["line"] + " @" + draft["ids"][answer - 1]
@@ -425,7 +444,7 @@ def _complete(project: str, ctx: dict, draft: dict, answer, said: str, channel, 
     # a question about a reminder, answered: the engine's rules decide (a yes makes it, a no keeps nothing, anything else is asked again or is a new line)
     extras["stored"] = phrases.text("NAT_PRIVATE_REPLY", cfg)
     name = "reminder-forget" if answer.get("forget") is not None else "remind"
-    refused = operations.refusal(name, channel, cfg["channels"], sender=sender)      # the policy again, now: the profile may have changed since the question
+    refused = operations.refusal(name, where, cfg["channels"], sender=sender)      # the policy again, now: the profile may have changed since the question
     if refused:
         return f"error: {refused}"
     text = channel != "messaging" or _notices_text(cfg)

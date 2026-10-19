@@ -57,6 +57,13 @@ def test_a_line_that_names_no_file_is_selected_as_it_always_was(cv):
     assert read(out) == ["cv-2026", "lease-contract", "meeting-notes"] and "I used" not in out["reply"]
 
 
+@pytest.mark.parametrize("line", ["what do my documents say about the deposit?", "what is the deadline in the file?", "what do the sources say about the deposit?",
+                                  "o que diz o pdf sobre o prazo?", "o que dizem os arquivos sobre o prazo?", "qual o prazo no documento?"])      # validate: allow english-only -- Portuguese lines are the input under test
+def test_a_bare_word_for_a_file_with_no_kind_of_document_is_a_general_question_answered_as_before(two, line):
+    out = ask(two, line)
+    assert out["ran"] is True and out["refusal"] is None and read(out) == ["lease-contract", "meeting-notes"] and "I used" not in out["reply"], (line, out["reply"])
+
+
 def test_two_strong_matches_are_listed_and_nothing_runs_until_the_person_chooses(two):
     add_source(two, "report-2025", REPORT_A, name="report 2025.txt")
     add_source(two, "report-2026", REPORT_B, name="report 2026.txt")

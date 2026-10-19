@@ -12,8 +12,9 @@ steer the choice: only its name, its id and the person's own description are com
 
   one    exactly one source matches strongly: it is used, and the reply says which ("I used: <name>")
   ask    several match strongly, or the only matches are weak: up to RESOLVE_LISTED candidates are listed (id, name, type, date) and the person is asked
-  none   the line names a kind of document or file (a cue) and no source matches: the reply says so (searching the person's accounts is planned, not built)
-  free   the line names no document: the question is selected as it always was (runtime/ask_select.py)
+  none   the line names a KIND of document (an alias group: cv, invoice, contract...) and no source matches: the reply says so (searching the person's accounts
+         is planned, not built)
+  free   the line names no document, or only says "file", "documents", "sources" with no kind: the question is selected as it always was (runtime/ask_select.py)
 
 A match is strong when a word of the line equals a word of the source's name or id (through an alias group), or, for a line that names a kind of document
 (a cue: "file", "document", "cv"...), when two words of the line equal two words of its description; it is weak, and again only for a line with a cue, when one
@@ -53,6 +54,13 @@ def words(text) -> list:
 def _cue(line: str) -> bool:
     group, cues = natural.aliases(), set(natural.words_of("cues"))
     return any(w in cues or w in group for w in ask_select.normal(line).split())
+
+
+def _kind(line: str) -> bool:
+    """Whether the line names a KIND of document (an alias group: cv, invoice, contract, passport...), not only the word "file": only a kind that matches nothing is
+    answered "no source matches"; a bare cue word with no source behind it is a general question and is selected as it always was."""
+    group = natural.aliases()
+    return any(w in group for w in ask_select.normal(line).split())
 
 
 def _name(row: dict) -> str:
@@ -117,7 +125,7 @@ def resolve(line: str, rows: list, snapshots: bool = False) -> dict:
     if chosen:
         chosen = chosen[:RESOLVE_LISTED]
         return {"kind": "ask", "ids": [r["id"] for r in chosen], "rows": chosen}
-    return {"kind": "none" if cue else "free", "ids": [], "rows": []}
+    return {"kind": "none" if _kind(line) else "free", "ids": [], "rows": []}
 
 
 def _newer(row: dict) -> str:

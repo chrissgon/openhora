@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
-from test_calendar_write import (SEEDED, approve, effect_doc, fgw, install_item_refs, item_of, made_event, ops, ops_core, ops_steps, operations, rows, seed_google,  # noqa: F401
+from test_calendar_write import (SEEDED, approve, effect_doc, fgw, install_item_refs, item_of, made_event, ops, ops_core, ops_steps, operations, phrases, rows, seed_google,  # noqa: F401
                                  snapshot_event, steps, world)
 from test_channel_grants import accept
 
@@ -261,3 +261,18 @@ def test_the_private_lines_of_a_calendar_card_show_and_approve_for_the_sender_wh
     other = cards.build("office", full, CAPS, channels, "text", None, operations=operations, sender=OTHER)
     assert f"The event now: {SECRET_TITLE}" in holder["message"]["text"] and holder["approvable"] is True
     assert SECRET_TITLE not in other["message"]["text"] and other["approvable"] is False, "the same channel, another sender: a partial card, not approved from here"
+
+
+def test_the_private_card_of_a_calendar_change_a_holder_reads_is_not_kept_in_the_conversation_the_mcp_mode_reads(world):
+    """A messaging read of the card drawn for a holder of `ask-mail` (the title of the event as it is now) goes to that chat alone; the conversation keeps a neutral word."""
+    from test_channel_grants_mailbox import accept as accept_holder      # the channel keeps the list without ask-mail; SENDER's profile `holder` lists it
+    made = made_event(world, title=SECRET_TITLE)
+    accept_holder(world["path"], {"messaging": ["read", "talk", "calendar-write", "ask-mail"]})
+    started = ops.event_change(world["path"], "google", f"created:{made['pending']}", title="X", channel="messaging", sender=SENDER)
+    neutral = phrases.text("NAT_READ_REPLY", None)
+    typed = ops.say(world["path"], f"/pending {started['pending']}", channel="messaging", sender=SENDER)
+    assert SECRET_TITLE in typed["reply"], "the holder reads the whole card"
+    ops.say(world["path"], f"task {started['task']}", channel="messaging", sender=SENDER)
+    messages = ops.conversation(world["path"], channel="mcp")["messages"]
+    assert [m["text"] for m in messages if m["role"] == "assistant"] == [neutral, neutral]
+    assert not any(SECRET_TITLE in m["text"] for m in messages)

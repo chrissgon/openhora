@@ -68,7 +68,10 @@ def test_a_description_counts_for_a_line_that_names_a_kind_of_document_and_one_w
 
 def test_a_line_that_names_a_kind_of_document_no_source_matches_is_none_and_one_that_names_nothing_is_free():
     assert pick("o que diz o passaporte?", [LEASE, NOTES]) == ("none", [])
-    assert pick("send me the file", [LEASE, NOTES]) == ("none", [])
+    for bare in ("what do my documents say about the deposit?", "what is the deadline in the file?", "send me the file", "what do the sources say?", "o que diz o pdf?",
+                 "o que diz o arquivo?", "o que diz o documento?"):      # validate: allow english-only -- Portuguese lines are the input under test
+        assert pick(bare, [LEASE, NOTES]) == ("free", []), f"a bare cue word names no kind of document, so the question is selected as it always was: {bare}"
+    assert pick("what does the invoice say?", [LEASE, NOTES]) == ("none", []), "a kind of document no source matches"
     assert pick("qual o prazo do contrato?", [LEASE, NOTES]) == ("free", []), "contrato is not the word contract: whole words only, no stemming"
     assert pick("how are the sales going?", CATALOG) == ("free", [])
     assert pick("", CATALOG) == ("free", [])

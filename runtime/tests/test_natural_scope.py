@@ -68,7 +68,7 @@ def test_the_bridge_asks_a_non_talk_group_only_for_a_line_code_will_certainly_ta
     bridge = rig.bridge
     assert bridge.needs("quais arquivos voce tem?", rig.project, READER) == "sources"
     assert bridge.needs("Which market first?", rig.project, READER) is None
-    assert bridge.needs("aprova o plano 3", rig.project, OWNER) == "pending"
+    assert bridge.needs("aceita o pedido 7", rig.project, OWNER) == "pending"
     assert bridge.needs("ajuda", rig.project, OWNER) is None, "the help is not a row of this channel: it needs talk, and is answered by code"
 
 
@@ -158,17 +158,17 @@ def test_the_card_goes_out_again_at_most_once_a_minute_and_the_sentence_says_so_
     clock = {"t": 100.0}
     rig.bridge.monotonic = lambda: clock["t"]
     cards = lambda: len([s for s in rig.sent() if s["message"].get("actions")])
-    rig.bridge.handle(rig.update(OWNER, "aprova o plano 1"))
+    rig.bridge.handle(rig.update(OWNER, "aprova a entrega 1"))
     assert wait_for(lambda: cards() == 1) and settled(rig)
-    rig.bridge.handle(rig.update(OWNER, "aprova o plano 1"))
+    rig.bridge.handle(rig.update(OWNER, "aprova o pedido 1"))
     assert wait_for(lambda: len(rig.sent()) == 3) and settled(rig)
     assert cards() == 1, "the second line within a minute sent no second card"
     clock["t"] += 61
-    rig.bridge.handle(rig.update(OWNER, "aprova o plano 1"))
+    rig.bridge.handle(rig.update(OWNER, "aprova a decisao 1"))
     assert wait_for(lambda: cards() == 2) and settled(rig)
     clock["t"] += 61
     monkeypatch.setattr(rig.bridge, "send_card", lambda *a, **k: False)      # a card that cannot be sent
-    rig.bridge.handle(rig.update(OWNER, "aprova o plano 1"))
+    rig.bridge.handle(rig.update(OWNER, "aprova a pendencia 1"))
     assert wait_for(lambda: rig.sent()[-1]["message"]["text"] == phrases.text("NAT_DECISION_NO_CARD", None)) and settled(rig)
 
 

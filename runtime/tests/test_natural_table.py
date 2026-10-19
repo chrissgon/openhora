@@ -120,9 +120,12 @@ def test_the_forms_are_language_data_closed_phrases_with_the_same_operations_in_
     with_n = {op for op in natural.NATURAL if any(v[0] == "int" for v in natural.NATURAL[op]["slots"].values())}
     for op, given in tables[0]["requests"]["forms"].items():
         assert any("{n}" in f for f in given) == (op in with_n and op not in {"pending", "routines", "reminder-restore", "answer"}), op
-    broken = dict(tables[0], requests={"forms": {"approve": [r"approve .*"]}})
-    with pytest.raises(ValueError, match="open tail"):
-        natural.check_requests(broken)
+    for open_ended in (r"approve .*", r"approve .+", r"show( \w+)*", r"show( \w+)+", r"show\S+", r"show\s", r"show *", r"show a+", r"show [a-z]+", r"show [a-z]", r"show{1,}",
+                       r"show a{2,}", r"show \d", r"show (?=a)", r"show (?!a)", r"show (?P<x>a)", r"^show$", r"show.", r"show\b", r"show [^a]"):
+        with pytest.raises(ValueError, match="not a closed phrase"):
+            natural.check_requests(dict(tables[0], requests={"forms": {"approve": [open_ended]}}))
+    for closed in (r"show( the)? task {n}", r"(?:show|tell me) it", r"show [ao]", r"show( it| them)?"):
+        natural.check_requests(dict(tables[0], requests={"forms": {"approve": [closed]}}))
     with pytest.raises(ValueError, match="not an operation"):
         natural.check_requests(dict(tables[0], requests={"forms": {"no-such-operation": [r"x"]}}))
     with pytest.raises(ValueError, match="requests is a dict"):
@@ -145,7 +148,7 @@ SAMPLES = {
     "connections": ["quais as conexoes", "show the connections"],
     "commands": ["ajuda", "help", "o que voce sabe fazer", "what can you do"],
     "task": ["tarefa 5", "como esta a tarefa 5", "show task 5"],
-    "approve": ["aprova o plano 12", "aprove 12", "approve plan 12", "aprova o 12", "approve decision number 12"],
+    "approve": ["aprova a entrega 21", "aprove 21", "accept delivery 21", "aceita o 21", "approve decision number 21"],
     "reject": ["rejeita o pedido 3", "reject 3"],
     "release": ["libera a entrega 9", "release delivery 9"],
     "go-ahead": ["siga com a tarefa 4", "go ahead on task 4"],
@@ -244,17 +247,17 @@ def test_a_short_phrase_that_is_a_form_reaches_it(line, op):
 
 
 @pytest.mark.parametrize("line", [
-    "escreva o post de lancamento para amanha as 9", "write the launch post for tomorrow at 9", "aprova o plano e depois publica o post",
+    "escreva o post de lancamento para amanha as 9", "write the launch post for tomorrow at 9", "aprova a entrega e depois publica o post",
     "cancela tudo", "how are we going to launch the site", "qual o prazo do contrato?", "o que diz meu CV sobre Vue?", "aprova", "approve",
     "tarefa", "para a tarefa", "responde: qual o status?", "/approve 12", "mande o resumo da semana para o time", "", "   ",
-    "approve 12 and then release 13", "aprova o plano 12 @lease",
+    "approve 21 and then release 22", "aprova a entrega 21 @lease",
 ])
 def test_a_work_request_a_command_and_a_half_form_match_no_operation(line):
     assert natural.match(line) is None, line
 
 
 def test_a_line_longer_than_a_form_is_a_request_not_a_form():
-    assert natural.match("aprova o plano 12 " + "e " * natural.LINE_WORDS) is None
+    assert natural.match("aprova o pedido 21 " + "e " * natural.LINE_WORDS) is None
 
 
 def test_needs_names_the_group_a_messaging_sender_must_hold_for_a_tier_1_line():
@@ -266,7 +269,7 @@ def test_needs_names_the_group_a_messaging_sender_must_hold_for_a_tier_1_line():
 
 
 def test_private_and_the_confirmation_words_are_the_reminders_and_the_tables():
-    assert natural.private("me lembra amanha as 13h do corte de cabelo") and natural.private("remind me tomorrow at 1pm to call mom")
+    assert natural.private("me lembra amanha as 15h de buscar a encomenda") and natural.private("remind me tomorrow at 2pm to water the plants")
     assert not natural.private("what files do you have?") and not natural.private("quais lembretes eu tenho?")
     for yes in ("yes", "sim", "Sim.", "ok", "はい", "si", "oui", "да"):
         assert natural.confirm_kind(yes) == "yes", yes
@@ -298,7 +301,7 @@ def test_the_questions_and_replies_of_a_reminder_are_said_in_one_place_in_the_pr
 
 # --- believing what a router named ----------------------------------------------------------------------------------------------------------------
 
-LINE = "me lembra amanha às 13h do corte de cabelo"
+LINE = "me lembra amanha às 15h de buscar a encomenda"
 
 
 def check(name, slots=None, when=None, line=LINE):
@@ -337,13 +340,18 @@ def test_a_word_slot_is_a_piece_of_the_line_as_written_and_an_invented_path_is_r
     assert check("artifact", {"path": "docs/plans/other.md"}, line=line)["ok"] is False
     assert check("artifact", {"path": "../../etc/passwd"}, line=line)["ok"] is False
     assert check("artifact", {"path": "docs/plans/launch.md and more"}, line=line)["ok"] is False
+    assert check("artifact", {"path": "docs/plans"}, line=line)["ok"] is False, "a piece inside a longer word is not a word of the line"
+    assert check("artifact", {"path": "launch.md"}, line=line)["ok"] is False
+    assert check("artifact", {"path": "docs/plans/launch.md"}, line="mostra docs/plans/launch.md.")["ok"] is True, "a full stop that ends the line is not part of the word"
+    assert check("costs", {"since": "2026-10-01"}, line="what did it cost since 2026-10-01?")["ok"] is True
+    assert check("costs", {"since": "2026-10"}, line="what did it cost since 2026-10-01?")["ok"] is False
 
 
 def test_a_text_is_a_span_of_the_normalised_line_in_any_script_and_a_text_the_line_does_not_hold_is_refused():
-    assert check("remind", {"text": "corte de cabelo"})["args"] == {"text": "corte de cabelo"}
-    assert check("remind", {"text": "Corte de Cabelo"})["ok"] is True, "case is the person's own spelling"
+    assert check("remind", {"text": "buscar a encomenda"})["args"] == {"text": "buscar a encomenda"}
+    assert check("remind", {"text": "Buscar a Encomenda"})["ok"] is True, "case is the person's own spelling"
     assert check("remind", {"text": "cortar o cab\u00ealo"}, line="me lembra de cortar o cabelo")["ok"] is True, "and so are accents"
-    assert check("remind", {"text": "CORTE DE CABELO."})["ok"] is True
+    assert check("remind", {"text": "BUSCAR A ENCOMENDA."})["ok"] is True
     assert check("remind", {"text": "cortar o cabelo"})["ok"] is False
     assert check("remind", {"text": ""})["ok"] is False
     assert check("remind", {"text": "x" * 301}, line="x" * 400)["ok"] is False
@@ -356,10 +364,10 @@ def test_a_text_is_a_span_of_the_normalised_line_in_any_script_and_a_text_the_li
 
 
 def test_a_when_line_has_the_shape_of_a_date_and_a_time_and_only_a_row_with_a_time_takes_one():
-    assert check("remind", {"text": "corte de cabelo"}, when="2026-10-19 13:00")["when"] == "2026-10-19 13:00"
+    assert check("remind", {"text": "buscar a encomenda"}, when="2026-10-19 13:00")["when"] == "2026-10-19 13:00"
     for bad in ("2026-10-19", "19/10/2026 13:00", "2026-10-19 13:00:00", "tomorrow 13:00", "2026-10-19T13:00", "2026-13-40 25:61", "2026-02-30 10:00",
                 "2026-10-19  13:00", " 2026-10-19 13:00"):
-        assert check("remind", {"text": "corte de cabelo"}, when=bad)["ok"] is False, bad
+        assert check("remind", {"text": "buscar a encomenda"}, when=bad)["ok"] is False, bad
     assert check("sources", when="2026-10-19 13:00", line="what files do you have")["ok"] is False
     assert check("ask", when="2026-10-19 13:00", line="what does it say?")["ok"] is False
     assert check("remind", {"when": "2026-10-19 13:00"})["ok"] is False, "a time is the When line, never an Argument line"

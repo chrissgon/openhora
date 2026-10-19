@@ -185,7 +185,7 @@ def test_the_bridge_asks_the_group_of_the_form_and_not_talk_for_a_tier_1_line_an
     stand = type("B", (), {"ops": ops})()
     needs = bridge.Bridge.needs
     assert needs(stand, "what files do you have?") == "sources"
-    assert needs(stand, "aprova o plano 3") == "pending"
+    assert needs(stand, "aprova o pedido 7") == "pending"
     assert needs(stand, "/ask qual o prazo?") == "ask"
     assert needs(stand, "/pending") is None
     assert needs(stand, "escreva o post de lancamento") is None
@@ -199,7 +199,7 @@ def test_a_decision_named_in_words_decides_nothing_and_sends_its_card_again_on_a
     with_senders(world)
     made = phone(world, "owner", "Which market first?")
     plan_id = made["pending_id"]
-    out = phone(world, "owner", f"aprova o plano {plan_id}")
+    out = phone(world, "owner", f"aprova a entrega {plan_id}")
     assert out["resend"] == plan_id and out["ran"] is False and out["reply"] == phrases.text("NAT_DECISION_CARD", None, id=plan_id)
     assert ops.pending(world["path"], plan_id)["status"] == "open" and ops.status(world["path"])["requests"][0]["state"] == "requested"
     for verb in ("rejeita o pedido", "libera a entrega", "approve", "reject", "release"):
@@ -210,10 +210,10 @@ def test_a_decision_named_in_words_decides_nothing_and_sends_its_card_again_on_a
 
 def test_a_decision_named_in_words_on_the_page_points_to_its_command_and_decides_nothing(world):
     plan_id = say(world, "Which market first?")["pending_id"]
-    out = say(world, f"aprova o plano {plan_id}")
+    out = say(world, f"aprova a entrega {plan_id}")
     assert out["reply"] == phrases.text("NAT_DECISION_TYPED", None, command=f"/approve {plan_id}") and "resend" not in out
     assert ops.pending(world["path"], plan_id)["status"] == "open"
-    gone = say(world, "aprova o plano 99")["reply"]
+    gone = say(world, "aceita a decisao 99")["reply"]
     assert gone == phrases.text("NAT_NO_DECISION", None, id=99)
 
 

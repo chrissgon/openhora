@@ -226,7 +226,11 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
     instructions (runtime/ops_instructions.py proposal) that an answer to the router's question may end with: its text
     closes the reply, and the line is the person's own text, never the reply's."""
     if said.startswith("/"):
-        return (*_say_command(project, ctx, said, channel, line_id, sender), None)
+        out = _say_command(project, ctx, said, channel, line_id, sender)
+        parsed = operations.parse_chat(said)
+        if extras is not None and parsed is not None and ops_natural.keeps_private(ctx, parsed[0], channel, sender):      # the card's private lines were drawn for this sender: the conversation keeps a word
+            extras["stored"] = phrases.text("NAT_READ_REPLY", ctx["cfg"])
+        return (*out, None)
     talks = may_talk(ctx, channel, sender)
     asked = _router_question(ctx, _last_request(ctx)) if talks else None      # a sender who may not talk never answers the router's question
     if asked is None and state_question(said):
@@ -559,6 +563,15 @@ def _drain_line(project: str, ctx: dict, message_id: int) -> dict:
 
 def _drain_route(project: str, ctx: dict, request_id: int) -> dict:
     done = _ops()._route_request(ctx, request_id)
+    if done.get("kind") == "operation":      # the router named an operation of the table (NR-2): not dropped, and not left on "Route it": it is answered as a line would be
+        import ops_cancel
+        line = person_line(core._stored(ctx, ctx["store"].task_get, request_id)["text"])
+        core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:operation", context=ctx)
+        extras = {}
+        reply = ops_natural.run_routed(project, ctx, done["operation"], line, _natural_channel(DRAIN), None, extras)
+        core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant",
+                     text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), run_id=extras.get("run_id", done.get("run_id")))
+        return {"routed": "route", "request_id": request_id, "pending_id": None, "ran": True, "operation": done["operation"]["name"]}
     return {"routed": "route", "request_id": request_id, "pending_id": done.get("pending_id"), "ran": True}
 
 
