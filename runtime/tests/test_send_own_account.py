@@ -333,17 +333,24 @@ def test_an_attachment_changed_after_the_card_stops_the_send_and_asks_again_abou
     assert approve(world, again)["task_state"] == "done" and len(world["gmail"].sent) == 1
 
 
-def test_what_the_mailer_will_not_take_is_refused_at_the_start_with_its_own_sentence_and_nothing_is_made(world):
+def test_what_the_mailer_will_not_take_is_refused_at_the_start_with_its_own_sentence_to_the_caller_and_the_note_keeps_the_fixed_one(world):
     big = Path(world["path"]) / "docs" / "outputs" / "big.pdf"
     big.write_bytes(b"x" * (3 * 1024 * 1024 + 1))
     error = refused(world, attach=["docs/outputs/big.pdf"])
-    assert "an attachment over the size it takes" in str(error) and "big.pdf" not in str(error) and "error:" not in str(error)      # the step's own sentence: a file name is the person's
-    nothing_made(world)
+    assert "the attachment big.pdf is over 3145728 bytes" in str(error) and "error:" not in str(error), "the person at the terminal reads the mailer's exact words"
+    tasks, pending = rows(world)
+    assert pending == [] and {t["state"] for t in tasks} <= {"cancelled", "failed"}
+    kept = json.dumps([[t["note"], (t["step_state"] or {}).get("failure")] for t in tasks], default=str)      # the stored note and failure (the arguments are the request itself)
+    assert "big.pdf" not in kept and step_send_email.REFUSED_NEXT_OWN in kept, "the stored note and failure keep the fixed sentence"
+    assert world["gmail"].requests == [] and world["graph"].requests == []
     graph_big = Path(world["path"]) / "docs" / "outputs" / "graph.pdf"
     graph_big.write_bytes(b"x" * (2560 * 1024 + 1))
     error = refused(world, send, "microsoft", attach=["docs/outputs/graph.pdf"])
-    assert "over the size" in str(error) and "graph.pdf" not in str(error)
-    nothing_made(world)
+    assert "graph.pdf is over" in str(error)
+    accept(world["path"], {"messaging": ["read", "mail-send"]})      # a caller who may not read the person's mail gets the fixed sentence
+    error = refused(world, attach=["docs/outputs/big.pdf"], channel="messaging", sender=SENDER)
+    assert step_send_email.REFUSED_NEXT_OWN in str(error) and "big.pdf" not in str(error)
+    assert "big.pdf" not in json.dumps([[t["note"], (t["step_state"] or {}).get("failure")] for t in rows(world)[0]], default=str)
 
 
 # --- the arguments ---------------------------------------------------------------------------------------------------------------------------
@@ -558,7 +565,8 @@ def test_a_messaging_sender_prepares_with_the_group_and_names_a_snapshot_only_wi
     card = cards.build("office", full, CAPS, ops.config(world["path"])["channels"], "text", None, operations=operations)
     assert card["approvable"] is False, "the grant is not accepted yet"
     accept(world["path"], {"messaging": ["read", "mail-send", "approve-effect-send-own"]})
-    card = cards.build("office", full, CAPS, ops.config(world["path"])["channels"], "text", None, operations=operations, sender=SENDER)
+    reader_of_mail = {"messaging": [*ops.config(world["path"])["channels"]["messaging"], "ask-mail"]}      # the card is whole only for a reader of the mail
+    card = cards.build("office", full, CAPS, reader_of_mail, "text", None, operations=operations, sender=SENDER)
     assert card["approvable"] is True and card["whole"] is True and "Approve this exact content" in [a["label"] for a in card["message"]["actions"]]
     for line in (f"To: {TO}", f"Subject: {SUBJECT}", "\u2502 Hello Ana,"):
         assert line in card["message"]["text"], line
@@ -699,7 +707,7 @@ def test_the_seam_a_step_is_given_can_only_ask_for_a_dry_run_never_a_send(world)
 # --- the review of the first version -------------------------------------------------------------------------------------------------
 
 
-def test_the_grant_of_the_outboxs_e_mail_does_not_cover_an_e_mail_from_an_own_account(world):
+def test_the_grant_of_the_outboxs_e_mail_does_not_cover_an_e_mail_from_an_own_account(world, monkeypatch):
     accept(world["path"], {"messaging": ["read", "mail-send", "approve-effect-send"]})
     started = send(world, channel="messaging", sender=SENDER)
     full = ops.pending(world["path"], started["pending"])
@@ -711,6 +719,10 @@ def test_the_grant_of_the_outboxs_e_mail_does_not_cover_an_e_mail_from_an_own_ac
     assert "approve-effect-send-own" in str(no.value) and world["gmail"].requests == []
     accepted = accept(world["path"], {"messaging": ["read", "mail-send", "approve-effect-send", "approve-effect-send-own"]})
     assert [w["group"] for w in accepted["widened"]] == ["approve-effect-send-own"], "giving it needs accept-config --widen"
+    with pytest.raises(ops.OpsError) as unread:
+        approve(world, started, "messaging")
+    assert "ask-mail" in str(unread.value) and world["gmail"].requests == [], "the grant is not enough: the card has lines only a reader of the mail is shown"
+    monkeypatch.setattr(item_refs, "may_read", lambda ctx, channel, sender=None: True)      # stands in for a sender whose profile lists `ask-mail` (NR-2 adds the group)
     assert approve(world, started, "messaging")["task_state"] == "done"
     assert operations.GROUPS["approve-effect-send-own"] == {"operations": ("approve",), "kind": "effect:send-own"} and "send-own" in operations.EFFECT_APPROVAL_WORDS
     assert "approve-effect-send-own" in operations.IMPLIED["approve-effects"] and "approve-effect-send-own" in operations.GRANTS["messaging"]
@@ -793,13 +805,20 @@ def card_for(world, started, groups, channel=None):
     return cards.build("office", full, CAPS, {"messaging": groups}, "text", None, operations=operations, sender=SENDER)
 
 
-def test_every_line_of_a_reply_card_that_shows_the_message_answered_is_private_and_a_new_email_has_none(world):
+def test_every_line_that_shows_who_an_email_goes_to_what_it_says_or_which_files_it_carries_is_private_and_the_count_and_the_hash_are_not(world):
     private = set(phrases.CARD_PRIVATE)
-    assert {"CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY"} <= private
+    reply_keys = ["CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY", "CARD_MAIL_MESSAGE"]
+    new_keys = ["CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT"]
+    assert set(reply_keys + new_keys + ["CARD_MAIL_BCC"]) <= private
     answered = reply(world)
-    keys = [key for key, _ in item_of(world, answered)["payload"]["card"]]
-    assert [k for k in keys if k in private] == ["CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY"]
-    assert [key for key, _ in item_of(world, send(world))["payload"]["card"] if key in private] == [], "the person's own subject is never private"
+    assert [k for k, _ in item_of(world, answered)["payload"]["card"] if k in private] == reply_keys
+    written = send(world, cc="lee@client.example", attach=[PATH])
+    assert [k for k, _ in item_of(world, written)["payload"]["card"] if k in private] == new_keys
+    microsoft = send(world, "microsoft", bcc="hidden@client.example")
+    assert "CARD_MAIL_BCC" in [k for k, _ in item_of(world, microsoft)["payload"]["card"] if k in private]
+    kept = [k for k, _ in item_of(world, written)["payload"]["card"] if k not in private]
+    for key in ("CARD_MAIL_SEND", "CARD_MAIL_FROM_ACCOUNT", "CARD_MAIL_COUNT", "CARD_MAIL_ATTACHMENTS", "CARD_MAIL_HASH", "CARD_MAIL_APPROVE", "CARD_MAIL_ONCE"):
+        assert key in kept, key
 
 
 def test_a_reply_card_shows_what_the_message_says_only_to_a_messaging_reader_who_holds_ask_mail_and_is_not_approvable_without(world):
@@ -827,7 +846,7 @@ def test_the_mcp_mode_and_a_messaging_reader_without_ask_mail_read_a_reply_witho
 
 
 def test_the_reading_right_is_bound_into_the_step_and_a_plan_or_a_flow_cannot_carry_the_arguments_of_an_own_account_email(world):
-    started = reply(world, channel="messaging", sender=SENDER) if False else reply(world)
+    started = reply(world)
     ctx = ops_core.context(world["path"])
     task = ctx["store"].task_get(ctx["conn"], started["task"])
     assert task["step_args"]["channel"] == "terminal" and "sender" not in task["step_args"]
@@ -927,9 +946,11 @@ def test_the_mailers_own_sentence_never_reaches_the_note_of_the_task_but_the_ref
 def test_the_result_the_description_and_the_approval_of_an_email_from_an_own_account_hold_no_recipient_subject_or_sender_id(world):
     accept(world["path"], {"messaging": ["read", "mail-send", "approve-effect-send-own"]})
     new = send(world, channel="messaging", sender=SENDER, cc="lee@client.example")
-    approve(world, new, "messaging")
     answered = reply(world)
-    approve(world, answered, "messaging")
+    with pytest.MonkeyPatch.context() as reader:      # the sender who approves holds the right to read (the group ask-mail comes with NR-2)
+        reader.setattr(item_refs, "may_read", lambda ctx, channel, sender=None: True)
+        approve(world, new, "messaging")
+        approve(world, answered, "messaging")
     ctx = ops_core.context(world["path"])
     cfg = ctx["cfg"]
     for started in (new, answered):
@@ -945,7 +966,64 @@ def test_the_result_the_description_and_the_approval_of_an_email_from_an_own_acc
             "sent", "replayed", "message_id", "recipients", "attachments", "bytes", "idempotency_key", "account", "reply", "service_message_id"}
         for channel, sender in BLIND:
             shown = json.dumps([ops.pending(world["path"], started["pending"], channel=channel, sender=sender), ops.task(world["path"], started["task"], channel=channel, sender=sender)["pending"]])
-            for word in (TO, "lee@client.example", "4242", "ana@clinic.example", "desk@clinic.example", "Appointment confirmed"):
-                if started is new and word in (TO, "lee@client.example"):
-                    continue      # the card of a new e-mail is the asker's own text: what the person approves
+            for word in (TO, "lee@client.example", SUBJECT, "Hello Ana", "4242", "ana@clinic.example", "desk@clinic.example", "Appointment confirmed"):
                 assert word not in shown, (channel, sender, started["task"], word)
+
+
+# --- the card of an e-mail is private: whole for a reader of the mail, for the terminal and the page; nowhere else, and approved only where it is whole -------------------
+
+
+def test_the_card_of_a_new_email_is_read_whole_by_the_terminal_the_page_and_a_reader_of_the_mail_and_by_no_other_view(world, monkeypatch):
+    started = send(world, cc="lee@client.example", attach=[PATH])
+    words = (TO, "lee@client.example", SUBJECT, "Hello Ana", "See you on Monday", "cv.pdf")
+    sha = item_of(world, started)["payload_sha256"]
+    for channel in (None, "terminal", "page", "chat"):
+        whole = ops.pending(world["path"], started["pending"], channel=channel)
+        for word in words:
+            assert word in whole["body"], (channel, word)
+        assert any(word in json.dumps(ops.task(world["path"], started["task"], channel=channel)) for word in words)
+    for channel, sender in BLIND:
+        views = [ops.pending(world["path"], started["pending"], channel=channel, sender=sender), ops.pending(world["path"], channel=channel, sender=sender),
+                 ops.task(world["path"], started["task"], channel=channel, sender=sender), ops.status(world["path"])]
+        text = json.dumps(views)
+        for word in words:
+            assert word not in text, (channel, sender, word)
+        shown = views[0]
+        assert "not shown here" in shown["body"] and "Recipients in all: 2" in shown["body"] and sha in shown["body"], "the count, the hash and the way to approve stay"
+        assert all(key not in phrases.CARD_PRIVATE for key, _ in shown["payload"]["card"]) and shown["payload_sha256"] == sha
+    monkeypatch.setattr(item_refs, "may_read", lambda ctx, channel, sender=None: channel == "messaging" and sender == SENDER)      # a sender whose profile lists `ask-mail` (NR-2 adds the group)
+    held = ops.pending(world["path"], started["pending"], channel="messaging", sender=SENDER)
+    for word in words:
+        assert word in held["body"], word
+    assert "not shown here" not in held["body"]
+    assert "cv.pdf" not in json.dumps(ops.pending(world["path"], started["pending"], channel="mcp")), "the MCP mode never reads it, whoever asks"
+    assert "cv.pdf" not in json.dumps(ops.pending(world["path"], started["pending"], channel="messaging", sender=OTHER))
+
+
+def test_a_card_with_private_lines_is_approved_from_messaging_only_by_a_reader_of_the_mail_at_the_operations_layer_too(world, monkeypatch):
+    accept(world["path"], {"messaging": ["read", "mail-send", "approve-effect-send-own"]})
+    started = send(world, channel="messaging", sender=SENDER)
+    answered = reply(world)
+    for card in (started, answered):
+        with pytest.raises(ops.OpsError) as no:
+            approve(world, card, "messaging")
+        assert "ask-mail" in str(no.value) and "terminal or on the page" in str(no.value), card
+        with pytest.raises(ops.OpsError):
+            approve(world, card, "mcp")
+    assert world["gmail"].requests == [] and item_of(world, started)["status"] == "open" and item_of(world, answered)["status"] == "open"
+    ctx = ops_core.context(world["path"])
+    item = item_of(world, started)
+    facts = ops_grants.effect_facts(ctx, item)
+    assert "ask-mail" in ops_grants.effect_refusal(ctx, item, "messaging", facts, SENDER)
+    assert ops_grants.effect_refusal(ctx, item, "terminal", facts) is None and ops_grants.effect_refusal(ctx, item, "page", facts) is None
+    assert ops_grants.has_private_lines(item) and not ops_grants.has_private_lines({"payload": {}}) and not ops_grants.has_private_lines({"payload": {"card": [["CARD_MAIL_ONCE", {}]]}})
+    channels = ops.config(world["path"])["channels"]
+    plain = cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, channels, "text", None, operations=operations, sender=SENDER)
+    assert plain["approvable"] is False and "Approve this exact content" not in [a["label"] for a in plain["message"]["actions"]], "the bridge says the same"
+    monkeypatch.setattr(item_refs, "may_read", lambda ctx, channel, sender=None: channel == "messaging")      # a sender who holds `ask-mail`
+    assert ops_grants.effect_refusal(ctx, item, "messaging", facts, SENDER) is None
+    reader = {"messaging": [*channels["messaging"], "ask-mail"]}
+    whole = cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, reader, "text", None, operations=operations, sender=SENDER)
+    assert whole["approvable"] is True and TO in whole["message"]["text"] and SUBJECT in whole["message"]["text"]
+    assert approve(world, started, "messaging")["task_state"] == "done" and approve(world, answered, "terminal")["task_state"] == "done"
+    assert len(world["gmail"].sent) == 2

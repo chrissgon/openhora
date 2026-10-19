@@ -92,11 +92,12 @@ BUILTIN = re.compile(r"step_[a-z0-9_]+\.py")
 
 class StepFailure(Exception):
     """A step that stopped: a closed `code`, the `field` it names (never text), the `provider` word and what to do next
-    (`next`: a command the person runs, or one fixed sentence)."""
+    (`next`: a command the person runs, or one fixed sentence). `detail` is the exact sentence of a service, which may quote an address, a subject or a file
+    name: it is returned to the one who started the step (the engine's result) and is never stored, in the task's note or in its state (W2)."""
 
-    def __init__(self, code: str, field: str = "", provider: str = "", next: str = ""):
+    def __init__(self, code: str, field: str = "", provider: str = "", next: str = "", *, detail: str = ""):
         super().__init__(f"{code} {field}".strip())
-        self.code, self.field, self.provider, self.next = code, field, provider, next
+        self.code, self.field, self.provider, self.next, self.detail = code, field, provider, next, detail
 
 
 class Cancelled(Exception):
@@ -338,7 +339,7 @@ def vet(project: str, kind_name: str, args, protected=lambda path: False) -> Non
 
 
 ACCOUNT_ARGS = {"send-email": ("account", "reply", "reply_pin", "channel", "sender")}      # a kind that is also a plain kind (the outbox's send) and has arguments only an operation writes (W2)
-ACCOUNT_WORDS = ("calendar", "mailbox", "files")      # the effect words of a write to the person's own accounts (runtime/account_start.py WORDS)
+ACCOUNT_WORDS = ("calendar", "mailbox", "files")      # the gate words of a step kind that is only ever a write to the person's own accounts; account_start.WORDS also holds `send`, whose kind `send-email` is the outbox's too and is told apart by ACCOUNT_ARGS
 
 
 ACCOUNT_ARGS_SHOWN = ("operation", "account", "calendar", "folder", "event", "file", "attachment")      # the arguments of an account write that are closed words, names `accounts` gives and ids
@@ -623,7 +624,7 @@ def run(ctx: Context, kind: Kind, state: dict) -> dict:
         except Cancelled:
             return {"ok": False, "failed": None, "code": "cancelled", "field": "", "next": "", "steps": summary(kind, state)}
         return {"ok": False, "failed": name, "code": state["failure"]["code"], "field": state["failure"]["field"],
-                "next": failure.next, "steps": summary(kind, state)}
+                "next": failure.next, **({"detail": failure.detail} if failure.detail else {}), "steps": summary(kind, state)}
     except Cancelled:
         return {"ok": False, "failed": None, "code": "cancelled", "field": "", "next": "", "steps": summary(kind, state)}
     return {**result, "steps": summary(kind, state)}

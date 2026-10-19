@@ -368,7 +368,7 @@ Every verb also takes `--project <dir>`. The parser is built from `terminal_verb
 | `/help` | list the commands |
 | `/status` | requests, tasks and what waits for you |
 | `/progress [since]` | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
-| `/pending [id]` | what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows) |
+| `/pending [id]` | what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows, nor the addresses, the subject, the text and the attachment names of an e-mail card) |
 | `/answer <id> <text>` | answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page |
 | `/release <id>` | release a delivery (it stays a draft) |
 | `/approve <id> [sha256]` | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved with its hash, in the terminal, on the page, or on a messaging app the project grants that effect's word (from a card that carried the whole text) |

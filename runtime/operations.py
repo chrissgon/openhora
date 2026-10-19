@@ -116,7 +116,7 @@ OPERATIONS = (
     {"name": "pending", "call": "pending",
      "args": ({"name": "pending_id", "kind": "int", "flag": "id"},),
      "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False, "channel_arg": True,
-     "help": "what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows)"},
+     "help": "what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows, nor the addresses, the subject, the text and the attachment names of an e-mail card)"},
     {"name": "answer", "call": "answer_proposing",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"},
               {"name": "text", "kind": "text", "required": True},

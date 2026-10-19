@@ -228,3 +228,22 @@ def test_the_result_of_a_created_event_shows_the_messaging_sender_who_asked_to_n
     terminal = made_event(world, title="Dentist visit")
     assert "asker" not in ops.pending(world["path"], terminal["pending"], channel="mcp")["payload"]["result"], "always, also when the asker was the terminal"
     assert ops.pending(world["path"], terminal["pending"], channel="page")["payload"]["result"]["asker"] == "terminal"
+
+
+# --- a card with the current text of an event is approved from messaging only by a reader of the calendar, at the operations layer too ---------------------------------
+
+
+def test_the_cancel_card_of_an_event_is_not_approved_from_messaging_by_a_sender_who_may_not_read_the_calendar_and_is_by_a_reader(world, monkeypatch):
+    accept(world["path"], {"messaging": ["read", "calendar-write", "approve-effect-calendar"]})
+    own = ops.event_create(world["path"], "google", SECRET_TITLE, "2026-10-21T12:00", channel="messaging", sender=SENDER)
+    assert approve(world, own, "messaging")["task_state"] == "done", "the card of a new event carries only what the sender wrote"
+    cancel = ops.event_cancel(world["path"], "google", f"created:{own['pending']}", channel="messaging", sender=SENDER)
+    item = item_of(world, cancel)
+    assert ops_grants.has_private_lines(item), "the card shows the title as the service holds it now"
+    with pytest.raises(ops.OpsError) as no:
+        approve(world, cancel, "messaging")
+    assert "ask-mail" in str(no.value) and item_of(world, cancel)["status"] == "open"
+    with pytest.raises(ops.OpsError):
+        approve(world, cancel, "mcp")
+    monkeypatch.setattr(ops_grants.item_refs, "may_read", lambda ctx, channel, sender=None: channel == "messaging")      # a sender who holds `ask-mail`
+    assert approve(world, cancel, "messaging")["task_state"] == "done"

@@ -196,7 +196,19 @@ def effect_refusal(ctx: dict, item: dict, channel, facts: dict, sender=None):
         return ("this effect carries more than a card can show (the hash covers something the card does not carry: a file, an image, every row of "
                 "a table, or the code of a change), so it is not approved from a card: approve it in the terminal or on the page, with its hash: "
                 + command)
+    if has_private_lines(item) and not item_refs.may_read(ctx, channel, sender):
+        return ("this card has lines that show the person's own e-mail, calendar or files, and a messaging app draws them only for a sender who holds the group "
+                f"{phrases.CARD_PRIVATE_GROUP}, so this card is not whole for you and is not approved from here: approve it in the terminal or on the page, with its hash: " + command)
     return _sender_problem(ctx, item, facts, sender)
+
+
+def has_private_lines(item: dict) -> bool:
+    """Whether the stored card of an effect has a line of phrases.CARD_PRIVATE: the lines a reader who does not hold the group ask-mail is not shown (private_view and
+    the messaging card both leave them out). Read from the decision's own card, at the operations layer, so that the approval of a card that was not whole for the
+    approver is refused here too, whatever the bridge drew. A decision with no well-formed card has none."""
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    card = payload.get("card")
+    return phrases.card_valid(card) and any(line[0] in phrases.CARD_PRIVATE for line in card)
 
 
 def _sender_problem(ctx: dict, item: dict, facts: dict, sender):

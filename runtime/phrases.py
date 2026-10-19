@@ -605,10 +605,12 @@ def localize(sentence, cfg=None):
 
 CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,40}")
 CARD_LINES_MAX = 300        # lines in one card
-# The lines that show the CURRENT text of something the person owns (an event's title, place and notes as the service holds them): a messaging app draws them only for a
+# The lines that show the CURRENT text of something the person owns (an event's title, place and notes as the service holds them, the message a reply answers) and the lines of an
+# e-mail (who it goes to, its subject, its text, the names of its attachments): a messaging app draws them only for a
 # sender who also holds the group CARD_PRIVATE_GROUP (the answer from mail and calendar), and a card with such a line left out is not whole, so it is not approved there.
 CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES")) + ("CARD_CAL_NOW_TITLE", "CARD_FILE_NOW") \
     + ("CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY")      # W2: what a reply shows of the message answered
+CARD_PRIVATE += ("CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_BCC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT")      # the maintainer's decision of 2026-10-19: who an e-mail goes to, its subject, its text and the names of its attachments
 # W4a: the name of a file a sender sent (CARD_FILE_SAVE) is shown to that sender, who may approve the save, and to a reader of the person's own items, and to no one else: not to the MCP
 # mode, not to another messaging sender. (The name of a file the service holds now, CARD_FILE_NOW, is in CARD_PRIVATE above.)
 CARD_PRIVATE_OWNER = ("CARD_FILE_SENT", "CARD_FILE_SAVE")
