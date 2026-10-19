@@ -79,6 +79,8 @@ SERVICE_CODES = {"not_configured": "not_configured", "provider_failed": "provide
 GATE_STEP = "send"
 REFUSED_NEXT = ("the provider would not build this e-mail exactly as written (an address, a subject it could not encode exactly, a text it could "
                 "not read back the same): shorten or simplify the subject, check the addresses, and start the task again")
+REFUSED_NEXT_OWN = ("the mailer would not take this e-mail as written (an address, the subject, an attachment over the size it takes, or a text it could not read back "
+                    "the same): check them, and start the task again")      # the mailer's own sentence can quote an address, a subject or a file name; this one never does
 
 
 def _text(args: dict, field: str) -> str:
@@ -243,17 +245,18 @@ def _same(doc: dict, shown: dict) -> bool:
             == [(a["name"], a["bytes"], a["sha256"]) for a in doc["attachments"]])
 
 
-def _asked_own(call, *args):
-    """A call of the account service whose failure is a closed code of the step; a refusal carries its own sentence (written by code from the phrase table)."""
+def _asked_own(call, *args, words: bool = False):
+    """A call of the account service whose failure is a closed code of the step. `words`: the call is the reading of the message a reply answers, whose refusal carries
+    a sentence written by code from the phrase table (it names the reference, never a text). Any other refusal (the mailer's dry run, the write of the document)
+    has the step's fixed sentence: a mailer's own sentence can quote an address or a subject, and the task's note and failure are read by every channel."""
     try:
         return call(*args)
     except steps.StepFailure:
         raise
     except Exception as e:
         code = SERVICE_CODES.get(getattr(e, "code", ""), "provider_failed")
-        reason = " ".join(str(getattr(e, "reason", "") or "").split())[:200] if code == "refused" else ""
-        reason = reason[len("error: "):] if reason.startswith("error: ") else reason      # the mailer's own sentence, without its prefix
-        raise steps.StepFailure(code, "account", "mailer", reason or (REFUSED_NEXT if code == "refused" else "")) from None
+        reason = " ".join(str(getattr(e, "reason", "") or "").split())[:200] if code == "refused" and words else ""
+        raise steps.StepFailure(code, "account", "mailer", reason or (REFUSED_NEXT_OWN if code == "refused" else "")) from None
 
 
 def _prepare_own(ctx: steps.Context, state: dict) -> dict:
@@ -266,7 +269,7 @@ def _prepare_own(ctx: steps.Context, state: dict) -> dict:
         raise steps.StepFailure("not_configured", "account", "", phrases.en("ACCT_NOT_CONFIGURED").format(account=account)[:200])
     reply, read = None, []
     if args.get("reply"):
-        facts = _asked_own(mail.reply_facts, args["reply"], account, args.get("channel"), args.get("sender"))
+        facts = _asked_own(mail.reply_facts, args["reply"], account, args.get("channel"), args.get("sender"), words=True)
         moved = mail_refs.pin_problem(args.get("reply_pin"), facts)      # the reference may name another message than the one the operation resolved
         if moved:
             raise steps.StepFailure("reply_moved", "reply", "mailer", moved[:200])

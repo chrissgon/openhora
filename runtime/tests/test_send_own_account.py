@@ -337,12 +337,12 @@ def test_what_the_mailer_will_not_take_is_refused_at_the_start_with_its_own_sent
     big = Path(world["path"]) / "docs" / "outputs" / "big.pdf"
     big.write_bytes(b"x" * (3 * 1024 * 1024 + 1))
     error = refused(world, attach=["docs/outputs/big.pdf"])
-    assert "the attachment big.pdf is over 3145728 bytes" in str(error) and "error:" not in str(error)
+    assert "an attachment over the size it takes" in str(error) and "big.pdf" not in str(error) and "error:" not in str(error)      # the step's own sentence: a file name is the person's
     nothing_made(world)
     graph_big = Path(world["path"]) / "docs" / "outputs" / "graph.pdf"
     graph_big.write_bytes(b"x" * (2560 * 1024 + 1))
     error = refused(world, send, "microsoft", attach=["docs/outputs/graph.pdf"])
-    assert "over" in str(error)
+    assert "over the size" in str(error) and "graph.pdf" not in str(error)
     nothing_made(world)
 
 
@@ -858,3 +858,94 @@ def test_a_preparation_never_resolves_a_reference_without_saying_who_asked(world
     with pytest.raises(st.load("ops_step_seams").StepServiceError) as no:
         seam.reply_facts("inbox#1", "google", "messaging", SENDER)
     assert "may not read it" in no.value.reason, "a messaging sender without ask-mail cannot be read for, even in a preparation"
+
+
+# --- the task row, the result and the records of an e-mail from an own account, as a reader who may not read the person's mail sees them -------------------------
+
+ops_grants = st.load("ops_grants")
+OTHER = "telegram:9999"
+BLIND = (("mcp", None), ("messaging", "telegram:9999"), ("messaging", None), ("messaging", SENDER))      # none of these holds ask-mail
+
+
+def test_the_task_row_of_an_email_from_an_own_account_is_cut_to_nothing_for_mcp_and_messaging_readers_without_ask_mail(world):
+    accept(world["path"], {"messaging": ["read", "mail-send"]})
+    new = send(world, channel="messaging", sender=SENDER, cc="lee@client.example")
+    answered = reply(world)
+    for started in (new, answered):
+        whole = ops.task(world["path"], started["task"])["task"]
+        assert whole["step_args"]["account"] == "google" and whole["step_args"]["body"] == BODY, "the terminal and the page read the request itself"
+        for channel in ("terminal", "page", "chat"):
+            assert ops.task(world["path"], started["task"], channel=channel)["task"]["step_args"] == whole["step_args"], channel
+        for channel, sender in BLIND:
+            shown = ops.task(world["path"], started["task"], channel=channel, sender=sender)["task"]
+            assert shown["step_args"] == {} and shown["step_kind"] == "send-email" and shown["step_state"]["steps"]["prepare"]["status"] == "done", (channel, sender)
+            for word in (TO, "lee@client.example", SUBJECT, "Hello Ana", "4242", "terminal", "inbox#1", "Appointment confirmed", "ana@clinic.example", "google"):
+                assert word not in json.dumps(shown), (channel, sender, word)
+    for channel, sender in BLIND:      # the reply card draws the message answered only for a reader of the mail: nowhere in what these readers get
+        shown = json.dumps(ops.task(world["path"], answered["task"], channel=channel, sender=sender))
+        for word in ("ana@clinic.example", "desk@clinic.example", "Appointment confirmed", "4242"):
+            assert word not in shown, (channel, sender, word)
+
+
+def test_the_note_and_the_failure_of_an_email_from_an_own_account_are_cut_to_their_codes_and_a_reader_of_mail_gets_the_row_whole(world, monkeypatch):
+    ctx = ops_core.context(world["path"])
+    sentence = "the address ana@client.example is listed twice in Haircut on Monday"
+    row = {"id": 1, "step_kind": "send-email", "note": f"prepare: refused account -- {sentence}",
+           "step_args": {"account": "google", "to": TO, "subject": SUBJECT, "body": BODY, "reply": "inbox#1", "reply_pin": {"id": "m1", "message_id": "<a1@clinic.example>"},
+                         "channel": "messaging", "sender": SENDER},
+           "step_state": {"kind": "send-email", "failure": {"step": "prepare", "code": "refused", "field": "account", "provider": "mailer", "next": sentence, "at": "t"}}}
+    cut = ops_grants.task_view(ctx, row, "mcp")
+    assert cut["step_args"] == {} and cut["note"] == "prepare: refused account"
+    assert cut["step_state"]["failure"] == {"step": "prepare", "code": "refused", "field": "account", "provider": "mailer", "at": "t"}
+    assert row["step_args"]["to"] == TO and "listed twice" in row["note"], "the stored row is untouched"
+    for channel, sender in BLIND:
+        assert ops_grants.task_view(ctx, row, channel, sender)["step_args"] == {}, (channel, sender)
+    for channel in ("terminal", "page", "chat", None):
+        assert ops_grants.task_view(ctx, row, channel) is row, channel
+    plain = {"id": 2, "step_kind": "send-email", "note": None, "step_args": {"to": TO, "subject": SUBJECT, "body": BODY}, "step_state": None}
+    assert ops_grants.task_view(ctx, plain, "mcp") is plain, "the outbox's send has none of the arguments only an operation writes: it is not an account write"
+    assert steps.is_account_step("send-email", row["step_args"]) and not steps.is_account_step("send-email", plain["step_args"]) and not steps.is_account_step("send-email")
+    assert steps.public_args(row["step_args"], "send-email") == {} and steps.public_args({"operation": "create", "account": "google", "title": "x"}) == {"operation": "create", "account": "google"}
+    monkeypatch.setattr(ops_grants.item_refs, "may_read", lambda *a, **k: True)
+    assert ops_grants.task_view(ctx, row, "messaging", SENDER) is row, "a reader of the person's mail gets the row whole"
+
+
+def test_the_mailers_own_sentence_never_reaches_the_note_of_the_task_but_the_reference_sentence_does():
+    class Refusal(Exception):
+        code, reason = "refused", "error: the address ana@client.example is listed twice"
+
+    def refuse(*args):
+        raise Refusal()
+    with pytest.raises(steps.StepFailure) as failure:
+        step_send_email._asked_own(refuse, 1)
+    assert failure.value.next == step_send_email.REFUSED_NEXT_OWN and "ana@" not in failure.value.next and failure.value.provider == "mailer"
+    with pytest.raises(steps.StepFailure) as sentence:
+        step_send_email._asked_own(refuse, 1, words=True)
+    assert "listed twice" in sentence.value.next, "the reading of a reference answers with a sentence written by code: it names the reference, never a text"
+
+
+def test_the_result_the_description_and_the_approval_of_an_email_from_an_own_account_hold_no_recipient_subject_or_sender_id(world):
+    accept(world["path"], {"messaging": ["read", "mail-send", "approve-effect-send-own"]})
+    new = send(world, channel="messaging", sender=SENDER, cc="lee@client.example")
+    approve(world, new, "messaging")
+    answered = reply(world)
+    approve(world, answered, "messaging")
+    ctx = ops_core.context(world["path"])
+    cfg = ctx["cfg"]
+    for started in (new, answered):
+        doc = json.loads((Path(ops_step_effects.effect_dir(cfg, started["task"], 0)) / "effect.json").read_text(encoding="utf-8"))
+        approval = [a for a in ctx["store"].approvals_list(ctx["conn"]) if a["pending_id"] == started["pending"]][0]
+        row = effects.approval_row(approval, doc)
+        for kept in (effects.module_for("send").describe(doc), json.dumps(row), approval["what"]):      # the sender id is in the store alone (effects.approval_row)
+            for word in (TO, "lee@client.example", SUBJECT, "Appointment confirmed", "ana@clinic.example", "desk@clinic.example", "4242"):
+                assert word not in kept, (started["task"], word)
+        assert "telegram" in row[1] or started is answered, "an approval on a messaging app says the platform and the profile, never the sender's id"
+        whole = ops.pending(world["path"], started["pending"])
+        assert whole["payload"]["result"]["sent"] is True and set(whole["payload"]["result"]) <= {
+            "sent", "replayed", "message_id", "recipients", "attachments", "bytes", "idempotency_key", "account", "reply", "service_message_id"}
+        for channel, sender in BLIND:
+            shown = json.dumps([ops.pending(world["path"], started["pending"], channel=channel, sender=sender), ops.task(world["path"], started["task"], channel=channel, sender=sender)["pending"]])
+            for word in (TO, "lee@client.example", "4242", "ana@clinic.example", "desk@clinic.example", "Appointment confirmed"):
+                if started is new and word in (TO, "lee@client.example"):
+                    continue      # the card of a new e-mail is the asker's own text: what the person approves
+                assert word not in shown, (channel, sender, started["task"], word)

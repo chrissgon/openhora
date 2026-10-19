@@ -344,17 +344,24 @@ ACCOUNT_WORDS = ("calendar", "mailbox", "files")      # the effect words of a wr
 ACCOUNT_ARGS_SHOWN = ("operation", "account", "calendar", "folder", "event", "file", "attachment")      # the arguments of an account write that are closed words, names `accounts` gives and ids
 
 
-def is_account_step(kind_name) -> bool:
-    """Whether a step kind is a write to the person's own accounts: one of its gates opens an effect whose word is in ACCOUNT_WORDS. False for an unknown kind and for None."""
+def is_account_step(kind_name, args=None) -> bool:
+    """Whether a step task writes to the person's own accounts: its kind has a gate that opens an effect whose word is in ACCOUNT_WORDS, or its kind is also a plain
+    kind (ACCOUNT_ARGS) and its arguments carry one that only an operation writes (an e-mail from the person's own account: the outbox's `send-email` without them).
+    False for an unknown kind and for None."""
     try:
-        return any(gate.word in ACCOUNT_WORDS for gate in kind_of(kind_name).gates.values())
+        if any(gate.word in ACCOUNT_WORDS for gate in kind_of(kind_name).gates.values()):
+            return True
     except StepFailure:
         return False
+    return isinstance(args, dict) and any(name in args for name in ACCOUNT_ARGS.get(kind_name, ()))
 
 
-def public_args(args) -> dict:
+def public_args(args, kind_name=None) -> dict:
     """The arguments of an account write as a reader who may not read the person's own mail, calendar and files sees them: only the closed ones
-    (ACCOUNT_ARGS_SHOWN, words, numbers and ids). The title, the notes, the text, a file's name, a path and a sender are the person's or someone else's words."""
+    (ACCOUNT_ARGS_SHOWN, words, numbers and ids). The title, the notes, the text, a file's name, a path and a sender are the person's or someone else's words.
+    A kind that is also a plain kind (ACCOUNT_ARGS) shows none: its arguments are the addresses, the subject, the text and who asked."""
+    if kind_name in ACCOUNT_ARGS:
+        return {}
     return {key: value for key, value in (args if isinstance(args, dict) else {}).items() if key in ACCOUNT_ARGS_SHOWN and isinstance(value, (str, int)) and not isinstance(value, bool)}
 
 
