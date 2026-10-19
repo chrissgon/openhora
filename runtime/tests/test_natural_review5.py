@@ -44,12 +44,19 @@ def test_the_reminder_is_made_only_from_a_confirmed_draft():
     assert natural.complete(natural.complete(ask, "14h", NOW)["ask"], "yes", NOW)["when"] == "2026-10-19 14:00"
 
 
-def test_the_pick_of_a_reading_that_was_shown_is_the_confirmation_and_a_new_reading_is_shown_first():
+def test_the_pick_of_a_reading_is_not_a_yes_it_shows_the_whole_reading_and_the_yes_makes_it():
     two = natural.understand("remind me at 9 to stretch", NOW)["ask"]
     assert two["need"] == "reading"
-    assert natural.complete(two, "9", NOW)["when"] == "2026-10-19 09:00" and natural.complete(two, "21", NOW)["when"] == "2026-10-18 21:00"
-    shown = natural.complete(two, "friday at 8am", NOW)["ask"]
-    assert shown["need"] == "confirm" and shown["readings"][0]["when"] == "2026-10-23 08:00", "not one of the two that were shown: it is shown before it is made"
+    for answer, when in (("9", "2026-10-19 09:00"), ("21", "2026-10-18 21:00"), ("friday at 8am", "2026-10-23 08:00")):
+        shown = natural.complete(two, answer, NOW)
+        assert "when" not in shown and shown["ask"]["need"] == "confirm" and shown["ask"]["text"] == "stretch", answer
+        assert shown["ask"]["readings"][0]["date"] + " " + shown["ask"]["readings"][0]["time"] == when
+        assert natural.complete(shown["ask"], "yes", NOW)["when"] == when
+    bare = natural.understand("stretch at 9", NOW, "bare")["ask"]
+    assert bare["need"] == "reading"
+    kind = natural.complete(bare, "21", NOW)["ask"]
+    assert kind["need"] == "kind" and kind["text"] == "stretch", "a bare line: the reminder-or-event question shows the reading, and its answer makes it"
+    assert natural.complete(kind, "reminder", NOW)["when"] == "2026-10-18 21:00"
 
 
 def test_the_kind_question_shows_the_reading_and_its_answer_makes_it():
@@ -93,7 +100,8 @@ def test_these_readings_are_the_ones_shown(line, when):
 def test_a_range_is_asked_with_both_hours():
     ask = natural.understand(pt.LINE_RANGE, NOW)["ask"]
     assert ask["need"] == "reading" and sorted(r["time"] for r in ask["readings"]) == ["09:00", "10:00"]
-    assert natural.complete(ask, "10h", NOW)["when"] == "2026-10-19 10:00"
+    picked = natural.complete(ask, "10h", NOW)["ask"]
+    assert picked["need"] == "confirm" and natural.complete(picked, "yes", NOW)["when"] == "2026-10-19 10:00"
 
 
 @pytest.mark.parametrize("line", pt.TOPIC_LINES + ["remind me at 9am that friday's meeting was cancelled", "remind me at 9am about the meeting of friday"])

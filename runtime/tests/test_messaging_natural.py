@@ -86,8 +86,8 @@ def test_the_hour_with_no_marker_is_one_question_and_the_remind_word_settles_the
     portuguese(day)
     day.say(OWNER, pt.LINE_NINE_FIRST)
     assert day.texts(OWNER) == [pt.ASK_NINE_FIRST]
-    day.say(OWNER, "9")
-    assert day.texts(OWNER)[-1] == pt.REPLY_PLANTS and len(day.texts(OWNER)) == 2, "one question and then the reminder: never reminder-or-event"
+    say_yes(day, OWNER, "9")
+    assert day.texts(OWNER)[-1] == pt.REPLY_PLANTS and len(day.texts(OWNER)) == 3, "one question, the reading shown, then the reminder on the yes: never reminder-or-event"
     assert day.all()["open"][0]["text"] == "regar as plantas"
     no_model(planner)
 
@@ -145,7 +145,7 @@ def test_an_hour_with_no_marker_asks_09_or_21_and_the_next_line_finishes_it(day,
     day.say(OWNER, pt.LINE_NINE)
     assert day.texts(OWNER) == [pt.ASK_NINE] and day.all()["open"] == [], "a question makes nothing"
     assert set(day.bridge.remind.drafts) == {OWNER}
-    day.say(OWNER, "21h")
+    say_yes(day, OWNER, "21h")
     assert day.texts(OWNER)[-1] == pt.REPLY_FRIDAY_21 and day.bridge.remind.drafts == {}
     assert day.all()["open"][0]["due"] == "2026-10-23 21:00" and day.all()["open"][0]["text"] == "ligar para a gráfica"      # validate: allow english-only -- a word of the line above
     no_model(planner)
@@ -155,7 +155,7 @@ def test_quinta_que_vem_asks_both_thursdays_and_the_day_picks_one(day, planner):
     portuguese(day)
     day.say(OWNER, pt.LINE_THURSDAY)
     assert day.texts(OWNER) == [pt.ASK_THURSDAY] and day.all()["open"] == []
-    day.say(OWNER, "dia 22")
+    say_yes(day, OWNER, "dia 22")
     assert day.texts(OWNER)[-1] == pt.REPLY_THURSDAY and day.all()["open"][0]["due"] == "2026-10-22 15:30"
     no_model(planner)
 
@@ -185,7 +185,7 @@ def test_the_question_is_forgotten_after_ten_minutes_swept_on_the_tick_lost_on_a
     assert day.bridge.remind.drafts.keys() == {OWNER}, "another chat's line neither finishes nor drops it"
     assert settle(day) and planner.texts() == ["21h"]
     now[0] += 599
-    day.say(OWNER, "21h")
+    say_yes(day, OWNER, "21h")
     assert day.all()["open"][0]["due"] == "2026-10-23 21:00", "nine minutes and a half: still there"
     day.say(OWNER, pt.LINE_NINE)
     now[0] += 601
@@ -209,7 +209,7 @@ def test_a_question_is_answered_by_a_reply_only_to_its_own_message_and_a_reminde
     day.say(OWNER, "21h", reply_to="m-9")
     assert day.all()["open"] == [] and day.bridge.remind.drafts == {} and settle(day) and planner.texts() == ["21h"], "a reply to another message is not the answer"
     day.say(OWNER, pt.LINE_NINE)
-    day.say(OWNER, "21h", reply_to=last_id(day))
+    say_yes(day, OWNER, "21h", reply_to=last_id(day))
     assert day.all()["open"][0]["due"] == "2026-10-23 21:00", "a reply to the question itself is"
     say_yes(day, OWNER, pt.LINE_CLASS, reply_to="m-2")
     assert day.texts(OWNER)[-1] == pt.REPLY_CLASS.replace("#1", "#2").replace("/forget 1", "/forget 2")

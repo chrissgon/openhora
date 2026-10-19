@@ -78,8 +78,15 @@ def test_the_questions_that_are_not_yes_questions_have_no_button(day, planner): 
     portuguese(day)
     day.say(OWNER, "me lembra amanhã às 9 de regar as orquídeas")      # validate: allow english-only -- a Portuguese line, the case of the tests
     assert last_buttons(day) == [], "which of two hours is not a yes"
+    day.say(OWNER, "9")
+    assert day.texts(OWNER)[-1] == pt.ASK_ORCHID and day.all()["open"] == [], "the pick is not a yes: the whole reading is shown"
+    assert [b["label"] for b in last_buttons(day)] == [pt.LABEL_YES], "with the Yes button"
+    day.say(OWNER, action=last_buttons(day)[0]["id"])
+    assert day.texts(OWNER)[-1] == pt.REPLY_ORCHID and len(day.all()["open"]) == 1, "and the tap makes it"
     day.say(OWNER, pt.LINE_BARE)
     assert last_buttons(day) == [], "reminder or event is not a yes"
+    day.say(OWNER, "lembrete")
+    assert day.texts(OWNER)[-1].startswith("Lembrete #2:"), "its answer makes the reminder: the question showed the whole reading"
 
 
 def test_a_platform_with_no_buttons_gets_the_plain_question_and_the_typed_yes_makes_it(day, planner):  # noqa: F811
@@ -99,4 +106,40 @@ def test_the_ledger_holds_no_word_of_the_reminder(day, planner):  # noqa: F811
     assert ledger, "the button is bound in the ledger"
     text = ledger[0].read_text(encoding="utf-8")
     assert "orquíde" not in text and "regar" not in text, "the ledger keeps the project, the chat, the message and the action id, never the words"      # validate: allow english-only -- the words of the line
+    no_model(planner)
+
+
+def test_the_words_after_a_pick_show_the_whole_reading_and_wait_for_the_yes(day, planner):  # noqa: F811
+    portuguese(day)
+    day.say(OWNER, "me lembra amanhã às 9")      # validate: allow english-only -- a Portuguese line, the case of the tests
+    day.say(OWNER, "9")
+    assert day.texts(OWNER)[-1].startswith("Do que devo lembrar") and day.all()["open"] == []      # validate: allow english-only -- the expected Portuguese sentence
+    day.say(OWNER, "regar as orquídeas")      # validate: allow english-only -- the words of the line
+    assert day.texts(OWNER)[-1] == pt.ASK_ORCHID and day.all()["open"] == [], "a yes given before the words confirmed nothing: the whole reading is shown now"
+    assert [b["label"] for b in last_buttons(day)] == [pt.LABEL_YES]
+    day.say(OWNER, "sim")
+    assert day.texts(OWNER)[-1] == pt.REPLY_ORCHID
+    no_model(planner)
+
+
+def test_a_button_of_a_question_whose_message_has_no_id_makes_nothing(day, planner):  # noqa: F811
+    portuguese(day)
+    day.say(OWNER, pt.LINE_ORCHID)
+    button = last_buttons(day)[0]["id"]
+    day.bridge.remind.drafts[OWNER]["message_id"] = None
+    day.say(OWNER, action=button)
+    assert day.texts(OWNER)[-1] == pt.EXPIRED and day.all()["open"] == []
+
+
+def test_the_strict_form_makes_directly_and_a_strict_form_whose_words_begin_with_a_day_is_shown_first(day, planner):  # noqa: F811
+    portuguese(day)
+    day.say(OWNER, "/remind 15:00 ligar")      # validate: allow english-only -- a Portuguese line, the case of the tests
+    assert day.texts(OWNER)[-1].startswith("Lembrete #1: hoje, dom 18/10, às 15:00 (BRT): ligar."), "the strict form is made at once"      # validate: allow english-only -- the expected Portuguese sentence
+    for line in ("/remind 15:00 amanhã ligar", "/remind in 2h sexta ligar", "/remind 15:00 de amanhã ligar", "/remind 15:00 18/11 ligar", "/remind 15:00 next week call"):      # validate: allow english-only -- Portuguese lines, the cases of the tests
+        day.say(OWNER, line)
+        assert day.bridge.remind.drafts[OWNER]["need"] in ("confirm", "weekday", "reading", "time", "text"), line
+        assert len(day.all()["open"]) == 1, line
+        day.bridge.remind.drafts.clear()
+    day.say(OWNER, "/remind 9:30 ligar")      # validate: allow english-only -- a Portuguese line, the case of the tests
+    assert len(day.all()["open"]) == 1 and OWNER not in day.bridge.remind.drafts, "H:MM is a strict form, as it always was: refused by its own grammar, never guessed"
     no_model(planner)

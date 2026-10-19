@@ -101,7 +101,7 @@ def test_the_same_words_inside_the_reminders_own_text_are_text_and_the_reminder_
 
 
 def confirm_draft():
-    return asked("remind me tomorow at 1pm to call the dentist")
+    return asked("remind me tomorow at 1pm to call the plumber")
 
 
 @pytest.mark.parametrize("answer", ["yes", "yes please", "yes, go ahead", "ok thanks", "sure", "of course", "Yes!", "YES.", "yes yes", "sounds good", "exactly"])
@@ -123,10 +123,10 @@ def test_a_yes_is_not_a_yes_when_something_else_is_in_the_reply():
 
 def test_another_time_asks_for_when_and_keeps_the_words_and_the_answer_makes_the_reminder():
     again = completed(confirm_draft(), "another time", NOW)["ask"]
-    assert again["need"] == "again" and again["text"] == "call the dentist"
+    assert again["need"] == "again" and again["text"] == "call the plumber"
     assert completed(again, "friday at 2pm", NOW)["when"] == "2026-10-23 14:00"
     day = completed(again, "friday", NOW)["ask"]
-    assert day["need"] == "time" and day["day"]["date"] == "2026-10-23" and day["text"] == "call the dentist"
+    assert day["need"] == "time" and day["day"]["date"] == "2026-10-23" and day["text"] == "call the plumber"
     assert completed(day, "10am", NOW)["when"] == "2026-10-23 10:00"
     assert completed(again, "no", NOW) == {"cancel": True}
     pt_again = completed(asked(pt.CONFIRM_OLEO), "outra hora", NOW)["ask"]
@@ -135,7 +135,7 @@ def test_another_time_asks_for_when_and_keeps_the_words_and_the_answer_makes_the
 
 def test_an_answer_that_fits_the_question_completes_it():
     complete = completed
-    time = asked("remind me tomorrow to call the dentist")
+    time = asked("remind me tomorrow to call the plumber")
     assert time["need"] == "time"
     nine = complete(time, "9", NOW)["ask"]
     assert nine["need"] == "reading" and [r["when"] for r in nine["readings"]] == ["2026-10-19 09:00", "2026-10-19 21:00"], "a bare 9 to 'at what time?' is asked: 09:00 or 21:00"
@@ -169,10 +169,10 @@ def test_no_gives_a_question_up_whatever_it_asked():
 
 
 def test_a_day_answer_to_a_time_question_replaces_the_day_and_only_the_hour_is_still_asked():
-    draft = asked("remind me tomorrow to call the dentist")
+    draft = asked("remind me tomorrow to call the plumber")
     assert draft["day"]["date"] == "2026-10-19"
     friday = completed(draft, "friday", NOW)["ask"]
-    assert friday["need"] == "time" and friday["day"]["date"] == "2026-10-23" and friday["text"] == "call the dentist"
+    assert friday["need"] == "time" and friday["day"]["date"] == "2026-10-23" and friday["text"] == "call the plumber"
     assert completed(friday, "10am", NOW)["when"] == "2026-10-23 10:00", "one day, not two readings"
 
 
@@ -245,7 +245,7 @@ def test_a_scheduling_verb_with_the_word_reminder_makes_a_reminder(line):
 
 
 def test_a_scheduling_verb_without_the_word_reminder_is_unchanged():
-    assert natural.candidate("schedule the dentist tomorrow at 9am") == {"op": "calendar-event-create", "how": "ask"}
+    assert natural.candidate("schedule the plumber tomorrow at 9am") == {"op": "calendar-event-create", "how": "ask"}
     assert natural.candidate("mark the rent as paid") is None
 
 
@@ -319,9 +319,9 @@ def test_a_forget_by_the_hour_matches_the_moment_of_the_senders_own_and_is_only_
     shown = ops.reminder_forget(world.path, channel="messaging", sender=SENDER, at="at 9")
     assert shown["preview"]["id"] == 1 and [r["status"] for r in world.rows()] == ["open", "open", "open"], "an hour is not a name: shown, not cancelled"
     assert ops.reminder_forget(world.path, channel="messaging", sender=SENDER, at="at 4pm") == {"none": True}
-    said_yes(ops, world.path, SENDER, "remind me tomorrow at 9am to call the dentist")
+    said_yes(ops, world.path, SENDER, "remind me tomorrow at 9am to call the plumber")
     assert [r["id"] for r in ops.reminder_forget(world.path, channel="messaging", sender=SENDER, at="at 9")["choose"]] == [1, 4]
-    only = ops.reminder_forget(world.path, channel="messaging", sender=SENDER, at="at 9", matching=["dentist"])
+    only = ops.reminder_forget(world.path, channel="messaging", sender=SENDER, at="at 9", matching=["plumber"])
     assert only["preview"]["id"] == 4, "the hour and the words together"
 
 

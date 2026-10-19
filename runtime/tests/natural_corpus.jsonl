@@ -253,8 +253,8 @@
 {"text": "me lembra às 9h da noite do x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-10-15 21:00"]}
 {"text": "me lembra às 9 da noite do x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 21:00"}}
 {"text": "me lembra às 21 da noite do x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 21:00"}}
-{"text": "remind me tomorrow at 1 pm to call the dentist", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 13:00"}}
-{"text": "remind me tomorow at 1pm to call the dentist", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 13:00"}}
+{"text": "remind me tomorrow at 1 pm to call the plumber", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 13:00"}}
+{"text": "remind me tomorow at 1pm to call the plumber", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 13:00"}}
 {"text": "remind me at 12am to take pills", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 00:00"}, "timeonly": true}
 {"text": "remind me at 12pm to eat", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 12:00"}, "timeonly": true}
 {"text": "remind me at 12 to eat", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 12:00"}, "timeonly": true}
@@ -483,7 +483,7 @@
 {"text": "marca um lembrete amanhã às 9h de pagar o boleto", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
 {"text": "me lembra daqui 3 min de tirar a pizza", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:03"}}
 {"text": "me lembra amnhã às 13h do troca de óleo", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
-{"text": "remind me tomorow at 1pm to call the dentist", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
+{"text": "remind me tomorow at 1pm to call the plumber", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
 {"text": "remind me tomorrow at 9am to send the weekly report", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
 {"text": "remind me on May 5 at 9am to pay rent", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2027-05-05 09:00"}}
 {"text": "me lembra de ligar pra Sex Shop às 9h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}

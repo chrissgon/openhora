@@ -34,6 +34,7 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -56,6 +57,24 @@ def usage_key(text: str):
 def _id(text: str):
     word = text.split(None, 1)[0] if text.split() else ""
     return int(word) if word.isascii() and word.isdigit() else None
+
+
+def _starts_with_a_day(text: str) -> bool:
+    """Whether the first words of a strict reminder's text are a day, a date or a week of some language's table ("tomorrow call", "de amanha ligar", "sexta pagar", "dia 25
+    pagar", "next week call", "18/11 ligar"; one or two connectors may come first): the line is then read in the person's own words, shown and confirmed, instead of
+    making a reminder for the hour with that word in its text."""
+    found = natural.nt.find(text or "")
+    norm, tables = found["norm"], found["tables"]
+    stop = natural._stop(tables) | {w for t in tables for p in t["prefixes"] for w in p.split()}
+
+    def lead(before: str) -> bool:
+        words = re.findall(r"[a-z0-9]+", before)
+        return len(words) <= 2 and all(w in stop for w in words)
+    first = next(iter(found["hits"]), None)
+    if first and first["kind"] in ("date", "slash", "relative") and lead(norm[:first["s"]]):
+        return True
+    week = natural._week(norm, tables)
+    return bool(week and lead(norm[:week[0]])) or bool(re.match(r"\s*[0-9]{1,2}/[0-9]{1,2}(?:/[0-9]{2,4})?(?![0-9])", text or ""))
 
 
 def parse(update: dict) -> dict:
@@ -85,8 +104,9 @@ def parse(update: dict) -> dict:
             return {"kind": name, "id": number}
         if name == "remind":
             strict = reminders.strict(rest)
-            if strict:
+            if strict and not _starts_with_a_day(strict[1]):
                 return {"kind": "remind", "when": strict[0], "text": strict[1]}
+            # the strict grammar does not claim it, or its words begin with a day ("/remind 15:00 amanha ligar": the day is not part of the words): the person's own words (NR-1)
             return {"kind": "natural", "op": "remind", "how": "command", "text": rest}      # the strict grammar does not claim it: the person's own words (NR-1)
         if name == "reminders":
             return {"kind": "reminders"}

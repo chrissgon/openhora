@@ -371,10 +371,11 @@ def _week(norm: str, tables: list):
 def _next(draft: dict, reading: dict):
     """What follows once there is a reading: the words (asked when missing), then, for a line in free text, the reading SHOWN: for a line with no remind word the kind
     question (it shows the reading: a reminder here, or an event), else the confirmation ("Entendi: ... Confirma?"). A reminder in free text is made only from a draft
-    the person has confirmed (`confirmed`): a "yes", the pick of one of the readings that were shown, or the answer to the kind question."""
+    the person has confirmed (`confirmed`): a "yes" to the confirmation that showed the whole reading. The answer to the kind question (it showed the whole reading too) is the
+    other way to a reminder, in `complete`. A pick among readings, a time, a day or the words are never a yes: the reading they lead to is shown first."""
     how = draft["how"]
     if not draft["text"]:
-        return {"ask": {**draft, "need": "text", "readings": [reading]}}
+        return {"ask": {**draft, "confirmed": False, "need": "text", "readings": [reading]}}          # a yes given before the words are known confirms nothing
     if draft.get("confirmed"):
         return {"when": reading["when"], "text": draft["text"], "reading": reading}
     if how == "bare":
@@ -615,7 +616,7 @@ def complete(draft, said, now, languages=None):
     named = candidate(said, tables)
     if named is not None and need != "kind" and not (named["op"] == "remind" and named["how"] == "bare"):          # "sim mas as 15h" is a yes with an hour, not a line of its own
         return None          # a line that starts a request of its own ("me lembra ...", "cancela o lembrete 3") is a new line, never the answer to a question
-    settled = {**draft, "doubt": False}
+    settled = {**draft, "doubt": False, "confirmed": False, "retries": 0}
     cued = _cued(said, draft, tables)
     if need == "forget":
         if affirm(said, tables):
@@ -666,8 +667,7 @@ def complete(draft, said, now, languages=None):
         picked = _pick(draft, cued, now, tables)
         if picked is None:
             return _retry(draft, said, tables)
-        shown = {f"{r['date']} {r['time']}" for r in draft["readings"]}
-        return _next({**settled, "confirmed": f"{picked['date']} {picked['time']}" in shown}, picked)          # one of the readings that were shown is the person's choice; a new one is shown
+        return _next(settled, picked)          # a pick is not a yes: the picked reading is shown whole (the day, the hour, the words) and the yes makes it
     if need == "kind":
         if not kinds:          # a day or an hour instead of the kind: the reading shown is not the one meant, and the kind is asked again with the new one
             change = _time_only(cued, now, tables)

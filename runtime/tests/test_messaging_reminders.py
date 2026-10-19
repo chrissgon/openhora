@@ -65,7 +65,7 @@ def test_the_three_commands_are_read_from_a_line_with_no_clock_and_no_model():
     assert parse(update("/remind@openhora_bot 2026-10-20 09:30 pay rent")) == {"kind": "remind", "when": "2026-10-20 09:30", "text": "pay rent"}
     assert parse(update("/REMIND in 2h stretch")) == {"kind": "remind", "when": "in 2h", "text": "stretch"}
     assert parse(update("/reminders")) == {"kind": "reminders"} and parse(update("/forget 3")) == {"kind": "forget", "id": 3}
-    for line, rest in (("/remind", ""), ("/remind 15:00", "15:00"), ("/remind   ", ""), ("/remind in 2h", "in 2h"), ("/remind 13hrs cut hair tomorrow", "13hrs cut hair tomorrow")):
+    for line, rest in (("/remind", ""), ("/remind 15:00", "15:00"), ("/remind   ", ""), ("/remind in 2h", "in 2h"), ("/remind 13hrs oil change tomorrow", "13hrs oil change tomorrow")):
         assert parse(update(line)) == {"kind": "natural", "op": "remind", "how": "command", "text": rest}, line      # the strict grammar does not claim it: the person's own words (NR-1)
     for line in ("/forget", "/forget x", "/forget -1", "/forget 3x"):
         assert parse(update(line)) == {"kind": "usage", "text": "Usage: /forget <n>"}, line

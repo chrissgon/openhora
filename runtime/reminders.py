@@ -116,7 +116,7 @@ def split_line(rest: str) -> tuple:
     return " ".join(parts[:head]), parts[head].strip()
 
 
-_STRICT_CLOCK = re.compile(r"[0-9]{2}:[0-9]{2}")
+_STRICT_CLOCK = re.compile(r"[0-9]{1,2}:[0-9]{2}")
 _STRICT_RELATIVE = re.compile(r"[0-9]{1,4}[mhd]")
 
 

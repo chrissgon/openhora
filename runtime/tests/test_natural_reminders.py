@@ -315,7 +315,9 @@ def test_the_policy_is_asked_before_the_line_is_read_and_a_refusal_is_the_typed_
 def test_a_question_stores_nothing_and_keeps_nothing_and_an_answer_to_it_makes_the_reminder(world):  # noqa: F811
     asked = said_yes(ops, world.path, SENDER, "remind me to phone the neighbour friday at 9")
     assert asked["ask"]["need"] == "reading" and world.rows() == []
-    made = ops.remind(world.path, channel="messaging", sender=SENDER, said="21h", how="trigger", draft=asked["ask"])
+    picked = ops.remind(world.path, channel="messaging", sender=SENDER, said="21h", how="trigger", draft=asked["ask"])
+    assert picked["ask"]["need"] == "confirm" and world.rows() == [], "a pick shows the whole reading and waits for the yes"
+    made = ops.remind(world.path, channel="messaging", sender=SENDER, said="yes", how="trigger", draft=picked["ask"])
     assert made["reminder"]["text"] == "phone the neighbour" and made["reminder"]["due"] == "2026-10-23 21:00"
     retry = ops.remind(world.path, channel="messaging", sender=SENDER, said="something else entirely", draft=asked["ask"])
     assert retry["ask"]["retries"] == 1 and len(world.rows()) == 1
