@@ -159,15 +159,15 @@ def test_a_change_card_shows_the_events_current_text_on_messaging_only_to_a_send
     other = card_for(world, started, ["read", "approve-effect-calendar"])
     assert f"Before: Title: {TITLE}" in holder["message"]["text"] and holder["approvable"] is True
     text = other["message"]["text"]
-    for hidden in (f"Before: Title: {TITLE}", "Before: Notes: Bring cash", "Unchanged: Where: Main Street", TITLE + "\n"):
+    for hidden in (f"Before: Title: {TITLE}", "Before: Notes: Bring cash", "Unchanged: Where: Main Street"):
         assert hidden not in text, hidden
-    for shown in ("Event: ev0001", "After: Title: Haircut with Pat", "After: Notes: New notes", "Before: When: Mon 19/10/2026 13:00-14:00", "Some of the event's current text is not shown here"):
+    for shown in ("Event: ev0001", f"The event now: {TITLE} (Mon 19/10/2026 13:00-14:00", "After: Title: Haircut with Pat", "After: Notes: New notes", "Before: When: Mon 19/10/2026 13:00-14:00", "Some of the event's current text is not shown here"):
         assert shown in text, shown
     assert other["approvable"] is False and "Approve this exact content" not in labels(other), "a card that leaves a line out is not approved where it is partial"
     assert other["content_sha256"] == holder["content_sha256"], "the hash is the effect's, whatever is drawn"
     portuguese = cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, {"messaging": ["read"]}, "text", None, operations=operations, sender=SENDER,
                              cfg={"language": "pt-BR"})["message"]["text"]
-    assert "Parte do texto atual do evento n\u00e3o aparece aqui" in portuguese and "Evento: ev0001" in portuguese
+    assert "Parte do texto atual do evento n\u00e3o aparece aqui" in portuguese and "Evento: ev0001" in portuguese and "O evento agora: Haircut with Joe" in portuguese
     assert "Antes: T\u00edtulo" not in portuguese and "Depois: T\u00edtulo: Haircut with Pat" in portuguese
 
 
@@ -175,8 +175,8 @@ def test_a_removal_card_hides_title_place_and_notes_from_a_sender_without_ask_ma
     made = made_event(world)
     started = ops.event_cancel(world["path"], "google", f"created:{made['pending']}")
     other = card_for(world, started, ["read", "approve-effect-calendar"])["message"]["text"]
-    assert TITLE not in other and "Main Street" not in other and "Bring cash" not in other
-    assert "Mon 19/10/2026 13:00-14:00" in other and "Event: ev0001" in other
+    assert "Removing, title" not in other and "Main Street" not in other and "Bring cash" not in other
+    assert f"The event now: {TITLE} (Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo))" in other and "Event: ev0001" in other, "the id, the time and the title read live are always there"
     holder = card_for(world, started, ["read", "approve-effect-calendar", "ask-mail"])["message"]["text"]
     assert f"Removing, title: {TITLE}" in holder and "Removing, notes: Bring cash" in holder and "not shown here" not in holder
     assert cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, {"messaging": ["read", "approve-effect-calendar", "ask-mail"]}, "text", None,

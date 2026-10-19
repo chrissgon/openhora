@@ -295,6 +295,7 @@ TABLE = {
         "CARD_CAL_CHANGE": "Code changes this event after your approval, only if it is still as read at {read_at}.",
         "CARD_CAL_CANCEL": "Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days (Google Calendar, Trash); this has not been verified yet.",
         "CARD_CAL_EVENT": "Event: {event_id}",
+        "CARD_CAL_NOW": "The event now: {title} ({when})",
         "CARD_CAL_DROP_TITLE": "Removing, title: {title}",
         "CARD_CAL_DROP_WHERE": "Removing, where: {location}",
         "CARD_CAL_DROP_NOTES": "Removing, notes: {notes}",

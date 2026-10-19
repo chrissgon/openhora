@@ -252,6 +252,7 @@ TABLE = {
     "CARD_CAL_CHANGE": "O código altera este evento depois da sua aprovação, só se ele ainda estiver como foi lido em {read_at}.",
     "CARD_CAL_CANCEL": "O código remove este evento depois da sua aprovação. O Google deve movê-lo para a lixeira da agenda, de onde você pode restaurá-lo por 30 dias (Google Agenda, Lixeira); isso ainda não foi verificado.",
     "CARD_CAL_EVENT": "Evento: {event_id}",
+    "CARD_CAL_NOW": "O evento agora: {title} ({when})",
     "CARD_CAL_DROP_TITLE": "Removendo, título: {title}",
     "CARD_CAL_DROP_WHERE": "Removendo, onde: {location}",
     "CARD_CAL_DROP_NOTES": "Removendo, notas: {notes}",

@@ -462,7 +462,10 @@ def card_lines(doc: dict, digest: str) -> list:
     head = [["CARD_ACCOUNT", {"account": doc["account"], "address": doc["address"]}], ["CARD_CAL_CALENDAR", {"calendar": doc["calendar"]}]]
     if operation == "create":
         return [["CARD_CAL_CREATE", {}]] + head + _event_lines(doc["event"], zone) + [["CARD_CAL_NOBODY", {}]]
+    # The event as the calendar holds it NOW (read in the preparation), always shown with its id: whoever approves sees which event it is, and a renumbered
+    # snapshot cannot make them approve another one. The rest of its current text (place, notes) is under the keys of phrases.CARD_PRIVATE.
     head.append(["CARD_CAL_EVENT", {"event_id": doc["event_id"]}])
+    head.append(["CARD_CAL_NOW", {"title": doc["before"]["title"] or "-", "when": when_text(doc["before"], zone)}])
     base = [["CARD_CAL_BASE", {"etag_short": etag_short(doc["base_etag"])}]]
     if operation == "cancel":
         return [["CARD_CAL_CANCEL", {}]] + head + _event_lines(doc["before"], zone, current=True) + base
