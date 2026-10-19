@@ -356,6 +356,11 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `event-cancel` | `--account` `--event` `[--calendar]` | `event_cancel` |
 | `mail-send` | `--account` `--to` `[--cc]` `[--bcc]` `--subject` `--text \| --text-file` `[--attach]` | `mail_send` |
 | `mail-reply` | `--account` `--message` `--text \| --text-file` | `mail_reply` |
+| `mail-draft` | `--account` `[--to]` `[--cc]` `[--bcc]` `[--subject]` `--body` `[--message]` | `mail_draft` |
+| `mail-archive` | `--account` `--messages` | `mail_archive` |
+| `mail-move` | `--account` `--messages` `--folder` | `mail_move` |
+| `mail-mark` | `--account` `--messages` `--state` | `mail_mark` |
+| `mail-trash` | `--account` `--messages` | `mail_trash` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -483,6 +488,11 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/files/save` | `file-save` | - | `account`, `attachment`, `file_name`, `folder` | - | - |
 | POST | `/projects/{p}/mail/send` | `mail-send` | - | every other argument | - | - |
 | POST | `/projects/{p}/mail/reply` | `mail-reply` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/draft` | `mail-draft` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/archive` | `mail-archive` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/move` | `mail-move` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/mark` | `mail-mark` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/trash` | `mail-trash` | - | every other argument | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->
