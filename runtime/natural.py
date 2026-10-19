@@ -1012,7 +1012,7 @@ PRIVATE = ("remind",)    # the operations whose line is the person's private wor
 # closed phrase and a request for work that starts with the same words is never taken.
 CLOSED_FORM = re.compile(r"(?:[^\\.*+{}^$\[\]()|?]|\(\?:|\((?!\?)|\)|\||\?|\[[^\]\\^\-*+.?]+\])*")
 NUMBER = r"(?P<n>[0-9]{1,9})"          # what `{n}` stands for in a form
-REQUEST_KEYS = ("forms", "aliases", "cues", "generic", "short_stop", "yes", "no")
+REQUEST_KEYS = ("forms", "aliases", "cues", "generic", "short_stop", "yes", "no", "writes")
 _COMPILED = {}
 WHEN_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}")
 WORD_EDGE = ".,;:!?()\"'"      # punctuation around a word of the line that is not part of it
@@ -1052,6 +1052,9 @@ def check_requests(table: dict) -> None:
                         raise ValueError(f"{where}.forms: {form!r} is not a closed phrase: a form is words, spaces, groups, `|` and `?` (and `[..]` of listed letters) with the "
                                          "integer written `{n}`, and nothing that matches an unbounded run (`.`, `*`, `+`, `{n,}`, `\\w`, `\\S`, a range)")
                     re.compile(form.replace("{n}", NUMBER))
+        elif key == "writes":
+            if not isinstance(given.get("writes", {}), dict):
+                raise ValueError(f"{where}.writes is an object (the words of the natural writes, package NR-5: runtime/natural_writes.py check_writes reads it)")
         elif key == "aliases":
             if not isinstance(value, list) or not all(isinstance(g, list) and all(isinstance(w, str) and w for w in g) for g in value):
                 raise ValueError(f"{where}.aliases is a list of lists of words")
@@ -1068,7 +1071,7 @@ def _requests(languages=None) -> list:
             check_requests(table)
             given = table.get("requests", {})
             _COMPILED[key] = {"forms": {op: tuple(re.compile(f.replace("{n}", NUMBER)) for f in forms) for op, forms in given.get("forms", {}).items()},
-                              **{k: list(given.get(k, [])) for k in REQUEST_KEYS if k != "forms"}}
+                              **{k: list(given.get(k, [])) for k in REQUEST_KEYS if k not in ("forms", "writes")}}
         out.append(_COMPILED[key])
     return out
 

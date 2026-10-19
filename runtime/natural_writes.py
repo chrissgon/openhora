@@ -1,0 +1,346 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = []
+# ///
+"""Natural writes (package NR-5): a plain line that asks for a write to the person's own accounts, read by code into the slots of the operation. Pure: the clock is
+passed in, nothing is stored, logged or sent, and no project is read. A line never makes a write: it only OPENS the card of the exact content, through the
+operation's own function (runtime/ops_natural_writes.py), and the card is the approval (limit L61, contracts/runtime.md).
+
+The words are not here: they are the language tables (`runtime/natural_lang_<tag>.py`, the key `requests.writes`, lists of PHRASES in plain words, never a regular
+expression), and the table of EVERY language is tried on EVERY line. A write line is a CLOSED HEAD (a verb and the object it acts on, at the start of the line, after
+polite words) followed by slots whose markers are closed word lists; an open question in the line is never a marker. A text slot (a title, a subject, a body, a content)
+is the person's own words between two markers, cut of the connectives at its edge and never rewritten.
+
+A FAMILY is the set of operations of one kind of write: `calendar` (event-create, event-change, event-cancel), `files` (file-create, file-replace, file-save) and `mail`
+(mail-send, mail-reply, mail-draft, mail-archive, mail-move, mail-mark, mail-trash; package NR-5b). Each family is a module `natural_writes_<family>` (pure, read here)
+and a module `ops_natural_<family>` (resolution with the project, read by runtime/ops_natural_writes.py). The registry is `FAMILIES`; adding a family adds a line
+there, a module of each kind and the family's lists in the language tables.
+
+The family interface:
+
+  natural_writes_<family>.HEADS(tables) -> [phrase, ...]
+        the closed heads the family recognises (folded phrases): the line must start with one of them (after polite words) for `read` to be tried
+  natural_writes_<family>.read(line, tables, now) -> {"op", "slots", "spans", "ranges", "need", "engine", "doubt"} | None
+        pure. `op` is the operation's name; `slots` the values the line gave (an integer, a list of integers, a name, a text); `spans` the subset of `slots` that are the
+        person's own words (for the provenance check); `ranges` {slot: (start, end)} of those spans in the folded line (the reminder-trigger test reads them); `need`
+        the required slots the line did not give, in the order they are asked; `engine` the draft of the time engine (runtime/natural.py, `how` "write") when the time
+        is not one settled reading, else None; `doubt` true when the engine understood a time but is not sure of it. `now` may be None (the clock-free test that
+        `candidate` makes): no time is worked out then. None when the line is not a form of the family: the line goes on as before
+  ops_natural_<family>.resolve(ctx, op, slots, channel, sender, said) -> one of
+        {"args": {...}}                                          every slot is final: the arguments of the operation's own function (`account` included)
+        {"ask": {"need", "options", "sentence_key", "fields"}}   one question about the first thing still open, in the fixed order of runtime/ops_natural_writes.py
+        {"say": {"sentence_key", "fields"}}                      a final sentence: nothing is opened (nothing found, nothing held, a recurrence)
+        `said` is the list of the person's lines so far (the provenance of a text slot). Nothing is read from a project that the caller may not read: a reference into a
+        snapshot is resolved with `channel` and `sender`, and a message is listed only after `item_refs.read_index` allowed it
+  natural_writes_<family>.answer(need, line, slots, tables, now) -> {"slots": {...}} | None      (optional)
+        the answer to a question of the family that the generic answers of runtime/ops_natural_writes.py (an option, a text, an address, a file name, a time) do not take
+
+The shape of a draft, the order of the questions and the answers to them are runtime/ops_natural_writes.py's. The helpers below (`Line`, `numbers`, `service`,
+`reminder_outside`) are for the families.
+
+  candidate(line, languages=None)   what the line is, with no clock: {"family", "op"} | None; the order of recognition is the families' heads in the order of `FAMILIES`
+                                    (the mail, the files, the calendar), then the calendar event of runtime/natural.py `candidate` (how "trigger"), then nothing
+  read(line, now=None, languages=None, op=None)   the family's reading plus {"family"}; with `op` the family of that operation reads the line with the operation fixed
+                                    (the seed of a question answered "event", and the router's hint)
+  check_writes(table)               ValueError(sentence) when `requests.writes` of a language table is not of the shape of SECTIONS
+
+Standard library only. Runs on Python 3.9: python3 runtime/natural_writes.py --help
+"""
+from __future__ import annotations
+
+import importlib
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import natural  # noqa: E402  (the same folder: the language tables, the time engine and the calendar intent)
+import natural_time as nt  # noqa: E402
+
+# The registry of the families: name -> the module that reads it. The module of the resolution is `ops_natural_<name>`. Order is the order of recognition.
+# NR-5b adds the line  "mail": "natural_writes_mail",  (first, so that "marca o e-mail 3 como lido" is a mail form before it is a calendar verb).
+FAMILIES = {
+    "calendar": "natural_writes_calendar",
+    "files": "natural_writes_files",
+}
+OP_FAMILY = {"event-create": "calendar", "event-change": "calendar", "event-cancel": "calendar",
+             "mail-send": "mail", "mail-reply": "mail", "mail-draft": "mail", "mail-archive": "mail", "mail-move": "mail", "mail-mark": "mail", "mail-trash": "mail",
+             "file-create": "files", "file-replace": "files", "file-save": "files"}      # the family of each write operation (the router's hint names an operation)
+
+LINE_WORDS_MAX = 120          # a longer line is a request, not a form
+SPAN_MAX = {"title": 200, "subject": 200, "body": 4000, "content": 65536, "name": 120}      # characters of a text slot read from a line
+LIST_MAX = 20                 # numbers in one list ("os e-mails 2, 4 e 7"): the most a mailbox write takes
+MENTION = re.compile(r"(?:^|\s)@\S")      # an `@id` mention of a source; an address has its @ inside a word
+
+# The keys of `requests.writes`, by section. A value of a key is a list of PHRASES; `services` and `kinds` map a name to such a list. NR-5b fills the lists of `mail`.
+TOP_KEYS = ("polite", "articles", "joiners", "range", "service_in")
+SECTIONS = {
+    "services": ("google", "microsoft"),
+    "calendar": ("in_calendar", "calendar_after", "range_from", "range_to", "all_day", "change_verbs", "cancel_verbs", "nouns", "to_time", "rename", "rename_to"),
+    "mail": ("send_verbs", "reply_verbs", "draft_verbs", "archive_verbs", "move_verbs", "mark_verbs", "trash_verbs", "nouns", "plural", "to", "subject", "body", "of",
+             "folder", "read", "unread", "newest"),
+    "files": ("create_verbs", "replace_verbs", "save_verbs", "nouns", "named", "content", "folder", "this", "held_nouns", "gdoc", "text_words", "of", "replace_with"),
+}
+PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")      # a phrase: words of a-z and 0-9 separated by one space; no character a regular expression means anything by
+
+
+def _tables(languages=None) -> list:
+    return natural._tables(languages)
+
+
+def writes_of(table: dict) -> dict:
+    """The `requests.writes` of one language table ({} when it has none)."""
+    given = table.get("requests", {}).get("writes", {})
+    return given if isinstance(given, dict) else {}
+
+
+def check_writes(table: dict) -> None:
+    """ValueError(sentence) when the key `requests.writes` of a language table is not of the shape of SECTIONS: every list is a list of phrases (a-z, 0-9 and single
+    spaces: no regular-expression character), `services` maps each account to such a list, `files.kinds` maps a kind to one."""
+    where = f"language table {table.get('tag')!r}: requests.writes"
+    given = writes_of(table)
+    if not given:
+        return
+
+    def phrases(value, path):
+        if not isinstance(value, list) or not all(isinstance(p, str) and PHRASE.fullmatch(p) for p in value):
+            raise ValueError(f"{where}.{path} is a list of phrases: words of a-z and 0-9 separated by one space, no regular-expression character")
+    extra = sorted(set(given) - set(TOP_KEYS) - set(SECTIONS) - {"files"})
+    if extra:
+        raise ValueError(f"{where} has no key {extra[0]!r}")
+    for key in TOP_KEYS:
+        phrases(given.get(key, []), key)
+    for section, keys in SECTIONS.items():
+        body = given.get(section, {})
+        if not isinstance(body, dict):
+            raise ValueError(f"{where}.{section} is an object")
+        allowed = set(keys) | ({"kinds"} if section == "files" else set())
+        if set(body) - allowed:
+            raise ValueError(f"{where}.{section} has no key {sorted(set(body) - allowed)[0]!r}")
+        for key in keys:
+            phrases(body.get(key, []), f"{section}.{key}")
+        if section == "files":
+            kinds = body.get("kinds", {})
+            if not isinstance(kinds, dict):
+                raise ValueError(f"{where}.files.kinds maps a kind of file to a list of phrases")
+            for kind, listed in kinds.items():
+                phrases(listed, f"files.kinds.{kind}")
+
+
+# --- the toolkit of the families (pure) --------------------------------------------------------------------------------------------------------------------
+
+
+class Line:
+    """A line of the person, folded for matching (lower case, no accent: `natural_time.normalise`) with the way back to the original characters: `span(s, e)` of a range of
+    the folded text is the person's own words, verbatim."""
+
+    def __init__(self, text):
+        self.text = text if isinstance(text, str) else ""
+        self.norm, self.origin = nt.normalise(self.text)
+
+    def span(self, start: int, end: int) -> str:
+        """The original text of the folded range [start, end), the person's words as they wrote them (blanks at the edges are cut)."""
+        if start >= end or start < 0 or end > len(self.origin):
+            return ""
+        return self.text[self.origin[start]:self.origin[end - 1] + 1].strip()
+
+    def find(self, phrases, start: int = 0, end=None):
+        """(s, e), in the folded line, of the first place at or after `start` (before `end`) where a phrase of `phrases` stands as whole words; the longest phrase at that
+        place wins. None when there is none."""
+        alt = nt._alt(phrases)
+        if not alt:
+            return None
+        end = len(self.norm) if end is None else end
+        m = re.compile(f"{nt._L}{alt}{nt._R}").search(self.norm, start, end)
+        return (m.start(), m.end()) if m else None
+
+    def find_all(self, phrases, start: int = 0, end=None) -> list:
+        alt = nt._alt(phrases)
+        if not alt:
+            return []
+        end = len(self.norm) if end is None else end
+        return [(m.start(), m.end()) for m in re.compile(f"{nt._L}{alt}{nt._R}").finditer(self.norm, start, end)]
+
+    def lead(self, phrases, tables: list):
+        """The end, in the folded line, of the longest phrase of `phrases` that the line starts with (after blanks, marks and polite words), or None."""
+        best = None
+        alt = nt._alt(phrases)
+        if not alt:
+            return None
+        polite = sorted({p for t in tables for p in writes_of(t).get("polite", []) + t.get("polite", [])}, key=lambda p: (-len(p), p))
+        lead = nt._alt(polite)
+        pre = f"(?:{lead}\\s+)*" if lead else ""
+        m = re.match(f"[^a-z0-9@]*{pre}{alt}(?![a-z0-9])", self.norm)
+        if m:
+            best = m.end()
+        return best
+
+    def words_after(self, start: int) -> list:
+        """The words of the folded line from `start`: [(word, s, e)]."""
+        return [(m.group(0), m.start() + start, m.end() + start) for m in re.finditer(r"[a-z0-9]+", self.norm[start:])]
+
+
+def listed(tables: list, section, key: str) -> list:
+    """The phrases of one list of `requests.writes`, over every table (`section` None: a top-level key), in order and without repeats."""
+    out = []
+    for table in tables:
+        body = writes_of(table) if section is None else writes_of(table).get(section, {})
+        for phrase in (body.get(key, []) if isinstance(body, dict) else []):
+            if phrase not in out:
+                out.append(phrase)
+    return out
+
+
+def skip_articles(line: Line, at: int, tables: list) -> int:
+    """`at` moved past the articles ("o", "um", "esse"...) that stand right there."""
+    articles = listed(tables, None, "articles")
+    while True:
+        m = re.compile(r"\s*").match(line.norm, at)
+        here = m.end() if m else at
+        found = line.find(articles, here, here + 20)
+        if found and found[0] == here:
+            at = found[1]
+        else:
+            return here if here != at else at
+
+
+def numbers(line: Line, start: int, end: int, tables: list):
+    """The integers written in [start, end) of the folded line, in order, when that part is nothing but numbers and the words that join them ("2", "2, 4 e 7", "1 a 3",
+    "#5"): a list of 1 to LIST_MAX integers, each at least 1, a range written out ("1 a 3" is 1, 2, 3) and no number twice. None when the part holds anything else."""
+    part = line.norm[start:end]
+    joiners = [j for j in listed(tables, None, "joiners")]
+    spans = [j for j in listed(tables, None, "range")]
+    tokens = re.findall(r"#?[0-9]{1,4}|[a-z]+|,|-", part)
+    if "".join(re.sub(r"\s+", "", t) for t in tokens) != re.sub(r"\s+", "", part) or not tokens:
+        return None
+    out, expect_number, ranged = [], True, False
+    for token in tokens:
+        if expect_number:
+            if not re.fullmatch(r"#?[0-9]{1,4}", token):
+                return None
+            n = int(token.lstrip("#"))
+            if n < 1 or token.lstrip("#") != str(n):
+                return None
+            if ranged:
+                if n <= out[-1]:
+                    return None
+                out += list(range(out[-1] + 1, n + 1))
+                ranged = False
+            else:
+                out.append(n)
+            expect_number = False
+        else:
+            if token == "," or token in joiners:
+                expect_number = True
+            elif token == "-" or token in spans:
+                expect_number, ranged = True, True
+            else:
+                return None
+    if expect_number or len(out) > LIST_MAX or len(set(out)) != len(out):
+        return None
+    return out
+
+
+def service(line: Line, tables: list, start: int = 0, end=None):
+    """(account, s, e) of the service the line names, or None: `account` is `google` or `microsoft`; (s, e) is the folded range to take out of the line (the word that
+    introduces it, "no", "on", comes with it). A phrase of two words or more names a service by itself ("google calendar"); one word needs an introducing word ("no
+    outlook"). A line that names both services names none: the account is asked."""
+    found = {}
+    alt = nt._alt(listed(tables, None, "service_in"))
+    before = re.compile(f"{nt._L}{alt}\\s+$") if alt else None
+    for account in ("google", "microsoft"):
+        names = listed(tables, "services", account)
+        for s, e in line.find_all(names, start, end):
+            word_count = len(line.norm[s:e].split())
+            lead = before.search(line.norm[:s], start) if before else None
+            if lead:
+                found.setdefault(account, (lead.start(), e))
+            elif word_count >= 2:
+                found.setdefault(account, (s, e))
+    if len(found) != 1:
+        return None
+    account = next(iter(found))
+    return account, found[account][0], found[account][1]
+
+
+def reminder_outside(line: Line, tables: list, ranges: dict) -> bool:
+    """Whether the line holds a reminder trigger ("me lembra") that is not inside one of the text spans the family took (`ranges`, folded): a body that says "me lembra"
+    is a body, a line that also asks for a reminder is two requests and no write form."""
+    spots = []
+    anywhere = natural._anywhere(line.norm, tables, "remind_anywhere")
+    if anywhere:
+        spots.append(anywhere)
+    head = natural._head(line.norm, tables, "remind")
+    if head is not None:
+        spots.append((0, head))
+    return any(not any(s >= rs and e <= re_ for rs, re_ in ranges.values()) for s, e in spots)
+
+
+# --- recognition -------------------------------------------------------------------------------------------------------------------------------------
+
+
+def family_module(name: str):
+    """The pure module of a family (`natural_writes_<family>`), imported once."""
+    return importlib.import_module(FAMILIES[name])
+
+
+def families() -> list:
+    return list(FAMILIES)
+
+
+def _claim(text: str) -> bool:
+    return bool(text.strip()) and not text.lstrip().startswith("/") and len(text.split()) <= LINE_WORDS_MAX and not MENTION.search(text)
+
+
+def read(line, now=None, languages=None, op=None):
+    """The reading of a write line (see the module's text), or None when it is not one. With `op` the family of that operation reads the line with the operation fixed."""
+    tables = _tables(languages)
+    text = line if isinstance(line, str) else ""
+    if not _claim(text):
+        return None
+    shaped = Line(text)
+    if op is not None:
+        name = OP_FAMILY.get(op)
+        if name not in FAMILIES:
+            return None
+        got = family_module(name).read(text, tables, now, op=op) if _takes_op(name) else family_module(name).read(text, tables, now)
+        return _finish(got, name, shaped, tables, op)
+    for name in FAMILIES:
+        module = family_module(name)
+        if module.HEADS(tables) and shaped.lead(module.HEADS(tables), tables) is None:
+            continue
+        got = module.read(text, tables, now)
+        if got:
+            return _finish(got, name, shaped, tables, None)
+    named = natural.candidate(text, tables)
+    if named and named["op"] == "calendar-event-create" and named["how"] == "trigger" and "calendar" in FAMILIES:
+        got = family_module("calendar").read(text, tables, now, op="event-create")
+        return _finish(got, "calendar", shaped, tables, None)
+    return None
+
+
+def _takes_op(name: str) -> bool:
+    import inspect
+    return "op" in inspect.signature(family_module(name).read).parameters
+
+
+def _finish(got, name: str, shaped: Line, tables: list, op):
+    if not got or (op is not None and got.get("op") != op):
+        return None
+    if reminder_outside(shaped, tables, got.get("ranges") or {}):
+        return None
+    return dict(got, family=name)
+
+
+def candidate(line, languages=None):
+    """What the line is, with no clock: {"family", "op"} | None. The same test as `read`, without the time engine."""
+    got = read(line, None, languages)
+    return {"family": got["family"], "op": got["op"]} if got else None
+
+
+if __name__ == "__main__":
+    print(__doc__.strip(), file=sys.stdout if sys.argv[1:] in (["--help"], ["-h"]) else sys.stderr)
+    sys.exit(0 if sys.argv[1:] in (["--help"], ["-h"]) else 2)

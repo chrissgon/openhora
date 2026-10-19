@@ -686,7 +686,8 @@ def test_no_step_module_or_run_reaches_the_account_mailers_and_only_the_effect_m
         text = path.read_text(encoding="utf-8")
         if re.search(r"""["']gmail["']|["']outlook["']|\bgmail\.py\b|\boutlook\.py\b""", text) and path.name not in ("sources_mail.py", "sources.py", "phrases.py", "operations.py",
                                                                                                                      "item_refs.py", "snapshot_text.py", "cli.py", "ops_sources.py",
-                                                                                                                     "messaging_provider.py", "project_config.py", "service.py"):
+                                                                                                                     "messaging_provider.py", "project_config.py", "service.py",
+                                                                                                                     "natural_lang_en.py", "natural_lang_pt_br.py"):      # NR-5: the words a person types to name a service ("no gmail", "on my outlook") are language data
             named.append(path.name)
     assert set(named) <= {"send_document.py", "effect_send.py", "mail_refs.py", "ops_step_seams.py", "ops_mail_send.py", "step_send_email.py",
                           "mailbox_document.py", "ops_mailbox.py"}, named      # W3: the mailbox document and its operations name the writer of the account (an implementation of writer:mailbox), never a mailer

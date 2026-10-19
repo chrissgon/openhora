@@ -108,6 +108,9 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/natural_lang_en.py` | English, as a language table of the natural-request engine (package NR-1): the words a person types, as data. |
 | `runtime/natural_lang_pt_br.py` | Brazilian Portuguese, as a language table of the natural-request engine (package NR-1): the words a person types, as data. |
 | `runtime/natural_time.py` | The time parser of natural requests (package NR-1): the time a person means in a line of their own words, as the grammar of runtime/reminders.py, with no model. |
+| `runtime/natural_writes.py` | Natural writes (package NR-5): a plain line that asks for a write to the person's own accounts, read by code into the slots of the operation. |
+| `runtime/natural_writes_calendar.py` | The calendar family of the natural writes (package NR-5a), pure: the interface of runtime/natural_writes.py. |
+| `runtime/natural_writes_files.py` | The files family of the natural writes (package NR-5a), pure: the interface of runtime/natural_writes.py. |
 | `runtime/operations.py` | The table of operations: the one place that says what the operations layer (runtime/ops.py) offers to a shell. |
 | `runtime/ops.py` | The operations layer of the task runtime: every operation a person or a scheduler can perform, once. |
 | `runtime/ops_actor.py` | Who acted (package POL-2), in the operations layer: the sender of a messaging app, the profile the accepted configuration gives that sender, and the record of both with a decision. |
@@ -127,6 +130,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_mailbox.py` | The operations over the person's own mailbox (package W3): save a draft, archive messages, move them to a folder or label, mark them as read or unread, move them to the trash. |
 | `runtime/ops_models.py` | Which model a run goes to, in the operations layer: the person's choice (a request, a task, an agent, the project's default), the proof of the skill on each model (runtime/proof.py) and the person's consent for an agent's own model (decision D38). |
 | `runtime/ops_natural.py` | The one dispatcher of the natural requests (package NR-2): it executes what a tier chose, checked exactly as the typed command is. |
+| `runtime/ops_natural_writes.py` | The card-opening path of the natural writes (package NR-5a): the one place that opens a write for a line. |
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_reminders.py` | The operations over reminders (package RM-1): make one, list them, forget one, and what the messaging bridge asks of the store to send them. |
 | `runtime/ops_routines.py` | The operations over routines (package P6b; decisions D23, D24, D31 to D35, findings S3, S10, I5, F4, F12) and the tick that fires them. |
