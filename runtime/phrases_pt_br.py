@@ -533,6 +533,21 @@ TABLE = {
     "ACCT_FILE_TYPE": "Um {given} não pode substituir um {wanted}: informe um arquivo do projeto do mesmo tipo.",
     "ACCT_FILE_SOURCE": "A fonte @{source} não é um arquivo da sua conta {service}: só se substitui uma fonte adicionada dessa conta.",
     "ACCT_FILE_NOT_FILE": "O item não é um arquivo que possa ser escrito ({reason}).",
+    # --- a mail write asked in words (package NR-5b, runtime/ops_natural_mail.py) ---
+    "NW_MAIL_NO_SOURCE": "Nenhuma fonte de e-mail da sua caixa está registrada para isso: registre uma com source-mail primeiro e peça de novo.",
+    "NW_MAIL_NONE": "Nenhuma mensagem do snapshot mais novo de {source} tem todas estas palavras: {words}.",
+    "NW_MAIL_TOO_MANY": "Um card aceita no máximo {max} mensagens: indique menos.",
+    "NW_MAIL_NO_FOLDERS": "Nenhuma pasta de e-mail está configurada para a conta {account}, então nada pode ser movido: a chave accounts do runtime.json as lista.",
+    "NW_MAIL_ASK_SOURCE": "De qual caixa?",
+    "NW_MAIL_ASK_MESSAGE": "Achei {count} e-mails. Qual deles? Responda com o número.",
+    "NW_MAIL_ASK_MESSAGES_OVER": "Achei {count} e-mails, e um card aceita no máximo {max}. Quais? Responda com os números (os {shown} mais novos estão listados).",
+    "NW_MAIL_ASK_TO": "Qual o e-mail de {name}?",
+    "NW_MAIL_ASK_SUBJECT": "Qual o assunto do e-mail para {to}?",
+    "NW_MAIL_ASK_BODY": "O que o e-mail para {to} deve dizer?",
+    "NW_MAIL_ASK_BODY_REPLY": "O que a resposta deve dizer?",
+    "NW_MAIL_ASK_STATE": "Marcar como lido ou como não lido?",
+    "NW_MAIL_STATE_READ": "lido",
+    "NW_MAIL_STATE_UNREAD": "não lido",
 }
 
 STATUS = {

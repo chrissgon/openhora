@@ -66,6 +66,7 @@ import natural_time as nt  # noqa: E402
 # The registry of the families: name -> the module that reads it. The module of the resolution is `ops_natural_<name>`. Order is the order of recognition.
 # NR-5b adds the line  "mail": "natural_writes_mail",  (first, so that "marca o e-mail 3 como lido" is a mail form before it is a calendar verb).
 FAMILIES = {
+    "mail": "natural_writes_mail",
     "calendar": "natural_writes_calendar",
     "files": "natural_writes_files",
 }
@@ -352,12 +353,20 @@ def problems(op: str, args: dict, said: list, accounts: dict, offered: dict, now
             if value not in offered.get("sources", ()):
                 out.append(f"file {value!r} is not a source code listed")
         elif key == "account":
-            out += _account_problems(op, value, lines, accounts, offered, picks if options is None else value in options, tables)
+            if not (op.startswith("mail-") and _mailbox_account(value, args, said, offered, picks if options is None else bool(options))):
+                out += _account_problems(op, value, lines, accounts, offered, picks if options is None else value in options, tables)
         elif key in ("calendar", "folder"):
-            section = "calendars" if key == "calendar" else "folders"
+            section = "calendars" if key == "calendar" else "mail_folders" if op.startswith("mail-") else "folders"
             listed = ((accounts.get(args.get("account")) or {}).get(section)) or {}
-            if value not in listed or not (any(value in w for w in line_words) or (picks if options is None else value in options)):
+            if value not in listed or not (any(_contiguous(_words(value), w) for w in line_words) or (picks if options is None else value in options)):
                 out.append(f"{key} {value!r} is not a configured name written or picked")
+        elif key in ("to", "cc", "bcc"):
+            out += _address_problems(key, value, said)
+        elif key in ("message", "messages"):
+            out += _message_problems(key, value, said, offered, tables, options)
+        elif key == "state":
+            if value not in ("read", "unread") or not (_state_said(value, said, tables) or (picks if options is None else value in options)):
+                out.append(f"state {value!r} was not said")
         else:
             out.append(f"{key} is not a slot of a natural write")
     if "start" in args and "end" in args:
@@ -366,6 +375,84 @@ def problems(op: str, args: dict, said: list, accounts: dict, offered: dict, now
         if start_day != end_day or not (start_clock and end_clock and end_clock > start_clock):
             out.append(f"end {args['end']} is not after start {args['start']} on the same day")
     return out
+
+
+def _address_problems(key: str, value, said: list) -> list:
+    """The addresses of a recipient list (comma-separated, at most 20) must each be written in one of the person's lines: a recipient is never found in a mailbox or a body."""
+    addresses = [a for a in str(value).split(",") if a]
+    if not addresses or len(addresses) > 20:
+        return [f"{key} is {len(addresses)} addresses: an e-mail takes 1 to 20"]
+    haystack = [s.lower() for s in said]
+    return [f"{key} {a!r} is not an address written in a line" for a in addresses if not any(a.lower() in line for line in haystack)]
+
+
+def _written_numbers(text: str) -> set:
+    """The numbers a line writes: its digit groups, and every number between two of them joined by a range word or a dash (`1 a 3`, `1 to 3`, `1-3`)."""
+    folded = natural.normal(text)
+    out = {int(n) for n in re.findall(r"[0-9]{1,9}", folded)}
+    for a, b in re.findall(r"([0-9]{1,9})\s*(?:a|ate|to|through|thru)?\s*([0-9]{1,9})", folded):
+        if int(a) < int(b) <= int(a) + 40 and re.search(rf"{a}\s*(?:a|ate|to|through|thru)\s*{b}", folded):
+            out |= set(range(int(a), int(b) + 1))
+    for a, b in re.findall(r"([0-9]{1,9})\s*-\s*([0-9]{1,9})", text):
+        if int(a) < int(b) <= int(a) + 40:
+            out |= set(range(int(a), int(b) + 1))
+    return out
+
+
+def _mail_readings(said: list, tables: list) -> list:
+    """What the mail family reads of each of the person's lines ({} for a line it does not read)."""
+    module = family_module("mail")
+    return [module.read(s, tables) or {} for s in said]
+
+
+def _message_problems(key: str, value, said: list, offered: dict, tables: list, options) -> list:
+    """Each `<source>#<n>` of a message write: the source is a mailbox code listed (`offered["mail_index"]`: {source: entries of its index}), and the number is written in a line,
+    is an option the person was shown (`offered["options"]`), is the first message for "the latest", or is the unique strong match (a plural object: the strong set, up to 20)
+    of the words the line said."""
+    refs = [r for r in str(value).split(",") if r]
+    index = offered.get("mail_index") or {}
+    if not refs or len(refs) > LIST_MAX:
+        return [f"{key} is {len(refs)} messages: a card takes 1 to {LIST_MAX}"]
+    written = set()
+    for s in said:
+        written |= _written_numbers(s)
+    readings = [r.get("slots", {}) for r in _mail_readings(said, tables) if r]
+    words = next((r["words"] for r in readings if r.get("words")), None)
+    newest = any(r.get("newest") for r in readings)
+    plural = any(r.get("plural") for r in readings)
+    module = family_module("mail")
+    out = []
+    for ref in refs:
+        source, _, n = ref.partition("#")
+        if source not in index or not n.isdigit():
+            out.append(f"{ref!r} is not a message of a mailbox code listed")
+            continue
+        n = int(n)
+        strong = [e["n"] for e in module.match_words(index[source], words, False)] if words else []
+        by_words = n in strong and (len(strong) == 1 or (plural and not newest and len(strong) <= LIST_MAX)) or (newest and strong and n == min(strong))
+        if not (n in written or ref in (offered.get("options") or ()) or (newest and not words and n == 1) or by_words):
+            out.append(f"message {ref} is not written, shown or the unique match of the words")
+    return out
+
+
+def _state_said(value: str, said: list, tables: list) -> bool:
+    module = family_module("mail")
+    for line in said:
+        got = module.answer("state", line, {}, tables)
+        read = module.read(line, tables)
+        if (got and got["slots"].get("state") == value) or (read and read["slots"].get("state") == value):
+            return True
+    return False
+
+
+def _mailbox_account(value: str, args: dict, said: list, offered: dict, picked: bool) -> bool:
+    """Whether the account of a write on messages is the account of their mailbox: the references' sources all belong to `value`, and the mailbox is the only one code listed, is
+    written in a line, or was picked."""
+    sources = offered.get("mail_sources") or {}
+    refs = [r for r in str(args.get("messages") or args.get("message") or "").split(",") if r]
+    if not refs or any(sources.get(r.partition("#")[0]) != value for r in refs):
+        return False
+    return len(sources) == 1 or picked or any(r.partition("#")[0] in natural.normal(" ".join(said)).split() or r in " ".join(said) for r in refs)
 
 
 def _named(op: str, value: str, lines: list, tables: list) -> bool:

@@ -27,6 +27,8 @@ ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_natural_calendar = st.load("ops_natural_calendar")
 ops_natural_files = st.load("ops_natural_files")
+ops_natural_mail = st.load("ops_natural_mail")
+item_refs = st.load("item_refs")
 ops_natural_writes = st.load("ops_natural_writes")
 drafts = st.load("drafts")
 natural = st.load("natural")
@@ -35,8 +37,8 @@ natural_writes = st.load("natural_writes")
 HERE = Path(__file__).resolve().parent
 NOW = clock("2026-10-19 09:00")
 CHANNEL = "terminal"
-ANSWERS = ["sim", "yes", "não", "no", "cancela", "cancel", "1", "2", "3", "4", "5", "6", "8h", "às 15h", "9", "21", "amanhã", "sexta", "quinta às 10h", "dia todo", "o dia todo",
-           "all day", "google", "outlook", "microsoft", "work", "personal", "trabalho", "ideias.md", "notas.txt", "documento google", "Dentista da Júlia", "Reunião com o time",
+ANSWERS = ["sim", "yes", "não", "no", "cancela", "cancel", "1", "2", "3", "4", "5", "6", "8h", "às 15h", "9", "21", "amanhã", "sexta", "quinta às 10h", "dia todo", "o dia todo",      # validate: allow english-only -- a Portuguese line is the input under test
+           "all day", "google", "outlook", "microsoft", "work", "personal", "trabalho", "ideias.md", "notas.txt", "documento google", "Dentista da Júlia", "Reunião com o time",      # validate: allow english-only -- a Portuguese line is the input under test
            "bia@exemplo.example", "um assunto qualquer", "um texto de corpo", "marca outra coisa quinta às 9h", "/status", "lista os e-mails", "hmm",
            "segunda", "dia 25", "9h", "daqui a 2 horas", "20/10 às 10h", "31/02 às 10h", "tomorrow at 3pm", "Friday"]      # validate: allow english-only -- answers in Portuguese, data of the case
 GOOGLE = {"address": "pat@example.com", "calendars": {"personal": "pat@example.com", "side": "side.calendar@example.com"}, "folders": {"default": "FolderId0001", "cv": "Cv_Folder_0001"},
@@ -47,6 +49,10 @@ CONFIGS = {"one": {"google": GOOGLE}, "two": {"google": GOOGLE, "microsoft": MIC
 STATES = {"none": (0, 0), "one": (1, 1), "two": (2, 2)}
 HELD = [{"id": 11, "name": "Contract.pdf", "kind": "pdf", "bytes": 1000}, {"id": 12, "name": "Minutes.docx", "kind": "docx", "bytes": 2000}]
 CAL_SOURCES = [{"id": "agenda", "account": "google"}, {"id": "trabalho", "account": "google"}]
+MAIL_SOURCES = [{"id": "inbox", "account": "google"}, {"id": "work", "account": "microsoft"}]      # the registered mail sources of a state (none, one, two), package NR-5b
+MAIL_INDEX = [{"n": n, "from_address": f"{who}@{host}.example", "subject": subject}
+              for n, (who, host, subject) in enumerate([("billing", "banco", "Fatura de outubro"), ("ana", "clinic", "Appointment confirmed"), ("bia", "exemplo", "Contrato novo"),
+                                                        ("loja", "shop", "Seu pedido foi enviado"), ("noreply", "banco", "Fatura de setembro")] * 6, 1)]      # 30 messages, newest first
 FILE_ROWS = [{"id": "lista-de-compras", "type": "drive", "origin": "x1", "description": "", "version": 1, "catalog": {"name": "lista de compras.md", "date": "2026-10-10"}},
              {"id": "roteiro", "type": "drive", "origin": "x2", "description": "", "version": 1, "catalog": {"name": "roteiro.md", "date": "2026-10-10"}}]
 
@@ -69,11 +75,16 @@ class Env:
         sources_n, files_n = STATES[state]
         self.sources, self.held = CAL_SOURCES[:sources_n], HELD[:files_n]
         self.file_rows = FILE_ROWS if files_n else []
+        self.mail_sources = MAIL_SOURCES[:sources_n]
         self.offered = {"numbers": {h["id"] for h in self.held}, "sources": {r["id"] for r in self.file_rows}, "source_accounts": {s["account"] for s in self.sources},
-                        "options": set()}          # grows with every option code lists in a question the walk reaches
+                        "options": set(), "mail_sources": {s["id"]: s["account"] for s in self.mail_sources},
+                        "mail_index": {s["id"]: copy.deepcopy(MAIL_INDEX) for s in self.mail_sources}}          # grows with every option code lists in a question the walk reaches
         monkeypatch.setattr(ops_natural_calendar, "calendar_sources", lambda ctx: list(self.sources))
         monkeypatch.setattr(ops_natural_files, "held_files", lambda ctx, channel, sender: list(self.held))
         monkeypatch.setattr(ops_natural_files, "sources", SimpleNamespace(list_catalog=lambda ctx, hashes=False: list(self.file_rows)))
+        monkeypatch.setattr(ops_natural_mail, "_mail_sources", lambda ctx: list(self.mail_sources))
+        monkeypatch.setattr(item_refs, "may_read", lambda ctx, channel, sender=None: channel != "mcp")
+        monkeypatch.setattr(item_refs, "read_index", lambda ctx, source_id, **kw: {"source": source_id, "type": "mail", "entries": copy.deepcopy(MAIL_INDEX)})
         monkeypatch.setattr(ops_natural_writes, "_call_operation", self.record)
 
     def record(self, project, op, args, channel, sender):
@@ -187,7 +198,8 @@ def test_the_corpus_holds_what_the_spec_asks_of_it():
     for lang in ("pt-BR", "en"):
         assert sum(1 for r in rows if r["lang"] == lang and r["op"] != "work") >= 150, lang
     assert sum(1 for r in rows if r["op"] == "work") >= 60 and len(ANSWERS) >= 30
-    assert {r["op"] for r in rows} >= {"event-create", "event-change", "event-cancel", "file-create", "file-replace", "file-save", "work"}
+    assert {r["op"] for r in rows} >= {"event-create", "event-change", "event-cancel", "file-create", "file-replace", "file-save", "work",
+                                       "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"}
     for row in rows:
         found = natural_writes.read(row["line"], NOW)
         assert (found["op"] if found else "work") == row["op"], row
