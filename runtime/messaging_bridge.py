@@ -402,6 +402,26 @@ class Bridge(shell_kit.Jobs):
                 return False
         return True
 
+    def ask_yes(self, project: dict, chat: str, text: str) -> bool:
+        """Send a question about a reminder with ONE button, "Yes" (NR-1), and bind it in the ledger (kind `reminder`; the ledger holds no text: the project, the chat, the
+        message and the action id). False when the platform has no buttons, the text does not fit one message, or the send failed: the caller then sends the plain
+        question, which is answered by a typed "yes". The tap is handled by `remind.tapped`."""
+        caps = self.messenger.capabilities()
+        if not (caps.get("buttons") and caps.get("max_buttons", 0) >= 1) or len(text) > int(caps.get("max_text") or 0):
+            return False
+        action = f"{self.ledger.next_seq()}:yes"
+        try:
+            sent = self.deliver(chat, {"text": text, "actions": [{"id": action, "label": phrases.text("NT_BTN_YES", self.cfg(project))}], "link": None, "document": None})
+        except provider.MessengerError:
+            return False
+        self.last_message[chat] = str(sent) if sent else None
+        try:
+            self.ledger.add({"project": project["id"], "pending_id": None, "kind": "reminder", "content_sha256": "", "chat": chat, "message_id": sent, "actions": {action: "yes"},
+                             "sent_at": self.clock(), "whole": True, "approvable": False, "blocked": None, "effect_word": None})
+        except OSError as e:
+            self.log(f"the ledger could not be written ({e.__class__.__name__})")
+        return True
+
     def allow(self, project: dict, op: str, kind=None, sender=None) -> dict:
         """The project's accepted settings when the policy permits the operation (for this kind of decision) to THIS sender (their profile, read now),
         else Refused with the sentence the operations layer uses too."""
@@ -644,7 +664,8 @@ class Bridge(shell_kit.Jobs):
         if kind == "ignore":
             return
         replied = update.get("reply_to")
-        if kind == "natural" and replied and self.ledger.by_message(chat, replied):          # a reply to a card answers THAT card, not a reminder (NR-1)
+        shown = self.ledger.by_message(chat, replied) if kind == "natural" and replied else None
+        if shown and shown.get("kind") != "reminder":          # a reply to a card answers THAT card, not a reminder (NR-1); the question about a reminder is answered by `remind.answer`
             intent = {"kind": "reply", "reply_to": replied, "text": update.get("text") or ""}
             kind = "reply"
         self.remind.discarded.discard(chat)
@@ -725,6 +746,9 @@ class Bridge(shell_kit.Jobs):
             return
         if not self.listed_in(project, chat):
             self.log(DROPPED)
+            return
+        if card.get("kind") == "reminder":
+            self.remind.tapped(project, chat, card)
             return
         if card.get("kind") == "attachment":
             self.attach.tapped(project, chat, card, card["actions"][action_id])

@@ -20,7 +20,7 @@ problem of this machine or carries a path, which becomes the one fixed sentence 
 
 In the person's own words (package NR-1). A line that code matched to a reminder operation (runtime/natural.py through the intent `natural` of
 runtime/messaging_inbound.py; `/remind <rest>` that the strict grammar does not claim is one too) is handled by `natural`: no model, no route lock, no model
-slot. The operation `remind` reads the line with the clock (`said`); what is unclear comes back as a question (`ask`), kept as a draft in `self.drafts` for that
+slot. The operation `remind` reads the line with the clock (`said`) and never makes a reminder from free text at once: the reading comes back as a question (`ask`: the confirmation, with a one-tap Yes button where the platform has buttons, `Bridge.ask_yes`, and `tapped` for the tap), and so does whatever is unclear; the question is kept as a draft in `self.drafts` for that
 chat (memory only: DRAFT_SECONDS, one per chat, lost on a restart, never logged, never in the store), and the next update of the chat goes to `answer`, which finishes
 the draft or drops it so that the update is handled as a new one. The calendar is not built: its row answers so and makes no reminder.
 
@@ -162,14 +162,32 @@ class Reminders:
         self.question(project, chat, phrases.text("NT_ASK_EVENT_OR_OTHER", bridge.cfg(project)), {**natural._draft("eventorother", "ask", line, ""), "retries": retries})
 
     def question(self, project: dict, chat: str, sentence: str, draft: dict) -> None:
-        """Send a question and keep its draft for the next line of the chat (memory only). A question that replaces one still open says so."""
+        """Send a question and keep its draft for the next line of the chat (memory only). A question that replaces one still open says so. A question that is answered
+        by a "yes" (the confirmation of a reading, the cancel of a reminder) carries a one-tap "Yes" button where the platform has buttons; the typed "yes" works everywhere."""
         bridge = self.bridge
         if chat in self.discarded:
             self.discarded.discard(chat)
             sentence = phrases.text("NT_DISCARDED", bridge.cfg(project)) + " " + sentence
         bridge.last_message.pop(chat, None)
-        bridge.reply(chat, sentence, project)
+        if not (draft["need"] in ("confirm", "forget") and bridge.ask_yes(project, chat, sentence)):
+            bridge.reply(chat, sentence, project)
         self.drafts[chat] = {**draft, "project": project["id"], "at": bridge.monotonic(), "message_id": bridge.last_message.get(chat)}
+
+    def tapped(self, project: dict, chat: str, card: dict) -> None:
+        """A tap on the "Yes" button of a question about a reminder: the same as the typed "yes", for the question the button belongs to. A button of a question that is
+        no longer the open one (answered, replaced, expired, lost on a restart) is told so."""
+        bridge = self.bridge
+        draft = self.drafts.get(chat)
+        if draft is None or draft["project"] != project["id"] or str(draft.get("message_id")) != str(card.get("message_id")):
+            bridge.reply(chat, phrases.text("NT_EXPIRED", bridge.cfg(project)), project)
+            return
+        if bridge.monotonic() - draft["at"] > DRAFT_SECONDS:
+            self.drafts.pop(chat, None)
+            self.expired[chat] = draft["at"] + DRAFT_SECONDS
+            bridge.reply(chat, phrases.text("NT_EXPIRED", bridge.cfg(project)), project)
+            return
+        self.drafts.pop(chat, None)
+        self.said(project, chat, "yes", draft["how"], draft)
 
     def sweep(self) -> None:
         """Forget the questions older than DRAFT_SECONDS: the person's words leave memory when the time is up, not only when the chat writes again. Only the fact that

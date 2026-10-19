@@ -14,6 +14,7 @@ import pytest
 
 import natural_cases_pt_br as pt
 import standin_tree as st
+from natural_kit import made, said_yes
 from test_attachments import case  # noqa: F401  (the project the attachment tests use, which the world fixture builds on)
 from test_reminders import BRT, OTHER, SENDER, world  # noqa: F401  (the world fixture: a project with four listed senders and a clock)
 
@@ -22,6 +23,14 @@ nt = st.load("natural_time")
 ops = st.load("ops")
 
 NOW = datetime.datetime(2026, 10, 18, 14, 0, tzinfo=BRT)       # Sunday
+
+
+def completed(draft, said, now=NOW):
+    """`natural.complete`, and the "yes" that makes the reminder when the answer was a reading shown for confirmation (a free-text reminder is made only after a yes)."""
+    got = natural.complete(draft, said, now)
+    if got and "ask" in got and got["ask"]["need"] == "confirm" and not got["ask"].get("retries"):
+        return natural.complete(got["ask"], "yes", now)
+    return got
 
 
 def outcome(line, now=NOW, how="trigger"):
@@ -54,40 +63,40 @@ def test_may_with_a_day_beside_it_is_read_as_the_date_and_shown_with_its_year():
     for line in ("remind me May 5 at 9am to pay rent", "remind me 5 May at 9am to pay rent", "remind me the 5th of May at 9am to pay rent", "remind me May 5th at 9am to pay rent"):
         ask = asked(line)
         assert ask["need"] == "confirm" and ask["readings"][0]["when"] == "2027-05-05 09:00" and ask["text"] == "pay rent", line
-        assert natural.complete(ask, "yes", NOW)["when"] == "2027-05-05 09:00"
+        assert completed(ask, "yes", NOW)["when"] == "2027-05-05 09:00"
 
 
 @pytest.mark.parametrize("line,when", pt.ORDINAL_LINES)
 def test_the_first_of_a_month_is_a_1_however_it_is_written(line, when):
-    assert natural.understand(line, NOW)["when"] == when
+    assert made(natural, line, NOW)["when"] == when
 
 
 def test_the_foreign_lines_are_shown_with_the_moment_the_engine_read_and_the_person_corrects_it():
     ask = asked("rappelle-moi vendredi à 21h30 de payer l'électricité")
     assert ask["need"] == "confirm" and ask["readings"][0]["when"] == "21:30", "the clock was read, the day was not: it is shown, and the person says the day"
-    assert natural.complete(ask, "friday", NOW)["when"] == "2026-10-23 21:30"
-    assert natural.complete(ask, "yes", NOW)["when"] == "2026-10-18 21:30"
-    assert natural.complete(ask, "no", NOW) == {"cancel": True}
+    assert completed(ask, "friday", NOW)["when"] == "2026-10-23 21:30"
+    assert completed(ask, "yes", NOW)["when"] == "2026-10-18 21:30"
+    assert completed(ask, "no", NOW) == {"cancel": True}
 
 
 def test_a_line_in_a_language_with_a_table_and_a_trigger_is_not_asked_about_for_its_own_words():
     for line in ("remind me tomorrow at 9am to call the florist", "remind me tomorrow at 9am to water the plants", "me lembra amanhã às 9h de regar as plantas",      # validate: allow english-only -- a Portuguese line, the case of the tests
                  "remind me tomorrow at 9am to take the bread out", "remind me tomorrow at 9am to set the table"):
-        assert "when" in natural.understand(line, NOW), line
+        assert "when" in made(natural, line, NOW), line
 
 
 def test_a_typed_command_is_a_reminder_by_its_form_and_its_words_are_not_judged():
-    got = natural.understand("amanha 9h academia", NOW, "command")
-    assert got["when"] == "2026-10-19 09:00" and got["text"] == "academia"
+    got = made(natural, "amanha 9h pilates", NOW, "command")
+    assert got["when"] == "2026-10-19 09:00" and got["text"] == "pilates"
 
 
 def test_an_abbreviation_of_another_language_in_the_words_is_just_a_word():
     for line in ("remind me tomorrow at 9am to take the bread out", "remind me tomorrow at 9am to sort the mail", "remind me tomorrow at 9am to see the sea"):
-        assert "when" in natural.understand(line, NOW), line
+        assert "when" in made(natural, line, NOW), line
 
 
 def test_a_weak_word_that_was_not_the_date_stays_in_the_words():
-    for line, text in (("remind me at 9am that Dr. Mon called", "that Dr. Mon called"), ("remind me to call Fri Hotel at 9am", "call Fri Hotel"),
+    for line, text in (("remind me at 9am that Dr. Mon called", "that Dr. Mon called"), ("remind me to email Fri Hotel at 9am", "email Fri Hotel"),
                        ("remind me at 9am to see Wed", "see Wed")):
         ask = asked(line)
         assert ask["need"] == "confirm" and nt.normalise(text)[0].split()[-1] in nt.normalise(ask["text"])[0], line
@@ -98,10 +107,11 @@ def test_a_weak_word_that_was_not_the_date_stays_in_the_words():
 # --- quarter past, spoken hours, "3 e meia da tarde" --------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("line,when", [("remind me at quarter past 4 pm to call", "16:15"), ("remind me at quarter to 5 pm to call", "16:45"), ("remind me at half past 4 pm to call", "16:30"),
-                                       ("remind me at a quarter past 9am to call", "09:15"), ("remind me tomorrow at half past 7 pm to call", "2026-10-19 19:30")])
+@pytest.mark.parametrize("line,when", [("remind me at quarter past 4 pm to call", "2026-10-18 16:15"), ("remind me at quarter to 5 pm to call", "2026-10-18 16:45"),
+                                       ("remind me at half past 4 pm to call", "2026-10-18 16:30"), ("remind me at a quarter past 9am to call", "2026-10-19 09:15"),
+                                       ("remind me tomorrow at half past 7 pm to call", "2026-10-19 19:30")])
 def test_quarter_past_and_to_and_half_past(line, when):
-    assert natural.understand(line, NOW)["when"] == when, line
+    assert made(natural, line, NOW)["when"] == when, line
 
 
 def test_a_quarter_with_no_meridiem_offers_both_hours():
@@ -110,10 +120,10 @@ def test_a_quarter_with_no_meridiem_offers_both_hours():
 
 
 def test_spoken_hours_and_half_hours_of_a_part_of_the_day_are_read():
-    assert natural.understand(pt.LINE_HALF_AFTERNOON, NOW)["when"] == "2026-10-19 15:30"
+    assert made(natural, pt.LINE_HALF_AFTERNOON, NOW)["when"] == "2026-10-19 15:30"
     ask = asked(pt.LINE_SPOKEN)
     assert ask["need"] == "reading" and [r["time"] for r in ask["readings"]] == ["09:00", "21:00"], "a spoken hour with no marker is asked like a number"
-    assert outcome("remind me tomorrow morning at 9 to call") == ("when", "2026-10-19 09:00")
+    assert outcome("remind me tomorrow morning at 9 to call") == ("confirm", "2026-10-19 09:00")
     assert outcome("remind me tomorrow at nine to call")[0] == "reading"
 
 
@@ -121,40 +131,40 @@ def test_spoken_hours_and_half_hours_of_a_part_of_the_day_are_read():
 
 
 def test_another_time_keeps_the_day_the_person_was_shown():
-    shown = asked(pt.CONFIRM_CORTE)
-    again = natural.complete(shown, "outra hora", NOW)["ask"]      # validate: allow english-only -- a Portuguese answer, the case of the tests
+    shown = asked(pt.CONFIRM_OLEO)
+    again = completed(shown, "outra hora", NOW)["ask"]      # validate: allow english-only -- a Portuguese answer, the case of the tests
     assert again["need"] == "again" and again["date"] == "2026-10-19"
-    assert natural.complete(again, "15h", NOW)["when"] == "2026-10-19 15:00", "tomorrow, as it was shown, at the new hour"
-    nine = natural.complete(again, "9", NOW)["ask"]
+    assert completed(again, "15h", NOW)["when"] == "2026-10-19 15:00", "tomorrow, as it was shown, at the new hour"
+    nine = completed(again, "9", NOW)["ask"]
     assert [r["when"] for r in nine["readings"]] == ["2026-10-19 09:00", "2026-10-19 21:00"], "a bare hour offers both, on the shown day"
-    assert natural.complete(again, "sexta às 10h", NOW)["when"] == "2026-10-23 10:00", "a day the person names replaces it"      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    en = natural.complete(asked("remind me tomorow at 1pm to call"), "another time", NOW)["ask"]
-    assert natural.complete(en, "3pm", NOW)["when"] == "2026-10-19 15:00" and natural.complete(en, "9", NOW)["ask"]["readings"][1]["when"] == "2026-10-19 21:00"
+    assert completed(again, "sexta às 10h", NOW)["when"] == "2026-10-23 10:00", "a day the person names replaces it"      # validate: allow english-only -- a Portuguese answer, the case of the tests
+    en = completed(asked("remind me tomorow at 1pm to call"), "another time", NOW)["ask"]
+    assert completed(en, "3pm", NOW)["when"] == "2026-10-19 15:00" and completed(en, "9", NOW)["ask"]["readings"][1]["when"] == "2026-10-19 21:00"
 
 
 @pytest.mark.parametrize("answer", ["yes, but at 3pm", "yes but 3pm", "sure, but at 3pm please"])
 def test_a_yes_with_a_new_hour_is_that_hour(answer):
-    assert natural.complete(asked("remind me tomorow at 1pm to call"), answer, NOW)["when"] == "2026-10-19 15:00", answer
+    assert completed(asked("remind me tomorow at 1pm to call"), answer, NOW)["when"] == "2026-10-19 15:00", answer
 
 
 def test_a_yes_with_a_new_hour_in_portuguese():
-    draft = asked(pt.CONFIRM_CORTE)
-    assert natural.complete(draft, "sim mas às 15h", NOW)["when"] == "2026-10-19 15:00"      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert natural.complete(draft, "sim, mas amanhã às 16h", NOW)["when"] == "2026-10-19 16:00"      # validate: allow english-only -- a Portuguese answer, the case of the tests
+    draft = asked(pt.CONFIRM_OLEO)
+    assert completed(draft, "sim mas às 15h", NOW)["when"] == "2026-10-19 15:00"      # validate: allow english-only -- a Portuguese answer, the case of the tests
+    assert completed(draft, "sim, mas amanhã às 16h", NOW)["when"] == "2026-10-19 16:00"      # validate: allow english-only -- a Portuguese answer, the case of the tests
 
 
 @pytest.mark.parametrize("answer", ["no thanks", "no, thanks", "never mind", pt.NO_THANKS[0], pt.NO_THANKS[1]])
 def test_no_thanks_is_a_no(answer):
-    draft = asked("remind me tomorow at 1pm to call" if answer.isascii() and answer in ("no thanks", "no, thanks", "never mind") else pt.CONFIRM_CORTE)
-    assert natural.complete(draft, answer, NOW) == {"cancel": True}, answer
+    draft = asked("remind me tomorow at 1pm to call" if answer.isascii() and answer in ("no thanks", "no, thanks", "never mind") else pt.CONFIRM_OLEO)
+    assert completed(draft, answer, NOW) == {"cancel": True}, answer
 
 
 def test_a_no_to_a_cancel_question_says_nothing_was_cancelled():
     draft = {**natural._draft("forget", "trigger", "", ""), "ids": [3], "sentence": "x"}
-    assert natural.complete(draft, "no", NOW) == {"cancel": True, "kept": True}
-    assert natural.complete(draft, "no thanks", NOW) == {"cancel": True, "kept": True}
-    assert natural.complete(draft, "yes, cancel", NOW) == {"forget": [3]}, "the word cancel is the action in this question"
-    assert natural.complete(draft, "cancel", NOW)["ask"]["retries"] == 1, "'cancel' to 'cancel it?' does not say which way"
+    assert completed(draft, "no", NOW) == {"cancel": True, "kept": True}
+    assert completed(draft, "no thanks", NOW) == {"cancel": True, "kept": True}
+    assert completed(draft, "yes, cancel", NOW) == {"forget": [3]}, "the word cancel is the action in this question"
+    assert completed(draft, "cancel", NOW)["ask"]["retries"] == 1, "'cancel' to 'cancel it?' does not say which way"
 
 
 # --- Q1: the forms of a reminder number ---------------------------------------------------------------------------------------------------------------
@@ -179,8 +189,8 @@ def test_a_forget_by_the_hour_is_matched_against_the_moment_and_confirmed(line, 
 
 
 def test_nothing_but_numbers_in_a_forget_is_shown_never_acted_on(world):  # noqa: F811
-    ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 1 pm to pay installment 3")
-    ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 2 pm to call the florist")
+    said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to pay installment 3")
+    said_yes(ops, world.path, SENDER, "remind me tomorrow at 2 pm to call the florist")
     shown = ops.reminder_forget(world.path, channel="messaging", sender=SENDER, matching=["3"])
     assert shown["preview"]["id"] == 1 and [r["status"] for r in world.rows()] == ["open", "open"], "the word 3 is in reminder 1: shown, not cancelled"
     done = ops.reminder_forget(world.path, channel="messaging", sender=SENDER, matching=["florist"])
@@ -190,12 +200,12 @@ def test_nothing_but_numbers_in_a_forget_is_shown_never_acted_on(world):  # noqa
 # --- Q3: the week -------------------------------------------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("line,when", [(pt.LINE_WEEK_MONDAY, "2026-10-19 09:00"), (pt.LINE_WEEK_FRIDAY, "2026-10-23 09:00"),
-                                       ("remind me tuesday next week at 10am to pay", "2026-10-20 10:00"), ("remind me next week on friday at 3pm to pay", "2026-10-23 15:00")])
+@pytest.mark.parametrize("line,when", [(pt.LINE_WEEK_MONDAY, "2026-10-26 09:00"), (pt.LINE_WEEK_FRIDAY, "2026-10-30 09:00"),
+                                       ("remind me tuesday next week at 10am to pay", "2026-10-27 10:00"), ("remind me next week on friday at 3pm to pay", "2026-10-30 15:00")])
 def test_a_weekday_of_next_week_is_the_day_of_that_week_and_is_always_confirmed(line, when):
     ask = asked(line)
     assert ask["need"] == "confirm" and ask["readings"][0]["when"] == when, line
-    assert natural.complete(ask, "yes", NOW)["when"] == when
+    assert completed(ask, "yes", NOW)["when"] == when
 
 
 def test_the_answer_to_which_day_next_week_is_always_shown_with_the_day_it_resolved_to():
@@ -217,29 +227,29 @@ def test_a_part_of_the_day_that_has_passed_is_shown_as_tomorrows_never_rolled_si
 
 
 def test_a_part_of_the_day_still_ahead_is_made_and_today_with_a_past_hour_is_still_refused():
-    assert outcome("remind me this evening at 8 to call") == ("when", "20:00")
-    assert outcome("remind me tonight at 9 to call") == ("when", "21:00")
-    assert natural.understand("remind me today at 9am to call", NOW)["when"] == "2026-10-18 09:00", "the grammar's refusal stays: a past hour of today"
+    assert outcome("remind me this evening at 8 to call") == ("confirm", "20:00")
+    assert outcome("remind me tonight at 9 to call") == ("confirm", "21:00")
+    assert made(natural, "remind me today at 9am to call", NOW)["when"] == "2026-10-18 09:00", "the grammar's refusal stays: a past hour of today"
 
 
 @pytest.mark.parametrize("line", ["remind me sunday at 8pm to call", pt.LINE_SUNDAY, "remind me on sunday at 8pm to call"])
 def test_the_weekday_of_today_is_today_or_the_next_one_and_is_confirmed(line):
     ask = asked(line)
     assert ask["need"] == "confirm" and ask["readings"][0]["when"] == "2026-10-18 20:00", line
-    assert outcome("remind me monday at 8pm to call")[0] == "when", "another weekday is not asked"
+    assert outcome("remind me monday at 8pm to call") == ("confirm", "2026-10-19 20:00"), "another weekday is a plain confirmation"
 
 
 # --- repetitions ---------------------------------------------------------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("line", pt.REPEAT_MORE + ["remind me twice a day to take meds", "remind me nightly at 10pm to lock up", "remind me hourly to drink water",
-                                                   "remind me on weekdays at 9am to clock in", "remind me every half hour to stretch", "remind me once a week to call mom"])
+                                                   "remind me on weekdays at 9am to clock in", "remind me every half hour to stretch", "remind me once a week to feed the cat"])
 def test_more_ways_to_say_a_routine_are_said_to_be_a_routines(line):
     assert natural.understand(line, NOW)["ask"]["need"] == "recurring", line
 
 
 def test_all_the_hours_logged_is_text_and_a_unit_with_a_number_is_a_routine():
-    got = natural.understand(pt.LINE_HOURS_TEXT, NOW)
+    got = made(natural, pt.LINE_HOURS_TEXT, NOW)
     assert got["when"] == "2026-10-19 09:00" and got["text"] == "revisar todas as horas lançadas"      # validate: allow english-only -- the words of the line
     assert natural.understand("me lembra a cada 2 horas de beber água", NOW)["ask"]["need"] == "recurring"      # validate: allow english-only -- a Portuguese line, the case of the tests
 
@@ -252,11 +262,11 @@ def test_a_duration_of_days_asks_the_hour_and_the_hour_answer_makes_it():
         ask = asked(line)
         assert ask["need"] == "time" and ask["day"]["date"] in ("2026-10-21", "2026-10-25"), line
     ask = asked(pt.LINE_DAYS)
-    assert natural.complete(ask, "9h", NOW)["when"] == "2026-10-21 09:00"
-    assert [r["when"] for r in natural.complete(ask, "9", NOW)["ask"]["readings"]] == ["2026-10-21 09:00", "2026-10-21 21:00"]
-    assert natural.understand("remind me in 2 hours to pay", NOW)["when"] == "in 2h", "a duration of hours is a moment"
-    assert natural.understand("remind me in 2 days at 9am to pay", NOW)["when"] == "2026-10-20 09:00"
-    assert natural.understand("remind me in 400 days to pay", NOW)["when"] == "in 400d", "too far ahead is the grammar's refusal, not a question about the hour"
+    assert completed(ask, "9h", NOW)["when"] == "2026-10-21 09:00"
+    assert [r["when"] for r in completed(ask, "9", NOW)["ask"]["readings"]] == ["2026-10-21 09:00", "2026-10-21 21:00"]
+    assert made(natural, "remind me in 2 hours to pay", NOW)["when"] == "in 2h", "a duration of hours is a moment"
+    assert made(natural, "remind me in 2 days at 9am to pay", NOW)["when"] == "2026-10-20 09:00"
+    assert made(natural, "remind me in 400 days to pay", NOW)["when"] == "in 400d", "too far ahead is the grammar's refusal, not a question about the hour"
 
 
 # --- the engine and its words ------------------------------------------------------------------------------------------------------------------------------

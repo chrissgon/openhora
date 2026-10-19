@@ -15,6 +15,7 @@ import pytest
 
 import standin_tree as st
 from natural_cases_pt_br import CANDIDATE_CASES, PLAIN_LINES, RECURRING_LINES, TEXT_CASES, UNSURE_LINES
+from natural_kit import made, said_yes
 from test_attachments import case  # noqa: F401  (the project the attachment tests use, which the world fixture builds on)
 from test_reminders import BRT, NOT_ENABLED, OTHER, SENDER, THIRD, world  # noqa: F401  (the world fixture: a project with four listed senders and a clock)
 
@@ -26,6 +27,14 @@ phrases = st.load("phrases")
 rm = st.load("reminders")
 
 NOW = datetime.datetime(2026, 10, 18, 14, 0, tzinfo=BRT)       # Sunday
+
+
+def completed(draft, said, now=NOW):
+    """`natural.complete`, and the "yes" that makes the reminder when the answer was a reading shown for confirmation: a free-text reminder is made only after a yes."""
+    got = natural.complete(draft, said, now)
+    if got and "ask" in got and got["ask"]["need"] == "confirm" and not got["ask"].get("retries"):
+        return natural.complete(got["ask"], "yes", now)
+    return got
 
 ENGLISH_CANDIDATES = [
     ("remind me tomorrow at 1pm to call the florist", {"op": "remind", "how": "trigger"}),
@@ -75,7 +84,7 @@ ENGLISH_CANDIDATES = [
     ("what is due tomorrow at 9?", None),
     ("send the invoice friday at 3pm", None),
     ("how are we doing", None),
-    ("approve plan 12", None),
+    ("sign off on proposal 12", None),
     ("schedule", None),
     ("delete reminder emails from the customer list", None),
     ("reminders for the quarterly board meeting should be sent by friday at 3pm to every member", None),
@@ -96,14 +105,14 @@ def test_a_line_is_matched_to_a_reminder_operation_by_the_tables_and_nothing_els
     ("reminder: friday at 15:00 pay the rent", "pay the rent"),
 ])
 def test_the_words_of_the_reminder_are_the_line_without_the_trigger_the_time_and_one_connector(line, expected):
-    got = natural.understand(line, NOW, "trigger")
+    got = made(natural, line, NOW, "trigger")
     assert got["text"] == expected and got["when"]
 
 
 def test_the_command_form_needs_no_trigger_and_keeps_the_words_in_their_order():
-    got = natural.understand("aula de violao as 13hrs amanha", NOW, "command")
+    got = made(natural, "aula de violao as 13hrs amanha", NOW, "command")
     assert got["when"] == "2026-10-19 13:00" and got["text"] == "aula de violao"
-    got = natural.understand("tomorrow 1 pm call the florist", NOW, "command")
+    got = made(natural, "tomorrow 1 pm call the florist", NOW, "command")
     assert got["when"] == "2026-10-19 13:00" and got["text"] == "call the florist"
 
 
@@ -124,11 +133,11 @@ def test_what_is_missing_is_asked_and_the_draft_holds_what_is_known():
 
 
 def test_a_draft_is_finished_by_a_time_a_reading_a_kind_or_the_missing_words_and_by_nothing_else():
-    complete = natural.complete
+    complete = completed
     draft = natural.understand("remind me to phone the neighbour", NOW, "trigger")["ask"]
     done = complete(draft, "tomorrow 9am", NOW)
     assert done["when"] == "2026-10-19 09:00" and done["text"] == "phone the neighbour"
-    assert complete(draft, "at 21h", NOW)["when"] == "21:00"
+    assert complete(draft, "at 21h", NOW)["when"] == "2026-10-18 21:00"
     assert complete(draft, "what is the weather", NOW) is None and complete(draft, "/pending", NOW) is None and complete(draft, "", NOW) is None
     assert complete(draft, "tomorrow", NOW)["ask"]["need"] == "time", "a day alone is still not a time"
     two = natural.understand("remind me to phone the neighbour friday at 9", NOW, "trigger")["ask"]
@@ -184,9 +193,9 @@ def test_a_full_reading_with_something_uncertain_is_shown_and_confirmed_never_as
         asked = natural.understand(line, NOW, "trigger")["ask"]
         assert asked["need"] == "confirm" and asked["readings"] and asked["text"], line
     for line in PLAIN_LINES + ["remind me tomorrow at 9am to call Marcos", "remind me tomorrow at 9am to tidy the room", "remind me tomorrow at 9am to pay the rent"]:
-        assert "when" in natural.understand(line, NOW, "trigger"), line
-    made = natural.understand("remind me tomorrow­ at 9am to pay the rent", NOW)
-    assert made["text"] == "pay the rent" and made["when"] == "2026-10-19 09:00", "a soft hyphen is not a letter"
+        assert natural.understand(line, NOW, "trigger")["ask"]["need"] == "confirm" and "when" in made(natural, line, NOW, "trigger"), line
+    soft = made(natural, "remind me tomorrow­ at 9am to pay the rent", NOW)
+    assert soft["text"] == "pay the rent" and soft["when"] == "2026-10-19 09:00", "a soft hyphen is not a letter"
     assert natural.understand("remind me every monday at 8am to water the plants", NOW)["ask"]["need"] == "recurring"
 
 
@@ -199,7 +208,7 @@ def test_a_line_that_repeats_is_said_to_be_a_routines_and_is_never_a_one_off():
 def test_the_answer_to_a_confirmation_makes_it_or_replaces_only_the_part_it_names_and_never_drops_the_day():
     ask = natural.understand("remind me on friday at 10am about the next month plan", NOW)["ask"]
     assert ask["need"] == "confirm" and ask["readings"][0]["when"] == "2026-10-23 10:00" and ask["text"] == "the next month plan"
-    complete = natural.complete
+    complete = completed
     assert complete(ask, "yes", NOW)["when"] == "2026-10-23 10:00" and complete(ask, "sim", NOW)["text"] == "the next month plan"
     assert complete(ask, "11am", NOW)["when"] == "2026-10-23 11:00", "an hour alone keeps the day"
     assert complete(ask, "saturday", NOW)["when"] == "2026-10-24 10:00", "a day alone keeps the hour"
@@ -211,7 +220,7 @@ def test_the_answer_to_a_confirmation_makes_it_or_replaces_only_the_part_it_name
     assert kind["ask"]["need"] == "kind"
     unsure = natural.understand("remind me tomorrow at 9am to tidy next month", NOW)["ask"]
     assert unsure["need"] == "confirm"
-    assert natural.complete(unsure, "yes", NOW)["text"] == "tidy next month"
+    assert completed(unsure, "yes", NOW)["text"] == "tidy next month"
     no_text = natural.understand("me lembra dia 3/10 às 9h", NOW)["ask"]      # validate: allow english-only -- a Portuguese line, the case of the tests
     assert no_text["need"] == "text" and no_text["doubt"] is True
     assert natural.complete(no_text, "renew the insurance", NOW)["ask"]["need"] == "confirm", "the uncertain reading is confirmed once the words are there"
@@ -230,8 +239,8 @@ def test_a_date_that_has_passed_this_year_is_confirmed_with_its_year_and_today_w
     pt = natural.understand("me lembra dia 3/10 às 9h de renovar o seguro", NOW, "trigger")["ask"]
     assert pt["need"] == "confirm" and pt["readings"][0]["when"] == "2027-10-03 09:00" and pt["readings"][0]["far"] is True
     assert natural.describe(pt["readings"][0], {"language": "pt-BR"}) == "dom 03/10/2027 às 09:00"      # validate: allow english-only -- the expected Portuguese sentence
-    assert natural.complete(pt, "sim", NOW)["when"] == "2027-10-03 09:00"
-    today = natural.understand("me lembra dia 18/10 às 13h de ligar", NOW, "trigger")
+    assert completed(pt, "sim", NOW)["when"] == "2027-10-03 09:00"
+    today = made(natural, "me lembra dia 18/10 às 13h de ligar", NOW, "trigger")
     assert today["when"] == "2026-10-18 13:00", "today stays today: resolve refuses it as past"
 
 
@@ -239,21 +248,21 @@ def test_a_date_that_has_passed_this_year_is_confirmed_with_its_year_and_today_w
 def test_a_reply_that_names_the_day_picks_the_reading_by_the_day_and_the_hour_together():
     ask = natural.understand("remind me next thursday at 3:30pm to see the architect", NOW)["ask"]
     assert [r["when"] for r in ask["readings"]] == ["2026-10-22 15:30", "2026-10-29 15:30"]
-    assert natural.complete(ask, "the 29th", NOW)["when"] == "2026-10-29 15:30" and natural.complete(ask, "29", NOW)["when"] == "2026-10-29 15:30"
-    assert natural.complete(ask, "the 22nd", NOW)["when"] == "2026-10-22 15:30"
-    assert natural.complete(ask, "3:30pm", NOW)["ask"]["retries"] == 1, "the hour is the same in both: it does not say which, the question is asked once more"
-    assert natural.complete(ask, "thursday 4pm", NOW)["when"] == "2026-10-22 16:00", "a full new time replaces the offered ones"
-    assert natural.understand("remind me at 3:30pm to stretch", NOW)["when"] == "15:30"
+    assert completed(ask, "the 29th", NOW)["when"] == "2026-10-29 15:30" and completed(ask, "29", NOW)["when"] == "2026-10-29 15:30"
+    assert completed(ask, "the 22nd", NOW)["when"] == "2026-10-22 15:30"
+    assert completed(ask, "3:30pm", NOW)["ask"]["retries"] == 1, "the hour is the same in both: it does not say which, the question is asked once more"
+    assert completed(ask, "thursday 4pm", NOW)["when"] == "2026-10-22 16:00", "a full new time replaces the offered ones"
+    assert made(natural, "remind me at 3:30pm to stretch", NOW)["when"] == "2026-10-18 15:30"
     three = natural.understand("remind me at 3 to stretch", NOW)["ask"]
-    assert natural.complete(three, "15", NOW)["when"] == "2026-10-18 15:00", "a reading picked is shown with its day: it is not read again as today or tomorrow"
+    assert completed(three, "15", NOW)["when"] == "2026-10-18 15:00", "a reading picked is shown with its day: it is not read again as today or tomorrow"
 
 
 def test_a_text_answer_is_short_and_is_not_a_request_for_work():
     ask = natural.understand("remind me tomorrow at 9am", NOW)["ask"]
-    assert natural.complete(ask, "water the plants", NOW)["text"] == "water the plants"
-    assert natural.complete(ask, "write the launch post for the shop and send it to the whole team before the meeting", NOW) is None, "too long: a new line"
-    assert natural.complete(ask, "write the launch post", NOW) is None, "a work request at its head: a new line"
-    assert natural.complete(ask, "send a note to Ana", NOW) is None
+    assert completed(ask, "water the plants", NOW)["text"] == "water the plants"
+    assert completed(ask, "write the launch post for the shop and send it to the whole team before the meeting", NOW) is None, "too long: a new line"
+    assert completed(ask, "write the launch post", NOW) is None, "a work request at its head: a new line"
+    assert completed(ask, "send a note to Ana", NOW) is None
 
 
 def test_event_or_something_else_is_decided_by_the_answer_alone():
@@ -280,20 +289,22 @@ def test_the_tables_drive_every_trigger_so_no_word_of_a_language_is_in_the_rules
 
 
 def test_a_line_makes_a_reminder_for_the_sender_with_the_facts_a_chat_shows(world):  # noqa: F811
-    got = ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 1 pm to call the florist")
+    got = said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to call the florist")
     assert got["reminder"]["text"] == "call the florist" and got["reminder"]["due"] == "2026-10-19 13:00"
     assert got["human"] == {"date": "2026-10-19", "time": "13:00", "zone": "BRT", "rel": 1, "far": False, "rolled": False}
     assert got["reply"] == "Reminder #1 set for 2026-10-19 13:00 (BRT)."
-    rolled = ops.remind(world.path, channel="messaging", sender=SENDER, said="13:00 stretch", how="command")
-    assert rolled["human"]["rolled"] is True and rolled["human"]["date"] == "2026-10-19", "a time of day that had passed rolled over to tomorrow"
-    again = ops.remind(world.path, channel="messaging", sender=SENDER, said="tomorrow 13:00 stretch", how="command")
+    first = ops.remind(world.path, channel="messaging", sender=SENDER, said="13:00 stretch", how="command")["ask"]
+    assert first["need"] == "confirm" and first["readings"][0]["rolled"] is True, "a time of day that had passed rolled over to tomorrow, and the question says so"
+    rolled = ops.remind(world.path, channel="messaging", sender=SENDER, said="yes", how="command", draft=first)
+    assert rolled["human"]["date"] == "2026-10-19", "and the yes makes tomorrow's"
+    again = said_yes(ops, world.path, SENDER, "tomorrow 13:00 stretch", "command")
     assert again["human"]["rolled"] is False, "a day named is never rolled"
     assert [r["text"] for r in world.rows("open")] == ["call the florist", "stretch", "stretch"]
 
 
 def test_the_policy_is_asked_before_the_line_is_read_and_a_refusal_is_the_typed_one(world):  # noqa: F811
     with pytest.raises(ops.OpsError) as e:
-        ops.remind(world.path, channel="messaging", sender=f"telegram:{THIRD}", said="remind me tomorrow at 1 pm to call the florist")
+        said_yes(ops, world.path, f"telegram:{THIRD}", "remind me tomorrow at 1 pm to call the florist")
     assert NOT_ENABLED in str(e.value)
     with pytest.raises(ops.OpsError) as e2:
         ops.remind(world.path, "15:00", "x", channel="messaging", sender=f"telegram:{THIRD}")
@@ -302,7 +313,7 @@ def test_the_policy_is_asked_before_the_line_is_read_and_a_refusal_is_the_typed_
 
 
 def test_a_question_stores_nothing_and_keeps_nothing_and_an_answer_to_it_makes_the_reminder(world):  # noqa: F811
-    asked = ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me to phone the neighbour friday at 9")
+    asked = said_yes(ops, world.path, SENDER, "remind me to phone the neighbour friday at 9")
     assert asked["ask"]["need"] == "reading" and world.rows() == []
     made = ops.remind(world.path, channel="messaging", sender=SENDER, said="21h", how="trigger", draft=asked["ask"])
     assert made["reminder"]["text"] == "phone the neighbour" and made["reminder"]["due"] == "2026-10-23 21:00"
@@ -340,7 +351,7 @@ def test_the_terminal_and_the_page_keep_the_strict_grammar_and_the_sentence_they
 
 
 def test_a_cancelled_reminder_is_brought_back_as_a_new_one_with_the_same_words_and_time_and_the_old_record_never_changes(world):  # noqa: F811
-    ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 1 pm to water the plants")
+    said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to water the plants")
     ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)
     back = ops.reminder_restore(world.path, channel="messaging", sender=SENDER)
     assert back["restored"] == 1 and back["reminder"]["id"] == 2 and back["reply"] == "Reminder #1 is back as #2." and back["reminder"]["text"] == "water the plants"
@@ -353,7 +364,7 @@ def test_a_cancelled_reminder_is_brought_back_as_a_new_one_with_the_same_words_a
 
 
 def test_the_undo_is_the_senders_own_within_ten_minutes_and_not_a_reminder_that_is_about_to_fire(world):  # noqa: F811
-    ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 1 pm to water the plants")
+    said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to water the plants")
     ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)
     assert ops.reminder_restore(world.path, channel="messaging", sender=f"telegram:{OTHER}") == {"none": True}, "another sender's"
     with pytest.raises(ops.OpsError) as e:
@@ -362,7 +373,7 @@ def test_the_undo_is_the_senders_own_within_ten_minutes_and_not_a_reminder_that_
     world.clock.moment += datetime.timedelta(seconds=601)
     assert ops.reminder_restore(world.path, channel="messaging", sender=SENDER) == {"none": True}, "ten minutes is the limit"
     world.clock.set("2026-10-19 12:50")
-    ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me at 1 pm to call")
+    said_yes(ops, world.path, SENDER, "remind me at 1 pm to call")
     ops.reminder_forget(world.path, 2, channel="messaging", sender=SENDER)
     world.clock.set("2026-10-19 12:59")
     world.clock.moment += datetime.timedelta(seconds=30)
@@ -372,7 +383,7 @@ def test_the_undo_is_the_senders_own_within_ten_minutes_and_not_a_reminder_that_
 
 
 def test_the_terminal_names_the_reminder_it_brings_back_and_the_old_sentence_of_the_forget_stays(world):  # noqa: F811
-    ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 1 pm to water the plants")
+    said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to water the plants")
     forgot = ops.reminder_forget(world.path, 1, channel="terminal")
     assert forgot["reply"] == "Forgot reminder #1." and forgot["reminder"]["text"] == "water the plants" and forgot["human"]["time"] == "13:00"
     assert ops.reminder_restore(world.path, 9, channel="terminal") == {"none": True}
@@ -380,9 +391,9 @@ def test_the_terminal_names_the_reminder_it_brings_back_and_the_old_sentence_of_
 
 
 def test_a_forget_by_words_looks_among_the_senders_own_by_whole_words_and_numbers_are_words(world):  # noqa: F811
-    ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 1 pm to pay 2 invoices")
-    ops.remind(world.path, channel="messaging", sender=SENDER, said="remind me tomorrow at 2 pm to pay the florist")
-    ops.remind(world.path, channel="messaging", sender=f"telegram:{OTHER}", said="remind me tomorrow at 3 pm to pay the florist")
+    said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to pay 2 invoices")
+    said_yes(ops, world.path, SENDER, "remind me tomorrow at 2 pm to pay the florist")
+    said_yes(ops, world.path, f"telegram:{OTHER}", "remind me tomorrow at 3 pm to pay the florist")
     assert ops.reminder_forget(world.path, channel="messaging", sender=SENDER, matching=["flor"]) == {"none": True}, "a prefix is not a word"
     assert ops.reminder_forget(world.path, channel="messaging", sender=SENDER, matching=["1"]) == {"none": True}
     assert [r["id"] for r in ops.reminder_forget(world.path, channel="messaging", sender=SENDER, matching=["pay"])["choose"]] == [1, 2]

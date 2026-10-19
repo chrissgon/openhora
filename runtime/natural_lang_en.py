@@ -103,7 +103,7 @@ TABLE = {
     # a word right after the unit that makes the opener part of the reminder's words ("every day of the month")
     "recurrence_not_before": ["of"],
     # adverbs that repeat only beside the time ("daily at 9") or at the edge of the words ("remind me weekly to ..."); "weekly report" is the reminder's words
-    "recurrence_adverbs": ["daily", "weekly", "monthly", "yearly", "annually", "hourly", "nightly", "fortnightly"],
+    "recurrence_adverbs": ["daily", "weekly", "monthly", "yearly", "annually", "hourly", "nightly", "fortnightly", "always"],
     "recurrence_before_day": [],
     "recurrence_joiners": [],
     # a word just before or just after x/y that makes it a fraction or a count and not a date ("installment 3/10", "3/10 of the rent")
@@ -152,6 +152,12 @@ TABLE = {
     "remind_nouns": ["reminder", "reminders"],
     # a week that is named without a day: the day of it is asked ("next week at 10")
     "week_phrases": ["of next week", "in next week", "next week"],
+    # "30 minutes before the meeting at 3pm": the offset is taken off the hour that follows
+    "before_words": ["before"],
+    # a weekday right after one of these is the topic of the reminder, not its day ("about friday", "the meeting of friday")
+    "topic_words": ["of", "about"],
+    # the word that joins a date to the hour before it ("9am on 12/12")
+    "date_after_clock": ["on"],
     "polite": ["please", "can you", "could you", "would you", "hey", "hi"],
     # "yes, but at 3pm": the word that joins a yes to the change
     "but_words": ["but", "except", "only"],

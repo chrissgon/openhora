@@ -213,6 +213,7 @@ TABLE = {
     "NT_RECURRING": "Um lembrete aqui acontece uma vez. O que se repete é uma rotina: configure no terminal ou na página. Para um lembrete único, diga quando.",
     "NT_CANCELLED": "Certo, nenhum lembrete foi criado.",
     "NT_KEPT": "Certo, nada foi cancelado.",
+    "NT_BTN_YES": "Sim",
     "NT_ASK_AGAIN": "Para quando? Responda com o dia e a hora, por exemplo amanhã às 13h.",
     "NT_ASK_WEEKDAY": "Qual dia da semana que vem? Responda com o dia da semana, por exemplo terça.",
     "NT_ASK_FORGET_TEXT": "Cancelar o lembrete #{id}: {when}: {text}? (sim / não)",

@@ -133,7 +133,7 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
     `said` is the person's own line instead of `when` and `text` (the messaging bridge passes it, package NR-1; no shell of the table does): it is read with the
     clock by runtime/natural.py, `how` says as what ("trigger": it starts with a remind word, "bare": it may be a note or an event, "command": the words after
     `/remind`), and `draft` is the question the previous line was asked, which `said` answers. The policy is asked before the line is read. What comes back
-    is the reminder made, or {"ask": the draft to keep}, or {"event": True} (the person chose the calendar), {"cancel": True} (the person gave it up),
+    is the reminder made (only for a draft the person confirmed: free text is never made at once, so a first line comes back as {"ask": ...} with the reading to show, after the checks of the grammar and the credential scan), or {"ask": the draft to keep}, or {"event": True} (the person chose the calendar), {"cancel": True} (the person gave it up),
     {"forget": [ids]} (the person said yes to cancelling those reminders: the bridge cancels them one by one, each under its own policy), or {"declined": True}
     (a line that does not answer the draft); a question stores nothing."""
     ctx = core.context(project)
@@ -157,6 +157,22 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
             raise _fail(f"{to} does not hold the group reminders: add it to the sender's profile in runtime.json and accept the file with "
                         "--widen (the group is in no default policy)", 1)
     clock = now()
+
+    def check(when, text):
+        """The words and the moment, under every check of the grammar and the credential scan: a moment that has passed, a day the calendar lacks, one more than 366 days ahead
+        and a text that looks like a credential are refused with the sentence the person reads."""
+        try:
+            words = rm.clean_text(text)
+            found = rm.resolve(when, clock, local_at, local_of)
+        except ValueError as e:
+            message = str(e)
+            if said is not None and message == rm.PAST.format(now=clock.strftime("%Y-%m-%d %H:%M")):          # a person reads a day and a month, not an ISO date
+                message = rm.PAST.format(now=clock.strftime("%d/%m/%Y %H:%M"))
+            raise _fail(message, 2) from None
+        labels = workcopy.credential_findings(words)
+        if labels:
+            raise _fail(rm.CREDENTIAL.format(labels=", ".join(sorted(set(labels)))), 2)
+        return words, found
     if said is not None:
         understood = natural.complete(draft, said, clock) if draft else natural.understand(said, clock, how)
         if understood is None:
@@ -168,19 +184,12 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
         if understood.get("forget"):
             return {"forget": understood["forget"]}
         if "ask" in understood:
-            return {"ask": understood["ask"]}
+            shown = understood["ask"]
+            if shown["need"] in ("confirm", "kind") and shown["readings"] and shown["text"]:
+                check(shown["readings"][0]["when"], shown["text"])          # refused now, before the reading is shown: never offered to be confirmed
+            return {"ask": shown}
         when, text = understood["when"], understood["text"]
-    try:
-        words = rm.clean_text(text)
-        found = rm.resolve(when, clock, local_at, local_of)
-    except ValueError as e:
-        message = str(e)
-        if said is not None and message == rm.PAST.format(now=clock.strftime("%Y-%m-%d %H:%M")):          # a person reads a day and a month, not an ISO date
-            message = rm.PAST.format(now=clock.strftime("%d/%m/%Y %H:%M"))
-        raise _fail(message, 2) from None
-    labels = workcopy.credential_findings(words)
-    if labels:
-        raise _fail(rm.CREDENTIAL.format(labels=", ".join(sorted(set(labels)))), 2)
+    words, found = check(when, text)
     row = _add_row(ctx, cfg, clock, words, found["wall"], _iso(found["due"]), found["zone"], platform, ident, ops_actor.label(cfg, channel, sender) or "terminal")
     due_day = found["due"].date()
     human = {"date": due_day.isoformat(), "time": found["wall"][11:16], "zone": found["zone"], "rel": (due_day - clock.date()).days,

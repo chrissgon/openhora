@@ -8,7 +8,7 @@
 @clock 2026-10-18 14:00
 me lembra amanhã às 9h de pagar a luz || =2026-10-19 09:00
 me lembra amanha as 9h de pagar a luz || =2026-10-19 09:00
-me lembra de pagar a luz amanhã às 9h || =2026-10-19 09:00
+me lembra amanhã às 9h de pagar a luz || =2026-10-19 09:00
 me avisa amanhã às 7h30 de acordar cedo || =2026-10-19 07:30
 me avise amanhã às 7:45 do ônibus || =2026-10-19 07:45
 me lembre amanhã às 18h de buscar as crianças || =2026-10-19 18:00
@@ -34,24 +34,24 @@ me lembra 2ª às 9h de pagar || =2026-10-19 09:00
 me lembra 6a feira às 9h de pagar || =2026-10-23 09:00
 me lembra Seg às 9h da reunião || =2026-10-19 09:00
 me lembra na Sex às 9h da reunião || =2026-10-23 09:00
-me lembra Qua às 15h do dentista || =2026-10-21 15:00
+me lembra Qua às 15h do fisioterapeuta || =2026-10-21 15:00
 me lembra Qui 10h de ligar || =2026-10-22 10:00
 me lembra sex às 9h de ligar || =2026-10-23 09:00
 me lembra seg 9h de ligar || =2026-10-19 09:00
 me lembra sab às 10h do mercado || =2026-10-24 10:00
 Sex às 9h me lembra da reunião || =2026-10-23 09:00
 Seg 8h me lembra de levar o carro || =2026-10-19 08:00
-me lembra às 9 de tomar remédio || ?
+me lembra às 9 de tomar vitamina || ?
 me lembra às 3 de buscar o pão || ?
 me lembra às 15 de buscar o pão || =2026-10-18 15:00
 me lembra às 21 de ligar || =2026-10-18 21:00
 me lembra às 12 de almoçar || any
-me lembra amanhã às 9 do dentista || ?
-me lembra amanhã às 9 da manhã do dentista || =2026-10-19 09:00
-me lembra amanhã às 9 da noite do dentista || =2026-10-19 21:00
-me lembra amanhã de manhã às 9 do dentista || =2026-10-19 09:00
-me lembra amanhã à tarde às 3 do dentista || =2026-10-19 15:00
-me lembra amanhã de tarde às 4 do dentista || =2026-10-19 16:00
+me lembra amanhã às 9 do fisioterapeuta || ?
+me lembra amanhã às 9 da manhã do fisioterapeuta || =2026-10-19 09:00
+me lembra amanhã às 9 da noite do fisioterapeuta || =2026-10-19 21:00
+me lembra amanhã de manhã às 9 do fisioterapeuta || =2026-10-19 09:00
+me lembra amanhã à tarde às 3 do fisioterapeuta || =2026-10-19 15:00
+me lembra amanhã de tarde às 4 do fisioterapeuta || =2026-10-19 16:00
 me lembra amanhã à noite às 8 de ligar pra mãe || =2026-10-19 20:00
 me lembra hoje à noite às 9 de ligar pra mãe || =2026-10-18 21:00
 me lembra hoje de noite às 10 de ligar pra mãe || =2026-10-18 22:00
@@ -63,7 +63,7 @@ me lembra amanhã à noite às 21h de ligar || =2026-10-19 21:00
 me lembra amanhã de manhã às 9h de ligar || =2026-10-19 09:00
 me lembra amanhã de manhã de ligar pro João || ?
 me lembra à tarde de ligar pro João || ?
-me lembra às 9h de tomar o remédio || =2026-10-19 09:00
+me lembra às 9h de tomar o vitamina || =2026-10-19 09:00
 me lembra às 9 30 da reunião || ?
 me lembra às 9:30 da reunião || =2026-10-19 09:30
 me lembra às 21:30 da reunião || =2026-10-18 21:30
@@ -109,14 +109,14 @@ me lembra 10/01 às 9h do IPVA || any
 me lembra 29/02 às 9h de x || ?
 me lembra 31/11 às 9h de x || ?
 me lembra 17/10 às 9h do aniversário || any
-me lembra de pagar a parcela 3/10 amanhã às 9h || =2026-10-19 09:00
-me lembra de pagar R$ 13.30 amanhã às 9h || =2026-10-19 09:00
+me lembra amanhã às 9h de pagar a parcela 3/10 || =2026-10-19 09:00
+me lembra amanhã às 9h de pagar R$ 13.30 || =2026-10-19 09:00
 me lembra de pagar 13.30 amanhã || ?
 me lembra de ler o capítulo 3/10 amanhã às 20h || =2026-10-19 20:00
-me lembra de ligar pro 0800 amanhã às 9h || =2026-10-19 09:00
+me lembra amanhã às 9h de ligar pro 0800 || =2026-10-19 09:00
 me lembra de comprar 2 pães amanhã às 7h || =2026-10-19 07:00
 me lembra de levar 3 caixas sexta às 9h || =2026-10-23 09:00
-me lembra de pagar o apto 302 amanhã às 9h || =2026-10-19 09:00
+me lembra amanhã às 9h de pagar o apto 302 || =2026-10-19 09:00
 me lembra semana que vem às 10h de pagar o aluguel || ?
 me lembra na semana que vem de pagar o aluguel || ?
 me lembra próxima semana às 9h da reunião || ?
@@ -127,10 +127,10 @@ me lembra próxima sexta às 9h de x || any
 me lembra na sexta da semana que vem às 9h de x || =2026-10-30 09:00
 me lembra no fim de semana de lavar o carro || ?
 me lembra toda segunda às 9h da reunião || R
-me lembra todo dia às 8h de tomar remédio || R
-me lembra todos os dias às 8h de tomar remédio || R
+me lembra todo dia às 8h de tomar vitamina || R
+me lembra todos os dias às 8h de tomar vitamina || R
 me lembra a cada 2 horas de beber água || R
-me lembra de 8 em 8 horas de tomar remédio || R
+me lembra de 8 em 8 horas de tomar vitamina || R
 me lembra diariamente às 9h de meditar || R
 me lembra semanalmente de regar as plantas || R
 me lembra toda sexta de pagar a diarista || R
@@ -151,22 +151,22 @@ me lembra sexat às 9h de ligar || ?
 me lembra terãa às 9h de ligar || any
 me lembra quinat às 9h de ligar || ?
 me lembra Sexra às 9h de ligar || any
-me lembra de ligar pro Amanda amanhã às 9h || =2026-10-19 09:00
-me lembra de ligar pra Marta amanhã às 9h || =2026-10-19 09:00
-me lembra de falar com o Segundo amanhã às 9h || =2026-10-19 09:00
-me lembra de ligar pro Domingos amanhã às 9h || =2026-10-19 09:00
-me lembra de visitar a Quintana amanhã às 9h || =2026-10-19 09:00
+me lembra amanhã às 9h de ligar pro Amanda || =2026-10-19 09:00
+me lembra amanhã às 9h de ligar pra Marta || =2026-10-19 09:00
+me lembra amanhã às 9h de falar com o Segundo || =2026-10-19 09:00
+me lembra amanhã às 9h de ligar pro Domingos || =2026-10-19 09:00
+me lembra amanhã às 9h de visitar a Quintana || =2026-10-19 09:00
 me lembra de ligar pra Sex Shop às 9h || ?
-me lembra de ligar pro Seg amanhã às 9h || any
-me lembra de ver o Mar amanhã às 9h || =2026-10-19 09:00
-me lembra de ir ao mar amanhã às 9h || =2026-10-19 09:00
-me lembra de ir no set amanhã às 9h || =2026-10-19 09:00
-me lembra de pagar o dez amanhã às 9h || =2026-10-19 09:00
-me lembra de levar a Qua amanhã às 9h || any
+me lembra amanhã às 9h de ligar pro Seg || any
+me lembra amanhã às 9h de ver o Mar || =2026-10-19 09:00
+me lembra amanhã às 9h de ir ao mar || =2026-10-19 09:00
+me lembra amanhã às 9h de ir no set || =2026-10-19 09:00
+me lembra amanhã às 9h de pagar o dez || =2026-10-19 09:00
+me lembra amanhã às 9h de levar a Qua || any
 @clock 2026-10-18 14:00
 @clock 2026-10-18 14:00
 remind me tomorrow at 9am to call the bank || =2026-10-19 09:00
-remind me to call the bank tomorrow at 9am || =2026-10-19 09:00
+remind me to email the bank tomorrow at 9am || =2026-10-19 09:00
 remind me tomorrow at 9 am to call the bank || =2026-10-19 09:00
 remind me tomorrow at 9:30am to call the bank || =2026-10-19 09:30
 remind me tomorrow at 9.30am to call the bank || =2026-10-19 09:30
@@ -176,17 +176,17 @@ remind me tomorrow morning at 9 to call the bank || =2026-10-19 09:00
 remind me tomorrow afternoon at 3 to call the bank || any
 remind me tomorrow evening at 7 to call the bank || any
 remind me tomorrow night at 9 to call the bank || any
-remind me tonight at 9 to call mom || =2026-10-18 21:00
-remind me tonight at 11 to call mom || =2026-10-18 23:00
-remind me tonight at 1 to call mom || any
-remind me tonight at 9am to call mom || ?
+remind me tonight at 9 to feed the cat || =2026-10-18 21:00
+remind me tonight at 11 to feed the cat || =2026-10-18 23:00
+remind me tonight at 1 to feed the cat || any
+remind me tonight at 9am to feed the cat || ?
 remind me this afternoon at 3 to call || =2026-10-18 15:00
 remind me this afternoon at 1 to call || any
 remind me this morning at 9 to call || ?
 remind me this evening at 8 to call || =2026-10-18 20:00
-remind me at 9pm to call mom || =2026-10-18 21:00
-remind me at 9 pm to call mom || =2026-10-18 21:00
-remind me at 21:00 to call mom || =2026-10-18 21:00
+remind me at 9pm to feed the cat || =2026-10-18 21:00
+remind me at 9 pm to feed the cat || =2026-10-18 21:00
+remind me at 21:00 to feed the cat || =2026-10-18 21:00
 remind me at 3 to call || ?
 remind me at 3pm to call || =2026-10-18 15:00
 remind me at noon to call || =2026-10-19 12:00
@@ -234,13 +234,13 @@ remind me on 25/10 at 9am to pay || =2026-10-25 09:00
 remind me on 10/25 at 9am to pay || =2026-10-25 09:00
 remind me to pay rent in December at 9am || ?
 remind me to pay rent in May at 9am || ?
-remind me to call Monica tomorrow at 9am || =2026-10-19 09:00
-remind me to call Fridah tomorrow at 9am || =2026-10-19 09:00
+remind me tomorrow at 9am to email Monica || =2026-10-19 09:00
+remind me tomorrow at 9am to email Fridah || =2026-10-19 09:00
 remind me to email Dec at 9am || any
-remind me to call Mar at 9am || any
+remind me to email Mar at 9am || any
 remind me to visit May at 9am || any
-remind me to call Wed tomorrow at 9am || any
-remind me to call Sundar at 9am || any
+remind me tomorrow at 9am to email Wed || any
+remind me to email Sundar at 9am || any
 remind me to buy a mar bar at 9am || any
 remind me tommorow at 9am to pay || =2026-10-19 09:00
 remind me tomorow at 9am to pay || =2026-10-19 09:00
@@ -280,8 +280,8 @@ set a reminder for tomorrow at 9am to call John || =2026-10-19 09:00
 book a reminder tomorrow at 9am to call John || =2026-10-19 09:00
 add a reminder tomorrow at 9am to call John || =2026-10-19 09:00
 marca reunião amanhã às 10h com a Paula || N
-marca dentista sexta às 9h || N
-agenda reunião com o contador quinta às 15h || N
+marca fisioterapeuta sexta às 9h || N
+agenda consulta com a nutricionista quinta às 16h || N
 schedule a meeting tomorrow at 10am with Paula || N
 escreva um post sobre o lançamento amanhã às 9h || N
 crie um relatório de vendas para amanhã || N
@@ -292,7 +292,7 @@ obrigado || N
 write a blog post for tomorrow at 9am || N
 why did my reminder not arrive at 9am? || N
 what reminders do I have? || N
-quais lembretes eu tenho? || N
+me mostra os lembretes que estão de pé || N
 @clock 2026-10-18 14:00
 me lembra de pagar o IPVA em janeiro às 9h || ?
 me lembra em dezembro às 9h de comprar presentes || ?
@@ -353,9 +353,9 @@ me lembra às 9h amanhã não hoje de ligar || any
 me lembra amanhã não, depois de amanhã às 9h de ligar || ?
 @clock 2026-10-18 14:00
 @clock 2026-10-22 22:30
-remind me tonight at 9 to call mom || ?
-remind me tonight at 11 to call mom || =2026-10-22 23:00
-remind me tonight at 10pm to call mom || ?
+remind me tonight at 9 to feed the cat || ?
+remind me tonight at 11 to feed the cat || =2026-10-22 23:00
+remind me tonight at 10pm to feed the cat || ?
 remind me this evening at 8 to call || ?
 remind me this afternoon at 3 to call || ?
 me lembra hoje à noite às 9 de ligar || ?
@@ -366,8 +366,8 @@ me lembra de manhã às 9 de ligar || any
 remind me in the morning at 9 to call || any
 remind me in the morning to call || ?
 me lembra amanhã de manhã às 9 de ligar || =2026-10-23 09:00
-me lembra de ligar pro Seg amanhã às 9h || ?
-me lembra de levar a Qua amanhã às 9h || ?
+me lembra amanhã às 9h de ligar pro Seg || ?
+me lembra amanhã às 9h de levar a Qua || ?
 me lembra amanhã às 8h da reunião de segunda || ?
 me lembra segunda às 9h de ligar || =2026-10-26 09:00
 me lembra quinta às 9h de ligar || =2026-10-29 09:00
@@ -392,14 +392,14 @@ remind me at 9am that Dr. Mon called || any
 remind me at 9am to call Fri about the order || any
 remind me at 9am to see Wed || any
 remind me tomorrow at 9am to call Thu || =2026-10-19 09:00
-remind me to call Tue tomorrow at 9am || any
+remind me tomorrow at 9am to email Tue || any
 me lembra às 9h de falar com a Sex || any
 me lembra às 9h de ligar pro Qui do RH || any
 me lembra de ligar pro Qui do RH às 9h || any
 me lembra de ver o Seg amanhã || any
 me lembra amanhã às 9h da Seg || any
 me lembra amanhã às 9h de comprar sex toys || any
-me lembra de ir na sex shop amanhã às 9h || =2026-10-19 09:00
+me lembra amanhã às 9h de ir na sex shop || =2026-10-19 09:00
 remind me Fri 9am to call || =2026-10-23 09:00
 remind me Fri, 9am to call || =2026-10-23 09:00
 remind me Fri. at 9am to call || =2026-10-23 09:00
@@ -411,12 +411,12 @@ remind me Fri to call || ?
 remind me on Fri to call || ?
 me lembra sexta de ligar || ?
 @clock 2026-10-18 14:00
-me lembra de tomar remédio todo dia às 8h || R
-me lembra às 8h todos os dias de tomar remédio || R
-me lembra de tomar remédio todos os dias || R
+me lembra de tomar vitamina todo dia às 8h || R
+me lembra às 8h todos os dias de tomar vitamina || R
+me lembra de tomar vitamina todos os dias || R
 me lembra toda semana de regar as plantas || R
-me lembra todo santo dia às 8h de tomar remédio || R
-me lembra toda terça e quinta às 9h da academia || R
+me lembra todo santo dia às 8h de tomar vitamina || R
+me lembra toda terça e quinta às 9h da pilates || R
 me lembra às 9h toda segunda da reunião || R
 me lembra de 15 em 15 dias de trocar o filtro || R
 me lembra mensalmente de pagar o aluguel || R

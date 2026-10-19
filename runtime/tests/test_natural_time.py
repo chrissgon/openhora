@@ -178,9 +178,9 @@ def test_two_readings_are_all_offered_up_to_four_and_nothing_is_picked():
 
 
 def test_the_spans_are_those_of_the_original_line_whatever_the_accents_and_the_hyphens():
-    line = "Corte de cabelo às 13hrs amanhã, por favor"      # validate: allow english-only -- a Portuguese line, the case of the parser
+    line = "Troca de óleo às 13hrs amanhã, por favor"      # validate: allow english-only -- a Portuguese line, the case of the parser
     got = nt.parse(line, clock())
-    assert nt.without(line, got["spans"]) == "Corte de cabelo , por favor"
+    assert nt.without(line, got["spans"]) == "Troca de óleo , por favor"
     assert nt.without("remind me tomorrow at 1 pm to call", nt.parse("remind me tomorrow at 1 pm to call", clock())["spans"]) == "remind me to call"
     folded, origin = nt.normalise("Sexta-Feira à noite")      # validate: allow english-only -- a Portuguese line, the case of the parser
     assert folded == "sexta feira a noite" and len(origin) == len(folded)

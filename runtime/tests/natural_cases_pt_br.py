@@ -149,9 +149,9 @@ CANDIDATE_CASES = [
     ("lembrete: veterinário amanhã 15h", {"op": "remind", "how": "trigger"}),
     ("pode me lembrar amanhã 9h do xarope", {"op": "remind", "how": "trigger"}),
     ("me lembra da aula de violão", {"op": "remind", "how": "trigger"}),
-    ("daqui 40 min me avisa pra desligar o forno", {"op": "remind", "how": "trigger"}),
+    ("em 25 min me avisa de desligar o fogão", {"op": "remind", "how": "trigger"}),
     ("às 9 me lembra de regar as plantas", {"op": "remind", "how": "trigger"}),
-    ("quais lembretes eu tenho?", {"op": "reminders", "how": "trigger"}),
+    ("mostra os lembretes que estão abertos", {"op": "reminders", "how": "trigger"}),
     ("meus lembretes", {"op": "reminders", "how": "trigger"}),
     ("lista os lembretes", {"op": "reminders", "how": "trigger"}),
     ("lembretes", {"op": "reminders", "how": "trigger"}),
@@ -159,20 +159,20 @@ CANDIDATE_CASES = [
     ("cancela o lembrete 12 por favor", {"op": "reminder-forget", "how": "trigger", "id": 12}),
     ("apague o lembrete", {"op": "reminder-forget", "how": "trigger", "id": None}),
     ("esquece o lembrete 3 4", {"op": "reminder-forget", "how": "trigger", "id": None, "ids": [3, 4], "confirm": True}),
-    ("cancela o lembrete da aula de violão", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["aula", "violao"]}),
+    ("esquece o lembrete da aula de violão", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["aula", "violao"]}),
     ("marca na agenda o oculista sexta às 9", {"op": "calendar-event-create", "how": "trigger"}),
-    ("agenda reunião com o arquiteto quinta que vem às 15h30 no escritório", {"op": "calendar-event-create", "how": "ask"}),
+    ("agenda consulta com a nutricionista segunda que vem às 16h20 na clínica", {"op": "calendar-event-create", "how": "ask"}),
     ("agende reunião amanhã 10h", {"op": "calendar-event-create", "how": "ask"}),
-    ("marca aula de violão segunda 13h", {"op": "calendar-event-create", "how": "trigger"}),
+    ("marca aula de violão sábado 10h", {"op": "calendar-event-create", "how": "trigger"}),
     ("desfaz", {"op": "reminder-restore", "how": "trigger"}),
     ("desfaz isso", {"op": "reminder-restore", "how": "trigger"}),
     ("esquece o lembrete #9", {"op": "reminder-forget", "how": "trigger", "id": 9}),
     ("cancela o lembrete 9", {"op": "reminder-forget", "how": "trigger", "id": 9}),
     ("cancela o lembrete das 9", {"op": "reminder-forget", "how": "trigger", "id": None, "at": "das 9", "confirm": True}),
     ("esquece o lembrete de pagar 2 boletos", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["pagar", "2", "boletos"]}),
-    ("cancela o lembrete do dia 3", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["dia", "3"]}),
+    ("apaga o lembrete do dia 3", {"op": "reminder-forget", "how": "trigger", "id": None, "words": ["dia", "3"]}),
     ("anote aula de violão amanhã às 13hrs", {"op": "remind", "how": "bare"}),
-    ("anota: comprar areia do gato", {"op": "remind", "how": "note"}),
+    ("anota: trocar a areia do gato", {"op": "remind", "how": "note"}),
     ("aula de violão amanhã 13h", {"op": "remind", "how": "bare"}),
     ("13hrs aula de violão amanha", {"op": "remind", "how": "bare"}),
     ("veterinário sexta às 15h", {"op": "remind", "how": "bare"}),
@@ -180,8 +180,8 @@ CANDIDATE_CASES = [
     ("escreva o post de lançamento para amanhã às 9", None),
     ("o que vence amanhã às 9?", None),
     ("como estamos hoje?", None),
-    ("quais arquivos você tem", None),
-    ("aprova o plano 12", None),
+    ("que arquivos há aqui", None),
+    ("pode liberar a proposta 12", None),
     ("amanhã", None),
     ("lembretes funcionam no whatsapp?", None),
     ("lembretes não chegam no meu celular", None),
@@ -190,7 +190,7 @@ CANDIDATE_CASES = [
     ("agenda de amanhã?", None),
     ("agenda da semana", None),
     ("calendário de outubro?", None),
-    ("toda segunda às 8h me manda um resumo da semana", None),
+    ("toda quarta às 7h me manda a previsão do tempo", None),
     ("cancela o lembrete aviso de vencimento do site", None),
     ("agende", None),
     ("marca", None),
@@ -205,7 +205,7 @@ TEXT_CASES = [
     ("lembra-me em 2 horas de tirar o pão do forno", "tirar o pão do forno"),
     ("pode me lembrar hoje às 18h para ligar para o Rui", "ligar para o Rui"),
     ("lembrete: veterinário amanhã 15h", "veterinário"),
-    ("daqui 40 min me avisa pra desligar o forno", "desligar o forno"),
+    ("em 25 min me avisa de desligar o fogão", "desligar o fogão"),
     ("às 9h me lembra de regar as plantas", "regar as plantas"),
     ("me lembra amanhã 9h de pagar a parcela 3/10", "pagar a parcela 3/10"),
 ]
@@ -266,13 +266,13 @@ LINE_NO_HOUR = "me lembra de ligar amanhã"
 LINE_NO_TIME = "me lembra de regar as plantas"
 LINE_CALENDAR = "marca na agenda o oculista sexta às 9"
 LINE_LOOSE = "agende reunião amanhã 10h"
-LINE_FORTY = "daqui 40 min me avisa pra desligar o forno"
+LINE_FORTY = "em 25 min me avisa de desligar o fogão"
 LINE_NINE_FIRST = "às 9 me lembra de regar as plantas"
-LINE_NOTE = "anota: comprar areia do gato"
-LINE_LIST = "quais lembretes eu tenho?"
+LINE_NOTE = "anota: trocar a areia do gato"
+LINE_LIST = "mostra os lembretes que estão abertos"
 LINE_LIST_BARE = "meus lembretes"
-LINE_FORGET_WORDS = "cancela o lembrete da aula de violão"
-LINE_FORGET_NONE = "cancela o lembrete do oculista"
+LINE_FORGET_WORDS = "esquece o lembrete da aula de violão"
+LINE_FORGET_NONE = "apaga o lembrete da manicure"
 LINE_FORGET_NUM = "esquece o lembrete 1"
 LINE_FORGET_ASK = "esquece o lembrete"
 LINE_YEAR = "me lembra dia 5/1 às 9h de renovar o seguro"
@@ -280,10 +280,10 @@ LINE_TODAY_PAST = "me lembra dia 18/10 às 13h de ligar"
 LINE_UNSURE = "me lembra fim de semana às 10h de pagar o aluguel"
 LINE_THURSDAY = "me lembra quinta que vem às 15h30 do arquiteto"
 LINE_WORK = "escreva o post de lançamento para amanhã às 9"
-REPLY_FORTY = "Lembrete #1: hoje, dom 18/10, às 14:40 (BRT): desligar o forno. Para desfazer: /forget 1."
+REPLY_FORTY = "Lembrete #1: hoje, dom 18/10, às 14:25 (BRT): desligar o fogão. Para desfazer: /forget 1."
 ASK_NINE_FIRST = "Qual horário você quer: amanhã, seg 19/10, às 09:00 ou hoje, dom 18/10, às 21:00? Responda com a hora."
 REPLY_PLANTS = "Lembrete #1: amanhã, seg 19/10, às 09:00 (BRT): regar as plantas. Para desfazer: /forget 1."
-REPLY_NOTE = "Lembrete #1: amanhã, seg 19/10, às 10:00 (BRT): comprar areia do gato. Para desfazer: /forget 1."
+REPLY_NOTE = "Lembrete #1: amanhã, seg 19/10, às 10:00 (BRT): trocar a areia do gato. Para desfazer: /forget 1."
 REPLY_YEAR = "Lembrete #1: ter 05/01/2027 às 09:00 (BRT): renovar o seguro. Para desfazer: /forget 1."
 REPLY_PAST_DAY = "Esse horário já passou. Agora são 18/10/2026 14:00."
 LIST_HEAD = "northwind-shop: lembretes pendentes (BRT)"
@@ -296,7 +296,7 @@ LINE_TWO_BOLETOS = "me lembra amanhã às 15h de pagar 2 boletos"
 LINE_FORGET_BOLETOS = "esquece o lembrete de pagar 2 boletos"
 LINE_FORGET_NINE = "cancela o lembrete das 7"
 LINE_AGENDA_READ = "agenda de amanhã?"
-LINE_MARCA = "marca aula de violão segunda 13h"
+LINE_MARCA = "marca aula de violão sábado 10h"
 CONFIRM_YEAR = "Entendi: ter 05/01/2027 às 09:00: renovar o seguro. Confirma? (sim / outra hora)"
 CONFIRM_AMNHA = "Entendi: amanhã, seg 19/10, às 09:00: pagar a conta. Confirma? (sim / outra hora)"
 REPLY_AMNHA = "Lembrete #1: amanhã, seg 19/10, às 09:00 (BRT): pagar a conta. Para desfazer: /forget 1."
@@ -308,9 +308,9 @@ RESTORED = "O lembrete #1 está de volta como #2: amanhã, seg 19/10, às 13:00 
 # A weak word of a day (an abbreviation that is also a common word) next to the time or a number is the day; anywhere else it may be a name, and the reading is
 # confirmed (never dropped). (line, ("when" | "confirm", the moment)); the clock is Sunday 2026-10-18 14:00.
 NAME_LINES = [
-    ("me lembra Seg às 9h de ligar", ("when", "2026-10-19 09:00")),
-    ("me lembra na Sex às 9h de ligar", ("when", "2026-10-23 09:00")),
-    ("me lembra seg. às 10h da reunião", ("when", "2026-10-19 10:00")),
+    ("me lembra Seg às 9h de ligar", ("confirm", "2026-10-19 09:00")),
+    ("me lembra na Sex às 9h de ligar", ("confirm", "2026-10-23 09:00")),
+    ("me lembra seg. às 10h da reunião", ("confirm", "2026-10-19 10:00")),
     ("me lembra ligar pra Sex Shop às 9h", ("confirm", "09:00")),
     ("me lembra ligar pra sex shop às 9h", ("confirm", "09:00")),
     ("me lembra sex shop às 9h", ("confirm", "09:00")),
@@ -326,16 +326,16 @@ REPEAT_TEXT_LINES = [
 ]
 # A part of the day beside an hour with no marker says which hour; one that contradicts a marked hour is confirmed.
 PART_LINES = [
-    ("me lembra amanhã de manhã às 9 de acordar", ("when", "2026-10-19 09:00")),
-    ("me lembra hoje à noite às 9 de ligar", ("when", "2026-10-18 21:00")),
-    ("me lembra amanhã à tarde às 3 de buscar o pacote", ("when", "2026-10-19 15:00")),
+    ("me lembra amanhã de manhã às 9 de acordar", ("confirm", "2026-10-19 09:00")),
+    ("me lembra hoje à noite às 9 de ligar", ("confirm", "2026-10-18 21:00")),
+    ("me lembra amanhã à tarde às 3 de buscar o pacote", ("confirm", "2026-10-19 15:00")),
     ("me lembra amanhã de manhã às 21h de ligar", ("confirm", "2026-10-19 21:00")),
 ]
 # What a forget line is: an explicit number acts, a number after another word is confirmed, an hour is matched against the moment.
 FORGET_FORMS = [
     ("cancela o lembrete 3", {"id": 3}), ("cancela o lembrete #3", {"id": 3}), ("esquece o lembrete numero 3", {"id": 3}),
-    ("cancela o lembrete do 3", {"id": 3, "confirm": True}), ("esquece o lembrete de 2", {"id": 2, "confirm": True}),
-    ("cancela o lembrete no 4", {"id": 4, "confirm": True}), ("cancela o lembrete 1 e 2", {"id": None, "ids": [1, 2], "confirm": True}),
+    ("apaga o lembrete do 3", {"id": 3, "confirm": True}), ("esquece o lembrete de 2", {"id": 2, "confirm": True}),
+    ("esquece o lembrete no 4", {"id": 4, "confirm": True}), ("apague os lembretes 1 e 2", {"id": None, "ids": [1, 2], "confirm": True}),
     ("cancela o lembrete das 9", {"id": None, "at": "das 9", "confirm": True}),
 ]
 # Lines that are not an undo (the bare word only, optionally with "the reminder").
@@ -346,8 +346,8 @@ ASK_WEEKDAY = "Qual dia da semana que vem? Responda com o dia da semana, por exe
 ASK_AGAIN = "Para quando? Responda com o dia e a hora, por exemplo amanhã às 13h."
 DISCARDED = "A pergunta anterior foi descartada."
 EXPIRED = "Essa pergunta não está mais aberta: ela espera dez minutos. Envie a frase de novo."
-CONFIRM_CORTE = "me lembra amnhã às 13h do corte de cabelo"
-CONFIRM_CORTE_ASK = "Entendi: amanhã, seg 19/10, às 13:00: corte de cabelo. Confirma? (sim / outra hora)"
+CONFIRM_OLEO = "me lembra amnhã às 13h do troca de óleo"
+CONFIRM_OLEO_ASK = "Entendi: amanhã, seg 19/10, às 13:00: troca de óleo. Confirma? (sim / outra hora)"
 YES_ANSWERS = ["sim", "sim, pode", "sim por favor", "isso mesmo", "pode ser", "sim sim", "ok obrigado", "Sim!", "claro que sim"]
 LINE_MARCA_LEMBRETE = "marca um lembrete amanhã às 9h de pagar o boleto"
 LINE_AGENDE_LEMBRETE = "agende um lembrete amanhã às 9h de pagar o boleto"
@@ -376,7 +376,7 @@ ID_FORMS = ["cancela o lembrete n° 3", "cancela o lembrete N° 3", "cancela o l
             "cancela o lembrete numero 3", "cancela o lembrete 3", "cancela o lembrete #3"]
 BARE_FORGET = ["cancela #3", "cancela o 3", "esquece o 3"]
 # Repetitions that are not "every" followed by a unit.
-REPEAT_MORE = ["me lembra todo santo dia às 8h de tomar remédio", "me lembra a cada meia hora de alongar", "me lembra de hora em hora de beber água",
+REPEAT_MORE = ["me lembra todo santo dia às 8h de tomar vitamina", "me lembra a cada meia hora de alongar", "me lembra de hora em hora de beber água",
                "me lembra dia sim dia não às 9h de regar", "me lembra nos dias úteis às 9h de bater o ponto", "me lembra de segunda a sexta às 9h de bater o ponto"]
 LINE_HOURS_TEXT = "me lembra amanhã às 9h de revisar todas as horas lançadas"
 LINE_DAYS = "me lembra daqui a 3 dias de pagar"
@@ -387,3 +387,26 @@ LINE_WEEK_MONDAY = "me lembra semana que vem segunda às 9h da reunião"
 LINE_WEEK_FRIDAY = "me lembra na sexta da semana que vem às 9h de pagar"
 ASK_TIME_DAYS = "Qua 21/10: a que horas? Responda com uma hora, por exemplo 13h."
 NO_THANKS = ["nao obrigado", "não, obrigada"]
+
+# --- round 5: nothing in free text is made without a yes, and the readings that were shown wrong -----------------------------------------------------------------------
+# Sunday 2026-10-18 14:00. (line, the reading shown)
+SHOWN_RIGHT = [
+    ("me lembra amanhã às 9:00h de regar as orquídeas", "2026-10-19 09:00"), ("me lembra amanhã às 15:00h de regar as orquídeas", "2026-10-19 15:00"),
+    ("me lembra 30 min antes da reunião das 15h", "2026-10-18 14:30"), ("me lembra meia hora antes da reunião das 18h", "2026-10-18 17:30"),
+    ("me lembra uma hora antes do voo das 21h", "2026-10-18 20:00"), ("remind me 1 hour before the meeting at 5pm", "2026-10-18 16:00"),
+    ("me lembra às 9h de 12/12 de pagar o seguro", "2026-12-12 09:00"), ("me lembra em 12/12 às 9h de pagar o seguro", "2026-12-12 09:00"),
+    ("me lembra dom às 9h de trocar a lâmpada", "2026-10-25 09:00"),
+]
+# A range is asked: the two hours are the two readings.
+LINE_RANGE = "me lembra amanhã entre 9h e 10h de regar as orquídeas"
+# A date that is not one: refused with the calendar's sentence.
+IMPOSSIBLE_DATES = ["me lembra 32/10 às 9h de pagar o seguro", "me lembra 00/10 às 9h de pagar o seguro", "me lembra dia 32 às 9h de pagar o seguro", "me lembra 32 de outubro às 9h de pagar o seguro"]
+# A day word that is the topic of the reminder: both readings are offered, and the word stays in the words.
+TOPIC_LINES = ["me lembra às 9h que a reunião de sexta foi cancelada", "me lembra às 9h do jogo de sábado"]
+# More routines.
+REPEAT_PLURAL = ["me lembra todas as segundas às 9h de regar as orquídeas", "me lembra às segundas de regar as orquídeas", "me lembra nas segundas às 9h de regar as orquídeas",
+                 "me lembra sempre às 9h de abrir a janela"]
+LINE_ORCHID = "me lembra amanhã às 9h de regar as orquídeas"
+ASK_ORCHID = "Entendi: amanhã, seg 19/10, às 09:00: regar as orquídeas. Confirma? (sim / outra hora)"
+REPLY_ORCHID = "Lembrete #1: amanhã, seg 19/10, às 09:00 (BRT): regar as orquídeas. Para desfazer: /forget 1."
+LABEL_YES = "Sim"

@@ -256,6 +256,7 @@ TABLE = {
         "NT_RECURRING": "A reminder here happens once. Something that repeats is a routine: set it up in the terminal or on the page. For a single reminder, tell me when.",
         "NT_CANCELLED": "Ok, no reminder was made.",
         "NT_KEPT": "Ok, nothing was cancelled.",
+        "NT_BTN_YES": "Yes",
         "NT_ASK_AGAIN": "For when? Reply with a day and a time, for example tomorrow at 1 pm.",
         "NT_ASK_WEEKDAY": "Which day next week? Reply with the weekday, for example Tuesday.",
         "NT_ASK_FORGET_TEXT": "Cancel reminder #{id}: {when}: {text}? (yes / no)",

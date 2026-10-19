@@ -24,7 +24,8 @@ on to the router as before.
                                      (only an explicit one: "#9", "reminder 9"; with "confirm" a number after another word, "reminder of 3": shown and confirmed), "ids"
                                      (several, confirmed), "at" (an hour, "the reminder at 9": matched against the moment and confirmed), "words" (what the person said
                                      of it, matched by whole words) or "many"; `reminder-restore` is the bare "undo"
-  understand(line, now, how)         the reminder the line asks for, with the clock (the guard of runtime/natural_time.py `leftover_doubt` makes a reading a confirmation
+  understand(line, now, how)         the reading of the reminder the line asks for, with the clock, as the question to show: it NEVER returns a reminder to make (a reminder
+                                     in free text is made only after the person's yes; the guard of runtime/natural_time.py `leftover_doubt` makes a reading a confirmation
                                      when the words outside the time may hold a date, a holiday or a language no table knows): {"when", "text", "reading"} when it is complete, or {"ask": {...}} with what
                                      is missing or uncertain (`need`: time | reading | text | kind | confirm | recurring | weekday | again | forget) and the draft the caller keeps to finish it
   complete(draft, said, now)         the next line of the same chat finishing a draft: the same shapes, {"event": True} when the person chose the calendar,
@@ -336,6 +337,8 @@ def understand(line, now, how="trigger", languages=None, trust=False, confirm=Fa
     found = nt.find(text, tables)
     parsed = nt.parse(text, now, tables)
     cuts = list(parsed["spans"]) if parsed else []
+    if parsed and any(h.get("topic") for h in found["hits"]):          # "the meeting of friday": the weekday stays in the words, it may be what the reminder is about
+        cuts = nt._spans({"origin": found["origin"], "hits": [h for h in found["hits"] if not h.get("topic")]})
     trigger = _trigger_span(norm, tables, how)
     if trigger:
         cuts.append((origin[trigger[0]], origin[trigger[1] - 1] + 1))
@@ -366,16 +369,17 @@ def _week(norm: str, tables: list):
 
 
 def _next(draft: dict, reading: dict):
-    """What follows once there is a reading: the words (asked when missing), a confirmation (when something about the reading is uncertain), the kind (reminder
-    or event, for a line with no remind word) or the reminder."""
+    """What follows once there is a reading: the words (asked when missing), then, for a line in free text, the reading SHOWN: for a line with no remind word the kind
+    question (it shows the reading: a reminder here, or an event), else the confirmation ("Entendi: ... Confirma?"). A reminder in free text is made only from a draft
+    the person has confirmed (`confirmed`): a "yes", the pick of one of the readings that were shown, or the answer to the kind question."""
     how = draft["how"]
     if not draft["text"]:
         return {"ask": {**draft, "need": "text", "readings": [reading]}}
-    if draft.get("doubt"):
-        return {"ask": {**draft, "need": "confirm", "readings": [reading]}}
+    if draft.get("confirmed"):
+        return {"when": reading["when"], "text": draft["text"], "reading": reading}
     if how == "bare":
         return {"ask": {**draft, "need": "kind", "readings": [reading]}}
-    return {"when": reading["when"], "text": draft["text"], "reading": reading}
+    return {"ask": {**draft, "need": "confirm", "readings": [reading]}}
 
 
 def _answers(word_norm: str, tables: list, group: str) -> bool:
@@ -527,10 +531,17 @@ def _cued(said: str, draft: dict, tables: list) -> str:
     return said
 
 
+def _next_monday(now) -> datetime.date:
+    """The Monday that starts "next week": the Monday after this one; said on a Sunday, which a calendar that starts its weeks on Sunday (Brazil's, the United States')
+    opens as a new week, the Monday after tomorrow's. The reading made with it is always shown, so a person who means the other one says so."""
+    today = now.date()
+    return today + datetime.timedelta(days=(8 if today.weekday() == 6 else 7 - today.weekday()))
+
+
 def _next_week(reading: dict, now) -> dict:
     """The reading moved to the same weekday of next week (Monday to Sunday after this one)."""
     day = datetime.date.fromisoformat(reading["date"])
-    first = now.date() + datetime.timedelta(days=7 - now.date().weekday())
+    first = _next_monday(now)
     while day < first:
         day += datetime.timedelta(days=7)
     while day >= first + datetime.timedelta(days=7):
@@ -539,7 +550,7 @@ def _next_week(reading: dict, now) -> dict:
 
 
 def _complete_week(draft: dict, said: str, now, tables: list):
-    """The answer to "which day next week?": a weekday (or a date). A weekday is the one of next week (Monday to Sunday, the week after this one); the line gets the date,
+    """The answer to "which day next week?": a weekday (or a date). A weekday is the one of next week (Monday to Sunday: the week after this one, and said on a Sunday the one after tomorrow's); the line gets the date,
     so everything after (the hour, the words) runs as for any line, and the reading is ALWAYS shown with the day it resolved to, whatever convention the person has."""
     found = nt.find(said, tables)
     wd = next((h for h in found["hits"] if h["kind"] == "date" and h["spec"]["k"] == "wd"), None)
@@ -548,7 +559,7 @@ def _complete_week(draft: dict, said: str, now, tables: list):
         if parsed is None or "missing" not in parsed or not parsed["day"]:
             return None
         return understand(draft["line"] + " " + said, now, draft["how"], tables, trust=True, confirm=True)
-    first = now.date() + datetime.timedelta(days=7 - now.date().weekday())
+    first = _next_monday(now)
     day = (first + datetime.timedelta(days=wd["spec"]["i"])).isoformat()
     left = nt.without(said, nt._spans({"origin": found["origin"], "hits": [wd]}))
     base = draft["line"]
@@ -617,7 +628,7 @@ def complete(draft, said, now, languages=None):
         if kinds == ["other"] and not rest:
             return {"cancel": True}
         if affirm(said, tables):
-            return _next(settled, _dated(reading))          # the person saw the day and said yes: it is theirs, not a time that "rolled"
+            return _next({**settled, "confirmed": True}, _dated(reading))          # the person saw the day and said yes: it is theirs, not a time that "rolled"
         if "yes" in kinds and set(kinds) <= {"yes", "thanks"} and rest:
             but = {w for t in tables for p in t["but_words"] for w in p.split()}
             change = _time_only(" ".join(w for w in rest if w not in but), now, tables)          # "yes, but at 3pm": a yes with a new hour (or day)
@@ -653,8 +664,16 @@ def complete(draft, said, now, languages=None):
         return understand(draft["line"] + " " + cued, now, how, tables, trust=True)
     if need == "reading":
         picked = _pick(draft, cued, now, tables)
-        return _retry(draft, said, tables) if picked is None else _next(settled, picked)
+        if picked is None:
+            return _retry(draft, said, tables)
+        shown = {f"{r['date']} {r['time']}" for r in draft["readings"]}
+        return _next({**settled, "confirmed": f"{picked['date']} {picked['time']}" in shown}, picked)          # one of the readings that were shown is the person's choice; a new one is shown
     if need == "kind":
+        if not kinds:          # a day or an hour instead of the kind: the reading shown is not the one meant, and the kind is asked again with the new one
+            change = _time_only(cued, now, tables)
+            new = _replace(draft["readings"][0], change, now) if change else None
+            if new is not None:
+                return _next(settled, new)
         if rest or len(set(kinds)) != 1 or kinds[0] in ("other", "thanks", "again"):
             return _retry(draft, said, tables)
         if kinds[0] == "event":

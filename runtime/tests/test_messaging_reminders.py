@@ -124,9 +124,11 @@ def test_the_reply_names_the_number_the_day_the_weekday_the_time_the_zone_and_th
 def test_in_count_mode_the_reply_names_the_moment_and_never_the_words(day):
     listed(day, notices="count")
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
-    day.say(OWNER, "/remind tomorrow 1 pm stretch a little")
-    assert day.texts(OWNER)[-2:] == ["Reminder #1: today, Sun 18/10, at 15:00 (BRT). To undo: /forget 1.",
-                                     "Reminder #2: tomorrow, Mon 19/10, at 13:00 (BRT). To undo: /forget 2."]
+    day.say(OWNER, "/remind tomorrow 1 pm stretch a little")      # in words: the reading is shown, and a yes makes it
+    assert day.texts(OWNER)[-1] == "I understood: tomorrow, Mon 19/10, at 13:00. Confirm? (yes / another time)"
+    day.say(OWNER, "yes")
+    assert [day.texts(OWNER)[-3], day.texts(OWNER)[-1]] == ["Reminder #1: today, Sun 18/10, at 15:00 (BRT). To undo: /forget 1.",
+                                                          "Reminder #2: tomorrow, Mon 19/10, at 13:00 (BRT). To undo: /forget 2."]
     assert "dentist" not in " ".join(day.texts(OWNER)) and "stretch" not in " ".join(day.texts(OWNER))
 
 
