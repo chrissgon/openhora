@@ -185,8 +185,10 @@ ALLOWED = {
     "step_project_script.py": {"ops_core", "ops_sources", "sources", "steps"},      # P9: a script's result is a version of a source, imported by the sources module; the provider is reached through it
     "step_write_back.py": {"steps", "write_document"},
     "step_output.py": {"output_document", "steps", "table_data", "write_document"},
-    "step_send_email.py": {"send_document", "steps"},
+    "step_send_email.py": {"mail_refs", "phrases", "send_document", "steps"},      # W2: the message a reply answers (pure) and the sentences of the phrase table
     "step_publish_post.py": {"publish_document", "steps"},
+    "step_calendar_event.py": {"calendar_document", "steps"},
+    "step_files.py": {"files_document", "phrases", "steps", "workcopy"},      # W4a: the pure document of a file write, the sentences, the engine; the writers are in effect_files.py alone
 }
 
 

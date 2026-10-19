@@ -236,7 +236,7 @@ def provider_classes(root):
     rows = []
     for cls in classes:
         folder = resolve.folder(cls)
-        names = resolve.implementations_in(folder, root=root)
+        names = resolve.implementations(cls, root=root)      # a writer declares `SERVES = "writer:<x>"`: it is listed under that class only
         if not names:
             rows.append([_code(cls), _code(f"{folder}/"), "none ships", NONE])
             continue

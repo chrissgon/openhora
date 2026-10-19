@@ -41,6 +41,19 @@ types and sizes only), no address is written to.
 A credential never reaches a run, a manifest, the catalog or a message: a provider's process gets `provider_environment` plus its own
 secret (the names in SECRETS), and this module never reads or stores a token.
 
+THE INDEX (package SNAP-IDX, SPEC-SECRETARY-WRITES 3.4). Beside the text, each version's manifest keeps `index`: one entry for each item the
+text lists, in the order the text lists it, numbered from 1, so that `<source id>#<n>` names one message or one event by code and never by the
+words of the text (runtime/item_refs.py reads it). A mail entry is {n, id, thread_id, message_id, from_address, reply_to_address, subject,
+change_key}; a calendar entry is {n, id, etag, calendar, organizer_self, attendees_other, recurring}. It holds no body, no sender's name, no
+token; a subject is cleaned and cut at INDEX_SUBJECT_CHARS characters; an id, key or address that is not shaped as the service prints it
+is null, and the entry stays so that the numbers do not move. A message left out of the text for a credential has no entry and no number. A mail
+text numbers its messages (`## 3. ...`); a calendar text numbers its event lines (`3. 09:00-10:00 · ...`) in the order of
+snapshot_text.calendar_order, which is the order of the index. The index is in the manifest, which no run receives (L26, L52). Its sha256 is a line of
+the text (the third), and the store records the text's hash (L25), so an index changed outside the runtime no longer matches its version
+(runtime/item_refs.py checks it). The readers print the sender's address alone (`from_address`) and the Reply-To of one mailbox (`reply_to`); the index
+never picks an address out of the words of a `from` field. The format of the index is part of the reading's signature (SIGNATURE_MARK), so the
+first refresh after the index existed always makes a version that has one.
+
 Imports `sources` (the registry, the versions, the guardrails of the folder) and `snapshot_text`; nothing of the operations layer.
 `sources.register` loads this module for the origin check of its types. Standard library only. Runs on Python 3.9.
 """
@@ -48,6 +61,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 import os
 import re
 import sys
@@ -79,6 +93,13 @@ EVENTS_MAX = 250
 PROVIDER_TIMEOUT = 300
 SIZE_MARGIN = 16 * 1024               # kept free under the converted cap for the heading, the notes and the left-out lines
 WHY_CREDENTIAL = "it holds what looks like a credential"
+INDEX_SUBJECT_CHARS = 120        # the longest subject the index keeps (cleaned, links replaced; a cut one ends with an ellipsis)
+# What an entry of the index may hold, checked by full match: an id as a service prints it (it goes into a path later), a key (a change key or an
+# etag, printable characters with no space), a Message-ID header, a plain address. Anything else is null.
+INDEX_ID = re.compile(r"[A-Za-z0-9_=+.-]{1,700}")
+INDEX_KEY = re.compile(r"[\x21-\x7e]{1,200}")
+INDEX_MESSAGE_ID = re.compile(r"[\x21-\x7e]{1,998}")
+SIGNATURE_MARK = "\nindex 1"    # the format of the index, part of the reading's signature: a version made before the index existed has another signature, so the first refresh makes one that has it
 CLOCK = None      # a callable returning an aware datetime, or None for the machine's clock (a seam for tests)
 ZONE = None       # a tzinfo, or None for the machine's own zone (a seam for tests)
 
@@ -181,7 +202,7 @@ def calendar_window(now, past: int, ahead: int, zone=None) -> tuple:
 
 def _signature(pairs, label: str, local_date: str) -> str:
     listed = "\n".join(sorted(f"{i}\t{k}" for i, k in pairs))
-    return hashlib.sha256(f"{listed}\n{label}\n{local_date}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{listed}\n{label}\n{local_date}{SIGNATURE_MARK}".encode("utf-8")).hexdigest()
 
 
 def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=None, zone=None) -> dict:
@@ -228,29 +249,64 @@ def _scan(data: bytes):
     return sources._workcopy().scan(data)
 
 
+def _shaped(pattern, value):
+    """`value` when it is a string the pattern matches whole, else None."""
+    return value if isinstance(value, str) and pattern.fullmatch(value) else None
+
+
+def mail_index_entry(n: int, message: dict, scan=None) -> dict:
+    """The index entry of the message the text numbers `n`: {n, id, thread_id, message_id, from_address, reply_to_address, subject, change_key}. Every
+    value is a closed shape or null (INDEX_*); the subject is cleaned, its links replaced and cut at INDEX_SUBJECT_CHARS; no body, no name. The
+    entry is scanned for credentials as a whole (the Reply-To address was not part of the message's scan): a hit empties the entry's words, never
+    its number."""
+    headers = message.get("headers") if isinstance(message.get("headers"), dict) else {}
+    from_address = text.plain_address(message.get("from_address"))     # the readers print the address alone; this is not picked out of the `from` words
+    reply = text.plain_address(message.get("reply_to"))
+    if reply is not None and from_address is not None and reply.lower() == from_address.lower():
+        reply = None
+    entry = {"n": n, "id": _shaped(INDEX_ID, message.get("id")), "thread_id": _shaped(INDEX_ID, message.get("thread_id")),
+             "message_id": _shaped(INDEX_MESSAGE_ID, headers.get("Message-ID")), "from_address": from_address, "reply_to_address": reply,
+             "subject": text.one_line(message.get("subject") or "", INDEX_SUBJECT_CHARS), "change_key": _shaped(INDEX_KEY, message.get("change_key"))}
+    if scan is not None and scan(json.dumps(entry).encode("utf-8")):
+        entry.update(message_id=None, from_address=None, reply_to_address=None, subject="")
+    return entry
+
+
+def event_index_entry(n: int, event: dict, calendar: str) -> dict:
+    """The index entry of the event the text lists `n`-th: {n, id, etag, calendar, organizer_self, attendees_other, recurring}. `attendees_other` is the
+    number of attendees other than the person when the provider printed it, else null (unknown: the readers do not print it today, and a change
+    reads the event again before it is prepared)."""
+    others = event.get("attendees_other")
+    return {"n": n, "id": _shaped(INDEX_ID, event.get("id")), "etag": _shaped(INDEX_KEY, event.get("etag")), "calendar": calendar,
+            "organizer_self": event.get("organizer_self") is True,
+            "attendees_other": others if type(others) is int and others >= 0 else None, "recurring": event.get("recurring") is True}
+
+
 def build_mail(source_id: str, snap: dict, *, scan=None) -> tuple:
-    """(text, kept, left out) of a mail snapshot. Each message is scanned on its own; one that holds a credential shape is left out and counted by
-    date and sender domain. The oldest messages are dropped, with a counted line, past the size one source may hold."""
+    """(text, kept, left out, index) of a mail snapshot. Each message is scanned on its own; one that holds a credential shape is left out and counted by
+    date and sender domain, and has no entry in the index. The oldest messages are dropped, with a counted line, past the size one source may hold;
+    the index has an entry for each message the text numbers, in its order."""
     scan = scan or _scan
     parts, zone = snap["parts"], snap["zone"]
-    views = [text.message_view(m, zone) for m in snap["items"]]
-    views.sort(key=lambda v: (v["moment"] is not None, v["moment"] or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)), reverse=True)
+    pairs = [(text.message_view(m, zone), m) for m in snap["items"]]
+    pairs.sort(key=lambda p: (p[0]["moment"] is not None, p[0]["moment"] or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)), reverse=True)
     kept, left_out = [], []
-    for view in views:
+    for view, message in pairs:
         if scan(view["whole"].encode("utf-8")) or scan(text.message_block(0, view).encode("utf-8")):   # the whole fields before any cut, then what is written
             item = {"date": view["date"], "domain": view["domain"], "why": WHY_CREDENTIAL}
             if scan(text.left_out_line(item).encode("utf-8")):    # a sender's domain is a stranger's word too: one that looks like a key is not written
                 item["domain"] = None
             left_out.append(item)
         else:
-            kept.append(view)
+            kept.append((view, message))
     blocks, used, budget = [], 0, sources.CONVERTED_CAP - SIZE_MARGIN
-    for view in kept:
+    for view, _message in kept:
         block = text.message_block(len(blocks) + 1, view)
         used += len(block.encode("utf-8"))
         if used > budget:
             break
         blocks.append(block)
+    index = [mail_index_entry(number, message, scan) for number, (_view, message) in enumerate(kept[:len(blocks)], 1)]
     dropped = len(kept) - len(blocks)
     notes = []
     if snap["truncated"]:
@@ -263,16 +319,17 @@ def build_mail(source_id: str, snap: dict, *, scan=None) -> tuple:
                      f"{'it' if snap['skipped'] == 1 else 'them'} could not be read.")
     start, end = (text.to_zone(m, snap["zone"]) for m in snap["window"])
     rendered = text.render_mail(source_id, parts["box"], (text._stamp(start), text._stamp(end)), snap["label"], text.utc_stamp(snap["now"]),
-                                blocks, left_out, notes)
-    return rendered, len(blocks), left_out
+                                blocks, left_out, notes, digest=text.index_digest(index))
+    return rendered, len(blocks), left_out, index
 
 
 def build_calendar(source_id: str, snap: dict, *, scan=None) -> tuple:
-    """(text, kept, left out) of a calendar snapshot. Each event (its title and place) is scanned on its own; one that holds a credential shape
-    is left out and counted by date."""
+    """(text, kept, left out, index) of a calendar snapshot. Each event (its title and place) is scanned on its own; one that holds a credential
+    shape is left out and counted by date, and has no entry in the index. The index has an entry for each event the text lists, in the order it
+    lists them (snapshot_text.calendar_order), numbered from 1."""
     scan = scan or _scan
     zone = snap["zone"]
-    kept, left_out, unreadable = [], [], 0
+    kept, left_out, unreadable, source_events = [], [], 0, {}
     for event in snap["items"]:
         view = text.event_view(event, zone)
         if view is None:
@@ -281,6 +338,9 @@ def build_calendar(source_id: str, snap: dict, *, scan=None) -> tuple:
             left_out.append({"date": view["day"].isoformat(), "why": WHY_CREDENTIAL})
         else:
             kept.append(view)
+            source_events[id(view)] = event
+    calendar = snap["parts"]["calendar"]
+    index = [event_index_entry(number, source_events[id(view)], calendar) for number, view in enumerate(text.calendar_order(kept, snap["first"]), 1)]
     notes = []
     if snap["truncated"]:
         notes.append(f"More events exist than the {EVENTS_MAX} read: the later ones are not in this snapshot.")
@@ -288,8 +348,9 @@ def build_calendar(source_id: str, snap: dict, *, scan=None) -> tuple:
     if unreadable:
         notes.append(f"{unreadable} event{' was' if unreadable == 1 else 's were'} left out: the provider's description of "
                      f"{'it' if unreadable == 1 else 'them'} could not be read.")
-    rendered = text.render_calendar(source_id, snap["first"], snap["last"], snap["label"], text.utc_stamp(snap["now"]), kept, left_out, notes)
-    return rendered, len(kept), left_out
+    rendered = text.render_calendar(source_id, snap["first"], snap["last"], snap["label"], text.utc_stamp(snap["now"]), kept, left_out, notes,
+                                    digest=text.index_digest(index))
+    return rendered, len(kept), left_out, index
 
 
 def catalog_name(parts: dict, source_type: str) -> str:
@@ -303,15 +364,15 @@ def catalog_name(parts: dict, source_type: str) -> str:
 
 
 def snapshot_make(ctx, source: dict, snap: dict, *, label: str, evidence_base=None) -> dict:
-    """Build the text of a reading and import it as a version of `source`. The reading time is the version's date. Returns import_version's
-    answer plus {"read": True, "items": the messages or events in the text, "left_out": how many were left out}. SourcesError on any refusal,
-    with nothing kept."""
+    """Build the text of a reading and import it as a version of `source`, with the index of its items in the version's manifest. The reading
+    time is the version's date. Returns import_version's answer plus {"read": True, "items": the messages or events in the text, "left_out":
+    how many were left out}. SourcesError on any refusal, with nothing kept."""
     source_type = source["type"]
     builder = build_mail if source_type == "mail" else build_calendar
-    rendered, kept, left_out = builder(source["id"], snap)
+    rendered, kept, left_out, index = builder(source["id"], snap)
     start, end = (text.to_zone(m, snap["zone"]).isoformat() for m in snap["window"])
     extra = {"window_start": start, "window_end": end, "zone": snap["label"], "read_at": text.utc_stamp(snap["now"]),
-             "messages" if source_type == "mail" else "events": kept, "left_out": len(left_out)}
+             "messages" if source_type == "mail" else "events": kept, "left_out": len(left_out), "index": index}
     now = snap["now"]
     done = sources.import_version(ctx, source, rendered.encode("utf-8"), convert=None, kind=source_type, label=label,
                                   origin_version=snap["signature"], clock=lambda: now, evidence_base=evidence_base,

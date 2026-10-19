@@ -66,6 +66,11 @@ Usage:
   python3 runtime/cli.py reminders --project <dir>
   python3 runtime/cli.py reminder-forget --project <dir> --id <reminder id>
   python3 runtime/cli.py reminder-restore --project <dir> --id <reminder id>
+  python3 runtime/cli.py file-create --project <dir> --account google|microsoft --name <name>.md|.txt|.docx|.gdoc (--content <text> | --content-file <path> | --from docs/<path>) [--folder <name>]
+  python3 runtime/cli.py file-replace --project <dir> --account google|microsoft --file <source id> (--content <text> | --content-file <path> | --from docs/<path>)
+  python3 runtime/cli.py file-save --project <dir> --account google|microsoft --attachment <held file number> [--name <name>] [--folder <name>]
+  python3 runtime/cli.py mail-send --project <dir> --account google|microsoft --to <addresses> [--cc <addresses>] [--bcc <addresses>] --subject <one line> (--text <words> | --text-file <path>) [--attach <docs/...>]...
+  python3 runtime/cli.py mail-reply --project <dir> --account google|microsoft --message <source>#<n> (--text <words> | --text-file <path>)
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -325,7 +330,40 @@ reminders the reminders that wait and the ones that did not go out in the last 7
           dropped: the sender was removed or lost the group before it fired), with their text. It calls no model.
 reminder-forget  cancels a reminder that waits (--id); one that is being sent or has ended is not changed.
 reminder-restore  brings back a reminder cancelled in the last 10 minutes (--id), as a new one with the same words, time and chat.
+event-create  prepares a new event on a calendar of your own Google or Microsoft account (--account google|microsoft, --title, --start, and optionally
+          --end, --calendar, --location, --reminder-minutes, --notes) and stops at a card that shows the whole event: nothing is written until you
+          approve the card with its hash (approve --id <the card> --sha256 <its hash>). --start and --end are YYYY-MM-DDTHH:MM in this machine's zone,
+          or YYYY-MM-DD for an all-day event; the end defaults to an hour after the start (the same day, all-day). --calendar is a name of the
+          account's calendars in runtime.json (the key accounts); the first is used when it is absent. Nobody is invited and no e-mail is sent; no
+          recurrence. It calls no model, and the account's token is read by the calendar writer alone.
+event-change  prepares a change to an event of your own calendar (--account, --event <source>#<n> or created:<decision>, optionally --calendar, and any of --title,
+          --start, --end, --location, --reminder-minutes, --notes) and stops at a card that shows each part as it was and as it will be. The event is
+          read from the calendar first and must be yours alone: organized by you, with no other attendee, not repeating. It is written only if it
+          is still as it was read. A start alone moves the event and keeps its length. Nobody is told. It calls no model.
+event-cancel  prepares the removal of such an event (--account, --event, optionally --calendar) and stops at a card. Google is expected to move it to the
+          calendar's trash, where it stays 30 days (to verify live); removing an event from Outlook is not available yet. Nobody is told. It calls no model.
+file-create  prepares a NEW file in a folder of your Google Drive (--account google) or OneDrive (--account microsoft) and stops at its card: the account, the
+          file, the folder and the text whole, with the hash you approve. --name ends in .md, .txt or .docx (or .gdoc: a Google Doc made from Markdown text);
+          the content is a text (--content, or --content-file to read it from a file; at most 64 KiB) or a file of the project (--from docs/<path>); --folder is
+          a name the project lists under accounts.<account>.folders in runtime.json (default: the one named default). A file of that name already in the
+          folder is refused: a new file never replaces one. Nothing is written until you approve the card's hash (approve --sha256, limit L55). No model.
+file-replace  prepares a NEW REVISION of a file that is a source of the project (--file is its source id; the source must be up to date) and stops at its
+          card, which shows the revision it replaces; the previous revision stays in the service's history. The content is a text or a file of the project of
+          the same type. Nothing is written until you approve the hash, and nothing is if the file moved since it was read. No model.
+file-save  prepares the saving of a file someone sent through a messaging app (--attachment is the number of a held file, see attachments), named as it was
+          sent or by --name, in a folder the project lists (--folder), and stops at its card, which names the file, its size and its hash. The held file stays held.
+          No model.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
+mail-send prepares an e-mail from your own Google or Microsoft account (--account google|microsoft) and stops at a card that shows the whole e-mail: nothing is sent
+          until you approve the card with its hash (approve --id <the card> --sha256 <its hash>). --to, --cc and --bcc are plain comma-separated addresses, at most
+          20 in all (a Google account sends no Bcc in this version); --text or --text-file is the body; --attach is a file under docs/ and may be repeated (an e-mail
+          with a file is approved in the terminal or on the page, never on a messaging card). The sender is the address of the account in runtime.json (the key
+          accounts), never an argument. It is sent once, by the account's mailer with the account's token. It calls no model.
+mail-reply  prepares a reply to a message of a mail snapshot (--account, --message <source>#<n>: the n-th message of the newest snapshot of a mail source of that
+          account, with --text or --text-file as the body) and stops at a card. The reply goes to the sender of that message as the snapshot's index recorded it,
+          and to no one else: a Reply-To is shown on the card and not used, and there is no reply to all. The subject is Re: and the message's subject; it joins the
+          message's conversation. It calls no model.
+deps     installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.
 progress  where the work stands (each open request, what waits for you, what is stuck) and what happened in a

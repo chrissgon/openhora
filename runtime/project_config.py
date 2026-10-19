@@ -617,6 +617,7 @@ def _code(value):
 
 OUTBOX_KEYS = ("provider", "from")
 OUTBOX_CLASS = "sender:email"
+OWN_ACCOUNT_MAILERS = ("gmail", "outlook")      # the implementations of sender:email that send from the person's own account token (package W2): never the project's outbox
 
 
 def _outbox(value, workbench: str):
@@ -626,7 +627,7 @@ def _outbox(value, workbench: str):
     if not isinstance(value, dict) or set(value) - set(OUTBOX_KEYS) or "from" not in value:
         raise ConfigError(f"runtime.json outbox must be an object with the keys {', '.join(OUTBOX_KEYS)} (from is required)")
     provider = value.get("provider", "auto")
-    shipped = _implementations(workbench, OUTBOX_CLASS)
+    shipped = [name for name in _implementations(workbench, OUTBOX_CLASS) if name not in OWN_ACCOUNT_MAILERS]
     if provider != "auto" and provider not in shipped:
         raise ConfigError(f"runtime.json outbox.provider must be auto or one of {', '.join(shipped) or 'none: no provider is shipped'}")
     try:

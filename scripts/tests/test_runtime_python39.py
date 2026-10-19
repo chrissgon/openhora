@@ -57,10 +57,18 @@ ON_SYSTEM_PYTHON = [
     # The sources of a project (P4): the registry, the versions, the catalog and the guardrails of the folder, and the ingest operations.
     # The document converter's provider runs a container; the host side is plain Python and runs on the scheduler's interpreter too.
     "runtime/sources.py", "runtime/sources_onedrive.py", "runtime/sources_mail.py", "runtime/snapshot_text.py", "runtime/ops_sources.py", "providers/converter/container.py",
+    # References to one item of a mail or calendar snapshot (SNAP-IDX): read through the index of the newest version.
+    "runtime/item_refs.py",
     # Files sent through a messaging app (ATT-1): the limits and folders of the hold, and the operations over it.
     "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",
     # The start of a write to the person's own accounts (FND): the one function an operation of the family calls.
     "runtime/account_start.py",
+    # A change to the person's own calendar (W1): the document, the effect, the step kind and the operations.
+    "runtime/calendar_document.py", "runtime/effect_calendar.py", "runtime/step_calendar_event.py", "runtime/ops_calendar.py",
+    # Files in the person's own Drive and OneDrive (W4a): the document, the step kind, the effect kind, the operations.
+    "runtime/files_document.py", "runtime/step_files.py", "runtime/effect_files.py", "runtime/ops_files.py",
+    # An e-mail from the person's own account (W2): the message a reply answers (pure) and the operations; the mailers' shared module is plain Python too.
+    "runtime/mail_refs.py", "runtime/ops_mail_send.py", "providers/_mailer_account.py",
     # Reminders (RM-1): the pure part, the operations and the bridge's part.
     "runtime/reminders.py", "runtime/ops_reminders.py", "runtime/messaging_remind.py",
     # Reminders asked in the person's own words (NR-1): the intent rows, the time parser and the language tables it reads (data, loaded by path).

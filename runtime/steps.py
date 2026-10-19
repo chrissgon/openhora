@@ -92,11 +92,12 @@ BUILTIN = re.compile(r"step_[a-z0-9_]+\.py")
 
 class StepFailure(Exception):
     """A step that stopped: a closed `code`, the `field` it names (never text), the `provider` word and what to do next
-    (`next`: a command the person runs, or one fixed sentence)."""
+    (`next`: a command the person runs, or one fixed sentence). `detail` is the exact sentence of a service, which may quote an address, a subject or a file
+    name: it is returned to the one who started the step (the engine's result) and is never stored, in the task's note or in its state (W2)."""
 
-    def __init__(self, code: str, field: str = "", provider: str = "", next: str = ""):
+    def __init__(self, code: str, field: str = "", provider: str = "", next: str = "", *, detail: str = ""):
         super().__init__(f"{code} {field}".strip())
-        self.code, self.field, self.provider, self.next = code, field, provider, next
+        self.code, self.field, self.provider, self.next, self.detail = code, field, provider, next, detail
 
 
 class Cancelled(Exception):
@@ -337,11 +338,43 @@ def vet(project: str, kind_name: str, args, protected=lambda path: False) -> Non
         kind.vet(project, args if isinstance(args, dict) else {}, protected)
 
 
-def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_on=(), milestone: bool = False) -> dict:
+ACCOUNT_ARGS = {"send-email": ("account", "reply", "reply_pin", "channel", "sender")}      # a kind that is also a plain kind (the outbox's send) and has arguments only an operation writes (W2)
+ACCOUNT_WORDS = ("calendar", "mailbox", "files")      # the gate words of a step kind that is only ever a write to the person's own accounts; account_start.WORDS also holds `send`, whose kind `send-email` is the outbox's too and is told apart by ACCOUNT_ARGS
+
+
+ACCOUNT_ARGS_SHOWN = ("operation", "account", "calendar", "folder", "event", "file", "attachment")      # the arguments of an account write that are closed words, names `accounts` gives and ids
+
+
+def is_account_step(kind_name, args=None) -> bool:
+    """Whether a step task writes to the person's own accounts: its kind has a gate that opens an effect whose word is in ACCOUNT_WORDS, or its kind is also a plain
+    kind (ACCOUNT_ARGS) and its arguments carry one that only an operation writes (an e-mail from the person's own account: the outbox's `send-email` without them).
+    False for an unknown kind and for None."""
+    try:
+        if any(gate.word in ACCOUNT_WORDS for gate in kind_of(kind_name).gates.values()):
+            return True
+    except StepFailure:
+        return False
+    return isinstance(args, dict) and any(name in args for name in ACCOUNT_ARGS.get(kind_name, ()))
+
+
+def public_args(args, kind_name=None) -> dict:
+    """The arguments of an account write as a reader who may not read the person's own mail, calendar and files sees them: only the closed ones
+    (ACCOUNT_ARGS_SHOWN, words, numbers and ids). The title, the notes, the text, a file's name, a path and a sender are the person's or someone else's words.
+    A kind that is also a plain kind (ACCOUNT_ARGS) shows none: its arguments are the addresses, the subject, the text and who asked."""
+    if kind_name in ACCOUNT_ARGS:
+        return {}
+    return {key: value for key, value in (args if isinstance(args, dict) else {}).items() if key in ACCOUNT_ARGS_SHOWN and isinstance(value, (str, int)) and not isinstance(value, bool)}
+
+
+def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_on=(), milestone: bool = False, account_write: bool = False) -> dict:
     """A plan's task for a step: {"key", "step", "args", "footprint", "agent", "title", "text", "depends_on", "milestone",
     "web"}. The arguments are the kind's checked ones, so the plan hash (runtime/plan.py plan_hash) covers exactly what will run;
     the footprint is derived from the kind and the arguments. StepFailure when the kind is unknown or the arguments are refused."""
     kind = kind_of(kind_name)
+    if not account_write and any(gate.word in ACCOUNT_WORDS for gate in kind.gates.values()):
+        raise StepFailure("not_plannable", "step", "", "a change to the person's own account is started by its own operation, never by a plan or a flow")
+    if not account_write and isinstance(args, dict) and any(name in args for name in ACCOUNT_ARGS.get(kind.name, ())):
+        raise StepFailure("not_plannable", "step", "", "an e-mail from the person's own account is started by its own operation, never by a plan or a flow")
     checked = kind.check(args if args is not None else {})
     if not isinstance(checked, dict):
         raise StepFailure("bad_args", "args")
@@ -350,10 +383,10 @@ def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_
 
 
 def add_task(store, conn, kind_name: str, args, *, key: str, title: str, text: str, request_id=None, depends_on=None,
-             milestone: bool = False) -> dict:
+             milestone: bool = False, account_write: bool = False) -> dict:
     """Add a step task through the store (store.step_task_add) with the arguments the kind checked and the footprint it derived.
     Returns the store's {"request", "task", "state"}."""
-    planned = plan_task(kind_name, args, key=key, title=title, text=text, depends_on=depends_on or (), milestone=milestone)
+    planned = plan_task(kind_name, args, key=key, title=title, text=text, depends_on=depends_on or (), milestone=milestone, account_write=account_write)
     return store.step_task_add(conn, key=key, title=title, text=text, step=planned["step"], args=planned["args"],
                                footprint=planned["footprint"], request_id=request_id, depends_on=depends_on, milestone=milestone)
 
@@ -591,7 +624,7 @@ def run(ctx: Context, kind: Kind, state: dict) -> dict:
         except Cancelled:
             return {"ok": False, "failed": None, "code": "cancelled", "field": "", "next": "", "steps": summary(kind, state)}
         return {"ok": False, "failed": name, "code": state["failure"]["code"], "field": state["failure"]["field"],
-                "next": failure.next, "steps": summary(kind, state)}
+                "next": failure.next, **({"detail": failure.detail} if failure.detail else {}), "steps": summary(kind, state)}
     except Cancelled:
         return {"ok": False, "failed": None, "code": "cancelled", "field": "", "next": "", "steps": summary(kind, state)}
     return {**result, "steps": summary(kind, state)}

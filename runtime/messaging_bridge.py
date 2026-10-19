@@ -314,6 +314,14 @@ class Bridge(shell_kit.Jobs):
         """The key of a sender in the policy: `<platform>:<id>` (operations.sender_key)."""
         return self.ops.operations.sender_key(self.platform, sender)
 
+    def for_reader(self, project: dict, item: dict, key: str) -> dict:
+        """The decision as the card for `key` (a sender key) is drawn: the save of a file a sender sent also says, as a boolean, whether `key` is that sender
+        (`reader_sent_file`; the sender's account stays in the store, W4a). Any other decision is returned as it is."""
+        if item.get("kind") != "effect" or item.get("effect_sender_only") is not True:
+            return item
+        asked = self.ops.pending(project["path"], pending_id=item["id"], reader=key)
+        return {**item, "reader_sent_file": asked.get("reader_sent_file") is True}
+
     def wants(self, project: dict, settings: dict, item: dict, sender: str) -> bool:
         """Whether this sender is sent a card for the decision: their profile permits reading the pending decisions and, when the profile says
         `notices: actionable`, the card would offer them something to act on or answer."""
@@ -324,8 +332,8 @@ class Bridge(shell_kit.Jobs):
         named = settings["sender_profiles"].get(sender) or settings["channel_profile"]
         if (settings["profiles"].get(named) or {}).get("notices") != "actionable":
             return True
-        built = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"], settings["page_url"],
-                            operations=operations, sender=key, cfg=settings)
+        built = cards.build(project["name"], self.for_reader(project, item, key), self.messenger.capabilities(), settings["policy"], settings["notices"],
+                            settings["page_url"], operations=operations, sender=key, cfg=settings)
         return bool(built["actionable"])
 
     def hears_count(self, settings: dict, sender: str):
@@ -460,6 +468,7 @@ class Bridge(shell_kit.Jobs):
                                               sha256=item.get("payload_sha256"))
         caps = self.messenger.capabilities()
         sender = self.key(chat)
+        item = self.for_reader(project, item, sender)
         card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"],
                            settings["page_url"], operations=operations, effect_command=command, sender=sender, cfg=settings)
         document = card["message"]["document"]
@@ -571,7 +580,7 @@ class Bridge(shell_kit.Jobs):
         last = self.ledger.last_card(project["id"], item["id"], chat)
         if last is None or last.get("approvable") or (last.get("blocked") and not retry_blocked):
             return False
-        built = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"],
+        built = cards.build(project["name"], self.for_reader(project, item, self.key(chat)), self.messenger.capabilities(), settings["policy"], settings["notices"],
                             settings["page_url"], operations=self.ops.operations, sender=self.key(chat), cfg=settings)
         return bool(built["approvable"])
 

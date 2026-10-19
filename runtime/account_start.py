@@ -28,6 +28,7 @@ that retries do not pile up planned or ready rows, and the step's own sentence i
 (limit L55): this file imports no effect module, no provider and no writer, and a test holds that.
 
   start(project, kind, args, *, key_words, title_key, account, channel=None, sender=None)   the above
+  check_channel(ctx, operation, channel=None, sender=None)                                  the first check alone (step 2), for an operation that reads before it starts
   reply_text(cfg, started)                                                                  the sentence a messaging app answers with
 
 Standard library only. Runs on Python 3.9.
@@ -39,6 +40,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import item_refs  # noqa: E402
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_cancel  # noqa: E402
@@ -49,8 +51,8 @@ import phrases  # noqa: E402
 import project_config  # noqa: E402
 import steps  # noqa: E402
 
-GROUP_OF_WORD = {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write"}      # the policy group that holds the operations of each effect word
-WORDS = tuple(GROUP_OF_WORD)      # the effect words of a write to a person's own account; `send` (a mail from the outbox, or from the person's own account) joins with its package
+GROUP_OF_WORD = {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write", "send": "mail-send"}      # the policy group that holds the operations of each effect word
+WORDS = tuple(GROUP_OF_WORD)      # the effect words of a write to a person's own account; `send` is a mail from the person's own account (package W2; the outbox's send is not started here)
 KEY = re.compile(r"[a-z]+(-[a-z]+){0,5}")
 TITLE_KEY = re.compile(r"TITLE_[A-Z0-9_]{1,40}")
 TITLE_MAX = 60
@@ -90,6 +92,12 @@ def _policy(ctx: dict, operation: str, channel, sender) -> None:
         operations.not_enabled(operation, project_config.clean_name(channel))
     if refused:
         raise core.OpsError(refused, 1)
+
+
+def check_channel(ctx: dict, operation: str, channel=None, sender=None) -> None:
+    """The channel's policy for the operation, as `start` asks it first: for an operation that has to read something with the caller's own rights before it starts
+    (a reply reads the snapshot it answers, and only a caller who may read it may name it). core.OpsError when the channel is refused."""
+    _policy(ctx, operation, channel, sender)
 
 
 def _gate_word(kind_name, operation: str) -> str:
@@ -136,7 +144,7 @@ def _card_problem(item: dict, title: str, word: str, facts: dict):
         return "it carries no well-formed card of lines"
     if phrases.card_text(card).strip() != str(item.get("body") or "").strip():
         return "its lines are not its body"
-    if facts.get("word") != word:
+    if facts.get("effect", facts.get("word")) != word:
         return "its effect is not the gate's"
     return None
 
@@ -159,7 +167,7 @@ def start(project: str, kind: str, args, *, key_words: str, title_key: str, acco
     word = _gate_word(kind, key_words)
     store = ctx["store"]
     try:
-        made = steps.add_task(store, ctx["conn"], kind, args, key=key_words, title=title, text=TASK_TEXT)
+        made = steps.add_task(store, ctx["conn"], kind, args, key=key_words, title=title, text=TASK_TEXT, account_write=True)
     except steps.StepFailure as e:
         raise core.OpsError(_sentence(e), 2) from None
     except store.StoreError as e:
@@ -174,7 +182,8 @@ def start(project: str, kind: str, args, *, key_words: str, title_key: str, acco
         raise core.OpsError(str(out.get("reason") or "the preparation could not start now"), 1)
     if out.get("ok") is not True:               # a preparation that failed: the step's own sentence
         _abandon(ctx, made["request"])
-        failure = steps.StepFailure(str(out.get("code") or "failed"), str(out.get("field") or ""), "", str(out.get("next") or ""))
+        exact = str(out.get("detail") or "") if item_refs.may_read(ctx, channel, sender) else ""      # a mailer's sentence can quote the person's words: to a caller who may read them, never stored
+        failure = steps.StepFailure(str(out.get("code") or "failed"), str(out.get("field") or ""), "", exact or str(out.get("next") or ""))
         raise core.OpsError(steps.note_of(str(out.get("failed") or "prepare"), failure), 1)
     if not out.get("stopped") or not out.get("pending"):
         _abandon(ctx, made["request"])
@@ -189,7 +198,7 @@ def start(project: str, kind: str, args, *, key_words: str, title_key: str, acco
     if why:
         _abandon(ctx, made["request"])
         raise core.OpsError(CARD_REFUSED.format(why=why), 1)
-    return {"request": made["request"], "task": made["task"], "pending": out["pending"], "word": facts["word"], "on_cards": facts["on_cards"]}
+    return {"request": made["request"], "task": made["task"], "pending": out["pending"], "word": facts.get("effect", facts["word"]), "on_cards": facts["on_cards"]}
 
 
 def reply_text(cfg, started: dict) -> str:
