@@ -153,6 +153,21 @@ def test_the_declaration_is_read_as_text_and_a_file_that_declares_nothing_serves
     assert resolve.served_platforms("publisher:chirp", "odd", root=root) == ["chirp"]
 
 
+def test_the_serves_line_is_found_after_a_long_module_docstring_and_a_file_that_is_not_text_declares_nothing(tmp_path):
+    root = workbench(tmp_path, "writer/late.py", "writer/plain.py", "writer/binary.py", "writer/other.py")
+    docstring = '"""' + ("A long account of what the writer does. " * 400) + '"""\n'      # about 16000 characters, past the old read of 8192
+    assert len(docstring) > 8192
+    (root / "providers/writer/late.py").write_text(docstring + 'SERVES = "writer:files"\n')
+    (root / "providers/writer/binary.py").write_bytes(b"\xff\xfe\x00 not text")
+    (root / "providers/writer/other.py").write_text(docstring + 'SERVES = "writer:calendar"\n')
+    assert resolve.serves_class("writer:files", "late", root=root) and resolve.serves_class("writer:files", "late", root=root, strict=True)
+    assert not resolve.serves_class("writer:calendar", "late", root=root)
+    assert not resolve.serves_class("writer:files", "other", root=root) and resolve.serves_class("writer:calendar", "other", root=root, strict=True)
+    assert resolve.serves_class("writer:files", "plain", root=root) and not resolve.serves_class("writer:files", "plain", root=root, strict=True)
+    assert resolve.serves_class("writer:files", "binary", root=root) and not resolve.serves_class("writer:files", "binary", root=root, strict=True)
+    assert resolve.implementations("writer:files", root=root) == ["binary", "late", "plain"]
+
+
 def test_scheduler_default_follows_the_platform(tmp_path):
     root = workbench(tmp_path, "scheduler/launchd.py", "scheduler/systemd.py")
     for platform, name in (("darwin", "launchd"), ("linux", "systemd")):
@@ -279,12 +294,6 @@ def test_every_class_of_the_environment_contract_is_listed():
     assert classes and sorted(classes) == sorted(resolve.LISTED)
 
 
-def serves(folder, name):
-    """The class a provider file declares it serves (`SERVES = "writer:calendar"`), or None: the writers of several classes share the folder providers/writer/."""
-    found = re.search(r'^SERVES\s*=\s*"([^"\n]+)"', (REPO / "providers" / folder / f"{name}.py").read_text(encoding="utf-8"), re.M)
-    return found.group(1) if found else None
-
-
 def test_a_verbs_row_says_when_no_implementation_ships():
     # CT6: the verbs table listed verbs for classes that no provider implements, as if one answered them.
     contract = (REPO / "providers" / "CONTRACT.md").read_text(encoding="utf-8")
@@ -293,7 +302,7 @@ def test_a_verbs_row_says_when_no_implementation_ships():
     assert rows
     for row in rows:
         cls = row.split("|")[1].strip().strip("`")
-        shipped = bool([n for n in resolve.implementations_in(resolve.folder(cls), root=REPO) if serves(resolve.folder(cls), n) in (None, cls)])
+        shipped = bool(resolve.implementations(cls, root=REPO))      # a writer that declares it serves another class is not one of this class
         reserved = row.split("|")[2].strip().startswith("No implementation ships.")
         assert shipped != reserved, cls
     assert 'A row that starts "No implementation ships" is a reserved shape' in contract

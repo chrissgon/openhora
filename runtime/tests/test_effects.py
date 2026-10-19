@@ -337,7 +337,7 @@ def vocabulary() -> tuple:
 def test_the_registry_holds_every_kind_keyed_by_a_word_of_the_side_effect_vocabulary():
     assert set(effects.KINDS) <= set(vocabulary())
     assert effects.KINDS == {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_publish", "write": "effect_write",
-                             "send": "effect_send", "calendar": "effect_calendar"}
+                             "send": "effect_send", "calendar": "effect_calendar", "files": "effect_files"}
 
 
 def test_every_kind_exposes_describe_and_the_policy_names_when_it_may_run_under_a_policy():
@@ -357,7 +357,7 @@ def test_every_kind_exposes_describe_and_the_policy_names_when_it_may_run_under_
 def test_a_word_with_no_kind_is_a_usage_error_naming_the_kinds(word):
     with pytest.raises(effects.EffectError) as unknown:
         effects.module_for(word)
-    assert unknown.value.kind == "usage" and "create, publish, push" in unknown.value.reason
+    assert unknown.value.kind == "usage" and "create, files, publish, push" in unknown.value.reason
 
 
 def test_the_shape_of_a_handed_over_document_and_the_operations_own_flags_live_in_the_registry_module():

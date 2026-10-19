@@ -338,6 +338,9 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `remind` | `--when` `--text \| --text-file` `[--to]` | `remind` |
 | `reminders` | - | `reminders_read` |
 | `reminder-forget` | `--id` | `reminder_forget` |
+| `file-create` | `--account` `--name` `[--content]` `[--content-file]` `[--from]` `[--folder]` | `file_create` |
+| `file-replace` | `--account` `--file` `[--content]` `[--content-file]` `[--from]` | `file_replace` |
+| `file-save` | `--account` `--attachment` `[--name]` `[--folder]` | `file_save` |
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
 | `instructions-add` | `--line` `--base-sha256` | `instructions_add` |
@@ -473,6 +476,9 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/events` | `event-create` | - | every other argument | - | - |
 | POST | `/projects/{p}/events/change` | `event-change` | - | every other argument | - | - |
 | POST | `/projects/{p}/events/cancel` | `event-cancel` | - | every other argument | - | - |
+| POST | `/projects/{p}/files` | `file-create` | - | `account`, `file_name`, `content`, `from_path`, `folder` | - | - |
+| POST | `/projects/{p}/files/replace` | `file-replace` | - | `account`, `file`, `content`, `from_path` | - | - |
+| POST | `/projects/{p}/files/save` | `file-save` | - | `account`, `attachment`, `file_name`, `folder` | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->
@@ -512,3 +518,4 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 - 2026-10-15: five rows and seven routes for the sources (P4): `source-add`, `source-import`, `source-refresh`, `source-describe` (the terminal and the page; the upload follows the existing file route) and `sources` (also the MCP mode and messaging, in the group `sources`).
 - 2026-10-16: the language of a deliverable (LANGUAGE, runtime part): `request` takes `--language <tag>` (the terminal) and `language` (`POST /projects/{p}/requests`, the MCP mode); the request form has a language select beside the model select (the project's language first, then `en`, `pt-BR`, `es`, `fr`, `de`, and a field for another tag); the `skills` read carries the project's `language`; the plan card and the plan's text show one language line before approval (`interface/js/language.js`, `interface/js/cards/plan-rows.js`).
 - 2026-10-18: reminders (RM-1): the terminal verbs `remind`, `reminders` and `reminder-forget` and the page's routes `GET` and `POST /projects/{p}/reminders` and `POST /projects/{p}/reminders/{id}/forget`; no tool of the MCP mode and no conversation command.
+- 2026-10-18: files in the person's own accounts (W4a): the terminal verbs `file-create`, `file-replace` and `file-save` and the page's routes `POST /projects/{p}/files`, `/files/replace` and `/files/save`; each only prepares a card, and the MCP mode has none of them.

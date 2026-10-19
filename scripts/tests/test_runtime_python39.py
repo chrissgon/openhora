@@ -65,6 +65,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/account_start.py",
     # A change to the person's own calendar (W1): the document, the effect, the step kind and the operations.
     "runtime/calendar_document.py", "runtime/effect_calendar.py", "runtime/step_calendar_event.py", "runtime/ops_calendar.py",
+    # Files in the person's own Drive and OneDrive (W4a): the document, the step kind, the effect kind, the operations.
+    "runtime/files_document.py", "runtime/step_files.py", "runtime/effect_files.py", "runtime/ops_files.py",
     # Reminders (RM-1): the pure part, the operations and the bridge's part.
     "runtime/reminders.py", "runtime/ops_reminders.py", "runtime/messaging_remind.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state

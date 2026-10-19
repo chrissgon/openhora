@@ -31,6 +31,13 @@ module builds those services, once, for the process that runs the task (runtime/
                    (`event_ref`: `created:<decision>` or `<source>#<n>`, through runtime/item_refs.py with the caller's channel and sender), `event_get` (the calendar writer's one
                    read, with the account's token, no other secret) and `dry_run` (the writer's dry run of a document: no credential, no connection). It has no
                    way to write: the only verbs it starts are `event-get` and a write verb with `--dry-run`
+  files_read       FilesReader (package W4a): `meta(account, args)`, the ONE verb of the writers of files a step kind reaches, `file-meta`, a read of one
+                   file or of a name in a folder of the person's own Drive or OneDrive (limit L58: the seam exposes only this; the write verbs are
+                   runtime/effect_files.py's alone)
+  held_files       HeldFiles (package W4a): `meta(attachment id)`, what a file a sender sent waits as (name, size, sha256, kind), read from the hold and
+                   checked against its bytes; it moves nothing out of the hold
+  file_source      FileSources (package W4a): `lookup(source id)`, a registered source's type, origin and the version of its newest copy
+  accounts         AccountTargets (package W4a): `address(account)` and `target(account, section, name)` of the project's accepted `accounts` (limit L55)
 
 So the write to a platform has no function in a step kind's reach: the only code that makes it is runtime/effect_write.py `execute`,
 called from runtime/ops_step_effects.py `approve`. What Python cannot do is stop a module from importing another: that a step kind does
@@ -53,6 +60,7 @@ import documents  # noqa: E402
 import effect_calendar  # noqa: E402
 import effects  # noqa: E402
 import item_refs  # noqa: E402
+import files_document  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
 import phrases  # noqa: E402
@@ -428,11 +436,103 @@ def renderer(root: str):
     return render
 
 
+# --- package W4a: the files of the person's own accounts ------------------------------------------------------------------------------------------
+
+WRITER_FILES_CLASS = "writer:files"
+FILES_READ_VERB = "file-meta"        # the one verb of a writer of files this module starts: a read
+FILES_SECRETS = {"google": "GOOGLE_ACCOUNT_TOKEN", "microsoft": "MICROSOFT_ACCOUNT_TOKEN"}
+FILES_TIMEOUT = 120
+
+
+class FilesReader:
+    """The writers of files, for one read: `file-meta`. The writer starts with the minimum environment and the one account secret of the account, reads one
+    file (or looks for a name in a folder) and prints what it saw. It sends GET only, and nothing here can start another verb of it."""
+
+    def __init__(self, cfg: dict, root: str):
+        self._cfg, self._root = cfg, root
+
+    def meta(self, account: str, args: list) -> dict:
+        implementation = files_document.IMPLEMENTATION.get(account)
+        if implementation is None:
+            raise StepServiceError("refused", "the account is google or microsoft")
+        resolve = project_config.resolver(self._root)
+        entry = project_config.account_entry(self._cfg, account)
+        if entry is None:
+            raise StepServiceError("not_configured", project_config.clean_name(account, 20))
+        args = list(args) + ["--account", entry["address"]]      # the writer reads only with the token of this account
+        try:
+            return resolve.call(WRITER_FILES_CLASS, FILES_READ_VERB, args, root=self._root, implementation=implementation, timeout=FILES_TIMEOUT,
+                                env=resolve.provider_environment(WRITER_FILES_CLASS, None, (FILES_SECRETS[account],)))
+        except resolve.ProviderCallError as e:
+            if e.kind == "not-configured":
+                raise StepServiceError("not_configured", e.reason) from None
+            raise StepServiceError("refused" if e.exit_code == 1 or e.kind == "usage" else "provider_failed", e.reason) from None
+
+
+class HeldFiles:
+    """The files a listed sender sent through a messaging app and that wait for an answer (ATT-1), as a step kind may ask about one: what it is, never the
+    sender. It reads the bytes of the held file to check them against the hash the hold recorded, and keeps nothing."""
+
+    def __init__(self, cfg: dict):
+        self._cfg = cfg
+
+    def meta(self, attachment_id: int) -> dict:
+        import attachments  # noqa: PLC0415  (the hold: loaded when a held file is asked about)
+        ctx = core.context(self._cfg["project"])
+        try:
+            row = ctx["store"].attachment_get(ctx["conn"], attachment_id)
+        except ctx["store"].StoreError:
+            raise StepServiceError("gone", "no such file") from None
+        if row["status"] != "held":
+            raise StepServiceError("gone", row["status"])
+        data = attachments.read_held(self._cfg["data_dir"], attachment_id)
+        if data is None or len(data) != row["bytes"] or row["sha256"] != files_document.sha(data):
+            raise StepServiceError("gone", "the held file is not there as it was kept")
+        return {"id": row["id"], "name": row["name"], "bytes": row["bytes"], "sha256": row["sha256"], "kind": row["kind"]}
+
+
+class FileSources:
+    """The registered sources, for a replace: the type, the origin and the version of the newest copy the person read."""
+
+    def __init__(self, cfg: dict):
+        self._cfg = cfg
+
+    def lookup(self, source_id: str):
+        ctx = core.context(self._cfg["project"])
+        try:
+            row = sources.public_row(ctx["store"].source_get(ctx["conn"], source_id))
+            latest = ctx["store"].source_latest(ctx["conn"], source_id)
+        except ctx["store"].StoreError:
+            return None
+        return {"type": row["type"], "origin": row["origin"], "origin_version": latest.get("origin_version") if latest else None}
+
+
+class AccountTargets:
+    """The project's accepted `accounts` (runtime/project_config.py): the address of an account and the id of a folder it lists. Whatever the account's token
+    could reach, only what the file lists is a target (limit L55)."""
+
+    def __init__(self, cfg: dict):
+        self._cfg = cfg
+
+    def address(self, account: str) -> str:
+        entry = project_config.account_entry(self._cfg, account)
+        if entry is None:
+            raise StepServiceError("not_configured", project_config.clean_name(account, 20))
+        return entry["address"]
+
+    def target(self, account: str, section: str, name=None) -> str:
+        ident, why = project_config.account_target(self._cfg, account, section, name)
+        if why:
+            raise StepServiceError("refused", why)
+        return ident
+
+
 def services(ctx: dict) -> dict:
     """The services of the Context for the task a process runs: `ctx` is the operations layer's context (ops_core.context)."""
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
-            "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx)}
+            "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx),
+            "files_read": FilesReader(cfg, root), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg)}
 
 
 if __name__ == "__main__":

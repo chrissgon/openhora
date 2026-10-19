@@ -159,7 +159,8 @@ def recover_payload(reply: str, tmp_dir, readable) -> dict:
 # kind. For the gate path the word is the one a skill's manifest names in its gate (gate.effect); a word not here
 # opens a review, never an effect. For the policy path it is the kind of the document a handler hands over.
 KINDS = {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_publish", "write": "effect_write", "send": "effect_send",
-         "calendar": "effect_calendar"}
+         "calendar": "effect_calendar",
+         "files": "effect_files"}
 
 # The keys of the effect document a handler hands to ops.execute_under_policy, and no others; and the flags only the
 # operation adds to the provider's verb, never a handler.

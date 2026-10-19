@@ -315,6 +315,7 @@ TABLE = {
         "CARD_CAL_DROP_WHERE": "Removing, where: {location}",
         "CARD_CAL_DROP_NOTES": "Removing, notes: {notes}",
         "CARD_HIDDEN_NOTE": "Some of the event's current text is not shown here: the page and the terminal show all of it.",
+        "CARD_HIDDEN_NOTE_FILE": "Some of the file's name is not shown here: the page and the terminal show all of it.",
         "CARD_CAL_CALENDAR": "Calendar: {calendar}",
         "CARD_CAL_TITLE": "Title: {title}",
         "CARD_CAL_WHEN": "When: {when}",
@@ -338,6 +339,46 @@ TABLE = {
         "CARD_CAL_KEPT_WHERE": "Unchanged: Where: {location}",
         "CARD_CAL_KEPT_REMIND": "Unchanged: Calendar reminder (min before): {minutes}",
         "CARD_CAL_KEPT_NOTES": "Unchanged: Notes: {notes}",
+        # --- files: create, replace, save (package W4a, runtime/files_document.py) ---
+        "TITLE_FILE_CREATE": "Files: new file",
+        "TITLE_FILE_REPLACE": "Files: new revision",
+        "TITLE_FILE_SAVE": "Files: save the file you sent",
+        "CARD_FILE_CODE_NEW": "Code creates this file after your approval, and nothing else.",
+        "CARD_FILE_CODE_REPLACE": "Code writes a new revision of this file after your approval, only if it is still the file as read at {read_at}.",
+        "CARD_FILE_CODE_SAVE": "Code saves the file you sent after your approval, and nothing else.",
+        "CARD_FILE_NAME": "File: {name} ({service})",
+        "CARD_FILE_NOW": "File as it is now: {name} ({service})",
+        "CARD_FILE_SENT": "File sent: {name} ({service})",
+        "CARD_FILE_FOLDER": "Folder: {folder}",
+        "CARD_FILE_SOURCE": "Source: @{source}",
+        "CARD_FILE_NEW": "A new file: nothing that exists is replaced.",
+        "CARD_FILE_GDOC": "It is made as a Google Doc from this text.",
+        "CARD_FILE_BASE": "Replaces revision {revision} (changed {modified}).",
+        "CARD_FILE_KEPT_DRIVE": "Drive keeps the replaced revision for ever (a file keeps at most 200 revisions for ever); if it cannot, nothing is written.",
+        "CARD_FILE_KEPT_DOC": "A Google Doc keeps its own revision history, which Google may thin out over time: the replaced version is not kept for ever.",
+        "CARD_FILE_KEPT_ONEDRIVE": "OneDrive keeps earlier versions by its own retention settings, not for ever.",
+        "CARD_FILE_OWNED": "The file belongs to this account: {address}.",
+        "ACCT_FILE_NOT_OWNED": "The file named on the request is not owned by your {service} account (it is shared with you, or it belongs to another drive): only a file the account owns is replaced.",
+        "ACCT_FILE_RETARGET": "The target is no longer the one the card you were asked about named (the source or the folder now points somewhere else): name it again and start over.",
+        "ACCT_FILE_TAKEN_ANSWER": "Nothing was written: a file with that name is in the folder now. The task starts over from the step that reads; start it again.",
+        "CARD_FILE_SAVE": "Saves the file you sent: {name}, {size}, sha256 {sha_short}.",
+        "CARD_FILE_PROJECT": "A file of the project: {path}, {size}, sha256 {sha_short}. Its content is not on this card.",
+        "CARD_FILE_TEXT": "----- the new text; the mark │ at the start of each line is not part of it -----\n{content}\n----- end of the new text -----",
+        "CARD_FILE_HASH": "Hash of this effect (it covers the account, the target, the name and every byte): {sha}",
+        "CARD_FILE_APPROVE": "Approve exactly this: {command}",
+        "ACCT_FILE_NAME_BAD": "A file name is 1 to 120 characters: letters, digits, spaces and . _ - ( ), not starting with a hyphen or ending in a dot.",
+        "ACCT_FILE_NAME_EXT": "The file name must end in one of: {extensions}.",
+        "ACCT_FILE_TEXT_EMPTY": "The text is empty.",
+        "ACCT_FILE_TEXT_BIG": "The text is over {max} bytes: write it to a file of the project and name that file.",
+        "ACCT_FILE_TEXT_HIDDEN": "The text holds a control or invisible character (a right-to-left override, a zero-width character, a stray control code): remove it.",
+        "ACCT_FILE_ONE_CONTENT": "Give the new text or a file of the project, one of the two.",
+        "ACCT_FILE_TEXT_FRAME": "The text holds a line that looks like a rule of the card (it starts with five dashes): change that line.",
+        "ACCT_FILE_NAME_TAKEN": "A file with the name on the request is already in that folder: a new file never replaces one. Choose another name, or replace the file from its source.",
+        "ACCT_FILE_BEHIND": "The source @{source} was read at version {read}, but the file is now at {now}: refresh the source first, then ask again.",
+        "ACCT_FILE_KIND": "A file of type {kind} cannot be written yet: .md, .txt, .csv, .docx, .pdf, .xlsx, .pptx and Google Docs can.",
+        "ACCT_FILE_TYPE": "A {given} cannot replace a {wanted}: give a file of the project of the same type.",
+        "ACCT_FILE_SOURCE": "The source @{source} is not a file of your {service} account: only a source added from that account is replaced.",
+        "ACCT_FILE_NOT_FILE": "The item is not a file that can be written ({reason}).",
     },
     "pt-BR": phrases_pt_br.TABLE,
 }
@@ -525,7 +566,10 @@ CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,40}")
 CARD_LINES_MAX = 300        # lines in one card
 # The lines that show the CURRENT text of something the person owns (an event's title, place and notes as the service holds them): a messaging app draws them only for a
 # sender who also holds the group CARD_PRIVATE_GROUP (the answer from mail and calendar), and a card with such a line left out is not whole, so it is not approved there.
-CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES")) + ("CARD_CAL_NOW_TITLE",)
+CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES")) + ("CARD_CAL_NOW_TITLE", "CARD_FILE_NOW")
+# W4a: the name of a file a sender sent (CARD_FILE_SAVE) is shown to that sender, who may approve the save, and to a reader of the person's own items, and to no one else: not to the MCP
+# mode, not to another messaging sender. (The name of a file the service holds now, CARD_FILE_NOW, is in CARD_PRIVATE above.)
+CARD_PRIVATE_OWNER = ("CARD_FILE_SENT", "CARD_FILE_SAVE")
 CARD_PRIVATE_GROUP = "ask-mail"
 CARD_MULTILINE = ("body", "text", "notes", "content", "change")      # the fields that may hold line ends and tabs (a message, a note, a file's text, a diff); every other field is one line
 CARD_REFUSED = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")      # control, format (a right-to-left override, a zero-width character), line and paragraph separator, surrogate, private use
@@ -562,9 +606,16 @@ def card_valid(card) -> bool:
     return True
 
 
-def card_without_private(card) -> list:
-    """The lines of a valid card that are not in CARD_PRIVATE."""
-    return [line for line in card if line[0] not in CARD_PRIVATE]
+def hidden_note_key(card, kept) -> str:
+    """The key of the note that says some lines were left out: the file's when every line left out is a file's line, else the event's."""
+    left_out = [line[0] for line in card if line not in kept]
+    return "CARD_HIDDEN_NOTE_FILE" if left_out and all(key.startswith("CARD_FILE") for key in left_out) else "CARD_HIDDEN_NOTE"
+
+
+def card_without_private(card, owner: bool = False) -> list:
+    """The lines of a valid card that are not in CARD_PRIVATE and, unless `owner` (the reader sent the held file the card saves), not in CARD_PRIVATE_OWNER."""
+    hidden = set(CARD_PRIVATE) | (set() if owner else set(CARD_PRIVATE_OWNER))
+    return [line for line in card if line[0] not in hidden]
 
 
 def card_text(card, cfg=None) -> str:

@@ -12,6 +12,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_channel_grants_calend
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import standin_tree as st
@@ -20,6 +22,7 @@ from test_channel_grants import accept
 
 cards = st.load("messaging_cards")
 account_start = st.load("account_start")
+steps = st.load("steps")
 SENDER = "telegram:4242"
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
 
@@ -189,3 +192,19 @@ def test_a_create_card_has_no_private_line_so_it_is_whole_for_every_sender(world
     started = create(world, **PIECES)
     card = card_for(world, started, ["read", "approve-effect-calendar"])
     assert card["approvable"] is True and "not shown here" not in card["message"]["text"] and f"Title: {TITLE}" in card["message"]["text"]
+
+
+def test_the_task_row_of_a_calendar_write_shows_the_mcp_mode_and_a_reader_without_ask_mail_only_closed_arguments_and_never_a_sender(world):
+    accept(world["path"], {"messaging": ["read", "calendar-write"]})
+    started = prepare(world, **PIECES)                                   # asked by a messaging sender: the row carries who asked
+    mine = create(world, **PIECES)                                       # asked at the terminal
+    whole = ops.task(world["path"], started["task"])["task"]
+    assert whole["step_args"]["title"] == TITLE and whole["step_args"]["notes"] == "Bring cash" and whole["step_args"]["sender"] == SENDER
+    for what in (started, mine):
+        for channel, sender in (("mcp", None), ("messaging", "telegram:777"), ("messaging", None), ("messaging", SENDER)):
+            shown = ops.task(world["path"], what["task"], channel=channel, sender=sender)["task"]
+            assert set(shown["step_args"]) <= set(steps.ACCOUNT_ARGS_SHOWN), (channel, sender)
+            seen = json.dumps(shown)
+            for word in (TITLE, "Bring cash", "Main Street", "4242"):
+                assert word not in seen, (channel, sender, word)
+            assert shown["step_args"]["operation"] == "create" and shown["step_kind"] == "calendar-event"

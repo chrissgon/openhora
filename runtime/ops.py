@@ -1086,7 +1086,7 @@ def _listed(item: dict, store=None, agents: dict | None = None) -> dict:
     return out
 
 
-def pending(project: str, pending_id: int | None = None, channel: str | None = None, sender: str | None = None) -> dict:
+def pending(project: str, pending_id: int | None = None, channel: str | None = None, sender: str | None = None, reader: str | None = None) -> dict:
     """What waits for the person. Without an id: {"pending": [{"id", "kind", "title", "task_id", "agent",
     "created_at"}]}, oldest first, a plan with its tasks and its hash ("plan"). With one: that pending decision whole,
     with its body (the reply, or the plan's table) and its payload. Either way each carries "actions", the resolution
@@ -1100,6 +1100,7 @@ def pending(project: str, pending_id: int | None = None, channel: str | None = N
         known = ops_grants.effect_facts(ctx, item) if item["kind"] == "effect" else None   # POL-1: the word the policy is asked about, and whether a card can hold all of it
         return {**ops_grants.private_view(ctx, ops_actor.shown(item), channel, sender), "agent": agents.get(item["task_id"]), "actions": _actions(ctx["store"], item),
                 **({"effect_word": known["word"], "effect_on_cards": known["on_cards"]} if known else {}),
+                **(ops_grants.save_facts(ctx, item, reader) if known else {}),      # W4a: booleans for the card of a save of a held file; never the sender's id
                 **({"plan_networked": bool(ops_waits.networked_steps(item))} if item["kind"] == "plan" else {})}   # a plan with a networked step needs a whole card to be approved off the terminal and the page
     return {"pending": [_listed(item, ctx["store"], agents) for item in core._stored(ctx, ctx["store"].pending_list)]}
 
@@ -1634,7 +1635,7 @@ def task(project: str, task_id: int, channel: str | None = None, sender: str | N
     ctx = core.context(project)
     store = ctx["store"]
     found = core._stored(ctx, store.task_get, task_id)
-    return {"task": ops_waits.task_row(ctx, found), "drop": ops_reads.drop_note(found), "runs": ops_ask.with_asker(ctx, core._stored(ctx, store.task_runs_list, task_id)),
+    return {"task": ops_grants.task_view(ctx, ops_waits.task_row(ctx, found), channel, sender), "drop": ops_reads.drop_note(found), "runs": ops_ask.with_asker(ctx, core._stored(ctx, store.task_runs_list, task_id)),
             "pending": [{**ops_grants.private_view(ctx, ops_actor.shown(item), channel, sender), "agent": found["agent"] if found["parent_id"] is not None else None,
                          "actions": _actions(store, item)}
                         for item in core._stored(ctx, store.pending_list, "all", task_id)]}
@@ -2691,6 +2692,8 @@ from ops_attachments import attachment_add, attachment_discard, attachment_hold,
 from ops_reminders import remind, reminder_forget, reminders_due, reminders_read, reminders_retry, reminders_sent  # noqa: E402,F401
 # The person's own calendar (runtime/ops_calendar.py, package W1): create, change and remove an event; each one prepares a card and writes nothing.
 from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,F401
+# Files in the person's own Drive and OneDrive (runtime/ops_files.py, package W4a): prepare a new file, a new revision or the saving of a file a sender sent.
+from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)
