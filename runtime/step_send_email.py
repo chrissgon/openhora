@@ -248,15 +248,19 @@ def _same(doc: dict, shown: dict) -> bool:
 def _asked_own(call, *args, words: bool = False):
     """A call of the account service whose failure is a closed code of the step. `words`: the call is the reading of the message a reply answers, whose refusal carries
     a sentence written by code from the phrase table (it names the reference, never a text). Any other refusal (the mailer's dry run, the write of the document)
-    has the step's fixed sentence: a mailer's own sentence can quote an address or a subject, and the task's note and failure are read by every channel."""
+    has the step's fixed sentence: a mailer's own sentence can quote an address, a subject or a file name, and the task's note and failure are read by every channel.
+    The mailer's exact sentence is not lost: it is the failure's `detail`, returned to the one who started the step and stored nowhere."""
     try:
         return call(*args)
     except steps.StepFailure:
         raise
     except Exception as e:
         code = SERVICE_CODES.get(getattr(e, "code", ""), "provider_failed")
-        reason = " ".join(str(getattr(e, "reason", "") or "").split())[:200] if code == "refused" and words else ""
-        raise steps.StepFailure(code, "account", "mailer", reason or (REFUSED_NEXT_OWN if code == "refused" else "")) from None
+        reason = " ".join(str(getattr(e, "reason", "") or "").split())[:200] if code == "refused" else ""
+        reason = reason[len("error: "):] if reason.startswith("error: ") else reason      # the mailer's own sentence, without its prefix
+        if words:
+            raise steps.StepFailure(code, "account", "mailer", reason or (REFUSED_NEXT_OWN if code == "refused" else "")) from None
+        raise steps.StepFailure(code, "account", "mailer", REFUSED_NEXT_OWN if code == "refused" else "", detail=reason) from None
 
 
 def _prepare_own(ctx: steps.Context, state: dict) -> dict:
