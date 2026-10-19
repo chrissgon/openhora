@@ -338,6 +338,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `remind` | `--when` `--text \| --text-file` `[--to]` | `remind` |
 | `reminders` | - | `reminders_read` |
 | `reminder-forget` | `--id` | `reminder_forget` |
+| `reminder-restore` | `[--id]` | `reminder_restore` |
 | `file-create` | `--account` `--name` `[--content]` `[--content-file]` `[--from]` `[--folder]` | `file_create` |
 | `file-replace` | `--account` `--file` `[--content]` `[--content-file]` `[--from]` | `file_replace` |
 | `file-save` | `--account` `--attachment` `[--name]` `[--folder]` | `file_save` |
@@ -480,6 +481,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/reminders` | `reminders` | - | none | - | - |
 | POST | `/projects/{p}/reminders` | `remind` | - | every other argument | - | - |
 | POST | `/projects/{p}/reminders/{id}/forget` | `reminder-forget` | `reminder_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/reminders/{id}/restore` | `reminder-restore` | `reminder_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/events` | `event-create` | - | every other argument | - | - |
 | POST | `/projects/{p}/events/change` | `event-change` | - | every other argument | - | - |
 | POST | `/projects/{p}/events/cancel` | `event-cancel` | - | every other argument | - | - |

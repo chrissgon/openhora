@@ -2689,7 +2689,7 @@ from ops_sources import (source_add, source_calendar, source_describe, source_dr
 # The files sent through a messaging app (runtime/ops_attachments.py): the held list, the hold, the add and the discard.
 from ops_attachments import attachment_add, attachment_discard, attachment_hold, attachments  # noqa: E402,F401
 # Reminders (runtime/ops_reminders.py): the three operations, and what the messaging bridge asks of the store to send them.
-from ops_reminders import remind, reminder_forget, reminders_due, reminders_read, reminders_retry, reminders_sent  # noqa: E402,F401
+from ops_reminders import remind, reminder_forget, reminder_restore, reminders_due, reminders_read, reminders_retry, reminders_sent  # noqa: E402,F401
 # The person's own calendar (runtime/ops_calendar.py, package W1): create, change and remove an event; each one prepares a card and writes nothing.
 from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,F401
 # Files in the person's own Drive and OneDrive (runtime/ops_files.py, package W4a): prepare a new file, a new revision or the saving of a file a sender sent.

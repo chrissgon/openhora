@@ -39,12 +39,14 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
+import natural  # noqa: E402  (the same folder: a request in the person's own words, package NR-1)
 import ops_core as core  # noqa: E402
 import reminders as rm  # noqa: E402
 import workcopy  # noqa: E402
@@ -121,10 +123,19 @@ def _own(row: dict, channel, sender) -> None:
         raise _fail(rm.NO_SUCH.format(n=row["id"]))
 
 
-def remind(project: str, when: str, text: str, to: str | None = None, channel: str | None = None, sender: str | None = None) -> dict:
+def remind(project: str, when: str | None = None, text: str | None = None, to: str | None = None, channel: str | None = None, sender: str | None = None,
+           said: str | None = None, how: str = "trigger", draft: dict | None = None) -> dict:
     """Make a reminder. `when` is HH:MM, YYYY-MM-DD HH:MM or in <n>m|h|d (runtime/reminders.py resolve), `text` the words to send. Returns {"reminder":
-    the reminder as a shell reads it (with its text), "reply": the sentence a messaging app answers with}. A refusal is an OpsError whose message is
-    the sentence the person reads (code 2 for a usage error)."""
+    the reminder as a shell reads it (with its text), "reply": the sentence a terminal or a page shows, "human": the facts a chat shows (the day, the time, the
+    zone, the days from today, and whether a time with no day rolled over to tomorrow)}. A refusal is an OpsError whose message is the sentence the person
+    reads (code 2 for a usage error).
+
+    `said` is the person's own line instead of `when` and `text` (the messaging bridge passes it, package NR-1; no shell of the table does): it is read with the
+    clock by runtime/natural.py, `how` says as what ("trigger": it starts with a remind word, "bare": it may be a note or an event, "command": the words after
+    `/remind`), and `draft` is the question the previous line was asked, which `said` answers. The policy is asked before the line is read. What comes back
+    is the reminder made (only for a draft the person confirmed: free text is never made at once, so a first line comes back as {"ask": ...} with the reading to show, after the checks of the grammar and the credential scan), or {"ask": the draft to keep}, or {"event": True} (the person chose the calendar), {"cancel": True} (the person gave it up),
+    {"forget": [ids]} (the person said yes to cancelling those reminders: the bridge cancels them one by one, each under its own policy), or {"declined": True}
+    (a line that does not answer the draft); a question stores nothing."""
     ctx = core.context(project)
     cfg = ctx["cfg"]
     ops_actor.guard(ctx, "remind", channel, sender)
@@ -145,21 +156,53 @@ def remind(project: str, when: str, text: str, to: str | None = None, channel: s
         if not operations.permitted("remind", MESSAGING, cfg["channels"], None, recipient):
             raise _fail(f"{to} does not hold the group reminders: add it to the sender's profile in runtime.json and accept the file with "
                         "--widen (the group is in no default policy)", 1)
-    try:
-        words = rm.clean_text(text)
-        clock = now()
-        found = rm.resolve(when, clock, local_at, local_of)
-    except ValueError as e:
-        raise _fail(str(e), 2) from None
-    labels = workcopy.credential_findings(words)
-    if labels:
-        raise _fail(rm.CREDENTIAL.format(labels=", ".join(sorted(set(labels)))), 2)
+    clock = now()
+
+    def check(when, text):
+        """The words and the moment, under every check of the grammar and the credential scan: a moment that has passed, a day the calendar lacks, one more than 366 days ahead
+        and a text that looks like a credential are refused with the sentence the person reads."""
+        try:
+            words = rm.clean_text(text)
+            found = rm.resolve(when, clock, local_at, local_of)
+        except ValueError as e:
+            message = str(e)
+            if said is not None and message == rm.PAST.format(now=clock.strftime("%Y-%m-%d %H:%M")):          # a person reads a day and a month, not an ISO date
+                message = rm.PAST.format(now=clock.strftime("%d/%m/%Y %H:%M"))
+            raise _fail(message, 2) from None
+        labels = workcopy.credential_findings(words)
+        if labels:
+            raise _fail(rm.CREDENTIAL.format(labels=", ".join(sorted(set(labels)))), 2)
+        return words, found
+    if said is not None:
+        understood = natural.complete(draft, said, clock) if draft else natural.understand(said, clock, how)
+        if understood is None:
+            return {"declined": True}
+        if understood.get("cancel"):
+            return {"cancel": True, "kept": bool(understood.get("kept"))}
+        if understood.get("event"):
+            return {"event": True}
+        if understood.get("forget"):
+            return {"forget": understood["forget"]}
+        if "ask" in understood:
+            shown = understood["ask"]
+            if shown["need"] in ("confirm", "kind") and shown["readings"] and shown["text"]:
+                check(shown["readings"][0]["when"], shown["text"])          # refused now, before the reading is shown: never offered to be confirmed
+            return {"ask": shown}
+        when, text = understood["when"], understood["text"]
+    words, found = check(when, text)
+    row = _add_row(ctx, cfg, clock, words, found["wall"], _iso(found["due"]), found["zone"], platform, ident, ops_actor.label(cfg, channel, sender) or "terminal")
+    due_day = found["due"].date()
+    human = {"date": due_day.isoformat(), "time": found["wall"][11:16], "zone": found["zone"], "rel": (due_day - clock.date()).days,
+             "far": due_day.year != clock.date().year, "rolled": bool(rm.is_time_only(when)) and due_day > clock.date()}
+    return {"reminder": _shown(row, cfg, True), "reply": rm.SET.format(id=row["id"], wall=found["wall"].replace("T", " "), zone=found["zone"]), "human": human}
+
+
+def _add_row(ctx: dict, cfg: dict, clock: datetime.datetime, words: str, wall: str, due_utc: str, zone: str, platform: str, ident: str, label: str) -> dict:
+    """Write one reminder under the caps (the project's, the chat's, the day's); the caps' refusals are the sentences the person reads."""
     store = ctx["store"]
-    start = _iso(day_start(clock))
     try:
-        row = store.reminder_add(ctx["conn"], text=words, due_local=found["wall"], due_utc=_iso(found["due"]), zone=found["zone"], platform=platform,
-                                 chat=ident, created_by=ops_actor.label(cfg, channel, sender) or "terminal", max_open=rm.OPEN_MAX, max_day=rm.DAY_MAX, max_open_chat=rm.OPEN_CHAT_MAX,
-                                 day_since=start, created_at=_iso(clock))
+        return store.reminder_add(ctx["conn"], text=words, due_local=wall, due_utc=due_utc, zone=zone, platform=platform, chat=ident, created_by=label,
+                                  max_open=rm.OPEN_MAX, max_day=rm.DAY_MAX, max_open_chat=rm.OPEN_CHAT_MAX, day_since=_iso(day_start(clock)), created_at=_iso(clock))
     except store.StoreError as e:
         if str(e) == store.REMINDER_OPEN_FULL:
             raise _fail(rm.OPEN_FULL.format(n=rm.OPEN_MAX)) from None
@@ -168,7 +211,6 @@ def remind(project: str, when: str, text: str, to: str | None = None, channel: s
         if str(e) == store.REMINDER_DAY_FULL:
             raise _fail(rm.DAY_FULL.format(n=rm.DAY_MAX)) from None
         raise _fail(str(e), e.code) from None
-    return {"reminder": _shown(row, cfg, True), "reply": rm.SET.format(id=row["id"], wall=found["wall"].replace("T", " "), zone=found["zone"])}
 
 
 def reminders_read(project: str, channel: str | None = None, sender: str | None = None) -> dict:
@@ -191,8 +233,48 @@ def reminders_read(project: str, channel: str | None = None, sender: str | None 
             "limits": {"open": rm.OPEN_MAX, "per_chat_per_day": rm.DAY_MAX, "text_characters": rm.TEXT_MAX, "late_window_hours": rm.LATE_WINDOW // 3600}}
 
 
-def reminder_forget(project: str, reminder_id: int, channel: str | None = None, sender: str | None = None) -> dict:
-    """Cancel a waiting reminder. From a messaging app only one made for the sender who asks (any other is answered as one that does not exist)."""
+def _forget_matching(project: str, words: list, channel, sender, at: str | None = None) -> dict:
+    """Find, among the sender's waiting reminders, the one whose words hold every word of `words` (what the person said of it, folded) and, with `at` (the hour the
+    person said: "the 9 o'clock one"), whose moment is that hour. Without `at` and exactly one match it is cancelled as `reminder-forget` by number does; with `at`
+    it is only shown ({"preview": ...}: an hour is not a name, so the bridge confirms). {"choose": [the reminders that match]} when several do, {"none": True}
+    when none does."""
+    ctx = core.context(project)
+    cfg = ctx["cfg"]
+    ops_actor.guard(ctx, "reminder-forget", channel, sender)
+    platform = chat = None
+    if channel == MESSAGING:
+        platform, chat = ops_actor.split(sender)
+    keys = [w for w in words if isinstance(w, str) and w]
+    times = set()
+    if at is not None:
+        parsed = natural.nt.parse(at, now())
+        if parsed is not None and "when" in parsed:
+            times = {parsed["reading"]["time"]}
+        elif parsed is not None and "ask" in parsed:
+            times = {r["time"] for r in parsed["ask"]}
+    waiting = core._stored(ctx, ctx["store"].reminders_list, ("open",), platform, chat)
+
+    def holds(row):
+        tokens = set(re.findall(r"[a-z0-9]+", natural.nt.normalise(row["text"])[0]))
+        return all(k in tokens for k in keys)          # whole words: "9" is not "9h", "dent" is not "dentist"
+    found = [r for r in waiting if (keys or times) and holds(r) and (not times or r["due_local"][11:16] in times)]
+    if not found or (at is not None and not times):
+        return {"none": True}
+    with_text = channel != MESSAGING or _notices_text(cfg)
+    if len(found) > 1:
+        return {"choose": [_shown(r, cfg, with_text) for r in found]}
+    if at is not None or (keys and all(k.isdigit() for k in keys)):          # an hour, or nothing but numbers, is no name: shown and confirmed, never acted on
+        return reminder_forget(project, found[0]["id"], channel, sender, preview=True)
+    return reminder_forget(project, found[0]["id"], channel, sender)
+
+
+def reminder_forget(project: str, reminder_id: int | None = None, channel: str | None = None, sender: str | None = None, matching: list | None = None,
+                    at: str | None = None, preview: bool = False) -> dict:
+    """Cancel a waiting reminder. From a messaging app only one made for the sender who asks (any other is answered as one that does not exist). `matching` is
+    what the person said of it instead of its number, and `at` the hour they said (the messaging bridge passes them, package NR-1; no shell of the table does): see
+    `_forget_matching`. With `preview` the reminder is checked and shown, not cancelled ({"preview": the reminder, "human": ...}): the bridge asks "cancel it?"."""
+    if matching is not None or at is not None:
+        return _forget_matching(project, matching or [], channel, sender, at)
     if type(reminder_id) is not int or reminder_id < 1:
         raise _fail("a reminder is a whole number", 2)
     ctx = core.context(project)
@@ -208,11 +290,49 @@ def reminder_forget(project: str, reminder_id: int, channel: str | None = None, 
         raise _fail(rm.BEING_SENT.format(n=reminder_id))
     if row["status"] != "open":
         raise _fail(rm.NOT_WAITING.format(n=reminder_id, status=row["status"]))
+    with_text = channel != MESSAGING or _notices_text(cfg)
+    if preview:
+        human = {**natural.info_of(row["due_local"][:10], row["due_local"][11:16], now().date()), "zone": row["zone"]}
+        return {"preview": _shown(row, cfg, with_text), "human": human}
     try:
         done = store.reminder_end(ctx["conn"], reminder_id, "cancelled", at=_iso(now()))
     except store.StoreError:      # it was claimed between the read and the end: the bridge is sending it
         raise _fail(rm.BEING_SENT.format(n=reminder_id)) from None
-    return {"reminder": _shown(done, cfg, False), "reply": rm.FORGOT.format(id=reminder_id)}
+    human = {**natural.info_of(done["due_local"][:10], done["due_local"][11:16], now().date()), "zone": done["zone"]}
+    return {"reminder": _shown(done, cfg, with_text), "reply": rm.FORGOT.format(id=reminder_id), "human": human}
+
+
+def reminder_restore(project: str, reminder_id: int | None = None, channel: str | None = None, sender: str | None = None) -> dict:
+    """Bring back a reminder that was cancelled in the last RESTORE_SECONDS: a NEW reminder with the same words, moment, zone and chat (the record of the cancelled
+    one is never changed). From a messaging app: the last one the sender cancelled. From the terminal or the page: the one `reminder_id` names. {"none": True}
+    when there is nothing to bring back; refused when its time is less than a minute away or it is already back."""
+    ctx = core.context(project)
+    cfg = ctx["cfg"]
+    ops_actor.guard(ctx, "reminder-restore", channel, sender)
+    store, clock = ctx["store"], now()
+    platform = chat = None
+    if channel == MESSAGING:
+        platform, chat = ops_actor.split(sender)
+    since = _iso(clock.astimezone(UTC) - datetime.timedelta(seconds=rm.RESTORE_SECONDS))
+    rows = core._stored(ctx, store.reminders_list, ("cancelled",), platform, chat, since, rm.RECENT_MAX)
+    if reminder_id is not None:
+        rows = [r for r in rows if r["id"] == reminder_id]
+    if not rows:
+        return {"none": True}
+    rows.sort(key=lambda r: (r["ended_at"] or "", r["id"]), reverse=True)          # the most recent first
+    waiting = core._stored(ctx, store.reminders_list, ("open", "sending"), platform, chat)
+    back = lambda r: any(w["text"] == r["text"] and w["due_utc"] == r["due_utc"] and (w["platform"], w["chat"]) == (r["platform"], r["chat"]) for w in waiting)      # noqa: E731
+    fresh = [r for r in rows if not back(r)]          # the most recent one that is not already back: each has its own ten minutes
+    if not fresh:
+        raise _fail(rm.ALREADY_BACK.format(n=rows[0]["id"]))
+    row = fresh[0]
+    if (_moment(row["due_utc"]) - clock.astimezone(UTC)).total_seconds() < rm.MIN_AHEAD:
+        raise _fail(rm.RESTORE_TOO_LATE.format(n=row["id"]))
+    new = _add_row(ctx, cfg, clock, row["text"], row["due_local"], row["due_utc"], row["zone"], row["platform"], row["chat"],
+                   ops_actor.label(cfg, channel, sender) or "terminal")
+    with_text = channel != MESSAGING or _notices_text(cfg)
+    human = {**natural.info_of(row["due_local"][:10], row["due_local"][11:16], clock.date()), "zone": row["zone"], "rolled": False}
+    return {"reminder": _shown(new, cfg, with_text), "reply": rm.BACK.format(old=row["id"], new=new["id"]), "restored": row["id"], "human": human}
 
 
 # --- what the bridge asks of the store ----------------------------------------------------------------------------------------------

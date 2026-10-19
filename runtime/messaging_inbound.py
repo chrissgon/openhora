@@ -14,6 +14,10 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
   {"kind": "attachment", "attachments": [...], "text": "..."|None}   files sent (ATT-1), the caption in "text"; checked by messaging_provider.valid_attachments
   {"kind": "remind", "when": "15:00", "text": "..."}  /remind <time> <text> (RM-1): the time as typed (HH:MM, YYYY-MM-DD HH:MM or in <n>m|h|d) and the words;
                                                       the moment is worked out by the operation, with the clock
+  {"kind": "natural", "op": ..., "how": ..., "text": "..."}   a line in the person's own words that code matched to an operation, with no model (NR-1,
+                                                      runtime/natural.py): op "remind" (how "trigger" | "bare" | "note" | "command"), "reminders", "reminder-forget"
+                                                      (with "id": n, or "words": what was said of it, or "many") or "calendar-event-create" (planned; how "trigger" or "ask"); `/remind <rest>` that the strict grammar above
+                                                      does not claim is one too (how "command"). The time is worked out by the operation, with the clock
   {"kind": "reminders"} {"kind": "forget", "id": 3}   /reminders, /forget <n>
   {"kind": "pending"} {"kind": "project", "name": ""} {"kind": "help"}
   {"kind": "reply", "reply_to": "<message id>", "text": "..."}   a reply to a message, not a command
@@ -30,9 +34,11 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import natural  # noqa: E402  (the same folder: a line in the person's own words, matched by code to an operation; package NR-1)
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language; the bridge says them, this module only names them)
 import reminders  # noqa: E402  (the same folder: the pure part of a reminder, which reads the words after /remind)
 
@@ -51,6 +57,24 @@ def usage_key(text: str):
 def _id(text: str):
     word = text.split(None, 1)[0] if text.split() else ""
     return int(word) if word.isascii() and word.isdigit() else None
+
+
+def _starts_with_a_day(text: str) -> bool:
+    """Whether the first words of a strict reminder's text are a day, a date or a week of some language's table ("tomorrow call", "de amanha ligar", "sexta pagar", "dia 25
+    pagar", "next week call", "18/11 ligar"; one or two connectors may come first): the line is then read in the person's own words, shown and confirmed, instead of
+    making a reminder for the hour with that word in its text."""
+    found = natural.nt.find(text or "")
+    norm, tables = found["norm"], found["tables"]
+    stop = natural._stop(tables) | {w for t in tables for p in t["prefixes"] for w in p.split()}
+
+    def lead(before: str) -> bool:
+        words = re.findall(r"[a-z0-9]+", before)
+        return len(words) <= 2 and all(w in stop for w in words)
+    first = next(iter(found["hits"]), None)
+    if first and first["kind"] in ("date", "slash", "relative") and lead(norm[:first["s"]]):
+        return True
+    week = natural._week(norm, tables)
+    return bool(week and lead(norm[:week[0]])) or bool(re.match(r"\s*[0-9]{1,2}/[0-9]{1,2}(?:/[0-9]{2,4})?(?![0-9])", text or ""))
 
 
 def parse(update: dict) -> dict:
@@ -79,11 +103,11 @@ def parse(update: dict) -> dict:
                 return {"kind": name, "id": number, "sha256": tail.split()[0].lower()}
             return {"kind": name, "id": number}
         if name == "remind":
-            try:
-                when, body = reminders.split_line(rest)
-            except ValueError as e:
-                return {"kind": "usage", "text": str(e)}
-            return {"kind": "remind", "when": when, "text": body}
+            strict = reminders.strict(rest)
+            if strict and not _starts_with_a_day(strict[1]):
+                return {"kind": "remind", "when": strict[0], "text": strict[1]}
+            # the strict grammar does not claim it, or its words begin with a day ("/remind 15:00 amanha ligar": the day is not part of the words): the person's own words (NR-1)
+            return {"kind": "natural", "op": "remind", "how": "command", "text": rest}      # the strict grammar does not claim it: the person's own words (NR-1)
         if name == "reminders":
             return {"kind": "reminders"}
         if name == "pending":
@@ -93,6 +117,9 @@ def parse(update: dict) -> dict:
         if name in ("help", "start"):
             return {"kind": "help"}
         return {"kind": "text", "text": text}
+    named = natural.candidate(text)          # before the reply gesture: a reminder asked as a reply to a message is still a reminder (NR-1)
+    if named:
+        return {"kind": "natural", "text": text, **named}
     if update.get("reply_to"):
         return {"kind": "reply", "reply_to": update["reply_to"], "text": text}
     return {"kind": "text", "text": text}

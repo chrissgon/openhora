@@ -65,6 +65,7 @@ Usage:
   python3 runtime/cli.py remind --project <dir> --when <HH:MM | YYYY-MM-DD HH:MM | in <n>m|h|d> (--text <words> | --text-file <path>) --to <platform>:<sender id>
   python3 runtime/cli.py reminders --project <dir>
   python3 runtime/cli.py reminder-forget --project <dir> --id <reminder id>
+  python3 runtime/cli.py reminder-restore --project <dir> --id <reminder id>
   python3 runtime/cli.py file-create --project <dir> --account google|microsoft --name <name>.md|.txt|.docx|.gdoc (--content <text> | --content-file <path> | --from docs/<path>) [--folder <name>]
   python3 runtime/cli.py file-replace --project <dir> --account google|microsoft --file <source id> (--content <text> | --content-file <path> | --from docs/<path>)
   python3 runtime/cli.py file-save --project <dir> --account google|microsoft --attachment <held file number> [--name <name>] [--folder <name>]
@@ -333,6 +334,7 @@ remind    makes a reminder: one line of your own words (--text or --text-file, u
 reminders the reminders that wait and the ones that did not go out in the last 7 days (missed: the bridge was down more than 6 hours past the time;
           dropped: the sender was removed or lost the group before it fired), with their text. It calls no model.
 reminder-forget  cancels a reminder that waits (--id); one that is being sent or has ended is not changed.
+reminder-restore  brings back a reminder cancelled in the last 10 minutes (--id), as a new one with the same words, time and chat.
 event-create  prepares a new event on a calendar of your own Google or Microsoft account (--account google|microsoft, --title, --start, and optionally
           --end, --calendar, --location, --reminder-minutes, --notes) and stops at a card that shows the whole event: nothing is written until you
           approve the card with its hash (approve --id <the card> --sha256 <its hash>). --start and --end are YYYY-MM-DDTHH:MM in this machine's zone,
