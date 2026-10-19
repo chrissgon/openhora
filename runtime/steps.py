@@ -337,11 +337,16 @@ def vet(project: str, kind_name: str, args, protected=lambda path: False) -> Non
         kind.vet(project, args if isinstance(args, dict) else {}, protected)
 
 
-def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_on=(), milestone: bool = False) -> dict:
+ACCOUNT_WORDS = ("calendar", "mailbox", "files")      # the effect words of a write to the person's own accounts (runtime/account_start.py WORDS)
+
+
+def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_on=(), milestone: bool = False, account_write: bool = False) -> dict:
     """A plan's task for a step: {"key", "step", "args", "footprint", "agent", "title", "text", "depends_on", "milestone",
     "web"}. The arguments are the kind's checked ones, so the plan hash (runtime/plan.py plan_hash) covers exactly what will run;
     the footprint is derived from the kind and the arguments. StepFailure when the kind is unknown or the arguments are refused."""
     kind = kind_of(kind_name)
+    if not account_write and any(gate.word in ACCOUNT_WORDS for gate in kind.gates.values()):
+        raise StepFailure("not_plannable", "step", "", "a change to the person's own account is started by its own operation, never by a plan or a flow")
     checked = kind.check(args if args is not None else {})
     if not isinstance(checked, dict):
         raise StepFailure("bad_args", "args")
@@ -350,10 +355,10 @@ def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_
 
 
 def add_task(store, conn, kind_name: str, args, *, key: str, title: str, text: str, request_id=None, depends_on=None,
-             milestone: bool = False) -> dict:
+             milestone: bool = False, account_write: bool = False) -> dict:
     """Add a step task through the store (store.step_task_add) with the arguments the kind checked and the footprint it derived.
     Returns the store's {"request", "task", "state"}."""
-    planned = plan_task(kind_name, args, key=key, title=title, text=text, depends_on=depends_on or (), milestone=milestone)
+    planned = plan_task(kind_name, args, key=key, title=title, text=text, depends_on=depends_on or (), milestone=milestone, account_write=account_write)
     return store.step_task_add(conn, key=key, title=title, text=text, step=planned["step"], args=planned["args"],
                                footprint=planned["footprint"], request_id=request_id, depends_on=depends_on, milestone=milestone)
 

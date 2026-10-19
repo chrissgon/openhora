@@ -348,6 +348,9 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `routine-pause` | `--id` | `routine_pause` |
 | `routine-resume` | `--id` | `routine_resume` |
 | `routine-cancel` | `--id` | `routine_cancel` |
+| `event-create` | `--account` `--title` `--start` `[--end]` `[--calendar]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_create` |
+| `event-change` | `--account` `--event` `[--calendar]` `[--title]` `[--start]` `[--end]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_change` |
+| `event-cancel` | `--account` `--event` `[--calendar]` | `event_cancel` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -360,7 +363,7 @@ Every verb also takes `--project <dir>`. The parser is built from `terminal_verb
 | `/help` | list the commands |
 | `/status` | requests, tasks and what waits for you |
 | `/progress [since]` | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
-| `/pending [id]` | what waits for you; with an id, that decision whole |
+| `/pending [id]` | what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows) |
 | `/answer <id> <text>` | answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page |
 | `/release <id>` | release a delivery (it stays a draft) |
 | `/approve <id> [sha256]` | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved with its hash, in the terminal, on the page, or on a messaging app the project grants that effect's word (from a card that carried the whole text) |
@@ -467,6 +470,9 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/reminders` | `reminders` | - | none | - | - |
 | POST | `/projects/{p}/reminders` | `remind` | - | every other argument | - | - |
 | POST | `/projects/{p}/reminders/{id}/forget` | `reminder-forget` | `reminder_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/events` | `event-create` | - | every other argument | - | - |
+| POST | `/projects/{p}/events/change` | `event-change` | - | every other argument | - | - |
+| POST | `/projects/{p}/events/cancel` | `event-cancel` | - | every other argument | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->

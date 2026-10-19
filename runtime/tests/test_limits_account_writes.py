@@ -29,8 +29,9 @@ REPO = st.REPO
 # L57 -- the files the scan reads (writers, the mailers of the person's own account, the shared helpers, the authorize scripts and the readers, which send GET only)
 SCANNED = ["providers/writer/**/*.py", "providers/mailer/gmail.py", "providers/mailer/outlook.py", "providers/_*.py", "providers/accounts/**/*.py",
            "providers/mailbox/*.py", "providers/calendar/*.py", "providers/documents/gdrive*.py", "providers/documents/onedrive*.py"]
-# (relative file, the approved path regex): W1 adds ("providers/writer/google-calendar.py", r"<the events/{id} regex>"), with the reason
-ALLOWED_DELETE = ()
+# (relative file, the approved path regex). W1: the Google calendar writer's one removal, an event of a calendar, which Google sends to the calendar's trash
+# for 30 days (the person restores it there); the pair is honoured only in that file's own constant ALLOWED.
+ALLOWED_DELETE = (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),)
 WORD = re.compile(r"(?<![A-Za-z])delete(?![A-Za-z])", re.I)               # the word `delete` alone (not `deleted`, `deleteditems`)
 METHODISH = re.compile(r"\s*delete(?![A-Za-z-])", re.I)                    # a string that starts with the method: "DELETE", "delete /x"
 DANGEROUS = re.compile(r"permanent_?delete|batch_?delete|empty_?trash", re.I)
@@ -169,7 +170,7 @@ def test_limit_57_measure_no_script_of_the_writers_helpers_or_readers_holds_a_pe
     assert scanned, "the scan reads no file"
     found = [f for path in scanned for f in delete_findings(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))]
     assert found == [], found
-    assert ALLOWED_DELETE == (), "no pair is allowed until the package that needs it adds it, with the reason"
+    assert ALLOWED_DELETE == (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),), "no other pair is allowed until the package that needs it adds it, with the reason"
 
 
 SAMPLES = {

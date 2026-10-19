@@ -27,6 +27,10 @@ module builds those services, once, for the process that runs the task (runtime/
                    own, publishes nothing and has no way to: the one flag it adds to the provider's `publish` is that dry run
   render           function(format, data) -> {"output", "tool_versions"}: the exporter (class exporter:document), called through the
                    resolver with the minimum environment; it makes a file from a text, on this machine, and changes nothing else
+  calendar_read    CalendarReader (package W1): the project's `accounts` (`enabled`, `address`, `target`, `calendar_name`, `calendar_label`), the reference of an event
+                   (`event_ref`: `created:<decision>` or `<source>#<n>`, through runtime/item_refs.py with the caller's channel and sender), `event_get` (the calendar writer's one
+                   read, with the account's token, no other secret) and `dry_run` (the writer's dry run of a document: no credential, no connection). It has no
+                   way to write: the only verbs it starts are `event-get` and a write verb with `--dry-run`
 
 So the write to a platform has no function in a step kind's reach: the only code that makes it is runtime/effect_write.py `execute`,
 called from runtime/ops_step_effects.py `approve`. What Python cannot do is stop a module from importing another: that a step kind does
@@ -37,16 +41,21 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import calendar_document  # noqa: E402
 import documents  # noqa: E402
+import effect_calendar  # noqa: E402
 import effects  # noqa: E402
+import item_refs  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
+import phrases  # noqa: E402
 import project_config  # noqa: E402
 import publish_document  # noqa: E402
 import publish_payload  # noqa: E402
@@ -59,6 +68,10 @@ OUTBOX_TIMEOUT = 120
 PUBLISHER_TIMEOUT = 120
 EXPORTER_CLASS = "exporter:document"
 EXPORTER_TIMEOUT = 300
+CALENDAR_TIMEOUT = 120
+CALENDAR_READ_VERBS = ("event-get",)      # the only verb of a calendar writer a step kind can reach with a credential (a write verb is reached with --dry-run and none)
+IMPLEMENTATION_ACCOUNT = {"google": "google", "outlook": "microsoft"}      # the implementation of a calendar source's origin (sources_mail.calendar_origin) -> the account
+SNAPSHOT_CLOCK = None      # the clock item_refs reads a snapshot's age against (None: the real one); a test replaces it
 OUTPUT_MAX = 8 * 1024 * 1024       # the exporter's own cap (providers/exporter/container.py OUTPUT_CAP)
 
 
@@ -230,6 +243,118 @@ class PublisherReader:
             built.cleanup()
 
 
+class CalendarReader:
+    """The project's calendar writers, for reading only (package W1): where the platform may write (the project's `accounts`), what an event reference names, the
+    one event a change or a removal is about, and the dry run of a request. It starts no verb that writes: `event_get` is the writer's read, and `dry_run` hands a
+    write verb `--dry-run` and no credential. A failure is a StepServiceError whose code is a closed word."""
+
+    def __init__(self, ctx: dict):
+        self._ctx, self._cfg, self._root = ctx, ctx["cfg"], os.path.dirname(HERE)
+
+    def enabled(self, account) -> bool:
+        return project_config.account_entry(self._cfg, account) is not None
+
+    def address(self, account) -> str:
+        return project_config.account_entry(self._cfg, account)["address"]
+
+    def target(self, account, name):
+        """(the id of the calendar, None) the project lists under `name` (the first one when None), or (None, the sentence that refuses it): limit L55."""
+        return project_config.account_target(self._cfg, account, "calendars", name)
+
+    def calendar_name(self, account, name):
+        """The name the calendar goes by: `name`, else the first one listed; None when the account lists none."""
+        listed = (project_config.account_entry(self._cfg, account) or {}).get("calendars") or {}
+        return name if name is not None else next(iter(listed), None)
+
+    def calendar_label(self, account, calendar_id):
+        """The name the project gives the calendar with this id, or None."""
+        listed = (project_config.account_entry(self._cfg, account) or {}).get("calendars") or {}
+        return next((n for n, i in listed.items() if i == calendar_id), None)
+
+    def _fail(self, e: "effects.EffectError"):
+        code = {"not-configured": "not_configured", "usage": "refused"}.get(e.kind, "provider_failed")
+        raise StepServiceError(code, e.reason) from None
+
+    def event_get(self, account: str, calendar_id: str, event_id: str) -> dict:
+        """The writer's `event-get` for one event of a calendar: {"found": bool, "event": {...}}. The one verb that carries the account's token."""
+        verb = "event-get"
+        assert verb in CALENDAR_READ_VERBS
+        implementation = calendar_document.IMPLEMENTATION[account]
+        try:
+            return effect_calendar.provider_call(self._root, implementation, verb, calendar_document.event_get_args({"calendar_id": calendar_id, "event_id": event_id}),
+                                                 (calendar_document.SECRET[account],), CALENDAR_TIMEOUT)
+        except effects.EffectError as e:
+            self._fail(e)
+
+    def dry_run(self, doc: dict) -> dict:
+        """The writer's dry run of `doc` (runtime/calendar_document.py): the request it would send and its hash. The words of the person are handed over as a
+        private file that is removed at once, and the writer starts with the minimum environment, with no secret in it and with no connection to open."""
+        folder = tempfile.mkdtemp(prefix="openhora-calendar-dry-run-")
+        try:
+            args = calendar_document.provider_args(doc, effect_calendar.spec_file(folder, doc)) + ["--dry-run"]
+            return effect_calendar.provider_call(self._root, doc["implementation"], calendar_document.verb_of(doc), args, (), CALENDAR_TIMEOUT)
+        except effects.EffectError as e:
+            self._fail(e)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def event_ref(self, reference, channel=None, sender=None) -> dict:
+        """What a reference to an event names: {"event_id", "account", "calendar" (the name the project gives the calendar, or None), "calendar_id" (the id the
+        reference puts the event on), "reference" (for `<source>#<n>`: {"source", "n", "read_at"}, the snapshot it was read from; None for `created:`)}. The
+        resolution is runtime/item_refs.py (package SNAP-IDX), with the caller's own `channel` and `sender`: a `<source>#<n>` into a snapshot of the person's calendar
+        is usable only by a caller who may read it (a messaging sender needs the group `ask-mail`), and a `created:<decision>` needs no reading right. It FAILS
+        CLOSED: the account is the one the SOURCE ROW's origin names (google or outlook, never the index), the calendar id is the origin's, and the caller compares
+        both with the project's `accounts` exactly. Every refusal is a StepServiceError `refused` whose sentence is a phrase of the table (ACCT_REF_*)."""
+        try:
+            got = item_refs.resolve(self._ctx, reference, channel=channel, sender=sender, kinds=("calendar",), created=lambda ctx, pending: self._created_entry(ctx, pending, channel, sender), clock=SNAPSHOT_CLOCK)
+        except item_refs.ItemRefError as e:
+            raise StepServiceError("refused", ref_sentence(e.code, reference)) from None
+        except sources.SourcesError:
+            raise StepServiceError("refused", ref_sentence("integrity", reference)) from None
+        entry = got.get("entry") if isinstance(got, dict) else None
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+            raise StepServiceError("refused", ref_sentence("not_an_event", reference))
+        if got["kind"] == "created":
+            return {"event_id": entry["id"], "account": entry["account"], "calendar": entry["calendar"], "calendar_id": entry["calendar_id"], "reference": None}
+        account = IMPLEMENTATION_ACCOUNT.get(got.get("implementation"))
+        calendar_id = got.get("calendar")
+        if account is None or not isinstance(calendar_id, str) or entry.get("calendar") != calendar_id:      # the index and the source row's origin must say the same
+            raise StepServiceError("refused", ref_sentence("integrity" if account else "not_an_event", reference))
+        return {"event_id": entry["id"], "account": account, "calendar": self.calendar_label(account, calendar_id), "calendar_id": calendar_id,
+                "reference": {"source": got["source"], "n": got["n"], "read_at": got["read_at"]}}
+
+    def _created_entry(self, ctx: dict, pending_id: int, channel=None, sender=None):
+        """The `created` function of item_refs.resolve: what the approved card `pending_id` recorded of the event it created, or None. Minimal on purpose: the id,
+        the account and the calendar (its name and the id recorded then). Whoever may read the person's mail and calendar (item_refs.may_read) may use it; a
+        messaging sender without that right only for an event they asked for themselves (`asker`); for anyone else it answers None, the same answer as for a
+        card that created nothing, so that a guess learns nothing."""
+        store = ctx["store"]
+        try:
+            item = store.pending_get(ctx["conn"], pending_id)
+        except store.StoreError:
+            return None
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        step = payload.get("step") if isinstance(payload.get("step"), dict) else {}
+        if item.get("kind") != "effect" or item.get("resolution") != "approved" or step.get("kind") != "calendar-event" or result.get("operation") != "create" \
+                or not isinstance(result.get("event_id"), str) or result.get("account") not in calendar_document.ACCOUNTS:
+            return None
+        if not item_refs.may_read(ctx, channel, sender) and (not sender or result.get("asker") != sender):
+            return None
+        name = result.get("calendar") if isinstance(result.get("calendar"), str) else None
+        listed = (project_config.account_entry(self._cfg, result["account"]) or {}).get("calendars") or {}
+        recorded = result.get("calendar_id") if isinstance(result.get("calendar_id"), str) else None
+        return {"id": result["event_id"], "account": result["account"], "calendar": name if name in listed else None, "calendar_id": recorded}
+
+
+def ref_sentence(code: str, reference) -> str:
+    """The sentence of a refused reference, from the phrase table (the family ACCT_REF_), with the source id the reference names when it names one."""
+    source = reference.partition("#")[0] if isinstance(reference, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}#[0-9]{1,4}", reference.strip()) else "that source"
+    english = phrases.TABLE[phrases.DEFAULT]
+    key = "ACCT_REF_" + str(code).upper()
+    return english.get(key, english["ACCT_REF_NOT_AN_EVENT"]).format(source=source)
+
+
 class EffectFiles:
     """The effect documents of a write-back, by task and cycle, in the runtime's data folder (0700 at every level, files 0600)."""
 
@@ -307,7 +432,7 @@ def services(ctx: dict) -> dict:
     """The services of the Context for the task a process runs: `ctx` is the operations layer's context (ops_core.context)."""
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
-            "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root)}
+            "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx)}
 
 
 if __name__ == "__main__":

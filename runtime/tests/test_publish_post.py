@@ -668,7 +668,8 @@ def test_the_word_is_a_policy_kind_and_a_step_kind_and_a_bound_can_still_name_it
     kind = effects.module_for("publish")
     assert kind.POLICY is True and kind.STEP is True and kind.GATE is False and kind.PROVIDER_CLASS == "publisher:<platform>"
     assert "publish" in effects.policy_kinds() and "publish" in ops._bounds_words(), "the reply's bounds still name publish"
-    assert effects.step_only_words() == ["send", "write"] and "send" not in ops._bounds_words() and "write" not in ops._bounds_words()
+    assert effects.step_only_words() == ["calendar", "send", "write"] and "send" not in ops._bounds_words() and "write" not in ops._bounds_words()
+    assert "calendar" not in ops._bounds_words(), "a standing approval cannot name the calendar word (W5 grants its own, bounded in code)"
     assert effects.gate_kind("publish", ["publisher:linkedin"]) is None, "no skill's gate opens an effect of this kind: it opens a review, as before"
     assert ops_step_effects.step_effect_of is not None and "publish" in ops._effect_words()
 

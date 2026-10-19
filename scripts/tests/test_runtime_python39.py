@@ -63,6 +63,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",
     # The start of a write to the person's own accounts (FND): the one function an operation of the family calls.
     "runtime/account_start.py",
+    # A change to the person's own calendar (W1): the document, the effect, the step kind and the operations.
+    "runtime/calendar_document.py", "runtime/effect_calendar.py", "runtime/step_calendar_event.py", "runtime/ops_calendar.py",
     # Reminders (RM-1): the pure part, the operations and the bridge's part.
     "runtime/reminders.py", "runtime/ops_reminders.py", "runtime/messaging_remind.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state

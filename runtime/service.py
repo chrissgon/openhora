@@ -343,6 +343,9 @@ ROUTES = (
     _route("GET", "/projects/{p}/reminders", "reminders", take=()),
     _route("POST", "/projects/{p}/reminders", "remind"),
     _route("POST", "/projects/{p}/reminders/{id}/forget", "reminder-forget", bind={"reminder_id": "id"}),
+    _route("POST", "/projects/{p}/events", "event-create"),
+    _route("POST", "/projects/{p}/events/change", "event-change"),
+    _route("POST", "/projects/{p}/events/cancel", "event-cancel"),
     _route("POST", "/projects/{p}/dispatch", "dispatch", take=()),
     _route("GET", "/jobs/{id}", own="job"),
 )

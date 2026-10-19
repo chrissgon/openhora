@@ -159,7 +159,7 @@ def start(project: str, kind: str, args, *, key_words: str, title_key: str, acco
     word = _gate_word(kind, key_words)
     store = ctx["store"]
     try:
-        made = steps.add_task(store, ctx["conn"], kind, args, key=key_words, title=title, text=TASK_TEXT)
+        made = steps.add_task(store, ctx["conn"], kind, args, key=key_words, title=title, text=TASK_TEXT, account_write=True)
     except steps.StepFailure as e:
         raise core.OpsError(_sentence(e), 2) from None
     except store.StoreError as e:

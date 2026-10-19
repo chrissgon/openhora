@@ -227,6 +227,20 @@ def _subparser_verbs(tree):
     return verbs
 
 
+SERVES_LINE = re.compile(r'^SERVES\s*=\s*"([^"\n]+)"', re.M)
+
+
+def _serves(root, folder, name):
+    """The class a provider file declares it serves (`SERVES = "writer:calendar"`, read as text), or None when it declares none: a folder shared by several
+    classes (providers/writer/) lists a file under the class it serves alone."""
+    try:
+        with open(os.path.join(root, "providers", folder, name + ".py"), encoding="utf-8") as f:
+            found = SERVES_LINE.search(f.read(20000))
+    except OSError:
+        return None
+    return found.group(1) if found else None
+
+
 def provider_classes(root):
     text = _read(root, "providers/CONTRACT.md")
     classes = []
@@ -236,7 +250,7 @@ def provider_classes(root):
     rows = []
     for cls in classes:
         folder = resolve.folder(cls)
-        names = resolve.implementations_in(folder, root=root)
+        names = [n for n in resolve.implementations_in(folder, root=root) if _serves(root, folder, n) in (None, cls)]
         if not names:
             rows.append([_code(cls), _code(f"{folder}/"), "none ships", NONE])
             continue

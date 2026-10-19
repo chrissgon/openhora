@@ -337,7 +337,7 @@ def vocabulary() -> tuple:
 def test_the_registry_holds_every_kind_keyed_by_a_word_of_the_side_effect_vocabulary():
     assert set(effects.KINDS) <= set(vocabulary())
     assert effects.KINDS == {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_publish", "write": "effect_write",
-                             "send": "effect_send"}
+                             "send": "effect_send", "calendar": "effect_calendar"}
 
 
 def test_every_kind_exposes_describe_and_the_policy_names_when_it_may_run_under_a_policy():

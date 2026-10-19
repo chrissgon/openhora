@@ -264,6 +264,37 @@ step task "publish-post"                   person                           code
 
 **What code cannot enforce, and the live checks.** What the platform does with a post once it answered; that the skill's scheduled job and this path see one ledger (a scheduler that runs the job with another data folder has another one); how the platform renders what the dry run printed. To verify on first use: [providers/publisher/README.md](../../../providers/publisher/README.md).
 
+## Changing the person's own calendar
+
+```
+step task "calendar-event"             person                           code
+  prepare: check the arguments (a title of one line <= 200, a start, an end, a place <= 200, a reminder, notes <= 2000)
+           the account and the calendar are the ones `accounts` of runtime.json names (anything else is refused)
+           change / removal: name the event (created:<decision> or <source>#<n>), read it through `calendar_read.event_get`
+                             refuse a meeting (another attendee), a series, an event someone else organizes, a gone event
+           the writer's dry run (no connection, no credential): the exact request it would send, and its sha256
+           write effect.json (account, writer, calendar, event as it was and will be, version read, zone, key, dry-run hash)
+  calendar (gate): opens an `effect` decision  ->  reads the card: account, calendar, the event, for a change each part
+                   the hash covers all of it        as it was and as it will be, "No one is invited: no e-mail is sent."
+                                                    approve --sha256 <hash>  (terminal or page; a messaging app with the grant)
+                                                                         ->  execute: read the event again, compare its version
+                                                                             (another: stale, nothing sent, start over),
+                                                                             dry run must hash to the document's,
+                                                                             then the writer's verb with --confirmed once; record
+```
+
+**The document** (`runtime/calendar_document.py`): `effect`, `task`, `account` (`google` or `microsoft`), `implementation` (`google-calendar` or `outlook-calendar`), `address`, `calendar` (the project's name) and `calendar_id`, `operation` (`create`, `change`, `cancel`), `event_id` and `base_etag` (the version read: Google's etag, Graph's changeKey), `read_at`, `zone`, `send_updates` (always `none`), `event` (as it will be), `before` (as it was read), `changed`, `idempotency_key` (`cal-` and 32 hex digits of the whole content) and `dry_run_sha256`. An event is title, all-day or not, wall times in the zone, the instants the request carries, place, reminder in minutes and notes. Nobody is invited and no recurrence is made; a meeting or a series is not changed.
+
+**The request.** A create is one POST; a change is one PATCH of the changed parts, with `If-Match: <etag>` on Google and, on Outlook, a read of the event and a comparison of its changeKey right before the PATCH (Graph documents no If-Match); a removal is one DELETE with `If-Match` on Google, where Google is expected to send the event to the calendar's trash for 30 days (the Calendar help page says so, the API page of the call does not: to verify live). Every write sends `sendUpdates=none`. The Outlook writer has no removal (Microsoft does not say where a removed event goes; it stays off until a live check). The title, the place and the notes travel to the writer in a private file (0600, removed at once), never on a command line, and are not in the state file's approval row (`describe`).
+
+**Refused by structure.** The gate has no executor and `prepare` reaches the calendar only through `ctx.services.calendar_read`, which has `event_get` (the one read, with the account's token), `dry_run` (a write verb with `--dry-run` and no credential) and no way to write (`runtime/ops_step_seams.py`; limit L58). The one function that writes is `effect_calendar.execute`, reached only from the operation `approve` under the lock of the decision (`is_long`). `POLICY` is false and the word is a STEP kind, so no standing approval can name it (`ops._bounds_words`). `preflight` re-reads `accounts` at the approval: a calendar taken out of the file, or renamed to another id, writes nothing (limit L55). Limit L56 is the version: the event is read again at the approval and another version is `stale` (the decision is answered, the approval revoked, the task starts over from `prepare`).
+
+**Results.** `done`; `replayed` (the writer's ledger held the key, or the writer found the event in the calendar after an earlier attempt lost its answer: nothing was written again); `unknown` (the writer's exit 4 or a timeout: the change may or may not have landed; the decision stays open, and approving it again looks in the calendar first); a refusal with nothing written (exit 1 guarantees it); `stale`.
+
+**Where it can be approved.** In the terminal and on the page. A messaging app may approve it only when the project's accepted policy grants the group `approve-effect-calendar` (`effect_calendar.APPROVAL_GROUP`), from a card that carried the whole event (`on_cards` is always true: the card is the whole change), and a sender may ask for one only with the group `calendar-write`; both are in no default policy and need `accept-config --widen`. The card is said line by line in the project's language (the keys `CARD_CAL_*`); the hash is the same in every language.
+
+**What code cannot enforce, and the live checks.** What the service does after it answered; the gap between the writer's read and its PATCH on Outlook; whether Graph keeps the extended property the lookup after a lost answer depends on. To verify on first use: [providers/writer/README.md](../../../providers/writer/README.md).
+
 ## The rule that a review is harmless to pass
 
 A stop of a step task passes on the word `continue` from any channel, including a messaging app. So no step performs an external effect itself, before a stop or after one, and every external effect goes through a gate, whose approval is the hash of the exact content from the terminal or the page. What is **code**, and what is a **test**:
@@ -271,7 +302,7 @@ A stop of a step task passes on the word `continue` from any channel, including 
 - Code: `steps.register` refuses a kind that declares an `effectful` step, whatever its place and whether or not the kind starts on its own. A step kind is handed its services through `ctx.services` (`runtime/ops_step_seams.py`): `documents` has `read` and `stat` and no way to write (its two verbs are literals), `effect_files` writes and reads the effect document and does not execute it, `render` makes a file from a text. The document of a write-back and its preview are in `runtime/write_document.py`, which holds no function that calls a provider; the one function that writes to a platform is `effect_write.execute`, which only the operation `approve` reaches, and which refuses unless given the approval of exactly the document it writes. So a step kind has no function in reach that could write.
 - Test, not code: Python cannot stop a module from importing another. A static test over `runtime/step_*.py` (`runtime/tests/test_steps_gate.py`) holds each step module to a row of the modules it may import (none that calls a provider: not `documents`, `board`, `effects`, the operations layer or `project_config`), and fails on `--confirmed`, `--dry-run`, `.execute`, a network module of the standard library. It is a tripwire; a new kind is reviewed for what it imports, and adding one to the table is a visible change. `step_ingest` is the one kind with a wider row (it imports a source through the operations of the sources).
 
-A standing approval cannot name the word `write` or the word `send` either (`ops._bounds_words`): each write-back and each e-mail is approved by its own hash. The word `publish` is a STEP kind and a POLICY kind at once, so its bounds stay: they cover the reply to a comment, never a post, which is approved by its own hash each time.
+A standing approval cannot name the word `write`, the word `send` or the word `calendar` either (`ops._bounds_words`): each write-back, each e-mail and each change to a calendar is approved by its own hash. The word `publish` is a STEP kind and a POLICY kind at once, so its bounds stay: they cover the reply to a comment, never a post, which is approved by its own hash each time.
 
 ## Hidden text
 
@@ -290,6 +321,7 @@ The record is `{"examined": true, "count": n, "kinds": {kind: n}, "hints": ["dis
 
 ## Known limits and improvements
 
+- A calendar change (W1) has no attendee, no recurrence, no conferencing link, no attachment and no clearing of a reminder; a meeting, a series and an event someone else organizes are refused; removing an Outlook event is off. Nothing was run against a real Google or Microsoft calendar: the writers are tested against stand-ins on loopback, and the live checks are listed in `providers/writer/README.md`.
 - Drive write-back is not built (P7's provider is sources-only). D17's real cases, one for each direction, are chosen with the maintainer: everything here is tested on fictional fixtures and the Notion provider's stand-in service, and nothing was run against a real workspace. That includes the outputs of this page: the endpoints for a database, a data source, a page under a data source and the child listing were read in the public reference (`providers/documents/README.md`, "Calls the outputs make") and not measured live.
 - A table is one data source: a database with several data sources, a relation, a rollup, a formula, a status, a people or a multi-select property are not made or filled (rows added to a table that has such a column leave it empty; a file column that maps to one is refused). A row's cells carry no rich formatting.
 - The kinds are started with `run-step`, or by a flow that holds them as tasks with `step` and `args`.

@@ -28,7 +28,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import effects  # noqa: E402
+import item_refs  # noqa: E402
 import operations  # noqa: E402
+import phrases  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
 
@@ -50,6 +52,23 @@ def effect_document(ctx: dict, item: dict):
     except (effects.EffectError, core.OpsError, OSError, ValueError, TypeError, KeyError):
         return None
     return doc if isinstance(doc, dict) else None
+
+
+def private_view(ctx: dict, item: dict, channel, sender=None) -> dict:
+    """The decision as `channel` may read it: an `effect` whose card has lines that show the current text of something the person owns (phrases.CARD_PRIVATE) is
+    shown to the MCP mode, and to a messaging reader who does not hold the group ask-mail, without those lines (the body and the card's lines both, and a note
+    that some text is not shown). Anyone else, and any decision without such a line, gets it as it is. The stored decision, its hash and what a card is drawn
+    from are untouched: this is a view."""
+    if item.get("kind") != "effect" or channel not in ("mcp", "messaging"):
+        return item
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    card = payload.get("card")
+    if not phrases.card_valid(card) or item_refs.may_read(ctx, channel, sender):
+        return item
+    kept = phrases.card_without_private(card)
+    if len(kept) == len(card):
+        return item
+    return {**item, "body": phrases.card_text(kept) + "\n" + phrases.en("CARD_HIDDEN_NOTE"), "payload": {**payload, "card": kept}}
 
 
 def effect_facts(ctx: dict, item: dict) -> dict:

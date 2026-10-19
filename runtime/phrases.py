@@ -287,6 +287,57 @@ TABLE = {
         "ACCT_CARD_SENT": "Card #{pending} waits for your approval.",
         "ACCT_NOT_CONFIGURED": "The account {account} is not set up for this project: the key accounts of runtime.json lists it, with its address and what it may write to.",
         "CARD_ACCOUNT": "Account: {account} ({address})",
+        # --- the card of a change to the person's own calendar (package W1, runtime/calendar_document.py) ---
+        "TITLE_CAL_CREATE": "Calendar: new event",
+        "TITLE_CAL_CHANGE": "Calendar: change an event",
+        "TITLE_CAL_CANCEL": "Calendar: remove an event",
+        "CARD_CAL_CREATE": "Code creates this event after your approval, and nothing else.",
+        "CARD_CAL_CHANGE": "Code changes this event after your approval, only if it is still as read at {read_at}.",
+        "CARD_CAL_CANCEL": "Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days (Google Calendar, Trash); this has not been verified yet.",
+        "CARD_CAL_EVENT": "Event: {event_id}",
+        "CARD_CAL_NOW_WHEN": "The event now is at: {when}",
+        "CARD_CAL_NOW_TITLE": "The event now: {title}",
+        "ACCT_REF_MALFORMED": "That is not a reference to an item: write <source id>#<number>, for example inbox#3, or created:<card number> for an event you created.",
+        "ACCT_REF_ZERO": "The numbers of a snapshot start at 1.",
+        "ACCT_REF_NOT_READABLE": "{source} is a snapshot of your mailbox or calendar, and this channel may not read it: ask in the terminal or on the page, or have the project's configuration give the sender the group ask-mail.",
+        "ACCT_REF_PAST_END": "{source} has fewer items than that in its newest snapshot.",
+        "ACCT_REF_NO_SOURCE": "There is no source {source}: references name a registered mail or calendar source.",
+        "ACCT_REF_NOT_SNAPSHOT": "{source} is not a mail or calendar source: only those have numbered items.",
+        "ACCT_REF_WRONG_KIND": "{source} is not a calendar source: an event is named by an item of a calendar source.",
+        "ACCT_REF_NO_VERSION": "{source} has no snapshot yet: refresh {source} first.",
+        "ACCT_REF_STALE": "The newest snapshot of {source} is more than 26 hours old, or its time cannot be trusted: refresh {source} first.",
+        "ACCT_REF_NO_INDEX": "The newest snapshot of {source} was made before items could be referred to: refresh {source} first.",
+        "ACCT_REF_INTEGRITY": "The newest snapshot of {source} does not match its record, or names a calendar its source does not: refresh {source} first.",
+        "ACCT_REF_CREATED_UNKNOWN": "That card did not create an event, or its result is not recorded.",
+        "ACCT_REF_NOT_AN_EVENT": "That reference does not name an event of your Google or Microsoft account.",
+        "CARD_CAL_SNAPSHOT": "Named as {reference}, from the snapshot read at {read_at}.",
+        "CARD_CAL_DROP_TITLE": "Removing, title: {title}",
+        "CARD_CAL_DROP_WHERE": "Removing, where: {location}",
+        "CARD_CAL_DROP_NOTES": "Removing, notes: {notes}",
+        "CARD_HIDDEN_NOTE": "Some of the event's current text is not shown here: the page and the terminal show all of it.",
+        "CARD_CAL_CALENDAR": "Calendar: {calendar}",
+        "CARD_CAL_TITLE": "Title: {title}",
+        "CARD_CAL_WHEN": "When: {when}",
+        "CARD_CAL_WHERE": "Where: {location}",
+        "CARD_CAL_REMIND": "Calendar reminder: {minutes} min before",
+        "CARD_CAL_NOTES": "Notes: {notes}",
+        "CARD_CAL_NOBODY": "No one is invited: no e-mail is sent.",
+        "CARD_CAL_BASE": "Based on version {etag_short} of the event.",
+        "CARD_CAL_BEFORE_TITLE": "Before: Title: {title}",
+        "CARD_CAL_BEFORE_WHEN": "Before: When: {when}",
+        "CARD_CAL_BEFORE_WHERE": "Before: Where: {location}",
+        "CARD_CAL_BEFORE_REMIND": "Before: Calendar reminder (min before): {minutes}",
+        "CARD_CAL_BEFORE_NOTES": "Before: Notes: {notes}",
+        "CARD_CAL_AFTER_TITLE": "After: Title: {title}",
+        "CARD_CAL_AFTER_WHEN": "After: When: {when}",
+        "CARD_CAL_AFTER_WHERE": "After: Where: {location}",
+        "CARD_CAL_AFTER_REMIND": "After: Calendar reminder (min before): {minutes}",
+        "CARD_CAL_AFTER_NOTES": "After: Notes: {notes}",
+        "CARD_CAL_KEPT_TITLE": "Unchanged: Title: {title}",
+        "CARD_CAL_KEPT_WHEN": "Unchanged: When: {when}",
+        "CARD_CAL_KEPT_WHERE": "Unchanged: Where: {location}",
+        "CARD_CAL_KEPT_REMIND": "Unchanged: Calendar reminder (min before): {minutes}",
+        "CARD_CAL_KEPT_NOTES": "Unchanged: Notes: {notes}",
     },
     "pt-BR": phrases_pt_br.TABLE,
 }
@@ -472,6 +523,10 @@ def localize(sentence, cfg=None):
 
 CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,40}")
 CARD_LINES_MAX = 300        # lines in one card
+# The lines that show the CURRENT text of something the person owns (an event's title, place and notes as the service holds them): a messaging app draws them only for a
+# sender who also holds the group CARD_PRIVATE_GROUP (the answer from mail and calendar), and a card with such a line left out is not whole, so it is not approved there.
+CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES")) + ("CARD_CAL_NOW_TITLE",)
+CARD_PRIVATE_GROUP = "ask-mail"
 CARD_MULTILINE = ("body", "text", "notes", "content", "change")      # the fields that may hold line ends and tabs (a message, a note, a file's text, a diff); every other field is one line
 CARD_REFUSED = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")      # control, format (a right-to-left override, a zero-width character), line and paragraph separator, surrogate, private use
 
@@ -505,6 +560,11 @@ def card_valid(card) -> bool:
         if set(fields) != _fields_of(english[key]) or not all(_field_ok(k, v) for k, v in fields.items()):
             return False
     return True
+
+
+def card_without_private(card) -> list:
+    """The lines of a valid card that are not in CARD_PRIVATE."""
+    return [line for line in card if line[0] not in CARD_PRIVATE]
 
 
 def card_text(card, cfg=None) -> str:

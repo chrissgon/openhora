@@ -89,7 +89,7 @@ OPERATIONS = (
      "help": "requests, tasks and what waits for you"},
     {"name": "task", "call": "task",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
-     "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
+     "channels": ("terminal", "page", "mcp", "messaging"), "model": False, "channel_arg": True,
      "help": "one task or request with its runs and its pending decisions"},
     {"name": "flows", "call": "flows", "args": (), "channels": ("terminal", "page", "mcp"), "model": False,
      "help": "the flows: the files of this checkout and of the project (docs/workbench/flows/), with their titles, how many tasks each holds, their parameters, step kinds and the result of the flow check"},
@@ -115,8 +115,8 @@ OPERATIONS = (
      "help": "where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD)"},
     {"name": "pending", "call": "pending",
      "args": ({"name": "pending_id", "kind": "int", "flag": "id"},),
-     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False,
-     "help": "what waits for you; with an id, that decision whole"},
+     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False, "channel_arg": True,
+     "help": "what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows)"},
     {"name": "answer", "call": "answer_proposing",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"},
               {"name": "text", "kind": "text", "required": True},
@@ -404,6 +404,30 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False, "help": "resume a paused routine; its approval stands and every fire still compares the hash"},
     {"name": "routine-cancel", "call": "routine_cancel", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
      "channels": ("terminal", "page", "messaging"), "model": False, "help": "cancel a routine for good (it is never deleted; its fires stay on record)"},
+    # W1: the person's own calendar (SPEC-SECRETARY-WRITES 3.1). Each one PREPARES a card and writes nothing: the event is written when its card is approved with its hash
+    # (limit L55). Off for a messaging app until a profile lists the group calendar-write; never on the MCP mode.
+    {"name": "event-create", "call": "event_create",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "title", "kind": "str", "required": True},
+              {"name": "start", "kind": "str", "required": True, "label": "YYYY-MM-DDTHH:MM | YYYY-MM-DD"},
+              {"name": "end", "kind": "str", "label": "YYYY-MM-DDTHH:MM | YYYY-MM-DD"},
+              {"name": "calendar", "kind": "str"}, {"name": "location", "kind": "str"},
+              {"name": "reminder_minutes", "kind": "int", "flag": "reminder-minutes"}, {"name": "notes", "kind": "str"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "prepare a new event on a calendar of your own Google or Microsoft account and stop at a card that asks you to approve it (nothing is written until you do, with its hash): --start and --end are YYYY-MM-DDTHH:MM in this machine's zone or YYYY-MM-DD for an all-day event (the end defaults to an hour after the start, or the same day); --calendar is a name of the account's calendars in runtime.json (the first when absent); nobody is invited and no e-mail is sent; no recurrence"},
+    {"name": "event-change", "call": "event_change",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"},
+              {"name": "calendar", "kind": "str"}, {"name": "title", "kind": "str"}, {"name": "start", "kind": "str", "label": "YYYY-MM-DDTHH:MM | YYYY-MM-DD"},
+              {"name": "end", "kind": "str", "label": "YYYY-MM-DDTHH:MM | YYYY-MM-DD"}, {"name": "location", "kind": "str"},
+              {"name": "reminder_minutes", "kind": "int", "flag": "reminder-minutes"}, {"name": "notes", "kind": "str"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
+     "help": "prepare a change to an event of your own calendar and stop at a card that shows each part as it was and as it will be (nothing is written until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; a start alone moves the event and keeps its length; --event is <source>#<n> (the n-th item of a calendar snapshot) or created:<decision> and the calendar is the one it is on (--calendar names it; another one is refused); nobody is told"},
+    {"name": "event-cancel", "call": "event_cancel",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"}, {"name": "calendar", "kind": "str"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
+     "help": "prepare the removal of an event of your own calendar and stop at a card (nothing is removed until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; Google is expected to move it to the calendar's trash for 30 days (to verify live); on Outlook this is not available yet; nobody is told"},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -465,6 +489,10 @@ GROUPS = {
     # RM-1: reminders, a one-shot notice the messaging bridge sends to the chat that made it (limit L51). In no default policy: a messaging app takes it only when the
     # project's configuration lists the group (accept-config --widen confirms it); never on the MCP mode (no row lists it). The group is a notice and never an effect.
     "reminders": {"operations": ("remind", "reminders", "reminder-forget"), "kind": None},
+    # W1: the person's own calendar (SPEC-SECRETARY-WRITES 5). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
+    # --widen; never on the MCP mode. It prepares a card and writes nothing: the write is the approval of the card's hash (`approve-effect-calendar` on a messaging app).
+    "calendar-write": {"operations": ("event-create", "event-change", "event-cancel"), "kind": None},
+    "approve-effect-calendar": {"operations": ("approve",), "kind": "effect:calendar"},      # a change to the person's own calendar (effect_calendar.py APPROVAL_GROUP)
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -478,7 +506,7 @@ MESSAGING_ONLY_GROUPS = ("read-limited",)          # valid on a messaging app al
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
-           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish")}
+           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-effect-calendar")}
 SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy mapping (never in runtime.json), {"<platform>:<sender id>": [groups]} of each listed sender whose entry names a profile
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
@@ -500,10 +528,10 @@ BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel") 
 # Profiles (POL-2). A policy is a named set of groups, a profile (runtime.json `policies`); a channel's entry may name one, and on a messaging
 # app each listed sender may have their own, which REPLACES the channel's groups for that sender (SENDERS_KEY in the loaded policy mapping;
 # effective_groups(channel, cfg, sender)). Nothing but accept-config in the terminal changes a profile, and nothing a sender sends names one.
-EFFECT_APPROVAL_WORDS = ("create", "write", "send", "publish")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
+EFFECT_APPROVAL_WORDS = ("create", "write", "send", "publish", "calendar")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
     "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans",
-                  "add-sources-direct"),
+                  "add-sources-direct", "approve-effect-calendar"),
     "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
 }
 GRANT_TEXT = {
@@ -511,6 +539,7 @@ GRANT_TEXT = {
     "messaging:approve-effect-write": "a messaging app may approve the write of a page of your documents platform (never a table: its card is a preview), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-send": "a messaging app may approve an e-mail sent from your outbox (never one with an attachment), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-publish": "a messaging app may approve a post to a social platform (never one with an image), from a card that carries the whole text, with its hash",
+    "messaging:approve-effect-calendar": "a messaging app may approve an event on your own calendars (create, change or remove), from a card that carries the whole event, with its hash",
     "messaging:approve-networked-plans": "a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash",
     "messaging:add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card)",
     "mcp:approve-plans": "a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain",
@@ -532,6 +561,7 @@ GROUP_TEXT = {
     "approve-effect-write": "approves the write of a page of the documents platform, with its hash",
     "approve-effect-send": "approves an e-mail sent from the project's outbox, with its hash",
     "approve-effect-publish": "approves a post to a social platform, with its hash",
+    "approve-effect-calendar": "approves an event on the person's own calendars (create, change or remove), with its hash",
     "approve-networked-plans": "approves a plan that holds a script which reaches the network, with the plan's hash",
     "ask": "asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers)",
     "go-ahead": "goes ahead on a task that waits for another request",
@@ -551,6 +581,7 @@ GROUP_TEXT = {
     "sources": "adds, imports, refreshes and describes the project's sources",
     "add-sources": "takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files",
     "add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation; a file for an existing source still waits for a card (it holds the hold alone, and adds nothing else)",
+    "calendar-write": "prepares changes to your own calendars (create, change, remove an event); each one waits for approval of its card",
     "reminders": "makes, lists and forgets reminders: one-shot lines of the sender's own words that the bridge sends back to their own chat at the time they chose",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
