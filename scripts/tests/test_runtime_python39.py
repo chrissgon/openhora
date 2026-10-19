@@ -67,6 +67,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/calendar_document.py", "runtime/effect_calendar.py", "runtime/step_calendar_event.py", "runtime/ops_calendar.py",
     # Files in the person's own Drive and OneDrive (W4a): the document, the step kind, the effect kind, the operations.
     "runtime/files_document.py", "runtime/step_files.py", "runtime/effect_files.py", "runtime/ops_files.py",
+    # An e-mail from the person's own account (W2): the message a reply answers (pure) and the operations; the mailers' shared module is plain Python too.
+    "runtime/mail_refs.py", "runtime/ops_mail_send.py", "providers/_mailer_account.py",
     # Reminders (RM-1): the pure part, the operations and the bridge's part.
     "runtime/reminders.py", "runtime/ops_reminders.py", "runtime/messaging_remind.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state

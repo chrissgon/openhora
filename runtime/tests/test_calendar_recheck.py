@@ -19,6 +19,7 @@ from test_calendar_write import (SEEDED, approve, effect_doc, fgw, install_item_
 from test_channel_grants import accept
 
 cards = st.load("messaging_cards")
+ops_grants = st.load("ops_grants")
 SENDER = "telegram:4242"
 OTHER = "telegram:9999"
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
@@ -112,7 +113,7 @@ def test_a_plan_cannot_carry_a_step_whose_gate_word_is_an_account_write():
             steps.plan_task("calendar-event", args, key="k", title="t", text="x")
         assert why.value.code == "not_plannable"
     import account_start
-    assert set(steps.ACCOUNT_WORDS) == set(account_start.WORDS), "the list of the plan check is the one the account entry uses"
+    assert set(steps.ACCOUNT_WORDS) | {"send"} == set(account_start.WORDS), "the list of the plan check is the one the account entry uses; `send` is a plain kind too, its account arguments are refused by ACCOUNT_ARGS (W2)"
 
 
 def test_a_project_flow_with_a_calendar_event_step_is_refused_when_it_is_planned(world, monkeypatch):
@@ -195,3 +196,35 @@ def test_a_reference_refusal_names_the_reference_not_the_calendar(world):
     with pytest.raises(ops.OpsError) as why:
         ops.event_change(world["path"], "google", "created:999", title="X")
     assert "refused reference" in str(why.value) and "calendar --" not in str(why.value)
+
+
+# --- the executed result of a created event names the sender who asked: for that sender only (W2 follow-up of the W4a re-check) -------------------------------
+
+
+def test_the_result_of_a_created_event_shows_the_messaging_sender_who_asked_to_no_other_reader_not_even_a_reader_of_the_calendar(world, monkeypatch):
+    accept(world["path"], {"messaging": ["read", "calendar-write"]})
+    own = ops.event_create(world["path"], "google", "Haircut", "2026-10-21T12:00", channel="messaging", sender=SENDER)
+    approve(world, own)
+    assert effect_doc(world, own)["asker"] == SENDER
+    whole = ops.pending(world["path"], own["pending"])
+    assert whole["payload"]["result"]["asker"] == SENDER and whole["payload"]["result"]["operation"] == "create", "the terminal and the page read the record whole"
+    readers = (("mcp", None), ("messaging", OTHER), ("messaging", None))
+
+    def views(channel, sender):
+        return (ops.pending(world["path"], own["pending"], channel=channel, sender=sender),
+                next(p for p in ops.task(world["path"], own["task"], channel=channel, sender=sender)["pending"] if p["id"] == own["pending"]))
+    for channel, sender in readers:
+        for shown in views(channel, sender):
+            result = shown["payload"]["result"]
+            assert "asker" not in result and result["event_id"] and result["operation"] == "create", (channel, sender)
+            assert SENDER not in json.dumps(shown), (channel, sender)
+    for shown in views("messaging", SENDER):
+        assert shown["payload"]["result"]["asker"] == SENDER, "the sender who asked reads their own id"
+    monkeypatch.setattr(ops_grants.item_refs, "may_read", lambda *a, **k: True)      # a reader of the person's own mail and calendar
+    for channel, sender in readers:
+        for shown in views(channel, sender):
+            assert "asker" not in shown["payload"]["result"] and SENDER not in json.dumps(shown), (channel, sender)
+    assert ops.pending(world["path"], own["pending"], channel="terminal")["payload"]["result"]["asker"] == SENDER
+    terminal = made_event(world, title="Dentist visit")
+    assert "asker" not in ops.pending(world["path"], terminal["pending"], channel="mcp")["payload"]["result"], "always, also when the asker was the terminal"
+    assert ops.pending(world["path"], terminal["pending"], channel="page")["payload"]["result"]["asker"] == "terminal"

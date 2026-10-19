@@ -354,6 +354,8 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `event-create` | `--account` `--title` `--start` `[--end]` `[--calendar]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_create` |
 | `event-change` | `--account` `--event` `[--calendar]` `[--title]` `[--start]` `[--end]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_change` |
 | `event-cancel` | `--account` `--event` `[--calendar]` | `event_cancel` |
+| `mail-send` | `--account` `--to` `[--cc]` `[--bcc]` `--subject` `--text \| --text-file` `[--attach]` | `mail_send` |
+| `mail-reply` | `--account` `--message` `--text \| --text-file` | `mail_reply` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -479,6 +481,8 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/files` | `file-create` | - | `account`, `file_name`, `content`, `from_path`, `folder` | - | - |
 | POST | `/projects/{p}/files/replace` | `file-replace` | - | `account`, `file`, `content`, `from_path` | - | - |
 | POST | `/projects/{p}/files/save` | `file-save` | - | `account`, `attachment`, `file_name`, `folder` | - | - |
+| POST | `/projects/{p}/mail/send` | `mail-send` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/reply` | `mail-reply` | - | every other argument | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->

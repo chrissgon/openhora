@@ -61,10 +61,11 @@ def effect_document(ctx: dict, item: dict):
 def private_view(ctx: dict, item: dict, channel, sender=None) -> dict:
     """The decision as `channel` may read it: an `effect` whose card has lines that show the current text of something the person owns (phrases.CARD_PRIVATE) is
     shown to the MCP mode, and to a messaging reader who does not hold the group ask-mail, without those lines (the body and the card's lines both, and a note
-    that some text is not shown). Anyone else, and any decision without such a line, gets it as it is. The stored decision, its hash and what a card is drawn
+    that some text is not shown). Anyone else, and any decision without such a line, gets it as it is, except that the MCP mode and a messaging reader other than the sender who asked never read `result.asker` (_without_asker). The stored decision, its hash and what a card is drawn
     from are untouched: this is a view."""
     if item.get("kind") != "effect" or channel not in ("mcp", "messaging"):
         return item
+    item = _without_asker(item, channel, sender)
     payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
     card = payload.get("card")
     if not phrases.card_valid(card) or item_refs.may_read(ctx, channel, sender):
@@ -82,15 +83,32 @@ def private_view(ctx: dict, item: dict, channel, sender=None) -> dict:
 
 def task_view(ctx: dict, row: dict, channel, sender=None) -> dict:
     """The task row as `channel` may read it. The row of a step task that writes to the person's own accounts carries the request itself (`step_args`: a title,
-    notes, a file's name and text, a mail address, who asked) and the engine's state (`step_state`, whose failure sentence may quote a name). The MCP mode, and a messaging reader who does
-    not hold the group ask-mail, get the arguments reduced to the closed ones (steps.public_args) and the failure reduced to its code, its step and its field. The terminal,
-    the page, the conversation and a reader of mail get the row as it is. Any other task is returned as it is."""
-    if channel not in ("mcp", "messaging") or not steps.is_account_step(row.get("step_kind")) or item_refs.may_read(ctx, channel, sender):
+    notes, a file's name and text, a mail address, a subject, who asked) and the engine's state (`step_state`, whose failure sentence may quote a name), and its
+    `note` the same sentence. The MCP mode, and a messaging reader who does not hold the group ask-mail, get the arguments reduced to the closed ones
+    (steps.public_args; none for an e-mail from the person's own account), the failure reduced to its code, its step and its field, and the note to the step, the
+    code and the field. The terminal, the page, the conversation and a reader of mail get the row as it is. Any other task is returned as it is."""
+    kind = row.get("step_kind")
+    if channel not in ("mcp", "messaging") or not steps.is_account_step(kind, row.get("step_args")) or item_refs.may_read(ctx, channel, sender):
         return row
     state = row.get("step_state") if isinstance(row.get("step_state"), dict) else None
     if state is not None and isinstance(state.get("failure"), dict):
         state = {**state, "failure": {key: value for key, value in state["failure"].items() if key in ("step", "code", "field", "provider", "at")}}
-    return {**row, "step_args": steps.public_args(row.get("step_args")), "step_state": state}
+    note = row.get("note")
+    return {**row, "step_args": steps.public_args(row.get("step_args"), kind), "step_state": state,
+            "note": note.partition(" -- ")[0] if isinstance(note, str) else note}
+
+
+def _without_asker(item: dict, channel, sender) -> dict:
+    """The decision without `result.asker` (the sender key of the messaging sender who asked for a calendar write, W1) unless the reader is that sender. Always, also for
+    a reader who may read the person's own mail and calendar: who asked is another person's account, not the person's calendar."""
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    result = payload.get("result")
+    if not isinstance(result, dict) or "asker" not in result:
+        return item
+    asker = ops_actor.split(result["asker"])
+    if channel == "messaging" and asker != ("", "") and asker == ops_actor.split(sender):
+        return item
+    return {**item, "payload": {**payload, "result": {key: value for key, value in result.items() if key != "asker"}}}
 
 
 def _owns_held_file(ctx: dict, item: dict, channel, sender) -> bool:
@@ -134,18 +152,26 @@ def held_file_sender(ctx: dict, item: dict):
 
 
 def effect_facts(ctx: dict, item: dict) -> dict:
-    """{"word": the effect's word or None, "on_cards": whether the whole effect can be on a messaging card} of an `effect` decision."""
+    """{"word": the word the policy is asked about or None, ("effect": the effect's own word, only when it is not the same), "on_cards": whether the whole effect can be on a messaging card} of an
+    `effect` decision. The two words differ for a kind that has a grant of its own for a part of its documents (`approval_word(doc)` of the kind: an e-mail from the
+    person's own account is `send-own`, so that the grant of the outbox's `send` does not cover it)."""
     doc = effect_document(ctx, item)
-    word = doc.get("effect") if doc else None
-    if not isinstance(word, str) or word not in effects.KINDS:
+    effect = doc.get("effect") if doc else None
+    if not isinstance(effect, str) or effect not in effects.KINDS:
         return dict(NO_WORD)
+    word = effect
     try:
-        module = effects.module_for(word)
+        module = effects.module_for(effect)
         on_cards = getattr(module, "on_cards", None)
         whole = True if on_cards is None else bool(on_cards(doc))
+        named = getattr(module, "approval_word", None)
+        if named is not None:
+            word = named(doc)
+            if word not in operations.EFFECT_APPROVAL_WORDS:
+                return dict(NO_WORD)
     except Exception:   # a kind that fails to answer is not on a card: the check fails closed
         whole = False
-    return {"word": word, "on_cards": whole}
+    return {"word": word, "on_cards": whole, **({"effect": effect} if effect != word else {})}      # `effect` only when the policy's word is another than the effect's own
 
 
 def effect_kind(facts) -> str:

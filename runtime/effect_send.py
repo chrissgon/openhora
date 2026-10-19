@@ -41,6 +41,13 @@ attempt lost its answer: nothing was sent again); `unknown` (the provider's exit
 have been sent; the effect stays open, and approving it again meets the provider's ledger); or a refusal with nothing sent (the provider's
 exit 1 guarantees it).
 
+From the person's own account (package W2, SPEC-SECRETARY-WRITES 3.2). A document with an `account` (runtime/send_document.py) is sent by the mailer of that account
+(`gmail` for google, `outlook` for microsoft: implementations of the same class, named explicitly, never "auto"), with the account token (`GOOGLE_ACCOUNT_TOKEN`,
+`MICROSOFT_ACCOUNT_TOKEN`) as the one secret in the mailer's environment; the dry run is started without it. Every rule above holds for it as it does for the outbox:
+the approval of the exact hash, all or none of the recipients, the whole card, no attachment approvable on a messaging card, at most once per key, `unknown` on the
+mailer's exit code 4. What differs: `preflight` finds the account in the project's `accounts` with the address of the document (limit L55), the From of the document
+is the account's address (the mailer checks it again against the token), and the sentence that says how to settle an unknown outcome names the account's sent mail.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -54,6 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import effects  # noqa: E402
 import mail_address  # noqa: E402
+import phrases  # noqa: E402
 import project_config  # noqa: E402
 import send_document  # noqa: E402
 from send_document import WORD, document, check, title, describe, summary, body, sha  # noqa: E402,F401  (the pure half, re-exported)
@@ -63,9 +71,11 @@ GATE = False      # no skill's confirmation gate names this word
 POLICY = False    # no standing approval covers a send: every one is approved by the hash of its exact content
 STEP = True       # opened by a step task (runtime/steps.py, Gate) and approved through runtime/ops_step_effects.py
 FORGETS_KEYS = False      # the provider's ledger keeps a key for ever, so an old decision is no reason to refuse
-APPROVAL_GROUP = "approve-effect-send"      # decision POL-1: the group a project's policy grants to let a messaging app approve a send
+APPROVAL_GROUP = "approve-effect-send"
+APPROVAL_GROUP_OWN = "approve-effect-send-own"      # an e-mail from the person's own account has a grant of its own: the outbox's does not cover it (decision of 2026-10-19)      # decision POL-1: the group a project's policy grants to let a messaging app approve a send
 NOTHING_DONE = "nothing was sent"      # the words ops_step_effects.py starts a refusal with
 PASSWORD = "MAILER_SMTP_PASSWORD"
+SECRET_OF = {"google": "GOOGLE_ACCOUNT_TOKEN", "microsoft": "MICROSOFT_ACCOUNT_TOKEN"}      # the one secret the mailer of an own-account e-mail is given
 UNKNOWN_EXIT = 4          # the provider's exit code for "the e-mail may or may not have been sent"
 CALL_TIMEOUT = 300        # seconds: 18 MB of attachments over a slow line
 UNKNOWN_NEXT = ("the outcome is unknown: look in the outbox account's Sent folder. The effect stays open. Approving it again with the same hash "
@@ -73,6 +83,11 @@ UNKNOWN_NEXT = ("the outcome is unknown: look in the outbox account's Sent folde
                 "the provider's `resolve` (providers/mailer/README.md): --sent if it was delivered, --not-sent if it was not, after which "
                 "approving again sends it. Some hosts do not file mail sent over SMTP in the Sent folder, and then 'not found' says nothing: "
                 "check with a recipient or the host's log first, because --not-sent can lead to a second copy")
+UNKNOWN_NEXT_ACCOUNT = ("the outcome is unknown: look in the sent mail of your account. The effect stays open. Approving it again with the same hash looks there first "
+                        "(by the message's own Message-ID): found, it is recorded as sent; not found, nothing is sent and it stays unknown until you settle the key with the "
+                        "mailer's `resolve` (providers/mailer/README.md): --sent if it was delivered, --not-sent if it was not, after which approving again sends it. A "
+                        "service may give a sent message another Message-ID than the one it was asked to carry, and then 'not found' says nothing: look in the sent mail "
+                        "first, because --not-sent can lead to a second copy")
 STALE_NOTE = ("Nothing was sent by this attempt: an attachment is not the file the task read (it was edited or replaced). The task starts "
               "over from the step that reads the files; start it again to be asked about the e-mail as it is now.")
 
@@ -88,9 +103,15 @@ class StaleError(effects.EffectError):
 class UnknownError(effects.EffectError):
     """The outcome of the send is not known."""
 
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, account: bool = False):
         super().__init__("unknown", reason)
-        self.next = UNKNOWN_NEXT
+        self.next = UNKNOWN_NEXT_ACCOUNT if account else UNKNOWN_NEXT
+
+
+def approval_word(doc) -> str:
+    """The word the policy is asked about for this document: `send` for the outbox's e-mail, `send-own` for one from the person's own account (the group
+    `approve-effect-send-own`; a sender granted `approve-effect-send` does not gain it)."""
+    return "send-own" if send_document.is_own(doc) else "send"
 
 
 def is_long(doc) -> bool:
@@ -130,6 +151,8 @@ def resolved_provider(cfg: dict, root: str):
 def preflight(cfg: dict, doc: dict, root: str):
     """(exit code, sentence) when the project is not configured for this send now, else None: the outbox is configured, names the sender
     the document has, and resolves to the provider the document was prepared for. Nothing is sent when it answers."""
+    if send_document.is_own(doc):
+        return preflight_own(cfg, doc, root)
     outbox = cfg.get("outbox")
     if not outbox:
         return 3, "the project has no outbox configured (the key outbox of docs/workbench/runtime.json): nothing was sent"
@@ -138,8 +161,29 @@ def preflight(cfg: dict, doc: dict, root: str):
     name, why = resolved_provider(cfg, root)
     if name is None:
         return 3, f"nothing was sent: the e-mail provider does not resolve: {why}"
+    if name in project_config.OWN_ACCOUNT_MAILERS:
+        return 3, "nothing was sent: the project's outbox resolves to a mailer of an own account; the outbox is an SMTP account"
     if name != doc.get("provider"):
         return 1, "nothing was sent: the project's e-mail provider is not the one the effect was prepared for"
+    return None
+
+
+def preflight_own(cfg: dict, doc: dict, root: str):
+    """The preflight of an e-mail from the person's own account: the account is one the project's `accounts` lists, with the address the document has (limit L55: the
+    token could send as its owner and nothing else, and the project says which account the platform may send from), the document names the mailer of that
+    account, and that mailer is shipped and serves the class. Nothing is sent when it answers."""
+    entry = project_config.account_entry(cfg, doc.get("account"))
+    if entry is None:
+        return 3, phrases.en("ACCT_NOT_CONFIGURED").format(account=project_config.clean_name(doc.get("account"), 20)) + " Nothing was sent."
+    if mail_address.address_key(entry["address"]) != mail_address.address_key(doc.get("from") or ""):
+        return 1, "nothing was sent: the account's address is not the one the e-mail was prepared for"
+    if doc.get("provider") != send_document.ACCOUNTS.get(doc["account"]):
+        return 1, "nothing was sent: the mailer of the document is not the mailer of its account"
+    resolve = project_config.resolver(root)
+    try:
+        resolve.resolve(PROVIDER_CLASS, root=root, implementation=doc["provider"])
+    except (resolve.UnknownClass, resolve.Unresolved) as e:
+        return 3, f"nothing was sent: the e-mail provider does not resolve: {e}"
     return None
 
 
@@ -150,13 +194,16 @@ def caller(cfg: dict, root: str):
     resolve = project_config.resolver(root)
     implementation = provider_setting(cfg)
 
-    def call(verb, args):
+    def call(verb, args, account=None):
+        # An own-account e-mail goes to the mailer of its account, with that account's token as the one secret: a dry run is started without it (it reads no
+        # credential and opens no connection). The outbox keeps its password.
+        named, passes = (send_document.ACCOUNTS[account], () if "--dry-run" in args else (SECRET_OF[account],)) if account else (implementation, (PASSWORD,))
         try:
-            return resolve.call(PROVIDER_CLASS, verb, args, root=root, implementation=implementation, timeout=CALL_TIMEOUT,
-                                env=resolve.provider_environment(PROVIDER_CLASS, None, (PASSWORD,)))
+            return resolve.call(PROVIDER_CLASS, verb, args, root=root, implementation=named, timeout=CALL_TIMEOUT,
+                                env=resolve.provider_environment(PROVIDER_CLASS, None, passes))
         except resolve.ProviderCallError as e:
             if e.kind == "timeout" or e.exit_code == UNKNOWN_EXIT:
-                raise UnknownError(f"{verb}: {e.reason}") from None
+                raise UnknownError(f"{verb}: {e.reason}", account=bool(account)) from None
             raise effects.EffectError({"usage": "usage", "not-configured": "not-configured"}.get(e.kind, "provider"), f"{verb}: {e.reason}") from None
     return call
 
@@ -229,15 +276,17 @@ def execute(doc: dict, approval: dict, call, key: str, work_dir=None, project=No
         attached = _copy_attachments(doc, folder, project)
         args = send_document.provider_args(doc, _private_file(folder, "subject.txt", doc["subject"].encode("utf-8")),
                                            _private_file(folder, "body.txt", doc["body"].encode("utf-8")), attached)
-        shown = call("send", args + ["--dry-run"])
+        own = send_document.is_own(doc)
+        ask = (lambda verb, a: call(verb, a, account=doc["account"])) if own else call      # the seam keeps its two arguments for the outbox
+        shown = ask("send", args + ["--dry-run"])
         if not isinstance(shown, dict) or shown.get("would_sha256") != doc["dry_run_sha256"]:
             raise effects.EffectError("deviation", "the provider would send something other than the e-mail that was previewed: nothing is sent")
-        done = call("send", args + ["--confirmed"])
+        done = ask("send", args + ["--confirmed"])
     finally:
         shutil.rmtree(folder, ignore_errors=True)
     if not isinstance(done, dict) or done.get("sent") is not True or done.get("message_id") != doc["message_id"]:
-        raise UnknownError("the provider's answer is not a sent e-mail with this Message-ID: the e-mail may or may not have been sent")
-    return send_document.facts(doc, "replayed" if done.get("replayed") else "sent")
+        raise UnknownError("the provider's answer is not a sent e-mail with this Message-ID: the e-mail may or may not have been sent", account=send_document.is_own(doc))
+    return send_document.facts(doc, "replayed" if done.get("replayed") else "sent", done.get("service_message_id"))
 
 
 if __name__ == "__main__":

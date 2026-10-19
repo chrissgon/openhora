@@ -424,9 +424,9 @@ def test_a_word_whose_group_does_not_exist_yet_starts_nothing(world, monkeypatch
     made_nothing(world)
 
 
-def test_the_words_of_the_family_have_their_groups_and_send_is_not_one(world):
-    assert account_start.GROUP_OF_WORD == {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write"}
-    assert "send" not in account_start.WORDS and set(account_start.WORDS) == set(ops.project_config.ACCOUNT_EFFECT_WORDS)
+def test_the_words_of_the_family_have_their_groups_and_send_is_the_one_a_mail_from_the_persons_own_account_adds(world):
+    assert account_start.GROUP_OF_WORD == {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write", "send": "mail-send"}
+    assert set(account_start.WORDS) == set(ops.project_config.ACCOUNT_EFFECT_WORDS) | {"send"}      # package W2: an e-mail from the person's own account
 
 
 def test_a_messaging_start_is_refused_while_the_step_brake_is_stopped_and_the_terminals_is_not(world):

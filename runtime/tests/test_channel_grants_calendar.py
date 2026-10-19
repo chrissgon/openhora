@@ -165,13 +165,13 @@ def test_a_change_card_shows_the_events_current_text_on_messaging_only_to_a_send
     for hidden in (f"Before: Title: {TITLE}", "Before: Notes: Bring cash", "Unchanged: Where: Main Street"):
         assert hidden not in text, hidden
     assert f"The event now: {TITLE}" in body and f"The event now: {TITLE}" in holder["message"]["text"] and f"The event now: {TITLE}" not in text
-    for shown in ("Event: ev0001", "The event now is at: Mon 19/10/2026 13:00-14:00", "After: Title: Haircut with Pat", "After: Notes: New notes", "Before: When: Mon 19/10/2026 13:00-14:00", "Some of the event's current text is not shown here"):
+    for shown in ("Event: ev0001", "The event now is at: Mon 19/10/2026 13:00-14:00", "After: Title: Haircut with Pat", "After: Notes: New notes", "Before: When: Mon 19/10/2026 13:00-14:00", "Some of the current text of the event or the message is not shown here"):
         assert shown in text, shown
     assert other["approvable"] is False and "Approve this exact content" not in labels(other), "a card that leaves a line out is not approved where it is partial"
     assert other["content_sha256"] == holder["content_sha256"], "the hash is the effect's, whatever is drawn"
     portuguese = cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, {"messaging": ["read"]}, "text", None, operations=operations, sender=SENDER,
                              cfg={"language": "pt-BR"})["message"]["text"]
-    assert "Parte do texto atual do evento n\u00e3o aparece aqui" in portuguese and "Evento: ev0001" in portuguese and "O evento agora \u00e9 em: " in portuguese and "O evento agora: Haircut" not in portuguese
+    assert "Parte do texto atual do evento ou da mensagem n\u00e3o aparece aqui" in portuguese and "Evento: ev0001" in portuguese and "O evento agora \u00e9 em: " in portuguese and "O evento agora: Haircut" not in portuguese
     assert "Antes: T\u00edtulo" not in portuguese and "Depois: T\u00edtulo: Haircut with Pat" in portuguese
 
 

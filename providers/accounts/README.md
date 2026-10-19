@@ -8,7 +8,7 @@ The decision (maintainer, 2026-10-18): the secretary manages everything the pers
 |---|---|
 | The account | One client, one consent, the platform's set; a token with fewer or more scopes is refused (exit 3) |
 | The process | Only a provider process the runtime starts, with that one secret in its environment, reads the token; never a run, a prompt, a manifest, a card, a log or the store (limit L59) |
-| The verb | Each provider script exposes only the verbs its job needs. The readers send GET only; a test fails on any other method (the readers' part of limit L58). No script holds a permanent-delete call |
+| The verb | Each provider script exposes only the verbs its job needs. The readers send GET only; a test fails on any other method (the readers' part of limit L58). No script holds a permanent-delete call. The mailers of the account (`providers/mailer/gmail.py` and `outlook.py`, package W2) send only after an approved card, and only the requests of their own `ALLOWED` list: one POST of the message for Gmail; the draft, its update, the send and the move of an unsent draft to Deleted Items for Outlook |
 | The content | Every write, in later packages, is an effect whose hash the person approves |
 | The person and the channel | Policies and grants say who may ask and who may approve, and where |
 

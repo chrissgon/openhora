@@ -863,7 +863,7 @@ def test_a_plan_or_a_flow_cannot_carry_a_file_write_step_and_the_refused_words_a
     with pytest.raises(steps.StepFailure) as again:
         steps.add_task(ctx["store"], ctx["conn"], "file-write", args, key="k", title="t", text="x")
     assert again.value.code == "not_plannable" and open_decisions(world) == []
-    assert set(steps.ACCOUNT_WORDS) == set(account_start.WORDS) and step_files.fd.WORD in steps.ACCOUNT_WORDS
+    assert set(steps.ACCOUNT_WORDS) | {"send"} == set(account_start.WORDS) and step_files.fd.WORD in steps.ACCOUNT_WORDS
 
 
 def test_the_current_name_of_a_file_and_the_name_of_a_file_a_sender_sent_are_not_shown_to_a_reader_who_may_not_see_them(world):
