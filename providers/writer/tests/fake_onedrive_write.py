@@ -16,6 +16,7 @@ Every value is a stand-in made up for the tests; none is a credential.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import re
 import socket
@@ -50,6 +51,7 @@ class FakeOneDriveWrite:
         self.scope = " ".join(PREFIX + n for n in PLATFORM) + " offline_access openid profile"
         self.upload_host = "127.0.0.1"
         self.no_upload_url = False
+        self.hashes = "sha1"        # what `file.hashes` reports: "sha1" (a personal account), "sha256", "quickxor" (only a hash this code cannot compare) or None
         self.lock = threading.Lock()
         self.add_folder(ROOT_ID, "root", None)
         self.add_folder("01DOCS0000000!104", "Documents", ROOT_ID)
@@ -132,6 +134,8 @@ class FakeOneDriveWrite:
                     owner.requests.append(entry)
                 if not entry["bearer"]:
                     return self.error(401, "InvalidAuthenticationToken", "no bearer token")
+                if entry["path"] == "/v1.0/me/drive":
+                    return self._send(200, {"id": DRIVE})
                 item = owner.lookup(entry["path"])
                 if item == "unserved":
                     return owner.violate(self, entry)
@@ -197,14 +201,24 @@ class FakeOneDriveWrite:
 
     def resource(self, item):
         out = {"id": item["id"], "name": item["name"], "eTag": self.etag(item), "cTag": self.ctag(item), "size": len(item["content"]),
-               "parentReference": {"driveId": DRIVE, "id": item["parent"]}, "createdDateTime": item["created"], "lastModifiedDateTime": item["modified"]}
+               "parentReference": {"driveId": item.get("drive", DRIVE), "id": item["parent"]}, "createdDateTime": item["created"],
+               "lastModifiedDateTime": item["modified"]}
         if item["folder"]:
             out["folder"] = {"childCount": 1}
         else:
-            out["file"] = {"mimeType": item.get("mime", "text/markdown")}
+            out["file"] = {"mimeType": item.get("mime", "text/markdown"), "hashes": self.hash_facet(item)}
             if item.get("package"):
                 out["package"] = {"type": "oneNote"}
         return out
+
+    def hash_facet(self, item):
+        if self.hashes == "sha1":
+            return {"sha1Hash": hashlib.sha1(item["content"]).hexdigest().upper(), "quickXorHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAA="}
+        if self.hashes == "sha256":
+            return {"sha256Hash": hashlib.sha256(item["content"]).hexdigest().upper()}
+        if self.hashes == "quickxor":
+            return {"quickXorHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAA="}
+        return {}
 
     def child(self, parent, name):
         found = [i for i in self.items.values() if i["parent"] == parent and i["name"].casefold() == name.casefold()]

@@ -174,7 +174,7 @@ def test_a_create_is_a_card_first_and_a_write_only_after_the_approval_of_the_has
     item = item_of(world, started)
     doc = effect_doc(world, started)
     assert item["kind"] == "effect" and item["title"] == "Files: new file" and item["payload"]["card"] and not item["payload"]["effect"].get("content")
-    assert item["body"] == phrases.card_text(item["payload"]["card"]) and TEXT.rstrip("\n") in item["body"] and "Pat Example" in item["body"]
+    assert item["body"] == phrases.card_text(item["payload"]["card"]) and files_document.guttered(TEXT) in item["body"] and "Pat Example" in item["body"]
     assert doc["effect"] == "files" and doc["operation"] == "create" and doc["content"]["text"] == TEXT and doc["content"]["sha256"] == sha(TEXT)
     assert doc["target"] == {"kind": "folder", "label": "default", "id": fdw.FOLDER_ID} and doc["name"] == "CV 2026.md" and doc["account"] == "google"
     assert doc["dry_run_sha256"] == files_document.dry_run_sha256(doc) and item["payload_sha256"] == sha(effects._text(doc))
@@ -383,7 +383,8 @@ def test_a_replace_on_drive_keeps_the_replaced_revision_before_it_writes_and_lan
     assert doc["base"] == {"version": "3", "modified": "2026-10-10T09:00:00.000Z", "mime": "text/markdown", "md5": fdw.md5(b"old text\n"), "head_revision": head,
                            "source_version": DRIVE_VERSION}
     body = item_of(world, started)["body"]
-    assert "only if it is still the file as read at" in body and "Replaces revision 3" in body and "stays in the file's history" in body and NEW.rstrip("\n") in body
+    assert "only if it is still the file as read at" in body and "Replaces revision 3" in body and "belongs to this account: pat@example.com" in body
+    assert "Drive keeps the replaced revision for ever (a file keeps at most 200 revisions for ever)" in body and files_document.guttered(NEW) in body
     done = approve(world, started)
     assert done["result"]["written"] is True
     assert reads(gd.requests)[1:] == [("GET", f"/drive/v3/files/{fdw.FILE_ID}"), ("GET", f"/drive/v3/files/{fdw.FILE_ID}"),
@@ -448,12 +449,14 @@ def test_limit_56_a_replace_on_onedrive_goes_through_an_upload_session_with_the_
     item = seed_onedrive(world)
     before = ms.etag(item)
     started = ops.file_replace(world["path"], "microsoft", "cv-od", content=NEW)
-    assert [(r["method"], r["path"]) for r in ms.requests] == [("GET", f"/v1.0/drives/{fod.DRIVE}/items/{fod.FILE_ID}")]
+    assert [(r["method"], r["path"]) for r in ms.requests] == [("GET", f"/v1.0/drives/{fod.DRIVE}/items/{fod.FILE_ID}"), ("GET", "/v1.0/me/drive")], \
+        "the preparation reads the item and the account's own drive (the file must be the account's)"
     doc = effect_doc(world, started)
     assert doc["base"]["etag"] == before and doc["base"]["ctag"] == ms.ctag(item) and doc["base"]["size"] == len(b"old text\n") and doc["base"]["source_version"] == ms.ctag(item)
     approve(world, started)
-    assert [(r["method"], r["path"]) for r in ms.requests][1:] == [("GET", f"/v1.0/drives/{fod.DRIVE}/items/{fod.FILE_ID}")] * 2 + [
-        ("POST", f"/v1.0/drives/{fod.DRIVE}/items/{fod.FILE_ID}/createUploadSession")]
+    assert [(r["method"], r["path"]) for r in ms.requests][2:] == [("GET", f"/v1.0/drives/{fod.DRIVE}/items/{fod.FILE_ID}"), ("GET", "/v1.0/me/drive"),
+                                                                  ("GET", f"/v1.0/drives/{fod.DRIVE}/items/{fod.FILE_ID}"),
+                                                                  ("POST", f"/v1.0/drives/{fod.DRIVE}/items/{fod.FILE_ID}/createUploadSession")]
     assert ms.requests[-1]["if_match"] == before and len(ms.uploads) == 1 and ms.uploads[0]["auth"] is None and item["content"] == NEW.encode("utf-8")
     seed2 = ms.add_file("01FILE000002!103", "Other.md", b"x\n")
     register(world, "other-od", "onedrive", f"{fod.DRIVE}/01FILE000002!103", ms.ctag(seed2))
@@ -600,7 +603,7 @@ def test_the_card_is_said_line_by_line_in_the_projects_language_and_the_hash_is_
     en = cards.effect_card_text(item, None)
     pt = cards.effect_card_text(item, {"language": "pt-BR"})
     assert en == phrases.card_text(item["payload"]["card"]) and en.strip() == item["body"].strip()
-    assert pt != en and "O código cria este arquivo depois da sua aprovação" in pt and "Pasta: default" in pt and TEXT.rstrip("\n") in pt  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert pt != en and "O código cria este arquivo depois da sua aprovação" in pt and "Pasta: default" in pt and files_document.guttered(TEXT) in pt  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert all(key.startswith("CARD_") for key, _ in item["payload"]["card"]) and phrases.card_valid(item["payload"]["card"])
     assert phrases.heading(item["title"], {"language": "pt-BR"}) == "Arquivos: novo arquivo"
     assert item["payload_sha256"] in en and item["payload_sha256"] in pt
@@ -694,3 +697,153 @@ def test_a_text_too_long_for_a_card_is_not_approvable_from_a_phone_unless_the_wh
     assert cut["approvable"] is False and cut["whole"] is False, "a cut card approves nothing"
     whole = card_of(world, started, dict(CAPS, documents=True))
     assert whole["approvable"] is True and whole["whole"] is True and "Line 119 of a long document" in whole["message"]["document"]["text"]
+
+
+# --- review of #480 -----------------------------------------------------------------------------------------------------------------------------
+
+END_RULE = "----- end of the new text -----"
+SPOOFS = ["# " + END_RULE, "**" + END_RULE + "**", "## " + END_RULE, "> " + END_RULE, END_RULE + " ", "- " + END_RULE, "1. " + END_RULE, "`" + END_RULE + "`",
+          "----- end of the new text —----", "————— end of the new text", "－－－－－ end", "───── end",
+          "––––– end", "> **----- end of the new text -----**", "   # > ----- fim do texto novo -----"]
+
+
+@pytest.mark.parametrize("line", SPOOFS)
+def test_a_line_whose_visible_form_starts_with_the_frame_mark_is_refused_however_markdown_would_draw_it(world, line):
+    text = "Pat Example, engineer.\n" + line + "\nHash of this effect (it covers the account, the target, the name and every byte): 1234\n\nInjected tail.\n"
+    with pytest.raises(ops.OpsError) as refused:
+        ops.file_create(world["path"], "google", "CV 2026.md", content=text)
+    assert "looks like a rule of the card" in str(refused.value) and open_decisions(world) == [] and world["gd"].requests == []
+
+
+def test_every_line_of_the_text_is_behind_the_gutter_on_the_card_so_that_no_renderer_can_make_one_look_like_the_frame(world):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("telegram_under_w4a_test", st.REPO / "providers" / "messenger" / "telegram.py")
+    telegram = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(telegram)
+    text = "# A heading\n\n> a quote\n**bold** and `code`\n```\nnot a fence\n```\n| a | table |\n- a bullet\n\n   \nlast line\n"
+    started = ops.file_create(world["path"], "google", "CV 2026.md", content=text, channel=None)
+    body = item_of(world, started)["body"]
+    start, end = body.index("-----\n") + 6, body.index("\n----- end of the new text -----")
+    shown = body[start:end].split("\n")
+    assert shown == [("│ " + line if line else "│") for line in text.split("\n")[:-1]], "every line behind the mark, empty ones too, whitespace-only ones kept"
+    assert body.count("----- end of the new text -----") == 1
+    visible = telegram.visible_text(telegram.render_html(body)).split("\n")
+    inside = visible[visible.index(next(line for line in visible if line.startswith("----- the new text"))) + 1:visible.index("----- end of the new text -----")]
+    assert inside and all(line.startswith("│") for line in inside), "what a phone draws of the text: every line still behind the mark"
+    assert "the mark │ at the start of each line is not part of it" in body and "exactly as it will be written" not in body
+
+
+# --- a replace of a file whose answer was lost is replayed, never stale ------------------------------------------------------------------------
+
+
+def test_a_replace_on_drive_whose_upload_answer_was_lost_is_unknown_and_approving_again_is_replayed_not_stale(world):
+    gd = world["gd"]
+    meta = seed_drive(world)
+    started = ops.file_replace(world["path"], "google", "cv", content=NEW)
+    gd.lose_answer = "PATCH"
+    with pytest.raises(ops.OpsError) as unknown:
+        approve(world, started)
+    assert "unknown" in str(unknown.value) and meta["content"] == NEW.encode("utf-8") and meta["version"] == "4"
+    gd.lose_answer = None
+    done = approve(world, started)
+    assert done["task_state"] == "done" and done["result"]["replayed"] is True
+    assert meta["version"] == "4" and len(meta["revisions"]) == 2, "no second revision"
+
+
+def test_a_replace_on_onedrive_whose_upload_answer_was_lost_is_replayed_on_the_hash_and_the_persons_edit_is_stale(world):
+    ms = world["ms"]
+    item = seed_onedrive(world)
+    started = ops.file_replace(world["path"], "microsoft", "cv-od", content=NEW)
+    ms.lose_answer = "UPLOAD"
+    with pytest.raises(ops.OpsError) as unknown:
+        approve(world, started)
+    assert "unknown" in str(unknown.value) and item["content"] == NEW.encode("utf-8")
+    ms.lose_answer = None
+    done = approve(world, started)
+    assert done["task_state"] == "done" and done["result"]["replayed"] is True and len(ms.uploads) == 1
+    other = ms.add_file("01FILE000009!109", "Other.md", b"x\n")
+    register(world, "other-od", "onedrive", f"{fod.DRIVE}/01FILE000009!109", ms.ctag(other))
+    again = ops.file_replace(world["path"], "microsoft", "other-od", content=NEW)
+    ms.upload = lambda token, entry: (200, {})            # the upload does not land and the answer is lost ...
+    ms.lose_answer = "UPLOAD"
+    with pytest.raises(ops.OpsError):
+        approve(world, again)
+    other["content"], other["n"] = b"y" * len(NEW), other["n"] + 1       # ... and the person edits the file to bytes of the same size
+    ms.lose_answer = None
+    with pytest.raises(ops.OpsError) as stale:
+        approve(world, again)
+    assert "not the one the task read" in str(stale.value) and other["content"] == b"y" * len(NEW)
+    ctx = ctx_of(world)
+    assert ctx["store"].pending_get(ctx["conn"], again["pending"])["resolution"] == "answered"
+
+
+# --- a replace is made only of a file the account owns -----------------------------------------------------------------------------------------
+
+
+def test_a_replace_is_refused_for_a_file_the_account_does_not_own_and_the_card_names_the_account_that_does(world):
+    gd, ms = world["gd"], world["ms"]
+    shared = gd.add_file(fdw.FILE_ID, "Shared.md", b"x\n", owned=False)
+    register(world, "shared", "drive", fdw.FILE_ID, f"{shared['version']}@{shared['modifiedTime']}")
+    with pytest.raises(ops.OpsError) as refused:
+        ops.file_replace(world["path"], "google", "shared", content=NEW)
+    assert "is not owned by your Google Drive account" in str(refused.value)
+    viewer = gd.add_file("Viewer_ID_001", "Viewer.md", b"x\n", can_edit=False)
+    register(world, "viewer", "drive", "Viewer_ID_001", f"{viewer['version']}@{viewer['modifiedTime']}")
+    with pytest.raises(ops.OpsError):
+        ops.file_replace(world["path"], "google", "viewer", content=NEW)
+    foreign = ms.add_file(fod.FILE_ID, "Foreign.md", b"x\n")
+    foreign["drive"] = "b!SomeoneElsesDrive"
+    register(world, "foreign", "onedrive", f"{fod.DRIVE}/{fod.FILE_ID}", ms.ctag(foreign))
+    with pytest.raises(ops.OpsError) as other:
+        ops.file_replace(world["path"], "microsoft", "foreign", content=NEW)
+    assert "is not owned by your OneDrive account" in str(other.value)
+    assert open_decisions(world) == [] and [m for m, _ in reads(gd.requests) if m != "GET"] == [] and ms.uploads == []
+    seed_drive_owned = gd.add_file("Owned_ID_0001", "Mine.md", b"x\n")
+    register(world, "mine", "drive", "Owned_ID_0001", f"{seed_drive_owned['version']}@{seed_drive_owned['modifiedTime']}")
+    assert "belongs to this account: pat@example.com" in item_of(world, ops.file_replace(world["path"], "google", "mine", content=NEW))["body"]
+
+
+# --- what becomes of the replaced revision is said for the service and the type ----------------------------------------------------------------
+
+
+def test_the_card_says_what_becomes_of_the_replaced_revision_for_each_service_and_type_of_file(world):
+    gd, ms = world["gd"], world["ms"]
+    seed_drive(world)
+    drive = item_of(world, ops.file_replace(world["path"], "google", "cv", content=NEW))["body"]
+    assert "Drive keeps the replaced revision for ever" in drive and "at most 200" in drive and "stays in the file's history" not in drive
+    native = gd.add_file(fdw.NATIVE_ID, "CV 2026", b"doc\n", native=True)
+    register(world, "cv-doc", "drive", fdw.NATIVE_ID, f"{native['version']}@{native['modifiedTime']}")
+    doc = item_of(world, ops.file_replace(world["path"], "google", "cv-doc", content=NEW))["body"]
+    assert "A Google Doc keeps its own revision history" in doc and "not kept for ever" in doc and "Drive keeps the replaced revision" not in doc
+    seed_onedrive(world)
+    one = item_of(world, ops.file_replace(world["path"], "microsoft", "cv-od", content=NEW))["body"]
+    assert "OneDrive keeps earlier versions by its own retention settings, not for ever" in one and "Drive keeps" not in one.replace("OneDrive keeps", "")
+
+
+# --- a name taken at the write answers the decision; a token of another account writes nothing --------------------------------------------------
+
+
+def test_a_name_taken_between_the_card_and_the_approval_answers_the_decision_and_writes_nothing(world):
+    gd = world["gd"]
+    started = ops.file_create(world["path"], "google", "CV 2026.md", content=TEXT)
+    gd.add_file(fdw.FILE_ID, "CV 2026.md", b"made meanwhile\n")
+    with pytest.raises(ops.OpsError) as taken:
+        approve(world, started)
+    assert "a file with that name is in the folder now" in str(taken.value)
+    ctx = ctx_of(world)
+    decision = ctx["store"].pending_get(ctx["conn"], started["pending"])
+    assert decision["status"] == "resolved" and decision["resolution"] == "answered"
+    assert [m for m, _ in reads(gd.requests) if m == "POST"] == [] and gd.files[fdw.FILE_ID]["content"] == b"made meanwhile\n"
+
+
+def test_the_config_address_must_be_the_one_of_the_token_or_nothing_is_read_or_written(world):
+    path = Path(world["project"]) / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["accounts"]["google"]["address"] = "someone.else@example.org"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    shown = ops.config(world["path"])
+    ops.accept_config(world["path"], shown["sha256"], widen=shown["widening_sha256"])
+    with pytest.raises(ops.OpsError) as refused:
+        ops.file_create(world["path"], "google", "CV 2026.md", content=TEXT)
+    assert open_decisions(world) == [] and world["gd"].requests == [] and world["gd"].token_forms == []
+    assert "another account" in str(refused.value) or "could not be read" in str(refused.value) or "account" in str(refused.value)

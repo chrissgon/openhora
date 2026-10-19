@@ -14,16 +14,19 @@ not asked for. Its constant ALLOWED lists the only requests its one request func
 Usage:
   uv run providers/writer/onedrive.py --help
   uv run providers/writer/onedrive.py --check
-  uv run providers/writer/onedrive.py file-meta --id <drive id>/<item id>
-  uv run providers/writer/onedrive.py file-meta --folder <folder item id | /folder/path> --name <file name>
+  uv run providers/writer/onedrive.py file-meta --account <address> --id <drive id>/<item id>
+  uv run providers/writer/onedrive.py file-meta --account <address> --folder <folder item id | /folder/path> --name <file name>
   uv run providers/writer/onedrive.py create --folder <folder item id | /folder/path> --name <file name> --media-type <type> --content-file <abs path>
-        --bytes <n> --sha256 <hex> --idempotency-key <key> (--dry-run | --confirmed)
+        --bytes <n> --sha256 <hex> --idempotency-key <key> --account <address> (--dry-run | --confirmed)
   uv run providers/writer/onedrive.py replace --id <drive id>/<item id> --media-type <type> --content-file <abs path> --bytes <n> --sha256 <hex>
-        --base-etag <eTag> --base-ctag <cTag> --base-size <n> --idempotency-key <key> (--dry-run | --confirmed)
+        --base-etag <eTag> --base-ctag <cTag> --base-size <n> --idempotency-key <key> --account <address> (--dry-run | --confirmed)
 
+  --account   the address of the account the document names. Every verb but --check reads it and compares it with the account of the token record: another
+              account's token reads and writes nothing (exit 1).
   --check     refreshes the access token (the only network call) and checks that the account token carries the platform's permissions; prints
               {"ok", "account_kind", "tenant", "scope", "rotation"}. Exit 3 when there is no account authorization or it was refused.
-  file-meta   one read. By id: {"id", "name", "etag", "ctag", "size", "modified", "mime_type", "kind", "writable", "reason"}. By folder and name:
+  file-meta   one read. By id: {"id", "name", "etag", "ctag", "size", "modified", "mime_type", "kind", "writable", "reason", "sha1", "sha256", "owned"}
+              (owned: the item is in the account's own drive; only such a file is replaced; the hashes are what Graph reports, used to tell a lost write of ours). By folder and name:
               the folder (it must exist and be a folder) and whether an item of that name is in it (`exists`, `match`). Names are another person's
               text in principle: cleaned to one line, shown, never used as a path.
   create      a NEW file in the folder: `PUT .../content` with @microsoft.graph.conflictBehavior=fail, so a file of that name makes Graph answer 409
@@ -56,6 +59,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import importlib.util
 import json
 import os
@@ -76,6 +80,7 @@ FOLDER_FIELDS = "id,name,folder,deleted"
 NAME_MAX = 120
 NAME_EXTRA = " ._-()"
 RESPONSE_LIMIT = 1024 * 1024
+ADDRESS = re.compile(r"[^@\s]{1,64}@[^@\s]{1,253}")
 ID_PART = re.compile(r"[A-Za-z0-9!._-]{1,200}")
 ETAG = re.compile(r'[A-Za-z0-9{}",=_:-]{1,200}')
 CLOCK_SLACK = datetime.timedelta(seconds=90)      # between this machine's clock and the service's, when a lost answer is looked for
@@ -84,6 +89,7 @@ CLOCK_SLACK = datetime.timedelta(seconds=90)      # between this machine's clock
 # or rename (PATCH), no copy, no permission or sharing call, and no call on the recycle bin.
 SEG = r"(?!\.+(?:[/:]|$))[A-Za-z0-9_%.~=-]{1,600}"
 ALLOWED = (
+    ("GET", r"/me/drive"),
     ("GET", r"/me/drive/items/" + SEG),
     ("GET", r"/me/drive/items/" + SEG + r":/" + SEG),
     ("GET", r"/me/drive/root:(/" + SEG + r")+"),
@@ -152,12 +158,23 @@ class Session:
         self.client, self.upload_hosts, self.test_mode = client, upload_hosts, test_mode
 
 
-def open_session() -> Session:
+def check_account_flag(value) -> str:
+    if not isinstance(value, str) or not ADDRESS.fullmatch(value):
+        raise WriterError("--account is the address of the account the document names", EXIT_USAGE)
+    return value
+
+
+def open_session(expected: str) -> Session:
+    """The session of the account token, only when the token belongs to the account the document names (`--account`): a token of another account writes
+    nothing (exit 1)."""
     base, token_url, hosts, test_mode = endpoints()
     found = converted(msgraph.find_account_record, secret_resolver(), PROFILE, test_mode)
     if not found:
         raise WriterError(f"no Microsoft account authorization: run {PROFILE.auth_command}, or export {PROFILE.secret} (the JSON record)", EXIT_NOT_CONFIGURED)
     record = converted(msgraph.parse_account_record, PROFILE, found[0])
+    mine = record.get("account")
+    if not isinstance(mine, str) or mine.casefold() != expected.casefold():
+        raise WriterError("the account token belongs to another account than the one the document names: nothing was written", EXIT_REFUSED)
     access, rotated = converted(msgraph.refresh_access_token, PROFILE, token_url or msgraph.TOKEN_URL_TEMPLATE.format(tenant=record["tenant"]), record)
     msgraph.store_rotation(PROFILE, record, rotated, found[1], test_mode, lambda: secret_resolver(), lambda mode: msgraph.keyring_module(PROFILE, mode))
     return Session(msgraph.GraphClient(PROFILE, base, access, test_mode), hosts, test_mode)
@@ -341,6 +358,9 @@ def described(meta: dict) -> dict:
     size = meta.get("size")
     ident = meta.get("id") if isinstance(meta.get("id"), str) and ID_PART.fullmatch(meta["id"]) else None
     mime = meta["file"].get("mimeType") if facet(meta, "file") and isinstance(meta["file"].get("mimeType"), str) else ""
+    hashes = meta["file"].get("hashes") if facet(meta, "file") and isinstance(meta["file"].get("hashes"), dict) else {}
+    sha1 = hashes.get("sha1Hash") if isinstance(hashes.get("sha1Hash"), str) else None
+    sha256 = hashes.get("sha256Hash") if isinstance(hashes.get("sha256Hash"), str) else None
     writable = kind == "file"
     reason = "" if writable else {"deleted": "the item is deleted", "malware": "OneDrive flagged the file as malware",
                                   "shared-from-another-drive": "the item is shared from another drive", "package": "a package (a OneNote notebook) is not a file",
@@ -348,7 +368,18 @@ def described(meta: dict) -> dict:
     return {"id": f"{drive}/{ident}" if drive and ident else ident, "name": one_line(meta.get("name"), 200), "etag": str(meta.get("eTag") or ""),
             "ctag": str(meta.get("cTag") or ""), "size": size if isinstance(size, int) and not isinstance(size, bool) and size >= 0 else None,
             "modified": str(meta.get("lastModifiedDateTime") or ""), "created": str(meta.get("createdDateTime") or ""), "mime_type": mime, "kind": kind,
+            "sha1": sha1.lower() if sha1 else None, "sha256": sha256.lower() if sha256 else None, "drive": drive,
             "writable": writable, "reason": reason}
+
+
+def content_matches(item: dict, data: bytes):
+    """Whether the hash Graph reports for a file (`file.hashes`: sha256Hash where it has one, else sha1Hash) is the hash of `data`: True or False, or None when it
+    reported none this code can compare (quickXorHash alone), which proves nothing."""
+    if item.get("sha256"):
+        return item["sha256"] == hashlib.sha256(data).hexdigest()
+    if item.get("sha1"):
+        return item["sha1"] == hashlib.sha1(data).hexdigest()      # integrity against the service's own report, not security
+    return None
 
 
 def moment(text):
@@ -406,13 +437,15 @@ def cmd_file_meta(a) -> int:
         if a.name is not None:
             raise WriterError("--name goes with --folder", EXIT_USAGE)
         drive, item = split_id(a.id)
-        session = open_session()
+        session = open_session(check_account_flag(a.account))
         meta = read_json(session, {"method": "GET", "path": item_path(drive, item), "query": {"$select": ITEM_FIELDS}}, "driveItem get")
         out = described(meta)
+        own = read_json(session, {"method": "GET", "path": "/me/drive", "query": {"$select": "id"}}, "drive get").get("id")
+        out["owned"] = isinstance(own, str) and own.casefold() == (out["drive"] or drive).casefold()      # the item is in the account's own drive
         out["id"] = f"{drive}/{item}"
         return emit(out)
     ref, name = folder_ref(a.folder), check_name(a.name)
-    session = open_session()
+    session = open_session(check_account_flag(a.account))
     folder = read_json(session, {"method": "GET", "path": folder_path(ref), "query": {"$select": FOLDER_FIELDS}}, "driveItem get (folder)")
     if not facet(folder, "folder") or facet(folder, "deleted"):
         raise WriterError("the folder is not a folder of the account, or it is deleted")
@@ -451,7 +484,7 @@ def cmd_create(a) -> int:
     if claim["state"] == "done":
         return emit({**claim["result"], "replayed": True})
     try:
-        session = open_session()
+        session = open_session(check_account_flag(a.account))
         folder = read_json(session, steps[0], "driveItem get (folder)")
         if not facet(folder, "folder") or facet(folder, "deleted"):
             raise WriterError("the folder is not a folder of the account, or it is deleted: nothing was written")
@@ -463,11 +496,15 @@ def cmd_create(a) -> int:
             probe = {"method": "GET", "path": child_path(ref, name), "query": {"$select": ITEM_FIELDS}}
             pstatus, pheaders, pbody = send(session, probe)
             present = described(as_object(pbody, "driveItem get (name)")) if pstatus == 200 else None
-            if present and claim["state"] == "pending" and present["kind"] == "file" and present["size"] == count and not_before(present["created"], claim["since"]):
+            same = present is not None and claim["state"] == "pending" and present["kind"] == "file" and present["size"] == count
+            proof = content_matches(present, data) if same else False
+            if proof is True:       # the file holds the approved bytes: the earlier attempt of this approval made it and its answer was lost
                 out = result_of(present, True)
                 ledger.done(key, out)
                 return emit(out)
-            raise WriterError(f"a file named {name!r} is already in the folder: create never replaces a file, nothing was written")
+            if proof is None and not_before(present["created"], claim["since"]):      # made since the key was claimed, but Graph reports no hash to prove it is ours
+                raise WriterError(f"a file named {name!r} was made since the earlier attempt and its content cannot be compared: the outcome is unknown", EXIT_UNKNOWN)
+            raise WriterError(f"taken: a file named {name!r} is already in the folder: create never replaces a file, nothing was written")
         if status not in (200, 201):
             raise unknown_after(failure(session, status, headers, answer, "driveItem put content"))
         try:
@@ -498,17 +535,20 @@ def cmd_replace(a) -> int:
     if claim["state"] == "done":
         return emit({**claim["result"], "replayed": True})
     try:
-        session = open_session()
+        session = open_session(check_account_flag(a.account))
         current = described(read_json(session, steps[0], "driveItem get"))
         if not current["writable"]:
             raise WriterError(f"changed: the item is no longer a file this provider writes ({current['reason']}): nothing was written")
         moved = [field for field, now, then in (("eTag", current["etag"], etag), ("cTag", current["ctag"], ctag), ("size", str(current["size"]), a.base_size))
                  if now != then]
         if moved:
-            if claim["state"] == "pending" and current["size"] == count and not_before(current["modified"], claim["since"]):
-                out = result_of(current, True)          # the earlier attempt of this approval landed and its answer was lost
+            proof = content_matches(current, data) if claim["state"] == "pending" and current["size"] == count else False
+            if proof is True:          # the file holds the approved bytes: the earlier attempt of this approval landed and its answer was lost
+                out = result_of(current, True)
                 ledger.done(key, out)
                 return emit(out)
+            if proof is None and not_before(current["modified"], claim["since"]):
+                raise WriterError("the file changed since the earlier attempt and its content cannot be compared with the approved bytes: the outcome is unknown", EXIT_UNKNOWN)
             raise WriterError("changed: the file is not the one the runtime read (" + ", ".join(moved) + "): nothing was written")
         status, headers, answer = send(session, steps[1], json.dumps(steps[1]["body"]).encode("ascii"),
                                        {"Content-Type": "application/json", "If-Match": etag})
@@ -547,7 +587,7 @@ def build_parser() -> Parser:
     p = Parser(prog="onedrive.py", add_help=False)
     p.add_argument("verb", nargs="?", choices=["file-meta", "create", "replace"])
     p.add_argument("--check", action="store_true")
-    for flag in ("id", "folder", "name", "media-type", "content-file", "bytes", "sha256", "idempotency-key", "base-etag", "base-ctag", "base-size"):
+    for flag in ("account", "id", "folder", "name", "media-type", "content-file", "bytes", "sha256", "idempotency-key", "base-etag", "base-ctag", "base-size"):
         p.add_argument("--" + flag)
     for flag in ("dry-run", "confirmed"):
         p.add_argument("--" + flag, action="store_true")
@@ -567,7 +607,11 @@ def main(argv=None) -> int:
             return cmd_check(a)
         if a.verb is None:
             raise WriterError("give a verb or --check; see --help", EXIT_USAGE)
+        if a.verb == "file-meta" and a.account is None:
+            raise WriterError("--account is required", EXIT_USAGE)
         if a.verb in ("create", "replace"):
+            if a.account is None and not a.dry_run:
+                raise WriterError("--account is required with --confirmed", EXIT_USAGE)
             if a.dry_run == a.confirmed:
                 raise WriterError("give exactly one of --dry-run and --confirmed", EXIT_USAGE)
             if not a.content_file and not a.dry_run:

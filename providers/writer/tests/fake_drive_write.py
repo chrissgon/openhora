@@ -69,6 +69,7 @@ class FakeDriveWrite:
         self.edit_during = None
         self.scope = " ".join(SCOPES)
         self.redirect_token = False
+        self.keep_cap = False
         self.counter = 0
         self.lock = threading.Lock()
         self.add_folder(FOLDER_ID, "openhora")
@@ -195,15 +196,17 @@ class FakeDriveWrite:
         self.files[ident] = {"id": ident, "name": name, "mimeType": FOLDER, "parents": list(parents), "version": "1", "modifiedTime": "2026-10-01T08:00:00.000Z",
                              "trashed": False, "appProperties": {}, "content": b"", "revisions": []}
 
-    def add_file(self, ident, name, data: bytes, mime="text/markdown", parents=(FOLDER_ID,), native=False, trashed=False):
+    def add_file(self, ident, name, data: bytes, mime="text/markdown", parents=(FOLDER_ID,), native=False, trashed=False, owned=True, can_edit=True):
         revision = self.new_id("rev")
         self.files[ident] = {"id": ident, "name": name, "mimeType": DOC if native else mime, "parents": list(parents), "version": "3",
                              "modifiedTime": "2026-10-10T09:00:00.000Z", "trashed": trashed, "appProperties": {}, "content": data,
-                             "revisions": [] if native else [{"id": revision, "keepForever": False}]}
+                             "revisions": [] if native else [{"id": revision, "keepForever": False}], "owned": owned, "can_edit": can_edit}
         return self.files[ident]
 
     def resource(self, meta):
         out = {k: meta[k] for k in ("id", "name", "mimeType", "parents", "version", "modifiedTime", "trashed", "appProperties")}
+        out["ownedByMe"] = meta.get("owned", True)
+        out["capabilities"] = {"canEdit": meta.get("can_edit", True)}
         if meta["mimeType"] != FOLDER and not meta["mimeType"].startswith("application/vnd.google-apps."):
             out["md5Checksum"] = md5(meta["content"])
             out["size"] = str(len(meta["content"]))
@@ -262,6 +265,8 @@ class FakeDriveWrite:
         found = [r for r in (meta or {}).get("revisions", []) if r["id"] == revision]
         if not found:
             return 404, {"error": {"message": "Revision not found"}}
+        if self.keep_cap:
+            return 403, {"error": {"message": "The maximum number of revisions that can be kept forever was reached.", "errors": [{"reason": "revisionLimitExceeded"}]}}
         found[0]["keepForever"] = json.loads(entry["body"]).get("keepForever") is True
         return 200, {"id": revision, "keepForever": found[0]["keepForever"]}
 

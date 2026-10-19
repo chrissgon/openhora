@@ -456,8 +456,12 @@ class FilesReader:
         if implementation is None:
             raise StepServiceError("refused", "the account is google or microsoft")
         resolve = project_config.resolver(self._root)
+        entry = project_config.account_entry(self._cfg, account)
+        if entry is None:
+            raise StepServiceError("not_configured", project_config.clean_name(account, 20))
+        args = list(args) + ["--account", entry["address"]]      # the writer reads only with the token of this account
         try:
-            return resolve.call(WRITER_FILES_CLASS, FILES_READ_VERB, list(args), root=self._root, implementation=implementation, timeout=FILES_TIMEOUT,
+            return resolve.call(WRITER_FILES_CLASS, FILES_READ_VERB, args, root=self._root, implementation=implementation, timeout=FILES_TIMEOUT,
                                 env=resolve.provider_environment(WRITER_FILES_CLASS, None, (FILES_SECRETS[account],)))
         except resolve.ProviderCallError as e:
             if e.kind == "not-configured":

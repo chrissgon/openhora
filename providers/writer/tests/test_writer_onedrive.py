@@ -52,6 +52,8 @@ def base_env(tmp_path):
 
 
 def run(args, fake, tmp_path, **env):
+    if args and args[0] != "--check" and "--account" not in args:
+        args = [*args, "--account", fod.ADDRESS]      # every verb names the account of the document; a test of another account gives its own
     proc = subprocess.run([sys.executable, str(WRITER), *args], env={**base_env(tmp_path), **fake.env(**env)}, capture_output=True, text=True, timeout=60)
     for stream in (proc.stdout, proc.stderr):    # no run ever prints a credential, not even partially, nor an upload address
         for secret in fod.SECRETS:
@@ -103,7 +105,7 @@ def test_a_token_that_lacks_a_permission_or_carries_another_is_refused_before_an
 def test_no_account_record_is_exit_3_and_no_legacy_record_is_read(fake, home):
     env = {k: v for k, v in fake.env().items() if k != "MICROSOFT_ACCOUNT_TOKEN"}
     env["ONEDRIVE_SOURCES_TOKEN"] = json.dumps({"refresh_token": fod.REFRESH_TOKEN, "client_id": fod.CLIENT_ID, "scope": "Files.Read"})
-    done = subprocess.run([sys.executable, str(WRITER), *create_args(TEXT, home)], env={**base_env(home), **env}, capture_output=True, text=True, timeout=60)
+    done = subprocess.run([sys.executable, str(WRITER), *create_args(TEXT, home), "--account", fod.ADDRESS], env={**base_env(home), **env}, capture_output=True, text=True, timeout=60)
     assert done.returncode == 3 and "microsoft_auth.py authorize" in done.stderr
     assert fake.requests == [] and fake.token_forms == []
 
@@ -405,3 +407,95 @@ def test_limit_58_every_request_the_fake_saw_is_on_the_allow_list(fake, home):
     for r in fake.requests:
         m.common.guarded(m.ALLOWED, r["method"], r["raw_path"][len("/v1.0"):])
     assert fake.violations == [] and fake.requests and len(fake.uploads) == 1
+
+
+# --- review of #480: the account, the owner, and a lost answer is told from the person's edit by the content hash -----------------------------------
+
+
+def test_a_token_of_another_account_reads_and_writes_nothing(fake, home):
+    seeded(fake)
+    for build in (lambda: create_args(TEXT, home), lambda: ["file-meta", "--id", ITEM], lambda: replace_args(b"new\n", home, fake)):
+        args = build()
+        done = run([*args, "--account", "someone.else@mail.example"], fake, home)
+        assert done.returncode == 1 and "another account" in done.stderr, args
+    assert fake.requests == [] and fake.token_forms == []
+    assert run([*create_args(TEXT, home), "--account", "not an address"], fake, home).returncode == 2
+
+
+def test_file_meta_says_whether_the_item_is_in_the_accounts_own_drive_and_what_hash_graph_reports(fake, home):
+    item = seeded(fake)
+    out = json.loads(run(["file-meta", "--id", ITEM], fake, home).stdout)
+    assert out["owned"] is True and out["sha1"] == hashlib.sha1(OLD).hexdigest() and out["sha256"] is None
+    item["drive"] = "b!SomeoneElsesDrive"
+    assert json.loads(run(["file-meta", "--id", ITEM], fake, home).stdout)["owned"] is False
+    fake.hashes = "sha256"
+    item["drive"] = fod.DRIVE
+    assert json.loads(run(["file-meta", "--id", ITEM], fake, home).stdout)["sha256"] == hashlib.sha256(OLD).hexdigest()
+    assert [m for m, _, _ in fake.listing() if m != "GET"] == []
+
+
+def lost_upload(fake, home, edit, hashes):
+    """An upload that does not land and whose answer is lost; then the person edits the file to bytes of the same size; then the same approval again."""
+    item = seeded(fake)
+    new = b"NEW CONTENT 1\n"
+    args = replace_args(new, home, fake)
+    fake.hashes = hashes
+    fake.upload = lambda token, entry: (200, {})
+    fake.lose_answer = "UPLOAD"
+    assert run(args, fake, home).returncode == 4
+    item["content"], item["n"], item["modified"] = edit, item["n"] + 1, fake.tick()
+    assert len(edit) == len(new)
+    fake.lose_answer = None
+    return run(args, fake, home), item, args
+
+
+def test_a_lost_upload_followed_by_the_persons_own_edit_of_the_same_size_is_never_taken_for_our_write(fake, home):
+    done, item, _ = lost_upload(fake, home, b"PERSON EDIT 2\n", "sha1")
+    assert done.returncode == 1 and done.stderr.startswith("error: changed:"), done.stderr
+    assert item["content"] == b"PERSON EDIT 2\n" and len(fake.uploads) == 1
+    done, item, _ = lost_upload(fake, home, b"PERSON EDIT 3\n", "sha256")
+    assert done.returncode == 1 and "changed:" in done.stderr
+
+
+def test_when_graph_reports_no_hash_to_compare_the_outcome_stays_unknown_and_nothing_is_called_replayed(fake, home):
+    done, item, args = lost_upload(fake, home, b"PERSON EDIT 2\n", "quickxor")
+    assert done.returncode == 4 and "cannot be compared" in done.stderr and item["content"] == b"PERSON EDIT 2\n"
+    again = run(args, fake, home)
+    assert again.returncode == 4, "the key is still pending"
+
+
+def test_a_create_whose_answer_was_lost_is_found_only_by_the_bytes_the_person_approved(fake, home):
+    new = b"approved text 1\n"
+    for hashes, edit, code in (("sha1", b"person's own 16\n", 1), ("quickxor", b"person's own 16\n", 4)):
+        fake.hashes = hashes
+        name = f"Notes {hashes}.md"
+        args = create_args(new, home, name=name, key="files-" + ("c" if hashes == "sha1" else "d") * 32)
+        real = fake.create
+        fake.create = lambda entry: (201, {})
+        fake.lose_answer = "PUT"
+        assert run(args, fake, home).returncode == 4
+        fake.create, fake.lose_answer = real, None
+        other = fake.add_file(f"01PERSON{code}!300", name.lower(), edit)       # the person's own file: the name differs in case, the size is the same
+        other["created"] = other["modified"] = fake.tick()
+        done = run(args, fake, home)
+        assert done.returncode == code and "replayed" not in done.stdout, (hashes, done.stderr)
+        assert other["content"] == edit
+        if code == 1:
+            assert done.stderr.startswith("error: taken:")
+    fake.hashes = "sha1"
+    lost = create_args(new, home, name="Mine.md", key="files-" + "e" * 32)
+    fake.lose_answer = "PUT"
+    assert run(lost, fake, home).returncode == 4
+    fake.lose_answer = None
+    done = run(lost, fake, home)
+    assert done.returncode == 0 and json.loads(done.stdout)["replayed"] is True, done.stderr
+
+
+def test_a_replace_whose_upload_landed_and_whose_answer_was_lost_is_replayed_on_the_hash(fake, home):
+    item = seeded(fake)
+    args = replace_args(b"new text\n", home, fake)
+    fake.lose_answer = "UPLOAD"
+    assert run(args, fake, home).returncode == 4 and item["content"] == b"new text\n"
+    fake.lose_answer = None
+    done = run(args, fake, home)
+    assert done.returncode == 0 and json.loads(done.stdout)["replayed"] is True

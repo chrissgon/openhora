@@ -79,7 +79,7 @@ GOOGLE_PREFIX = "application/vnd.google-apps."
 DOC_MIME = GOOGLE_PREFIX + "document"
 FOLDER_MIME = GOOGLE_PREFIX + "folder"
 # The fields a Drive answer is asked for (providers/writer/gdrive.py FILE_FIELDS, PARENT_FIELDS, LIST_FIELDS), and a OneDrive item's.
-DRIVE_FILE_FIELDS = "id,name,mimeType,version,modifiedTime,md5Checksum,headRevisionId,size,parents,trashed,appProperties"
+DRIVE_FILE_FIELDS = "id,name,mimeType,version,modifiedTime,md5Checksum,headRevisionId,size,parents,trashed,appProperties,ownedByMe,capabilities/canEdit"
 DRIVE_PARENT_FIELDS = "id,name,mimeType,trashed"
 DRIVE_LIST_FIELDS = "files(id,name,appProperties)"
 DRIVE_MARK = "openhora_key"
@@ -137,19 +137,44 @@ def text_problem(text) -> str:
             continue
         if unicodedata.category(c) in HIDDEN:
             return phrases.en("ACCT_FILE_TEXT_HIDDEN")
-    if frame_lines() & {line.strip() for line in text.split("\n")}:
+    if any(frame_like(line) for line in text.split("\n")):
         return phrases.en("ACCT_FILE_TEXT_FRAME")
     return ""
 
 
-def frame_lines() -> set:
-    """The two rules that frame a text on the card (CARD_FILE_TEXT), in every language of the table: a line of the person's text equal to one could make the card
-    look as if it ended earlier than it does, so a text that holds one is refused."""
-    found = set()
-    for table in phrases.TABLE.values():
-        before, _, after = table["CARD_FILE_TEXT"].partition("{content}")
-        found |= {before.strip(), after.strip()}
-    return {line for line in found if line}
+FRAME_MARK = "-----"
+DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u2500\u2501\ufe58\ufe63\uff0d\u00ad"      # look-alikes of a hyphen that NFKC leaves alone
+MARKDOWN = " \t#>*_`~|+:"      # what a Markdown renderer strips or turns into a style before a line's visible text
+BULLET = re.compile(r"(?:[-+*]|\d+[.)])\s+")
+
+
+def frame_like(line: str) -> bool:
+    """Whether the visible form of a line of the person's text starts with the mark of the card's frame rules (five hyphens), as a phone shows it after a
+    Markdown renderer made a heading, a quote, a bold span or a list item of it: NFKC, the look-alike dashes read as hyphens, the Markdown markers and a list
+    bullet stripped. Such a line could look like the end of the text (the card also puts a mark in front of every line of the text, so this is the second
+    guard)."""
+    seen = unicodedata.normalize("NFKC", line)
+    seen = "".join("-" if unicodedata.category(c) == "Pd" or c in DASHES else c for c in seen)
+    for _ in range(8):
+        stripped = seen.lstrip(MARKDOWN)
+        found = BULLET.match(stripped)
+        stripped = stripped[found.end():] if found else stripped
+        if stripped == seen:
+            break
+        seen = stripped
+    return seen.startswith(FRAME_MARK)
+
+
+GUTTER = "\u2502"      # the mark in front of every line of the text on the card: a line of the text can never be taken for a line of the card
+
+
+def guttered(text: str) -> str:
+    """The text as the card shows it: every line behind the gutter mark, an empty line too, the last line break dropped. A renderer that reads Markdown finds a
+    line that begins with the mark, never a heading, a quote, a rule or a fence."""
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(f"{GUTTER} {line}" if line else GUTTER for line in lines)
 
 
 def lines_as_lf(text: str) -> str:
@@ -398,7 +423,7 @@ def provider_args(doc: dict, content_file=None) -> tuple:
     content (omitted for a dry run, which reads no file)."""
     content, target, base = doc["content"], doc["target"], doc["base"]
     common = ["--media-type", content["media_type"]] + (["--content-file", content_file] if content_file else []) \
-        + ["--bytes", str(content["bytes"]), "--sha256", content["sha256"], "--idempotency-key", doc["idempotency_key"]]
+        + ["--bytes", str(content["bytes"]), "--sha256", content["sha256"], "--idempotency-key", doc["idempotency_key"], "--account", doc["address"]]
     if doc["operation"] != "replace":
         return "create", ["--folder", target["id"], "--name", doc["name"], *(["--gdoc"] if content["gdoc"] else []), *common]
     if doc["implementation"] == "gdrive":
@@ -410,7 +435,7 @@ def provider_args(doc: dict, content_file=None) -> tuple:
 
 def meta_args(doc: dict) -> list:
     """The flags of the writer's read-only verb `file-meta` that reads the target again just before the write (replace only)."""
-    flags = ["--id", doc["target"]["id"]]
+    flags = ["--id", doc["target"]["id"], "--account", doc["address"]]
     return flags
 
 
@@ -423,8 +448,29 @@ def unchanged(doc: dict, meta: dict) -> str:
     else:
         pairs = (("eTag", meta.get("etag"), base["etag"]), ("cTag", meta.get("ctag"), base["ctag"]), ("size", meta.get("size"), base["size"]))
     gone = meta.get("in_trash") is True or meta.get("folder") is True or meta.get("writable") is False
-    moved = [name for name, now, then in pairs if now != then] + (["it is in the trash, or is not a file"] if gone else [])
+    unowned = meta.get("owned") is not True
+    moved = [name for name, now, then in pairs if now != then] + (["it is in the trash, or is not a file"] if gone else []) \
+        + (["it is not owned by the account"] if unowned else [])
     return ", ".join(moved)
+
+
+def content_matches(meta: dict, data: bytes):
+    """Whether the hash the service reports for a file (OneDrive `file.hashes`: sha256Hash where it has one, else sha1Hash) is the hash of `data`: True or False,
+    or None when the service reported none this code can compare (quickXorHash alone), which proves nothing."""
+    if isinstance(meta.get("sha256"), str) and meta["sha256"]:
+        return meta["sha256"].lower() == sha(data)
+    if isinstance(meta.get("sha1"), str) and meta["sha1"]:
+        return meta["sha1"].lower() == hashlib.sha1(data).hexdigest()      # integrity of a file against the service's own report, not security
+    return None
+
+
+def landed(doc: dict, meta: dict, data: bytes) -> bool:
+    """Whether what the writer's `file-meta` printed is the write of THIS document, made by an earlier attempt whose answer was lost: on Drive the private mark
+    of the document's key; on OneDrive the file's own content hash equal to the approved bytes (a file that moved to other bytes is the person's edit, and one
+    whose hash cannot be compared proves nothing). Replace only."""
+    if doc["implementation"] == "gdrive":
+        return meta.get("key") == doc["idempotency_key"]
+    return content_matches(meta, data) is True
 
 
 # --- what the person reads --------------------------------------------------------------------------------------------------------------------
@@ -443,6 +489,14 @@ def size_text(count: int) -> str:
     return f"{count} B"
 
 
+def kept_line(doc: dict) -> str:
+    """The key of the line that says what becomes of the replaced revision, true of the service and the type of file: a Drive file with binary content keeps
+    it for ever (up to the service's 200), a Google Doc keeps its own history, OneDrive keeps versions by its retention settings."""
+    if doc["account"] == "microsoft":
+        return "CARD_FILE_KEPT_ONEDRIVE"
+    return "CARD_FILE_KEPT_DOC" if doc["base"]["mime"].startswith(GOOGLE_PREFIX) else "CARD_FILE_KEPT_DRIVE"
+
+
 def card_lines(doc: dict, digest: str) -> list:
     """The card, line by line: [[phrase key, {field: text}], ...], every key of the family CARD_ (runtime/phrases.py). The values are the person's or a
     service's words and are never translated."""
@@ -456,7 +510,9 @@ def card_lines(doc: dict, digest: str) -> list:
     if operation == "replace":
         base = doc["base"]
         revision = base["version"] if doc["account"] == "google" else base["etag"]
+        lines.append(["CARD_FILE_OWNED", {"address": doc["address"]}])
         lines.append(["CARD_FILE_BASE", {"revision": clean_display(revision), "modified": clean_display(base["modified"])}])
+        lines.append([kept_line(doc), {}])
     else:
         lines.append(["CARD_FILE_NEW", {}])
     if content["gdoc"]:
@@ -467,7 +523,7 @@ def card_lines(doc: dict, digest: str) -> list:
     elif content["kind"] == "file":
         lines.append(["CARD_FILE_PROJECT", {"path": content["path"], "size": size_text(content["bytes"]), "sha_short": short}])
     else:
-        lines.append(["CARD_FILE_TEXT", {"content": content["text"].rstrip("\n")}])
+        lines.append(["CARD_FILE_TEXT", {"content": guttered(content["text"])}])
     lines.append(["CARD_FILE_HASH", {"sha": digest}])
     lines.append(["CARD_FILE_APPROVE", {"command": operations.command_line("approve", "<project>", pending_id="<this pending decision's id>", sha256=digest)}])
     return lines

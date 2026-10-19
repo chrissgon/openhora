@@ -207,6 +207,12 @@ def _content_for(ctx: steps.Context, wanted: str, word: str, *, gdoc: bool = Fal
     return fd.content_of("file", data, wanted, path=rel)
 
 
+def _owned(account: str, meta: dict, name: str) -> None:
+    """A replace is made only of a file the account owns (Drive: ownedByMe and may edit; OneDrive: in the account's own drive); the card names the account."""
+    if meta.get("owned") is not True:
+        raise steps.StepFailure("not_owned", "file", "", phrases.en("ACCT_FILE_NOT_OWNED").format(name=fd.clean_display(name, 80), service=fd.SERVICE_NAME[account]))
+
+
 def _target_media(account: str, meta: dict) -> tuple:
     """(the media type the new revision is written as, the word that names the target's type, the base of the document, its version token) for a file the
     writer described; StepFailure when the item is not a file this platform writes."""
@@ -253,6 +259,7 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
             raise steps.StepFailure("source_mismatch", "file", "", phrases.en("ACCT_FILE_SOURCE").format(source=args["file"], service=fd.SERVICE_NAME[account]))
         meta = _asked(reader.meta, account, ["--id", source["origin"]], field="file", provider=fd.IMPLEMENTATION[account],
                       next="the file could not be read: check that the account is authorized (the authorize command of the account), then start this task again")
+        _owned(account, meta, meta.get("name"))
         wanted, word, base, version = _target_media(account, meta)
         if source.get("origin_version") != version:
             raise steps.StepFailure("source_behind", "file", "", phrases.en("ACCT_FILE_BEHIND").format(

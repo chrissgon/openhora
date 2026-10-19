@@ -14,18 +14,20 @@ the content a write sends is the bytes of `--content-file`, checked against the 
 Usage:
   uv run providers/writer/gdrive.py --help
   uv run providers/writer/gdrive.py --check
-  uv run providers/writer/gdrive.py file-meta --id <file id>
-  uv run providers/writer/gdrive.py file-meta --folder <folder id> --name <file name>
+  uv run providers/writer/gdrive.py file-meta --account <address> --id <file id>
+  uv run providers/writer/gdrive.py file-meta --account <address> --folder <folder id> --name <file name>
   uv run providers/writer/gdrive.py create --folder <folder id> --name <file name> --media-type <type> [--gdoc] --content-file <abs path>
-        --bytes <n> --sha256 <hex> --idempotency-key <key> (--dry-run | --confirmed)
+        --bytes <n> --sha256 <hex> --idempotency-key <key> --account <address> (--dry-run | --confirmed)
   uv run providers/writer/gdrive.py update --id <file id> --media-type <type> --content-file <abs path> --bytes <n> --sha256 <hex>
         --base-version <v> --base-modified <time> --base-mime <type> [--base-md5 <hex>] [--base-head-revision <id>]
-        --idempotency-key <key> (--dry-run | --confirmed)
+        --idempotency-key <key> --account <address> (--dry-run | --confirmed)
 
+  --account   the address of the account the document names. Every verb but --check reads it and compares it with the account of the token record: another
+              account's token reads and writes nothing (exit 1).
   --check     refreshes the access token (the only network call) and checks that the account token carries the platform's four scopes; prints
               {"ok", "account", "scope", "record"}. Exit 3 when there is no account authorization or it was refused.
   file-meta   one read. By id: {"id", "name", "mime_type", "version", "modified", "md5", "head_revision", "size", "in_trash", "native", "folder",
-              "key"}. By folder and name: the folder (it must exist, be a folder and not be in the trash) and whether a file of that name is in it
+              "key", "owned"} (owned: the account owns the file and may edit it; only such a file is replaced). By folder and name: the folder (it must exist, be a folder and not be in the trash) and whether a file of that name is in it
               (`exists`, `matches`). Names are another person's text in principle: cleaned to one line, shown, never used as a path.
   create      a NEW file in the folder: it is refused (exit 1) when a file of that name is already there, whatever its content (it never
               overwrites). `--gdoc` makes a Google Doc from Markdown text (Drive converts it on import; to verify live). The file carries the
@@ -80,7 +82,7 @@ HTTP_TIMEOUT_SECONDS = 60
 GOOGLE_PREFIX = "application/vnd.google-apps."
 FOLDER_MIME = GOOGLE_PREFIX + "folder"
 DOC_MIME = GOOGLE_PREFIX + "document"
-FILE_FIELDS = "id,name,mimeType,version,modifiedTime,md5Checksum,headRevisionId,size,parents,trashed,appProperties"
+FILE_FIELDS = "id,name,mimeType,version,modifiedTime,md5Checksum,headRevisionId,size,parents,trashed,appProperties,ownedByMe,capabilities/canEdit"
 PARENT_FIELDS = "id,name,mimeType,trashed"
 LIST_FIELDS = "files(id,name,appProperties)"
 MARK = "openhora_key"
@@ -158,9 +160,23 @@ class Session:
         self.base, self.token, self.record = base, token, record
 
 
-def open_session() -> Session:
+ADDRESS = re.compile(r"[^@\s]{1,64}@[^@\s]{1,253}")
+
+
+def check_account_flag(value) -> str:
+    if not isinstance(value, str) or not ADDRESS.fullmatch(value):
+        raise WriterError("--account is the address of the account the document names", EXIT_USAGE)
+    return value
+
+
+def open_session(expected: str) -> Session:
+    """The session of the account token, only when the token belongs to the account the document names (`--account`): a token of another account writes
+    nothing (exit 1)."""
     base, token_url, test_mode = endpoints()
     loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=WriterError)
+    mine = loaded.record.get("account")
+    if not isinstance(mine, str) or mine.casefold() != expected.casefold():
+        raise WriterError("the account token belongs to another account than the one the document names: nothing was written", EXIT_REFUSED)
     data = _google.refresh_access_token(token_url, loaded.record, WriterError)
     return Session(base, data["access_token"], loaded.record)
 
@@ -335,7 +351,8 @@ def described(meta: dict) -> dict:
             "head_revision": meta.get("headRevisionId") if isinstance(meta.get("headRevisionId"), str) else None,
             "size": int(size) if str(size or "").isdigit() else None, "in_trash": bool(meta.get("trashed")),
             "parents": [p for p in parents if isinstance(p, str)][:5], "native": mime.startswith(GOOGLE_PREFIX), "folder": mime == FOLDER_MIME,
-            "key": props.get(MARK) if isinstance(props.get(MARK), str) else None}
+            "key": props.get(MARK) if isinstance(props.get(MARK), str) else None,
+            "owned": meta.get("ownedByMe") is True and isinstance(meta.get("capabilities"), dict) and meta["capabilities"].get("canEdit") is True}
 
 
 def landed(meta: dict, expect: dict) -> dict:
@@ -376,12 +393,12 @@ def cmd_file_meta(a) -> int:
     if a.id is not None:
         if a.name is not None:
             raise WriterError("--name goes with --folder", EXIT_USAGE)
-        session = open_session()
+        session = open_session(check_account_flag(a.account))
         meta = read_json(session, {"method": "GET", "path": f"/drive/v3/files/{encode(drive_id(a.id, '--id'))}", "query": {"fields": FILE_FIELDS}},
                          "files.get")
         return emit(described(meta))
     folder, name = drive_id(a.folder, "--folder"), check_name(a.name)
-    session = open_session()
+    session = open_session(check_account_flag(a.account))
     parent = described(read_json(session, folder_step(folder), "files.get (folder)"))
     if not parent["folder"] or parent["in_trash"]:
         raise WriterError("the folder is not a folder of the account, or it is in the trash")
@@ -433,9 +450,8 @@ def cmd_create(a) -> int:
     claim = ledger.claim(key, plan_sha)
     if claim["state"] == "done":
         return emit({**claim["result"], "replayed": True})
-    session = None
     try:
-        session = open_session()
+        session = open_session(check_account_flag(a.account))
         parent = described(read_json(session, steps[0], "files.get (folder)"))
         if not parent["folder"] or parent["in_trash"]:
             raise WriterError("the folder is not a folder of the account, or it is in the trash: nothing was written")
@@ -447,7 +463,7 @@ def cmd_create(a) -> int:
             ledger.done(key, out)
             return emit(out)
         if same:
-            raise WriterError(f"a file named {name!r} is already in the folder: create never replaces a file, nothing was written")
+            raise WriterError(f"taken: a file named {name!r} is already in the folder: create never replaces a file, nothing was written")
         boundary = boundary_of(key, sha)
         body = multipart(boundary, steps[2]["body"]["metadata"], media_type, data)
         answer = write_request(session, steps[2], body, upload_headers(boundary, len(body)), "files.create")
@@ -484,7 +500,7 @@ def cmd_update(a) -> int:
     if claim["state"] == "done":
         return emit({**claim["result"], "replayed": True})
     try:
-        session = open_session()
+        session = open_session(check_account_flag(a.account))
         current = described(read_json(session, steps[0], "files.get"))
         if current["key"] == key:                       # this very approval wrote it already (its answer was lost, or the key was released late)
             out = result_of(current, True)
@@ -493,13 +509,19 @@ def cmd_update(a) -> int:
         moved = [field for field, now, then in (("version", current["version"], a.base_version), ("modified time", current["modified"], a.base_modified),
                                                 ("type", current["mime_type"], base_mime), ("checksum", current["md5"], a.base_md5),
                                                 ("head revision", current["head_revision"], head)) if now != then]
-        if current["in_trash"] or current["folder"] or moved:
+        if current["in_trash"] or current["folder"] or not current["owned"] or moved:
             raise WriterError("changed: the file is not the one the runtime read ("
-                              + (", ".join(moved) if moved else "it is in the trash or is a folder") + "): nothing was written")
+                              + (", ".join(moved) if moved else "it is in the trash, is a folder, or is not owned by the account") + "): nothing was written")
         position = 1
         if not native:
-            kept = write_request(session, steps[position], json.dumps(steps[position]["body"]).encode("ascii"), {"Content-Type": "application/json"},
-                                 "revisions.update (keepForever)")
+            try:
+                kept = write_request(session, steps[position], json.dumps(steps[position]["body"]).encode("ascii"), {"Content-Type": "application/json"},
+                                     "revisions.update (keepForever)")
+            except WriterError as e:
+                if e.status in (400, 403):
+                    raise WriterError(f"{e}; Drive keeps at most 200 revisions of a file for ever, so the replaced revision may not be keepable: nothing was written",
+                                      EXIT_REFUSED, e.status) from None
+                raise
             if kept.get("keepForever") is not True:
                 raise WriterError("Drive did not keep the replaced revision: nothing was written")
             position += 1
@@ -528,7 +550,7 @@ def build_parser() -> Parser:
     p = Parser(prog="gdrive.py", add_help=False)
     p.add_argument("verb", nargs="?", choices=["file-meta", "create", "update"])
     p.add_argument("--check", action="store_true")
-    for flag in ("id", "folder", "name", "media-type", "content-file", "bytes", "sha256", "idempotency-key", "base-version", "base-modified", "base-mime",
+    for flag in ("account", "id", "folder", "name", "media-type", "content-file", "bytes", "sha256", "idempotency-key", "base-version", "base-modified", "base-mime",
                  "base-md5", "base-head-revision"):
         p.add_argument("--" + flag)
     for flag in ("gdoc", "dry-run", "confirmed"):
@@ -549,7 +571,11 @@ def main(argv=None) -> int:
             return cmd_check(a)
         if a.verb is None:
             raise WriterError("give a verb or --check; see --help", EXIT_USAGE)
+        if a.verb == "file-meta" and a.account is None:
+            raise WriterError("--account is required", EXIT_USAGE)
         if a.verb in ("create", "update"):
+            if a.account is None and not a.dry_run:
+                raise WriterError("--account is required with --confirmed", EXIT_USAGE)
             if a.dry_run == a.confirmed:
                 raise WriterError("give exactly one of --dry-run and --confirmed", EXIT_USAGE)
             if not a.content_file and not a.dry_run:

@@ -67,7 +67,7 @@ SECRETS = {"gdrive": "GOOGLE_ACCOUNT_TOKEN", "onedrive": "MICROSOFT_ACCOUNT_TOKE
 UNKNOWN_EXIT = 4          # the writer's exit code for "the file may or may not be there"
 CALL_TIMEOUT = 300        # seconds: 25 MiB over a slow line
 CHANGED = re.compile(r"\bchanged:")      # how a writer says, on its standard error, that the file moved since it was read (exit 1)
-SERVES = re.compile(r'^SERVES\s*=\s*"([^"\n]*)"\s*(?:#.*)?$', re.M)
+TAKEN = re.compile(r"\btaken:")        # ... and that a file of the name is in the folder now (exit 1)
 UNKNOWN_NEXT = ("the outcome is unknown: look in the folder, or in the file's history. The effect stays open. Approving it again with the same hash first looks "
                 "for the file this approval made (its private mark) and records it as replayed; if there is none it writes it")
 STALE_NOTE = ("Nothing was written by this attempt: the file is not the one the task read (it was changed, or it is not the content the document states). The task "
@@ -80,6 +80,14 @@ class StaleError(effects.EffectError):
     def __init__(self, reason: str):
         super().__init__("stale", reason)
         self.answer = STALE_NOTE
+
+
+class TakenError(StaleError):
+    """A file of the name is in the folder now."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.answer = phrases.en("ACCT_FILE_TAKEN_ANSWER")
 
 
 class UnknownError(effects.EffectError):
@@ -121,14 +129,20 @@ def serves(root: str, implementation: str):
     if implementation not in SECRETS:
         return f"{implementation!r} is not a writer of files"
     path = os.path.join(root, "providers", "writer", f"{implementation}.py")
-    try:
-        with open(path, encoding="utf-8") as f:
-            found = SERVES.search(f.read(8192))
-    except OSError:
+    if not os.path.isfile(path):
         return f"the writer {implementation} is not in this checkout"
-    if not found or found.group(1) != PROVIDER_CLASS:
+    if not project_config.resolver(root).serves_class(PROVIDER_CLASS, implementation, root=root) or not _declares(path):
         return f"the writer {implementation} does not declare that it serves {PROVIDER_CLASS}"
     return None
+
+
+def _declares(path: str) -> bool:
+    """Whether the file declares a `SERVES` line at all (resolve.serves_class lets a file with none serve its folder's class; a writer must say it)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return any(line.startswith("SERVES = ") for line in f.read(8192).splitlines())
+    except (OSError, ValueError):
+        return False
 
 
 def preflight(cfg: dict, doc: dict, root: str):
@@ -178,6 +192,8 @@ def caller(cfg: dict, root: str):
         except resolve.ProviderCallError as e:
             if e.kind == "timeout" or e.exit_code == UNKNOWN_EXIT:
                 raise UnknownError(f"{verb}: {e.reason}") from None
+            if e.kind == "failed" and e.exit_code == 1 and TAKEN.search(e.reason or ""):
+                raise TakenError(f"{verb}: {e.reason}") from None
             if e.kind == "failed" and e.exit_code == 1 and CHANGED.search(e.reason or ""):
                 raise StaleError(f"{verb}: {e.reason}") from None
             raise effects.EffectError({"usage": "usage", "not-configured": "not-configured"}.get(e.kind, "provider"), f"{verb}: {e.reason}") from None
@@ -228,8 +244,9 @@ def execute(doc: dict, approval: dict, call, key: str, work_dir=None, project=No
     data = content_bytes(doc, work_dir, project)
     if doc["operation"] == "replace":
         meta = call("file-meta", files_document.meta_args(doc), implementation)
-        moved = files_document.unchanged(doc, meta if isinstance(meta, dict) else {})
-        if moved:
+        meta = meta if isinstance(meta, dict) else {}
+        moved = files_document.unchanged(doc, meta)
+        if moved and not files_document.landed(doc, meta, data):      # an earlier attempt of this very approval may have landed with its answer lost: the writer then answers `replayed`
             raise StaleError(f"the file is not the one the task read ({moved})")
     folder = tempfile.mkdtemp(prefix="openhora-files-", dir=work_dir)
     try:

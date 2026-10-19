@@ -25,7 +25,7 @@ import fake_drive_write as fdw  # noqa: E402
 WRITER = REPO / "providers" / "writer" / "gdrive.py"
 KEY = "files-" + "1" * 32
 OTHER_KEY = "files-" + "2" * 32
-FIELDS = "id,name,mimeType,version,modifiedTime,md5Checksum,headRevisionId,size,parents,trashed,appProperties"
+FIELDS = "id,name,mimeType,version,modifiedTime,md5Checksum,headRevisionId,size,parents,trashed,appProperties,ownedByMe,capabilities/canEdit"
 TEXT = "# CV 2026\n\nPat Example, engineer.\n".encode("utf-8")
 
 
@@ -50,6 +50,8 @@ def base_env(tmp_path):
 
 
 def run(args, fake, tmp_path, **env):
+    if args and args[0] != "--check" and "--account" not in args:
+        args = [*args, "--account", fdw.ACCOUNT]      # every verb names the account of the document; a test of another account gives its own
     proc = subprocess.run([sys.executable, str(WRITER), *args], env={**base_env(tmp_path), **fake.env(**env)}, capture_output=True, text=True, timeout=60)
     for stream in (proc.stdout, proc.stderr):    # no run ever prints a credential, not even partially
         for secret in fdw.SECRETS:
@@ -117,7 +119,7 @@ def test_a_redirect_at_the_token_endpoint_is_never_followed(fake, home):
 def test_no_account_record_is_exit_3_and_no_legacy_record_is_read(fake, home):
     env = {k: v for k, v in fake.env().items() if k != "GOOGLE_ACCOUNT_TOKEN"}
     env["GDRIVE_SOURCES_TOKEN"] = json.dumps({"refresh_token": fdw.REFRESH_TOKEN, "client_id": fdw.CLIENT_ID, "client_secret": fdw.CLIENT_SECRET})
-    done = subprocess.run([sys.executable, str(WRITER), *create_args(TEXT, home)], env={**base_env(home), **env}, capture_output=True, text=True, timeout=60)
+    done = subprocess.run([sys.executable, str(WRITER), *create_args(TEXT, home), "--account", fdw.ACCOUNT], env={**base_env(home), **env}, capture_output=True, text=True, timeout=60)
     assert done.returncode == 3 and "google_auth.py authorize" in done.stderr
     assert fake.requests == [] and fake.token_forms == []
 
@@ -327,7 +329,7 @@ def test_file_meta_reads_one_file_or_looks_for_a_name_in_a_folder_and_changes_no
     out = json.loads(run(["file-meta", "--id", fdw.FILE_ID], fake, home).stdout)
     assert out == {"id": fdw.FILE_ID, "name": "CV 2026.md", "mime_type": "text/markdown", "version": "3", "modified": "2026-10-10T09:00:00.000Z",
                    "md5": fdw.md5(b"old text\n"), "head_revision": head, "size": 9, "in_trash": False, "parents": [fdw.FOLDER_ID], "native": False,
-                   "folder": False, "key": None}
+                   "folder": False, "key": None, "owned": True}
     found = json.loads(run(["file-meta", "--folder", fdw.FOLDER_ID, "--name", "CV 2026.md"], fake, home).stdout)
     assert found == {"folder": {"id": fdw.FOLDER_ID, "name": "openhora"}, "exists": True, "matches": [{"id": fdw.FILE_ID, "name": "CV 2026.md"}]}
     none = json.loads(run(["file-meta", "--folder", fdw.FOLDER_ID, "--name", "Other.md"], fake, home).stdout)
@@ -416,3 +418,47 @@ def test_limit_58_every_request_the_fake_saw_is_on_the_allow_list(fake, home):
     for r in fake.requests:
         module.common.guarded(module.ALLOWED, r["method"], r["path"])
     assert fake.violations == [] and fake.requests
+
+
+# --- review of #480: the account, the owner, the cap, the name taken --------------------------------------------------------------------------
+
+
+def test_a_token_of_another_account_reads_and_writes_nothing(fake, home):
+    meta, head = seeded(fake)
+    base = {"version": "3", "modified": "2026-10-10T09:00:00.000Z", "mime": "text/markdown", "md5": fdw.md5(b"old text\n"), "head": head}
+    for build in (lambda: create_args(TEXT, home), lambda: ["file-meta", "--id", fdw.FILE_ID], lambda: update_args(b"new\n", home, base=base)):
+        args = build()
+        done = run([*args, "--account", "someone.else@example.org"], fake, home)
+        assert done.returncode == 1 and "another account" in done.stderr, args
+    assert fake.requests == [] and fake.token_forms == [], "the check comes before the token is even refreshed"
+    assert run(create_args(TEXT, home, mode="--dry-run"), fake, home).returncode == 0
+    assert run([*create_args(TEXT, home), "--account", "not an address"], fake, home).returncode == 2
+    assert run(["file-meta", "--id", fdw.FILE_ID], fake, home, GOOGLE_ACCOUNT_TOKEN=fake.record_json(account=None)).returncode == 1
+
+
+def test_an_update_of_a_file_the_account_does_not_own_or_may_not_edit_is_refused_and_file_meta_says_so(fake, home):
+    meta, head = seeded(fake)
+    base = {"version": "3", "modified": "2026-10-10T09:00:00.000Z", "mime": "text/markdown", "md5": fdw.md5(b"old text\n"), "head": head}
+    for field in ("owned", "can_edit"):
+        meta[field] = False
+        assert json.loads(run(["file-meta", "--id", fdw.FILE_ID], fake, home).stdout)["owned"] is False
+        fake.requests.clear()
+        done = run(update_args(b"new text\n", home, base=base, key=KEY if field == "owned" else OTHER_KEY), fake, home)
+        assert done.returncode == 1 and "not owned by the account" in done.stderr and [m for m, _, _ in fake.listing()] == ["GET"]
+        meta["owned"] = meta["can_edit"] = True
+    assert meta["content"] == b"old text\n"
+
+
+def test_a_keep_forever_the_service_refuses_names_the_cap_of_200_and_writes_nothing(fake, home):
+    meta, head = seeded(fake)
+    fake.keep_cap = True
+    base = {"version": "3", "modified": "2026-10-10T09:00:00.000Z", "mime": "text/markdown", "md5": fdw.md5(b"old text\n"), "head": head}
+    done = run(update_args(b"new text\n", home, base=base), fake, home)
+    assert done.returncode == 1 and "200 revisions" in done.stderr and meta["content"] == b"old text\n"
+    assert [m for m, _, _ in fake.listing()] == ["GET", "PATCH"], "no upload followed the refused keep"
+
+
+def test_a_name_taken_at_the_write_is_said_with_the_word_the_runtime_answers_the_decision_by(fake, home):
+    fake.add_file(fdw.FILE_ID, "CV 2026.md", b"the person's own text\n")
+    done = run(create_args(TEXT, home), fake, home)
+    assert done.returncode == 1 and done.stderr.startswith("error: taken: a file named")

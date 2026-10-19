@@ -234,7 +234,7 @@ def serves_class(cls: str, name: str, root=None, env=None) -> bool:
     path = workbench_root(root, env) / "providers" / folder(cls) / f"{name}.py"
     try:
         found = SERVES_LINE.search(path.read_text(encoding="utf-8")[:8192])
-    except OSError:
+    except (OSError, ValueError):      # a missing file serves what its folder says; a file that is not text declares nothing (UnicodeDecodeError is a ValueError)
         return True
     return found is None or found.group(1) == canonical(cls)
 

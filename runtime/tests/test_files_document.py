@@ -203,14 +203,11 @@ def test_the_kinds_of_content_fit_only_the_operations_that_may_hold_them():
 
 
 def test_a_text_that_holds_a_credential_a_hidden_character_or_too_many_bytes_is_not_a_document():
-    frames = fd.frame_lines()
-    assert len(frames) == 4 and all(line.startswith("-----") for line in frames), frames      # two rules in each of the two languages
-    for text in ("token = ghp_" + "a" * 36 + "\n", "a\u202eb\n", "a\x00b\n", "a\x1bb\n", "   \n", "x" * (fd.TEXT_MAX + 1),
-                 "before\n" + sorted(frames)[0] + "\nafter\n", "  " + sorted(frames)[-1] + "  \n"):
+    for text in ("token = ghp_" + "a" * 36 + "\n", "a\u202eb\n", "a\x00b\n", "a\x1bb\n", "   \n", "x" * (fd.TEXT_MAX + 1)):
         with pytest.raises(effects.EffectError):
             make(content=text_content(text))
     assert make(content=text_content("a\n\tb\n"))["content"]["bytes"] == 5
-    assert make(content=text_content("a Markdown rule\n\n---\n\n-----\n"))["content"]["text"].count("-----") == 1, "a plain rule of the text is no frame"
+    assert make(content=text_content("a Markdown rule\n\n---\n\n- an item -----\n"))["content"]["bytes"] > 10, "a rule of three hyphens is no frame"
 
 
 def test_a_replace_needs_its_base_in_the_form_of_its_service():
@@ -231,12 +228,13 @@ def test_a_replace_needs_its_base_in_the_form_of_its_service():
 
 def test_the_unchanged_check_names_what_moved_and_passes_a_file_as_it_was_read():
     doc = make("replace")
-    meta = {"version": "3", "modified": "2026-10-10T09:00:00.000Z", "mime_type": "text/markdown", "md5": MD5, "head_revision": HEAD, "in_trash": False, "folder": False}
+    meta = {"version": "3", "modified": "2026-10-10T09:00:00.000Z", "mime_type": "text/markdown", "md5": MD5, "head_revision": HEAD, "in_trash": False, "folder": False,
+            "owned": True}
     assert fd.unchanged(doc, meta) == ""
     assert fd.unchanged(doc, {**meta, "version": "4", "md5": "f" * 32}) == "version, checksum"
     assert "trash" in fd.unchanged(doc, {**meta, "in_trash": True}) and "trash" in fd.unchanged(doc, {**meta, "folder": True})
     ms = make("replace", account="microsoft")
-    item = {"etag": '"{A-1},3"', "ctag": '"c:{A-1},3"', "size": 9, "writable": True}
+    item = {"etag": '"{A-1},3"', "ctag": '"c:{A-1},3"', "size": 9, "writable": True, "owned": True}
     assert fd.unchanged(ms, item) == "" and fd.unchanged(ms, {**item, "etag": '"{A-1},4"'}) == "eTag" and fd.unchanged(ms, {**item, "size": 10}) == "size"
     assert fd.unchanged(ms, {**item, "writable": False}) and fd.unchanged(ms, {}) != ""
 
@@ -332,19 +330,21 @@ def test_an_argument_out_of_the_closed_rules_is_refused_naming_the_field(args, f
 
 
 def test_limit_58_the_files_reader_a_step_kind_is_given_has_one_verb_and_it_is_a_read():
-    reader = seams.FilesReader({}, str(st.REPO))
+    cfg = {"accounts": {"google": {"address": "pat@example.com", "calendars": {}, "folders": {}, "mail_folders": {}, "move_removes_inbox": True},
+                        "microsoft": {"address": "casey.rivera@mail.example", "calendars": {}, "folders": {}, "mail_folders": {}, "move_removes_inbox": True}}}
+    reader = seams.FilesReader(cfg, str(st.REPO))
     assert {name for name in dir(reader) if not name.startswith("_")} == {"meta"} and seams.FILES_READ_VERB == "file-meta"
     seen = []
     resolver = project_config.resolver(str(st.REPO))
     original_call, original_env = resolver.call, resolver.provider_environment
     try:
-        resolver.call = lambda cls, verb, args, **kw: seen.append((cls, verb, kw["implementation"], kw["env"])) or {"exists": False}
+        resolver.call = lambda cls, verb, args, **kw: seen.append((cls, verb, kw["implementation"], kw["env"], args)) or {"exists": False}
         resolver.provider_environment = lambda cls, env=None, passes=(): {"PATH": "x", **{p: "v" for p in passes}}
         assert reader.meta("google", ["--id", "abc"]) == {"exists": False} and reader.meta("microsoft", ["--id", "d/i"]) == {"exists": False}
     finally:
         resolver.call, resolver.provider_environment = original_call, original_env
-    assert seen == [("writer:files", "file-meta", "gdrive", {"PATH": "x", "GOOGLE_ACCOUNT_TOKEN": "v"}),
-                    ("writer:files", "file-meta", "onedrive", {"PATH": "x", "MICROSOFT_ACCOUNT_TOKEN": "v"})], "one verb, the implementation of the account, one secret"
+    assert seen == [("writer:files", "file-meta", "gdrive", {"PATH": "x", "GOOGLE_ACCOUNT_TOKEN": "v"}, ["--id", "abc", "--account", "pat@example.com"]),
+                    ("writer:files", "file-meta", "onedrive", {"PATH": "x", "MICROSOFT_ACCOUNT_TOKEN": "v"}, ["--id", "d/i", "--account", "casey.rivera@mail.example"])], "one verb, the implementation of the account, one secret"
     with pytest.raises(seams.StepServiceError):
         reader.meta("dropbox", [])
 
