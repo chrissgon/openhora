@@ -306,7 +306,7 @@ class CalendarReader:
         CLOSED: the account is the one the SOURCE ROW's origin names (google or outlook, never the index), the calendar id is the origin's, and the caller compares
         both with the project's `accounts` exactly. Every refusal is a StepServiceError `refused` whose sentence is a phrase of the table (ACCT_REF_*)."""
         try:
-            got = item_refs.resolve(self._ctx, reference, channel=channel, sender=sender, kinds=("calendar",), created=self._created_entry, clock=SNAPSHOT_CLOCK)
+            got = item_refs.resolve(self._ctx, reference, channel=channel, sender=sender, kinds=("calendar",), created=lambda ctx, pending: self._created_entry(ctx, pending, channel, sender), clock=SNAPSHOT_CLOCK)
         except item_refs.ItemRefError as e:
             raise StepServiceError("refused", ref_sentence(e.code, reference)) from None
         except sources.SourcesError:
@@ -323,9 +323,11 @@ class CalendarReader:
         return {"event_id": entry["id"], "account": account, "calendar": self.calendar_label(account, calendar_id), "calendar_id": calendar_id,
                 "reference": {"source": got["source"], "n": got["n"], "read_at": got["read_at"]}}
 
-    def _created_entry(self, ctx: dict, pending_id: int):
+    def _created_entry(self, ctx: dict, pending_id: int, channel=None, sender=None):
         """The `created` function of item_refs.resolve: what the approved card `pending_id` recorded of the event it created, or None. Minimal on purpose: the id,
-        the account and the calendar the project names (no title, no time)."""
+        the account and the calendar (its name and the id recorded then). Whoever may read the person's mail and calendar (item_refs.may_read) may use it; a
+        messaging sender without that right only for an event they asked for themselves (`asker`); for anyone else it answers None, the same answer as for a
+        card that created nothing, so that a guess learns nothing."""
         store = ctx["store"]
         try:
             item = store.pending_get(ctx["conn"], pending_id)
@@ -337,9 +339,12 @@ class CalendarReader:
         if item.get("kind") != "effect" or item.get("resolution") != "approved" or step.get("kind") != "calendar-event" or result.get("operation") != "create" \
                 or not isinstance(result.get("event_id"), str) or result.get("account") not in calendar_document.ACCOUNTS:
             return None
+        if not item_refs.may_read(ctx, channel, sender) and (not sender or result.get("asker") != sender):
+            return None
         name = result.get("calendar") if isinstance(result.get("calendar"), str) else None
         listed = (project_config.account_entry(self._cfg, result["account"]) or {}).get("calendars") or {}
-        return {"id": result["event_id"], "account": result["account"], "calendar": name if name in listed else None, "calendar_id": listed.get(name)}
+        recorded = result.get("calendar_id") if isinstance(result.get("calendar_id"), str) else None
+        return {"id": result["event_id"], "account": result["account"], "calendar": name if name in listed else None, "calendar_id": recorded}
 
 
 def ref_sentence(code: str, reference) -> str:

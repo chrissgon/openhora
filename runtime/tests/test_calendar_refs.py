@@ -28,7 +28,7 @@ def test_a_change_by_a_reference_into_a_refreshed_calendar_snapshot_is_made_to_t
     doc = effect_doc(world, started)
     assert doc["event_id"] == "evother0002" and doc["reference"] == {"source": "agenda", "n": 2, "read_at": "2026-10-17T10:12:00Z"} and doc["before"]["title"] == "Lunch"
     lines = item_of(world, started)["body"].splitlines()
-    assert "The event now: Lunch (Tue 20/10/2026 12:00-13:00 (America/Sao_Paulo))" in lines
+    assert "The event now: Lunch" in lines and "The event now is at: Tue 20/10/2026 12:00-13:00 (America/Sao_Paulo)" in lines
     assert "Named as agenda#2, from the snapshot read at 2026-10-17T10:12:00Z." in lines
     world["google"].requests.clear()
     assert approve(world, started)["task_state"] == "done"
@@ -46,7 +46,7 @@ def test_a_renumbered_snapshot_cannot_make_the_person_approve_another_event_beca
     snaps.refresh("agenda")
     again = ops.event_cancel(world["path"], "google", "agenda#1")      # the same words, another event: the card says which, and when the snapshot was read
     lines = item_of(world, again)["body"].splitlines()
-    assert "The event now: Lunch (Tue 20/10/2026 12:00-13:00 (America/Sao_Paulo))" in lines and "Named as agenda#1, from the snapshot read at 2026-10-17T12:12:00Z." in lines
+    assert "The event now: Lunch" in lines and "Named as agenda#1, from the snapshot read at 2026-10-17T12:12:00Z." in lines
     assert effect_doc(world, again)["event_id"] == "evother0002"
 
 
@@ -85,8 +85,15 @@ def test_a_messaging_sender_reads_a_snapshot_reference_only_with_ask_mail_and_a_
         ops.event_change(world["path"], "google", "agenda#1", title="X", channel="messaging", sender=SENDER)
     assert "this channel may not read it" in str(no.value) and "ask-mail" in str(no.value)
     assert world["google"].requests == [] and not [r for r in world["google"].requests if r["method"] != "GET"]
-    started = ops.event_change(world["path"], "google", f"created:{made['pending']}", title="Haircut with Pat", channel="messaging", sender=SENDER)
-    assert effect_doc(world, started)["reference"] is None and "The event now: Haircut with Joe" in item_of(world, started)["body"]
+    with pytest.raises(ops.OpsError) as other:      # an event the person made in the terminal is not for a sender who may not read the calendar
+        ops.event_change(world["path"], "google", f"created:{made['pending']}", title="Haircut with Pat", channel="messaging", sender=SENDER)
+    assert "did not create an event" in str(other.value)
+    own = ops.event_create(world["path"], "google", "Lunch with Sam", "2026-10-21T12:00", channel="messaging", sender=SENDER)
+    approve(world, own)
+    started = ops.event_change(world["path"], "google", f"created:{own['pending']}", title="Haircut with Pat", channel="messaging", sender=SENDER)
+    assert effect_doc(world, started)["reference"] is None and "The event now: Lunch with Sam" in item_of(world, started)["body"], "the sender asked for it themselves"
+    with pytest.raises(ops.OpsError):
+        ops.event_change(world["path"], "google", f"created:{own['pending']}", title="Haircut with Pat", channel="messaging", sender="telegram:9999")
     for channel in ("page", None, "terminal"):
         assert ops.event_change(world["path"], "google", "agenda#1", title="X", channel=channel)["pending"] if channel != "page" else True
 
@@ -111,4 +118,4 @@ def test_the_calendar_and_the_caller_are_args_a_person_cannot_forge_by_words(wor
     for bad in ({"channel": "mcp"}, {"channel": "chat"}, {"sender": SENDER}, {"channel": "messaging", "sender": "no colon"}, {"channel": "messaging", "sender": "x:" + "y" * 200}):
         with pytest.raises(Exception):
             check({**base, **bad})
-    assert "channel" not in check({"account": "google", "operation": "create", "title": "X", "start": "2026-10-19T13:00", "channel": "terminal"}), "a new event reads no snapshot"
+    assert check({"account": "google", "operation": "create", "title": "X", "start": "2026-10-19T13:00", "channel": "terminal"})["channel"] == "terminal", "the asker of a new event is recorded"

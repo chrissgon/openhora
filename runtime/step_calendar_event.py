@@ -94,18 +94,20 @@ def check(args) -> dict:
             raise _bad("event", "a new event names no earlier event")
         if "title" not in content or "start" not in content:
             raise _bad("title" if "title" not in content else "start", "a new event needs a title and a start")
-    else:
+    if args.get("channel") is not None:      # who asked: a reference into a snapshot is usable only by a caller who may read it (runtime/item_refs.py)
+        if args["channel"] not in CHANNELS:
+            raise _bad("channel", "the channel is terminal, page or messaging")
+        out["channel"] = args["channel"]
+    if args.get("sender") is not None:
+        if not isinstance(args["sender"], str) or not SENDER.fullmatch(args["sender"]) or args.get("channel") != "messaging":
+            raise _bad("sender", "a sender is <platform>:<id> and goes with the channel messaging")
+        out["sender"] = args["sender"]
+    if operation != "create":
+        if "channel" not in out:      # who asks is never left to a default: a missing channel would read as full rights on a snapshot
+            raise _bad("channel", "say who asks: terminal, page or messaging")
         if not isinstance(args.get("event"), str) or not REFERENCE.fullmatch(args["event"]):
             raise _bad("event", "name the event as <source>#<n> (the n-th item of a calendar snapshot) or created:<decision>")
         out["event"] = args["event"]
-        if args.get("channel") is not None:
-            if args["channel"] not in CHANNELS:
-                raise _bad("channel", "the channel is terminal, page or messaging")
-            out["channel"] = args["channel"]
-        if args.get("sender") is not None:
-            if not isinstance(args["sender"], str) or not SENDER.fullmatch(args["sender"]) or args.get("channel") != "messaging":
-                raise _bad("sender", "a sender is <platform>:<id> and goes with the channel messaging")
-            out["sender"] = args["sender"]
         if operation == "cancel" and content:
             raise _bad(content[0], "removing an event takes no other argument")
         if operation == "change" and not content:
@@ -134,15 +136,15 @@ def _service(ctx: steps.Context, name: str):
     return found
 
 
-def _asked(call, *args):
-    """A service call whose failure is a closed code of the step."""
+def _asked(call, *args, field="calendar"):
+    """A service call whose failure is a closed code of the step; `field` is the argument the sentence is about."""
     try:
         return call(*args)
     except steps.StepFailure:
         raise
     except Exception as e:      # the services raise errors that carry a `code`; anything else is a provider failure
         code = SERVICE_CODES.get(getattr(e, "code", ""), "provider_failed")
-        raise steps.StepFailure(code, "calendar", "writer", str(getattr(e, "reason", ""))[:200] if code != "provider_failed" else "") from None
+        raise steps.StepFailure(code, field, "writer", str(getattr(e, "reason", ""))[:200] if code != "provider_failed" else "") from None
 
 
 def _eligible(event: dict) -> None:
@@ -191,7 +193,7 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
     else:
         # The reference decides what the event is; the project's `accounts` decides where it may be written. Both must name the same account and the same
         # calendar, exactly (limit L55): a reference that names no account, or a calendar the project does not list, is refused.
-        named = _asked(reader.event_ref, args["event"], args.get("channel"), args.get("sender"))
+        named = _asked(reader.event_ref, args["event"], args.get("channel"), args.get("sender"), field="reference")
         if named.get("account") != account:
             raise steps.StepFailure("not_eligible", "event", "", "this event is not on the account asked for, or the reference does not say which account it is on")
         name = args.get("calendar") if args.get("calendar") is not None else named.get("calendar")      # an event on a second calendar goes by the calendar it is on
@@ -220,6 +222,8 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
             if not isinstance(raw.get("etag"), str):
                 raise steps.StepFailure("provider_failed", "event", "writer", "the calendar gave no version of the event, so nothing is changed")
             before = calendar_document.from_service(raw)
+            if state.get("pinned_event") not in (None, raw["id"]):
+                raise steps.StepFailure("not_eligible", "reference", "", "the reference now names another event than the card you were asked about: name the event again and start over")
             pieces.update(event_id=raw["id"], base_etag=raw["etag"], read_at=calendar_document.utc_text(ctx.now()), before=before, reference=named.get("reference"))
             if operation == "change":
                 after = calendar_document.apply(before, **{k: args[k] for k in CONTENT if k in args})
@@ -227,6 +231,7 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
                 if not changed:
                     raise steps.StepFailure("nothing_to_change", "args", "", "the event is already as asked")
                 pieces.update(event=after, changed=changed)
+        pieces.update(asker=args["sender"] if args.get("channel") == "messaging" and args.get("sender") else (args.get("channel") or "terminal"))
         draft = calendar_document.document(**pieces, dry_run_sha256="0" * 64)
     except steps.StepFailure:
         raise
@@ -238,6 +243,8 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
         raise steps.StepFailure("preview_mismatch", "writer", "writer", "the writer would send something other than the arguments say: nothing is asked about it")
     doc = calendar_document.document(**pieces, dry_run_sha256=digest)
     written = _asked(files.write, ctx.task_id, int(state.get("cycle", 0)), doc)
+    if operation != "create":
+        state["pinned_event"] = doc["event_id"]      # a start over after a stale prepares the same event, or refuses
     return {"effect_sha256": written, "operation": operation, "account": account, "calendar": name, "changed": len(doc["changed"])}
 
 

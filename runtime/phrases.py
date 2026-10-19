@@ -295,7 +295,8 @@ TABLE = {
         "CARD_CAL_CHANGE": "Code changes this event after your approval, only if it is still as read at {read_at}.",
         "CARD_CAL_CANCEL": "Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days (Google Calendar, Trash); this has not been verified yet.",
         "CARD_CAL_EVENT": "Event: {event_id}",
-        "CARD_CAL_NOW": "The event now: {title} ({when})",
+        "CARD_CAL_NOW_WHEN": "The event now is at: {when}",
+        "CARD_CAL_NOW_TITLE": "The event now: {title}",
         "ACCT_REF_MALFORMED": "That is not a reference to an item: write <source id>#<number>, for example inbox#3, or created:<card number> for an event you created.",
         "ACCT_REF_ZERO": "The numbers of a snapshot start at 1.",
         "ACCT_REF_NOT_READABLE": "{source} is a snapshot of your mailbox or calendar, and this channel may not read it: ask in the terminal or on the page, or have the project's configuration give the sender the group ask-mail.",
@@ -524,7 +525,7 @@ CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,40}")
 CARD_LINES_MAX = 300        # lines in one card
 # The lines that show the CURRENT text of something the person owns (an event's title, place and notes as the service holds them): a messaging app draws them only for a
 # sender who also holds the group CARD_PRIVATE_GROUP (the answer from mail and calendar), and a card with such a line left out is not whole, so it is not approved there.
-CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES"))
+CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES")) + ("CARD_CAL_NOW_TITLE",)
 CARD_PRIVATE_GROUP = "ask-mail"
 CARD_MULTILINE = ("body", "text", "notes", "content", "change")      # the fields that may hold line ends and tabs (a message, a note, a file's text, a diff); every other field is one line
 CARD_REFUSED = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")      # control, format (a right-to-left override, a zero-width character), line and paragraph separator, surrogate, private use

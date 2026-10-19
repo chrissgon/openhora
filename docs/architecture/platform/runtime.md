@@ -632,7 +632,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `/help` | list the commands |
 | `/status` | requests, tasks and what waits for you |
 | `/progress [since]` | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
-| `/pending [id]` | what waits for you; with an id, that decision whole |
+| `/pending [id]` | what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows) |
 | `/answer <id> <text>` | answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page |
 | `/release <id>` | release a delivery (it stays a draft) |
 | `/approve <id> [sha256]` | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved with its hash, in the terminal, on the page, or on a messaging app the project grants that effect's word (from a card that carried the whole text) |
@@ -663,7 +663,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `stage_file` | `stage-file` | terminal, page | no | copy one file of yours for a request that waits for its plan, so that a flow with a file parameter can name it and its plan carry the file's hash (the plan's approval moves it into the task that reads it) |
 | `config` | `config` | terminal, page | no | the configuration's path and hash, whether you accepted it, the data folder, the profiles of the channels and senders, and what the file widens (the list whose hash accept-config --widen takes); it never refuses |
 | `progress` | `progress` | terminal, chat, page, mcp, messaging | no | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
-| `pending` | `pending` | terminal, chat, page, mcp, messaging | no | what waits for you; with an id, that decision whole |
+| `pending` | `pending` | terminal, chat, page, mcp, messaging | no | what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows) |
 | `answer_proposing` | `answer` | terminal, chat, page, mcp, messaging | no | answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page |
 | `release` | `release` | terminal, chat, page, mcp, messaging | no | release a delivery (it stays a draft) |
 | `approve` | `approve` | terminal, chat, page, messaging | no | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved with its hash, in the terminal, on the page, or on a messaging app the project grants that effect's word (from a card that carried the whole text) |

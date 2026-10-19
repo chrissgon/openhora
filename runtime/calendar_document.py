@@ -52,7 +52,8 @@ TITLE_KEY = {"create": "TITLE_CAL_CREATE", "change": "TITLE_CAL_CHANGE", "cancel
 CHANGEABLE = ("title", "when", "location", "reminder_minutes", "notes")      # the parts of an event a change can touch (`when` is start, end and all_day together)
 EVENT_KEYS = ("title", "all_day", "start", "end", "start_at", "end_at", "location", "reminder_minutes", "notes")
 KEYS = ("effect", "task", "account", "implementation", "address", "calendar", "calendar_id", "operation", "event_id", "base_etag", "read_at", "zone", "send_updates",
-        "event", "before", "changed", "reference", "idempotency_key", "dry_run_sha256")
+        "event", "before", "changed", "reference", "asker", "idempotency_key", "dry_run_sha256")
+ASKER = re.compile(r"(?:terminal|page|[a-z][a-z0-9-]{0,31}:[A-Za-z0-9_.@+=-]{1,128})")      # who asked: a channel of the person's own, or a messaging sender (<platform>:<id>)
 REFERENCE = {"source": re.compile(r"[a-z0-9][a-z0-9-]{0,39}"), "read_at": re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})")}
 TITLE_MAX = 200
 LOCATION_MAX = 200
@@ -303,11 +304,11 @@ def key_of(doc: dict) -> str:
 
 
 def document(*, task_id: int, account: str, address: str, calendar: str, calendar_id: str, operation: str, event_id=None, base_etag=None, read_at=None,
-             zone: str, event=None, before=None, changed=None, reference=None, dry_run_sha256: str) -> dict:
+             zone: str, event=None, before=None, changed=None, reference=None, asker: str = "terminal", dry_run_sha256: str) -> dict:
     """The effect document, checked. EffectError usage when a piece is not in its form, a limit is passed, or the words hold what looks like a credential."""
     doc = {"effect": WORD, "task": task_id, "account": account, "implementation": IMPLEMENTATION.get(account, ""), "address": address, "calendar": calendar,
            "calendar_id": calendar_id, "operation": operation, "event_id": event_id, "base_etag": base_etag, "read_at": read_at, "zone": zone,
-           "send_updates": "none", "event": event, "before": before, "changed": list(changed or []), "reference": reference, "idempotency_key": "", "dry_run_sha256": dry_run_sha256}
+           "send_updates": "none", "event": event, "before": before, "changed": list(changed or []), "reference": reference, "asker": asker, "idempotency_key": "", "dry_run_sha256": dry_run_sha256}
     doc["idempotency_key"] = key_of(doc)
     check(doc)
     return doc
@@ -368,6 +369,8 @@ def check(doc) -> dict:
                 or not ETAG.fullmatch(doc["base_etag"]) or not isinstance(doc["read_at"], str) or not READ_AT.fullmatch(doc["read_at"]):
             raise _usage("a change or a removal names the event, the version of it that was read, and when")
         _check_event(doc["before"], "before", doc["operation"])
+    if not isinstance(doc["asker"], str) or not ASKER.fullmatch(doc["asker"]):
+        raise _usage("asker is terminal, page or the messaging sender who asked")
     ref = doc["reference"]      # the snapshot a `<source>#<n>` reference was read from (None for a new event and for a `created:` reference)
     if ref is not None and (create or not isinstance(ref, dict) or set(ref) != {"source", "n", "read_at"} or not isinstance(ref["source"], str)
                             or not REFERENCE["source"].fullmatch(ref["source"]) or type(ref["n"]) is not int or not 1 <= ref["n"] <= 9999
@@ -435,7 +438,8 @@ def summary(doc: dict) -> dict:
 def facts(doc: dict, kind: str, got: dict) -> dict:
     """What the execution records of a write that landed: `kind` is "done" or "replayed"; `got` is what the writer printed."""
     return {"done": True, "replayed": kind == "replayed", "operation": doc["operation"], "account": doc["account"], "calendar": doc["calendar"],
-            "event_id": got.get("event_id") or doc["event_id"], "etag": got.get("etag"), "idempotency_key": doc["idempotency_key"]}
+            "calendar_id": doc["calendar_id"], "asker": doc["asker"], "event_id": got.get("event_id") or doc["event_id"], "etag": got.get("etag"),
+            "idempotency_key": doc["idempotency_key"]}
 
 
 def _event_lines(event: dict, zone: str, current: bool = False) -> list:
@@ -468,10 +472,11 @@ def card_lines(doc: dict, digest: str) -> list:
     head = [["CARD_ACCOUNT", {"account": doc["account"], "address": doc["address"]}], ["CARD_CAL_CALENDAR", {"calendar": doc["calendar"]}]]
     if operation == "create":
         return [["CARD_CAL_CREATE", {}]] + head + _event_lines(doc["event"], zone) + [["CARD_CAL_NOBODY", {}]]
-    # The event as the calendar holds it NOW (read in the preparation), always shown with its id: whoever approves sees which event it is, and a renumbered
-    # snapshot cannot make them approve another one. The rest of its current text (place, notes) is under the keys of phrases.CARD_PRIVATE.
+    # The event as the calendar holds it NOW (read in the preparation): its id and its time are always shown, so that whoever approves sees which event it is and a
+    # renumbered snapshot cannot make them approve another one. Its title, place and notes are under the keys of phrases.CARD_PRIVATE.
     head.append(["CARD_CAL_EVENT", {"event_id": doc["event_id"]}])
-    head.append(["CARD_CAL_NOW", {"title": doc["before"]["title"] or "-", "when": when_text(doc["before"], zone)}])
+    head.append(["CARD_CAL_NOW_WHEN", {"when": when_text(doc["before"], zone)}])
+    head.append(["CARD_CAL_NOW_TITLE", {"title": doc["before"]["title"] or "-"}])
     if doc["reference"]:
         head.append(["CARD_CAL_SNAPSHOT", {"reference": f"{doc['reference']['source']}#{doc['reference']['n']}", "read_at": doc["reference"]["read_at"]}])
     base = [["CARD_CAL_BASE", {"etag_short": etag_short(doc["base_etag"])}]]

@@ -1086,7 +1086,7 @@ def _listed(item: dict, store=None, agents: dict | None = None) -> dict:
     return out
 
 
-def pending(project: str, pending_id: int | None = None) -> dict:
+def pending(project: str, pending_id: int | None = None, channel: str | None = None, sender: str | None = None) -> dict:
     """What waits for the person. Without an id: {"pending": [{"id", "kind", "title", "task_id", "agent",
     "created_at"}]}, oldest first, a plan with its tasks and its hash ("plan"). With one: that pending decision whole,
     with its body (the reply, or the plan's table) and its payload. Either way each carries "actions", the resolution
@@ -1098,7 +1098,7 @@ def pending(project: str, pending_id: int | None = None) -> dict:
     if pending_id is not None:
         item = core._stored(ctx, ctx["store"].pending_get, pending_id)
         known = ops_grants.effect_facts(ctx, item) if item["kind"] == "effect" else None   # POL-1: the word the policy is asked about, and whether a card can hold all of it
-        return {**ops_actor.shown(item), "agent": agents.get(item["task_id"]), "actions": _actions(ctx["store"], item),
+        return {**ops_grants.private_view(ctx, ops_actor.shown(item), channel, sender), "agent": agents.get(item["task_id"]), "actions": _actions(ctx["store"], item),
                 **({"effect_word": known["word"], "effect_on_cards": known["on_cards"]} if known else {}),
                 **({"plan_networked": bool(ops_waits.networked_steps(item))} if item["kind"] == "plan" else {})}   # a plan with a networked step needs a whole card to be approved off the terminal and the page
     return {"pending": [_listed(item, ctx["store"], agents) for item in core._stored(ctx, ctx["store"].pending_list)]}
@@ -1624,7 +1624,7 @@ def config(project: str) -> dict:
                                      got(policy_widening.KEY) or policy_widening.PENDING_SECRET)}   # POL-1/POL-2: grants, widening, its hash, warnings
 
 
-def task(project: str, task_id: int) -> dict:
+def task(project: str, task_id: int, channel: str | None = None, sender: str | None = None) -> dict:
     """One task or request with what is known of it: {"task": the store's row, "drop": what a file handed to it
     needs to know (ops_reads.drop_note: whether its skill uses the web, the line to show), None for a request,
     "runs": its runs oldest first,
@@ -1635,7 +1635,7 @@ def task(project: str, task_id: int) -> dict:
     store = ctx["store"]
     found = core._stored(ctx, store.task_get, task_id)
     return {"task": ops_waits.task_row(ctx, found), "drop": ops_reads.drop_note(found), "runs": ops_ask.with_asker(ctx, core._stored(ctx, store.task_runs_list, task_id)),
-            "pending": [{**ops_actor.shown(item), "agent": found["agent"] if found["parent_id"] is not None else None,
+            "pending": [{**ops_grants.private_view(ctx, ops_actor.shown(item), channel, sender), "agent": found["agent"] if found["parent_id"] is not None else None,
                          "actions": _actions(store, item)}
                         for item in core._stored(ctx, store.pending_list, "all", task_id)]}
 

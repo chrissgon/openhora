@@ -451,7 +451,7 @@ def test_a_change_reads_the_event_and_shows_each_changed_part_as_it_was_and_as_i
     assert "Before: When: Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)" in lines and "After: When: Tue 20/10/2026 10:00-11:00 (America/Sao_Paulo)" in lines
     assert "Before: Notes: Bring cash" in lines and "After: Notes: -" in lines
     assert "Unchanged: Where: Main Street" in lines and "Unchanged: Calendar reminder (min before): 30" in lines
-    assert "Event: ev0001" in lines and f"The event now: {TITLE} (Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo))" in lines, "the event as read live, with its id"
+    assert "Event: ev0001" in lines and "The event now is at: Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)" in lines and f"The event now: {TITLE}" in lines, "the event as read live, with its id"
     assert lines[-2].startswith("Based on version ") and lines[-1] == "No one is invited: no e-mail is sent."
     doc = effect_doc(world, started)
     assert doc["operation"] == "change" and doc["event_id"] == "ev0001" and doc["changed"] == ["title", "when", "notes"] and doc["base_etag"] == google.events["ev0001"]["etag"]
