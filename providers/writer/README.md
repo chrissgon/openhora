@@ -61,6 +61,8 @@ The writers read the account record through `providers/secrets/resolver.py` (the
 
 ## File writers (package W4a): what `gdrive.py` and `onedrive.py` do
 
+The class is `writer:files`. The operations are `file-create`, `file-replace` and `file-save` (`runtime/ops_files.py`); the card, the document and the rules are in `contracts/runtime.md` ("Files (package W4a)").
+
 - **The account.** Every verb but `--check` takes `--account <address>`, the address of the account the document names, and compares it with the `account` of the token record before it refreshes the token: a token of another account reads and writes nothing (exit 1). The address in the project's `accounts` must be the one `google_auth.py` / `microsoft_auth.py` recorded (a Microsoft record holds the address `GET /me` named, which may not be an alias the person typed).
 - **One secret.** `GOOGLE_ACCOUNT_TOKEN` or `MICROSOFT_ACCOUNT_TOKEN`, the account record made by `providers/accounts/google_auth.py` or `microsoft_auth.py`, read through `providers/secrets/resolver.py`. The runtime starts the process with the minimum environment and that one secret. A token that lacks a scope of the platform's set, or carries another, is refused (exit 3, naming the authorize command). There is no legacy record for a writer.
 - **An allow-list in code (L58).** Each writer has a constant `ALLOWED`, a tuple of `(method, path regex)` pairs, and one function that sends a request and refuses any other. There is no DELETE in either list, no request that sets `trashed`, no call on a trash, no move or rename, no sharing or permission call (L57; the static scan of `runtime/tests/test_limits_account_writes.py` reads both files and `providers/writer/tests/` shows the fake servers saw nothing else).
@@ -70,10 +72,6 @@ The writers read the account record through `providers/secrets/resolver.py` (the
 - **The content is the approved bytes.** `--content-file` is an absolute path to a regular file the runtime wrote in a private folder; the writer refuses it unless its size and sha256 are the flags' (`--bytes`, `--sha256`). At most 25 MiB.
 - **Idempotency.** `--idempotency-key files-<32 hex>` (derived by the runtime from the task, the operation, the account, the target, the name, the content and the base) and a ledger in `<state>/writer-<impl>/ledger.json` (the state folder is `$OPENHORA_STATE_DIR`, else `$XDG_STATE_HOME/openhora`, else `~/.local/state/openhora`; folders 0700, files 0600; an exclusive file lock): `pending` before the request that changes the account, `done` after the answer. A `done` key is answered again with no request (`replayed`); a key bound to other requests is refused; a key whose request the service refused outright is given back.
 - **Exit codes.** 0 ok; 1 refused with nothing changed (including `changed:`, a moved base); 2 usage; 3 not configured; 4 unknown (the connection failed or timed out, or the service answered a server error: the request may have landed). The key stays pending after a 4, and the next attempt looks for its own mark first.
-
-## `writer:files`: Drive and OneDrive (package W4a)
-
-The operations are `file-create`, `file-replace` and `file-save` (`runtime/ops_files.py`); the card, the document and the rules are in `contracts/runtime.md` ("Files (package W4a)").
 
 ### `gdrive.py` (Drive)
 

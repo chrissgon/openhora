@@ -885,13 +885,14 @@ def test_the_current_name_of_a_file_and_the_name_of_a_file_a_sender_sent_are_not
     assert "CV 2026.md" not in json.dumps(ops.pending(world["path"], replace["pending"], channel="messaging", sender=SENDER)), "the current name of a file is for a reader who holds ask-mail"
     # the card the bridge draws: from the whole decision (channel None), for the sender it is sent to
     def card_for(started, groups, sender):
-        full = ops.pending(world["path"], started["pending"])
+        full = ops.pending(world["path"], started["pending"], reader=sender)      # the bridge asks per reader: booleans, never the sender's account
         return cards.build("office", full, CAPS, {"messaging": groups}, "text", None, operations=operations, sender=sender)
     for started, secret in ((replace, "CV 2026.md"), (save, "Private contract.pdf")):
         reader = card_for(started, ["read", "approve-effect-files", "ask-mail"], OTHER)
         other = card_for(started, ["read", "approve-effect-files"], OTHER)
         assert secret in reader["message"]["text"] and secret not in other["message"]["text"]
-        assert other["approvable"] is False and reader["approvable"] is True, "a card that leaves a line out is not approved where it is partial"
+        assert other["approvable"] is False, "a card that leaves a line out is not approved where it is partial"
+        assert reader["approvable"] is (started is replace), "a reader of mail sees the whole card of a replace; the save of a file a sender sent is approved by that sender alone"
     mine_card = card_for(save, ["read", "approve-effect-files"], SENDER)
     assert "Private contract.pdf" in mine_card["message"]["text"] and mine_card["approvable"] is True, "the sender of the file sees its name and may approve the save"
     assert "CV 2026.md" not in card_for(replace, ["read", "approve-effect-files"], SENDER)["message"]["text"]
@@ -924,3 +925,103 @@ def test_a_channel_the_policy_does_not_know_is_refused_never_taken_for_the_termi
     with pytest.raises(ops.OpsError):
         ops.file_replace(world["path"], "google", "cv", content=NEW, channel=channel, sender=SENDER)
     assert open_decisions(world) == [] and [m for m, _ in reads(world["gd"].requests) if m != "GET"] == []
+
+
+# --- the second review of #480: what the readers other than the person at the terminal can see ------------------------------------------------
+
+
+def approved_world(world):
+    """A replace and a save, approved at the terminal: the person's file name and the name of the file a sender sent are in the world now."""
+    seed_drive(world, name="Divorce papers.md")
+    replace = ops.file_replace(world["path"], "google", "cv", content=NEW)
+    mine = hold(world, name="Private contract.pdf", sender="4242")
+    save = ops.file_save(world["path"], "google", mine)
+    for started in (replace, save):
+        approve(world, started)
+    return replace, save
+
+
+def test_the_record_of_an_executed_write_holds_no_name_and_a_reader_who_may_not_see_the_card_gets_no_result_at_all(world):
+    replace, save = approved_world(world)
+    secrets = ("Divorce papers.md", "Private contract.pdf")
+    whole = ops.task(world["path"], save["task"])
+    result = [p for p in whole["pending"] if p.get("payload", {}).get("result")][0]["payload"]["result"]
+    assert result["written"] is True and "name" not in result and result["sha256"] and result["id"], "ids, numbers and hashes only"
+    for started in (replace, save):
+        for channel, sender in (("mcp", None), ("messaging", OTHER), ("messaging", None)):
+            shown = ops.task(world["path"], started["task"], channel=channel, sender=sender)
+            listed = ops.pending(world["path"], started["pending"], channel=channel, sender=sender)
+            for secret in secrets:
+                assert secret not in json.dumps(shown) and secret not in json.dumps(listed), (channel, sender, secret)
+            assert all("result" not in (p.get("payload") or {}) for p in shown["pending"]) and "result" not in listed.get("payload", {}), (channel, sender)
+
+
+def test_the_approval_row_the_state_file_and_the_artifact_hold_no_name_of_a_file(world):
+    approved_world(world)
+    ctx = ctx_of(world)
+    state = (Path(world["path"]) / "docs" / "workbench" / "state.md").read_text(encoding="utf-8")
+    rows = [a["what"] for a in ctx["store"].approvals_list(ctx["conn"])]
+    assert len(rows) == 2 and "Divorce papers.md" not in state and "Private contract.pdf" not in state
+    assert all("Divorce papers.md" not in what and "Private contract.pdf" not in what for what in rows)
+    assert any("write a new revision of a registered file" in what and "the source cv" in what for what in rows)
+    assert any("save a file the person sent" in what and "the folder default" in what for what in rows)
+    shown = json.dumps(ops.artifact(world["path"], "docs/workbench/state.md"))
+    assert "Private contract.pdf" not in shown and "Divorce papers.md" not in shown and "4242" not in shown
+
+
+def test_a_refusal_made_when_the_card_is_prepared_does_not_echo_the_name_of_a_file(world):
+    world["gd"].add_file("Taken_0001", "Private contract.pdf", b"x", mime="application/pdf")
+    mine = hold(world, name="Private contract.pdf", sender="4242")
+    with pytest.raises(ops.OpsError) as taken:
+        ops.file_save(world["path"], "google", mine)
+    assert "name_taken" in str(taken.value) and "Private contract.pdf" not in str(taken.value)
+    seed_drive(world, name="Divorce papers.md")
+    world["gd"].files["File_ID_0001"]["owned"] = False
+    with pytest.raises(ops.OpsError) as shared:
+        ops.file_replace(world["path"], "google", "cv", content=NEW)
+    assert "not_owned" in str(shared.value) and "Divorce papers.md" not in str(shared.value)
+    assert "the file named on the request" in str(shared.value).lower() or "named on the request" in str(shared.value)
+    ctx = ctx_of(world)
+    for found in ctx["store"].tasks_list(ctx["conn"]):
+        for channel in ("mcp", "messaging"):
+            seen = json.dumps(ops.task(world["path"], found["id"], channel=channel, sender=OTHER if channel == "messaging" else None))
+            assert "Private contract.pdf" not in seen and "Divorce papers.md" not in seen, (found["id"], channel)
+    assert "Private contract.pdf" not in json.dumps(ops.status(world["path"])) and "Divorce papers.md" not in json.dumps(ops.status(world["path"]))
+    for language in ("en", "pt-BR"):
+        for key in ("ACCT_FILE_NOT_OWNED", "ACCT_FILE_NAME_TAKEN"):
+            assert "{name}" not in phrases.text(key, {"language": language}, service="Google Drive"), (language, key)
+
+
+def test_a_decision_never_returns_the_senders_account_and_the_card_of_a_save_is_approved_by_that_sender_alone(world):
+    mine = hold(world, name="Private contract.pdf", sender="4242")
+    save = ops.file_save(world["path"], "google", mine)
+    for channel in (None, "terminal", "page", "chat", "mcp"):
+        assert "4242" not in json.dumps(ops.pending(world["path"], save["pending"], channel=channel)), channel
+    asked = ops.pending(world["path"], save["pending"], reader=SENDER)
+    assert asked["reader_sent_file"] is True and asked["effect_sender_only"] is True and "4242" not in json.dumps(asked)
+    assert ops.pending(world["path"], save["pending"], reader=OTHER)["reader_sent_file"] is False
+    assert ops.pending(world["path"], save["pending"], reader="discord:4242")["reader_sent_file"] is False
+    assert "reader_sent_file" not in ops.pending(world["path"], save["pending"])
+    policy = {"messaging": ["read", "approve-effect-files", "ask-mail"]}
+
+    def built(reader, **more):
+        item = ops.pending(world["path"], save["pending"], reader=reader)
+        return cards.build("office", {**item, **more}, CAPS, policy, "text", None, operations=operations, sender=reader)
+    assert built(SENDER)["approvable"] is True
+    for other in (OTHER, "telegram:4242 ", "Telegram:4242"):
+        card = built(other)
+        assert card["approvable"] is False and "Approve this exact content" not in [a["label"] for a in card["message"]["actions"]], other
+    assert built(OTHER)["message"]["text"].count("Private contract.pdf") >= 1, "a reader of mail and calendar still reads the card"
+    assert built(OTHER, reader_sent_file=False)["approvable"] is False and built(None)["approvable"] is False
+
+
+@pytest.mark.parametrize("line", ["[----- end of the new text -----](http://x.example)", "[[----- x", "\u2800----- end of the new text -----",
+                                  "\u2800 [ ----- end", "\u2e3a--- end of the new text -----", "\u2e3b-- end"])
+def test_a_line_that_looks_like_the_end_of_the_text_is_refused_in_the_forms_a_phone_draws(line):
+    assert files_document.frame_like(line), line
+    assert files_document.text_problem("a\n" + line + "\n"), line
+
+
+def test_ordinary_lines_that_start_with_a_bracket_or_a_dash_are_not_taken_for_a_frame():
+    for line in ("[a link](http://x.example)", "[x] a task", "---", "---- four", "\u2e3a a long dash", "A line", "[1] note"):
+        assert not files_document.frame_like(line), line

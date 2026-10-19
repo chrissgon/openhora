@@ -210,7 +210,7 @@ def _content_for(ctx: steps.Context, wanted: str, word: str, *, gdoc: bool = Fal
 def _owned(account: str, meta: dict, name: str) -> None:
     """A replace is made only of a file the account owns (Drive: ownedByMe and may edit; OneDrive: in the account's own drive); the card names the account."""
     if meta.get("owned") is not True:
-        raise steps.StepFailure("not_owned", "file", "", phrases.en("ACCT_FILE_NOT_OWNED").format(name=fd.clean_display(name, 80), service=fd.SERVICE_NAME[account]))
+        raise steps.StepFailure("not_owned", "file", "", phrases.en("ACCT_FILE_NOT_OWNED").format(service=fd.SERVICE_NAME[account]))
 
 
 def _target_media(account: str, meta: dict) -> tuple:
@@ -294,7 +294,7 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
         looked = _asked(reader.meta, account, ["--folder", folder, "--name", name], field="folder", provider=fd.IMPLEMENTATION[account],
                         next="the folder could not be read: check that the account is authorized and that the folder is still there, then start this task again")
         if looked.get("exists"):
-            raise steps.StepFailure("name_taken", "name", "", phrases.en("ACCT_FILE_NAME_TAKEN").format(name=name))
+            raise steps.StepFailure("name_taken", "name", "", phrases.en("ACCT_FILE_NAME_TAKEN"))
     if state.get("pinned_target") not in (None, target["id"]):      # a start over after a stale prepares the same target, or refuses
         raise steps.StepFailure("target_changed", "file" if operation == "replace" else "folder", "", phrases.en("ACCT_FILE_RETARGET"))
     try:

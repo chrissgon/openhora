@@ -1086,7 +1086,7 @@ def _listed(item: dict, store=None, agents: dict | None = None) -> dict:
     return out
 
 
-def pending(project: str, pending_id: int | None = None, channel: str | None = None, sender: str | None = None) -> dict:
+def pending(project: str, pending_id: int | None = None, channel: str | None = None, sender: str | None = None, reader: str | None = None) -> dict:
     """What waits for the person. Without an id: {"pending": [{"id", "kind", "title", "task_id", "agent",
     "created_at"}]}, oldest first, a plan with its tasks and its hash ("plan"). With one: that pending decision whole,
     with its body (the reply, or the plan's table) and its payload. Either way each carries "actions", the resolution
@@ -1098,10 +1098,9 @@ def pending(project: str, pending_id: int | None = None, channel: str | None = N
     if pending_id is not None:
         item = core._stored(ctx, ctx["store"].pending_get, pending_id)
         known = ops_grants.effect_facts(ctx, item) if item["kind"] == "effect" else None   # POL-1: the word the policy is asked about, and whether a card can hold all of it
-        owner = ops_grants.held_file_sender(ctx, item) if known and channel not in ("mcp", "messaging") else None      # W4a: whose held file a save writes, for the bridge's card
         return {**ops_grants.private_view(ctx, ops_actor.shown(item), channel, sender), "agent": agents.get(item["task_id"]), "actions": _actions(ctx["store"], item),
                 **({"effect_word": known["word"], "effect_on_cards": known["on_cards"]} if known else {}),
-                **({"effect_owner": owner} if owner else {}),
+                **(ops_grants.save_facts(ctx, item, reader) if known else {}),      # W4a: booleans for the card of a save of a held file; never the sender's id
                 **({"plan_networked": bool(ops_waits.networked_steps(item))} if item["kind"] == "plan" else {})}   # a plan with a networked step needs a whole card to be approved off the terminal and the page
     return {"pending": [_listed(item, ctx["store"], agents) for item in core._stored(ctx, ctx["store"].pending_list)]}
 

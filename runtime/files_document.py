@@ -144,7 +144,9 @@ def text_problem(text) -> str:
 
 FRAME_MARK = "-----"
 DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u2500\u2501\ufe58\ufe63\uff0d\u00ad"      # look-alikes of a hyphen that NFKC leaves alone
-MARKDOWN = " \t#>*_`~|+:"      # what a Markdown renderer strips or turns into a style before a line's visible text
+LONG_DASHES = {"\u2e3a": "--", "\u2e3b": "---"}      # the two-em and three-em dashes draw as a rule of two and of three hyphens
+MARKDOWN = " \t#>*_`~|+:[\u2800"      # what a Markdown renderer strips or turns into a style before a line's visible text; "[" opens a link whose text is
+#                                       the line; U+2800 (braille blank) draws as a space
 BULLET = re.compile(r"(?:[-+*]|\d+[.)])\s+")
 
 
@@ -154,7 +156,7 @@ def frame_like(line: str) -> bool:
     bullet stripped. Such a line could look like the end of the text (the card also puts a mark in front of every line of the text, so this is the second
     guard)."""
     seen = unicodedata.normalize("NFKC", line)
-    seen = "".join("-" if unicodedata.category(c) == "Pd" or c in DASHES else c for c in seen)
+    seen = "".join(LONG_DASHES.get(c) or ("-" if unicodedata.category(c) == "Pd" or c in DASHES else c) for c in seen)
     for _ in range(8):
         stripped = seen.lstrip(MARKDOWN)
         found = BULLET.match(stripped)
@@ -535,10 +537,12 @@ def body(doc: dict, digest: str) -> str:
 
 
 def describe(doc: dict) -> str:
-    """What is approved, in one line (the state file's row and the approval's record)."""
+    """What is approved, in one line (the state file's row and the approval's record, which the MCP mode can read): the kind of write, the service, the
+    folder or source as `accounts` or the sources list names it, and the content's size and hash. The name of the file is the person's (or a sender's) text and
+    is not in it."""
     where = f"the folder {doc['target']['label']}" if doc["operation"] != "replace" else f"the source {doc['target']['label']}"
-    verb = {"create": "create the file", "save": "save the file the person sent as", "replace": "write a new revision of the file"}[doc["operation"]]
-    return f"{verb} {doc['name']} ({doc['content']['bytes']} bytes, sha256 {doc['content']['sha256'][:12]}) in {SERVICE_NAME[doc['account']]}, {where}"
+    verb = {"create": "create a file", "save": "save a file the person sent", "replace": "write a new revision of a registered file"}[doc["operation"]]
+    return f"{verb} ({doc['content']['bytes']} bytes, sha256 {doc['content']['sha256'][:12]}) in {SERVICE_NAME[doc['account']]}, {where}"
 
 
 def summary(doc: dict) -> dict:
@@ -548,9 +552,10 @@ def summary(doc: dict) -> dict:
 
 
 def facts(doc: dict, result: dict) -> dict:
-    """What the execution records of a write that landed: closed words, numbers and the service's ids."""
+    """What the execution records of a write that landed: closed words, numbers, hashes and the service's ids. Never a name: the name of a file is the
+    person's text (a sender's, for a save), and this record is read by every channel."""
     return {"written": True, "replayed": bool(result.get("replayed")), "operation": doc["operation"], "account": doc["account"], "id": result.get("id"),
-            "name": clean_display(result.get("name")), "bytes": result.get("bytes"), "sha256": doc["content"]["sha256"], "idempotency_key": doc["idempotency_key"]}
+            "bytes": result.get("bytes"), "sha256": doc["content"]["sha256"], "idempotency_key": doc["idempotency_key"]}
 
 
 if __name__ == "__main__":

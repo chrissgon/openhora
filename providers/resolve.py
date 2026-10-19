@@ -108,6 +108,7 @@ ALIASES = {"mailbox": "reader:email", "mailer": "sender:email", "scheduler": "sc
 PARAMETER_ROLES = {"publisher", "messenger"}
 PLATFORMS_LINE = re.compile(r"^PLATFORMS\s*=\s*([(\[].*?[)\]])\s*(?:#.*)?$", re.M)
 SERVES_LINE = re.compile(r'^SERVES\s*=\s*"([^"\n]*)"', re.M)
+SERVES_READ = 32768      # characters of an implementation read for its SERVES line (a long module docstring comes first)
 # Documented defaults per platform (sys.platform prefix -> implementation).
 PLATFORM_DEFAULTS = {"scheduler:job": {"darwin": "launchd", "linux": "systemd"}}
 
@@ -234,7 +235,7 @@ def serves_class(cls: str, name: str, root=None, env=None, strict: bool = False)
     of a writer before it starts one)."""
     path = workbench_root(root, env) / "providers" / folder(cls) / f"{name}.py"
     try:
-        found = SERVES_LINE.search(path.read_text(encoding="utf-8")[:8192])
+        found = SERVES_LINE.search(path.read_text(encoding="utf-8")[:SERVES_READ])
     except (OSError, ValueError):      # a missing file serves what its folder says; a file that is not text declares nothing (UnicodeDecodeError is a ValueError)
         return not strict
     return (found is None and not strict) or (found is not None and found.group(1) == canonical(cls))

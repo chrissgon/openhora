@@ -179,11 +179,12 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     blocked = _blocked or ("document" if delivery == "failed" else None)
     approval_ok = False
     private = reads_private(policy, sender, operations)
-    owner = bool(sender) and item.get("effect_owner") == sender      # the sender who sent the held file a save card writes (W4a) sees its name there
+    owner = bool(sender) and item.get("reader_sent_file") is True      # the sender who sent the held file a save card writes (W4a) sees its name there and approves it
     cut_private = kind == "effect" and not private and effect_card_text(item, None, True) != effect_card_text(item, None, False, owner)      # a line of the current text is left out
     if needs_whole and not blocked and notices == "text" and not cut_private:
         if kind == "effect":
-            approval_ok = item.get("effect_on_cards") is True and operations.permitted("approve", CHANNEL, policy, effect_kind(item), sender)
+            approval_ok = item.get("effect_on_cards") is True and operations.permitted("approve", CHANNEL, policy, effect_kind(item), sender) \
+                and (item.get("effect_sender_only") is not True or owner)      # the save of a held file is approved by the sender who sent it, and by no one else (Q9)
         else:
             approval_ok = (operations.permitted("approve", CHANNEL, policy, "plan", sender)
                            and operations.permitted("approve", CHANNEL, policy, "plan:networked", sender))

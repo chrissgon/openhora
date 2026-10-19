@@ -74,7 +74,9 @@ def private_view(ctx: dict, item: dict, channel, sender=None) -> dict:
     kept = [line for line in card if line[0] not in hidden]
     if len(kept) == len(card):
         return item
-    return {**item, "body": phrases.card_text(kept) + "\n" + phrases.en(phrases.hidden_note_key(card, kept)), "payload": {**payload, "card": kept}}
+    # The card's lines go, and so does the record of the execution (`result`): a reader who may not see the text of the card must not see it by way of the outcome.
+    shown = {key: value for key, value in payload.items() if key != "result"}
+    return {**item, "body": phrases.card_text(kept) + "\n" + phrases.en(phrases.hidden_note_key(card, kept)), "payload": {**shown, "card": kept}}
 
 
 def _owns_held_file(ctx: dict, item: dict, channel, sender) -> bool:
@@ -84,6 +86,24 @@ def _owns_held_file(ctx: dict, item: dict, channel, sender) -> bool:
         return False
     key = held_file_sender(ctx, item)
     return key is not None and ops_actor.split(key) == ops_actor.split(sender)
+
+
+def save_facts(ctx: dict, item: dict, reader=None) -> dict:
+    """What a card needs to know of an effect that saves a held file (W4a, Q9), as booleans: {"effect_sender_only": True} when the effect saves a file a sender
+    sent (only that sender approves it), and, when `reader` (a messaging sender key) is named, {"reader_sent_file": whether the reader is that sender}. {} for
+    any other effect. The sender's account stays in the store: it is compared here and never returned."""
+    doc = effect_document(ctx, item)
+    try:
+        held = effects.module_for("files").held_attachment(doc) if isinstance(doc, dict) and doc.get("effect") == "files" else None
+    except effects.EffectError:
+        held = None
+    if held is None:
+        return {}
+    found = {"effect_sender_only": True}
+    if reader:
+        sender = held_file_sender(ctx, item)
+        found["reader_sent_file"] = sender is not None and ops_actor.split(sender) == ops_actor.split(reader)
+    return found
 
 
 def held_file_sender(ctx: dict, item: dict):
