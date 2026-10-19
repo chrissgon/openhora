@@ -65,7 +65,7 @@ CONTENT_TYPE = re.compile(r"[a-z0-9][a-z0-9.+-]{0,30}")
 # other line of a snapshot begins with these words.
 DIGEST_PREFIX = "Index digest (sha256): "
 DIGEST_LINE = re.compile(r"Index digest \(sha256\): ([0-9a-f]{64})")
-DIGEST_LINES_SCANNED = 6          # the digest line is among the first lines of the text
+DIGEST_LINE_AT = 2                # the digest line is the third line of the text, and no other line is read
 # A plain address, the shape the index keeps: dot-separated atoms, an @, host labels; no trailing dot, no two dots in a row; at most 64 characters
 # before the @ and 254 in all.
 _ATOM = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
@@ -83,12 +83,11 @@ def index_digest(index) -> str:
 
 
 def digest_of_text(rendered: str):
-    """The index digest a snapshot's text carries (one of its first lines), or None when it has none (a version made before the index existed)."""
-    for line in rendered.split("\n")[:DIGEST_LINES_SCANNED]:
-        found = DIGEST_LINE.fullmatch(line)
-        if found:
-            return found.group(1)
-    return None
+    """The index digest a snapshot's text carries (its third line, in exactly the form of DIGEST_LINE), or None when it has none (a version made before
+    the index existed)."""
+    lines = rendered.split("\n", DIGEST_LINE_AT + 1)
+    found = DIGEST_LINE.fullmatch(lines[DIGEST_LINE_AT]) if len(lines) > DIGEST_LINE_AT else None
+    return found.group(1) if found else None
 
 
 def plain_address(value):

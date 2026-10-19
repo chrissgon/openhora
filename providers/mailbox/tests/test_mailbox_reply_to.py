@@ -203,3 +203,16 @@ def test_outlook_a_sender_field_that_is_not_a_plain_address_leaves_no_key(fake, 
     code, out, said = run(fake, "get", "--id", "m1")
     assert code == 0, said
     assert "from_address" not in out
+
+
+def test_gmail_a_header_that_appears_twice_gives_no_address():
+    base = ("To: Sam Sample <sam@mail.example>\r\nSubject: Appointment\r\nMessage-ID: <m1@clinic.example>\r\nContent-Type: text/plain\r\n\r\nHello\r\n")
+    twice_from = ("From: ceo@corp.example\r\nFrom: attacker@evil.example\r\nReply-To: desk@clinic.example\r\n" + base).encode("utf-8")
+    out = gmail.normalize(twice_from, source="gmail", message_id="m1", thread_id="t1")
+    assert "from_address" not in out and out["reply_to"] == "desk@clinic.example"
+    twice_reply = ("From: Ana <ana@clinic.example>\r\nReply-To: rt@evil.example\r\nReply-To: other@evil.example\r\n" + base).encode("utf-8")
+    out = gmail.normalize(twice_reply, source="gmail", message_id="m1", thread_id="t1")
+    assert out["from_address"] == "ana@clinic.example" and "reply_to" not in out
+    once = ("From: Ana <ana@clinic.example>\r\nReply-To: rt@evil.example\r\n" + base).encode("utf-8")
+    out = gmail.normalize(once, source="gmail", message_id="m1", thread_id="t1")
+    assert out["from_address"] == "ana@clinic.example" and out["reply_to"] == "rt@evil.example"

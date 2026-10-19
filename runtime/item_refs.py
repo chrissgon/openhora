@@ -10,7 +10,9 @@ person's own mailbox or calendar says WHICH message or event by a reference, nev
                        (a mail text prints `## 3. ...`; a calendar text prints `3. 09:00-10:00 · ...`, the numbers following the order of
                        snapshot_text.calendar_order, which is the order of the index)
   created:<number>     the event the runtime created when card <number> was approved (its provider id is in that effect's recorded result);
-                       resolved by the calendar write path, through the `created` function this module is given
+                       resolved by the calendar write path, through the `created` function this module is given. That function's answer is
+                       handed back as it is and needs no reading right, so it must stay minimal: the provider id, the etag and the
+                       calendar of the event the runtime itself created, and nothing of any snapshot or of another person's words
 
 Code resolves a reference through the INDEX that runtime/sources_mail.py writes into the manifest of each snapshot version: {n, id, thread_id,
 message_id, from_address, reply_to_address, subject, change_key} for a message, {n, id, etag, calendar, organizer_self, attendees_other,
@@ -20,7 +22,7 @@ for an id. A reference to a snapshot older than REF_MAX_AGE (the age limit L53 a
 same way.
 
 What ties the index to the store. The manifest is a file of the sources folder, and the store does not record its hash; the TEXT is hashed (limit
-L25: verify_version). So the sha256 of the index is a line of the text (snapshot_text.DIGEST_PREFIX, among its first lines), and read_index
+L25: verify_version). So the sha256 of the index is a line of the text (snapshot_text.DIGEST_PREFIX, the third line), and read_index
 refuses (`integrity`) an index whose digest is not that line, a text whose hash is not the store's record, a manifest that names another source,
 version, text or origin than the store's row, and a calendar entry for a calendar the source's origin does not name. Every value of an entry is
 read back through its closed shape too (an id or key by full match, an address of the plain shape, a subject cleaned like the write side does:
@@ -120,12 +122,18 @@ def _show(raw: str) -> str:
 
 def may_read(ctx: dict, channel, sender=None) -> bool:
     """Whether a caller may use a reference into a snapshot of the mailbox or the calendar: the terminal, the conversation and the page, a call with
-    no channel (the operations' own), and a messaging sender whose groups list READ_GROUP. The MCP mode and any other caller may not."""
+    channel None (the operations' own), and a messaging sender, named as <platform>:<id>, whose groups list READ_GROUP (the sender's own profile, else
+    the channel's). A messaging call with no sender, or one that is not a sender key, is refused: it never falls back to the channel's groups. The
+    MCP mode, an empty or unknown channel and any other caller may not."""
     cfg = ctx["cfg"]
+    if channel is not None and not (isinstance(channel, str) and channel):
+        return False                                   # a channel that is empty or not a word is not "no channel"
     actor = ops_actor.label(cfg, channel, sender)
     if actor in SNAPSHOT_READERS:
         return True
     if channel == ops_actor.MESSAGING:
+        if not ops_actor.split(sender)[0]:
+            return False                               # a messaging call names who acts; with no sender, or one that is not <platform>:<id>, it gets nothing
         groups = operations.effective_groups(ops_actor.MESSAGING, cfg.get("channels"), sender)
         return bool(groups) and READ_GROUP in groups
     return False
@@ -138,6 +146,16 @@ def _shaped(pattern, value):
     return value if isinstance(value, str) and pattern.fullmatch(value) else None
 
 
+def _subject(value) -> str:
+    """The subject of a stored entry as the write side made it: control, format and direction characters out, white space collapsed, at most
+    SUBJECT_MAX characters. Links are NOT replaced again (the write side already replaced them; doing it twice would change `<link: host>` text that
+    is already a replacement): reading it back gives what was written."""
+    if not isinstance(value, str):
+        return ""
+    one = " ".join(text.clean_text(value).split())
+    return one if len(one) <= SUBJECT_MAX else one[:SUBJECT_MAX - 1].rstrip() + "…"
+
+
 def _entry(kind: str, n: int, raw) -> dict:
     """A clean copy of one stored entry: only the keys of its kind, each value checked against its closed shape or null. The number must be the
     entry's place in the list."""
@@ -147,7 +165,7 @@ def _entry(kind: str, n: int, raw) -> dict:
         return {"n": n, "id": _shaped(ID, raw.get("id")), "thread_id": _shaped(ID, raw.get("thread_id")),
                 "message_id": _shaped(MESSAGE_ID, raw.get("message_id")), "from_address": text.plain_address(raw.get("from_address")),
                 "reply_to_address": text.plain_address(raw.get("reply_to_address")),
-                "subject": text.one_line(raw.get("subject"), SUBJECT_MAX) if isinstance(raw.get("subject"), str) else "",
+                "subject": _subject(raw.get("subject")),
                 "change_key": _shaped(KEY, raw.get("change_key"))}
     others = raw.get("attendees_other")
     return {"n": n, "id": _shaped(ID, raw.get("id")), "etag": _shaped(KEY, raw.get("etag")), "calendar": _shaped(CALENDAR, raw.get("calendar")),

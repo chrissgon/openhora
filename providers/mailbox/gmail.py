@@ -623,11 +623,13 @@ def valid_address(value) -> bool:
 
 
 def single_mailbox(msg, name: str) -> str | None:
-    """The address of a header that holds exactly ONE mailbox, read from the parsed header and not from its text: no group, no second mailbox, no parse
+    """The address of a header that holds exactly ONE mailbox, read from the parsed header and not from its text: the header appears once, no group, no second mailbox, no parse
     defect, and an address of the plain shape. A From such as `"ceo@corp.example, x" <attacker@evil.example>` has one mailbox (the one in the angle
     brackets, which is the real one); `ceo@corp.example, Attacker <attacker@evil.example>` has two, and gives None: the address is never picked out of
     words. The display name is dropped."""
     try:
+        if len(msg.get_all(name) or []) != 1:     # a second From or Reply-To line is not read: which one a client shows is not ours to guess
+            return None
         header = msg.get(name)
         addresses, groups, defects = header.addresses, header.groups, header.defects
     except Exception:  # a malformed header, or one that is not an address header, has no single mailbox

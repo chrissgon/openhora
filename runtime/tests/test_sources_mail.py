@@ -1202,7 +1202,10 @@ def test_the_digest_of_the_index_is_the_third_line_of_the_text_and_matches_the_m
         lines = desk.text(name).splitlines()
         assert lines[2] == "Index digest (sha256): " + snapshot_text.index_digest(desk.manifest(name)["index"]) and snapshot_text.digest_of_text(desk.text(name))
     assert snapshot_text.digest_of_text("# x\nRead at\n  Index digest (sha256): " + "0" * 64) is None, "an indented line (a body line) is not the digest"
-    assert snapshot_text.digest_of_text("a\nb\nc\nd\ne\nf\nIndex digest (sha256): " + "0" * 64) is None, "only among the first lines"
+    line = "Index digest (sha256): " + "0" * 64
+    assert snapshot_text.digest_of_text(f"a\nb\n{line}\nd") == "0" * 64
+    for early_or_late in (f"a\n{line}\nc\nd", f"{line}\nb\nc", f"a\nb\nc\n{line}", f"a\nb\nc\nd\ne\nf\n{line}", f"a\nb\n{line} \nd", "a\nb"):
+        assert snapshot_text.digest_of_text(early_or_late) is None, "the third line and no other"
 
 
 def test_a_version_made_before_the_index_existed_does_not_block_the_first_refresh_after_the_upgrade(desk, monkeypatch):
