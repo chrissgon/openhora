@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import sys
+from email.utils import parseaddr
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -59,7 +60,8 @@ BEARER = "Zq8vLm3Tn7Xw2kPq9R4s5T"                                         # the 
 
 def message(n, when="2026-10-17T09:00:00Z", sender="Ana Lima <ana@clinic.example>", subject="Appointment confirmed", text="Your appointment is confirmed.", **more):
     base = {"id": f"m{n}", "thread_id": None, "source": "gmail", "received_at": when, "from": sender, "to": "sam@mail.example", "subject": subject,
-            "text": text, "truncated": False, "links": [], "headers": {}, "attachments": [], "external_content": True, "own_words_cut": 0}
+            "text": text, "truncated": False, "links": [], "headers": {}, "attachments": [], "external_content": True, "own_words_cut": 0,
+            "from_address": parseaddr(sender)[1] or None}     # the readers print the sender's address alone, as this stand-in does
     base.update(more)
     return base
 
@@ -1062,9 +1064,11 @@ def test_the_reply_to_of_a_message_is_the_address_alone_and_absent_when_it_is_th
         message(1, "2026-10-17T09:00:00Z", sender="Ana Lima <ana@clinic.example>", reply_to="desk@clinic.example"),
         message(2, "2026-10-16T14:30:00Z", sender="Bob <bob@shop.example>", reply_to="BOB@Shop.Example"),
         message(3, "2026-10-15T08:00:00Z", sender="Cleo <cleo@club.example>", reply_to="Front Desk <desk@club.example>"),
-        message(4, "2026-10-14T08:00:00Z", sender="Dan <dan@club.example>", reply_to="not an address")]
+        message(4, "2026-10-14T08:00:00Z", sender="Dan <dan@club.example>", reply_to="not an address"),
+        message(5, "2026-10-13T08:00:00Z", sender="Eve <eve@club.example>", reply_to="a..b@club.example")]
     desk.mail("inbox")
-    assert [e["reply_to_address"] for e in desk.manifest("inbox")["index"]] == ["desk@clinic.example", None, "desk@club.example", None]
+    assert [e["reply_to_address"] for e in desk.manifest("inbox")["index"]] == ["desk@clinic.example", None, None, None, None], \
+        "the readers print the address alone: a value with a name in it, a bad shape or the sender's own is not kept"
 
 
 def test_a_value_the_service_did_not_print_in_a_known_shape_is_null_and_the_entry_keeps_its_number(desk):
@@ -1177,3 +1181,41 @@ def test_every_number_the_text_prints_is_the_n_of_its_index_entry_for_mail_and_f
     assert [int(line.split(".", 1)[0]) for line in lines] == [e["n"] for e in index] == [1, 2, 3, 4, 5]
     assert [line.split(" · ")[1] for line in lines] == ["Holiday", "Morning", "Afternoon", "Later day", "Last"]
     assert [e["id"] for e in index] == ["e3", "e4", "e2", "e1", "e5"], "the line numbered n is the event the entry n names"
+
+
+def test_the_sender_address_of_the_index_is_the_readers_field_and_is_never_picked_out_of_the_from_words(desk):
+    desk.providers.mail["gmail"] = [
+        message(1, "2026-10-17T09:00:00Z", sender="ceo@corp.example, x <attacker@evil.example>", from_address=None),
+        message(2, "2026-10-16T09:00:00Z", sender="ceo@corp.example <attacker@evil.example>", from_address="attacker@evil.example"),
+        message(3, "2026-10-15T09:00:00Z", sender="Ana <ana@clinic.example>", from_address="ana@clinic.example, bob@shop.example"),
+        message(4, "2026-10-14T09:00:00Z", sender="Cleo <cleo@club.example>", from_address="cleo@club.example."),
+        message(5, "2026-10-13T09:00:00Z", sender="Dan <dan@club.example>")]
+    del desk.providers.mail["gmail"][4]["from_address"]
+    desk.mail("inbox")
+    assert [e["from_address"] for e in desk.manifest("inbox")["index"]] == [None, "attacker@evil.example", None, None, None]
+
+
+def test_the_digest_of_the_index_is_the_third_line_of_the_text_and_matches_the_manifest(desk):
+    desk.mail("inbox")
+    desk.calendar("agenda", GOOGLE_CAL)
+    for name in ("inbox", "agenda"):
+        lines = desk.text(name).splitlines()
+        assert lines[2] == "Index digest (sha256): " + snapshot_text.index_digest(desk.manifest(name)["index"]) and snapshot_text.digest_of_text(desk.text(name))
+    assert snapshot_text.digest_of_text("# x\nRead at\n  Index digest (sha256): " + "0" * 64) is None, "an indented line (a body line) is not the digest"
+    assert snapshot_text.digest_of_text("a\nb\nc\nd\ne\nf\nIndex digest (sha256): " + "0" * 64) is None, "only among the first lines"
+
+
+def test_a_version_made_before_the_index_existed_does_not_block_the_first_refresh_after_the_upgrade(desk, monkeypatch):
+    real_digest, real_mark = snapshot_text.index_digest, sources_mail.SIGNATURE_MARK
+    monkeypatch.setattr(sources_mail, "SIGNATURE_MARK", "")                     # the signature of the earlier format
+    monkeypatch.setattr(snapshot_text, "index_digest", lambda index: "")      # a text with no digest line, as an earlier version has none
+    desk.mail("inbox")
+    before = desk.latest("inbox")
+    assert "Index digest" not in desk.text("inbox") and before["version"] == 1
+    monkeypatch.setattr(sources_mail, "SIGNATURE_MARK", real_mark)
+    monkeypatch.setattr(snapshot_text, "index_digest", real_digest)
+    desk.later(minutes=5)                                                       # the same listing, the same day: before the upgrade this made no version
+    done = desk.refresh("inbox")
+    assert done["imported"] is True and desk.latest("inbox")["version"] == 2 and desk.latest("inbox")["origin_version"] != before["origin_version"]
+    assert snapshot_text.digest_of_text(desk.text("inbox")) == real_digest(desk.manifest("inbox")["index"])
+    assert desk.refresh("inbox")["unchanged"] is True, "and the same listing again makes no further version"

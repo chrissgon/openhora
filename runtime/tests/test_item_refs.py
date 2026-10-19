@@ -12,6 +12,8 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import random
+import re
 import stat
 
 import pytest
@@ -22,6 +24,7 @@ from sources_fixture import standin_convert
 
 item_refs = st.load("item_refs")
 sources = st.load("sources")
+sources_mail = st.load("sources_mail")
 
 NOW = tsm.NOW
 
@@ -54,6 +57,7 @@ def rewrite_manifest(desk, source_id, change, version=None):
 
 
 def resolve(desk, ref, **more):
+    more.setdefault("channel", "terminal")
     return item_refs.resolve(desk.ctx, ref, clock=lambda: desk.now, **more)
 
 
@@ -107,6 +111,17 @@ def test_a_reference_to_a_message_gives_its_entry_from_the_index_of_the_newest_v
     second = resolve(desk, "inbox#2")["entry"]
     assert (second["id"], second["from_address"], second["subject"], second["reply_to_address"]) == ("m2", "bob@shop.example", "Your order", None)
     assert resolve(desk, "inbox#3")["entry"]["id"] == "m3"
+
+
+def test_the_result_carries_the_implementation_and_the_mailbox_or_calendar_of_the_source_row_and_nothing_secret(desk):
+    mail, calendar = resolve(desk, "inbox#1"), resolve(desk, "agenda#1")
+    assert (mail["implementation"], mail["box"], "calendar" in mail) == ("gmail", "inbox", False)
+    assert (calendar["implementation"], calendar["calendar"], "box" in calendar) == ("google", "primary", False)
+    assert set(mail) == {"kind", "source", "type", "implementation", "box", "version", "read_at", "age", "n", "count", "entry"}
+    assert set(calendar) == {"kind", "source", "type", "implementation", "calendar", "version", "read_at", "age", "n", "count", "entry"}
+    desk.providers.mail["outlook"] = [tsm.message(1, source="outlook")]
+    desk.mail("work", tsm.OUTLOOK_MAIL)
+    assert (resolve(desk, "work#1")["implementation"], resolve(desk, "work#1")["box"]) == ("outlook", "unread")
 
 
 def test_the_number_is_the_number_the_text_prints_not_a_place_in_the_providers_list(desk):
@@ -218,6 +233,11 @@ def test_a_version_made_before_the_index_existed_is_refused_with_refresh_first(d
     assert refused(desk, "agenda#1").code == "no_index"
 
 
+def test_a_text_with_no_digest_line_is_a_version_with_no_index(desk, monkeypatch):
+    monkeypatch.setattr(item_refs.text, "digest_of_text", lambda rendered: None)
+    assert refused(desk, "inbox#1").code == "no_index"
+
+
 def test_an_index_that_does_not_match_the_version_is_refused(desk):
     rewrite_manifest(desk, "inbox", lambda m: m["index"].pop())
     assert refused(desk, "inbox#1").code == "integrity", "the index must count the items the manifest says the text lists"
@@ -231,6 +251,34 @@ def test_an_index_that_does_not_match_the_version_is_refused(desk):
     desk.refresh("inbox")
     rewrite_manifest(desk, "inbox", lambda m: m["converted"].update(sha256="0" * 64))
     assert refused(desk, "inbox#1").code == "integrity"
+
+
+def test_an_index_with_two_ids_swapped_or_another_calendar_in_the_manifest_is_refused_because_the_text_records_the_digest(desk):
+    def swap(manifest):
+        first, second = manifest["index"][0], manifest["index"][1]
+        first["id"], second["id"] = second["id"], first["id"]
+    rewrite_manifest(desk, "inbox", swap)
+    why = refused(desk, "inbox#1")
+    assert why.code == "integrity" and "not the one its text records" in str(why)
+    rewrite_manifest(desk, "agenda", lambda m: m["index"][0].update(calendar="someone@group.calendar.google.com", id="eOTHER"))
+    assert refused(desk, "agenda#1").code == "integrity"
+
+
+def test_a_manifest_that_names_another_origin_than_the_store_row_is_refused(desk):
+    rewrite_manifest(desk, "agenda", lambda m: m.update(origin="google:calendar=someone@group.calendar.google.com;past=0;ahead=14"))
+    why = refused(desk, "agenda#1")
+    assert why.code == "integrity" and "does not belong to its newest version" in str(why)
+
+
+def test_an_entry_for_a_calendar_the_origin_does_not_name_is_refused_even_when_the_digest_agrees(desk, monkeypatch):
+    real = sources_mail.event_index_entry
+    monkeypatch.setattr(sources_mail, "event_index_entry", lambda n, event, calendar: real(n, event, "someone@group.calendar.google.com"))
+    desk.later(hours=1)
+    desk.providers.events[("google", "primary")] = [tsm.event(7)]
+    desk.refresh("agenda")
+    assert desk.manifest("agenda")["index"][0]["calendar"] == "someone@group.calendar.google.com"
+    why = refused(desk, "agenda#1")
+    assert why.code == "integrity" and "calendar that its origin does not" in str(why)
 
 
 def test_a_text_changed_outside_the_runtime_is_refused(desk):
@@ -254,17 +302,22 @@ def test_a_manifest_that_is_not_json_or_not_an_object_is_refused(desk):
     assert refused(desk, "inbox#1").code == "integrity"
 
 
-def test_an_index_edited_outside_the_runtime_is_read_back_through_the_closed_shapes(desk):
-    def hostile(manifest):
-        first = manifest["index"][0]
-        first.update(id="../../etc/passwd", thread_id="a b", message_id="<a b>", from_address="x y@z", reply_to_address="evil@evil.example\nBcc: boss@x.example",
-                     subject="line one\nline two", change_key="with space", extra="not a key")
-        manifest["index"][1].update(subject="x" * 500, id="m2")
-    rewrite_manifest(desk, "inbox", hostile)
-    first = resolve(desk, "inbox#1")["entry"]
-    assert first == {"n": 1, "id": None, "thread_id": None, "message_id": None, "from_address": None, "reply_to_address": None, "subject": "", "change_key": None}
-    assert len(resolve(desk, "inbox#2")["entry"]["subject"]) == 120
-    assert resolve(desk, "inbox#3")["entry"]["id"] == "m3"
+def test_an_entry_is_read_back_through_the_closed_shapes_whatever_it_holds(desk):
+    hostile = {"n": 1, "id": "../../etc/passwd", "thread_id": "a b", "message_id": "<a b>", "from_address": "x y@z", "reply_to_address": "evil@evil.example\nBcc: boss@x.example",
+               "subject": "line one\nline two \u202e https://track.example/o?t=abc123 ok", "change_key": "with space", "extra": "not a key"}
+    assert item_refs._entry("mail", 1, hostile) == {"n": 1, "id": None, "thread_id": None, "message_id": None, "from_address": None, "reply_to_address": None,
+                                                    "subject": "line one line two <link: track.example> ok", "change_key": None}
+    assert len(item_refs._entry("mail", 2, {**hostile, "n": 2, "subject": "x" * 500})["subject"]) == 120
+    assert item_refs._entry("mail", 1, {**hostile, "subject": 7})["subject"] == ""
+    for bad_address in ("a..b@x.example", "a@x.example.", "a@-x.example", "a b@x.example", "x" * 65 + "@y.example", "@y.example", "a@" + "b" * 64 + ".example"):
+        assert item_refs._entry("mail", 1, {"n": 1, "from_address": bad_address})["from_address"] is None, bad_address
+    assert item_refs._entry("mail", 1, {"n": 1, "from_address": "ana.lima+tag@sub.clinic.example"})["from_address"] == "ana.lima+tag@sub.clinic.example"
+    for wrong in (None, [], {"n": 2}, {"n": True}, {"n": "1"}):
+        with pytest.raises(item_refs.ItemRefError) as why:
+            item_refs._entry("mail", 1, wrong)
+        assert why.value.code == "integrity"
+    event = item_refs._entry("calendar", 3, {"n": 3, "id": "e/1", "etag": "bad tag", "calendar": "a b", "organizer_self": "yes", "attendees_other": -1, "recurring": 1})
+    assert event == {"n": 3, "id": None, "etag": None, "calendar": None, "organizer_self": False, "attendees_other": None, "recurring": False}
 
 
 def test_the_folder_must_still_be_the_projects_sources_folder(desk):
@@ -305,3 +358,106 @@ def test_the_module_names_no_provider_class_and_no_provider_path_and_calls_no_pr
     for forbidden in ("reader:email", "integration:calendar", "sender:email", "writer:", "providers/", "resolve.py", "workbench_sources_resolve", "subprocess", "urllib", "socket"):
         assert forbidden not in source, forbidden
     assert "import sources" in source and os.path.basename(item_refs.__file__) == "item_refs.py"
+
+
+# --- who may use a reference (review M5) ---------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("channel", [None, "terminal", "chat", "page"])
+def test_the_terminal_the_conversation_the_page_and_a_call_with_no_channel_may_use_a_reference_into_a_snapshot(desk, channel):
+    assert resolve(desk, "inbox#1", channel=channel)["entry"]["id"] == "m1" and resolve(desk, "agenda#1", channel=channel)["type"] == "calendar"
+
+
+def test_a_messaging_sender_needs_the_group_ask_mail_and_the_mcp_mode_never_may(desk):
+    ctx = desk.ctx
+    sender = "telegram:42"
+    why = refused(desk, "inbox#1", channel="messaging", sender=sender)
+    assert why.code == "not_readable" and "ask-mail" in str(why)
+    assert refused(desk, "nothing#1", channel="messaging", sender=sender).code == "not_readable", "refused before anything is looked up"
+    assert refused(desk, "inbox#1", channel="mcp").code == "not_readable" and refused(desk, "agenda#1", channel="mcp").code == "not_readable"
+    ctx["cfg"]["channels"] = {"messaging": ["read", "talk", "ask-mail"]}
+    assert resolve(desk, "inbox#1", channel="messaging", sender=sender)["entry"]["id"] == "m1"
+    ctx["cfg"]["channels"] = {"messaging": ["read", "talk", "ask-mail"], "senders": {sender: ["read", "talk"]}}
+    assert refused(desk, "inbox#1", channel="messaging", sender=sender).code == "not_readable", "a sender's own profile replaces the channel's groups"
+    assert resolve(desk, "inbox#1", channel="messaging", sender="telegram:43")["entry"]["id"] == "m1"
+    ctx["cfg"]["channels"] = {"messaging": ["read", "talk"], "senders": {sender: ["read", "ask-mail"]}}
+    assert resolve(desk, "inbox#1", channel="messaging", sender=sender)["entry"]["id"] == "m1"
+    assert refused(desk, "inbox#1", channel="messaging", sender="telegram:43").code == "not_readable"
+    assert refused(desk, "inbox#1", channel="messaging").code == "not_readable", "a messaging call that names no sender gets the channel's groups only"
+
+
+def test_the_default_of_a_messaging_app_does_not_read_a_snapshot(desk):
+    desk.ctx["cfg"]["channels"] = {}
+    assert refused(desk, "inbox#1", channel="messaging", sender="telegram:42").code == "not_readable"
+
+
+def test_a_reference_to_a_created_event_is_not_a_snapshot_and_needs_no_reading_right(desk):
+    got = resolve(desk, "created:7", channel="messaging", sender="telegram:42", created=lambda ctx, pending: {"id": "evt1"})
+    assert got["entry"] == {"id": "evt1"}
+
+
+def test_the_reading_right_is_checked_in_read_index_too(desk):
+    with pytest.raises(item_refs.ItemRefError) as why:
+        item_refs.read_index(desk.ctx, "inbox", channel="mcp", clock=lambda: desk.now)
+    assert why.value.code == "not_readable"
+
+
+# --- the numbers of the text and of the index agree, on random snapshots (the review's probes P3 and P4) ----------------------------------------------
+
+
+def fuzz_events(rng, n):
+    out = []
+    for k in range(1, n + 1):
+        day = datetime.date(2026, 10, 15) + datetime.timedelta(days=rng.randint(0, 22))
+        title = rng.choice(["Same", "Same", "Alpha", "Zed", "same"])
+        if rng.random() < 0.25:
+            event = tsm.event(k, day.isoformat(), (day + datetime.timedelta(days=rng.randint(1, 3))).isoformat(), title, all_day=True)
+        else:
+            hour, minute, offset = rng.choice([1, 1, 9, 9, 23]), rng.choice([0, 30]), rng.choice(["-04:00", "-05:00", "Z", "+09:00"])
+            end_day = day + datetime.timedelta(days=rng.choice([0, 0, 1, 2]))
+            event = tsm.event(k, f"{day.isoformat()}T{hour:02d}:{minute:02d}:00{offset}", f"{end_day.isoformat()}T{min(hour + 1, 23):02d}:{minute:02d}:00{offset}", title)
+        event["location"] = f"P{k}"
+        if rng.random() < 0.1:
+            event["title"] = f"key {tsm.KEY}"        # left out
+        out.append(event)
+    return out
+
+
+@pytest.mark.parametrize("seed", range(15))
+def test_the_calendar_numbers_the_text_prints_are_the_entries_of_the_index_on_random_snapshots(tmp_path, monkeypatch, seed):
+    desk = tsm.Desk(tmp_path, monkeypatch)
+    monkeypatch.setattr(sources_mail, "ZONE", datetime.timezone(datetime.timedelta(hours=-4)))
+    rng = random.Random(seed)
+    desk.providers.events[("google", "primary")] = fuzz_events(rng, rng.randint(1, 60))
+    desk.calendar("agenda", "google:calendar=primary;past=2;ahead=20")
+    manifest, printed = desk.manifest("agenda"), {}
+    for line in desk.text("agenda").splitlines():
+        found = re.match(r"^(\d+)\. .* · P(\d+)( ·|$)", line)
+        if found:
+            printed[int(found.group(1))] = f"e{found.group(2)}"
+    assert sorted(printed) == list(range(1, len(manifest["index"]) + 1)) and manifest["events"] == len(manifest["index"])
+    for entry in manifest["index"]:
+        assert printed[entry["n"]] == entry["id"], (entry, printed)
+    for number, entry in enumerate(manifest["index"], 1):
+        assert resolve(desk, f"agenda#{number}")["entry"]["id"] == entry["id"]
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_the_mail_numbers_the_text_prints_are_the_entries_of_the_index_with_ties_unknown_times_and_a_size_drop(tmp_path, monkeypatch, seed):
+    desk = tsm.Desk(tmp_path, monkeypatch)
+    rng = random.Random(seed)
+    messages = []
+    for k in range(1, rng.randint(2, 60)):
+        when = rng.choice(["2026-10-17T09:00:00Z", "2026-10-16T09:00:00Z", None, "garbage", "2026-10-17T09:00:00+02:00"])
+        body = ("word " * rng.randint(1, 3000)) if rng.random() < 0.5 else "short"
+        if rng.random() < 0.1:
+            body += f" {tsm.KEY}"
+        messages.append(tsm.message(k, when, subject=f"S{k}", text=body))
+    desk.providers.mail["gmail"] = messages
+    monkeypatch.setattr(sources, "CONVERTED_CAP", 16 * 1024 + rng.randint(4000, 40000))
+    desk.mail("inbox", "gmail:box=inbox;days=7;max=100")
+    manifest = desk.manifest("inbox")
+    printed = {int(a): f"m{b}" for a, b in re.findall(r"^## (\d+)\. .*\nFrom: .*\nTo: .*\nSubject: S(\d+)$", desk.text("inbox"), re.M)}
+    assert sorted(printed) == list(range(1, len(manifest["index"]) + 1)) and manifest["messages"] == len(manifest["index"])
+    for entry in manifest["index"]:
+        assert printed[entry["n"]] == entry["id"]

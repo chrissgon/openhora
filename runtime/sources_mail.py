@@ -48,7 +48,11 @@ change_key}; a calendar entry is {n, id, etag, calendar, organizer_self, attende
 token; a subject is cleaned and cut at INDEX_SUBJECT_CHARS characters; an id, key or address that is not shaped as the service prints it
 is null, and the entry stays so that the numbers do not move. A message left out of the text for a credential has no entry and no number. A mail
 text numbers its messages (`## 3. ...`); a calendar text numbers its event lines (`3. 09:00-10:00 · ...`) in the order of
-snapshot_text.calendar_order, which is the order of the index. The index is in the manifest, which no run receives (L26, L52).
+snapshot_text.calendar_order, which is the order of the index. The index is in the manifest, which no run receives (L26, L52). Its sha256 is a line of
+the text (the third), and the store records the text's hash (L25), so an index changed outside the runtime no longer matches its version
+(runtime/item_refs.py checks it). The readers print the sender's address alone (`from_address`) and the Reply-To of one mailbox (`reply_to`); the index
+never picks an address out of the words of a `from` field. The format of the index is part of the reading's signature (SIGNATURE_MARK), so the
+first refresh after the index existed always makes a version that has one.
 
 Imports `sources` (the registry, the versions, the guardrails of the folder) and `snapshot_text`; nothing of the operations layer.
 `sources.register` loads this module for the origin check of its types. Standard library only. Runs on Python 3.9.
@@ -61,7 +65,6 @@ import json
 import os
 import re
 import sys
-from email.utils import getaddresses
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import snapshot_text as text  # noqa: E402
@@ -96,7 +99,7 @@ INDEX_SUBJECT_CHARS = 120        # the longest subject the index keeps (cleaned,
 INDEX_ID = re.compile(r"[A-Za-z0-9_=+.-]{1,700}")
 INDEX_KEY = re.compile(r"[\x21-\x7e]{1,200}")
 INDEX_MESSAGE_ID = re.compile(r"[\x21-\x7e]{1,998}")
-INDEX_ADDRESS = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9][A-Za-z0-9.-]{0,251}")
+SIGNATURE_MARK = "\nindex 1"    # the format of the index, part of the reading's signature: a version made before the index existed has another signature, so the first refresh makes one that has it
 CLOCK = None      # a callable returning an aware datetime, or None for the machine's clock (a seam for tests)
 ZONE = None       # a tzinfo, or None for the machine's own zone (a seam for tests)
 
@@ -199,7 +202,7 @@ def calendar_window(now, past: int, ahead: int, zone=None) -> tuple:
 
 def _signature(pairs, label: str, local_date: str) -> str:
     listed = "\n".join(sorted(f"{i}\t{k}" for i, k in pairs))
-    return hashlib.sha256(f"{listed}\n{label}\n{local_date}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{listed}\n{label}\n{local_date}{SIGNATURE_MARK}".encode("utf-8")).hexdigest()
 
 
 def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=None, zone=None) -> dict:
@@ -246,15 +249,6 @@ def _scan(data: bytes):
     return sources._workcopy().scan(data)
 
 
-def plain_address(value):
-    """The first plain address of a sender's or a recipient's field ("Ana Lima <ana@clinic.example>" gives "ana@clinic.example"; the display name is
-    dropped), or None when the field holds none shaped as an address."""
-    for _name, address in getaddresses([value]) if isinstance(value, str) else []:
-        if INDEX_ADDRESS.fullmatch(address):
-            return address
-    return None
-
-
 def _shaped(pattern, value):
     """`value` when it is a string the pattern matches whole, else None."""
     return value if isinstance(value, str) and pattern.fullmatch(value) else None
@@ -266,8 +260,8 @@ def mail_index_entry(n: int, message: dict, scan=None) -> dict:
     entry is scanned for credentials as a whole (the Reply-To address was not part of the message's scan): a hit empties the entry's words, never
     its number."""
     headers = message.get("headers") if isinstance(message.get("headers"), dict) else {}
-    from_address = plain_address(message.get("from"))
-    reply = plain_address(message.get("reply_to"))
+    from_address = text.plain_address(message.get("from_address"))     # the readers print the address alone; this is not picked out of the `from` words
+    reply = text.plain_address(message.get("reply_to"))
     if reply is not None and from_address is not None and reply.lower() == from_address.lower():
         reply = None
     entry = {"n": n, "id": _shaped(INDEX_ID, message.get("id")), "thread_id": _shaped(INDEX_ID, message.get("thread_id")),
@@ -325,7 +319,7 @@ def build_mail(source_id: str, snap: dict, *, scan=None) -> tuple:
                      f"{'it' if snap['skipped'] == 1 else 'them'} could not be read.")
     start, end = (text.to_zone(m, snap["zone"]) for m in snap["window"])
     rendered = text.render_mail(source_id, parts["box"], (text._stamp(start), text._stamp(end)), snap["label"], text.utc_stamp(snap["now"]),
-                                blocks, left_out, notes)
+                                blocks, left_out, notes, digest=text.index_digest(index))
     return rendered, len(blocks), left_out, index
 
 
@@ -354,7 +348,8 @@ def build_calendar(source_id: str, snap: dict, *, scan=None) -> tuple:
     if unreadable:
         notes.append(f"{unreadable} event{' was' if unreadable == 1 else 's were'} left out: the provider's description of "
                      f"{'it' if unreadable == 1 else 'them'} could not be read.")
-    rendered = text.render_calendar(source_id, snap["first"], snap["last"], snap["label"], text.utc_stamp(snap["now"]), kept, left_out, notes)
+    rendered = text.render_calendar(source_id, snap["first"], snap["last"], snap["label"], text.utc_stamp(snap["now"]), kept, left_out, notes,
+                                    digest=text.index_digest(index))
     return rendered, len(kept), left_out, index
 
 

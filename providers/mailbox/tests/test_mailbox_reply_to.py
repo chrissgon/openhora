@@ -80,15 +80,16 @@ def test_gmail_a_reply_to_without_an_address_leaves_no_key_and_never_a_crash(rep
     assert "reply_to" not in out
 
 
-def test_gmail_the_first_address_of_a_list_is_the_one_kept():
-    out = gmail.normalize(eml(reply_to="Desk <desk@clinic.example>, Billing <billing@clinic.example>"), source="gmail", message_id="m1", thread_id="t1")
-    assert out["reply_to"] == "desk@clinic.example"
+def test_gmail_a_reply_to_that_lists_two_mailboxes_leaves_no_key():
+    raw = raw_eml("Desk <desk@clinic.example>, Billing <billing@clinic.example>")
+    assert "reply_to" not in gmail.normalize(raw, source="gmail", message_id="m1", thread_id="t1")
 
 
 def test_gmail_a_message_without_reply_to_has_the_same_keys_as_before():
     out = gmail.normalize(eml(), source="gmail", message_id="m1", thread_id="t1")
     assert set(out) == {"id", "thread_id", "source", "received_at", "from", "to", "subject", "text", "truncated", "links", "headers", "attachments",
-                        "external_content"}
+                        "external_content", "from_address"}
+    assert out["from_address"] == "ana@clinic.example"
     assert set(out["headers"]) == {"From", "To", "Subject", "Message-ID"}
 
 
@@ -140,12 +141,19 @@ def test_outlook_a_reply_to_that_is_the_senders_or_holds_no_address_leaves_no_ke
     assert "reply_to" not in out
 
 
-def test_outlook_the_first_address_of_the_list_that_holds_one_is_kept(fake):
+def test_outlook_the_one_address_of_the_list_is_kept_whatever_else_is_in_it(fake):
     fake.messages["m1"]["replyTo"] = [{"emailAddress": {"name": "Empty", "address": ""}}, fake_graph_mail.recipient("Desk", "desk@clinic.example"),
-                                      fake_graph_mail.recipient("Billing", "billing@clinic.example")]
+                                      fake_graph_mail.recipient("Desk again", "DESK@clinic.example"), "not a recipient"]
     code, out, said = run(fake, "get", "--id", "m1")
     assert code == 0, said
     assert out["reply_to"] == "desk@clinic.example"
+
+
+def test_outlook_two_different_addresses_in_the_list_leave_no_key(fake):
+    fake.messages["m1"]["replyTo"] = [fake_graph_mail.recipient("Desk", "desk@clinic.example"), fake_graph_mail.recipient("Billing", "billing@clinic.example")]
+    code, out, said = run(fake, "get", "--id", "m1")
+    assert code == 0, said
+    assert "reply_to" not in out
 
 
 def test_outlook_the_request_still_reads_only_and_the_select_gains_one_field_and_no_other(fake):
@@ -155,3 +163,43 @@ def test_outlook_the_request_still_reads_only_and_the_select_gains_one_field_and
     assert asked["method"] == "GET"
     assert set(asked["query"]["$select"].split(",")) == {"id", "conversationId", "changeKey", "receivedDateTime", "sentDateTime", "from", "toRecipients",
                                                          "replyTo", "subject", "body", "hasAttachments", "internetMessageId"}
+
+
+# --- the sender's plain address (review M1): read from the parsed header or the address field, never picked out of words ---------------------
+
+
+@pytest.mark.parametrize("sender, expected", [
+    ("Ana Lima <ana@clinic.example>", "ana@clinic.example"),
+    ("ana@clinic.example", "ana@clinic.example"),
+    ('"ceo@corp.example, x" <attacker@evil.example>', "attacker@evil.example"),        # one mailbox: the one in the angle brackets is the real one
+    ("=?utf-8?q?ceo=40corp.example=2C?= <attacker@evil.example>", "attacker@evil.example"),
+    ("ceo@corp.example, Attacker <attacker@evil.example>", None),                       # two mailboxes: no address is picked out of them
+    ("ceo@corp.example <attacker@evil.example>", None),                                 # an address in the display name without quotes: a defect
+    ("Group: a@x.example, b@y.example;", None),
+    ("a@x.example., b@y.example", None), ("a..b@x.example", None), ("attacker@evil.example@corp.example", None), ("Nobody", None)])
+def test_gmail_the_sender_address_is_the_one_mailbox_of_the_from_header_or_nothing(sender, expected):
+    out = gmail.normalize(raw_eml("Ana <ana@clinic.example>").replace(b"From: Ana Lima <ana@clinic.example>", b"From: " + sender.encode("utf-8")),
+                          source="gmail", message_id="m1", thread_id="t1")
+    assert out.get("from_address") == expected, out["from"]
+
+
+def test_gmail_a_reply_to_is_taken_only_from_a_header_of_one_mailbox_and_is_compared_with_the_senders_address():
+    both = raw_eml("Desk <desk@clinic.example>").replace(b"From: Ana Lima <ana@clinic.example>", b"From: ceo@corp.example, Ana <ana@clinic.example>")
+    out = gmail.normalize(both, source="gmail", message_id="m1", thread_id="t1")
+    assert "from_address" not in out and out["reply_to"] == "desk@clinic.example", "no sender address to compare with: the Reply-To is still the one mailbox of its header"
+
+
+@pytest.mark.parametrize("name, expected", [("Ana Lima", "attacker@evil.example"), ("ceo@corp.example, x", "attacker@evil.example"), ("", "attacker@evil.example")])
+def test_outlook_the_sender_address_is_the_address_field_whatever_the_display_name_says(fake, name, expected):
+    fake.messages["m1"]["from"] = fake_graph_mail.recipient(name, "attacker@evil.example")
+    code, out, said = run(fake, "get", "--id", "m1")
+    assert code == 0, said
+    assert out["from_address"] == expected
+
+
+@pytest.mark.parametrize("address", ["", "no at sign", "a..b@x.example", "a@x.example.", "a@-x.example", "a b@x.example", "x" * 65 + "@y.example", None])
+def test_outlook_a_sender_field_that_is_not_a_plain_address_leaves_no_key(fake, address):
+    fake.messages["m1"]["from"] = {"emailAddress": {"name": "Ana", "address": address}}
+    code, out, said = run(fake, "get", "--id", "m1")
+    assert code == 0, said
+    assert "from_address" not in out
