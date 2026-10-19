@@ -223,6 +223,10 @@ TABLE = {
     # --- the conversation ---
     "PLAN_NEXT": "Aprove com /approve {pending}",
     "ASK_NEXT": "Responda com uma mensagem comum ou recomece com /new <text>",
+    "ROUTER_ASKS_FRAME": "Antes de começar, preciso da sua resposta:",
+    "INSTR_PROPOSAL_ASK": "Adicionar esta linha às instruções do projeto?",
+    "INSTR_WHERE_SAYS": "ou na página: Building > Instructions",
+    "INSTR_WHERE_ELSEWHERE": "aceite na página (Building > Instructions) ou no terminal",
     "ANSWERED_AS": "(respondido com base nas fontes: pedido {request})",
     "BODY_NOT_NAMED": "O agente de planejamento não indicou um fluxo nem uma skill para o pedido {request}",
     "NOT_NAMED_NEXT": "Cancele com /cancel {request}, indique um fluxo no terminal com: {route}, ou comece de novo com /new <text>",
