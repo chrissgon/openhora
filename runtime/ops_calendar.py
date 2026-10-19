@@ -39,6 +39,9 @@ KIND = "calendar-event"
 def _start(project, operation: str, account, args: dict, channel, sender) -> dict:
     """The one start of the family: the arguments the call gave (those that are not None), under the operation's name and the title of its card."""
     given = {k: v for k, v in args.items() if v is not None}
+    if "event" in given:      # a reference into a snapshot is usable only by a caller who may read it (item_refs.may_read): the step asks with the caller's own channel and sender
+        given.update({k: v for k, v in (("channel", channel if channel in ("terminal", "page", "messaging") else None), ("sender", sender if channel == "messaging" else None))
+                      if v is not None})
     title_key = {"create": "TITLE_CAL_CREATE", "change": "TITLE_CAL_CHANGE", "cancel": "TITLE_CAL_CANCEL"}[operation]
     return account_start.start(project, KIND, {"account": account, "operation": operation, **given}, key_words=f"event-{operation}", title_key=title_key,
                                account=account, channel=channel, sender=sender)

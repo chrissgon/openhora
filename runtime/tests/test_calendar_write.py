@@ -21,6 +21,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_calendar_write.py
 from __future__ import annotations
 
 import copy
+import datetime
 import json
 import os
 import shutil
@@ -32,6 +33,8 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
+import test_sources_mail as tsm
+from sources_fixture import standin_convert
 from test_channel_grants import accept
 
 sys.path.insert(0, str(st.REPO / "providers" / "writer" / "tests"))
@@ -53,6 +56,10 @@ phrases = st.load("phrases")
 operations = st.load("operations")
 project_config = st.load("project_config")
 cards = st.load("messaging_cards")
+sources = st.load("sources")
+sources_mail = st.load("sources_mail")
+ops_sources = st.load("ops_sources")
+item_refs = st.load("item_refs")
 
 ACCOUNTS = {"google": {"address": fgw.ACCOUNT, "calendars": {"personal": fgw.CALENDAR, "side": "side.calendar@example.com"}},
             "microsoft": {"address": fgc.ADDRESS, "calendars": {"personal": "default", "work": fgc.NAMED}}}
@@ -150,16 +157,54 @@ def calls(fake, token_path="/token"):
     return [(r["method"], r["path"], r["query"], r["body"]) for r in fake.requests if r["path"] != token_path]
 
 
-def install_item_refs(monkeypatch, mapping):
-    """A stand-in for the index of the snapshots (package SNAP-IDX): `<source>#<n>` -> {"id", "calendar", "account"}."""
-    module = types.ModuleType("item_refs")
+class Snapshots:
+    """Real calendar sources behind the real runtime/item_refs.py: the stand-in providers of test_sources_mail.py answer the verbs the runtime sends, a source is
+    registered and refreshed with the runtime's own operations, and `<source>#<n>` is resolved through the index of the version they wrote."""
 
-    def resolve(ctx, reference):
-        if reference not in mapping:
-            raise ValueError("no such item")
-        return mapping[reference]
-    module.resolve = resolve
-    monkeypatch.setitem(sys.modules, "item_refs", module)
+    def __init__(self, world, monkeypatch):
+        self.path, self.now, self.providers = world["path"], tsm.NOW, tsm.Providers()
+        monkeypatch.setattr(sources, "provider_convert", lambda cfg, call=None: standin_convert)
+        monkeypatch.setattr(sources_mail, "CLOCK", lambda: self.now)
+        monkeypatch.setattr(sources_mail, "ZONE", tsm.BRT)
+        monkeypatch.setattr(ops_step_seams, "SNAPSHOT_CLOCK", lambda: self.now)
+
+        def provider_call(cfg, cls, implementation, verb, args, *, call=None, timeout=sources_mail.PROVIDER_TIMEOUT):
+            return tsm.ORIGINAL_CALL(cfg, cls, implementation, verb, args, call=call or self.providers, timeout=timeout)
+        monkeypatch.setattr(sources_mail, "provider_call", provider_call)
+
+    def calendar(self, source_id, implementation, calendar, events):
+        self.providers.events[(implementation, calendar)] = events
+        return ops_sources.source_calendar(self.path, source_id, f"{implementation}:calendar={calendar};past=0;ahead=14")
+
+    def refresh(self, source_id):
+        return ops_sources.source_refresh(self.path, source_id)
+
+    def later(self, **delta):
+        self.now = self.now + datetime.timedelta(**delta)
+
+
+def snapshot_event(n, event_id, title="Dentist", day=None, **more):
+    """An event as the stand-in provider prints it: the n-th by time (a day each, so that the number the text prints is n)."""
+    day = day or 17 + n
+    return tsm.event(n, f"2026-10-{day:02d}T09:00:00-03:00", f"2026-10-{day:02d}T10:00:00-03:00", title, id=event_id, **more)
+
+
+def install_item_refs(world, monkeypatch, mapping):
+    """Real snapshots for a table of references: `<source>#<n>` -> {"id", "calendar" (the origin's calendar), "account"}. One source for each source id, whose origin
+    is the first entry's account (google or outlook) and calendar; its events are the entries in the order of n."""
+    snaps = world.setdefault("snaps", None) or Snapshots(world, monkeypatch)
+    world["snaps"] = snaps
+    by_source = {}
+    for reference, entry in mapping.items():
+        source, _, number = reference.partition("#")
+        by_source.setdefault(source, {})[int(number)] = entry
+    for source, items in by_source.items():
+        first = items[min(items)]
+        implementation = {"google": "google", "microsoft": "outlook"}[first["account"]]
+        top = max(items)
+        events = [snapshot_event(n, items[n]["id"] if n in items else f"filler{n:04d}") for n in range(1, top + 1)]
+        snaps.calendar(source, implementation, first["calendar"], events)
+    return snaps
 
 
 def seed_google(world, **more):
@@ -468,7 +513,7 @@ def test_limit_56_an_event_removed_between_the_card_and_the_approval_is_stale_fo
                                             ({"organizer": {"email": "boss@example.org", "self": False}}, "organized by someone else")])
 def test_a_meeting_a_series_or_an_event_of_someone_else_is_not_changed_or_removed_and_nothing_is_left_behind(world, monkeypatch, more, sentence):
     seed_google(world, **more)
-    install_item_refs(monkeypatch, {"calendar#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}})
+    install_item_refs(world, monkeypatch, {"calendar#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}})
     for call in (lambda: ops.event_change(world["path"], "google", "calendar#1", title="New"), lambda: ops.event_cancel(world["path"], "google", "calendar#1")):
         with pytest.raises(ops.OpsError) as why:
             call()
@@ -480,7 +525,7 @@ def test_a_meeting_a_series_or_an_event_of_someone_else_is_not_changed_or_remove
 
 def test_an_event_that_is_gone_and_a_change_that_changes_nothing_are_refused(world, monkeypatch):
     seed_google(world)
-    install_item_refs(monkeypatch, {"calendar#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}, "calendar#2": {"id": "evnone0001", "calendar": fgw.CALENDAR,
+    install_item_refs(world, monkeypatch, {"calendar#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}, "calendar#2": {"id": "evnone0001", "calendar": fgw.CALENDAR,
                                                                                                                                 "account": "google"}})
     with pytest.raises(ops.OpsError) as gone:
         ops.event_change(world["path"], "google", "calendar#2", title="New")
@@ -493,29 +538,37 @@ def test_an_event_that_is_gone_and_a_change_that_changes_nothing_are_refused(wor
     assert empty.value.code in (1, 2) and not [r for r in world["google"].requests if r["method"] in ("PATCH", "DELETE")]
 
 
-def test_a_reference_names_an_event_of_a_snapshot_only_when_the_index_is_in_the_checkout(world, monkeypatch):
-    monkeypatch.setitem(sys.modules, "item_refs", None)         # an import of it fails: this checkout does not have the index
-    with pytest.raises(ops.OpsError) as absent:
-        ops.event_change(world["path"], "google", "calendar#1", title="New")
-    assert "SNAP-IDX" in str(absent.value)
-    for bad in ("calendar", "calendar#0", "calendar #1", "Calendar#1", "created:0", "created:x", "../x#1", "calendar#1; rm"):
+def test_a_reference_that_is_not_in_the_grammar_or_names_nothing_is_refused_with_a_sentence_of_the_table(world, monkeypatch):
+    for bad, needle in (("calendar", "not a reference"), ("calendar#0", "start at 1"), ("calendar #1", "not a reference"), ("Calendar#1", "not a reference"),
+                        ("created:0", "not a reference"), ("created:x", "not a reference"), ("../x#1", "not a reference"), ("calendar#1; rm", "not a reference"),
+                        ("calendar#1", "There is no source calendar"), ("created:9999", "did not create an event")):
         with pytest.raises(ops.OpsError) as why:
             ops.event_change(world["path"], "google", bad, title="New")
-        assert why.value.code in (1, 2), bad
+        assert why.value.code in (1, 2) and (needle in str(why.value) or "name the event as" in str(why.value)), bad      # the grammar is checked twice: when the task is planned, and by item_refs
     started = create(world)
     with pytest.raises(ops.OpsError) as not_done:
         ops.event_change(world["path"], "google", f"created:{started['pending']}", title="New")      # a card still waiting made no event
     assert "did not create an event" in str(not_done.value)
-    with pytest.raises(ops.OpsError):
-        ops.event_change(world["path"], "google", "created:9999", title="New")
-    install_item_refs(monkeypatch, {"calendar#1": {"id": SEEDED, "calendar": "side.calendar@example.com", "account": "google"}})
-    with pytest.raises(ops.OpsError) as past:       # the index refuses a number it does not have: its sentence is the one the person reads
+    install_item_refs(world, monkeypatch, {"calendar#1": {"id": SEEDED, "calendar": "side.calendar@example.com", "account": "google"}})
+    with pytest.raises(ops.OpsError) as past:
         ops.event_change(world["path"], "google", "calendar#9", title="New")
-    assert "no such item" in str(past.value)
+    assert "fewer items than that" in str(past.value)
     seed_google(world)
-    with pytest.raises(ops.OpsError) as other:      # the reference says the event is on a calendar the project names `side`, and the call is for `personal`
+    with pytest.raises(ops.OpsError) as other:      # the source's calendar is the one the project names `side`, and the call is for `personal`
         ops.event_change(world["path"], "google", "calendar#1", title="New", calendar="personal")
     assert "not on the calendar asked for" in str(other.value)
+
+
+def test_every_refusal_of_item_refs_has_a_sentence_in_both_columns_of_the_table():
+    codes = ("malformed", "zero", "not_readable", "past_end", "no_source", "not_snapshot", "wrong_kind", "no_version", "stale", "no_index", "integrity", "created_unknown")
+    for code in codes:
+        key = "ACCT_REF_" + code.upper()
+        assert key in phrases.TABLE["en"] and key in phrases.TABLE["pt-BR"], code
+        sentence = ops_step_seams.ref_sentence(code, "agenda#3")
+        assert "{" not in sentence and len(sentence) < 300
+        if "{source}" in phrases.en(key):
+            assert "agenda" in sentence
+    assert ops_step_seams.ref_sentence("something_new", "x") == phrases.en("ACCT_REF_NOT_AN_EVENT")
 
 
 # --- a removal ----------------------------------------------------------------------------------------------------------------------------------
@@ -543,7 +596,7 @@ def test_limit_57_a_removal_is_one_delete_with_if_match_and_send_updates_none_th
 
 def test_limit_57_removing_an_outlook_event_is_refused_at_the_start_in_the_document_and_the_writer_has_no_verb(world, monkeypatch):
     seed_graph(world)
-    install_item_refs(monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
+    install_item_refs(world, monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
     with pytest.raises(ops.OpsError) as why:
         ops.event_cancel(world["path"], "microsoft", "calendar#1")
     assert "not available yet" in str(why.value) and world["graph"].requests == []
@@ -575,7 +628,7 @@ def test_an_outlook_create_is_one_post_in_utc_with_no_attendee_and_the_card_says
 
 def test_an_outlook_change_reads_the_event_compares_the_change_key_and_sends_one_patch(world, monkeypatch):
     seed_graph(world)
-    install_item_refs(monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
+    install_item_refs(world, monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
     started = ops.event_change(world["path"], "microsoft", "calendar#1", title="Dentist (moved)", start="2026-10-20T09:00")
     doc = effect_doc(world, started)
     assert doc["changed"] == ["title", "when"] and doc["before"]["start_at"] == "2026-10-19T16:00:00Z" and doc["base_etag"] == world["graph"].events[GRAPH_SEEDED]["changeKey"]
@@ -592,7 +645,7 @@ def test_an_outlook_change_reads_the_event_compares_the_change_key_and_sends_one
 
 def test_limit_56_an_outlook_event_whose_change_key_moved_is_stale(world, monkeypatch):
     seed_graph(world)
-    install_item_refs(monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
+    install_item_refs(world, monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
     started = ops.event_change(world["path"], "microsoft", "calendar#1", title="Late")
     world["graph"].events[GRAPH_SEEDED]["changeKey"] = world["graph"].next_key()
     world["graph"].requests.clear()
@@ -604,7 +657,7 @@ def test_limit_56_an_outlook_event_whose_change_key_moved_is_stale(world, monkey
 
 def test_an_outlook_meeting_is_not_changed(world, monkeypatch):
     seed_graph(world, attendees=[{"emailAddress": {"address": "other@example.org"}}])
-    install_item_refs(monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
+    install_item_refs(world, monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
     with pytest.raises(ops.OpsError) as why:
         ops.event_change(world["path"], "microsoft", "calendar#1", title="Late")
     assert "other attendees" in str(why.value) and not [r for r in world["graph"].graph_requests() if r["method"] == "PATCH"]
@@ -810,7 +863,7 @@ def nothing_left(world):
 
 
 def test_limit_55_an_event_the_index_puts_on_a_calendar_the_project_does_not_list_is_never_changed(world, monkeypatch):
-    install_item_refs(monkeypatch, {"cal#1": {"id": GRAPH_SEEDED, "calendar": "AAMkUnlistedCalendar=", "account": "microsoft"}})
+    install_item_refs(world, monkeypatch, {"cal#1": {"id": GRAPH_SEEDED, "calendar": "AAMkUnlistedCalendar=", "account": "microsoft"}})
     seed_graph(world)
     for call in (lambda: ops.event_change(world["path"], "microsoft", "cal#1", title="Hijacked"),
                  lambda: ops.event_change(world["path"], "microsoft", "cal#1", title="Hijacked", calendar="personal")):
@@ -821,28 +874,26 @@ def test_limit_55_an_event_the_index_puts_on_a_calendar_the_project_does_not_lis
     nothing_left(world)
 
 
-def test_limit_55_a_reference_that_names_no_account_or_another_account_than_the_call_is_refused(world, monkeypatch):
+def test_limit_55_an_event_of_a_snapshot_of_another_account_than_the_call_is_refused(world, monkeypatch):
     seed_google(world)
-    install_item_refs(monkeypatch, {"cal#1": {"id": SEEDED, "calendar": fgw.CALENDAR}, "cal#2": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "microsoft"},
-                                    "cal#3": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "other"}})
-    for reference in ("cal#1", "cal#2", "cal#3"):
-        with pytest.raises(ops.OpsError) as why:
-            ops.event_change(world["path"], "google", reference, title="X")
-        assert "account" in str(why.value), reference
-    assert world["google"].requests == []
+    install_item_refs(world, monkeypatch, {"outl#1": {"id": SEEDED, "calendar": "default", "account": "microsoft"}})
+    with pytest.raises(ops.OpsError) as why:
+        ops.event_change(world["path"], "google", "outl#1", title="X")
+    assert "not on the account asked for" in str(why.value)
+    assert world["google"].requests == [] and world["graph"].requests == []
     nothing_left(world)
 
 
-def test_limit_55_an_index_that_names_the_calendar_by_another_id_than_the_projects_is_refused_exactly(world, monkeypatch):
+def test_limit_55_a_snapshot_whose_origin_names_the_calendar_by_another_id_than_the_projects_is_refused_exactly(world, monkeypatch):
     seed_google(world)
-    install_item_refs(monkeypatch, {"cal#1": {"id": SEEDED, "calendar": "primary", "account": "google"}, "cal#2": {"id": SEEDED, "account": "google"},
-                                    "cal#3": {"id": SEEDED, "calendar": fgw.CALENDAR.upper(), "account": "google"}})
-    for reference in ("cal#1", "cal#2", "cal#3"):
+    install_item_refs(world, monkeypatch, {"prim#1": {"id": SEEDED, "calendar": "primary", "account": "google"},
+                                           "upper#1": {"id": SEEDED, "calendar": fgw.CALENDAR.upper(), "account": "google"}})
+    for reference in ("prim#1", "upper#1"):
         with pytest.raises(ops.OpsError):
             ops.event_change(world["path"], "google", reference, title="X")
     assert world["google"].requests == []
-    install_item_refs(monkeypatch, {"cal#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}})
-    assert ops.event_change(world["path"], "google", "cal#1", title="X")["pending"]
+    install_item_refs(world, monkeypatch, {"good#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}})
+    assert ops.event_change(world["path"], "google", "good#1", title="X")["pending"]
 
 
 def test_an_event_created_on_a_second_calendar_is_changed_and_removed_on_that_calendar_without_naming_it(world):
@@ -880,7 +931,7 @@ def test_a_created_reference_to_a_calendar_the_project_no_longer_lists_is_refuse
 
 def test_a_reminder_is_not_changed_on_an_event_with_several_reminders(world, monkeypatch):
     seed_google(world, reminders={"useDefault": False, "overrides": [{"method": "popup", "minutes": 15}, {"method": "email", "minutes": 60}]})
-    install_item_refs(monkeypatch, {"cal#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}})
+    install_item_refs(world, monkeypatch, {"cal#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}})
     with pytest.raises(ops.OpsError) as why:
         ops.event_change(world["path"], "google", "cal#1", reminder_minutes=5)
     assert "several reminders" in str(why.value)

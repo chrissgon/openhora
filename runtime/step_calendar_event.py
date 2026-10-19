@@ -51,7 +51,9 @@ if HERE not in sys.path:
 import calendar_document  # noqa: E402
 import steps  # noqa: E402
 
-KEYS = ("account", "operation", "calendar", "title", "start", "end", "location", "reminder_minutes", "notes", "event")
+KEYS = ("account", "operation", "calendar", "title", "start", "end", "location", "reminder_minutes", "notes", "event", "channel", "sender")
+CHANNELS = ("terminal", "page", "messaging")      # who asked, for the right to read a snapshot (runtime/item_refs.py): written by the operation, never by a person's words
+SENDER = re.compile(r"[a-z][a-z0-9-]{0,31}:[A-Za-z0-9_.@+=-]{1,128}")
 CONTENT = ("title", "start", "end", "location", "reminder_minutes", "notes")
 SERVICE_CODES = {"not_configured": "not_configured", "provider_failed": "provider_failed", "refused": "refused"}
 GATE_STEP = "calendar"
@@ -96,6 +98,14 @@ def check(args) -> dict:
         if not isinstance(args.get("event"), str) or not REFERENCE.fullmatch(args["event"]):
             raise _bad("event", "name the event as <source>#<n> (the n-th item of a calendar snapshot) or created:<decision>")
         out["event"] = args["event"]
+        if args.get("channel") is not None:
+            if args["channel"] not in CHANNELS:
+                raise _bad("channel", "the channel is terminal, page or messaging")
+            out["channel"] = args["channel"]
+        if args.get("sender") is not None:
+            if not isinstance(args["sender"], str) or not SENDER.fullmatch(args["sender"]) or args.get("channel") != "messaging":
+                raise _bad("sender", "a sender is <platform>:<id> and goes with the channel messaging")
+            out["sender"] = args["sender"]
         if operation == "cancel" and content:
             raise _bad(content[0], "removing an event takes no other argument")
         if operation == "change" and not content:
@@ -181,7 +191,7 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
     else:
         # The reference decides what the event is; the project's `accounts` decides where it may be written. Both must name the same account and the same
         # calendar, exactly (limit L55): a reference that names no account, or a calendar the project does not list, is refused.
-        named = _asked(reader.event_ref, args["event"])
+        named = _asked(reader.event_ref, args["event"], args.get("channel"), args.get("sender"))
         if named.get("account") != account:
             raise steps.StepFailure("not_eligible", "event", "", "this event is not on the account asked for, or the reference does not say which account it is on")
         name = args.get("calendar") if args.get("calendar") is not None else named.get("calendar")      # an event on a second calendar goes by the calendar it is on
@@ -210,7 +220,7 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
             if not isinstance(raw.get("etag"), str):
                 raise steps.StepFailure("provider_failed", "event", "writer", "the calendar gave no version of the event, so nothing is changed")
             before = calendar_document.from_service(raw)
-            pieces.update(event_id=raw["id"], base_etag=raw["etag"], read_at=calendar_document.utc_text(ctx.now()), before=before)
+            pieces.update(event_id=raw["id"], base_etag=raw["etag"], read_at=calendar_document.utc_text(ctx.now()), before=before, reference=named.get("reference"))
             if operation == "change":
                 after = calendar_document.apply(before, **{k: args[k] for k in CONTENT if k in args})
                 changed = calendar_document.changed_fields(before, after)

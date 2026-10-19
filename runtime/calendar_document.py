@@ -52,7 +52,8 @@ TITLE_KEY = {"create": "TITLE_CAL_CREATE", "change": "TITLE_CAL_CHANGE", "cancel
 CHANGEABLE = ("title", "when", "location", "reminder_minutes", "notes")      # the parts of an event a change can touch (`when` is start, end and all_day together)
 EVENT_KEYS = ("title", "all_day", "start", "end", "start_at", "end_at", "location", "reminder_minutes", "notes")
 KEYS = ("effect", "task", "account", "implementation", "address", "calendar", "calendar_id", "operation", "event_id", "base_etag", "read_at", "zone", "send_updates",
-        "event", "before", "changed", "idempotency_key", "dry_run_sha256")
+        "event", "before", "changed", "reference", "idempotency_key", "dry_run_sha256")
+REFERENCE = {"source": re.compile(r"[a-z0-9][a-z0-9-]{0,39}"), "read_at": re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})")}
 TITLE_MAX = 200
 LOCATION_MAX = 200
 NOTES_MAX = 2000
@@ -302,11 +303,11 @@ def key_of(doc: dict) -> str:
 
 
 def document(*, task_id: int, account: str, address: str, calendar: str, calendar_id: str, operation: str, event_id=None, base_etag=None, read_at=None,
-             zone: str, event=None, before=None, changed=None, dry_run_sha256: str) -> dict:
+             zone: str, event=None, before=None, changed=None, reference=None, dry_run_sha256: str) -> dict:
     """The effect document, checked. EffectError usage when a piece is not in its form, a limit is passed, or the words hold what looks like a credential."""
     doc = {"effect": WORD, "task": task_id, "account": account, "implementation": IMPLEMENTATION.get(account, ""), "address": address, "calendar": calendar,
            "calendar_id": calendar_id, "operation": operation, "event_id": event_id, "base_etag": base_etag, "read_at": read_at, "zone": zone,
-           "send_updates": "none", "event": event, "before": before, "changed": list(changed or []), "idempotency_key": "", "dry_run_sha256": dry_run_sha256}
+           "send_updates": "none", "event": event, "before": before, "changed": list(changed or []), "reference": reference, "idempotency_key": "", "dry_run_sha256": dry_run_sha256}
     doc["idempotency_key"] = key_of(doc)
     check(doc)
     return doc
@@ -367,6 +368,11 @@ def check(doc) -> dict:
                 or not ETAG.fullmatch(doc["base_etag"]) or not isinstance(doc["read_at"], str) or not READ_AT.fullmatch(doc["read_at"]):
             raise _usage("a change or a removal names the event, the version of it that was read, and when")
         _check_event(doc["before"], "before", doc["operation"])
+    ref = doc["reference"]      # the snapshot a `<source>#<n>` reference was read from (None for a new event and for a `created:` reference)
+    if ref is not None and (create or not isinstance(ref, dict) or set(ref) != {"source", "n", "read_at"} or not isinstance(ref["source"], str)
+                            or not REFERENCE["source"].fullmatch(ref["source"]) or type(ref["n"]) is not int or not 1 <= ref["n"] <= 9999
+                            or not isinstance(ref["read_at"], str) or not REFERENCE["read_at"].fullmatch(ref["read_at"])):
+        raise _usage("the snapshot a reference was read from is its source, the number of the item and the time it was read")
     if cancel:
         if doc["event"] is not None or doc["changed"]:
             raise _usage("a removal has no new event and no changes")
@@ -466,6 +472,8 @@ def card_lines(doc: dict, digest: str) -> list:
     # snapshot cannot make them approve another one. The rest of its current text (place, notes) is under the keys of phrases.CARD_PRIVATE.
     head.append(["CARD_CAL_EVENT", {"event_id": doc["event_id"]}])
     head.append(["CARD_CAL_NOW", {"title": doc["before"]["title"] or "-", "when": when_text(doc["before"], zone)}])
+    if doc["reference"]:
+        head.append(["CARD_CAL_SNAPSHOT", {"reference": f"{doc['reference']['source']}#{doc['reference']['n']}", "read_at": doc["reference"]["read_at"]}])
     base = [["CARD_CAL_BASE", {"etag_short": etag_short(doc["base_etag"])}]]
     if operation == "cancel":
         return [["CARD_CAL_CANCEL", {}]] + head + _event_lines(doc["before"], zone, current=True) + base

@@ -28,7 +28,7 @@ module builds those services, once, for the process that runs the task (runtime/
   render           function(format, data) -> {"output", "tool_versions"}: the exporter (class exporter:document), called through the
                    resolver with the minimum environment; it makes a file from a text, on this machine, and changes nothing else
   calendar_read    CalendarReader (package W1): the project's `accounts` (`enabled`, `address`, `target`, `calendar_name`, `calendar_label`), the reference of an event
-                   (`event_ref`: `created:<decision>` or, when the index of the snapshots is in this checkout, `<source>#<n>`), `event_get` (the calendar writer's one
+                   (`event_ref`: `created:<decision>` or `<source>#<n>`, through runtime/item_refs.py with the caller's channel and sender), `event_get` (the calendar writer's one
                    read, with the account's token, no other secret) and `dry_run` (the writer's dry run of a document: no credential, no connection). It has no
                    way to write: the only verbs it starts are `event-get` and a write verb with `--dry-run`
 
@@ -52,8 +52,10 @@ import calendar_document  # noqa: E402
 import documents  # noqa: E402
 import effect_calendar  # noqa: E402
 import effects  # noqa: E402
+import item_refs  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
+import phrases  # noqa: E402
 import project_config  # noqa: E402
 import publish_document  # noqa: E402
 import publish_payload  # noqa: E402
@@ -68,8 +70,8 @@ EXPORTER_CLASS = "exporter:document"
 EXPORTER_TIMEOUT = 300
 CALENDAR_TIMEOUT = 120
 CALENDAR_READ_VERBS = ("event-get",)      # the only verb of a calendar writer a step kind can reach with a credential (a write verb is reached with --dry-run and none)
-EVENT_REF = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}#[1-9][0-9]{0,4}")      # <source id>#<n>: the n-th item of the newest version of a registered source (package SNAP-IDX)
-CREATED_REF = re.compile(r"created:([1-9][0-9]{0,9})")                    # an event the runtime created: the decision whose approval created it
+IMPLEMENTATION_ACCOUNT = {"google": "google", "outlook": "microsoft"}      # the implementation of a calendar source's origin (sources_mail.calendar_origin) -> the account
+SNAPSHOT_CLOCK = None      # the clock item_refs reads a snapshot's age against (None: the real one); a test replaces it
 OUTPUT_MAX = 8 * 1024 * 1024       # the exporter's own cap (providers/exporter/container.py OUTPUT_CAP)
 
 
@@ -296,48 +298,56 @@ class CalendarReader:
         finally:
             shutil.rmtree(folder, ignore_errors=True)
 
-    def event_ref(self, reference) -> dict:
+    def event_ref(self, reference, channel=None, sender=None) -> dict:
         """What a reference to an event names: {"event_id", "account", "calendar" (the name the project gives the calendar, or None), "calendar_id" (the id the
-        reference puts the event on, or None)}. It FAILS CLOSED: a reference that names no account, or whose account is not google or microsoft, is refused; the
-        caller compares the account and the calendar id with the project's `accounts` exactly. `created:<decision>` is an event this runtime created, read from the
-        result of that decision; `<source>#<n>` is the n-th item of a snapshot, resolved through the index of the snapshot (package SNAP-IDX: runtime/item_refs.py),
-        which this checkout may not have yet. StepServiceError `refused` otherwise."""
-        if not isinstance(reference, str):
-            raise StepServiceError("refused", "an event is named by a reference")
-        created = CREATED_REF.fullmatch(reference)
-        if created:
-            return self._created(int(created.group(1)))
-        if not EVENT_REF.fullmatch(reference):
-            raise StepServiceError("refused", "an event is named as <source>#<n> (the n-th item of a calendar snapshot) or created:<decision>")
+        reference puts the event on), "reference" (for `<source>#<n>`: {"source", "n", "read_at"}, the snapshot it was read from; None for `created:`)}. The
+        resolution is runtime/item_refs.py (package SNAP-IDX), with the caller's own `channel` and `sender`: a `<source>#<n>` into a snapshot of the person's calendar
+        is usable only by a caller who may read it (a messaging sender needs the group `ask-mail`), and a `created:<decision>` needs no reading right. It FAILS
+        CLOSED: the account is the one the SOURCE ROW's origin names (google or outlook, never the index), the calendar id is the origin's, and the caller compares
+        both with the project's `accounts` exactly. Every refusal is a StepServiceError `refused` whose sentence is a phrase of the table (ACCT_REF_*)."""
         try:
-            import item_refs      # package SNAP-IDX; absent from a checkout that does not have it yet
-        except ImportError:
-            raise StepServiceError("refused", "a reference to an event of a snapshot needs the index of the snapshots (package SNAP-IDX), which this checkout does not have") from None
-        try:
-            found = item_refs.resolve(self._ctx, reference)      # ASSUMED shape, to be aligned with the merged module: a dict with `id`, `calendar` (an id) and `account`
-        except Exception as e:      # its refusal ("refresh <source> first", a number past the end...) is the sentence the person reads
-            raise StepServiceError("refused", " ".join(str(e).split())[:200] or "the reference does not name an event") from None
-        account = found.get("account") if isinstance(found, dict) else None
-        if not isinstance(found, dict) or not isinstance(found.get("id"), str) or account not in calendar_document.ACCOUNTS:
-            raise StepServiceError("refused", "the reference does not name an event of an account")
-        calendar_id = found.get("calendar") if isinstance(found.get("calendar"), str) else None
-        return {"event_id": found["id"], "account": account, "calendar": self.calendar_label(account, calendar_id) if calendar_id else None, "calendar_id": calendar_id}
+            got = item_refs.resolve(self._ctx, reference, channel=channel, sender=sender, kinds=("calendar",), created=self._created_entry, clock=SNAPSHOT_CLOCK)
+        except item_refs.ItemRefError as e:
+            raise StepServiceError("refused", ref_sentence(e.code, reference)) from None
+        except sources.SourcesError:
+            raise StepServiceError("refused", ref_sentence("integrity", reference)) from None
+        entry = got.get("entry") if isinstance(got, dict) else None
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+            raise StepServiceError("refused", ref_sentence("not_an_event", reference))
+        if got["kind"] == "created":
+            return {"event_id": entry["id"], "account": entry["account"], "calendar": entry["calendar"], "calendar_id": entry["calendar_id"], "reference": None}
+        account = IMPLEMENTATION_ACCOUNT.get(got.get("implementation"))
+        calendar_id = got.get("calendar")
+        if account is None or not isinstance(calendar_id, str) or entry.get("calendar") != calendar_id:      # the index and the source row's origin must say the same
+            raise StepServiceError("refused", ref_sentence("integrity" if account else "not_an_event", reference))
+        return {"event_id": entry["id"], "account": account, "calendar": self.calendar_label(account, calendar_id), "calendar_id": calendar_id,
+                "reference": {"source": got["source"], "n": got["n"], "read_at": got["read_at"]}}
 
-    def _created(self, pending_id: int) -> dict:
-        store = self._ctx["store"]
+    def _created_entry(self, ctx: dict, pending_id: int):
+        """The `created` function of item_refs.resolve: what the approved card `pending_id` recorded of the event it created, or None. Minimal on purpose: the id,
+        the account and the calendar the project names (no title, no time)."""
+        store = ctx["store"]
         try:
-            item = store.pending_get(self._ctx["conn"], pending_id)
+            item = store.pending_get(ctx["conn"], pending_id)
         except store.StoreError:
-            raise StepServiceError("refused", f"there is no decision {pending_id}") from None
+            return None
         payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
         result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
         step = payload.get("step") if isinstance(payload.get("step"), dict) else {}
         if item.get("kind") != "effect" or item.get("resolution") != "approved" or step.get("kind") != "calendar-event" or result.get("operation") != "create" \
                 or not isinstance(result.get("event_id"), str) or result.get("account") not in calendar_document.ACCOUNTS:
-            raise StepServiceError("refused", f"decision {pending_id} did not create an event")
+            return None
         name = result.get("calendar") if isinstance(result.get("calendar"), str) else None
         listed = (project_config.account_entry(self._cfg, result["account"]) or {}).get("calendars") or {}
-        return {"event_id": result["event_id"], "account": result["account"], "calendar": name if name in listed else None, "calendar_id": listed.get(name)}
+        return {"id": result["event_id"], "account": result["account"], "calendar": name if name in listed else None, "calendar_id": listed.get(name)}
+
+
+def ref_sentence(code: str, reference) -> str:
+    """The sentence of a refused reference, from the phrase table (the family ACCT_REF_), with the source id the reference names when it names one."""
+    source = reference.partition("#")[0] if isinstance(reference, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}#[0-9]{1,4}", reference.strip()) else "that source"
+    english = phrases.TABLE[phrases.DEFAULT]
+    key = "ACCT_REF_" + str(code).upper()
+    return english.get(key, english["ACCT_REF_NOT_AN_EVENT"]).format(source=source)
 
 
 class EffectFiles:
