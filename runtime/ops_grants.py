@@ -33,6 +33,7 @@ import effects  # noqa: E402
 import item_refs  # noqa: E402
 import operations  # noqa: E402
 import phrases  # noqa: E402
+import steps  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
@@ -77,6 +78,19 @@ def private_view(ctx: dict, item: dict, channel, sender=None) -> dict:
     # The card's lines go, and so does the record of the execution (`result`): a reader who may not see the text of the card must not see it by way of the outcome.
     shown = {key: value for key, value in payload.items() if key != "result"}
     return {**item, "body": phrases.card_text(kept) + "\n" + phrases.en(phrases.hidden_note_key(card, kept)), "payload": {**shown, "card": kept}}
+
+
+def task_view(ctx: dict, row: dict, channel, sender=None) -> dict:
+    """The task row as `channel` may read it. The row of a step task that writes to the person's own accounts carries the request itself (`step_args`: a title,
+    notes, a file's name and text, a mail address, who asked) and the engine's state (`step_state`, whose failure sentence may quote a name). The MCP mode, and a messaging reader who does
+    not hold the group ask-mail, get the arguments reduced to the closed ones (steps.public_args) and the failure reduced to its code, its step and its field. The terminal,
+    the page, the conversation and a reader of mail get the row as it is. Any other task is returned as it is."""
+    if channel not in ("mcp", "messaging") or not steps.is_account_step(row.get("step_kind")) or item_refs.may_read(ctx, channel, sender):
+        return row
+    state = row.get("step_state") if isinstance(row.get("step_state"), dict) else None
+    if state is not None and isinstance(state.get("failure"), dict):
+        state = {**state, "failure": {key: value for key, value in state["failure"].items() if key in ("step", "code", "field", "provider", "at")}}
+    return {**row, "step_args": steps.public_args(row.get("step_args")), "step_state": state}
 
 
 def _owns_held_file(ctx: dict, item: dict, channel, sender) -> bool:

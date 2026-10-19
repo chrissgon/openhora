@@ -340,6 +340,23 @@ def vet(project: str, kind_name: str, args, protected=lambda path: False) -> Non
 ACCOUNT_WORDS = ("calendar", "mailbox", "files")      # the effect words of a write to the person's own accounts (runtime/account_start.py WORDS)
 
 
+ACCOUNT_ARGS_SHOWN = ("operation", "account", "calendar", "folder", "event", "file", "attachment")      # the arguments of an account write that are closed words, names `accounts` gives and ids
+
+
+def is_account_step(kind_name) -> bool:
+    """Whether a step kind is a write to the person's own accounts: one of its gates opens an effect whose word is in ACCOUNT_WORDS. False for an unknown kind and for None."""
+    try:
+        return any(gate.word in ACCOUNT_WORDS for gate in kind_of(kind_name).gates.values())
+    except StepFailure:
+        return False
+
+
+def public_args(args) -> dict:
+    """The arguments of an account write as a reader who may not read the person's own mail, calendar and files sees them: only the closed ones
+    (ACCOUNT_ARGS_SHOWN, words, numbers and ids). The title, the notes, the text, a file's name, a path and a sender are the person's or someone else's words."""
+    return {key: value for key, value in (args if isinstance(args, dict) else {}).items() if key in ACCOUNT_ARGS_SHOWN and isinstance(value, (str, int)) and not isinstance(value, bool)}
+
+
 def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_on=(), milestone: bool = False, account_write: bool = False) -> dict:
     """A plan's task for a step: {"key", "step", "args", "footprint", "agent", "title", "text", "depends_on", "milestone",
     "web"}. The arguments are the kind's checked ones, so the plan hash (runtime/plan.py plan_hash) covers exactly what will run;

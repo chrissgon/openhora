@@ -32,6 +32,7 @@ import fake_onedrive_write as fod  # noqa: E402
 lab = st.load("lab")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
+ops_grants = st.load("ops_grants")
 effects = st.load("effects")
 steps = st.load("steps")
 phrases = st.load("phrases")
@@ -1025,3 +1026,41 @@ def test_a_line_that_looks_like_the_end_of_the_text_is_refused_in_the_forms_a_ph
 def test_ordinary_lines_that_start_with_a_bracket_or_a_dash_are_not_taken_for_a_frame():
     for line in ("[a link](http://x.example)", "[x] a task", "---", "---- four", "\u2e3a a long dash", "A line", "[1] note"):
         assert not files_document.frame_like(line), line
+
+
+# --- the task row of an account write: the arguments are the person's words (a general rule, steps.public_args) ------------------------------
+
+
+def test_the_task_row_of_a_file_write_shows_a_reader_who_may_not_read_the_persons_files_only_closed_arguments(world):
+    seed_drive(world, name="Divorce papers.md")
+    replace = ops.file_replace(world["path"], "google", "cv", content=NEW)
+    created = ops.file_create(world["path"], "google", "Notes private.md", content=TEXT)
+    mine = hold(world, name="Private contract.pdf", sender="4242")
+    save = ops.file_save(world["path"], "google", mine)
+    accept(world["path"], {"messaging": ["read"]})
+    words = ("Notes private.md", "Pat Example", "Private contract.pdf", "Divorce papers.md", "4242")
+    for started in (replace, created, save):
+        whole = ops.task(world["path"], started["task"])["task"]
+        assert whole["step_args"].get("content") or whole["step_args"].get("attachment"), "the terminal and the page read the request itself"
+        for channel, sender in (("mcp", None), ("messaging", OTHER), ("messaging", None), ("messaging", SENDER)):
+            shown = ops.task(world["path"], started["task"], channel=channel, sender=sender)["task"]
+            assert set(shown["step_args"]) <= set(steps.ACCOUNT_ARGS_SHOWN) and "content" not in shown["step_args"] and "name" not in shown["step_args"], (channel, sender)
+            assert shown["step_args"]["operation"] == whole["step_args"]["operation"] and shown["step_kind"] == "file-write"
+            for word in words:
+                assert word not in json.dumps(shown), (channel, sender, word)
+        for channel in ("terminal", "page", "chat"):
+            assert ops.task(world["path"], started["task"], channel=channel)["task"]["step_args"] == whole["step_args"], channel
+
+
+def test_a_failure_sentence_of_a_file_write_is_cut_to_its_code_for_those_readers_and_a_reader_of_mail_gets_the_row_whole(world, monkeypatch):
+    ctx = ctx_of(world)
+    row = {"id": 1, "step_kind": "file-write", "step_args": {"operation": "create", "account": "google", "name": "Private contract.pdf", "content": "x"},
+           "step_state": {"kind": "file-write", "failure": {"step": "prepare", "code": "name_taken", "field": "name", "provider": "", "next": "Private contract.pdf is taken", "at": "t"}}}
+    cut = ops_grants.task_view(ctx, row, "mcp")
+    assert cut["step_args"] == {"operation": "create", "account": "google"} and cut["step_state"]["failure"] == {"step": "prepare", "code": "name_taken", "field": "name", "provider": "", "at": "t"}
+    assert row["step_args"]["name"] == "Private contract.pdf", "the stored row is untouched"
+    assert ops_grants.task_view(ctx, row, None) is row and ops_grants.task_view(ctx, row, "page") is row
+    other = {"id": 2, "step_kind": None, "step_args": None, "step_state": None}
+    assert ops_grants.task_view(ctx, other, "mcp") is other, "a task that is not an account write is returned as it is"
+    monkeypatch.setattr(ops_grants.item_refs, "may_read", lambda *a, **k: True)
+    assert ops_grants.task_view(ctx, row, "messaging", SENDER) is row, "a reader of the person's mail and files gets the row whole"
