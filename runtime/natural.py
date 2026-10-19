@@ -368,7 +368,7 @@ def _week(norm: str, tables: list):
     return best
 
 
-def _next(draft: dict, reading: dict):
+def _next(draft: dict, reading: dict, now=None):
     """What follows once there is a reading: the words (asked when missing), then, for a line in free text, the reading SHOWN: for a line with no remind word the kind
     question (it shows the reading: a reminder here, or an event), else the confirmation ("Entendi: ... Confirma?"). A reminder in free text is made only from a draft
     the person has confirmed (`confirmed`): a "yes" to the confirmation that showed the whole reading. The answer to the kind question (it showed the whole reading too) is the
@@ -377,10 +377,34 @@ def _next(draft: dict, reading: dict):
     if not draft["text"]:
         return {"ask": {**draft, "confirmed": False, "need": "text", "readings": [reading]}}          # a yes given before the words are known confirms nothing
     if draft.get("confirmed"):
-        return {"when": reading["when"], "text": draft["text"], "reading": reading}
+        return _pinned(draft, reading, now)
     if how == "bare":
         return {"ask": {**draft, "need": "kind", "readings": [reading]}}
     return {"ask": {**draft, "need": "confirm", "readings": [reading]}}
+
+
+def _shown_moment(reading: dict, now):
+    """The moment a reading was shown as, an aware datetime in the clock's zone (None when the reading holds no day and hour)."""
+    try:
+        return datetime.datetime.combine(datetime.date.fromisoformat(reading["date"]), datetime.time.fromisoformat(reading["time"])).replace(tzinfo=now.tzinfo)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _pinned(draft: dict, reading: dict, now):
+    """The reminder made from the reading the person was SHOWN, at the moment they were shown: its day and hour, never a bare `HH:MM` or an `in 30m` that would be
+    read again at the time of the answer. A moment shown that has passed by the time of the answer is not moved: an absolute one stays dated, so the operation refuses
+    it as past; a relative one ("in 30 minutes") has no fixed moment of its own, so the new moment is shown and asked again."""
+    reading = _dated(reading)
+    if reading.get("relative") and now is not None:
+        moment = _shown_moment(reading, now)
+        if moment is None or moment <= now:
+            fresh = nt.relative_again(reading, now)
+            if fresh is not None:
+                return _next({**draft, "confirmed": False}, fresh)          # the moment shown went by: the new one is shown, and the yes is asked again
+        else:
+            reading = {**reading, "when": f"{reading['date']} {reading['time']}"}          # the moment shown, not "in 30m" counted from the answer
+    return {"when": reading["when"], "text": draft["text"], "reading": reading}
 
 
 def _answers(word_norm: str, tables: list, group: str) -> bool:
@@ -629,7 +653,7 @@ def complete(draft, said, now, languages=None):
         if kinds == ["other"] and not rest:
             return {"cancel": True}
         if affirm(said, tables):
-            return _next({**settled, "confirmed": True}, _dated(reading))          # the person saw the day and said yes: it is theirs, not a time that "rolled"
+            return _next({**settled, "confirmed": True}, _dated(reading), now)          # the person saw the day and said yes: it is theirs, not a time that "rolled"
         if "yes" in kinds and set(kinds) <= {"yes", "thanks"} and rest:
             but = {w for t in tables for p in t["but_words"] for w in p.split()}
             change = _time_only(" ".join(w for w in rest if w not in but), now, tables)          # "yes, but at 3pm": a yes with a new hour (or day)
@@ -678,7 +702,7 @@ def complete(draft, said, now, languages=None):
             return _retry(draft, said, tables)
         if kinds[0] == "event":
             return {"event": True}
-        return {"when": draft["readings"][0]["when"], "text": draft["text"], "reading": draft["readings"][0]}          # "reminder", or a yes
+        return _next({**settled, "confirmed": True}, draft["readings"][0], now)          # "reminder", or a yes: the reading shown, with the day it was shown with
     if need == "text":
         reading = draft["readings"][0]
         parsed = _time_only(cued, now, tables)

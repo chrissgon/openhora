@@ -392,7 +392,7 @@ def test_a_word_of_the_time_near_it_and_a_typo_of_a_day_word_are_doubts_and_a_na
 
 
 def test_a_line_that_repeats_is_recognised_in_every_language_and_a_noun_is_not_a_repetition_far_from_the_time():
-    for line in ("me lembra toda segunda às 8h", "me lembra de tomar o xarope de 8 em 8 horas", "me lembra todo dia às 7h", "me lembra a cada 2 horas", "me lembra diariamente às 9h",      # validate: allow english-only -- Portuguese lines, the cases of the tests
+    for line in ("me lembra toda terça às 7h30", "me lembra de beber agua de 2 em 2 horas", "me lembra todo dia às 7h", "me lembra a cada 2 horas", "me lembra diariamente às 9h",      # validate: allow english-only -- Portuguese lines, the cases of the tests
                  "remind me every monday", "remind me daily at 9am", "remind me each week on friday at 3pm", "remind me to stretch every 2 hours"):
         assert nt.recurring(line), line
     for line in ("me lembra amanhã às 9h", "me lembra de levar todos os documentos", "remind me tomorrow at 9am", "remind me to pay 8 in 2 hours"):      # validate: allow english-only -- Portuguese lines, the cases of the tests

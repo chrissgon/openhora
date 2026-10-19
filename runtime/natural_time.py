@@ -999,6 +999,16 @@ def _relative_reading(hit: dict, now: datetime.datetime) -> dict:
             "assumed_year": False}
 
 
+def relative_again(reading: dict, now: datetime.datetime):
+    """The reading of the same length of time ("in 30m") counted from `now`, or None when the reading is not a relative one."""
+    m = re.fullmatch(r"in ([0-9]+)([mhd])", reading.get("relative") or "")
+    if not m:
+        return None
+    n, unit = int(m.group(1)), m.group(2)
+    delta = datetime.timedelta(minutes=n) if unit == "m" else datetime.timedelta(hours=n) if unit == "h" else datetime.timedelta(days=n)
+    return _relative_reading({"when": reading["relative"], "delta": delta}, now)
+
+
 def moment(date, clock: str, now: datetime.datetime) -> dict:
     """The reading of a day ("YYYY-MM-DD", or None for the next time the hour comes) and an hour ("HH:MM"), as a person's answer that names one of the two."""
     h, minute = int(clock[:2]), int(clock[3:5])

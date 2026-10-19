@@ -213,7 +213,7 @@ def test_the_answer_to_a_confirmation_makes_it_or_replaces_only_the_part_it_name
     assert complete(ask, "11am", NOW)["when"] == "2026-10-23 11:00", "an hour alone keeps the day"
     assert complete(ask, "saturday", NOW)["when"] == "2026-10-24 10:00", "a day alone keeps the hour"
     assert complete(ask, "saturday 8am", NOW)["when"] == "2026-10-24 08:00", "a day and an hour replace both"
-    assert complete(ask, "in 2 hours", NOW)["when"] == "in 2h"
+    assert complete(ask, "in 2 hours", NOW)["when"] == "2026-10-18 16:00"
     assert complete(ask, "no", NOW) == {"cancel": True} and complete(ask, "cancel", NOW) == {"cancel": True} and complete(ask, "never mind", NOW) == {"cancel": True}
     assert complete(ask, "thanks", NOW)["ask"]["retries"] == 1 and complete(ask, "what is the weather", NOW) is None
     kind = natural.understand("plan the garden friday at 3pm", NOW, "bare")

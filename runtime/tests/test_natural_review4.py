@@ -264,9 +264,9 @@ def test_a_duration_of_days_asks_the_hour_and_the_hour_answer_makes_it():
     ask = asked(pt.LINE_DAYS)
     assert completed(ask, "9h", NOW)["when"] == "2026-10-21 09:00"
     assert [r["when"] for r in completed(ask, "9", NOW)["ask"]["readings"]] == ["2026-10-21 09:00", "2026-10-21 21:00"]
-    assert made(natural, "remind me in 2 hours to pay", NOW)["when"] == "in 2h", "a duration of hours is a moment"
+    assert made(natural, "remind me in 2 hours to pay", NOW)["when"] == "2026-10-18 16:00", "a duration of hours is a moment, pinned to the one shown"
     assert made(natural, "remind me in 2 days at 9am to pay", NOW)["when"] == "2026-10-20 09:00"
-    assert made(natural, "remind me in 400 days to pay", NOW)["when"] == "in 400d", "too far ahead is the grammar's refusal, not a question about the hour"
+    assert made(natural, "remind me in 400 days to pay", NOW)["when"] == "2027-11-22 14:00", "too far ahead is the grammar's refusal, not a question about the hour"
 
 
 # --- the engine and its words ------------------------------------------------------------------------------------------------------------------------------
