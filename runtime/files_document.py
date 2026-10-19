@@ -505,7 +505,7 @@ def card_lines(doc: dict, digest: str) -> list:
     lines = [[{"create": "CARD_FILE_CODE_NEW", "save": "CARD_FILE_CODE_SAVE"}.get(operation, "CARD_FILE_CODE_REPLACE"),
               {"read_at": doc["read_at"].replace("T", " ").replace("Z", " UTC")} if operation == "replace" else {}],
              ["CARD_ACCOUNT", {"account": doc["account"], "address": doc["address"]}],
-             ["CARD_FILE_NAME", {"name": doc["name"], "service": service}]]
+             [{"replace": "CARD_FILE_NOW", "save": "CARD_FILE_SENT"}.get(operation, "CARD_FILE_NAME"), {"name": doc["name"], "service": service}]]
     lines.append(["CARD_FILE_SOURCE", {"source": target["label"]}] if operation == "replace" else ["CARD_FILE_FOLDER", {"folder": target["label"]}])
     if operation == "replace":
         base = doc["base"]

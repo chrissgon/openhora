@@ -847,3 +847,80 @@ def test_the_config_address_must_be_the_one_of_the_token_or_nothing_is_read_or_w
         ops.file_create(world["path"], "google", "CV 2026.md", content=TEXT)
     assert open_decisions(world) == [] and world["gd"].requests == [] and world["gd"].token_forms == []
     assert "another account" in str(refused.value) or "could not be read" in str(refused.value) or "account" in str(refused.value)
+
+
+# --- the lessons of W1, for files -----------------------------------------------------------------------------------------------------------------
+
+
+def test_a_plan_or_a_flow_cannot_carry_a_file_write_step_and_the_refused_words_are_the_ones_the_account_entry_uses(world):
+    import account_start
+    args = {"operation": "create", "account": "google", "name": "CV 2026.md", "content": TEXT}
+    with pytest.raises(steps.StepFailure) as why:
+        steps.plan_task("file-write", args, key="k", title="t", text="x")
+    assert why.value.code == "not_plannable"
+    ctx = ctx_of(world)
+    with pytest.raises(steps.StepFailure) as again:
+        steps.add_task(ctx["store"], ctx["conn"], "file-write", args, key="k", title="t", text="x")
+    assert again.value.code == "not_plannable" and open_decisions(world) == []
+    assert set(steps.ACCOUNT_WORDS) == set(account_start.WORDS) and step_files.fd.WORD in steps.ACCOUNT_WORDS
+
+
+def test_the_current_name_of_a_file_and_the_name_of_a_file_a_sender_sent_are_not_shown_to_a_reader_who_may_not_see_them(world):
+    seed_drive(world)
+    replace = ops.file_replace(world["path"], "google", "cv", content=NEW)
+    mine = hold(world, name="Private contract.pdf", sender="4242")
+    save = ops.file_save(world["path"], "google", mine)
+    accept(world["path"], {"messaging": ["read"]})
+    for started, secret in ((replace, "CV 2026.md"), (save, "Private contract.pdf")):
+        whole = json.dumps(ops.pending(world["path"], started["pending"]))
+        assert secret in whole, "the person at the terminal sees it"
+        for channel, sender in (("mcp", None), ("messaging", OTHER), ("messaging", None)):
+            shown = ops.pending(world["path"], started["pending"], channel=channel, sender=sender)
+            assert secret not in json.dumps(shown), (channel, sender)
+            assert shown["body"].endswith(phrases.en("CARD_HIDDEN_NOTE_FILE")), (channel, sender)
+        listed = ops.pending(world["path"], channel="mcp")
+        assert secret not in json.dumps(listed)
+    owner = ops.pending(world["path"], save["pending"], channel="messaging", sender=SENDER)
+    assert "Private contract.pdf" in json.dumps(owner), "the sender who sent the file sees its name on the card they approve"
+    assert "CV 2026.md" not in json.dumps(ops.pending(world["path"], replace["pending"], channel="messaging", sender=SENDER)), "the current name of a file is for a reader who holds ask-mail"
+    # the card the bridge draws: from the whole decision (channel None), for the sender it is sent to
+    def card_for(started, groups, sender):
+        full = ops.pending(world["path"], started["pending"])
+        return cards.build("office", full, CAPS, {"messaging": groups}, "text", None, operations=operations, sender=sender)
+    for started, secret in ((replace, "CV 2026.md"), (save, "Private contract.pdf")):
+        reader = card_for(started, ["read", "approve-effect-files", "ask-mail"], OTHER)
+        other = card_for(started, ["read", "approve-effect-files"], OTHER)
+        assert secret in reader["message"]["text"] and secret not in other["message"]["text"]
+        assert other["approvable"] is False and reader["approvable"] is True, "a card that leaves a line out is not approved where it is partial"
+    mine_card = card_for(save, ["read", "approve-effect-files"], SENDER)
+    assert "Private contract.pdf" in mine_card["message"]["text"] and mine_card["approvable"] is True, "the sender of the file sees its name and may approve the save"
+    assert "CV 2026.md" not in card_for(replace, ["read", "approve-effect-files"], SENDER)["message"]["text"]
+
+
+def test_a_start_over_that_finds_the_source_pointing_to_another_file_is_refused_and_asks_to_name_it_again(world, monkeypatch):
+    gd = world["gd"]
+    meta = seed_drive(world)
+    started = ops.file_replace(world["path"], "google", "cv", content=NEW)
+    meta["version"] = "4"
+    with pytest.raises(ops.OpsError):
+        approve(world, started)       # stale: the task starts over from the step that reads
+    other = gd.add_file("Other_ID_0001", "Other.md", b"x\n")
+    real = ops_step_seams.FileSources.lookup
+    monkeypatch.setattr(ops_step_seams.FileSources, "lookup", lambda self, source_id: {**real(self, source_id), "origin": "Other_ID_0001",
+                                                                                          "origin_version": f"{other['version']}@{other['modifiedTime']}"})
+    out = ops.run_step(world["path"], started["task"])
+    assert out["ok"] is not True and out["code"] == "target_changed" and "name it again" in out["next"]
+    assert [m for m, _ in reads(gd.requests) if m != "GET"] == []
+
+
+@pytest.mark.parametrize("channel", ["invented", "chat", "mcp", ""])
+def test_a_channel_the_policy_does_not_know_is_refused_never_taken_for_the_terminal(world, channel):
+    number = hold(world)
+    for call in (lambda: ops.file_create(world["path"], "google", "CV 2026.md", content=TEXT, channel=channel, sender=SENDER),
+                 lambda: ops.file_save(world["path"], "google", number, channel=channel, sender=SENDER)):
+        with pytest.raises(ops.OpsError):
+            call()
+    seed_drive(world)
+    with pytest.raises(ops.OpsError):
+        ops.file_replace(world["path"], "google", "cv", content=NEW, channel=channel, sender=SENDER)
+    assert open_decisions(world) == [] and [m for m, _ in reads(world["gd"].requests) if m != "GET"] == []

@@ -68,10 +68,35 @@ def private_view(ctx: dict, item: dict, channel, sender=None) -> dict:
     card = payload.get("card")
     if not phrases.card_valid(card) or item_refs.may_read(ctx, channel, sender):
         return item
-    kept = phrases.card_without_private(card)
+    hidden = set(phrases.CARD_PRIVATE)
+    if not _owns_held_file(ctx, item, channel, sender):
+        hidden |= set(phrases.CARD_PRIVATE_OWNER)      # the name of a file a sender sent is the sender's (and a reader of the person's own items')
+    kept = [line for line in card if line[0] not in hidden]
     if len(kept) == len(card):
         return item
-    return {**item, "body": phrases.card_text(kept) + "\n" + phrases.en("CARD_HIDDEN_NOTE"), "payload": {**payload, "card": kept}}
+    return {**item, "body": phrases.card_text(kept) + "\n" + phrases.en(phrases.hidden_note_key(card, kept)), "payload": {**payload, "card": kept}}
+
+
+def _owns_held_file(ctx: dict, item: dict, channel, sender) -> bool:
+    """Whether `sender`, on a messaging app, is the one who sent the held file the effect saves (W4a). False for any other channel, for a sender the store does not
+    know as that file's, and when the effect saves no held file."""
+    if channel != "messaging" or not sender:
+        return False
+    key = held_file_sender(ctx, item)
+    return key is not None and ops_actor.split(key) == ops_actor.split(sender)
+
+
+def held_file_sender(ctx: dict, item: dict):
+    """`<platform>:<sender id>` of the one who sent the held file an effect saves, or None (the effect saves no held file, or the store does not know it)."""
+    doc = effect_document(ctx, item)
+    try:
+        number = effects.module_for("files").held_attachment(doc) if isinstance(doc, dict) and doc.get("effect") == "files" else None
+        if number is None:
+            return None
+        row = ctx["store"].attachment_get(ctx["conn"], number)
+        return f"{row['platform']}:{row['sender']}"
+    except (effects.EffectError, ctx["store"].StoreError, TypeError, ValueError, KeyError):
+        return None
 
 
 def effect_facts(ctx: dict, item: dict) -> dict:

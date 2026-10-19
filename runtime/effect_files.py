@@ -131,18 +131,9 @@ def serves(root: str, implementation: str):
     path = os.path.join(root, "providers", "writer", f"{implementation}.py")
     if not os.path.isfile(path):
         return f"the writer {implementation} is not in this checkout"
-    if not project_config.resolver(root).serves_class(PROVIDER_CLASS, implementation, root=root) or not _declares(path):
+    if not project_config.resolver(root).serves_class(PROVIDER_CLASS, implementation, root=root, strict=True):      # the one reader of the SERVES line (providers/resolve.py)
         return f"the writer {implementation} does not declare that it serves {PROVIDER_CLASS}"
     return None
-
-
-def _declares(path: str) -> bool:
-    """Whether the file declares a `SERVES` line at all (resolve.serves_class lets a file with none serve its folder's class; a writer must say it)."""
-    try:
-        with open(path, encoding="utf-8") as f:
-            return any(line.startswith("SERVES = ") for line in f.read(8192).splitlines())
-    except (OSError, ValueError):
-        return False
 
 
 def preflight(cfg: dict, doc: dict, root: str):

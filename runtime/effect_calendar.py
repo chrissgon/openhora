@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -64,7 +63,6 @@ APPROVAL_GROUP = "approve-effect-calendar"      # the group a project's policy g
 NOTHING_DONE = "nothing was written"      # the words ops_step_effects.py starts a refusal with
 UNKNOWN_EXIT = 4          # the writer's exit code for "the request may or may not have landed"
 CALL_TIMEOUT = 120        # seconds
-SERVES_LINE = re.compile(r'^SERVES\s*=\s*"([^"\n]+)"\s*(?:#.*)?$', re.M)
 IMPLEMENTATIONS = tuple(calendar_document.IMPLEMENTATION.values())
 SECRET_OF = {impl: calendar_document.SECRET[account] for account, impl in calendar_document.IMPLEMENTATION.items()}
 UNKNOWN_NEXT = ("the outcome is unknown: look in the calendar. The effect stays open. Approving it again with the same hash looks in the calendar first (by the "
@@ -110,16 +108,12 @@ def serves(root: str, implementation: str):
     if implementation not in IMPLEMENTATIONS:
         return f"{project_config.clean_name(implementation)!r} is not a calendar writer"
     resolve = project_config.resolver(root)
+    if not resolve.serves_class(PROVIDER_CLASS, implementation, root=root, strict=True):      # the one reader of the SERVES line (providers/resolve.py)
+        return f"the writer {implementation} does not declare that it serves {PROVIDER_CLASS}"
     try:
-        path = resolve.resolve(PROVIDER_CLASS, root=root, implementation=implementation)["path"]
-        with open(path, encoding="utf-8") as f:
-            found = SERVES_LINE.search(f.read(20000))
+        resolve.resolve(PROVIDER_CLASS, root=root, implementation=implementation)
     except (resolve.UnknownClass, resolve.Unresolved) as e:
         return str(e)
-    except OSError:
-        return f"the writer {implementation} cannot be read"
-    if not found or found.group(1) != PROVIDER_CLASS:
-        return f"the writer {implementation} does not declare that it serves {PROVIDER_CLASS}"
     return None
 
 

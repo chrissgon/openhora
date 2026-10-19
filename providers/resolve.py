@@ -227,16 +227,17 @@ def implementations_in(folder_name: str, root=None, env=None) -> list[str]:
                   if p.is_file() and NAME.fullmatch(p.stem) and p.stem not in NOT_IMPLEMENTATIONS)
 
 
-def serves_class(cls: str, name: str, root=None, env=None) -> bool:
+def serves_class(cls: str, name: str, root=None, env=None, strict: bool = False) -> bool:
     """Whether providers/<folder>/<name>.py serves the class: true unless the file declares, in one line at the top level, `SERVES = "<class>"` (read as
     text, never imported) and the class it names is another. The writers share one folder, `providers/writer/`, and each declares the one class it
-    serves, so a caller of `writer:calendar` can never start the writer of files."""
+    serves, so a caller of `writer:calendar` can never start the writer of files. With `strict` a file that declares nothing serves nothing (the runtime asks it
+    of a writer before it starts one)."""
     path = workbench_root(root, env) / "providers" / folder(cls) / f"{name}.py"
     try:
         found = SERVES_LINE.search(path.read_text(encoding="utf-8")[:8192])
     except (OSError, ValueError):      # a missing file serves what its folder says; a file that is not text declares nothing (UnicodeDecodeError is a ValueError)
-        return True
-    return found is None or found.group(1) == canonical(cls)
+        return not strict
+    return (found is None and not strict) or (found is not None and found.group(1) == canonical(cls))
 
 
 def implementations(cls: str, root=None, env=None) -> list[str]:

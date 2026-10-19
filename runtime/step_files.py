@@ -295,12 +295,15 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
                         next="the folder could not be read: check that the account is authorized and that the folder is still there, then start this task again")
         if looked.get("exists"):
             raise steps.StepFailure("name_taken", "name", "", phrases.en("ACCT_FILE_NAME_TAKEN").format(name=name))
+    if state.get("pinned_target") not in (None, target["id"]):      # a start over after a stale prepares the same target, or refuses
+        raise steps.StepFailure("target_changed", "file" if operation == "replace" else "folder", "", phrases.en("ACCT_FILE_RETARGET"))
     try:
         doc = fd.document(task_id=ctx.task_id, operation=operation, account=account, address=address, target=target, name=name, content=content, base=base,
                           read_at=read_at)
     except Exception as e:      # an EffectError of the document: its reason names a limit, never the content
         raise steps.StepFailure("content_refused", "content", "", str(getattr(e, "reason", ""))[:200]) from None
     written = _asked(_service(ctx, "effect_files").write, ctx.task_id, int(state.get("cycle", 0)), doc)
+    state["pinned_target"] = target["id"]
     return {"effect_sha256": written, "operation": operation, "bytes": doc["content"]["bytes"]}
 
 
