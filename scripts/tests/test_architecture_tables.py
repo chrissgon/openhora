@@ -301,6 +301,13 @@ def test_a_folder_shared_by_several_classes_lists_a_file_under_the_class_it_serv
     assert "| `writer:mailbox` | `writer/` |" in table      # a class whose writer is not built yet still has its row
 
 
+def test_the_mailbox_writers_are_listed_under_their_class_alone():
+    table = tables.provider_classes(str(REPO))
+    assert "| `writer:mailbox` | `writer/` | `gmail.py` |" in table and "| `writer:mailbox` | `writer/` | `outlook-mail.py` |" in table
+    assert "gmail.py" not in "".join(line for line in table.splitlines() if line.startswith(("| `writer:calendar`", "| `writer:files`")))
+    assert "| `writer:files` | `writer/` |" in table      # a class whose writer is not built yet still has its row
+
+
 def test_the_tables_have_their_shape(tmp_path):
     root = fixture(tmp_path)
     run("--write", "--root", str(root))

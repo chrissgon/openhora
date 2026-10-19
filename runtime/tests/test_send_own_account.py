@@ -688,7 +688,8 @@ def test_no_step_module_or_run_reaches_the_account_mailers_and_only_the_effect_m
                                                                                                                      "item_refs.py", "snapshot_text.py", "cli.py", "ops_sources.py",
                                                                                                                      "messaging_provider.py", "project_config.py", "service.py"):
             named.append(path.name)
-    assert set(named) <= {"send_document.py", "effect_send.py", "mail_refs.py", "ops_step_seams.py", "ops_mail_send.py", "step_send_email.py"}, named
+    assert set(named) <= {"send_document.py", "effect_send.py", "mail_refs.py", "ops_step_seams.py", "ops_mail_send.py", "step_send_email.py",
+                          "mailbox_document.py", "ops_mailbox.py"}, named      # W3: the mailbox document and its operations name the writer of the account (an implementation of writer:mailbox), never a mailer
     for path in (st.REPO / "runtime").glob("step_*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         assert not [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr in ("provider_call", "execute", "caller")], path.name
@@ -829,7 +830,7 @@ def test_a_reply_card_shows_what_the_message_says_only_to_a_messaging_reader_who
     text = other["message"]["text"]
     for hidden in ("Appointment confirmed", "ana@clinic.example", "desk@clinic.example", "<a1@clinic.example>"):
         assert hidden not in text, hidden
-    assert "Some of the current text of the event or the message is not shown here" in text and "Recipients in all: 1" in text
+    assert "Some of the addresses, subjects and text of the e-mail are not shown here" in text and "Recipients in all: 1" in text
     assert other["approvable"] is False and "Approve this exact content" not in [a["label"] for a in other["message"]["actions"]]
     assert other["content_sha256"] == holder["content_sha256"], "the hash is the effect's, whatever is drawn"
 

@@ -69,6 +69,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/files_document.py", "runtime/step_files.py", "runtime/effect_files.py", "runtime/ops_files.py",
     # An e-mail from the person's own account (W2): the message a reply answers (pure) and the operations; the mailers' shared module is plain Python too.
     "runtime/mail_refs.py", "runtime/ops_mail_send.py", "providers/_mailer_account.py",
+    # A change to the person's own mailbox (W3): the document, the effect, the step kind and the operations.
+    "runtime/mailbox_document.py", "runtime/effect_mailbox.py", "runtime/step_mailbox.py", "runtime/ops_mailbox.py",
     # Reminders (RM-1): the pure part, the operations and the bridge's part.
     "runtime/reminders.py", "runtime/ops_reminders.py", "runtime/messaging_remind.py",
     # Reminders asked in the person's own words (NR-1): the intent rows, the time parser and the language tables it reads (data, loaded by path).

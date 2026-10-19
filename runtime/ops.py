@@ -2696,6 +2696,8 @@ from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,
 from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.
 from ops_mail_send import mail_reply, mail_send  # noqa: E402,F401
+# The person's own mailbox (runtime/ops_mailbox.py, package W3): a draft, archive, a move, read state, the trash; each one prepares a card and writes nothing.
+from ops_mailbox import mail_archive, mail_draft, mail_mark, mail_move, mail_trash  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)

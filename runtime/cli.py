@@ -71,6 +71,11 @@ Usage:
   python3 runtime/cli.py file-save --project <dir> --account google|microsoft --attachment <held file number> [--name <name>] [--folder <name>]
   python3 runtime/cli.py mail-send --project <dir> --account google|microsoft --to <addresses> [--cc <addresses>] [--bcc <addresses>] --subject <one line> (--text <words> | --text-file <path>) [--attach <docs/...>]...
   python3 runtime/cli.py mail-reply --project <dir> --account google|microsoft --message <source>#<n> (--text <words> | --text-file <path>)
+  python3 runtime/cli.py mail-draft --project <dir> --account google|microsoft (--to <addresses> --subject <text> [--cc <addresses>] [--bcc <addresses>] | --message <source>#<n>) --body <text>
+  python3 runtime/cli.py mail-archive --project <dir> --account google|microsoft --messages <source>#<n>[,<source>#<n>...]
+  python3 runtime/cli.py mail-move --project <dir> --account google|microsoft --messages <source>#<n>[,...] --folder <name of accounts.<a>.mail_folders>
+  python3 runtime/cli.py mail-mark --project <dir> --account google|microsoft --messages <source>#<n>[,...] --state read|unread
+  python3 runtime/cli.py mail-trash --project <dir> --account google|microsoft --messages <source>#<n>[,...]
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -353,6 +358,18 @@ file-replace  prepares a NEW REVISION of a file that is a source of the project 
 file-save  prepares the saving of a file someone sent through a messaging app (--attachment is the number of a held file, see attachments), named as it was
           sent or by --name, in a folder the project lists (--folder), and stops at its card, which names the file, its size and its hash. The held file stays held.
           No model.
+mail-draft  prepares a draft in your own Google or Microsoft mailbox (--account) and stops at a card that shows it whole: nothing is saved until you approve the card with
+          its hash (approve --id <the card> --sha256 <its hash>), and it is NEVER sent. A new draft takes --to, --subject and --body (--cc and --bcc optional; plain
+          addresses, comma-separated, at most 20 in all); a reply takes --message (<source id>#<n>, the n-th message of a mail snapshot) and --body, and goes to that
+          message's sender, never to its Reply-To. It calls no model, and the account's token is read by the mailbox writer alone.
+mail-archive  prepares taking 1 to 20 messages out of the inbox (--account, --messages: references <source id>#<n>, comma-separated) and stops at a card that lists each
+          message by the subject and sender the mailbox holds now. Nothing changes until you approve the card, and then only if every message is still as listed. Gmail
+          removes the label INBOX; Outlook moves the messages to its Archive folder. Nothing is sent and nothing is deleted. It calls no model.
+mail-move  prepares moving such messages to a mail folder or label (--folder is a name of the account's mail_folders in runtime.json, the key accounts; no other folder is
+          written to) and stops at a card. A Gmail move also leaves the inbox unless the account's move_removes_inbox is false. It calls no model.
+mail-mark  prepares marking such messages as read or unread (--state) and stops at a card. It calls no model.
+mail-trash  prepares moving such messages to the provider's trash (Gmail's Trash and Outlook's Deleted Items, each of which the provider empties after 30 days) and stops at a card. Nothing
+          is deleted for good, anywhere. It calls no model.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
 mail-send prepares an e-mail from your own Google or Microsoft account (--account google|microsoft) and stops at a card that shows the whole e-mail: nothing is sent
           until you approve the card with its hash (approve --id <the card> --sha256 <its hash>). --to, --cc and --bcc are plain comma-separated addresses, at most

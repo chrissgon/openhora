@@ -63,7 +63,7 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
         owners = [(g, s["kind"]) for g, s in operations.GROUPS.items() if row["name"] in s["operations"] and g not in operations.MESSAGING_ONLY_GROUPS]
         if row["name"] == "approve":
             # the umbrella and one group for each word of an effect (POL-1), and the networked plans beside the plans
-            assert sorted(k for _, k in owners) == ["acceptance", "effect", "effect:calendar", "effect:create", "effect:files", "effect:publish", "effect:send", "effect:send-own", "effect:write",
+            assert sorted(k for _, k in owners) == ["acceptance", "effect", "effect:calendar", "effect:create", "effect:files", "effect:mailbox", "effect:publish", "effect:send", "effect:send-own", "effect:write",
                                                      "plan", "plan:networked"], owners
         elif row["name"] == "cancel":   # R18: the one operation in two groups, so that a policy written with reject-cancel stays valid
             assert sorted(g for g, _ in owners) == ["brakes", "reject-cancel"] and {k for _, k in owners} == {None}, owners

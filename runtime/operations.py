@@ -467,6 +467,31 @@ OPERATIONS = (
               {"name": "message", "kind": "str", "required": True, "label": "<source>#<n>"}, {"name": "text", "kind": "text", "required": True}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "prepare a reply to a message of a mail snapshot and stop at a card (nothing is sent until you approve the card with its hash): --message is <source>#<n>, the n-th message of the newest snapshot of a mail source of that account; --text or --text-file is the body; the reply goes to the sender of that message and to no one else (a Reply-To is shown on the card and not used; there is no reply to all), with the subject after Re:, in the message's conversation; from a messaging app the sender also needs the group ask-mail to name a message"},
+    # W3: the person's own mailbox (SPEC-SECRETARY-WRITES 3.3). Each one PREPARES a card and writes nothing: the change is made when its card is approved with its hash
+    # (limit L55); nothing is sent and nothing is deleted for good. `messages` is references <source id>#<n> to the messages of a mail snapshot, comma-separated. Off for a
+    # messaging app until a profile lists the group mail-organize; never on the MCP mode.
+    {"name": "mail-draft", "call": "mail_draft",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "to", "kind": "str"}, {"name": "cc", "kind": "str"}, {"name": "bcc", "kind": "str"}, {"name": "subject", "kind": "str"},
+              {"name": "body", "kind": "str", "required": True}, {"name": "message", "kind": "str", "label": "<source>#<n>"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
+     "help": "prepare a draft in your own mailbox and stop at a card that shows it whole (nothing is saved until you approve it with its hash, and it is NEVER sent): a new one (--to, --subject, --body; --cc and --bcc optional; comma-separated plain addresses, at most 20 in all) or a reply (--message <source>#<n> and --body: it goes to that message's sender, never to its Reply-To)"},
+    {"name": "mail-archive", "call": "mail_archive",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True}, {"name": "messages", "kind": "str", "required": True, "label": "<source>#<n>,..."}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
+     "help": "prepare taking 1 to 20 messages out of the inbox (Gmail: the label INBOX is removed; Outlook: they move to the Archive folder) and stop at a card that lists each one by its subject and sender as the mailbox holds them now (nothing changes until you approve it with its hash, and only if every message is still as listed); --messages are references <source>#<n> to the messages of a mail snapshot"},
+    {"name": "mail-move", "call": "mail_move",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True}, {"name": "messages", "kind": "str", "required": True, "label": "<source>#<n>,..."}, {"name": "folder", "kind": "str", "required": True}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
+     "help": "prepare moving 1 to 20 messages to a mail folder or label (--folder is a name of the account's mail_folders in runtime.json; no other folder is written to) and stop at a card that lists each message (nothing changes until you approve it with its hash, and only if every message is still as listed)"},
+    {"name": "mail-mark", "call": "mail_mark",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True}, {"name": "messages", "kind": "str", "required": True, "label": "<source>#<n>,..."}, {"name": "state", "kind": "choice", "choices": ("read", "unread"), "required": True}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
+     "help": "prepare marking 1 to 20 messages as read or unread and stop at a card that lists each message (nothing changes until you approve it with its hash, and only if every message is still as listed)"},
+    {"name": "mail-trash", "call": "mail_trash",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True}, {"name": "messages", "kind": "str", "required": True, "label": "<source>#<n>,..."}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
+     "help": "prepare moving 1 to 20 messages to the trash (Gmail empties it after 30 days; Outlook empties Deleted Items after 30 days; this code deletes nothing) and stop at a card that lists each message (nothing moves until you approve it with its hash, and only if every message is still as listed)"},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -541,6 +566,10 @@ GROUPS = {
     # W2: e-mail from the person's own account (SPEC-SECRETARY-WRITES 5). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
     # --widen; never on the MCP mode. It prepares a card and sends nothing: the send is the approval of the card's hash (`approve-effect-send` on a messaging app).
     "mail-send": {"operations": ("mail-send", "mail-reply"), "kind": None},
+    # W3: the person's own mailbox (SPEC-SECRETARY-WRITES 5). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with --widen;
+    # never on the MCP mode. It prepares a card and writes nothing: the write is the approval of the card's hash (`approve-effect-mailbox` on a messaging app).
+    "mail-organize": {"operations": ("mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"), "kind": None},
+    "approve-effect-mailbox": {"operations": ("approve",), "kind": "effect:mailbox"},      # a change to the person's own mailbox (effect_mailbox.py APPROVAL_GROUP)
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -554,7 +583,7 @@ MESSAGING_ONLY_GROUPS = ("read-limited",)          # valid on a messaging app al
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
-           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files")}
+           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox")}
 SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy mapping (never in runtime.json), {"<platform>:<sender id>": [groups]} of each listed sender whose entry names a profile
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
@@ -576,10 +605,11 @@ BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel") 
 # Profiles (POL-2). A policy is a named set of groups, a profile (runtime.json `policies`); a channel's entry may name one, and on a messaging
 # app each listed sender may have their own, which REPLACES the channel's groups for that sender (SENDERS_KEY in the loaded policy mapping;
 # effective_groups(channel, cfg, sender)). Nothing but accept-config in the terminal changes a profile, and nothing a sender sends names one.
-EFFECT_APPROVAL_WORDS = ("create", "write", "send", "send-own", "publish", "calendar", "files")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
+ACCOUNT_APPROVAL_WORDS = ("calendar", "mailbox", "files", "send-own")   # the approval words of a write to the person's own accounts: a card of one that cannot be read as a card is not shown to a reader of no mail
+EFFECT_APPROVAL_WORDS = ("create", "write", "send", "send-own", "publish", "calendar", "files", "mailbox")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
     "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-networked-plans",
-                  "add-sources-direct", "approve-effect-calendar", "approve-effect-files"),
+                  "add-sources-direct", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox"),
     "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
 }
 GRANT_TEXT = {
@@ -590,6 +620,7 @@ GRANT_TEXT = {
     "messaging:approve-effect-publish": "a messaging app may approve a post to a social platform (never one with an image), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-calendar": "a messaging app may approve an event on your own calendars (create, change or remove), from a card that carries the whole event, with its hash",
     "messaging:approve-effect-files": "a messaging app may approve a new file or a new revision in your own Drive or OneDrive, from a card that carries the whole text, with its hash; a file you sent from the phone is saved on a card that names it, its size and its hash, and only the sender who sent it approves it",
+    "messaging:approve-effect-mailbox": "a messaging app may approve a change to your own mailbox (a draft, archive, a move to a folder, read state, the trash), from a card that lists every message or shows the draft whole, with its hash; the card shows the subjects, senders, addresses and text only to a sender who may read your mail (ask-mail), so for any other sender it approves nothing",
     "messaging:approve-networked-plans": "a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash",
     "messaging:add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card)",
     "mcp:approve-plans": "a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain",
@@ -614,6 +645,7 @@ GROUP_TEXT = {
     "approve-effect-publish": "approves a post to a social platform, with its hash",
     "approve-effect-calendar": "approves an event on the person's own calendars (create, change or remove), with its hash",
     "approve-effect-files": "approves a new file or a new revision in your own Drive or OneDrive, with its hash",
+    "approve-effect-mailbox": "approves a change to the person's own mailbox (a draft, archive, a move to a folder, read state, the trash), with its hash",
     "approve-networked-plans": "approves a plan that holds a script which reaches the network, with the plan's hash",
     "ask": "asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers)",
     "go-ahead": "goes ahead on a task that waits for another request",
@@ -637,6 +669,7 @@ GROUP_TEXT = {
     "mail-send": "prepares e-mails from your own accounts (a new e-mail, a reply to a message of a mail snapshot); each one waits for approval of its card",
     "reminders": "makes, lists and forgets reminders: one-shot lines of the sender's own words that the bridge sends back to their own chat at the time they chose",
     "files-write": "prepares new files and new revisions in your own Drive and OneDrive, and the saving of a file you sent; each one waits for approval of its card",
+    "mail-organize": "prepares changes to your mailbox (a draft, archive, a move to a folder, read state, the trash); each one waits for approval of its card, and nothing is sent or deleted for good",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 
