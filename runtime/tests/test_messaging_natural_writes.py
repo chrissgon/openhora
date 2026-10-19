@@ -209,3 +209,50 @@ def test_a_caption_that_is_not_a_closed_save_form_is_still_ignored_with_its_sent
     assert seen == [] and "The text sent with a file is not read" in w.texts()[0]
     w.bridge.stopping.set()
     w.settle()
+
+
+# --- the kind question answered in a phrase (the live bug of 2026-10-19) -----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("answer", ["Um evento na minha agenda", "evento na agenda", "na agenda", "no calendário", "um evento", "an event in my calendar", "event"])
+def test_the_kind_question_answered_in_a_phrase_for_the_event_opens_the_w1_card_with_the_reading_shown(day, monkeypatch, answer):
+    def forbidden(*a, **k):
+        raise AssertionError("an answer to the kind question reaches no model and not `say`")
+    monkeypatch.setattr(ops, "say", forbidden)
+    day.say(OWNER, "dentista quinta às 10h")
+    assert "a reminder here in the chat, or an event in your calendar?" in day.texts(OWNER)[-1].lower() and "Thu 22/10" in day.texts(OWNER)[-1]
+    day.say(OWNER, answer)
+    cards = [t for t in day.texts(OWNER) if "Title: dentista" in t]
+    assert cards and "Thu 22/10/2026 10:00-11:00" in cards[-1], day.texts(OWNER)
+    assert day.world["google"].requests == [] and drafts.count() == 0, "a card writes nothing, and the question is closed"
+
+
+@pytest.mark.parametrize("answer", ["Um lembrete aqui no chat", "lembrete aqui no chat", "um lembrete", "a reminder here"])
+def test_the_kind_question_answered_in_a_phrase_for_the_reminder_makes_the_reminder_shown(day, answer):
+    day.say(OWNER, "dentista quinta às 10h")
+    day.say(OWNER, answer)
+    assert any(t.startswith("Reminder #1") for t in day.texts(OWNER)), day.texts(OWNER)
+
+
+def test_an_answer_that_is_not_one_asks_the_same_question_once_more_and_creates_and_routes_nothing(day, monkeypatch):
+    def forbidden(*a, **k):
+        raise AssertionError("a reply to an open question is not sent to the router")
+    monkeypatch.setattr(ops, "say", forbidden)
+    day.say(OWNER, "dentista quinta às 10h")
+    first = day.texts(OWNER)[-1]
+    day.say(OWNER, "talvez mais tarde, ainda não sei")
+    assert day.texts(OWNER)[-1] == first and len(day.texts(OWNER)) == 2, "the same question again, with its options"
+    assert conversation(day) == [] and day.bridge.waiting == []
+    day.say(OWNER, "marca almoço sexta às 12h no google")
+    assert "The previous question was discarded." in " ".join(day.texts(OWNER)) or any("Title: almoço" in t for t in day.texts(OWNER)), "a clear new request replaces the question"
+    assert any("Title: almoço" in t for t in day.texts(OWNER))
+
+
+def test_the_loose_verb_question_is_asked_once_more_for_a_phrase_that_is_not_an_answer(day, monkeypatch):
+    monkeypatch.setattr(ops, "say", lambda *a, **k: (_ for _ in ()).throw(AssertionError("not routed")))
+    day.say(OWNER, "agende dentista quinta 10h")
+    first = day.texts(OWNER)[-1]
+    day.say(OWNER, "ainda não decidi bem isso")
+    assert day.texts(OWNER)[-1] == first
+    day.say(OWNER, "na agenda")
+    assert any("Title: dentista" in t for t in day.texts(OWNER))

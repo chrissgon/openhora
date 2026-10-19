@@ -186,3 +186,18 @@ def test_the_write_mode_of_the_engine_leaves_the_results_of_nr_1_unchanged():
     assert natural.understand("dentista quinta às 10h", NOW, "write")["ask"]["need"] == "confirm"
     first = natural.understand("me lembra amanhã às 9h de ligar para a gráfica", NOW, "trigger")
     assert first["ask"]["need"] == "confirm" and first["ask"]["text"] == "ligar para a gráfica"
+
+
+@pytest.mark.parametrize("said, kind", [("Um evento na minha agenda", "event"), ("evento na agenda", "event"), ("na agenda", "event"), ("no calendário", "event"), ("um evento", "event"),
+                                        ("um lembrete", "notice"), ("lembrete aqui no chat", "notice"), ("Um lembrete aqui no chat", "notice"), ("an event in my calendar", "event"),
+                                        ("a reminder here", "notice"), ("I want an event in my calendar please", "event"), ("outra coisa", "other"),
+                                        ("um evento ou um lembrete", None), ("evento amanhã às 9", None), ("um evento no banco", None), ("talvez", None), ("", None)])
+def test_the_kind_a_person_names_is_read_with_the_closed_words_around_it_and_nothing_open(said, kind):
+    assert natural.answer_kind(said) == kind
+
+
+def test_a_reply_to_the_kind_question_is_asked_once_more_up_to_eight_words_but_a_question_or_a_request_is_a_new_line():
+    assert natural.short_answer("talvez mais tarde, ainda não sei", wide=True) and not natural.short_answer("talvez mais tarde, ainda não sei")
+    assert not natural.short_answer("quando abre a loja", wide=True) and not natural.short_answer("quanto custa o evento?", wide=True)
+    assert not natural.short_answer("me lembra amanhã às 9 de pagar a luz", wide=True), "a reminder of its own is a new line"
+    assert not natural.short_answer(" ".join(["palavra"] * 9), wide=True)

@@ -220,7 +220,7 @@ class Reminders:
             return False
         if draft["need"] == "eventorother":
             chosen = natural.answer_kind(text)
-            if chosen is None and draft.get("retries", 0) < 1 and natural.short_answer(text):
+            if chosen is None and draft.get("retries", 0) < 1 and natural.short_answer(text, wide=True):
                 self.ask_event(project, chat, draft["line"], retries=1)          # a short reply that is neither: asked once more
                 return True
             if chosen == "event":

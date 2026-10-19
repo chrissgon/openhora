@@ -79,7 +79,7 @@ LIST_MAX = 20                 # numbers in one list ("os e-mails 2, 4 e 7"): the
 MENTION = re.compile(r"(?:^|\s)@\S")      # an `@id` mention of a source; an address has its @ inside a word
 
 # The keys of `requests.writes`, by section. A value of a key is a list of PHRASES; `services` and `kinds` map a name to such a list. NR-5b fills the lists of `mail`.
-TOP_KEYS = ("polite", "articles", "joiners", "range", "service_in")
+TOP_KEYS = ("polite", "articles", "joiners", "range", "service_in", "kind_fillers")
 SECTIONS = {
     "services": ("google", "microsoft"),
     "calendar": ("in_calendar", "calendar_after", "range_from", "range_to", "all_day", "change_verbs", "cancel_verbs", "nouns", "nouns_plural", "to_time", "rename", "rename_to"),

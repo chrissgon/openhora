@@ -433,10 +433,31 @@ def _only(said: str, tables: list, kinds=KINDS) -> tuple:
     return found, rest
 
 
+def kind_fillers(tables: list) -> set:
+    """The words that may surround the kind a person names when they answer "a reminder here, or an event in your calendar?" ("um evento na minha agenda", "an event in
+    my calendar", "a reminder here in the chat"): closed lists of the language tables (`requests.writes.kind_fillers`), so that the answer stays a closed form with no open tail."""
+    return {w for t in tables for p in (t.get("requests", {}).get("writes", {}) or {}).get("kind_fillers", []) for w in p.split()}
+
+
+def _kinds_around(said: str, kinds: list, rest: list, tables: list) -> tuple:
+    """(kinds, rest) of an answer to the kind question once the closed words around the kind are taken out of `rest`; the word "no" of one language, which is "in" in
+    another ("no calendario", "aqui no chat"), is not a way out when it stands only as such a word beside a kind."""
+    fillers = kind_fillers(tables)
+    rest = [w for w in rest if w not in fillers]
+    if "other" in kinds and {"event", "notice"} & set(kinds):
+        words = set(_words(nt.normalise(said)[0]))
+        said_other = {w for t in tables for p in t["answers"]["other"] for w in p.split()} & words
+        if said_other and said_other <= fillers:
+            kinds = [k for k in kinds if k != "other"]
+    return kinds, rest
+
+
 def answer_kind(said, languages=None):
     """"event" when the answer to "an event in the calendar, or something else?" is the calendar, "notice" when it is a reminder, "other" when it is something else,
-    else None."""
-    kinds, rest = _only(said if isinstance(said, str) else "", _tables(languages), kinds=("event", "notice", "other"))
+    else None. The kind may come with the closed words around it (`kind_fillers`): "um evento na minha agenda"."""
+    tables = _tables(languages)
+    said = said if isinstance(said, str) else ""
+    kinds, rest = _kinds_around(said, *_only(said, tables, kinds=("event", "notice", "other")), tables)
     if rest or len(set(kinds)) != 1:
         return None
     return kinds[0]
@@ -514,19 +535,27 @@ def affirm(said, languages=None) -> bool:
     return not rest and bool(kinds) and set(kinds) <= {"yes", "thanks"} and "yes" in kinds
 
 
-def short_answer(said, languages=None) -> bool:
+WIDE_WORDS = 8          # the longest reply to the kind question that is still an attempt at an answer ("talvez mais tarde, ainda nao sei")
+
+
+def short_answer(said, languages=None, wide: bool = False) -> bool:
     """Whether a reply that does not fit the question is short enough to be an attempt at an answer ("hmm", "talvez"), so that the question is asked once more: a
-    long line, a question, a request for work or another request of this tier is a new line."""
+    long line, a question, a request for work or another request of this tier is a new line. With `wide` (the kind question, which the person answers in a phrase) up
+    to WIDE_WORDS words, and a line that starts with a word of a question or of a request for work (`work_starters`) is still a new line."""
     tables = _tables(languages)
     said = said if isinstance(said, str) else ""
     verbs = {w for table in tables for w in table["work_verbs"]}
     tokens = _words(nt.normalise(said)[0])
-    return 0 < len(said.split()) <= 3 and "?" not in said and not (verbs & set(tokens)) and candidate(said, tables) is None
+    if wide:
+        starters = {w for table in tables for w in table["work_starters"]}
+        if tokens and tokens[0] in starters:
+            return False
+    return 0 < len(said.split()) <= (WIDE_WORDS if wide else 3) and "?" not in said and not (verbs & set(tokens)) and candidate(said, tables) is None
 
 
 def _retry(draft: dict, said: str, tables: list):
     """The same question once more for a short reply that does not answer it; None the second time (the line is then handled as a new one)."""
-    if draft.get("retries", 0) >= 1 or not short_answer(said, tables):
+    if draft.get("retries", 0) >= 1 or not short_answer(said, tables, wide=draft.get("need") == "kind"):
         return None
     return {"ask": {**draft, "retries": draft.get("retries", 0) + 1}}
 
@@ -701,6 +730,7 @@ def complete(draft, said, now, languages=None):
             return _retry(draft, said, tables)
         return _next(settled, picked)          # a pick is not a yes: the picked reading is shown whole (the day, the hour, the words) and the yes makes it
     if need == "kind":
+        kinds, rest = _kinds_around(said, kinds, rest, tables)          # "um evento na minha agenda": the kind with the closed words around it
         if not kinds:          # a day or an hour instead of the kind: the reading shown is not the one meant, and the kind is asked again with the new one
             change = _time_only(cued, now, tables)
             new = _replace(draft["readings"][0], change, now) if change else None
