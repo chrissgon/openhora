@@ -18,6 +18,7 @@ ops = st.load("ops")
 ops_cancel = st.load("ops_cancel")
 ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
+drafts = st.load("drafts")
 ops_ask = st.load("ops_ask")
 operations = st.load("operations")
 phrases = st.load("phrases")
@@ -26,7 +27,7 @@ SPANISH = "recuerdame manana a las 13 cortarme el pelo"
 JAPANESE = "明日の13時に髪を切ると私に思い出させて"
 HAIRCUT_ES = OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nWhen: 2026-10-19 13:00\n"
 HAIRCUT_JA = OPERATION.format(name="remind") + "Argument text: 髪を切る\nWhen: 2026-10-19 13:00\n"
-CONFIRM_ES = "Create a reminder for tomorrow, Mon 19/10, at 13:00: cortarme el pelo? Answer yes to confirm."
+CONFIRM_ES = "I understood: tomorrow, Mon 19/10, at 13:00: cortarme el pelo. Confirm? (yes / another time)"
 
 
 def reminders(world) -> list:
@@ -63,7 +64,7 @@ def test_an_operation_the_router_named_is_executed_by_code_the_request_is_cancel
 def test_the_operation_is_believed_against_the_line_alone_not_against_the_conversations_memory(world):
     router_says(world, OPERATION.format(name="reminder-forget") + "Argument id: 7\n")
     first = say(world, "forget the old reminder 7 please")
-    assert first["reply"] == phrases.text("NAT_CONFIRM_FORGET", None, id=7), "believed (7 is written in the line); a router's choice of a notice is confirmed first"
+    assert first["reply"].startswith("error: ") and "7" in first["reply"], "believed (7 is written in the line): the operation was asked about reminder 7, which does not exist"
     second = say(world, "forget that other old reminder please")
     assert "Earlier in this conversation" in (world["adapter"] / "last-router-prompt.md").read_text(encoding="utf-8")
     assert "reminder 7" in (world["adapter"] / "last-router-prompt.md").read_text(encoding="utf-8"), "7 is in the memory the router saw"
@@ -122,7 +123,7 @@ def test_an_operation_the_line_does_not_bear_out_is_the_unrecognised_route_and_m
     assert out["request_id"] and out["pending_id"] and out["ran"] is True
     item = ops.pending(world["path"], out["pending_id"])
     assert item["payload"]["ending"] == "unclassified" and item["title"] == "The route was not recognised"
-    assert reminders(world) == [] and ops_natural._DRAFTS == {}
+    assert reminders(world) == [] and drafts.count() == 0
 
 
 # --- D, G, E by the router -----------------------------------------------------------------------------------------------------------------
@@ -138,9 +139,9 @@ def test_the_router_naming_a_decision_a_gated_act_or_a_planned_effect_executes_n
     router_says(world, OPERATION.format(name="set-model"))
     gated = phone(world, "owner", "use the cheap model for the writer")
     assert gated["reply"].startswith("error: /set-model is done in the terminal or on the page")
-    router_says(world, OPERATION.format(name="calendar-event-create") + "Argument text: dentista\n")
+    router_says(world, OPERATION.format(name="event-create"))
     planned = phone(world, "owner", "pon al dentista en mi calendario")
-    assert planned["reply"] == "I cannot do that yet: create an event on your calendar (planned)."
+    assert planned["reply"].startswith("That is not done from a line of words. Do it in the terminal or on the page: ") and "event-create" in planned["reply"]
     assert reminders(world) == []
 
 
@@ -149,7 +150,7 @@ def test_the_router_naming_a_decision_a_gated_act_or_a_planned_effect_executes_n
 
 @pytest.mark.parametrize("line, reply, shown, words", [
     (SPANISH, HAIRCUT_ES, CONFIRM_ES, "cortarme el pelo"),
-    (JAPANESE, HAIRCUT_JA, "Create a reminder for tomorrow, Mon 19/10, at 13:00: 髪を切る? Answer yes to confirm.", "髪を切る"),
+    (JAPANESE, HAIRCUT_JA, "I understood: tomorrow, Mon 19/10, at 13:00: 髪を切る. Confirm? (yes / another time)", "髪を切る"),
 ])
 def test_a_reminder_with_a_router_normalised_time_asks_first_and_is_made_only_by_the_answer(world, line, reply, shown, words):
     with_senders(world)
@@ -160,10 +161,10 @@ def test_a_reminder_with_a_router_normalised_time_asks_first_and_is_made_only_by
     stored_texts = [m["text"] for m in stored(world)]
     assert not any(words in t for t in stored_texts[1:]), "the reply is not stored with the words"
     made = phone(world, "owner", "yes")
-    assert made["ran"] is False and made["request_id"] is None and "Reminder #1" in made["reply"] and "2026-10-19 13:00" in made["reply"]
+    assert made["ran"] is False and made["request_id"] is None and "Reminder #1" in made["reply"] and "Mon 19/10, at 13:00 (BRT)" in made["reply"]
     [row] = reminders(world)
     assert row["text"] == words and row["due_local"] == "2026-10-19T13:00" and row["status"] == "open"
-    assert ops_natural._DRAFTS == {}
+    assert drafts.count() == 0
     assert st.calls(world["adapter"]) == ["core-orchestrator 1"], "the answer to the draft ran no model"
     assert not any(words in m["text"] for m in stored(world) if m["role"] == "assistant"), "L51: the words are in the reminders table alone"
 
@@ -172,7 +173,7 @@ def test_the_confirmation_is_understood_in_other_languages_and_a_no_drops_the_dr
     with_senders(world)
     router_says(world, HAIRCUT_ES)
     phone(world, "owner", SPANISH)
-    assert phone(world, "owner", "no")["reply"] == "Ok, nothing was created." and reminders(world) == [] and ops_natural._DRAFTS == {}
+    assert phone(world, "owner", "no")["reply"] == "Ok, no reminder was made." and reminders(world) == [] and drafts.count() == 0
     for word in ("Sí", "SIM.", "はい", "oui", "ok"):
         phone(world, "owner", SPANISH)
         assert "Reminder #" in phone(world, "owner", word)["reply"], word
@@ -186,7 +187,7 @@ def test_a_line_that_is_not_the_answer_drops_the_draft_and_is_handled_as_new(wor
     phone(world, "owner", SPANISH)
     router_says(world, "Route: flow-demo (flow, pending)\nWhy: x\nNext: y.\n")
     other = phone(world, "owner", "Which market first?")
-    assert other["pending_id"] and ops_natural._DRAFTS == {}
+    assert other["pending_id"] and drafts.count() == 0
     assert reminders(world) == []
     late = phone(world, "owner", "yes")      # the draft is gone: this is a new line for the router
     assert reminders(world) == [] and late["ran"] is True
@@ -208,7 +209,7 @@ def test_in_count_mode_the_question_carries_no_words_and_the_answer_makes_the_re
     accept(world["path"], policies=PROFILES, messaging={"senders": SENDERS, "notices": "count"})
     router_says(world, HAIRCUT_ES)
     asked = phone(world, "owner", SPANISH)
-    assert asked["reply"] == "Create a reminder for tomorrow, Mon 19/10, at 13:00? Answer yes to confirm." and "pelo" not in asked["reply"]
+    assert asked["reply"] == "I understood: tomorrow, Mon 19/10, at 13:00. Confirm? (yes / another time)" and "pelo" not in asked["reply"]
     phone(world, "owner", "yes")
     assert len(reminders(world)) == 1
 
@@ -218,7 +219,7 @@ def test_a_profile_without_the_group_reminders_is_refused_and_no_draft_is_made(w
     router_says(world, HAIRCUT_ES)
     out = phone(world, "asker", SPANISH)
     assert out["reply"] == "error: " + operations.refusal("remind", "messaging", ops_core.context(world["path"])["cfg"]["channels"], sender=KEY["asker"])
-    assert ops_natural._DRAFTS == {} and reminders(world) == []
+    assert drafts.count() == 0 and reminders(world) == []
 
 
 def test_the_group_is_asked_again_when_the_answer_comes_a_profile_narrowed_meanwhile_gets_nothing(world):
@@ -234,19 +235,19 @@ def test_a_time_that_is_past_or_missing_or_a_text_that_is_missing_is_refused_or_
     with_senders(world)
     router_says(world, OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nWhen: 2026-10-17 13:00\n")
     past = phone(world, "owner", SPANISH)
-    assert past["reply"].startswith("error: ") and ops_natural._DRAFTS == {}
+    assert past["reply"].startswith("error: ") and drafts.count() == 0
     router_says(world, OPERATION.format(name="remind") + "Argument text: cortarme el pelo\n")
-    assert phone(world, "owner", SPANISH)["reply"] == phrases.text("NAT_ASK_WHEN", None)
+    assert phone(world, "owner", SPANISH)["reply"] == phrases.text("NT_ASK_WHEN_SLASH", None) and drafts.count() == 1, "the engine asks the time and keeps the question"
     router_says(world, OPERATION.format(name="remind") + "When: 2026-10-19 13:00\n")
-    assert phone(world, "owner", SPANISH)["reply"] == phrases.text("NAT_ASK_TEXT", None)
-    assert reminders(world) == [] and ops_natural._DRAFTS == {}
+    assert phone(world, "owner", SPANISH)["reply"] == phrases.text("NT_ASK_TEXT", None)
+    assert reminders(world) == [] and drafts.count() == 1, "the engine asks the words and keeps the question: nothing is made"
 
 
 def test_on_the_page_a_reminder_is_the_terminals_command_with_the_time_and_no_draft(world):
     router_says(world, HAIRCUT_ES)
     out = say(world, SPANISH, channel="page")
     assert out["reply"].startswith("This changes something, so it is done by its command") and "remind" in out["reply"] and "--to" in out["reply"]
-    assert ops_natural._DRAFTS == {} and reminders(world) == []
+    assert drafts.count() == 0 and reminders(world) == []
 
 
 def test_a_draft_of_one_sender_is_not_answered_by_another(world):
@@ -256,6 +257,6 @@ def test_a_draft_of_one_sender_is_not_answered_by_another(world):
     router_says(world, "Route: flow-demo (flow, pending)\nWhy: x\nNext: y.\n")
     phone(world, "asker", "yes")
     assert reminders(world) == []
-    assert ops_natural._key(world["ctx"], "messaging", KEY["owner"]) in ops_natural._DRAFTS, "the owner's draft stays until the owner answers or it expires"
+    assert drafts.get("messaging", KEY["owner"]) is not None, "the owner's draft stays until the owner answers or it expires"
     phone(world, "owner", "yes")
     assert len(reminders(world)) == 1

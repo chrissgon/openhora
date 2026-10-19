@@ -12,12 +12,19 @@ A test must never be the one that asks. So, for the whole test process and for e
    done on `subprocess.Popen`, which `subprocess.run`, `check_output` and the rest go through. The caller's dict is copied,
    never changed. It is a property of the test run only: no production code is changed, and nothing outside a test sets it.
 
+4. `XDG_STATE_HOME` is a folder of its own for the test process, made when this file is imported and removed at exit, so that the
+   lock file the Microsoft providers take before they write a record (providers/_msgraph.py `record_lock`) is never made in the
+   real state folder of the person who runs the tests.
+
 This file sits at the root, next to `pytest.ini`, which makes the root the rootdir and so makes pytest load this file
 whichever test folder is named on the command line. `scripts/tests/test_test_isolation.py` fails when any test folder
 would run without it. "Tests never touch the real secret store" is the rule stated in `contracts/secrets.md`.
 """
+import atexit
 import os
+import shutil
 import subprocess
+import tempfile
 
 import pytest
 
@@ -25,6 +32,10 @@ NULL_KEYRING_BACKEND = "keyring.backends.null.Keyring"
 VARIABLE = "PYTHON_KEYRING_BACKEND"
 
 os.environ[VARIABLE] = NULL_KEYRING_BACKEND
+
+TEST_STATE_HOME = tempfile.mkdtemp(prefix="openhora-test-state-")
+os.environ["XDG_STATE_HOME"] = TEST_STATE_HOME
+atexit.register(shutil.rmtree, TEST_STATE_HOME, True)
 
 
 def _with_null_backend(env):
@@ -60,6 +71,7 @@ _install_popen_env_guard()
 @pytest.fixture(autouse=True)
 def no_test_reaches_the_real_secret_store(monkeypatch):
     monkeypatch.setenv(VARIABLE, NULL_KEYRING_BACKEND)
+    monkeypatch.setenv("XDG_STATE_HOME", TEST_STATE_HOME)
     try:
         import keyring.core
         from keyring.backends import null

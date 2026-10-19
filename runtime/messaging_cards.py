@@ -31,6 +31,9 @@ calls nothing.
   language (LR-1) the frames a card adds around the decision's text (the labels, the cut and whole notes, the "Send /approve 12" lines, "Act on it on the page or in the terminal.") and
            the kind of the decision as a word are the phrase table's (runtime/phrases.py) in the language of the `cfg` handed to `build`; the decision's own text, the
            commands and the ids are never changed
+  card     (FND) an effect of a write to the person's own accounts stores, beside its English body, `payload["card"]`: its lines as [key, {field: text}] of
+           the phrase table's family CARD_. `build` says them line by line in the language when the card is well formed and its English lines are the stored body
+           (`effect_card_text`); the hash on the card is the effect's own (`content_sha256`) in every language, and the fields are never translated
 
 Standard library only. Runs on Python 3.9.
 """
@@ -124,6 +127,35 @@ def gated(item: dict) -> bool:
     return item["kind"] == "effect" or (item["kind"] == "plan" and item.get("plan_networked") is True)
 
 
+def reads_private(policy, sender, operations) -> bool:
+    """Whether the sender may be shown the current text of the person's own items on a card (the lines of phrases.CARD_PRIVATE): only a sender who holds the group
+    `ask-mail` (the answer from mail and calendar). No sender, or a policy with no entry, is not."""
+    try:
+        groups = operations.effective_groups(CHANNEL, policy, sender)
+    except Exception:      # a policy this function cannot read shows nothing private
+        return False
+    return bool(sender) and bool(groups) and phrases.CARD_PRIVATE_GROUP in groups
+
+
+def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = False, approvable: bool = True):
+    """The body of an `effect` decision said line by line in the project's language, or None. An effect of an account write (package FND) stores, beside
+    its English body, its `card`: a list of [key, {field: text}] lines of the phrase table's family CARD_ (runtime/phrases.py card_valid). The lines are
+    said in the language of `cfg` only when the card is well formed AND the English lines are exactly the stored body (so that the card says what the
+    terminal and the page show of the same decision, and what the hash is the hash of); the values of the fields are the person's or a service's words and
+    are never changed. Anything else (no card, a key outside the family, a field that is no text, a body that is not the lines) is None, and the card
+    is built from the stored body as it always was."""
+    payload = item.get("payload")
+    card = payload.get("card") if isinstance(payload, dict) else None
+    if not phrases.card_valid(card):
+        return None
+    if phrases.card_text(card).strip() != (item.get("body") or "").strip():
+        return None
+    shown = card if private else phrases.card_without_private(card, owner)
+    kept = shown if approvable else [line for line in shown if not line[0].endswith("_APPROVE")]      # a reader offered no approval is not told how to approve
+    text = phrases.card_text(kept, cfg)
+    return text + "\n" + phrases.text(phrases.hidden_note_key(card, shown), cfg) if len(shown) < len(card) else text
+
+
 def build(project_name: str, item: dict, caps: dict, policy, notices: str = "text", page_url=None, operations=None,
           effect_command: str | None = None, delivery: str | None = None, _blocked: str | None = None, sender: str | None = None, cfg=None) -> dict:
     """The card of one open decision. Returns {"message": the neutral message without action ids (each action is
@@ -147,9 +179,14 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     needs_whole = gated(item)
     blocked = _blocked or ("document" if delivery == "failed" else None)
     approval_ok = False
-    if needs_whole and not blocked and notices == "text":
+    private = reads_private(policy, sender, operations)
+    owner = bool(sender) and item.get("reader_sent_file") is True      # the sender who sent the held file a save card writes (W4a) sees its name there and approves it
+    unreadable = kind == "effect" and not private and item.get("effect_word") in operations.ACCOUNT_APPROVAL_WORDS and not phrases.card_valid((item.get("payload") or {}).get("card"))
+    cut_private = unreadable or (kind == "effect" and not private and effect_card_text(item, None, True) != effect_card_text(item, None, False, owner))      # a line of the current text is left out; so is a card of an account write that cannot be read as a card (fail closed)
+    if needs_whole and not blocked and notices == "text" and not cut_private:
         if kind == "effect":
-            approval_ok = item.get("effect_on_cards") is True and operations.permitted("approve", CHANNEL, policy, effect_kind(item), sender)
+            approval_ok = item.get("effect_on_cards") is True and operations.permitted("approve", CHANNEL, policy, effect_kind(item), sender) \
+                and (item.get("effect_sender_only") is not True or owner)      # the save of a held file is approved by the sender who sent it, and by no one else (Q9)
         else:
             approval_ok = (operations.permitted("approve", CHANNEL, policy, "plan", sender)
                            and operations.permitted("approve", CHANNEL, policy, "plan:networked", sender))
@@ -196,7 +233,9 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
         else:
             footer.append(page_url)
     header = header_of(project_name, item, cfg)
-    full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg), body=phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
+    shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg) if unreadable else (effect_card_text(item, cfg, private, owner, approval_ok) if kind == "effect" else None)      # an effect that carries its card as lines (FND), said line by line in the language
+    full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg),
+                              body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
     document = None
     whole = False
     if notices == "count":

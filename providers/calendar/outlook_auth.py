@@ -5,6 +5,11 @@
 # ///
 """One-time OAuth 2.0 authorization for the Outlook calendar provider (outlook.py).
 
+LEGACY, for one cycle (backlog ACCT-LEGACY): the platform now uses one account token for the whole Microsoft account, authorized once with
+`uv run <workbench>/providers/accounts/microsoft_auth.py authorize`. The provider reads that record first and this one only when the account
+record is absent, with a note each time. This command behaves as it always did; it is removed in the cycle after the integration branch
+reaches `main`.
+
 Commands:
   authorize   the authorization code flow with PKCE (S256) and a state, as a public client (no client secret), in the system browser,
               with a loopback redirect. It asks for the delegated Microsoft Graph permission `Calendars.ReadBasic` and `offline_access`

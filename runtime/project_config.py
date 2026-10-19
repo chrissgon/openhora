@@ -52,6 +52,15 @@ and which the provider of this machine must hold the account of (one outbox acco
 approves the exact recipients of each e-mail by its hash, and a cap of 20 is code. Like every key, it is changed only in the terminal and
 accepted with accept-config; it holds no secret (the password is the secret MAILER_SMTP_PASSWORD).
 
+It also reads "accounts" (package FND; absent: the platform writes to no account of the person's): where the platform may write in the person's own
+Google and Microsoft accounts, an object {"google": {...}, "microsoft": {...}} whose entries are each {"address": "<plain address>" (required),
+"calendars": {"<name>": "<calendar id>"}, "folders": {"<name>": "<Drive folder id | OneDrive folder id or /path>"}, "mail_folders": {"<name>":
+"<label or folder id>"}, "move_removes_inbox": true | false (default true)}. A name is lowercase letters, digits and hyphens, at most 32; an id is
+checked by a full-match pattern of its provider (a Google id holds no slash; a OneDrive path is `/` and names, no `.` or `..`). The account's token
+may reach more than this (the platform's scope set, contracts/secrets.md); what the platform WRITES to is only what is named here, and every
+write kind refuses a target that is not (limit L55; `account_target`). Like every key, changed only in the terminal and accepted with
+accept-config; it holds no secret.
+
 It also reads "protected_paths" (a list of non-empty texts; absent means none): stage 2 asks it whether a glob
 matches AGENTS.md (runtime/workcopy.py, limit L5); from stage 4 no change set may touch a path one of them covers
 (runtime/changeset.py, matches(): the whole relative path against the entry with fnmatch, so `*` crosses `/`, and an
@@ -112,6 +121,7 @@ import math
 import os
 import re
 import sys
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -121,6 +131,7 @@ import language  # noqa: E402  (the same folder: the rule of the key "language")
 import lease  # noqa: E402  (the same folder: a database or a lock is refused in a synced folder)
 import mail_address  # noqa: E402  (the same folder: the form of the outbox's sender)
 import operations  # noqa: E402  (the same folder: the groups and the ceilings the key "channels" is checked against)
+import phrases  # noqa: E402  (the same folder: the sentence of an account that is not set up)
 import sources  # noqa: E402  (the same folder: the paths rules of the key "sources_dir")
 
 REL = "docs/workbench/runtime.json"
@@ -129,7 +140,7 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
-                     "sweep_orphan_containers", "language", "outbox", "policies")
+                     "sweep_orphan_containers", "language", "outbox", "policies", "accounts")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -228,6 +239,7 @@ def load(project: str) -> dict:
     out["sweep_orphan_containers"] = sweep
     out["language"] = _language(raw.get("language"))
     out["outbox"] = _outbox(raw.get("outbox"), out["workbench"])
+    out["accounts"] = _accounts(raw.get("accounts"))
     return out
 
 
@@ -322,10 +334,15 @@ def _policies(value) -> dict:
     return out
 
 
-def _check_assigned(where: str, channel: str, groups: list, profile: str | None) -> None:
+def _check_assigned(where: str, channel: str, groups: list, profile: str | None, own: bool = False) -> None:
     """The groups of a channel's entry, or of a profile at the place it is assigned, against the channel: every group is one the channel takes, the
-    networked plans need the plans, and the page and the MCP mode list `read`. The sentence names the profile (when there is one) and the channel."""
+    networked plans need the plans, and the page and the MCP mode list `read`. The sentence names the profile (when there is one) and the channel. `own` is a
+    sender's own profile (messaging.senders.<platform>[].policy): the group `ask-mail` is given there and nowhere else, never to a whole channel, because the text of a
+    mailbox or a calendar is read for one person, not for every sender the channel lists."""
     label = f"profile {profile!r}: " if profile else ""
+    if "ask-mail" in groups and not own:
+        raise ConfigError(f"runtime.json {where}: {label}the group 'ask-mail' is given in the profile of one listed sender (messaging.senders.<platform> with a policy), "
+                          "never to a whole channel: the text of a mailbox or a calendar is read for the person it belongs to")
     for group in groups:
         why = _refused_group(channel, group, groups)
         if why:
@@ -456,7 +473,7 @@ def _messaging(value, policies=None) -> dict:
                 named[sender] = profile
                 if profile not in checked:
                     checked.add(profile)
-                    _check_assigned(f"messaging.senders.{platform}", "messaging", policies[profile]["groups"], profile)
+                    _check_assigned(f"messaging.senders.{platform}", "messaging", policies[profile]["groups"], profile, own=True)
         out_senders[platform] = ids
         if named:
             out_profiles[platform] = named
@@ -605,6 +622,7 @@ def _code(value):
 
 OUTBOX_KEYS = ("provider", "from")
 OUTBOX_CLASS = "sender:email"
+OWN_ACCOUNT_MAILERS = ("gmail", "outlook")      # the implementations of sender:email that send from the person's own account token (package W2): never the project's outbox
 
 
 def _outbox(value, workbench: str):
@@ -614,7 +632,7 @@ def _outbox(value, workbench: str):
     if not isinstance(value, dict) or set(value) - set(OUTBOX_KEYS) or "from" not in value:
         raise ConfigError(f"runtime.json outbox must be an object with the keys {', '.join(OUTBOX_KEYS)} (from is required)")
     provider = value.get("provider", "auto")
-    shipped = _implementations(workbench, OUTBOX_CLASS)
+    shipped = [name for name in _implementations(workbench, OUTBOX_CLASS) if name not in OWN_ACCOUNT_MAILERS]
     if provider != "auto" and provider not in shipped:
         raise ConfigError(f"runtime.json outbox.provider must be auto or one of {', '.join(shipped) or 'none: no provider is shipped'}")
     try:
@@ -622,6 +640,111 @@ def _outbox(value, workbench: str):
     except mail_address.AddressError as e:
         raise ConfigError(f"runtime.json outbox.from: {e.reason}") from None
     return {"provider": provider, "from": sender}
+
+
+ACCOUNT_PROVIDERS = ("google", "microsoft")
+ACCOUNT_EFFECT_WORDS = ("calendar", "mailbox", "files")           # the effect words that arrived with the account writes, not with a skill (contracts/environment.md)
+ACCOUNT_KEYS = ("address", "calendars", "folders", "mail_folders", "move_removes_inbox")
+ACCOUNT_SECTIONS = ("calendars", "folders", "mail_folders")      # the three maps of names to ids: the targets the platform may write to
+ACCOUNT_NAME = re.compile(r"[a-z0-9-]{1,32}")
+ACCOUNT_SECTION_MAX = 50                                         # names in one map
+ACCOUNT_DEFAULT_FOLDER = "default"                               # the name of the folder a file goes to when the person names none
+ACCOUNT_PATH_BAD = re.compile(r'[\\/:*?"<>|#%\x00-\x1f\x7f]')      # a character a OneDrive name cannot hold, a control character, and `#` and `%` (a fragment, a percent-encoded form)
+ACCOUNT_HIDDEN = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")           # control, format (a right-to-left override, a zero-width character), separators: never in an id or a path
+ACCOUNT_ID = {       # (provider, section) -> the full-match pattern of an id; none holds a slash (a OneDrive folder may also be a path: _account_path)
+    ("google", "calendars"): re.compile(r"(?!\.{1,2}$)[A-Za-z0-9._@+-]{1,254}"),
+    ("google", "folders"): re.compile(r"[A-Za-z0-9_-]{1,128}"),
+    ("google", "mail_folders"): re.compile(r"[A-Za-z0-9_-]{1,64}"),
+    ("microsoft", "calendars"): re.compile(r"[A-Za-z0-9_=-]{1,300}"),
+    ("microsoft", "folders"): re.compile(r"[A-Za-z0-9_=!-]{1,200}"),
+    ("microsoft", "mail_folders"): re.compile(r"[A-Za-z0-9_=-]{1,300}"),
+}
+
+
+def _account_path(value: str) -> bool:
+    """Whether a text is a OneDrive folder path: `/`, then names joined by `/`, each 1 to 100 characters that hold no character OneDrive refuses, are
+    not `.` or `..`, neither start nor end with a space and do not end with a dot; at most 400 characters in all."""
+    if not value.startswith("/") or len(value) > 400 or value == "/":
+        return False
+    parts = value[1:].split("/")
+    return all(0 < len(p) <= 100 and p not in (".", "..") and not ACCOUNT_PATH_BAD.search(p) and p == p.strip(" ") and not p.endswith(".")
+               and not any(unicodedata.category(c) in ACCOUNT_HIDDEN for c in p) for p in parts)
+
+
+def _account_id(provider: str, section: str, value) -> bool:
+    if not isinstance(value, str):
+        return False
+    if provider == "microsoft" and section == "folders" and value.startswith("/"):
+        return _account_path(value)
+    return ACCOUNT_ID[(provider, section)].fullmatch(value) is not None
+
+
+def _accounts(value):
+    """The key "accounts", checked and completed (every section present, `move_removes_inbox` true when absent); None when absent."""
+    if value is None:
+        return None
+    where = "runtime.json accounts"
+    if not isinstance(value, dict) or set(value) - set(ACCOUNT_PROVIDERS):
+        raise ConfigError(f"{where} must be an object with the keys {', '.join(ACCOUNT_PROVIDERS)} (each optional)")
+    out = {}
+    for provider, entry in value.items():
+        here = f"{where}.{provider}"
+        if not isinstance(entry, dict) or set(entry) - set(ACCOUNT_KEYS) or "address" not in entry:
+            raise ConfigError(f"{here} must be an object with the keys {', '.join(ACCOUNT_KEYS)} (address is required)")
+        try:
+            address = mail_address.normalize_address(entry["address"])
+        except mail_address.AddressError as e:
+            raise ConfigError(f"{here}.address: {e.reason}") from None
+        item = {"address": address}
+        for section in ACCOUNT_SECTIONS:
+            named = entry.get(section, {})
+            if not isinstance(named, dict) or len(named) > ACCOUNT_SECTION_MAX:
+                raise ConfigError(f"{here}.{section} must be an object of at most {ACCOUNT_SECTION_MAX} names, each with the id of its target")
+            for name, ident in named.items():
+                if not isinstance(name, str) or not ACCOUNT_NAME.fullmatch(name):
+                    raise ConfigError(f"{here}.{section}: a name is lowercase letters, digits and hyphens, at most 32 characters")
+                if not _account_id(provider, section, ident):
+                    raise ConfigError(f"{here}.{section}.{name} is not the id of a {provider} {section[:-1].replace('_', ' ')}"
+                                      + (" (a Google id holds no slash)" if provider == "google" else ""))
+            item[section] = dict(named)
+        inbox = entry.get("move_removes_inbox", True)
+        if not isinstance(inbox, bool):
+            raise ConfigError(f"{here}.move_removes_inbox must be true or false")
+        item["move_removes_inbox"] = inbox
+        out[provider] = item
+    return out
+
+
+def account_entry(cfg: dict, account):
+    """The checked entry of `google` or `microsoft` in the configuration's accounts, or None when the project lists none."""
+    return ((cfg or {}).get("accounts") or {}).get(account) if account in ACCOUNT_PROVIDERS else None
+
+
+def clean_name(value, width: int = 40) -> str:
+    """A name a caller gave, as a sentence may echo it: at most `width` characters, and only letters, digits, hyphens, underscores and dots (anything else is `?`)."""
+    return re.sub(r"[^A-Za-z0-9_.-]", "?", str(value)[:width])
+
+
+def account_target(cfg: dict, account, section: str, name=None) -> tuple:
+    """(id, None) of a target the project lists for an account, or (None, the sentence that refuses it): the one place the write kinds ask whether the
+    platform may write somewhere (limit L55). `section` is calendars, folders or mail_folders. Without a name, calendars means the first one listed and
+    folders the one named `default`; a mail folder is always named. Whatever the token could reach, only what is listed is a target."""
+    entry = account_entry(cfg, account)
+    if entry is None:
+        return None, phrases.en("ACCT_NOT_CONFIGURED").format(account=clean_name(account, 20))
+    if not isinstance(section, str) or section not in ACCOUNT_SECTIONS:
+        return None, f"there is no kind of target {clean_name(section)!r}"
+    if name is not None and not isinstance(name, str):
+        return None, f"a name is a text: {clean_name(name)!r} is not one of the {section.replace('_', ' ')} the project lists for the account {account}"
+    listed, what = entry[section], section.replace("_", " ")
+    if name is None:
+        name = next(iter(listed), None) if section == "calendars" else ACCOUNT_DEFAULT_FOLDER if section == "folders" else None
+        if name is None:
+            return None, f"name one of the {what} the project lists for the account {account}: {', '.join(listed) or 'none are listed'}"
+    if name not in listed:
+        return None, (f"{clean_name(name)!r} is not one of the {what} the project lists for the account {account} (accounts.{account}.{section} in "
+                      f"runtime.json): {', '.join(listed) or 'none are listed'}")
+    return listed[name], None
 
 
 def resolver(workbench: str):

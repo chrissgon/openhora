@@ -5,6 +5,11 @@
 # ///
 """One-time OAuth 2.0 authorization for the Google Calendar provider (google.py): authorize, check, forget.
 
+LEGACY, one cycle (decision of 2026-10-18): the platform now signs in to a Google account with ONE token that carries its whole scope set
+(providers/accounts/google_auth.py authorize, secret GOOGLE_ACCOUNT_TOKEN). This command still works and its behaviour is unchanged, so that a
+record made before keeps working: the reader uses the account record when there is one and this record only when there is not (with a warning on
+stderr). It is removed in the cycle after the integration branch reaches main (backlog ACCT-LEGACY); the record it made is never deleted by code.
+
   authorize   asks for exactly two scopes, calendar.events.readonly and calendar.calendarlist.readonly, with PKCE (S256), a random state
               checked on the callback, access_type=offline and prompt=consent, on a one-shot listener on 127.0.0.1; stores the
               authorization as one record in the OS secret store. Run it once.

@@ -1,7 +1,7 @@
 // What the page may do, read from the project entry it already holds: `GET /projects` answers, per project, `permissions`
 // ({"channel": "page", "allowed": [...]}, or null while the configuration is not accepted). `allowed` is a list of operation names
 // (`release`, `answer`, `reject`, `retry`, `go-ahead`, `say`, `request`, `route`, `hand-over`, `verdict`, the reads...) and of pairs for the two
-// operations that depend on a second word: `approve:plan|acceptance|effect|go-ahead`, `approve:effect:<word>` (create, write, send, publish: the
+// operations that depend on a second word: `approve:plan|acceptance|effect|go-ahead`, `approve:effect:<word>` (create, write, send, publish, files: the
 // project may allow one word and not another, POL-1) and `set-mode:down|up`. This module only looks a word
 // up in that list; the policy is the service's (runtime/operations.py), and a write the page still sends against it is refused there (409, the
 // sentence), so what this file does is stop the page drawing a control that would only be refused. It has no network call and no DOM.
@@ -57,7 +57,7 @@ export const ASKED = Object.freeze([
   ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["verdict"], ["say"], ["request"], ["route"], ["give-consent"],
   ["stage-file"], ["flow-save"], ["routine-create"], ["routine-change"], ["routine-approve"], ["routine-resume"], ["instructions-set"], ["instructions-add"], ["attachments"], ["attachment-add"], ["attachment-discard"],
   ["approve", "plan"], ["approve", "acceptance"], ["approve", "effect"], ["approve", "go-ahead"],
-  ["approve", "effect:create"], ["approve", "effect:write"], ["approve", "effect:send"], ["approve", "effect:publish"],
+  ["approve", "effect:create"], ["approve", "effect:write"], ["approve", "effect:send"], ["approve", "effect:send-own"], ["approve", "effect:publish"], ["approve", "effect:calendar"], ["approve", "effect:files"], ["approve", "effect:mailbox"],
 ]);
 
 /** The list the project entry holds, or null when the page decides nothing (no key, null, or a shape that is not a list). */

@@ -24,7 +24,7 @@ A class is <role>:<target> (providers/CONTRACT.md). How it maps to a folder and 
   <role>:<target>        -> providers/<role>/      generator:image -> providers/generator/
                             <ROLE>_<TARGET>_PROVIDER, then <ROLE>_PROVIDER
                          (the runtime-only roles, which no skill requires, are the same: messenger:<platform> ->
-                         providers/messenger/, converter:document -> providers/converter/, exporter:document -> providers/exporter/)
+                         providers/messenger/, converter:document -> providers/converter/, exporter:document -> providers/exporter/, writer:calendar -> providers/writer/)
   integration:<service>  -> providers/<service>/   integration:vcs -> providers/vcs/
                             INTEGRATION_<SERVICE>_PROVIDER only: one integration never serves another
   the four classes of the table FIXED keep the folder and the variable they had when their names
@@ -93,10 +93,11 @@ NOT_IMPLEMENTATIONS = {"auth"}  # helpers that live next to providers (providers
 LISTED = ["generator:image", "generator:video", "integration:design-tool", "integration:issue-tracker",
           "integration:vcs", "publisher:<platform>", "reader:email", "scheduler:job", "search:web", "sender:email",
           "store:runtime"]
-# Roles whose folder and variables are derived from the text of the class. `messenger`, `converter`, `exporter` and `script` are in ROLES and not in
+# Roles whose folder and variables are derived from the text of the class. `messenger`, `converter`, `exporter`, `script` and `writer` (writes to the person's
+# own accounts: writer:calendar, writer:mailbox, writer:files; folder providers/writer/, always named explicitly, never `auto`) are in ROLES and not in
 # LISTED, on purpose: the runtime uses them (the messaging bridge, the sources module, the project-script step), and no skill may require them, so they are
 # not in contracts/environment.md (providers/CONTRACT.md says so in their rows).
-ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script"}
+ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),
@@ -106,8 +107,14 @@ ALIASES = {"mailbox": "reader:email", "mailer": "sender:email", "scheduler": "sc
 # The roles whose part after the colon is a parameter handed to the implementation (--platform).
 PARAMETER_ROLES = {"publisher", "messenger"}
 PLATFORMS_LINE = re.compile(r"^PLATFORMS\s*=\s*([(\[].*?[)\]])\s*(?:#.*)?$", re.M)
+SERVES_LINE = re.compile(r'^SERVES\s*=\s*"([^"\n]*)"', re.M)
+SERVES_READ = 32768      # characters of an implementation read for its SERVES line (a long module docstring comes first)
 # Documented defaults per platform (sys.platform prefix -> implementation).
 PLATFORM_DEFAULTS = {"scheduler:job": {"darwin": "launchd", "linux": "systemd"}}
+# What "auto" means for a class that ships several implementations, when nothing chooses one (package W2): the SMTP outbox is the sender:email of a project that
+# sets none; the mailers of the person's own account (gmail.py, outlook.py) are named explicitly by the runtime, from a document that says whose account it is,
+# and are never what "auto" picks. A variable or a caller's implementation still wins.
+CLASS_DEFAULTS = {"sender:email": "smtp"}
 
 EXIT_OK, EXIT_USAGE, EXIT_UNRESOLVED = 0, 2, 3
 
@@ -225,9 +232,22 @@ def implementations_in(folder_name: str, root=None, env=None) -> list[str]:
                   if p.is_file() and NAME.fullmatch(p.stem) and p.stem not in NOT_IMPLEMENTATIONS)
 
 
+def serves_class(cls: str, name: str, root=None, env=None, strict: bool = False) -> bool:
+    """Whether providers/<folder>/<name>.py serves the class: true unless the file declares, in one line at the top level, `SERVES = "<class>"` (read as
+    text, never imported) and the class it names is another. The writers share one folder, `providers/writer/`, and each declares the one class it
+    serves, so a caller of `writer:calendar` can never start the writer of files. With `strict` a file that declares nothing serves nothing (the runtime asks it
+    of a writer before it starts one)."""
+    path = workbench_root(root, env) / "providers" / folder(cls) / f"{name}.py"
+    try:
+        found = SERVES_LINE.search(path.read_text(encoding="utf-8")[:SERVES_READ])
+    except (OSError, ValueError):      # a missing file serves what its folder says; a file that is not text declares nothing (UnicodeDecodeError is a ValueError)
+        return not strict
+    return (found is None and not strict) or (found is not None and found.group(1) == canonical(cls))
+
+
 def implementations(cls: str, root=None, env=None) -> list[str]:
-    """Implementation names shipped for a class."""
-    return implementations_in(folder(cls), root, env)
+    """Implementation names shipped for a class (a file that declares it serves another class is not one)."""
+    return [name for name in implementations_in(folder(cls), root, env) if serves_class(cls, name, root, env)]
 
 
 def served_platforms(cls: str, name: str, root=None, env=None) -> list[str]:
@@ -265,7 +285,7 @@ def resolve(cls: str, root=None, env=None, platform=None, implementation=None) -
     """Choose the provider script for a class. Returns class (as contracts/environment.md writes it),
     implementation, path, source, variable, variables.
 
-    source is one of: configuration (the caller's `implementation`), environment, platform-default,
+    source is one of: configuration (the caller's `implementation`), environment, platform-default, class-default,
     only-implementation. Raises UnknownClass (not a class) or Unresolved (nothing to choose).
     `platform` is the operating system (sys.platform), for the platform default; the platform of a class
     with a parameter is part of the class.
@@ -305,6 +325,8 @@ def resolve(cls: str, root=None, env=None, platform=None, implementation=None) -
     for prefix, name in PLATFORM_DEFAULTS.get(cls, {}).items():
         if platform.startswith(prefix) and name in candidates:
             return chosen(name, "platform-default")
+    if CLASS_DEFAULTS.get(cls) in candidates:
+        return chosen(CLASS_DEFAULTS[cls], "class-default")
     if len(candidates) == 1:
         return chosen(candidates[0], "only-implementation")
     if not shipped:

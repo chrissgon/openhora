@@ -23,6 +23,7 @@ lab = st.load("lab")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
+drafts = st.load("drafts")
 ops_reminders = st.load("ops_reminders")
 ops_say = st.load("ops_say")
 natural = st.load("natural")
@@ -35,7 +36,7 @@ sources = st.load("sources")
 
 OWNER, READER, NOTALK, MAILER, ASKER, PLAIN = "55119000000001", "55119000000002", "55119000000003", "55119000000004", "55119000000005", "55119000000006"
 KEY = {"owner": f"telegram:{OWNER}", "reader": f"telegram:{READER}", "notalk": f"telegram:{NOTALK}", "mailer": f"telegram:{MAILER}", "asker": f"telegram:{ASKER}", "plain": f"telegram:{PLAIN}"}
-PROFILES = {"owner": ["read", "talk", "ask", "reminders", "brakes", "retry", "approve-plans", "answer", "release", "reject-cancel", "sources", "add-sources"],
+PROFILES = {"owner": ["read", "talk", "ask", "reminders", "brakes", "retry", "approve-plans", "answer", "release", "reject-cancel", "sources", "add-sources", "calendar-write"],
             "reader": ["read"], "notalk": ["read", "ask"], "mailer": ["read", "talk", "ask", "ask-mail"], "asker": ["read", "talk", "ask"], "plain": ["read", "talk"]}
 SENDERS = {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": READER, "policy": "reader"}, {"id": NOTALK, "policy": "notalk"},
                         {"id": MAILER, "policy": "mailer"}, {"id": ASKER, "policy": "asker"}, {"id": PLAIN, "policy": "plain"}]}
@@ -249,13 +250,13 @@ def test_a_gated_act_named_in_words_is_never_run_and_the_reply_names_the_place_a
     assert phoned.startswith("error: /set-model is done in the terminal or on the page") and "python3" in phoned
 
 
-def test_a_planned_effect_says_it_is_not_built_yet_in_the_projects_language_and_runs_nothing(world):
-    out = say(world, "marca na agenda o dentista sexta as 9")
-    assert out["reply"] == "I cannot do that yet: create an event on your calendar (planned)." and out["ran"] is False
+def test_an_effect_on_the_persons_accounts_named_in_words_runs_nothing_and_the_reply_is_the_operation_to_run_in_the_projects_language(world):
+    out = say(world, "send an email")
+    assert out["ran"] is False and out["reply"].startswith("That is not done from a line of words. Do it in the terminal or on the page: ") and "mail-send" in out["reply"]
     accept(world["path"], language="pt-BR")
-    pt = say(world, "marca na agenda o dentista sexta as 9")["reply"]
-    assert pt == "Ainda n\u00e3o sei fazer isso: criar um evento na sua agenda (planejado)."  # validate: allow english-only -- the Portuguese sentence under test
-    assert say(world, "edite o meu CV")["reply"] == "Ainda n\u00e3o sei fazer isso: editar um documento no seu drive (planejado)."  # validate: allow english-only -- the Portuguese sentence under test
+    pt = say(world, "manda um email")["reply"]
+    assert pt.startswith("Isso n\u00e3o \u00e9 feito por uma frase. Fa\u00e7a no terminal ou na p\u00e1gina: ") and "mail-send" in pt  # validate: allow english-only -- the Portuguese sentence under test
+    assert "file-create" in say(world, "cria um documento")["reply"] and "mail-mark" in say(world, "mark these as read")["reply"]
     assert ops_core.context(world["path"])["store"].reminders_list(world["ctx"]["conn"], None) == []
     no_model(world)
 
@@ -267,7 +268,6 @@ def test_the_conversation_stores_the_line_of_a_read_and_a_neutral_word_for_the_w
     say(docs, "what files do you have?")
     assert [m["text"] for m in stored(docs)][0] == "what files do you have?"
     import re
-    monkeypatch.setitem(natural._COMPILED, "remind", (re.compile(r"lembrete secret words"),))      # package NR-1 owns the forms of this row; a stand-in form
     assert natural.private("lembrete secret words") and ops_natural.stored_line(docs["ctx"], "lembrete secret words") == "(a reminder)"
     assert not natural.private("what files do you have?")
 
@@ -277,18 +277,17 @@ def test_the_conversation_stores_the_line_of_a_read_and_a_neutral_word_for_the_w
 
 def test_a_draft_belongs_to_one_sender_waits_ten_minutes_and_a_line_that_is_not_its_answer_drops_it(world, monkeypatch):
     clock = {"t": 1000.0}
-    monkeypatch.setattr(ops_natural, "monotonic", lambda: clock["t"])
-    key = ops_natural._key(world["ctx"], "messaging", KEY["owner"])
-    ops_natural._put(key, {"kind": "confirm", "op": "remind", "args": {"when": "2026-10-19 13:00", "text": "x"}})
-    assert ops_natural.peek(world["ctx"], "yes", "messaging", KEY["owner"]) is True
-    assert ops_natural.peek(world["ctx"], "yes", "messaging", KEY["reader"]) is False, "another sender's draft is not theirs"
-    assert ops_natural.peek(world["ctx"], "yes", "page", None) is False
+    monkeypatch.setattr(drafts, "clock", lambda: clock["t"])
+    drafts.put("messaging", KEY["owner"], {"kind": "which", "line": "q", "ids": ["a", "b"], "project": ops_natural.project_key(world["path"])}, "ops", ttl=ops_natural.DRAFT_TTL)
+    assert ops_natural.peek(world["ctx"], "1", "messaging", KEY["owner"]) is True
+    assert ops_natural.peek(world["ctx"], "1", "messaging", KEY["reader"]) is False, "another sender's draft is not theirs"
+    assert ops_natural.peek(world["ctx"], "1", "page", None) is False
     assert ops_natural.peek(world["ctx"], "something else", "messaging", KEY["owner"]) is False
     clock["t"] += ops_natural.DRAFT_TTL + 1
-    assert ops_natural.peek(world["ctx"], "yes", "messaging", KEY["owner"]) is False, "ten minutes, then it is gone"
-    for n in range(ops_natural.DRAFTS_MAX + 5):
-        ops_natural._put((world["ctx"]["cfg"]["project"], "messaging", f"s{n}"), {"kind": "confirm", "op": "remind", "args": {"when": "w", "text": "t"}})
-    assert len(ops_natural._DRAFTS) <= ops_natural.DRAFTS_MAX
+    assert ops_natural.peek(world["ctx"], "1", "messaging", KEY["owner"]) is False, "ten minutes, then it is gone"
+    for n in range(drafts.MAX + 5):
+        drafts.put("messaging", f"telegram:s{n}", {"kind": "which", "line": "q", "ids": ["a"]}, "ops")
+    assert drafts.count() <= drafts.MAX
     assert world["ctx"]["cfg"]["project"] not in json.dumps({"log": "nothing is logged"}), "drafts are in memory only"
 
 
@@ -307,8 +306,8 @@ def spy_all(monkeypatch):
     return seen
 
 
-def test_limit_54_a_decision_a_gated_act_a_write_and_a_planned_effect_named_by_a_line_run_nothing_on_any_channel(world, monkeypatch):
-    """The walk of the table: every operation of class D, G or W and every planned effect, named on every channel, as an operation with every argument its
+def test_limit_54_a_decision_a_gated_act_a_write_and_an_effect_on_an_account_named_by_a_line_run_nothing_on_any_channel(world, monkeypatch):
+    """The walk of the table: every operation of class D, G, W or E, named on every channel, as an operation with every argument its
     row has. Nothing is called, except that a decision reads `pending` to know whether its card exists."""
     with_senders(world)
     spied = spy_all(monkeypatch)
@@ -363,23 +362,30 @@ def test_limit_54_an_argument_the_line_does_not_bear_out_is_never_passed_to_an_o
 
 def test_limit_54_a_router_normalised_time_makes_no_reminder_until_the_person_confirms_it(world, monkeypatch):
     with_senders(world)
-    spied = spy_all(monkeypatch)
+    import functools
+    real, seen = ops.remind, []
+
+    @functools.wraps(real)
+    def spy(*a, **k):
+        seen.append(k)
+        return real(*a, **k)
+    monkeypatch.setattr(ops, "remind", spy)
     ctx = ops_core.context(world["path"])
+    rows = lambda: ctx["store"].reminders_list(ctx["conn"], None)
     reply = ops_natural.run_routed(world["path"], ctx, {"name": "remind", "args": {"text": "cortarme el pelo"}, "when": "2026-10-19 13:00"},
                                    "recuerdame manana a las 13 cortarme el pelo", "messaging", KEY["owner"], {})
-    assert reply.endswith("Answer yes to confirm.") and spied == {}, "asked, not made"
+    assert reply.endswith("Confirm? (yes / another time)") and rows() == [], "asked, not made"
+    assert [k["said"] for k in seen] == ["cortarme el pelo 2026-10-19 13:00"] and seen[0]["channel"] == "messaging" and seen[0]["sender"] == KEY["owner"]
     done = ops_natural.take(world["path"], ctx, "yes", "messaging", KEY["owner"], {})
-    assert spied["remind"][0][1]["when"] == "2026-10-19 13:00" and spied["remind"][0][1]["channel"] == "messaging"
-    assert spied["remind"][0][1]["sender"] == KEY["owner"], "called with the carrying channel and the sender, as the typed command is"
-    assert done == "spied"
+    assert seen[-1]["when"] == "2026-10-19 13:00" and seen[-1]["channel"] == "messaging" and seen[-1]["sender"] == KEY["owner"], \
+        "the moment shown is the moment made, called with the carrying channel and the sender, as the typed command is"
+    assert done.startswith("Reminder #1: tomorrow, Mon 19/10, at 13:00 (BRT): cortarme el pelo") and [r["text"] for r in rows()] == ["cortarme el pelo"]
 
 
 # --- the rest of the contract ---------------------------------------------------------------------------------------------------------------
 
 
 def test_a_tier_1_line_and_the_neutral_word_of_a_reminder_are_left_out_of_the_routers_memory(docs, monkeypatch):
-    import re
-    monkeypatch.setitem(natural._COMPILED, "remind", (re.compile(r"lembrete secret words"),))      # package NR-1 owns the forms of this row; a stand-in form
     say(docs, "what files do you have?")
     say(docs, "lembrete secret words")
     say(docs, "Which market first?")
@@ -394,7 +400,6 @@ def docs_first_reply(world) -> str:
 
 def test_a_typed_ask_written_as_a_reminder_ends_with_one_hint_and_is_never_rerouted(docs, monkeypatch):
     import re
-    monkeypatch.setitem(natural._COMPILED, "remind", (re.compile(r"remind me .*"),))      # a stand-in for the forms package NR-1 writes
     out = say(docs, "/ask remind me tomorrow at 1 pm about the haircut")
     assert out["reply"].endswith("\n\n" + phrases.text("NAT_ASK_REMIND_HINT", None)) and "write it in words" in out["reply"]
     assert st.calls(docs["adapter"]) == ["demo-answers 1"], "it stayed an ask: one answer run, no router"

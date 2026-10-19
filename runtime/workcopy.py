@@ -88,6 +88,31 @@ class CopyError(Exception):
     """The copy could not be built (git failed on a git checkout, the prepared folder cannot be written)."""
 
 
+# What the runtime itself adds to the shared list of credential formats (limit L6, and L59 for the account tokens): the OAuth formats of the
+# person's own Google account, the JSON keys of an account record (Google's and Microsoft's carry the same ones), and the assignment of an
+# account token's name to a JSON record. The shared list (scripts/redact.py, a generated copy of shared/scripts/redact.py) is not changed:
+# a change there reaches every skill that carries a copy. A key's value counts only when it has 16 or more characters and a digit, like the
+# shared rule for a name assigned a literal (words and identifiers are not secrets), and is not a placeholder in angle brackets.
+OAUTH_FORMATS = (
+    ("Google OAuth client secret", re.compile(r"\bGOCSPX-[A-Za-z0-9_-]{16,}")),
+    ("Google OAuth refresh token", re.compile(r"(?<![A-Za-z0-9_/-])1//0[A-Za-z0-9_-]{20,}")),
+    ("Google OAuth access token", re.compile(r"\bya29\.[A-Za-z0-9_-]{20,}")),
+    ("account token assigned a JSON record", re.compile(r"\b(?:GOOGLE|MICROSOFT)_ACCOUNT_TOKEN\b[\"']?\s*[:=]\s*[\"']?\{")),
+)
+OAUTH_KEY_VALUE = re.compile(r"[\"']?\b(refresh_token|client_secret|access_token)[\"']?\s*[:=]\s*\\?[\"']([^\"'\s\\]{16,})")
+
+
+def _oauth_label(line: str):
+    for label, rx in OAUTH_FORMATS:
+        if rx.search(line):
+            return label
+    for m in OAUTH_KEY_VALUE.finditer(line):
+        value = m.group(2)
+        if any(c.isdigit() for c in value) and not UNSAFE_VALUE.search(value):
+            return f"OAuth {m.group(1).replace('_', ' ')}"
+    return None
+
+
 def _redact():
     name = "workbench_runtime_redact"
     if name not in sys.modules:
@@ -104,7 +129,7 @@ def credential_findings(text: str) -> list:
     redact = _redact()
     found = []
     for line in (text or "").splitlines():
-        label = redact.token_label(line)
+        label = redact.token_label(line) or _oauth_label(line)
         if label is None:
             for value_label, value in redact.secret_values(line):
                 if any(c.isdigit() for c in value) and not UNSAFE_VALUE.search(value):

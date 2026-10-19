@@ -5,6 +5,11 @@
 # ///
 """One-time OAuth 2.0 authorization for the Drive documents provider (gdrive.py), and the Picker that gives it files.
 
+LEGACY, one cycle (decision of 2026-10-18): the platform now signs in to a Google account with ONE token that carries its whole scope set
+(providers/accounts/google_auth.py authorize, secret GOOGLE_ACCOUNT_TOKEN). This command still works and its behaviour is unchanged, so that a
+record made before keeps working: the reader uses the account record when there is one and this record only when there is not (with a warning on
+stderr). It is removed in the cycle after the integration branch reaches main (backlog ACCT-LEGACY); the record it made is never deleted by code.
+
 Two commands, one page each, both on a one-shot server on 127.0.0.1 (gdrive_picker.py):
   authorize   asks for the Drive scope `drive.file` (and no other), stores the authorization, then opens the Picker so that the
               person chooses the first files, in one visit. Run it once.
@@ -204,7 +209,13 @@ def authorize(open_browser: bool) -> int:
 
 def pick(open_browser: bool) -> int:
     _, token_url, test_mode = gdrive.endpoints()
-    record = gdrive.load_record(test_mode)
+    try:
+        record = gdrive.load_legacy_record(test_mode)   # the Picker's key lives in the legacy record; the account record has none
+    except ProviderError as exc:
+        if exc.code == EXIT_NOT_CONFIGURED and gdrive.account_record_present(test_mode):
+            raise ProviderError("the Picker is not needed with the Google account token (GOOGLE_ACCOUNT_TOKEN): under its drive scope any "
+                                "file id you name is readable; register it with `source-drive --file-id <id>`", EXIT_USAGE) from None
+        raise
     if not record.get("api_key") or not str(record.get("project_number") or "").isdigit():
         raise ProviderError(f"the stored authorization has no Picker API key; run: {gdrive.AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
     token = gdrive.refresh_access_token(token_url, record)

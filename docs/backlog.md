@@ -332,6 +332,9 @@ From the decisions of 2026-10-17 (`SPEC-ANSWER-FROM-SOURCES`, package AQ-1 built
 - [ ] **NR4. Confirmed writes in words.** A line that names a cancel, a stop, a retry, a routine pause, cancel or edit, or a held file is answered with a code-made confirmation card with one button, bound to the sha256 of the exact call (operation and arguments), instead of the command to send that package NR-2 answers with.
   - What: `runtime/messaging_cards.py`, `runtime/messaging_ledger.py` (a card kind `natural`, no reminder words), `runtime/messaging_natural.py` (the tap, a `sim` fallback), the W forms of `runtime/natural.py`; the tap re-checks the policy and runs exactly the hashed call; a stale or another chat's tap runs nothing.
   - Done when: a W line sends one card, the tap runs the call and nothing else, and a card never carries a reminder's words.
+- [ ] **NR5. A line into the writes to the person's accounts.** A line like "reply to the last mail from Ana saying yes" or "move the meeting to Friday" reaches `mail-reply` or `event-change` with slots, through the router's operation outcome, and ends in the card of the exact content (the operations of W1 to W4a exist; package NR-2 answers with the exact operation to run).
+  - What: slots for the E operations in `NATURAL`, the router's block for them (with NR3), a read of the person's own words as the span of the draft, and the card's private lines for the sender who holds `ask-mail`.
+  - Done when: a line makes one card with the exact content and nothing runs before the person approves it; a line whose slots are not spans of it runs nothing.
 - [ ] **NR3. The router learns operations.** The router skill names an operation (and a normalised `When:` for a time in a language the code tables lack) and the runtime appends the block of operations to its prompt.
   - What: a Y change of `skills/core-orchestrator` (a row in the step 2 table, the three lines of the output template, a criterion and a gotcha for a catalog entry that asks for an operation), seven fictionalised cases, `runtime/ops_natural.py` `router_block` appended in `runtime/ops.py`, `runtime/tests/test_operation_block.py`; ride the battery.
   - Done when: the block in the cases equals the runtime's byte for byte, and the first full test of the changed skill passes.
@@ -340,6 +343,24 @@ From the decisions of 2026-10-17 (`SPEC-ANSWER-FROM-SOURCES`, package AQ-1 built
   - Done when: `measure` on the fictionalised sets and on the maintainer's real lines clears 0.98 precision per language with 0.5 coverage, and a tier-2 pick of a notice asks for confirmation.
 - [ ] **AQ4. Chunking and retrieval for a source over 256 KiB.** A question reads at most 256 KiB of converted text and five sources. A larger source is answered only by a task; indexing waits for a real case.
   - Done when: the maintainer has a real source that needs it, and the choice (chunks by heading, a local index, or the task) is decided on that case.
+
+## Accounts
+
+From the decision of 2026-10-18 (`SPEC-SECRETARY-WRITES`, package ACCT-G built): one token for the person's own Google account, the platform's whole scope set, read first by the Gmail, Calendar and Drive providers; the restriction is the platform's.
+
+- [ ] **ACCT-LEGACY. Remove the legacy Google records.** Each Google reader still falls back, for one cycle, to its old record (`mailbox-gmail` with `gmail-client-id` and `gmail-client-secret`, `calendar-google`, `gdrive-sources`) with a warning on stderr.
+  - From: the maintainer's approval of 2026-10-18 (question 13 of `SPEC-SECRETARY-WRITES`): the old records keep working for one cycle.
+  - What: delete the fallback in `gmail.py`, `calendar/google.py` and `documents/gdrive.py`, the old `mailbox/auth.py`, `calendar/google_auth.py` and `documents/gdrive_auth.py` authorize commands, and with the full `drive` scope the Picker (`documents/gdrive_picker.py`, `gdrive_auth.py pick`, `gdrive.py pick`, the `api_key` and `project_number` of the old record, `runtime/sources.py` `pick_drive` and the Picker branch of `ops_sources.source_drive`); take the old names out of `runtime/sources_mail.py`, `sources.py` (`DRIVE_SECRETS`) and the registry; the Microsoft half (package ACCT-M) goes the same way.
+  - Trigger: the integration branch reaches `main`, then one cycle.
+  - Done when: no reader names a legacy record, the registry and `contracts/secrets.md` lose the old rows, and the maintainer has removed the old records with `keyring del openhora <username>`.
+- [ ] **HOSTED-VERIFY. Google's verification for the hosted product.** `gmail.modify` and `drive` are restricted scopes: a public app that asks for them needs restricted-scope verification, and one that stores or transmits their data on servers needs a security assessment, renewed at least every 12 months. Personal use under 100 users, development, internal Workspace use and service accounts are exceptions, so this is not a blocker now.
+  - From: `providers/accounts/README.md` ("Later: the hosted product"), sources accessed 2026-10-18.
+  - Trigger: the day a hosted product with other people's Google accounts is planned.
+  - Done when: the verification and the assessment are scheduled and costed, or the product is decided not to need them.
+- [ ] **ACCT-SLOT. A second Google account.** The record carries a `slot` (`main`, the only one) and every provider takes the slot from the record. Another account needs a registry row `GOOGLE_ACCOUNT_<S>_TOKEN` (store username `google-account-<s>`), a `--account <slot>` on every provider and an `accounts` entry or an origin that names the slot.
+  - From: `SPEC-SECRETARY-WRITES` 2.3, not built in version 1.
+  - Trigger: a person who needs two Google accounts at once.
+  - Done when: a second slot works end to end for the readers, with a test that the two tokens never mix.
 
 ## Next skills
 
@@ -451,3 +472,13 @@ Not listed: the degraded-mode cases proposed for `design-execute`, `design-syste
 - [ ] **K24.** `mkt-content-plan`: a slot whose pillar has no material: an empty topic and a question that names the pillar; also the stop on a missing strategy. (group-6, mkt-content-plan, should-fix 2.)
 - [ ] **K25.** `mkt-social-copy`: a sensitive hit that blocks a post: the content file is `blocked` or not written, the reply says why; also a slot without material. (group-6, mkt-social-copy, should-fix 4.)
 - [ ] **K26.** `mkt-vote-round`: fewer than three topics with material: the reply asks for material and names the pillar, no third option invented; also nothing pending. (group-6, mkt-vote-round, should-fix 7.)
+
+## Forward notes of the writes to the person's own accounts
+
+- [ ] **W-FRAME.** The kinds of the writes to the person's own accounts that put a person's text on a card (a mail body, a note, the text of a file: W1 to W4a, fields of `phrases.CARD_MULTILINE`) frame it with their own start and end lines (`CARD_MAIL_START`/`CARD_MAIL_END`, `CARD_FILE_START`/`CARD_FILE_END`), because a multi-line field can hold a line that looks like another line of the card; and each decides whether a combining character or a no-break space in a one-line field is refused at the kind (`phrases.card_valid` refuses control, format, separator, surrogate and private-use characters only). (Review of #476, minor 2.) Done for files in W4a: `CARD_FILE_TEXT` frames the text between two rules, and a text with a line equal to either rule in any language of the table is refused (`files_document.frame_lines`); the one-line fields of a file card are a closed set (a name, a label) or a service's words cleaned of control, format and separator characters, and a no-break space or a combining character in the latter is shown as it is.
+
+- [ ] **W2-GMAIL-BCC. Bcc and larger attachments from a Google account.** The Gmail mailer refuses a Bcc and limits attachments to 3 MiB together.
+  - From: `providers/mailer/README.md` ("To verify live"), package W2.
+  - What: after the live check that Gmail removes a `Bcc` header before delivery, put the Bcc in the message headers of `gmail.py` and in `step_send_email.check`; use the upload endpoint (up to 35 MB) for larger files, and Graph upload sessions for Outlook (now 2.5 MiB).
+  - Trigger: the maintainer's live checks of the two mailers pass and a real e-mail needs a hidden recipient or a larger file.
+  - Done when: the document's `bcc` and larger `attachments` go through both mailers with the exact request list tested.

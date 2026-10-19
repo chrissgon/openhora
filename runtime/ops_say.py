@@ -125,7 +125,8 @@ def chat_memory(messages: list, settled: set) -> str:
         if m["role"] == "assistant" and m.get("task_id") in settled:
             start = n + 1
     kept = [m for m in messages[start:] if (m["role"] == "user" and not m["text"].startswith("/") and not state_question(m["text"])
-                                            and natural.match(m["text"]) is None and not ops_natural.is_placeholder(m["text"])) or
+                                            and natural.match(m["text"]) is None and natural.candidate(m["text"]) is None
+                                            and not ops_natural.is_placeholder(m["text"])) or
             (m["role"] == "assistant" and m.get("task_id") is not None)][-MEMORY_TURNS:]
     lines = [f"{m['role']}: {' '.join(m['text'].split())[:MEMORY_CUT]}" for m in kept]
     while lines and len("\n".join([MEMORY_HEAD, *lines])) > MEMORY_CHARS:
@@ -204,6 +205,12 @@ def asks_natural(ctx: dict, said: str, channel: str, sender=None) -> bool:
     a sender who may not talk never answers it."""
     return (_router_question(ctx, _last_request(ctx)) is None or not may_talk(ctx, channel, sender)) \
         and ops_natural.peek(ctx, said, _natural_channel(channel), sender)
+
+
+def natural_reply(project: str, name: str, channel: str = "messaging") -> str:
+    """The sentence for an operation a line only names and the platform does not run from a line (an effect on the person's accounts, a gated act): the place
+    and the exact command (ops_natural._gated). The messaging bridge says it for a calendar event. Not an operation of the table."""
+    return ops_natural._gated(core.context(project), name, {}, channel)
 
 
 def natural_needs(project: str, text: str, sender=None, channel: str = "messaging"):

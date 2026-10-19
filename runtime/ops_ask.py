@@ -227,7 +227,7 @@ def ask(project: str, text: str, channel: str | None = None, sender: str | None 
     says how to ask for a reminder in words (package NR-2, contracts/runtime.md "Natural requests"). The question is never rerouted: an explicit
     /ask stays an ask."""
     out = _ask(project, text, channel, sender)
-    found = natural.match(text) if isinstance(text, str) else None
+    found = natural.candidate(text) if isinstance(text, str) else None
     if found and found["op"] == "remind" and isinstance(out.get("reply"), str):
         out = dict(out, reply=out["reply"] + "\n\n" + phrases.text("NAT_ASK_REMIND_HINT", core._config_of(project)))
     return out

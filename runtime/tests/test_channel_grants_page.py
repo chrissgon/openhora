@@ -39,7 +39,7 @@ def test_the_page_asks_by_word_draws_one_line_for_the_grants_and_a_project_witho
     assert got["words"] == [True, False, True, True], "the word the service listed is allowed; another word is not; `approve:effect` says that some word is"
     assert got["withheld"] == ["approve"], "withheld names the operation, once, for the words refused"
     assert got["everything"] == [True, True, True], "an entry without the key, or null, hides nothing"
-    assert got["asked"] == ["plan", "acceptance", "effect", "go-ahead", "effect:create", "effect:write", "effect:send", "effect:publish"]
+    assert got["asked"] == ["plan", "acceptance", "effect", "go-ahead", "effect:create", "effect:write", "effect:send", "effect:send-own", "effect:publish", "effect:calendar", "effect:files", "effect:mailbox"]
     assert got["fingerprint"] is True
     assert got["text"][0] == "Your configuration widens: a messaging app may approve a write."
     assert got["text"][1] == "Your configuration widens: one; two."
@@ -49,7 +49,7 @@ def test_the_page_asks_by_word_draws_one_line_for_the_grants_and_a_project_witho
 def test_the_card_asks_the_policy_by_the_effects_word_and_the_words_are_the_operations_layers():
     cards = (INTERFACE / "js" / "floor" / "cards.js").read_text(encoding="utf-8")
     assert "`effect:${state.item.effect_word}`" in cards, "the card asks approve:effect:<word>, and `effect` when the decision names no word"
-    asked = re.findall(r'\["approve", "(effect:[a-z]+)"\]', (INTERFACE / "js" / "permissions.js").read_text(encoding="utf-8"))
+    asked = re.findall(r'\["approve", "(effect:[a-z-]+)"\]', (INTERFACE / "js" / "permissions.js").read_text(encoding="utf-8"))
     assert asked == [f"effect:{word}" for word in operations.EFFECT_APPROVAL_WORDS]
 
 

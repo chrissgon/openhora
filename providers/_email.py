@@ -289,10 +289,11 @@ class Message(email.message.EmailMessage):
 
 
 def build_message(*, from_addr: str, to, cc, subject: str, body: str, attachments, message_id_value: str, in_reply_to=None,
-                  date=None) -> Message:
+                  date=None, references=None) -> Message:
     """The message. Every header is built here from parts that were checked (addresses by normalize_address, text by header_text); the
     Bcc is never a header. `attachments` is [(name, media type, bytes)]. `date` is a datetime, or None to leave the header out (a dry run).
-    The body is a single text/plain part in UTF-8, quoted-printable."""
+    `references` is the list of Message-IDs the References header names (package W2: a reply from the person's own account names the chain it
+    answers); without it, a reply's References is its In-Reply-To. The body is a single text/plain part in UTF-8, quoted-printable."""
     msg = Message(policy=email.policy.SMTP)
     msg["From"] = from_addr
     msg["To"] = ", ".join(to)
@@ -303,7 +304,7 @@ def build_message(*, from_addr: str, to, cc, subject: str, body: str, attachment
     msg["Message-ID"] = message_id_value
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
-        msg["References"] = in_reply_to
+        msg["References"] = " ".join(references) if references else in_reply_to
     if date is not None:
         msg["Date"] = email.utils.format_datetime(date)
     msg.set_content(body, subtype="plain", charset="utf-8", cte="quoted-printable")

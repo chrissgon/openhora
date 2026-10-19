@@ -166,14 +166,16 @@ def test_every_effect_word_an_approval_path_opens_has_its_group_and_the_modules_
         module = effects.module_for(word)
         if getattr(module, "GATE", False) is True or getattr(module, "STEP", False) is True:
             opened[word] = module
-    assert set(opened) == {"create", "write", "send", "publish"} == set(operations.EFFECT_APPROVAL_WORDS), "a new kind with an approval path adds its word and its group"
+    assert set(opened) | {"send-own"} == {"create", "write", "send", "publish", "send-own", "calendar", "files", "mailbox"} == set(operations.EFFECT_APPROVAL_WORDS), "a new kind with an approval path adds its word and its group"
+    assert set(opened) == {"create", "write", "send", "publish", "calendar", "files", "mailbox"}, "send-own is a second word of the kind send (its approval_word), not a kind of its own"
     assert "push" not in opened and not [g for g in operations.GROUPS if g == "approve-effect-push"], "a kind that never reaches approve has no group"
-    for word, module in opened.items():
+    for word, module in list(opened.items()) + [("send-own", effects.module_for("send"))]:
         group = operations.GROUPS[f"approve-effect-{word}"]
         assert group == {"operations": ("approve",), "kind": f"effect:{word}"} and f"approve-effect-{word}" in operations.GRANTS["messaging"]
-        if hasattr(module, "APPROVAL_GROUP"):
+        if hasattr(module, "APPROVAL_GROUP") and word != "send-own":
             assert module.APPROVAL_GROUP == f"approve-effect-{word}"
-    assert {g for g in operations.GROUPS if g.startswith("approve-effect-")} == {f"approve-effect-{w}" for w in opened}
+    assert effects.module_for("send").APPROVAL_GROUP_OWN == "approve-effect-send-own"
+    assert {g for g in operations.GROUPS if g.startswith("approve-effect-")} == {f"approve-effect-{w}" for w in opened} | {"approve-effect-send-own"}
     assert hasattr(effects.module_for("send"), "on_cards") and hasattr(effects.module_for("publish"), "on_cards")
 
 

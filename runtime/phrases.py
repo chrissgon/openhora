@@ -39,6 +39,9 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
   status(word, cfg)           a status word of the store as a word of the language (the word itself when unknown or the language has no table)
   heading(title, cfg)         the title of a decision that code wrote whole, as a word of the language; any other title unchanged
   body(text, cfg)             the body of a decision that code wrote whole, in the language; any other body unchanged
+  card_without_private(card)  the lines of a card that are not private (CARD_PRIVATE); hidden_note_key(card, kept) the key of the note that ends a card drawn without them
+  card_valid(card)            whether a decision's `card` (a list of [key, {field: text}] lines, every key of the family CARD_) can be said line by line
+  card_text(card, cfg)        the lines of a valid card said in the project's language, one per line (the stored body of an effect that carries one is this in English)
 
 Standard library only. Runs on Python 3.9: python3 runtime/phrases.py --help
 """
@@ -48,6 +51,7 @@ import os
 import re
 import string
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import language  # noqa: E402  (the same folder: the order that decides the tag)
@@ -194,6 +198,10 @@ TABLE = {
         "RM_DAY_FULL": "{n} reminders were already made for this chat today. Try again tomorrow.",
         "RM_SET": "Reminder #{id} set for {wall} ({zone}).",
         "RM_FORGOT": "Forgot reminder #{id}.",
+        "RM_NOTHING_TO_RESTORE": "There is no reminder of yours cancelled in the last 10 minutes to bring back.",
+        "RM_RESTORE_TOO_LATE": "Reminder {n} is too close to its time to bring back.",
+        "RM_ALREADY_BACK": "Reminder {n} is already back.",
+        "RM_BACK": "Reminder #{old} is back as #{new}.",
         "RM_NOT_LISTED": "You are not a listed sender of this project.",
         "RM_NOT_A_TIME": "{given} is not a time of day (00:00 to 23:59).",
         "RM_NO_SUCH_DATE": "{given} is not a day of the calendar.",
@@ -211,6 +219,51 @@ TABLE = {
         "RM_NONE_WAIT": "no reminders wait.",
         "RM_WAITING_HEAD": "reminders that wait ({zone})",
         "RM_NOT_SENT_HEAD": "Not sent lately:",
+        # --- reminders asked in the person's own words (natural.py, messaging_remind.py; package NR-1) ---
+        "NT_WD_0": "Mon",
+        "NT_WD_1": "Tue",
+        "NT_WD_2": "Wed",
+        "NT_WD_3": "Thu",
+        "NT_WD_4": "Fri",
+        "NT_WD_5": "Sat",
+        "NT_WD_6": "Sun",
+        "NT_REL_0": "today",
+        "NT_REL_1": "tomorrow",
+        "NT_WHEN_REL": "{rel}, {wd} {dm}, at {time}",
+        "NT_WHEN_FAR": "{wd} {dm} at {time}",
+        "NT_ROLLED": "{time} today has passed: {when}",
+        "NT_SET_TEXT": "Reminder #{id}: {when}: {text}. To undo: /forget {id}.",
+        "NT_SET_COUNT": "Reminder #{id}: {when}. To undo: /forget {id}.",
+        "NT_ASK_WHEN": "When? Example: remind me tomorrow at 1 pm to water the plants",
+        "NT_ASK_WHEN_SLASH": "When? Example: /remind tomorrow 1 pm water the plants",
+        "NT_ASK_TIME_DAY": "{day}: at what time? Reply with a time, for example 1 pm.",
+        "NT_ASK_TIME": "At what time? Reply with a time, for example 1 pm.",
+        "NT_ASK_TEXT": "What should I remind you of? Reply with the words to send.",
+        "NT_ASK_READINGS": "Which time do you mean: {options}? Reply with the time.",
+        "NT_OR": "or",
+        "NT_ASK_KIND_TEXT": "{when}: {text}. A reminder here in the chat, or an event in your calendar?",
+        "NT_ASK_KIND_COUNT": "{when}. A reminder here in the chat, or an event in your calendar?",
+        "NT_WHICH": "Which one? Send /forget <n>.",
+        "NT_ASK_NOTE": "Do you want a reminder? Then tell me when, for example: tomorrow at 1 pm",
+        "NT_ASK_EVENT_OR_OTHER": "An event in your calendar, or something else? Reply calendar, or something else to send the line on.",
+        "NT_NO_MATCH": "No waiting reminder of yours matches that. Send /reminders to see them.",
+        "NT_FORGOT_TEXT": "Reminder #{id} cancelled: {when}: {text}. To get it back, send: undo",
+        "NT_FORGOT_COUNT": "Reminder #{id} cancelled: {when}. To get it back, send: undo",
+        "NT_RESTORED_TEXT": "Reminder #{old} is back as #{id}: {when}: {text}.",
+        "NT_RESTORED_COUNT": "Reminder #{old} is back as #{id}: {when}.",
+        "NT_CONFIRM_TEXT": "I understood: {when}: {text}. Confirm? (yes / another time)",
+        "NT_CONFIRM_COUNT": "I understood: {when}. Confirm? (yes / another time)",
+        "NT_RECURRING": "A reminder here happens once. Something that repeats is a routine: set it up in the terminal or on the page. For a single reminder, tell me when.",
+        "NT_CANCELLED": "Ok, no reminder was made.",
+        "NT_KEPT": "Ok, nothing was cancelled.",
+        "NT_BTN_YES": "Yes",
+        "NT_ASK_AGAIN": "For when? Reply with a day and a time, for example tomorrow at 1 pm.",
+        "NT_ASK_WEEKDAY": "Which day next week? Reply with the weekday, for example Tuesday.",
+        "NT_ASK_FORGET_TEXT": "Cancel reminder #{id}: {when}: {text}? (yes / no)",
+        "NT_ASK_FORGET_COUNT": "Cancel reminder #{id}: {when}? (yes / no)",
+        "NT_ASK_FORGET_MANY": "Cancel these reminders? (yes / no)",
+        "NT_EXPIRED": "That question is no longer open: it waits ten minutes. Send the line again.",
+        "NT_DISCARDED": "The previous question was discarded.",
         # --- the conversation (ops_say.py) ---
         "PLAN_NEXT": "Approve with /approve {pending}",
         "ASK_NEXT": "Answer with a plain line, or start again with /new <text>",
@@ -283,30 +336,10 @@ TABLE = {
         # --- the natural requests (ops_natural.py, source_resolve.py, package NR-2) ---
         "NAT_PRIVATE_LINE": "(a reminder)",
         "NAT_PRIVATE_REPLY": "(reminder)",
-        "NAT_PLANNED": "I cannot do that yet: {what} (planned).",
-        "NAT_E_CALENDAR_EVENT_CREATE": "create an event on your calendar",
-        "NAT_E_CALENDAR_EVENT_CHANGE": "change an event on your calendar",
-        "NAT_E_CALENDAR_EVENT_CANCEL": "cancel an event on your calendar",
-        "NAT_E_MAIL_SEND": "send an e-mail from your account",
-        "NAT_E_MAIL_REPLY": "reply to an e-mail",
-        "NAT_E_MAIL_DRAFT": "draft an e-mail",
-        "NAT_E_MAIL_ORGANIZE": "archive, label, move or mark e-mails",
-        "NAT_E_DOCUMENT_CREATE": "create a document in your drive",
-        "NAT_E_DOCUMENT_EDIT": "edit a document in your drive",
-        "NAT_E_DOCUMENT_SAVE": "save a document in your drive",
         "NAT_NOT_BELIEVED": "I could not match that to what you wrote, so nothing was done. Please say it again.",
         "NAT_ASK_ID": "Which number? Say it again with the number in the line.",
-        "NAT_ASK_TEXT": "What should I remind you of?",
-        "NAT_ASK_WHEN": "When? Say the day and the time.",
-        "NAT_CONFIRM_REMIND": "Create a reminder for {when}{words}? Answer yes to confirm.",
-        "NAT_DROPPED": "Ok, nothing was created.",
-        "NAT_CONFIRM_FORGET": "Forget reminder #{id}? Answer yes to confirm.",
         "NAT_READ_REPLY": "(shown where it was asked)",
         "NAT_NO_DECISION": "There is no open decision #{id}.",
-        "NAT_WEEKDAYS": "Mon,Tue,Wed,Thu,Fri,Sat,Sun",
-        "NAT_TODAY": "today",
-        "NAT_TOMORROW": "tomorrow",
-        "NAT_AT": "at",
         "NAT_TYPE_IT": "This changes something, so it is done by its command, not by a line of words. Send: {command}",
         "NAT_DECISION_TYPED": "A decision is made by its command, never from a line of words. Send: {command}",
         "NAT_DECISION_CARD": "A decision is made from its card, never from a line of words: use the button on the card of #{id}.",
@@ -322,6 +355,189 @@ TABLE = {
         "NAT_NO_SOURCE": "No source of this project matches that. Searching your accounts is planned, not built yet.",
         "NAT_USED": "I used: {name}.",
         "NAT_ASK_REMIND_HINT": "That looks like a reminder: write it in words, for example 'remind me tomorrow at 1 pm about the haircut'.",
+        # --- an e-mail from the person's own account (package W2: runtime/send_document.py, runtime/mail_refs.py) ---
+        "TITLE_MAIL_SEND": "Mail: send from your account",
+        "TITLE_MAIL_REPLY": "Mail: reply from your account",
+        "CARD_MAIL_SEND": "Code sends this e-mail from your own account after your approval, to exactly these recipients and no one else, and nothing else.",
+        "CARD_MAIL_REPLY": "Code sends this reply from your own account after your approval, to exactly the recipient below and no one else, and nothing else.",
+        "CARD_MAIL_FROM_ACCOUNT": "From your own account: {address} ({account})",
+        "CARD_MAIL_TO": "To: {addresses}",
+        "CARD_MAIL_CC": "Cc: {addresses}",
+        "CARD_MAIL_BCC": "Bcc (hidden from the others, listed here for you): {addresses}",
+        "CARD_MAIL_SUBJECT": "Subject: {subject}",
+        "CARD_MAIL_SUBJECT_REPLY": "Subject: {subject}",
+        "CARD_MAIL_REPLY_TO": "Reply to: {address}, the sender of {ref} (in the snapshot read at {read_at}): {subject}",
+        "CARD_MAIL_REPLY_TO_DIFFERS": "The message asks replies to go to {other}: this reply goes to the sender above, not there.",
+        "CARD_MAIL_IN_REPLY": "In reply to the message {message_id}",
+        "CARD_MAIL_COUNT": "Recipients in all: {count}",
+        "CARD_MAIL_MESSAGE": "----- the message, exactly as it will be sent (every line starts with \u2502) -----\n{body}\n----- end of the message -----",
+        "CARD_MAIL_ATTACHMENTS": "Attachments ({count}), each a copy of a file of the project, sent only if it is still the same file:",
+        "CARD_MAIL_ATTACHMENT": "Attachment: {name}, {bytes} bytes, sha256 {sha} (from {path})",
+        "CARD_MAIL_ATTACH_NOTE": "The file itself is not on this card: read it in the project before you approve.",
+        "CARD_MAIL_HASH": "Hash of this effect (it covers every recipient above, the text and the attachments): {sha}",
+        "CARD_MAIL_APPROVE": "Approve exactly this: {command}",
+        "CARD_MAIL_ONCE": "It is sent once, whatever the number of approvals of this hash. Or answer with what to change, or reject it: nothing is sent until you approve.",
+        "ACCT_MAIL_NO_SENDER": "That message has no single sender address, so a reply cannot be addressed to anyone.",
+        "ACCT_MAIL_NOT_REPLIABLE": "That message cannot be answered from here: its snapshot does not hold what the account needs to put the reply in the conversation. Refresh the source, then ask again.",
+        "ACCT_MAIL_REPLY_MOVED": "{ref} no longer names the message you asked to answer (the snapshot was refreshed and its items were renumbered): nothing was prepared; ask again.",
+        "ACCT_MAIL_OTHER_ACCOUNT": "{ref} is a message of another account than {account}: a reply is sent from the account that received the message.",
+        "ACCT_MAIL_BCC_GMAIL": "A Bcc is not sent from a Google account in this version: send to To and Cc, or use the project's outbox.",
+        "ACCT_MAIL_REPLY_FIELDS": "A reply has no To, Cc, Bcc, subject or attachment of its own: it goes to the sender of the message, with its subject after Re:.",
+        "ACCT_MAIL_FRAME": "A line of the text begins like the frame of the card (five hyphens, or a look-alike): rewrite that line, so that the text cannot be taken for the end of the message.",
+        "ACCT_MAIL_TEXT_HIDDEN": "The text or the subject holds a hidden character (a control, direction or invisible one) that the card cannot show: remove it.",
+        "ACCT_MAIL_REF_MALFORMED": "{ref} is not a reference to a message: write <source id>#<number>, for example inbox#3.",
+        "ACCT_MAIL_REF_ZERO": "The numbers of a snapshot start at 1: {ref} names no message.",
+        "ACCT_MAIL_REF_NOT_READABLE": "{ref} is a snapshot of your mailbox, and this channel may not read it: ask in the terminal or on the page, or have the project's configuration give the sender the group ask-mail.",
+        "ACCT_MAIL_REF_PAST_END": "{ref} names a message past the end of its snapshot.",
+        "ACCT_MAIL_REF_NO_SOURCE": "There is no mail source for {ref}: a reference names a registered mail source.",
+        "ACCT_MAIL_REF_NOT_SNAPSHOT": "{ref} is not a mail source: only a mail snapshot has numbered messages.",
+        "ACCT_MAIL_REF_WRONG_KIND": "{ref} is not a message of a mail snapshot: a reply answers a message.",
+        "ACCT_MAIL_REF_NO_VERSION": "The source of {ref} has no snapshot yet: refresh it first.",
+        "ACCT_MAIL_REF_STALE": "The newest snapshot of {ref} is more than 26 hours old, or its time cannot be trusted: refresh it, then ask again.",
+        "ACCT_MAIL_REF_NO_INDEX": "The newest snapshot of {ref} was made before messages could be referred to: refresh it first.",
+        "ACCT_MAIL_REF_INTEGRITY": "The snapshot of {ref} does not match its record, or its index does not match its text: refresh it, then ask again.",
+        # --- the mailbox of the person's own account (package W3, runtime/mailbox_document.py and runtime/ops_mailbox.py) ---
+        "TITLE_BOX_ARCHIVE": "Mailbox: archive messages",
+        "TITLE_BOX_MOVE": "Mailbox: move messages to a folder",
+        "TITLE_BOX_MARK": "Mailbox: mark messages as read or unread",
+        "TITLE_BOX_TRASH": "Mailbox: move messages to the trash",
+        "TITLE_BOX_DRAFT": "Mailbox: save a draft",
+        "CARD_BOX_CODE": "Code makes this change in your mailbox {address} after your approval. Nothing is sent and nothing is deleted.",
+        "CARD_BOX_CODE_DRAFT": "Code saves this draft in your mailbox {address} after your approval. It is not sent: it waits in your Drafts for you to read and send yourself.",
+        "CARD_BOX_ARCHIVE": "Archive: {n} message(s)",
+        "CARD_BOX_MOVE": "Move to \"{folder}\": {n} message(s)",
+        "CARD_BOX_READ": "Mark as read: {n} message(s)",
+        "CARD_BOX_UNREAD": "Mark as unread: {n} message(s)",
+        "CARD_BOX_TRASH_GMAIL": "Move to the trash (Gmail empties it after 30 days): {n} message(s)",
+        "CARD_BOX_TRASH_OUTLOOK": "Move to Deleted Items (Outlook deletes them from there after 30 days): {n} message(s)",
+        "CARD_BOX_ITEM": "{i}. {date} \u00b7 from {sender} \u00b7 {subject}",
+        "CARD_BOX_READ_AT": "Read from your mailbox at {read_at}. Nothing is changed unless every message is still as listed.",
+        "CARD_BOX_SNAPSHOT": "Chosen from a snapshot read at {snapshot_at}.",
+        "CARD_BOX_DRAFT_TO": "To: {to}",
+        "CARD_BOX_DRAFT_CC": "Cc: {cc}",
+        "CARD_BOX_DRAFT_BCC": "Bcc: {bcc}",
+        "CARD_BOX_DRAFT_SUBJECT": "Subject: {subject}",
+        "CARD_BOX_DRAFT_REPLY_TO": "To: {to}",
+        "CARD_BOX_DRAFT_REPLY_SUBJECT": "Subject: {subject}",
+        "CARD_BOX_DRAFT_REPLY": "Reply to: {address}, the sender of {ref} ({date}, '{subject}')",
+        "CARD_BOX_DRAFT_REPLY_DIFFERS": "The message asks replies to go to {other}: this draft goes to the sender above, not there.",
+        "CARD_BOX_DRAFT_TEXT": "The draft's text, exactly as it will be saved (every line starts with \u2502):\n{body}",
+        "CARD_BOX_DRAFT_END": "----- end of the draft -----",
+        "ACCT_MBOX_NO_MESSAGES": "Name at least one message: <source id>#<number>, several separated by commas.",
+        "ACCT_MBOX_TOO_MANY": "One card changes at most {max} messages; {n} were named.",
+        "ACCT_MBOX_DUPLICATE": "{ref} is named twice.",
+        "ACCT_MBOX_OTHER_ACCOUNT": "{ref} is a message of another account than the {account} account.",
+        "ACCT_MBOX_NO_ID": "{ref} cannot be changed: its snapshot could not keep the message's id. Refresh the source and name it again.",
+        "ACCT_MBOX_REF_MALFORMED": "{ref} is not a reference to a message: write <source id>#<number>, for example inbox#3.",
+        "ACCT_MBOX_REF_ZERO": "The numbers of a snapshot start at 1: {ref} names no message.",
+        "ACCT_MBOX_REF_NOT_READABLE": "{ref} points into a snapshot of your mailbox, and this channel may not read it: ask in the terminal or on the page, or have the project's configuration give the sender the group ask-mail.",
+        "ACCT_MBOX_REF_PAST_END": "{ref} does not exist: the newest snapshot of {source} has fewer messages.",
+        "ACCT_MBOX_REF_NO_SOURCE": "There is no source {source}: a message is named by a registered mail source and a number.",
+        "ACCT_MBOX_REF_NOT_SNAPSHOT": "{source} is not a mail source.",
+        "ACCT_MBOX_REF_WRONG_KIND": "{ref} does not name a message of your mailbox: a message is named <source id>#<number> of a mail source.",
+        "ACCT_MBOX_REF_NO_VERSION": "{source} has no snapshot yet: refresh {source} first.",
+        "ACCT_MBOX_REF_STALE": "The newest snapshot of {source} is too old to name a message: refresh {source} first.",
+        "ACCT_MBOX_REF_NO_INDEX": "The newest snapshot of {source} was made before messages could be named: refresh {source} first.",
+        "ACCT_MBOX_REF_INTEGRITY": "The snapshot of {source} cannot be trusted to name a message (its files were changed outside the runtime, or do not match its text): refresh {source} first.",
+        "ACCT_MBOX_REF_EVENT": "{ref} names an event, not a message.",
+        # --- writes to the person's own accounts (package FND, runtime/account_start.py; the lines of each kind's card are CARD_, added with the kind) ---
+        "ACCT_CARD_SENT": "Card #{pending} waits for your approval.",
+        "ACCT_NOT_CONFIGURED": "The account {account} is not set up for this project: the key accounts of runtime.json lists it, with its address and what it may write to.",
+        "CARD_ACCOUNT": "Account: {account} ({address})",
+        # --- the card of a change to the person's own calendar (package W1, runtime/calendar_document.py) ---
+        "TITLE_CAL_CREATE": "Calendar: new event",
+        "TITLE_CAL_CHANGE": "Calendar: change an event",
+        "TITLE_CAL_CANCEL": "Calendar: remove an event",
+        "CARD_CAL_CREATE": "Code creates this event after your approval, and nothing else.",
+        "CARD_CAL_CHANGE": "Code changes this event after your approval, only if it is still as read at {read_at}.",
+        "CARD_CAL_CANCEL": "Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days (Google Calendar, Trash); this has not been verified yet.",
+        "CARD_CAL_EVENT": "Event: {event_id}",
+        "CARD_CAL_NOW_WHEN": "The event now is at: {when}",
+        "CARD_CAL_NOW_TITLE": "The event now: {title}",
+        "ACCT_REF_MALFORMED": "That is not a reference to an item: write <source id>#<number>, for example inbox#3, or created:<card number> for an event you created.",
+        "ACCT_REF_ZERO": "The numbers of a snapshot start at 1.",
+        "ACCT_REF_NOT_READABLE": "{source} is a snapshot of your mailbox or calendar, and this channel may not read it: ask in the terminal or on the page, or have the project's configuration give the sender the group ask-mail.",
+        "ACCT_REF_PAST_END": "{source} has fewer items than that in its newest snapshot.",
+        "ACCT_REF_NO_SOURCE": "There is no source {source}: references name a registered mail or calendar source.",
+        "ACCT_REF_NOT_SNAPSHOT": "{source} is not a mail or calendar source: only those have numbered items.",
+        "ACCT_REF_WRONG_KIND": "{source} is not a calendar source: an event is named by an item of a calendar source.",
+        "ACCT_REF_NO_VERSION": "{source} has no snapshot yet: refresh {source} first.",
+        "ACCT_REF_STALE": "The newest snapshot of {source} is more than 26 hours old, or its time cannot be trusted: refresh {source} first.",
+        "ACCT_REF_NO_INDEX": "The newest snapshot of {source} was made before items could be referred to: refresh {source} first.",
+        "ACCT_REF_INTEGRITY": "The newest snapshot of {source} does not match its record, or names a calendar its source does not: refresh {source} first.",
+        "ACCT_REF_CREATED_UNKNOWN": "That card did not create an event, or its result is not recorded.",
+        "ACCT_REF_NOT_AN_EVENT": "That reference does not name an event of your Google or Microsoft account.",
+        "CARD_CAL_SNAPSHOT": "Named as {reference}, from the snapshot read at {read_at}.",
+        "CARD_CAL_DROP_TITLE": "Removing, title: {title}",
+        "CARD_CAL_DROP_WHERE": "Removing, where: {location}",
+        "CARD_CAL_DROP_NOTES": "Removing, notes: {notes}",
+        "CARD_HIDDEN_NOTE": "Some of the current text of the event or the message is not shown here: the page and the terminal show all of it.",
+        "CARD_HIDDEN_NOTE_FILE": "Some of the file's name is not shown here: the page and the terminal show all of it.",
+        "CARD_HIDDEN_NOTE_MAIL": "Some of the addresses, subjects and text of the e-mail are not shown here: the page and the terminal show all of it.",
+        "CARD_HIDDEN_NOTE_WHOLE": "The card of this change is not shown here: the page and the terminal show it.",
+        "CARD_CAL_CALENDAR": "Calendar: {calendar}",
+        "CARD_CAL_TITLE": "Title: {title}",
+        "CARD_CAL_WHEN": "When: {when}",
+        "CARD_CAL_WHERE": "Where: {location}",
+        "CARD_CAL_REMIND": "Calendar reminder: {minutes} min before",
+        "CARD_CAL_NOTES": "Notes: {notes}",
+        "CARD_CAL_NOBODY": "No one is invited: no e-mail is sent.",
+        "CARD_CAL_BASE": "Based on version {etag_short} of the event.",
+        "CARD_CAL_BEFORE_TITLE": "Before: Title: {title}",
+        "CARD_CAL_BEFORE_WHEN": "Before: When: {when}",
+        "CARD_CAL_BEFORE_WHERE": "Before: Where: {location}",
+        "CARD_CAL_BEFORE_REMIND": "Before: Calendar reminder (min before): {minutes}",
+        "CARD_CAL_BEFORE_NOTES": "Before: Notes: {notes}",
+        "CARD_CAL_AFTER_TITLE": "After: Title: {title}",
+        "CARD_CAL_AFTER_WHEN": "After: When: {when}",
+        "CARD_CAL_AFTER_WHERE": "After: Where: {location}",
+        "CARD_CAL_AFTER_REMIND": "After: Calendar reminder (min before): {minutes}",
+        "CARD_CAL_AFTER_NOTES": "After: Notes: {notes}",
+        "CARD_CAL_KEPT_TITLE": "Unchanged: Title: {title}",
+        "CARD_CAL_KEPT_WHEN": "Unchanged: When: {when}",
+        "CARD_CAL_KEPT_WHERE": "Unchanged: Where: {location}",
+        "CARD_CAL_KEPT_REMIND": "Unchanged: Calendar reminder (min before): {minutes}",
+        "CARD_CAL_KEPT_NOTES": "Unchanged: Notes: {notes}",
+        # --- files: create, replace, save (package W4a, runtime/files_document.py) ---
+        "TITLE_FILE_CREATE": "Files: new file",
+        "TITLE_FILE_REPLACE": "Files: new revision",
+        "TITLE_FILE_SAVE": "Files: save the file you sent",
+        "CARD_FILE_CODE_NEW": "Code creates this file after your approval, and nothing else.",
+        "CARD_FILE_CODE_REPLACE": "Code writes a new revision of this file after your approval, only if it is still the file as read at {read_at}.",
+        "CARD_FILE_CODE_SAVE": "Code saves the file you sent after your approval, and nothing else.",
+        "CARD_FILE_NAME": "File: {name} ({service})",
+        "CARD_FILE_NOW": "File as it is now: {name} ({service})",
+        "CARD_FILE_SENT": "File sent: {name} ({service})",
+        "CARD_FILE_FOLDER": "Folder: {folder}",
+        "CARD_FILE_SOURCE": "Source: @{source}",
+        "CARD_FILE_NEW": "A new file: nothing that exists is replaced.",
+        "CARD_FILE_GDOC": "It is made as a Google Doc from this text.",
+        "CARD_FILE_BASE": "Replaces revision {revision} (changed {modified}).",
+        "CARD_FILE_KEPT_DRIVE": "Drive keeps the replaced revision for ever (a file keeps at most 200 revisions for ever); if it cannot, nothing is written.",
+        "CARD_FILE_KEPT_DOC": "A Google Doc keeps its own revision history, which Google may thin out over time: the replaced version is not kept for ever.",
+        "CARD_FILE_KEPT_ONEDRIVE": "OneDrive keeps earlier versions by its own retention settings, not for ever.",
+        "CARD_FILE_OWNED": "The file belongs to this account: {address}.",
+        "ACCT_FILE_NOT_OWNED": "The file named on the request is not owned by your {service} account (it is shared with you, or it belongs to another drive): only a file the account owns is replaced.",
+        "ACCT_FILE_RETARGET": "The target is no longer the one the card you were asked about named (the source or the folder now points somewhere else): name it again and start over.",
+        "ACCT_FILE_TAKEN_ANSWER": "Nothing was written: a file with that name is in the folder now. The task starts over from the step that reads; start it again.",
+        "CARD_FILE_SAVE": "Saves the file you sent: {name}, {size}, sha256 {sha_short}.",
+        "CARD_FILE_PROJECT": "A file of the project: {path}, {size}, sha256 {sha_short}. Its content is not on this card.",
+        "CARD_FILE_TEXT": "----- the new text; the mark │ at the start of each line is not part of it -----\n{content}\n----- end of the new text -----",
+        "CARD_FILE_HASH": "Hash of this effect (it covers the account, the target, the name and every byte): {sha}",
+        "CARD_FILE_APPROVE": "Approve exactly this: {command}",
+        "ACCT_FILE_NAME_BAD": "A file name is 1 to 120 characters: letters, digits, spaces and . _ - ( ), not starting with a hyphen or ending in a dot.",
+        "ACCT_FILE_NAME_EXT": "The file name must end in one of: {extensions}.",
+        "ACCT_FILE_TEXT_EMPTY": "The text is empty.",
+        "ACCT_FILE_TEXT_BIG": "The text is over {max} bytes: write it to a file of the project and name that file.",
+        "ACCT_FILE_TEXT_HIDDEN": "The text holds a control or invisible character (a right-to-left override, a zero-width character, a stray control code): remove it.",
+        "ACCT_FILE_ONE_CONTENT": "Give the new text or a file of the project, one of the two.",
+        "ACCT_FILE_TEXT_FRAME": "The text holds a line that looks like a rule of the card (it starts with five dashes): change that line.",
+        "ACCT_FILE_NAME_TAKEN": "A file with the name on the request is already in that folder: a new file never replaces one. Choose another name, or replace the file from its source.",
+        "ACCT_FILE_BEHIND": "The source @{source} was read at version {read}, but the file is now at {now}: refresh the source first, then ask again.",
+        "ACCT_FILE_KIND": "A file of type {kind} cannot be written yet: .md, .txt, .csv, .docx, .pdf, .xlsx, .pptx and Google Docs can.",
+        "ACCT_FILE_TYPE": "A {given} cannot replace a {wanted}: give a file of the project of the same type.",
+        "ACCT_FILE_SOURCE": "The source @{source} is not a file of your {service} account: only a source added from that account is replaced.",
+        "ACCT_FILE_NOT_FILE": "The item is not a file that can be written ({reason}).",
     },
     "pt-BR": phrases_pt_br.TABLE,
 }
@@ -380,7 +596,7 @@ STATUS = {
 DEFAULT = language.DEFAULT
 HEADINGS = ("TITLE_",)      # the family of keys for the headings of a decision that code writes whole
 BODIES = ("BODY_",)         # ... and for a body that code writes whole, with nothing of a person's or a model's in it
-LOCALIZED = ("ATT_", "RM_")      # the families of keys `localize` knows by their English sentence
+LOCALIZED = ("ATT_", "RM_", "ACCT_")      # the families of keys `localize` knows by their English sentence
 VALUE_FAMILIES = ("ATT_REASON_", "ATT_SUBTYPE_")      # a field of such a sentence that is itself one of these English words is translated too
 VALUE_FIELDS = ("reason", "declared", "sniffed")      # ... but only in these fields: a file named `presentation` is not a word of the table
 NUMBER_FIELDS = ("size", "cap")                         # fields that hold a size written with a decimal point (`3.5 KiB`)
@@ -501,6 +717,78 @@ def localize(sentence, cfg=None):
             return decimal(value, cfg)
         return text(words[value], cfg) if name in VALUE_FIELDS and value in words else value
     return text(found[0], cfg, **{n: said(n, v) for n, v in found[1].items()})
+
+
+# --- the card of an effect, line by line (package FND) ---------------------------------------------------------------------------------------------------
+
+CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,40}")
+CARD_LINES_MAX = 300        # lines in one card
+# The lines that show the CURRENT text of something the person owns (an event's title, place and notes as the service holds them, the message a reply answers) and the lines of an
+# e-mail (who it goes to, its subject, its text, the names of its attachments): a messaging app draws them only for a
+# sender who also holds the group CARD_PRIVATE_GROUP (the answer from mail and calendar), and a card with such a line left out is not whole, so it is not approved there.
+CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES")) + ("CARD_CAL_NOW_TITLE", "CARD_FILE_NOW") \
+    + ("CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY") \
+    + ("CARD_BOX_ITEM", "CARD_BOX_DRAFT_REPLY", "CARD_BOX_DRAFT_REPLY_DIFFERS", "CARD_BOX_DRAFT_REPLY_TO", "CARD_BOX_DRAFT_REPLY_SUBJECT") \
+    + ("CARD_BOX_DRAFT_TO", "CARD_BOX_DRAFT_CC", "CARD_BOX_DRAFT_BCC", "CARD_BOX_DRAFT_SUBJECT", "CARD_BOX_DRAFT_TEXT")      # W2: what a reply shows of the message answered; W3: the same of a mailbox card, and who a draft goes to, its subject and its text
+CARD_PRIVATE += ("CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_BCC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT")      # the maintainer's decision of 2026-10-19: who an e-mail goes to, its subject, its text and the names of its attachments
+# W4a: the name of a file a sender sent (CARD_FILE_SAVE) is shown to that sender, who may approve the save, and to a reader of the person's own items, and to no one else: not to the MCP
+# mode, not to another messaging sender. (The name of a file the service holds now, CARD_FILE_NOW, is in CARD_PRIVATE above.)
+CARD_PRIVATE_OWNER = ("CARD_FILE_SENT", "CARD_FILE_SAVE")
+CARD_PRIVATE_GROUP = "ask-mail"
+CARD_MULTILINE = ("body", "text", "notes", "content", "change")      # the fields that may hold line ends and tabs (a message, a note, a file's text, a diff); every other field is one line
+CARD_REFUSED = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")      # control, format (a right-to-left override, a zero-width character), line and paragraph separator, surrogate, private use
+
+
+def _fields_of(sentence: str) -> set:
+    return {name for _lit, name, _spec, _conv in string.Formatter().parse(sentence) if name}
+
+
+def _field_ok(name: str, value: str) -> bool:
+    """Whether a field's value can be on a card: no control, format, separator, surrogate or private-use character, except the line end and the tab in a
+    field of CARD_MULTILINE. A card with one is no card (a hidden character could make a line say what it does not)."""
+    allowed = "\n\t" if name in CARD_MULTILINE else ""
+    return all(c in allowed or unicodedata.category(c) not in CARD_REFUSED for c in value)
+
+
+def card_valid(card) -> bool:
+    """Whether `card` is a well-formed card: a non-empty list of at most CARD_LINES_MAX pairs [key, {field: text}], every key of the family `CARD_` and in the
+    English table, every field a text with no control, format or separator character (`_field_ok`), and the fields exactly the ones the English sentence of the key has. Anything else (a key outside the family, a field
+    that is not a text, a missing or an extra field) is no card, and `text` is never asked about it."""
+    if not isinstance(card, (list, tuple)) or not 0 < len(card) <= CARD_LINES_MAX:
+        return False
+    english = TABLE[DEFAULT]
+    for line in card:
+        if not isinstance(line, (list, tuple)) or len(line) != 2:
+            return False
+        key, fields = line
+        if not isinstance(key, str) or not CARD_FAMILY.fullmatch(key) or key not in english:
+            return False
+        if not isinstance(fields, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in fields.items()):
+            return False
+        if set(fields) != _fields_of(english[key]) or not all(_field_ok(k, v) for k, v in fields.items()):
+            return False
+    return True
+
+
+def hidden_note_key(card, kept) -> str:
+    """The key of the note that says some lines were left out: the file's when every line left out is a file's line, the e-mail's when every one is a line of an
+    e-mail or of the mailbox (CARD_MAIL_, CARD_BOX_: addresses, subjects, text), else the event's."""
+    left_out = [line[0] for line in card if line not in kept]
+    if left_out and all(key.startswith("CARD_FILE") for key in left_out):
+        return "CARD_HIDDEN_NOTE_FILE"
+    return "CARD_HIDDEN_NOTE_MAIL" if left_out and all(key.startswith(("CARD_MAIL_", "CARD_BOX_")) for key in left_out) else "CARD_HIDDEN_NOTE"
+
+
+def card_without_private(card, owner: bool = False) -> list:
+    """The lines of a valid card that are not in CARD_PRIVATE and, unless `owner` (the reader sent the held file the card saves), not in CARD_PRIVATE_OWNER."""
+    hidden = set(CARD_PRIVATE) | (set() if owner else set(CARD_PRIVATE_OWNER))
+    return [line for line in card if line[0] not in hidden]
+
+
+def card_text(card, cfg=None) -> str:
+    """The lines of a valid card (card_valid) said in the project's language and joined by line ends. The values of the fields are the person's or a
+    service's own words and are never changed; with `cfg` None the text is English, which is what an effect stores as its body."""
+    return "\n".join(text(key, cfg, **fields) for key, fields in card)
 
 
 if __name__ == "__main__":

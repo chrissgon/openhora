@@ -111,3 +111,43 @@ def test_a_file_that_gives_a_profile_the_group_is_accepted_only_with_widen(two):
 
 def test_the_group_text_says_what_the_holder_gives_away():
     assert "mail and calendar" in operations.GROUP_TEXT["ask-mail"] and "never grants it" in operations.GROUP_TEXT["ask-mail"] and len(operations.GROUP_TEXT["ask-mail"]) < 220
+
+
+# --- the supervisor's decision from the review of #481: ask-mail is a sender's own, never a channel's -------------------------------------------------
+
+item_refs = st.load("item_refs")
+cards = st.load("messaging_cards")
+ops_core = st.load("ops_core")
+
+
+def test_ask_mail_is_given_in_one_listed_senders_profile_and_never_to_a_whole_channel(two):
+    sentence = "never to a whole channel"
+    write_config(two["path"], channels={"messaging": ["read", "talk", "ask", "ask-mail"]})
+    with pytest.raises(project_config.ConfigError, match=sentence):
+        project_config.load(two["path"])
+    write_config(two["path"], channels={"messaging": "holder"}, policies={"holder": ["read", "talk", "ask", "ask-mail"]})
+    with pytest.raises(project_config.ConfigError, match=sentence):      # a profile the CHANNEL names is channel-wide too
+        project_config.load(two["path"])
+    write_config(two["path"], channels={"messaging": ["read", "talk", "ask"]}, policies={"holder": ["read", "talk", "ask", "ask-mail"]},
+                 messaging={"senders": {"telegram": [{"id": MAILER, "policy": "holder"}]}})
+    assert project_config.load(two["path"])["channels"]["senders"][KEYS[MAILER]] == ["read", "talk", "ask", "ask-mail"]
+
+
+def test_the_private_lines_of_a_card_and_a_reference_into_a_snapshot_are_the_holders_alone(mixed):
+    policy = project_config.load(mixed["path"])["channels"]
+    ctx = ops_core.context(mixed["path"])
+    assert cards.reads_private(policy, KEYS[MAILER], operations) is True
+    assert cards.reads_private(policy, KEYS[ASK_ONLY], operations) is False and cards.reads_private(policy, "telegram:unknown", operations) is False
+    assert cards.reads_private(policy, None, operations) is False and cards.reads_private(None, KEYS[MAILER], operations) is False
+    assert item_refs.may_read(ctx, "messaging", KEYS[MAILER]) is True
+    assert item_refs.may_read(ctx, "messaging", KEYS[ASK_ONLY]) is False and item_refs.may_read(ctx, "mcp", None) is False
+    assert item_refs.may_read(ctx, "terminal", None) is True and item_refs.may_read(ctx, "page", None) is True
+
+
+def test_a_file_that_gives_the_group_to_a_sender_is_a_widening_that_needs_the_hash(two):
+    accept(two["path"], policies={"asker": ["read", "talk", "ask"]}, messaging={"senders": {"telegram": [{"id": ASK_ONLY, "policy": "asker"}]}})
+    write_config(two["path"], policies={"asker": ["read", "talk", "ask", "ask-mail"]})
+    shown = ops.config(two["path"])
+    assert any("ask-mail" in str(line) for line in shown["widening"])
+    with pytest.raises(ops.OpsError, match="widen"):
+        ops.accept_config(two["path"], shown["sha256"])

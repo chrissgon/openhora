@@ -428,7 +428,7 @@ def test_a_sender_forgets_their_own_reminder_and_another_sender_s_looks_like_one
         ops.reminder_forget(world.path, 99, channel="messaging", sender=SENDER)
     assert other == str(e.value).replace("99", "2") == "No reminder 2 waits for you.", "the same answer for a reminder of someone else and one that is not there"
     assert world.rows("open")[1]["id"] == 2
-    assert ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)["reply"] == "Forgot reminder #1."
+    assert ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)["reply"] == "Forgot reminder #1."      # the terminal and the page keep this sentence
     assert [r["id"] for r in world.rows("cancelled")] == [1]
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)
@@ -589,7 +589,7 @@ def test_a_reminder_is_sent_to_the_chat_it_was_made_for_and_nothing_names_anothe
 
 
 def test_the_group_is_in_no_default_policy_and_never_on_the_mcp_mode():
-    rows = ("remind", "reminders", "reminder-forget")
+    rows = ("remind", "reminders", "reminder-forget", "reminder-restore")
     assert operations.GROUPS["reminders"] == {"operations": rows, "kind": None}
     assert "reminders" not in operations.DEFAULT_POLICY["messaging"] and not any("reminders" in v for v in operations.DEFAULT_POLICY.values())
     assert all("reminders" not in groups for groups in operations.GRANTS.values()), "it is a group inside the ceiling, not a grant"

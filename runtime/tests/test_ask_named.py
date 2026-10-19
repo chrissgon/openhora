@@ -15,6 +15,7 @@ from test_ask_snapshots import AGENDA, INBOX, snapshot
 
 ops = st.load("ops")
 ops_natural = st.load("ops_natural")
+drafts = st.load("drafts")
 phrases = st.load("phrases")
 
 CV = "# Curriculo\n\nAna Lima. Skills: Vue, TypeScript, prazo de entrega curto.\n"
@@ -98,13 +99,13 @@ def test_a_choice_among_listed_files_asks_the_question_again_about_the_one_chose
     add_source(two, "report-2026", REPORT_B, name="report 2026.txt")
     ops_natural.forget_all()
     first = ops.say(two["path"], "/ask what does the report say about the prazo?", channel="page")
-    assert first["reply"].startswith("Which file do you mean?") and first["ran"] is False and len(ops_natural._DRAFTS) == 1
+    assert first["reply"].startswith("Which file do you mean?") and first["ran"] is False and drafts.count() == 1
     before = len(runs(two))
     chosen = ops.say(two["path"], "2", channel="page")
-    assert len(runs(two)) == before + 1 and "Which file" not in chosen["reply"] and ops_natural._DRAFTS == {}
+    assert len(runs(two)) == before + 1 and "Which file" not in chosen["reply"] and drafts.count() == 0
     last = [m for m in ops.conversation(two["path"], channel="page")["messages"] if m["role"] == "assistant"][-1]
     assert last["run_id"] and last["task_id"] is None, "stored with its answer run: only the page that asked reads it back"
     again = ops.say(two["path"], "/ask what does the report say about the prazo?", channel="page")
-    assert again["reply"].startswith("Which file") and len(ops_natural._DRAFTS) == 1
+    assert again["reply"].startswith("Which file") and drafts.count() == 1
     outside = ops.say(two["path"], "report-2025", channel="page")      # the id of a listed file is a choice too
-    assert len(runs(two)) == before + 2 and ops_natural._DRAFTS == {} and outside["reply"]
+    assert len(runs(two)) == before + 2 and drafts.count() == 0 and outside["reply"]

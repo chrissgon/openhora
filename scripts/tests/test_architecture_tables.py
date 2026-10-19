@@ -294,6 +294,20 @@ def test_check_names_each_stale_block_and_write_makes_them_current(tmp_path):
     assert "stale" not in text and text.count("Prose kept.") == len(tables.TABLES)
 
 
+def test_a_folder_shared_by_several_classes_lists_a_file_under_the_class_it_serves_alone():
+    table = tables.provider_classes(str(REPO))
+    assert "| `writer:calendar` | `writer/` | `google-calendar.py` |" in table and "| `writer:calendar` | `writer/` | `outlook-calendar.py` |" in table
+    assert "google-calendar.py" not in "".join(line for line in table.splitlines() if line.startswith(("| `writer:mailbox`", "| `writer:files`")))
+    assert "| `writer:mailbox` | `writer/` |" in table      # a class whose writer is not built yet still has its row
+
+
+def test_the_mailbox_writers_are_listed_under_their_class_alone():
+    table = tables.provider_classes(str(REPO))
+    assert "| `writer:mailbox` | `writer/` | `gmail.py` |" in table and "| `writer:mailbox` | `writer/` | `outlook-mail.py` |" in table
+    assert "gmail.py" not in "".join(line for line in table.splitlines() if line.startswith(("| `writer:calendar`", "| `writer:files`")))
+    assert "| `writer:files` | `writer/` |" in table      # a class whose writer is not built yet still has its row
+
+
 def test_the_tables_have_their_shape(tmp_path):
     root = fixture(tmp_path)
     run("--write", "--root", str(root))

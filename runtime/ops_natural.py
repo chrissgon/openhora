@@ -9,51 +9,51 @@ A line in the person's own words reaches an operation by two ways: a tier-1 form
 `Route: none (operation)` outcome (runtime/router.py, read and believed by code against the line). Whichever chose, THIS file executes, and the order is
 fixed (contracts/runtime.md, "Natural requests", limit L54):
 
-  1. The operation has a row of runtime/natural.py and a class; a planned effect (class E, not built) answers "not built yet (planned)" and runs nothing.
+  1. The operation has a class in runtime/natural.py `CLASSES`.
   2. The operation's row lists the channel that carries the line (else the typed command's sentence), and `operations.refusal(op, channel, policy,
      sender=sender)` has no refusal: the sentence the typed command gets, and no call. A decision (D) asks it for the operation AND for `pending`.
-  3. By class: R is called with the channel and sender as `_say_command` calls it and its result is written by code; N (a reminder) is made, or asks
-     first when its time came from the router (a draft in this process's memory); W and G run nothing (the reply is the exact command and the place);
-     D decides nothing (the reply points to the card, which the messaging bridge sends again); `ask` is called with the person's WHOLE line.
+  3. By class: R is called with the channel and sender as `_say_command` calls it and its result is written by code; N (a reminder) is asked first when the
+     router chose it (below); W runs nothing (the reply is the exact command to send); D decides nothing (the reply points to the card, which the messaging
+     bridge sends again); E and G run nothing (the reply is the exact operation or command and the place: an E operation ends in a card the person approves);
+     `ask` is called with the person's WHOLE line.
   4. Every argument is a number written in the line, a piece of it, a span of it or, for a time, the router's `When:` slot, which no code can check
-     against the line: an operation that receives one is NEVER executed at once, it asks for a one-line confirmation, exactly like a tier-2 pick.
+     against the line: an operation that receives one is NEVER executed at once.
 
-Drafts (one per project, channel and sender, ten minutes, lost on restart, never logged, never in the store): a reminder that waits for its "yes", and
-the question that waits for the choice of a file. The next line of that sender that answers the draft completes it; any other line drops the draft and is
-handled as new. A reminder's words are in the draft and in the `reminders` table once made, and nowhere else (limit L51): the conversation stores a
-neutral word for the line and the reply (`stored`).
+What the router chose and no code can check against the line (a reminder in a language no table knows, a reminder to forget) is not done: it is SHOWN and
+confirmed, by the rules of the reminders' own conversation (runtime/natural.py: a reminder in free text is made only after a yes to the full reading shown,
+a pick is never a yes, and the moment shown is the moment made). The question is a draft in the one store of drafts (runtime/drafts.py, memory only, ten
+minutes, one per channel and sender, never logged, never in the store), where the messaging bridge's own questions wait too. The same store holds the
+choice of a file for a question to `ask`. The next line of that sender that answers the draft completes it; any other line drops the draft and is handled as
+new. A reminder's words are in the draft and in the `reminders` table once made, and nowhere else (limit L51): the conversation stores a neutral word.
 
 Sibling of runtime/ops_say.py, which calls `peek` and `take`; it reaches ops.py and ops_say.py at call time, never at import. Standard library
 only. Runs on Python 3.9: python3 runtime/ops_natural.py --help
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
 import inspect
+import os
 import re
 import sys
-import threading
 import time
 import unicodedata
 
+import drafts
 import ops_core as core
 import natural
 import operations
 import ops_actor
 import phrases
 
-DRAFT_TTL = 600.0            # seconds a draft waits for its answer (this spec's choice, not measured)
-DRAFTS_MAX = 50              # drafts in memory: the oldest goes first
+DRAFT_TTL = drafts.TTL       # seconds a question waits for its answer (this spec's choice, not measured)
 RENDER_MAX = 1800            # characters of a read written for a messaging app
 RENDER_LONG = 6000           # ... and for any other channel
 LIST_MAX = 12                # rows of a list a read writes
 FIELD_MAX = 120              # characters of one value in a row
-monotonic = time.monotonic   # a test replaces it
-YES = frozenset(("yes", "y", "ok", "okay", "sure", "confirm", "sim", "s", "claro", "confirma", "confirmo", "pode", "si", "oui", "ja", "да", "はい", "是", "네"))  # validate: allow english-only -- the closed list of words that confirm, in several languages
-NO = frozenset(("no", "n", "cancel", "nope", "nao", "cancela", "non", "nein", "нет", "いいえ", "否", "아니요"))  # validate: allow english-only -- the closed list of words that decline, in several languages
+monotonic = time.monotonic   # the clock of a question's age (a test replaces it)
 BRIDGE_FORMS = {"attachment-add": "/add {attachment_id}", "attachment-discard": "/discard {attachment_id}"}   # the commands a messaging app has for these
-_DRAFTS = {}
-_LOCK = threading.Lock()
 PATH = re.compile(r"(?:^|[\s'\"(])(?:/[\w.-]+/|~/|[A-Za-z]:\\)[^\s]*")      # a path of this machine, not a typed command such as /approve 12
 
 
@@ -68,78 +68,81 @@ def _say():
 # --- the drafts --------------------------------------------------------------------------------------------------------------------------------
 
 
-def _key(ctx: dict, channel, sender) -> tuple:
-    return (ctx["cfg"]["project"], channel or "chat", sender or "")
-
-
-def _put(key: tuple, draft: dict) -> None:
-    with _LOCK:
-        now = monotonic()
-        for old in [k for k, d in _DRAFTS.items() if d["expires"] <= now]:
-            del _DRAFTS[old]
-        while len(_DRAFTS) >= DRAFTS_MAX:
-            del _DRAFTS[min(_DRAFTS, key=lambda k: _DRAFTS[k]["expires"])]
-        _DRAFTS[key] = dict(draft, expires=now + DRAFT_TTL)
-
-
-def _live(key: tuple):
-    with _LOCK:
-        draft = _DRAFTS.get(key)
-        return draft if draft is not None and draft["expires"] > monotonic() else None
-
-
-def _pop(key: tuple):
-    with _LOCK:
-        draft = _DRAFTS.pop(key, None)
-    return draft if draft is not None and draft["expires"] > monotonic() else None
+def project_key(project: str) -> str:
+    """The id a project has in the shells (runtime/shell_kit.py `project_id`: the first 12 hexadecimal characters of the sha256 of its real path), which the bridge's
+    questions carry as their `project`; a test ties the two."""
+    return hashlib.sha256(os.path.realpath(project).encode("utf-8")).hexdigest()[:12]
 
 
 def forget_all() -> None:
     """Drop every draft (a test, and a process that stops)."""
-    with _LOCK:
-        _DRAFTS.clear()
+    drafts.clear()
 
 
-def _word(said: str) -> str:
-    return natural.normal(said)
+def _slot(channel, sender):
+    return channel or "chat", sender or ""
 
 
-def _answers(draft: dict, said: str):
-    """What a line says to a draft: "yes", "no", an integer (the choice among the listed files) or None for a line that is not an answer."""
-    word = _word(said)
-    if draft["kind"] == "confirm":
-        return "yes" if word in YES else ("no" if word in NO else None)
-    if draft["kind"] == "which":
+def _clock():
+    return importlib.import_module("ops_reminders").now()
+
+
+def _answers(ctx: dict, draft: dict, said: str, owner: str):
+    """What a line says to a draft, or None for a line that is not an answer. The choice of a file: its number in the list, or its id (an integer). A question about a
+    reminder: the reminders' own rules decide (natural.complete); the line answers it when they say anything but 'not an answer'."""
+    if owner == "ops":
+        word = natural.normal(said)
         digits = unicodedata.normalize("NFKC", word)
         if digits.isdigit() and 1 <= int(digits) <= len(draft["ids"]):
             return int(digits)
         listed = [natural.normal(i) for i in draft["ids"]]      # an id is written with hyphens; the line is compared as every line is
         return listed.index(word) + 1 if word in listed else None
-    return None
+    if draft.get("project") not in (None, project_key(ctx["cfg"]["project"])):
+        return None
+    if draft.get("at") is not None and monotonic() - draft["at"] > DRAFT_TTL:      # a question about a reminder waits ten minutes (the bridge sweeps its own on the tick)
+        return None
+    if said.lstrip().startswith("/"):
+        return None
+    return natural.complete(draft, _engine_word(draft, said), _clock())
+
+
+def _engine_word(draft: dict, said: str) -> str:
+    """The line as the engine reads an answer: a yes or a no in a language no table ships (the lists `yes` and `no` of the tables, in any script) is the engine's own word."""
+    if draft.get("need") in ("confirm", "forget"):
+        kind = natural.confirm_kind(said)
+        if kind in ("yes", "no"):
+            return kind
+    return said
 
 
 def peek(ctx: dict, said: str, channel, sender) -> bool:
     """Whether a plain line is handled here: a tier-1 form, or the answer to this sender's live draft. Reads, changes nothing."""
     if natural.match(said) is not None:
         return True
-    draft = _live(_key(ctx, channel, sender))
-    return draft is not None and _answers(draft, said) is not None
+    slot = _slot(channel, sender)
+    draft, entry = drafts.get(*slot), None
+    if draft is None:
+        return False
+    owner = "ops" if draft.get("kind") == "which" else "remind"
+    return drafts.get(*slot, owner) is not None and _answers(ctx, draft, said, owner) is not None
 
 
 def peek_model(ctx: dict, said: str, channel, sender) -> bool:
     """Whether the line answers a draft whose completion calls a model (the choice of a file for an `ask`): it takes the route lock like any model call, so
     it waits in the queue (the page) or is kept by the bridge when the router is busy, and the draft is not lost."""
-    draft = _live(_key(ctx, channel, sender))
-    return draft is not None and draft["kind"] == "which" and _answers(draft, said) is not None
+    draft = drafts.get(*_slot(channel, sender), "ops")
+    return draft is not None and _answers(ctx, draft, said, "ops") is not None
 
 
 def needs(ctx: dict, said: str, channel, sender):
     """The operation whose group a sender must hold for this plain line to be handled here, or None (the line needs `talk`, as every plain line does): the
     group of a tier-1 form that the channel's rows list (a read or a notice its own, a decision `pending`), `ask` for the choice of a file, `remind` for the
-    answer to a confirmation. Never an operation whose row does not list the channel: its refusal would say that a configuration turns on what none can."""
-    draft = _live(_key(ctx, channel, sender))
-    if draft is not None and _answers(draft, said) is not None:
-        return "ask" if draft["kind"] == "which" else draft.get("op", "remind")
+    answer to a question about a reminder. Never an operation whose row does not list the channel: its refusal would say that a configuration turns on what none can."""
+    draft = drafts.get(*_slot(channel, sender))
+    if draft is not None:
+        owner = "ops" if draft.get("kind") == "which" else "remind"
+        if _answers(ctx, draft, said, owner) is not None:
+            return "ask" if owner == "ops" else "remind"
     group = natural.needs(said)
     if group is not None and channel in operations.by_name(group)["channels"]:
         return group
@@ -162,12 +165,14 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     """The reply of a plain line handled here, or None when it is not (the draft of this sender, if any, is dropped: any other line is new).
     `channel` is the carrying channel (the queue's drain already acts as the page). Fills `extras` with `stored` (the text the conversation keeps for
     the reply), `resend` (the decision whose card the bridge sends again) and `run_id` (the answer run an `ask` made)."""
-    key = _key(ctx, channel, sender)
-    draft = _pop(key)
+    slot = _slot(channel, sender)
+    draft = drafts.get(*slot)
     if draft is not None:
-        answer = _answers(draft, said)
+        owner = "ops" if draft.get("kind") == "which" else "remind"
+        answer = _answers(ctx, draft, said, owner)
+        drafts.drop(*slot)
         if answer is not None:
-            return _complete(project, ctx, draft, answer, channel, sender, extras)
+            return _complete(project, ctx, draft, answer, said, channel, sender, extras)
     found = natural.match(said)
     if found is None:
         return None
@@ -183,14 +188,12 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     cls = natural.class_of(name)
     if cls is None:
         return f"error: {name} is not an operation of the table of natural requests"
-    if name in natural.PLANNED:
-        return t("NAT_PLANNED", what=t("NAT_E_" + name.upper().replace("-", "_")))
     if name == "commands":      # the help is public: what can be asked, never a read of the project
         return t("HELP") if channel == "messaging" else operations.chat_help()
     row = operations.by_name(name)
     where = "terminal" if channel == "chat" else channel      # the conversation's own shell is the terminal's equal, not a channel of its own
     if where not in row["channels"]:
-        extra = _command(ctx, name, args, "terminal", channel) if cls == "G" else None
+        extra = _command(ctx, name, args, "terminal", channel) if cls in ("G", "E") else None
         return f"error: /{name} is done in the terminal or on the page" + (f". {extra}" if extra else "")
     policy = cfg["channels"]
     refused = operations.refusal(name, where, policy, sender=sender)
@@ -210,7 +213,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         return t("NAT_TYPE_IT", command=_command(ctx, name, args, channel, channel))
     if cls == "D":
         return _decision(project, ctx, name, args, channel, sender, extras)
-    if cls == "G":
+    if cls in ("G", "E"):      # run nothing: the place and the exact command (an E operation, run there, ends in a card of the exact content)
         return _gated(ctx, name, args, channel)
     if name == "ask":
         return _ask(project, ctx, row, said, channel, sender, extras)
@@ -368,68 +371,76 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
         extras["stored"] = t("NAT_PRIVATE_REPLY")
         if channel != "messaging":      # a reminder is sent to a chat of a messaging app: elsewhere it is the terminal's command, which names the listed sender
             return t("NAT_TYPE_IT", command=_command(ctx, name, dict(args, to="<platform:id>", **({"when": when} if when else {})), "terminal", channel))
-    if name == "reminder-forget":
-        if _missing(row, args):
-            return t("NAT_ASK_ID")
-        if routed:      # the router chose it: no code can check that this is the reminder the person meant, so the person confirms (a notice, but the choice is not theirs)
-            _put(_key(ctx, channel, sender), {"kind": "confirm", "op": "reminder-forget", "args": dict(args)})
-            return t("NAT_CONFIRM_FORGET", id=args["reminder_id"])
+        # The router chose it, and no code can check the choice against the line: the reading is SHOWN and the reminder is made only after the person's yes (the
+        # reminders' own rules, runtime/natural.py: the words are the person's span, the time is the one the router wrote, parsed by the same engine and checked by
+        # `reminders.resolve`; a pick is never a yes; the moment shown is the moment made). The words reach the engine as a line of the `/remind` kind.
+        line = f"{args.get('text', '')} {when or ''}".strip()
+        try:
+            asked = _call(project, row, {"said": line, "how": "command"}, channel, sender)
+        except core.OpsError as e:
+            return _error(cfg, e, channel)
+        return _ask_draft(ctx, asked, channel, sender, "command")
+    if _missing(row, args):
+        return t("NAT_ASK_ID")
+    if name == "reminder-restore" or not routed:
         try:
             done = _call(project, row, args, channel, sender)
         except core.OpsError as e:
             return _error(cfg, e, channel)
         return phrases.localize(done["reply"], cfg)
-    text = args.get("text")
-    if not text:
-        return t("NAT_ASK_TEXT")
-    if when is None:
-        return t("NAT_ASK_WHEN")
-    reminders = importlib.import_module("ops_reminders")
-    rm = importlib.import_module("reminders")
+    # a reminder to forget that the router chose: shown with what it is, and cancelled only on a yes
     try:
-        words = rm.clean_text(text)
-        clock = reminders.now()
-        found = rm.resolve(when, clock, reminders.local_at, reminders.local_of)
-    except ValueError as e:
-        return _error(cfg, core.OpsError(str(e), 2), channel)
-    # the router's time cannot be checked against the line by code: the person confirms it, in a human date, before anything is made
-    _put(_key(ctx, channel, sender), {"kind": "confirm", "op": "remind", "args": {"when": when, "text": words}})
-    shown = f": {words}" if reminders._notices_text(cfg) else ""
-    return t("NAT_CONFIRM_REMIND", when=_human(found["due"], clock, cfg), words=shown)
+        shown = _call(project, row, dict(args, preview=True), channel, sender)
+    except core.OpsError as e:
+        return _error(cfg, e, channel)
+    sentence, draft = natural.forget_question([shown], cfg, channel != "messaging" or _notices_text(cfg))
+    drafts.put(*_slot(channel, sender), dict(draft, project=project_key(ctx["cfg"]["project"]), at=monotonic(), message_id=None), "remind")
+    return sentence
 
 
-def _human(due, clock, cfg: dict) -> str:
-    """The reading of a moment for a person, in the project's language: relative word first (today, tomorrow), the weekday, the date and the time."""
-    t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
-    days = t("NAT_WEEKDAYS").split(",")
-    delta = (due.date() - clock.date()).days
-    head = f"{t('NAT_TODAY')}, " if delta == 0 else (f"{t('NAT_TOMORROW')}, " if delta == 1 else "")
-    day = f"{days[due.weekday()]} {due.day:02d}/{due.month:02d}"
-    return f"{head}{day}{',' if head else ''} {t('NAT_AT')} {due.hour:02d}:{due.minute:02d}"
+def _notices_text(cfg: dict) -> bool:
+    return importlib.import_module("ops_reminders")._notices_text(cfg)
 
 
-def _complete(project: str, ctx: dict, draft: dict, answer, channel, sender, extras: dict) -> str:
+def _ask_draft(ctx: dict, asked: dict, channel, sender, how: str) -> str:
+    """The reply to what the engine gave back for a router-chosen reminder: a question (kept for the sender's next line) or a refusal sentence."""
     cfg = ctx["cfg"]
-    t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
-    if draft["kind"] == "which":
+    if "ask" not in asked:
+        return phrases.text("NAT_NOT_BELIEVED", cfg)
+    draft = asked["ask"]
+    sentence, keep = natural.question(draft, cfg, channel != "messaging" or _notices_text(cfg), how)
+    if keep:
+        drafts.put(*_slot(channel, sender), dict(draft, project=project_key(ctx["cfg"]["project"]), at=monotonic(), message_id=None), "remind")
+    return sentence
+
+
+def _complete(project: str, ctx: dict, draft: dict, answer, said: str, channel, sender, extras: dict) -> str:
+    cfg = ctx["cfg"]
+    if draft.get("kind") == "which":
         refused = operations.refusal("ask", channel, cfg["channels"], sender=sender)      # the policy again, now, as for any operation a line reaches
         if refused:
             return f"error: {refused}"
         text = draft["line"] + " @" + draft["ids"][answer - 1]
         return _ask(project, ctx, operations.by_name("ask"), text, channel, sender, extras, again=draft)
-    if draft["op"] == "remind":
-        extras["stored"] = t("NAT_PRIVATE_REPLY")
-    if answer == "no":
-        return t("NAT_DROPPED")
-    row = operations.by_name(draft["op"])
-    refused = operations.refusal(draft["op"], channel, cfg["channels"], sender=sender)      # the policy again, now: the profile may have changed since the question
+    # a question about a reminder, answered: the engine's rules decide (a yes makes it, a no keeps nothing, anything else is asked again or is a new line)
+    extras["stored"] = phrases.text("NAT_PRIVATE_REPLY", cfg)
+    name = "reminder-forget" if answer.get("forget") is not None else "remind"
+    refused = operations.refusal(name, channel, cfg["channels"], sender=sender)      # the policy again, now: the profile may have changed since the question
     if refused:
         return f"error: {refused}"
+    text = channel != "messaging" or _notices_text(cfg)
+    if answer.get("cancel"):
+        return phrases.text("NT_KEPT" if answer.get("kept") else "NT_CANCELLED", cfg)
     try:
-        done = _call(project, row, draft["args"], channel, sender)
+        if "forget" in answer:
+            return "\n".join(natural.forgot_sentence(_call(project, operations.by_name("reminder-forget"), {"reminder_id": n}, channel, sender), cfg, text)
+                             for n in answer["forget"])
+        if "ask" in answer:
+            return _ask_draft(ctx, answer, channel, sender, draft.get("how", "command"))
+        made = _call(project, operations.by_name("remind"), {"when": answer["when"], "text": answer["text"]}, channel, sender)
     except core.OpsError as e:
         return _error(cfg, e, channel)
-    return phrases.localize(done["reply"], cfg)
+    return natural.made_sentence(made, cfg, text)
 
 
 # --- D: decisions, W: writes, G: gated ---------------------------------------------------------------------------------------------------------
@@ -493,7 +504,8 @@ def keep_which(ctx: dict, channel, sender, line: str, out: dict) -> None:
     """When an `ask` answered with a list of files to choose from (refusal `which-source`), keep the question as this sender's draft: the next line that is
     the number of a file, or its id, asks it again about that file only. The typed /ask keeps it too (ops_say)."""
     if out.get("refusal") == "which-source" and out.get("candidates"):
-        _put(_key(ctx, channel, sender), {"kind": "which", "line": line, "ids": list(out["candidates"])})
+        drafts.put(*_slot(channel, sender), {"kind": "which", "line": line, "ids": list(out["candidates"]), "project": project_key(ctx["cfg"]["project"])}, "ops",
+                   ttl=DRAFT_TTL)
 
 
 def _ask(project: str, ctx: dict, row: dict, line: str, channel, sender, extras: dict, again=None) -> str:
@@ -504,7 +516,7 @@ def _ask(project: str, ctx: dict, row: dict, line: str, channel, sender, extras:
         out = _call(project, row, {"text": line}, channel, sender)
     except core.RunBusy:
         if again is not None:      # the router answers another request: the choice is kept, not lost
-            _put(_key(ctx, channel, sender), again)
+            drafts.put(*_slot(channel, sender), again, "ops", ttl=DRAFT_TTL)
         return phrases.text("RUN_BUSY", cfg)
     except core.OpsError as e:
         return _error(cfg, e, channel)

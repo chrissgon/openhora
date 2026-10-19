@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import sys
+from email.utils import parseaddr
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -59,7 +60,8 @@ BEARER = "Zq8vLm3Tn7Xw2kPq9R4s5T"                                         # the 
 
 def message(n, when="2026-10-17T09:00:00Z", sender="Ana Lima <ana@clinic.example>", subject="Appointment confirmed", text="Your appointment is confirmed.", **more):
     base = {"id": f"m{n}", "thread_id": None, "source": "gmail", "received_at": when, "from": sender, "to": "sam@mail.example", "subject": subject,
-            "text": text, "truncated": False, "links": [], "headers": {}, "attachments": [], "external_content": True, "own_words_cut": 0}
+            "text": text, "truncated": False, "links": [], "headers": {}, "attachments": [], "external_content": True, "own_words_cut": 0,
+            "from_address": parseaddr(sender)[1] or None}     # the readers print the sender's address alone, as this stand-in does
     base.update(more)
     return base
 
@@ -321,8 +323,8 @@ def test_the_first_calendar_snapshot_keeps_the_events_by_day_and_no_description_
     done = desk.calendar("agenda", GOOGLE_CAL)
     assert done["imported"] is True and done["version"] == 1 and done["items"] == 2
     text_ = desk.text("agenda")
-    assert "## 2026-10-17 (Saturday)" in text_ and "- 09:00-10:00 · Dentist · organizer: you · you: accepted" in text_
-    assert "## 2026-10-18 (Sunday)" in text_ and "- all day · Holiday" in text_
+    assert "## 2026-10-17 (Saturday)" in text_ and "1. 09:00-10:00 · Dentist · organizer: you · you: accepted" in text_
+    assert "## 2026-10-18 (Sunday)" in text_ and "2. all day · Holiday" in text_
     assert "PRIVATE" not in text_ and "guest@x.example" not in text_
     assert desk.latest("agenda")["catalog"]["name"] == "Calendar snapshot: google calendar, 0 days back, 14 days ahead"
     assert desk.manifest("agenda")["events"] == 2 and desk.manifest("agenda")["kind"] == "calendar"
@@ -405,7 +407,7 @@ def test_a_calendar_event_with_a_new_etag_makes_a_version(desk):
     desk.providers.events[("google", "primary")][0]["start"] = "2026-10-17T11:00:00-03:00"
     desk.providers.events[("google", "primary")][0]["end"] = "2026-10-17T12:00:00-03:00"
     done = desk.refresh("agenda")
-    assert done["version"] == 2 and "- 11:00-12:00 · Dentist" in desk.text("agenda")
+    assert done["version"] == 2 and "11:00-12:00 · Dentist" in desk.text("agenda")
 
 
 def test_a_snapshot_edited_in_the_folder_is_still_noticed_when_the_listing_did_not_change(desk):
@@ -825,13 +827,13 @@ def test_limit_53_a_run_next_receives_an_old_snapshot_and_the_dispatcher_does_no
 # --- no credential anywhere ----------------------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("cls, implementation, own", [("reader:email", "gmail", ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET")),
-                                                      ("reader:email", "outlook", ("OUTLOOK_MAIL_TOKEN",)),
-                                                      ("integration:calendar", "google", ("GOOGLE_CALENDAR_TOKEN",)),
-                                                      ("integration:calendar", "outlook", ("OUTLOOK_CALENDAR_TOKEN",))])
+@pytest.mark.parametrize("cls, implementation, own", [("reader:email", "gmail", ("GOOGLE_ACCOUNT_TOKEN", "GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET")),
+                                                      ("reader:email", "outlook", ("MICROSOFT_ACCOUNT_TOKEN", "OUTLOOK_MAIL_TOKEN")),
+                                                      ("integration:calendar", "google", ("GOOGLE_ACCOUNT_TOKEN", "GOOGLE_CALENDAR_TOKEN")),
+                                                      ("integration:calendar", "outlook", ("MICROSOFT_ACCOUNT_TOKEN", "OUTLOOK_CALENDAR_TOKEN"))])
 def test_a_provider_gets_the_minimum_environment_and_its_own_secret_and_no_other(desk, monkeypatch, cls, implementation, own):
     everything = ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "OUTLOOK_MAIL_TOKEN", "GOOGLE_CALENDAR_TOKEN", "OUTLOOK_CALENDAR_TOKEN",
-                  "ONEDRIVE_SOURCES_TOKEN", "OPENROUTER_API_KEY", "VCS_GITHUB_TOKEN", "NOTION_TOKEN", "MAILBOX_OUTLOOK_API_BASE",
+                  "GOOGLE_ACCOUNT_TOKEN", "MICROSOFT_ACCOUNT_TOKEN", "GDRIVE_SOURCES_TOKEN", "ONEDRIVE_SOURCES_TOKEN", "OPENROUTER_API_KEY", "VCS_GITHUB_TOKEN", "NOTION_TOKEN", "MAILBOX_OUTLOOK_API_BASE",
                   "INTEGRATION_CALENDAR_GOOGLE_API_BASE", "GMAIL_API_BASE", "MAILBOX_PROVIDER", "INTEGRATION_CALENDAR_PROVIDER")
     for name in everything:
         monkeypatch.setenv(name, f"value-of-{name}")
@@ -893,7 +895,8 @@ def test_no_secret_is_in_a_file_of_the_sources_a_manifest_the_catalog_nor_what_a
 
 
 def test_the_environment_of_a_run_holds_no_mail_or_calendar_secret_whatever_the_model_passes(desk, monkeypatch, tmp_path):
-    names = ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "OUTLOOK_MAIL_TOKEN", "GOOGLE_CALENDAR_TOKEN", "OUTLOOK_CALENDAR_TOKEN")
+    names = ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "OUTLOOK_MAIL_TOKEN", "GOOGLE_CALENDAR_TOKEN", "OUTLOOK_CALENDAR_TOKEN",
+             "GOOGLE_ACCOUNT_TOKEN", "MICROSOFT_ACCOUNT_TOKEN")
     for name in names:
         monkeypatch.setenv(name, f"value-of-{name}")
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
@@ -980,7 +983,242 @@ def test_the_outlook_calendar_provider_is_read_through_the_runtime_in_the_zone_o
         done = desk.calendar("agenda", "outlook:calendar=default;past=0;ahead=3")
         assert done["imported"] is True and done["items"] == 2
         text_ = desk.text("agenda")
-        assert "- 09:00-10:00 · Planning · Room 4 · organizer: corp.example · you: tentative · online meeting" in text_, "UTC becomes the zone of the snapshot"
+        assert "1. 09:00-10:00 · Planning · Room 4 · organizer: corp.example · you: tentative · online meeting" in text_, "UTC becomes the zone of the snapshot"
         assert "secret agenda" not in text_ and "guest@x.example" not in text_ and set(fake.methods) <= {"GET", "POST"}
     finally:
         fake.close()
+
+
+# --- the index of a snapshot (package SNAP-IDX) ---------------------------------------------------------------------------------------------
+
+
+MAIL_KEYS = ["n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key"]
+EVENT_KEYS = ["n", "id", "etag", "calendar", "organizer_self", "attendees_other", "recurring"]
+
+
+def numbers_in(text_):
+    """The numbers of the message headings (`## 3. 2026-10-17 06:00`) of a mail snapshot's text, in the order it prints them."""
+    return [int(m.group(1)) for m in re.finditer(r"^## (\d+)\. ", text_, re.M)]
+
+
+def test_the_index_of_a_mail_snapshot_has_one_entry_for_each_numbered_message_in_the_order_of_the_text(desk):
+    desk.providers.mail["gmail"] = [
+        message(1, "2026-10-15T08:00:00Z", sender="Cleo <cleo@club.example>", subject="Third", thread_id="t3", headers={"Message-ID": "<c@club.example>"}),
+        message(2, "2026-10-17T09:00:00Z", sender="Ana Lima <ana@clinic.example>", subject="First", thread_id="t1", headers={"Message-ID": "<a@clinic.example>"}),
+        message(3, "2026-10-16T14:30:00Z", sender="Bob <bob@shop.example>", subject="Second", thread_id="t2", headers={"Message-ID": "<b@shop.example>"})]
+    desk.mail("inbox")
+    text_, index = desk.text("inbox"), desk.manifest("inbox")["index"]
+    assert numbers_in(text_) == [1, 2, 3] and [e["n"] for e in index] == [1, 2, 3], "the same count, numbered the same"
+    subjects_in_text = re.findall(r"^Subject: (.*)$", text_, re.M)
+    assert subjects_in_text == [e["subject"] for e in index] == ["First", "Second", "Third"], "the same order: newest first"
+    assert [e["id"] for e in index] == ["m2", "m3", "m1"] and [e["thread_id"] for e in index] == ["t1", "t2", "t3"]
+    assert [e["message_id"] for e in index] == ["<a@clinic.example>", "<b@shop.example>", "<c@club.example>"]
+    assert [e["from_address"] for e in index] == ["ana@clinic.example", "bob@shop.example", "cleo@club.example"]
+    assert all(sorted(e) == sorted(MAIL_KEYS) for e in index) and all(e["reply_to_address"] is None and e["change_key"] is None for e in index)
+    assert desk.manifest("inbox")["messages"] == len(index) == 3
+
+
+def test_a_message_left_out_for_a_credential_has_no_entry_and_the_numbers_after_it_do_not_shift(desk):
+    desk.providers.mail["gmail"] = [message(1, "2026-10-17T09:00:00Z", subject="Keep one"),
+                                    message(2, "2026-10-16T14:30:00Z", sender="Bank <alerts@bank.example>", subject="Your new key", text=f"Your key is {KEY}."),
+                                    message(3, "2026-10-15T08:00:00Z", sender="Cleo <cleo@club.example>", subject="Keep two")]
+    desk.mail("inbox")
+    text_, index = desk.text("inbox"), desk.manifest("inbox")["index"]
+    assert numbers_in(text_) == [1, 2] and [e["n"] for e in index] == [1, 2]
+    assert [e["id"] for e in index] == ["m1", "m3"], "the left-out message m2 is not in the index, and message 2 of the text is m3"
+    assert re.findall(r"^Subject: (.*)$", text_, re.M) == ["Keep one", "Keep two"]
+    held = json.dumps(index)
+    assert "alerts@bank" not in held and "Your new key" not in held and KEY not in held and '"m2"' not in held
+
+
+def test_the_messages_dropped_for_the_size_of_the_text_have_no_entry_either(desk):
+    big = "\n".join("€" * 900 for _ in range(5))
+    desk.providers.mail["gmail"] = [message(n, f"2026-10-17T{9 - n // 60:02d}:{59 - n % 60:02d}:00Z", subject=f"s{n}", text=big) for n in range(100)]
+    done = desk.mail("inbox", GMAIL.replace("max=50", "max=100"))
+    index = desk.manifest("inbox")["index"]
+    assert 0 < done["items"] < 100 and len(index) == done["items"] == len(numbers_in(desk.text("inbox")))
+    assert [e["n"] for e in index] == list(range(1, done["items"] + 1)) and [e["id"] for e in index] == [f"m{n}" for n in range(done["items"])]
+
+
+def test_the_index_holds_no_body_no_name_and_a_subject_cleaned_and_cut_at_120_characters(desk):
+    long_subject = "Quarterly planning " + "x" * 300
+    desk.providers.mail["gmail"] = [
+        message(1, "2026-10-17T09:00:00Z", sender="Ana \"Boss\" Lima <ana@clinic.example>", subject=long_subject, text="SECRET-BODY-WORDS and more."),
+        message(2, "2026-10-16T14:30:00Z", sender="Bob <bob@shop.example>", subject="See https://track.example/o?t=abc123 now\u202e\x07 ok", text="Body two."),
+        message(3, "2026-10-15T08:00:00Z", sender="Cleo <cleo@club.example>", subject="", text="Body three.")]
+    desk.mail("inbox")
+    index = desk.manifest("inbox")["index"]
+    first = index[0]
+    assert sources_mail.INDEX_SUBJECT_CHARS == 120 and len(first["subject"]) == 120 and first["subject"].endswith("…")
+    assert first["subject"].startswith("Quarterly planning xxx")
+    assert index[1]["subject"] == "See <link: track.example> now ok", "links replaced, control and direction characters removed"
+    assert "abc123" not in json.dumps(index) and index[2]["subject"] == ""
+    dumped = json.dumps(index)
+    for third_party in ("SECRET-BODY-WORDS", "Body two", "Body three", "Ana", "Boss", "Lima", "Bob", "Cleo"):
+        assert third_party not in dumped, third_party
+    assert all(len(e["subject"]) <= 120 for e in index)
+
+
+def test_the_reply_to_of_a_message_is_the_address_alone_and_absent_when_it_is_the_senders(desk):
+    desk.providers.mail["gmail"] = [
+        message(1, "2026-10-17T09:00:00Z", sender="Ana Lima <ana@clinic.example>", reply_to="desk@clinic.example"),
+        message(2, "2026-10-16T14:30:00Z", sender="Bob <bob@shop.example>", reply_to="BOB@Shop.Example"),
+        message(3, "2026-10-15T08:00:00Z", sender="Cleo <cleo@club.example>", reply_to="Front Desk <desk@club.example>"),
+        message(4, "2026-10-14T08:00:00Z", sender="Dan <dan@club.example>", reply_to="not an address"),
+        message(5, "2026-10-13T08:00:00Z", sender="Eve <eve@club.example>", reply_to="a..b@club.example")]
+    desk.mail("inbox")
+    assert [e["reply_to_address"] for e in desk.manifest("inbox")["index"]] == ["desk@clinic.example", None, None, None, None], \
+        "the readers print the address alone: a value with a name in it, a bad shape or the sender's own is not kept"
+
+
+def test_a_value_the_service_did_not_print_in_a_known_shape_is_null_and_the_entry_keeps_its_number(desk):
+    desk.providers.mail["gmail"] = [message(1, "2026-10-17T09:00:00Z", id="has space/and slash", thread_id="x" * 701, change_key="bad key",
+                                            headers={"Message-ID": "<a b@x>"}, sender="Odd <odd at example>"),
+                                    message(2, "2026-10-16T14:30:00Z", id="a/b", thread_id=None, headers=None)]
+    desk.mail("inbox")
+    first, second = desk.manifest("inbox")["index"]
+    assert (first["n"], first["id"], first["thread_id"], first["change_key"], first["message_id"], first["from_address"]) == (1, None, None, None, None, None)
+    assert (second["n"], second["id"], second["thread_id"], second["message_id"]) == (2, None, None, None), "an entry is kept so that the numbers do not move"
+
+
+def test_an_address_that_looks_like_a_credential_is_not_kept_in_the_index_and_the_entry_keeps_its_number(desk):
+    desk.providers.mail["gmail"] = [message(1, "2026-10-17T09:00:00Z", subject="Hello", reply_to=f"{KEY}@desk.example"), message(2, "2026-10-16T14:30:00Z", subject="Second")]
+    desk.mail("inbox")
+    first, second = desk.manifest("inbox")["index"]
+    assert first["n"] == 1 and first["id"] == "m1" and first["reply_to_address"] is None and first["subject"] == "" and first["from_address"] is None
+    assert second["from_address"] == "ana@clinic.example" and second["subject"] == "Second"
+    held = "".join(p.read_text(errors="ignore") for p in desk.folder.rglob("*") if p.is_file())
+    assert KEY not in held
+
+
+def test_the_index_of_an_outlook_snapshot_keeps_the_change_key_and_the_internet_message_id(desk):
+    desk.providers.mail["outlook"] = [message(1, source="outlook", change_key="CK/1+a=", headers={"Message-ID": "<o1@mail.example>"}, thread_id="conv-1")]
+    desk.mail("work", OUTLOOK_MAIL)
+    [entry] = desk.manifest("work")["index"]
+    assert entry["change_key"] == "CK/1+a=" and entry["message_id"] == "<o1@mail.example>" and entry["thread_id"] == "conv-1" and entry["id"] == "m1"
+
+
+def test_a_new_version_has_a_new_index_and_the_old_version_keeps_its_own(desk):
+    desk.mail("inbox")
+    assert [e["id"] for e in desk.manifest("inbox", 1)["index"]] == ["m1", "m2"]
+    desk.providers.mail["gmail"] = [message(3, "2026-10-17T09:30:00Z", subject="Newer")] + desk.providers.mail["gmail"]
+    desk.later(hours=1)
+    assert desk.refresh("inbox")["imported"] is True
+    assert [e["id"] for e in desk.manifest("inbox", 2)["index"]] == ["m3", "m1", "m2"] and [e["id"] for e in desk.manifest("inbox", 1)["index"]] == ["m1", "m2"]
+
+
+def test_the_index_of_a_calendar_snapshot_numbers_the_events_in_the_order_the_text_lists_them(desk):
+    desk.providers.events[("google", "primary")] = [
+        event(1, "2026-10-18T09:00:00-03:00", "2026-10-18T10:00:00-03:00", "Later day", recurring=True),
+        event(2, "2026-10-17T15:00:00-03:00", "2026-10-17T16:00:00-03:00", "Afternoon", organizer_self=False),
+        event(3, "2026-10-17", "2026-10-18", "Holiday", all_day=True),
+        event(4, "2026-10-17T09:00:00-03:00", "2026-10-17T10:00:00-03:00", "Morning", attendees_other=2)]
+    desk.calendar("agenda", GOOGLE_CAL)
+    text_, index = desk.text("agenda"), desk.manifest("agenda")["index"]
+    listed = [line for line in text_.splitlines() if re.match(r"\d+\. ", line)]
+    assert [item.split(" · ")[1] for item in listed] == ["Holiday", "Morning", "Afternoon", "Later day"]
+    assert [e["id"] for e in index] == ["e3", "e4", "e2", "e1"] and [e["n"] for e in index] == [1, 2, 3, 4], "the order of the text: all-day first, then by start, day by day"
+    assert all(sorted(e) == sorted(EVENT_KEYS) for e in index) and desk.manifest("agenda")["events"] == len(index) == 4
+    by_id = {e["id"]: e for e in index}
+    assert by_id["e1"]["recurring"] is True and by_id["e2"]["organizer_self"] is False and by_id["e4"]["attendees_other"] == 2
+    assert by_id["e3"]["attendees_other"] is None and by_id["e3"]["etag"] == '"etag3"' and by_id["e3"]["calendar"] == "primary"
+
+
+def test_an_event_left_out_for_a_credential_or_unreadable_has_no_entry_in_the_index(desk):
+    desk.providers.events[("google", "primary")] = [event(1, title="Keep"), event(2, title=f"Key {KEY}"), event(3, start="soon", end="later", title="Odd"),
+                                                    event(4, "2026-10-17T11:00:00-03:00", "2026-10-17T12:00:00-03:00", "Keep two")]
+    desk.calendar("agenda", GOOGLE_CAL)
+    index = desk.manifest("agenda")["index"]
+    assert [e["id"] for e in index] == ["e1", "e4"] and [e["n"] for e in index] == [1, 2]
+    assert KEY not in json.dumps(index) and desk.manifest("agenda")["events"] == 2 and desk.manifest("agenda")["left_out"] == 1
+
+
+def test_a_run_never_receives_the_index_and_the_snapshot_text_holds_no_address_from_it(desk):
+    desk.providers.mail["gmail"] = [message(1, "2026-10-17T09:00:00Z", sender="Ana Lima <ana@clinic.example>", reply_to="desk@clinic.example")]
+    desk.mail("inbox")
+    assert desk.manifest("inbox")["index"][0]["reply_to_address"] == "desk@clinic.example"
+    prepared = desk.tmp / "prepared"
+    got = ops_sources.copies_for(desk.ctx, {"id": 1, "sources": ["inbox"]}, str(prepared), False, clock=lambda: NOW)
+    handed = "".join(Path(path).read_text(encoding="utf-8") for path, _rel in got["files"])
+    assert "desk@clinic.example" not in handed and "reply_to" not in handed and "\"index\"" not in handed
+    assert not any(p.name == "manifest.json" for p in prepared.rglob("*"))
+
+
+def test_the_outlook_provider_reply_to_reaches_the_index_through_the_runtime(desk):
+    sys.path.insert(0, str(REPO / "providers" / "mailbox" / "tests"))
+    import fake_graph_mail
+    fake = fake_graph_mail.FakeGraphMail()
+    try:
+        fake.add("AAMk1", "2026-10-17T07:12:03Z", "Ana Lima", "ana@clinic.example", "Appointment confirmed", text="Hello Sam.")
+        fake.add("AAMk2", "2026-10-16T07:12:03Z", "Bruno Reis", "bruno@shop.example", "Your order", text="Shipped.")
+        fake.messages["AAMk1"]["replyTo"] = [fake_graph_mail.recipient("Front Desk", "desk@clinic.example")]
+        script = REPO / "providers" / "mailbox" / "outlook.py"
+        desk.providers = real_call(script, fake.env())
+        desk.mail("work", "outlook:box=inbox;days=3;max=20")
+        first, second = desk.manifest("work")["index"]
+        assert (first["id"], first["from_address"], first["reply_to_address"], first["change_key"], first["message_id"], first["thread_id"]) == (
+            "AAMk1", "ana@clinic.example", "desk@clinic.example", "CK-AAMk1", "<AAMk1@mail.example>", "conv-1")
+        assert second["reply_to_address"] is None and second["subject"] == "Your order"
+        assert {r["method"] for r in fake.api_requests()} == {"GET"}
+    finally:
+        fake.close()
+
+
+def test_every_number_the_text_prints_is_the_n_of_its_index_entry_for_mail_and_for_a_calendar(desk):
+    desk.providers.mail["gmail"] = [message(n, f"2026-10-{20 - n:02d}T09:00:00Z", subject=f"Subject {n}") for n in range(1, 6)]
+    desk.mail("inbox")
+    mail_text, mail_index = desk.text("inbox"), desk.manifest("inbox")["index"]
+    printed = [(int(m.group(1)), m.group(2)) for m in re.finditer(r"^## (\d+)\. .*\nFrom: .*\nTo: .*\nSubject: (.*)$", mail_text, re.M)]
+    assert [n for n, _ in printed] == [e["n"] for e in mail_index] == [1, 2, 3, 4, 5]
+    assert [subject for _, subject in printed] == [e["subject"] for e in mail_index]
+    desk.providers.events[("google", "primary")] = [
+        event(1, "2026-10-18T09:00:00-03:00", "2026-10-18T10:00:00-03:00", "Later day"), event(2, "2026-10-17T15:00:00-03:00", "2026-10-17T16:00:00-03:00", "Afternoon"),
+        event(3, "2026-10-17", "2026-10-18", "Holiday", all_day=True), event(4, "2026-10-17T09:00:00-03:00", "2026-10-17T10:00:00-03:00", "Morning"),
+        event(5, "2026-10-19T09:00:00-03:00", "2026-10-19T10:00:00-03:00", "Last")]
+    desk.calendar("agenda", GOOGLE_CAL)
+    lines = [line for line in desk.text("agenda").splitlines() if re.match(r"\d+\. ", line)]
+    index = desk.manifest("agenda")["index"]
+    assert [int(line.split(".", 1)[0]) for line in lines] == [e["n"] for e in index] == [1, 2, 3, 4, 5]
+    assert [line.split(" · ")[1] for line in lines] == ["Holiday", "Morning", "Afternoon", "Later day", "Last"]
+    assert [e["id"] for e in index] == ["e3", "e4", "e2", "e1", "e5"], "the line numbered n is the event the entry n names"
+
+
+def test_the_sender_address_of_the_index_is_the_readers_field_and_is_never_picked_out_of_the_from_words(desk):
+    desk.providers.mail["gmail"] = [
+        message(1, "2026-10-17T09:00:00Z", sender="ceo@corp.example, x <attacker@evil.example>", from_address=None),
+        message(2, "2026-10-16T09:00:00Z", sender="ceo@corp.example <attacker@evil.example>", from_address="attacker@evil.example"),
+        message(3, "2026-10-15T09:00:00Z", sender="Ana <ana@clinic.example>", from_address="ana@clinic.example, bob@shop.example"),
+        message(4, "2026-10-14T09:00:00Z", sender="Cleo <cleo@club.example>", from_address="cleo@club.example."),
+        message(5, "2026-10-13T09:00:00Z", sender="Dan <dan@club.example>")]
+    del desk.providers.mail["gmail"][4]["from_address"]
+    desk.mail("inbox")
+    assert [e["from_address"] for e in desk.manifest("inbox")["index"]] == [None, "attacker@evil.example", None, None, None]
+
+
+def test_the_digest_of_the_index_is_the_third_line_of_the_text_and_matches_the_manifest(desk):
+    desk.mail("inbox")
+    desk.calendar("agenda", GOOGLE_CAL)
+    for name in ("inbox", "agenda"):
+        lines = desk.text(name).splitlines()
+        assert lines[2] == "Index digest (sha256): " + snapshot_text.index_digest(desk.manifest(name)["index"]) and snapshot_text.digest_of_text(desk.text(name))
+    assert snapshot_text.digest_of_text("# x\nRead at\n  Index digest (sha256): " + "0" * 64) is None, "an indented line (a body line) is not the digest"
+    line = "Index digest (sha256): " + "0" * 64
+    assert snapshot_text.digest_of_text(f"a\nb\n{line}\nd") == "0" * 64
+    for early_or_late in (f"a\n{line}\nc\nd", f"{line}\nb\nc", f"a\nb\nc\n{line}", f"a\nb\nc\nd\ne\nf\n{line}", f"a\nb\n{line} \nd", "a\nb"):
+        assert snapshot_text.digest_of_text(early_or_late) is None, "the third line and no other"
+
+
+def test_a_version_made_before_the_index_existed_does_not_block_the_first_refresh_after_the_upgrade(desk, monkeypatch):
+    real_digest, real_mark = snapshot_text.index_digest, sources_mail.SIGNATURE_MARK
+    monkeypatch.setattr(sources_mail, "SIGNATURE_MARK", "")                     # the signature of the earlier format
+    monkeypatch.setattr(snapshot_text, "index_digest", lambda index: "")      # a text with no digest line, as an earlier version has none
+    desk.mail("inbox")
+    before = desk.latest("inbox")
+    assert "Index digest" not in desk.text("inbox") and before["version"] == 1
+    monkeypatch.setattr(sources_mail, "SIGNATURE_MARK", real_mark)
+    monkeypatch.setattr(snapshot_text, "index_digest", real_digest)
+    desk.later(minutes=5)                                                       # the same listing, the same day: before the upgrade this made no version
+    done = desk.refresh("inbox")
+    assert done["imported"] is True and desk.latest("inbox")["version"] == 2 and desk.latest("inbox")["origin_version"] != before["origin_version"]
+    assert snapshot_text.digest_of_text(desk.text("inbox")) == real_digest(desk.manifest("inbox")["index"])
+    assert desk.refresh("inbox")["unchanged"] is True, "and the same listing again makes no further version"

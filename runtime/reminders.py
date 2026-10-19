@@ -21,7 +21,10 @@ wall time that does not exist (the hour a clock change skips) is refused; one th
 one minute ahead (MIN_AHEAD) and at most 366 days ahead (MAX_AHEAD).
 
   split_line(rest)            (when, text) of the words after `/remind`: only the first one or two words are the time; ValueError(USAGE) otherwise
+  strict(rest)                (when, text) when the words after `/remind` begin with a time of the strict grammar above and have words after it, else None (the
+                              line is then read in the person's own words by runtime/natural.py, package NR-1)
   resolve(when, now, at[, local])  the due moment of a `when`: {"due": aware datetime, "wall": "YYYY-MM-DDTHH:MM", "zone": name}; ValueError(sentence) says why not
+  is_time_only(when)          whether a `when` is a bare `HH:MM` (today, or tomorrow when it has passed)
   clean_text(text)            the text as it is stored (one line, control characters and runs of blanks become one space, format characters dropped), or ValueError(sentence)
   retry_delay(attempts)       how long a reminder whose send failed waits before the next try (1, 2, 4, 8 ... minutes)
   verdict(due, now)           what to do with an open reminder: "wait", "send" or "missed" (the late window), and how late it is
@@ -73,6 +76,11 @@ OPEN_FULL = phrases.en("RM_OPEN_FULL")
 CHAT_FULL = phrases.en("RM_CHAT_FULL")
 DAY_FULL = phrases.en("RM_DAY_FULL")
 SET = phrases.en("RM_SET")
+RESTORE_SECONDS = 600             # seconds: a reminder cancelled this recently can be brought back
+NOTHING_TO_RESTORE = phrases.en("RM_NOTHING_TO_RESTORE")
+RESTORE_TOO_LATE = phrases.en("RM_RESTORE_TOO_LATE")
+ALREADY_BACK = phrases.en("RM_ALREADY_BACK")
+BACK = phrases.en("RM_BACK")
 FORGOT = phrases.en("RM_FORGOT")
 NOT_LISTED = phrases.en("RM_NOT_LISTED")
 TERMINAL_USAGE = ("--when is HH:MM, YYYY-MM-DD HH:MM or in <n>m|h|d (24-hour clock, two digits), and --text is what to say; "
@@ -106,6 +114,30 @@ def split_line(rest: str) -> tuple:
     if len(parts) <= head or not parts[head].strip():
         raise ValueError(USAGE)
     return " ".join(parts[:head]), parts[head].strip()
+
+
+_STRICT_CLOCK = re.compile(r"[0-9]{1,2}:[0-9]{2}")
+_STRICT_RELATIVE = re.compile(r"[0-9]{1,4}[mhd]")
+
+
+def strict(rest) -> "tuple | None":
+    """(when, text) when the words after `/remind` begin with a time of the strict grammar and have words after it: `HH:MM` with two digits each (so `25:00`
+    is claimed and refused as a time of day, as before), a date and such a time, or `in <n><unit>`. None when they do not (`13hrs`, `9:30`, `tomorrow 13h`, a
+    time and no words): the line is then read in the person's own words (runtime/natural.py). Pure, no clock."""
+    words = (rest or "").split()
+    for head in (1, 2):
+        if len(words) <= head:
+            continue
+        given = words[:head]
+        if (head == 1 and _STRICT_CLOCK.fullmatch(given[0])) or (head == 2 and ((_DATE.fullmatch(given[0]) and _STRICT_CLOCK.fullmatch(given[1])) or (
+                given[0] == "in" and _STRICT_RELATIVE.fullmatch(given[1])))):
+            return split_line(rest)
+    return None
+
+
+def is_time_only(when) -> bool:
+    """Whether `when` is a time of day with no day (`HH:MM`): the form that means today, or tomorrow when today's has passed."""
+    return bool(_TIME.fullmatch(" ".join((when or "").split())))
 
 
 def clean_text(text) -> str:

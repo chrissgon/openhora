@@ -78,6 +78,9 @@ Reminders (RM-1). `/remind <time> <text>`, `/reminders` and `/forget <n>` are do
 `Reminders.deliver` sends what is due: only to the private chat of the sender it was made for, with that sender's own words (none in `notices: count`),
 after the operations layer read the configuration and the sender's profile again, so a sender removed or narrowed before the time gets nothing.
 A reminder is a notice and never an effect (limit L51).
+Reminders in the person's own words (NR-1). A plain line that code matched to a reminder operation, and `/remind <rest>` outside the strict grammar, arrive as
+the intent `natural` and are done by `remind.natural` with no model, no route lock and no model slot; a question the bridge asked about a reminder is kept as a draft
+in `self.remind.drafts` (memory only) and the next update of that chat finishes it or drops it (`remind.answer`).
 
 Language (LR-1). Every sentence the bridge says is the phrase table's (runtime/phrases.py) in the project's language: `Bridge.cfg` reads the key `language` from
 `config` when the sentence is said (an unaccepted file too), `Bridge.t` picks the sentence, and `cards.build` is handed the settings for the frames of a card. A project with
@@ -102,6 +105,7 @@ import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
 import natural
+import natural_time
 import phrases
 import shell_kit
 
@@ -217,9 +221,14 @@ class Bridge(shell_kit.Jobs):
 
     def __init__(self, ops_module, projects, messenger, ledger, platform: str, log=None, clock=None):
         super().__init__(ops_module, projects, log)
+        try:
+            natural_time.languages()      # the language tables are read and checked once, here: a table that breaks the schema stops the bridge with a sentence (NR-1)
+        except ValueError as e:
+            raise Fatal(f"the natural-request language tables are not valid: {e}") from None
         self.attach = attach.Attachments(self)
         self.remind = remind.Reminders(self)
         self.messenger, self.ledger, self.platform = messenger, ledger, platform
+        self.remind.drafts.clear()      # a new bridge starts with no question open: they are lost on a restart (the store of drafts is shared with the operations layer)
         self.clock = clock or shell_kit.now
         self.chosen = {}       # sender -> project id
         self.more = {}         # (project id, chat) -> the number last announced as waiting to that chat (set once the line went out)
@@ -232,6 +241,7 @@ class Bridge(shell_kit.Jobs):
         self.unread_told = {}                 # chat -> time.monotonic() of the last line about skipped messages
         self.monotonic = time.monotonic       # the clock of the waiting lines (a test moves it)
         self.resent = {}                      # (project id, chat, decision) -> when its card was last sent again to that chat (NR-2: at most once in RESEND_EVERY seconds)
+        self.last_message = {}                # chat -> the id of the last message sent to it (memory only): the question a draft asked is answered by a reply to it
         self.waiting = []                     # the lines kept for a busy project, oldest first (memory only): {"n", "project", "chat", "text", "since", "after"}
         self.ticket = 0
         self.queue_lock = threading.Lock()    # guards `waiting` and `ticket`
@@ -308,6 +318,14 @@ class Bridge(shell_kit.Jobs):
         """The key of a sender in the policy: `<platform>:<id>` (operations.sender_key)."""
         return self.ops.operations.sender_key(self.platform, sender)
 
+    def for_reader(self, project: dict, item: dict, key: str) -> dict:
+        """The decision as the card for `key` (a sender key) is drawn: the save of a file a sender sent also says, as a boolean, whether `key` is that sender
+        (`reader_sent_file`; the sender's account stays in the store, W4a). Any other decision is returned as it is."""
+        if item.get("kind") != "effect" or item.get("effect_sender_only") is not True:
+            return item
+        asked = self.ops.pending(project["path"], pending_id=item["id"], reader=key)
+        return {**item, "reader_sent_file": asked.get("reader_sent_file") is True}
+
     def wants(self, project: dict, settings: dict, item: dict, sender: str) -> bool:
         """Whether this sender is sent a card for the decision: their profile permits reading the pending decisions and, when the profile says
         `notices: actionable`, the card would offer them something to act on or answer."""
@@ -318,8 +336,8 @@ class Bridge(shell_kit.Jobs):
         named = settings["sender_profiles"].get(sender) or settings["channel_profile"]
         if (settings["profiles"].get(named) or {}).get("notices") != "actionable":
             return True
-        built = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"], settings["page_url"],
-                            operations=operations, sender=key, cfg=settings)
+        built = cards.build(project["name"], self.for_reader(project, item, key), self.messenger.capabilities(), settings["policy"], settings["notices"],
+                            settings["page_url"], operations=operations, sender=key, cfg=settings)
         return bool(built["actionable"])
 
     def hears_count(self, settings: dict, sender: str):
@@ -387,12 +405,33 @@ class Bridge(shell_kit.Jobs):
         caps = self.messenger.capabilities()
         for piece in cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"]):
             try:
-                self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None})
+                sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None})
+                self.last_message[chat] = str(sent) if sent else None
             except provider.MessengerError as e:
                 if e.kind == "deferred":
                     return None
                 self.log(f"a reply could not be sent ({e.kind})")
                 return False
+        return True
+
+    def ask_yes(self, project: dict, chat: str, text: str) -> bool:
+        """Send a question about a reminder with ONE button, "Yes" (NR-1), and bind it in the ledger (kind `reminder`; the ledger holds no text: the project, the chat, the
+        message and the action id). False when the platform has no buttons, the text does not fit one message, or the send failed: the caller then sends the plain
+        question, which is answered by a typed "yes". The tap is handled by `remind.tapped`."""
+        caps = self.messenger.capabilities()
+        if not (caps.get("buttons") and caps.get("max_buttons", 0) >= 1) or len(text) > int(caps.get("max_text") or 0):
+            return False
+        action = f"{self.ledger.next_seq()}:yes"
+        try:
+            sent = self.deliver(chat, {"text": text, "actions": [{"id": action, "label": phrases.text("NT_BTN_YES", self.cfg(project))}], "link": None, "document": None})
+        except provider.MessengerError:
+            return False
+        self.last_message[chat] = str(sent) if sent else None
+        try:
+            self.ledger.add({"project": project["id"], "pending_id": None, "kind": "reminder", "content_sha256": "", "chat": chat, "message_id": sent, "actions": {action: "yes"},
+                             "sent_at": self.clock(), "whole": True, "approvable": False, "blocked": None, "effect_word": None})
+        except OSError as e:
+            self.log(f"the ledger could not be written ({e.__class__.__name__})")
         return True
 
     def allow(self, project: dict, op: str, kind=None, sender=None) -> dict:
@@ -433,6 +472,7 @@ class Bridge(shell_kit.Jobs):
                                               sha256=item.get("payload_sha256"))
         caps = self.messenger.capabilities()
         sender = self.key(chat)
+        item = self.for_reader(project, item, sender)
         card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"],
                            settings["page_url"], operations=operations, effect_command=command, sender=sender, cfg=settings)
         document = card["message"]["document"]
@@ -544,7 +584,7 @@ class Bridge(shell_kit.Jobs):
         last = self.ledger.last_card(project["id"], item["id"], chat)
         if last is None or last.get("approvable") or (last.get("blocked") and not retry_blocked):
             return False
-        built = cards.build(project["name"], item, self.messenger.capabilities(), settings["policy"], settings["notices"],
+        built = cards.build(project["name"], self.for_reader(project, item, self.key(chat)), self.messenger.capabilities(), settings["policy"], settings["notices"],
                             settings["page_url"], operations=self.ops.operations, sender=self.key(chat), cfg=settings)
         return bool(built["approvable"])
 
@@ -636,12 +676,27 @@ class Bridge(shell_kit.Jobs):
         kind = intent["kind"]
         if kind == "ignore":
             return
+        replied = update.get("reply_to")
+        shown = self.ledger.by_message(chat, replied) if kind == "natural" and replied else None
+        if shown and shown.get("kind") != "reminder":          # a reply to a card answers THAT card, not a reminder (NR-1); the question about a reminder is answered by `remind.answer`
+            intent = {"kind": "reply", "reply_to": replied, "text": update.get("text") or ""}
+            kind = "reply"
+        self.remind.discarded.discard(chat)
+        if kind != "action":
+            if chat in self.remind.drafts:
+                if self.remind.answer(project, chat, kind, update.get("text") or "", replied):
+                    return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line
+            elif chat in self.remind.expired and self.remind.late(project, chat, kind, update.get("text") or ""):
+                return          # a "yes" to a question that expired is told so (NR-1)
         if kind == "attachment":
             self.attach.arrived(project, chat, intent)
         elif kind in ("add", "discard"):
             self.attach.typed(project, chat, kind, intent["id"])
         elif kind == "remind":
             self.remind.created(project, chat, intent)
+        elif kind == "natural":
+            if not self.remind.natural(project, chat, intent):
+                self.say(project, chat, intent["text"])
         elif kind == "reminders":
             self.remind.listing(project, chat)
         elif kind == "forget":
@@ -704,6 +759,9 @@ class Bridge(shell_kit.Jobs):
             return
         if not self.listed_in(project, chat):
             self.log(DROPPED)
+            return
+        if card.get("kind") == "reminder":
+            self.remind.tapped(project, chat, card)
             return
         if card.get("kind") == "attachment":
             self.attach.tapped(project, chat, card, card["actions"][action_id])

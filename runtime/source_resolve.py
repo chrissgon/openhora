@@ -20,7 +20,8 @@ A match is strong when a word of the line equals a word of the source's name or 
 word of its description does. A mail or calendar snapshot is a candidate only with `snapshots` (the group `ask-mail`
 of a messaging sender); the terminal and the page name a snapshot with `@<id>`, which always wins and is never resolved here.
 
-The aliases are a table of this file for now (package NR-1 makes each language a data file; this table moves there). Standard library only.
+The aliases, the words that say "a file" (cues), the words that never name a source and the function words are data of the language tables
+(runtime/natural_lang_<tag>.py, the key `requests`), the table of every language tried on every line. Standard library only.
 Runs on Python 3.9: python3 runtime/source_resolve.py --help
 """
 from __future__ import annotations
@@ -31,47 +32,27 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
-import ask_select  # noqa: E402  (the stop words and the word rule; this module reads no file)
+import ask_select  # noqa: E402
+import natural  # noqa: E402  (the words: aliases, cues, generic and function words are the language tables' data)  (the stop words and the word rule; this module reads no file)
 import sources  # noqa: E402  (the types of a snapshot)
 
 RESOLVE_LISTED = 5           # candidates a reply lists
 MIN_WORD = 2                 # letters of a word that counts ("cv")
 EXTENSIONS = frozenset("txt md pdf doc docx odt rtf xls xlsx ods csv tsv json html htm epub".split())
-# Words that name a kind of document in several languages: the words of a group are one word. The first of a group stands for it.
-ALIASES = (
-    ("cv", "curriculo", "curriculum", "resume"),
-    ("planilha", "spreadsheet", "sheet", "tabela"),
-    ("fatura", "invoice", "boleto"),
-    ("orcamento", "budget", "quote"),
-    ("relatorio", "report"),
-    ("apresentacao", "presentation", "slides", "deck"),
-    ("proposta", "proposal"),
-    ("recibo", "receipt", "comprovante"),
-    ("ata", "minutes"),
-    ("passaporte", "passport"),
-    ("extrato", "statement"),
-    ("manual", "handbook", "guide", "guia"),
-)  # validate: allow english-only -- the closed list of document-kind aliases in several languages
-# A word of the line that only says "a file": it makes the line name a document (a cue) and never matches a source by itself.
-CUES = frozenset("arquivo arquivos documento documentos doc docs file files document documents pdf anexo anexos fonte fontes source sources".split())  # validate: allow english-only -- the closed list of words that say "a file"
-GENERIC = frozenset(CUES | set("meu minha meus minhas my mine our nosso nossa diz fala fale say says said sobre about tell show mostra mostre ler le read".split()))  # validate: allow english-only -- the closed list of words that never name a source
-SHORT_STOP = frozenset("de da do dos das em no na nos nas um uns ao aos pela pelo por e ou se me te lhe to of in on at is it be an as os el la le un une der die das".split())  # validate: allow english-only -- the closed list of two-letter and short function words
-_GROUP = {word: group[0] for group in ALIASES for word in group}
-
-
 def words(text) -> list:
     """The words of a text that can count, canonical (an alias word becomes the first of its group), in order, without repeats."""
+    group, stop, generic = natural.aliases(), set(natural.words_of("short_stop")), set(natural.words_of("generic")) | set(natural.words_of("cues"))
     out = []
     for word in ask_select.normal(text).split():
-        word = _GROUP.get(word, word)
-        if len(word) >= MIN_WORD and word not in ask_select.STOP_WORDS and word not in SHORT_STOP and word not in GENERIC and word not in EXTENSIONS and word not in out:
+        word = group.get(word, word)
+        if len(word) >= MIN_WORD and word not in ask_select.STOP_WORDS and word not in stop and word not in generic and word not in EXTENSIONS and word not in out:
             out.append(word)
     return out
 
 
 def _cue(line: str) -> bool:
-    plain = ask_select.normal(line).split()
-    return any(w in CUES or w in _GROUP for w in plain)
+    group, cues = natural.aliases(), set(natural.words_of("cues"))
+    return any(w in cues or w in group for w in ask_select.normal(line).split())
 
 
 def _name(row: dict) -> str:

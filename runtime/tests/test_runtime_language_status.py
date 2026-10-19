@@ -80,7 +80,7 @@ def test_the_status_of_a_reminder_is_said_on_the_phone_and_stays_english_in_the_
     accept(day.path, language="pt-BR")
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1] == "Lembrete #1 cancelado."
+    assert day.texts(OWNER)[-1].startswith("Lembrete #1 cancelado: hoje, dom 18/10, às 15:00 (BRT):") # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     day.say(OWNER, "/forget 1")
     assert day.texts(OWNER)[-1] == "O lembrete 1 tem o status cancelado: não está esperando."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     with pytest.raises(ops.OpsError) as caught:

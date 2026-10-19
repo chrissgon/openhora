@@ -230,7 +230,7 @@ def test_a_message_has_the_shape_of_the_other_mailbox_readers(fake):
     code, out, said = run(fake, "get", "--id", "m1")
     assert code == 0, said
     assert set(out) == {"id", "thread_id", "source", "received_at", "change_key", "from", "to", "subject", "text", "truncated", "links", "headers",
-                        "attachments", "external_content"}
+                        "attachments", "external_content", "from_address"}
     assert out["id"] == "m1" and out["thread_id"] == "conv-1" and out["source"] == "outlook" and out["external_content"] is True
     assert out["received_at"] == "2026-10-17T07:12:03Z" and out["change_key"] == "CK-m1"
     assert out["from"] == "Ana Lima <ana@clinic.example>" and out["to"] == "Sam Sample <sam@mail.example>" and out["subject"] == "Appointment confirmed"

@@ -13,7 +13,7 @@ import pytest
 import standin_tree as st
 from test_ask import accept, add_source
 from test_messaging_ask import wait_for
-from test_messaging_natural import rig  # noqa: F401
+from test_messaging_natural_ops import rig  # noqa: F401
 from test_ops_natural import KEY, OPERATION, OWNER, PROFILES, READER, SENDERS, docs, phone, router_says, say, stored, with_senders, world  # noqa: F401
 from test_say_operation import reminders
 
@@ -21,6 +21,7 @@ ops = st.load("ops")
 ops_ask = st.load("ops_ask")
 ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
+drafts = st.load("drafts")
 operations = st.load("operations")
 phrases = st.load("phrases")
 
@@ -104,9 +105,9 @@ def test_a_reminder_the_router_chose_to_forget_is_never_forgotten_at_once(world)
     [made] = reminders(world)
     router_says(world, OPERATION.format(name="reminder-forget") + f"Argument id: {made['id']}\n")
     asked = phone(world, "owner", f"how is task {made['id']} going?")
-    assert asked["reply"] == phrases.text("NAT_CONFIRM_FORGET", None, id=made["id"])
+    assert asked["reply"].startswith(f"Cancel reminder #{made['id']}: ") and asked["reply"].endswith("dentist? (yes / no)")
     assert [r["status"] for r in reminders(world)] == ["open"], "nothing was cancelled by the router's word"
-    assert phone(world, "owner", "no")["reply"] == phrases.text("NAT_DROPPED", None) and [r["status"] for r in reminders(world)] == ["open"]
+    assert phone(world, "owner", "no")["reply"] == phrases.text("NT_KEPT", None) and [r["status"] for r in reminders(world)] == ["open"]
     phone(world, "owner", f"how is task {made['id']} going?")
     done = phone(world, "owner", "yes")
     assert done["ran"] is False and [r["status"] for r in reminders(world)] == ["cancelled"]
@@ -178,9 +179,9 @@ def test_the_answer_to_a_file_list_waits_in_the_queue_when_the_router_is_busy_an
     assert first["reply"].startswith("Which file do you mean?")
     with ops_core._route_lock(world["ctx"]["cfg"]):
         queued = ops.say(world["path"], "2", channel="page")
-        assert queued["queued"] is True and len(ops_natural._DRAFTS) == 1, "queued, and the draft is still there"
+        assert queued["queued"] is True and drafts.count() == 1, "queued, and the draft is still there"
     done = ops.route_queued(world["path"])
-    assert done["routed"] == "line" and ops_natural._DRAFTS == {}
+    assert done["routed"] == "line" and drafts.count() == 0
     last = [m for m in ops.conversation(world["path"], channel="page")["messages"] if m["role"] == "assistant"][-1]
     assert last["run_id"] and "Which file" not in last["text"]
 
