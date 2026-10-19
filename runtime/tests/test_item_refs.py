@@ -306,7 +306,7 @@ def test_an_entry_is_read_back_through_the_closed_shapes_whatever_it_holds(desk)
     hostile = {"n": 1, "id": "../../etc/passwd", "thread_id": "a b", "message_id": "<a b>", "from_address": "x y@z", "reply_to_address": "evil@evil.example\nBcc: boss@x.example",
                "subject": "line one\nline two \u202e https://track.example/o?t=abc123 ok", "change_key": "with space", "extra": "not a key"}
     assert item_refs._entry("mail", 1, hostile) == {"n": 1, "id": None, "thread_id": None, "message_id": None, "from_address": None, "reply_to_address": None,
-                                                    "subject": "line one line two <link: track.example> ok", "change_key": None}
+                                                    "subject": "line one line two https://track.example/o?t=abc123 ok", "change_key": None}   # read back as written: links are replaced on the write side only
     assert len(item_refs._entry("mail", 2, {**hostile, "n": 2, "subject": "x" * 500})["subject"]) == 120
     assert item_refs._entry("mail", 1, {**hostile, "subject": 7})["subject"] == ""
     for bad_address in ("a..b@x.example", "a@x.example.", "a@-x.example", "a b@x.example", "x" * 65 + "@y.example", "@y.example", "a@" + "b" * 64 + ".example"):
@@ -383,7 +383,7 @@ def test_a_messaging_sender_needs_the_group_ask_mail_and_the_mcp_mode_never_may(
     ctx["cfg"]["channels"] = {"messaging": ["read", "talk"], "senders": {sender: ["read", "ask-mail"]}}
     assert resolve(desk, "inbox#1", channel="messaging", sender=sender)["entry"]["id"] == "m1"
     assert refused(desk, "inbox#1", channel="messaging", sender="telegram:43").code == "not_readable"
-    assert refused(desk, "inbox#1", channel="messaging").code == "not_readable", "a messaging call that names no sender gets the channel's groups only"
+    assert refused(desk, "inbox#1", channel="messaging").code == "not_readable", "a messaging call that names no sender gets nothing"
 
 
 def test_the_default_of_a_messaging_app_does_not_read_a_snapshot(desk):
@@ -461,3 +461,40 @@ def test_the_mail_numbers_the_text_prints_are_the_entries_of_the_index_with_ties
     assert sorted(printed) == list(range(1, len(manifest["index"]) + 1)) and manifest["messages"] == len(manifest["index"])
     for entry in manifest["index"]:
         assert printed[entry["n"]] == entry["id"]
+
+
+ops_actor = st.load("ops_actor")
+
+
+@pytest.mark.parametrize("sender", [None, "", "garbage", "telegram", "telegram:", ":42", 42, ["telegram:42"]])
+def test_a_messaging_call_with_no_sender_or_a_sender_that_is_not_a_key_never_falls_back_to_the_channels_groups(desk, sender):
+    desk.ctx["cfg"]["channels"] = {"messaging": ["read", "talk", "ask-mail"], "senders": {"telegram:42": ["read"]}}
+    assert refused(desk, "inbox#1", channel="messaging", sender=sender).code == "not_readable"
+    assert refused(desk, "agenda#1", channel="messaging", sender=sender).code == "not_readable"
+    assert resolve(desk, "inbox#1", channel="messaging", sender="telegram:99")["entry"]["id"] == "m1", "a real sender with no profile of its own gets the channel's groups"
+
+
+@pytest.mark.parametrize("channel", ["", 0, False, [], "Terminal", "routine", "scheduler", "messaging:telegram", "mcp", "api"])
+def test_an_empty_or_unknown_channel_is_refused_and_only_none_means_no_channel(desk, channel):
+    assert refused(desk, "inbox#1", channel=channel).code == "not_readable"
+
+
+def test_a_typed_line_is_read_by_the_channel_that_carried_it(desk):
+    with ops_actor.carried_by("mcp"):
+        assert refused(desk, "inbox#1", channel="chat").code == "not_readable"
+    with ops_actor.carried_by("page"):
+        assert resolve(desk, "inbox#1", channel="chat")["entry"]["id"] == "m1"
+    assert resolve(desk, "inbox#1", channel="chat")["entry"]["id"] == "m1", "the conversation's own shell"
+
+
+def test_a_subject_with_a_link_reads_back_as_it_was_written(tmp_path, monkeypatch):
+    desk = tsm.Desk(tmp_path, monkeypatch)
+    subjects = ["Offer at www.shop.example now", "See https://track.example/o?t=abc123 ok", "Plain subject", "x" * 300, "a  b\t\n c"]
+    desk.providers.mail["gmail"] = [tsm.message(n, f"2026-10-{20 - n:02d}T09:00:00Z", subject=subject) for n, subject in enumerate(subjects, 1)]
+    desk.mail("inbox")
+    written = [entry["subject"] for entry in desk.manifest("inbox")["index"]]
+    assert written[0] == "Offer at <link: www.shop.example> now"
+    assert [resolve(desk, f"inbox#{n}")["entry"]["subject"] for n in range(1, 6)] == written
+    for subject in written:
+        assert item_refs._subject(subject) == subject, "reading back twice changes nothing"
+    assert item_refs._subject("one \u202e two\u200b\x00 three") == "one two three" and item_refs._subject(None) == ""
