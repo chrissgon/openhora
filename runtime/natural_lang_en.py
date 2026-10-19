@@ -224,6 +224,7 @@ TABLE = {
             "deps": [r"install( the)? dependencies"],
             "verdict": [r"(record|give) a verdict"],
             "proof": [r"show( the)? proof"],
+            "items": [r"my (emails|e mails|events|appointments)", r"(list|show)( me)?( my)? (emails|e mails|events|appointments)", r"(what|which) (emails|e mails|events|appointments)( do i have| came in)?"],
             "mail-send": [r"send( an| a| the)? (e mail|email)"],
             "mail-reply": [r"reply to( the| an| a)? (e mail|email)"],
             "mail-draft": [r"draft( an| a| the)? (e mail|email)"],
@@ -252,7 +253,7 @@ TABLE = {
         # regular expression means anything by), never an expression. The family `mail` is filled by NR-5b.
         "writes": {
             "polite": ["please", "pls", "can you", "could you", "would you", "hey", "hi"],
-            "articles": ["a", "an", "the", "my", "our", "your"],
+            "articles": ["a", "an", "the", "my", "our", "your", "new"],
             "joiners": ["and"],
             "range": ["to", "through", "thru"],
             "service_in": ["on", "in", "to", "via", "using", "from", "on my", "in my", "to my", "from my"],
@@ -263,12 +264,13 @@ TABLE = {
             "calendar": {
                 "in_calendar": ["on my", "in my", "on the", "in the", "to my", "to the"],
                 "calendar_after": ["calendar"],
-                "range_from": ["from", "between"],
-                "range_to": ["to", "until", "till", "and", "through"],
+                "range_from": ["from"],
+                "range_to": ["to", "until", "till", "through"],
                 "all_day": ["all day", "the whole day", "the entire day"],
                 "change_verbs": ["reschedule", "move", "change", "shift", "postpone"],
                 "cancel_verbs": ["cancel", "delete", "remove", "drop"],
                 "nouns": ["event", "meeting", "appointment"],
+                "nouns_plural": ["events", "meetings", "appointments", "calendar"],
                 "to_time": ["to", "for"],
                 "rename": ["rename", "retitle", "change the title of", "change the name of"],
                 "rename_to": ["to"],
@@ -293,7 +295,7 @@ TABLE = {
                 "newest": [],
             },
             "files": {
-                "create_verbs": ["create", "make", "save", "write", "new"],
+                "create_verbs": ["create", "make", "save", "write"],
                 "replace_verbs": ["replace", "swap", "overwrite", "update"],
                 "save_verbs": ["save", "upload", "store", "put", "keep"],
                 "nouns": ["file", "document", "note", "doc", "text file"],

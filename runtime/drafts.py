@@ -10,11 +10,13 @@ and each of those waits for the NEXT line of the same sender on the same channel
 question replaces the old one), for ten minutes, lost on a restart, never logged, never in the store, never written to a file. The reminders' words are in
 a draft only until it is answered or swept (limit L51).
 
-Two kinds of owner keep a draft here, and each sees only its own:
+Three kinds of owner keep a draft here, and each sees only its own:
 
   "remind"   the questions of the reminders (runtime/natural.py `draft` shapes: need confirm, time, reading, text, kind, forget...), asked by the messaging
              bridge (runtime/messaging_remind.py, whose `drafts` is a `View` of this store) or by the operations layer for a reminder the router chose
   "ops"      the choice of a file for a question to `ask` (runtime/ops_natural.py)
+  "write"    the open question of a write to the person's own accounts asked in words (package NR-5, runtime/ops_natural_writes.py): the slots read so far, the question and
+             the person's lines (for the check that no slot was guessed); memory only, ten minutes, one per channel and sender, so it replaces a reminder question and the other way round
 
 `put(channel, sender, draft, owner)`, `get(channel, sender, owner)`, `pop(channel, sender, owner)`, `drop(channel, sender)` and `sweep(now, seconds)`. A draft
 carries its own clock (`at`, a monotonic time) when its owner keeps one; the operations layer's drafts carry `expires`, and `get` treats an expired one as
@@ -31,7 +33,7 @@ import time
 
 TTL = 600.0            # seconds an operations-layer draft waits (the bridge's reminders keep their own clock and sweep: DRAFT_SECONDS)
 MAX = 50               # drafts in memory: the oldest goes first
-OWNERS = ("remind", "ops")
+OWNERS = ("remind", "ops", "write")
 clock = time.monotonic   # a test replaces it
 _LOCK = threading.RLock()
 _DRAFTS = {}            # (channel, sender) -> {"owner", "draft": {...}}

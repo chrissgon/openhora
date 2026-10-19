@@ -79,6 +79,7 @@ ON_SYSTEM_PYTHON = [
     "runtime/ops_natural.py", "runtime/source_resolve.py", "runtime/drafts.py",
     # Natural writes (NR-5): the pure families and the card-opening path.
     "runtime/natural_writes.py", "runtime/natural_writes_calendar.py", "runtime/natural_writes_files.py", "runtime/ops_natural_writes.py",
+    "runtime/ops_natural_calendar.py", "runtime/ops_natural_files.py", "runtime/ops_items.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state
     "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py", "runtime/ops_cancel.py", "runtime/run_stop.py",
     # S16: the password-manager backends, loaded by path by the resolver, which the runtime loads under the system interpreter too.

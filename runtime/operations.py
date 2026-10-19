@@ -335,6 +335,12 @@ OPERATIONS = (
      "help": "the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime"},
     {"name": "attachments", "call": "attachments", "args": (), "channels": ("terminal", "chat", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "the files people sent through a messaging app (from a messaging app, only the ones you sent): those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder"},
+    # NR-5 (Q6): the numbered items of the mail and calendar snapshots, so that "the e-mail 3" has something to point to on a phone. Private: the terminal and the page, and a
+    # messaging sender only with the group ask-mail (the operation asks item_refs.may_read); never on the MCP mode.
+    {"name": "items", "call": "items",
+     "args": ({"name": "kind", "kind": "choice", "choices": ("mail", "calendar")}, {"name": "source", "kind": "str"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "the numbered items of the newest snapshot of each mail or calendar source (--kind mail|calendar and --source <id> narrow it): a message by its sender and subject, an event by its line, numbered as the references <source>#<n> number them; a messaging sender needs the group ask-mail; nothing is called and nothing is written"},
     {"name": "attachment-hold", "call": "attachment_hold",
      "args": ({"name": "incoming", "kind": "str", "required": True},
               {"name": "platform", "kind": "str", "required": True, "flag": "messenger-platform"},
@@ -508,7 +514,7 @@ CHAT_OWN = (
 # covers the ceiling's share of it. Pure literals, like the table.
 GROUPS = {
     "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
-                            "flows", "flow-check", "routines", "instructions", "conversation", "connections", "version", "config", "commands", "artifact-raw"),
+                            "flows", "flow-check", "routines", "instructions", "conversation", "connections", "version", "config", "commands", "artifact-raw", "items"),
              "kind": None},
     # POL-2: what a limited reader sees on a messaging app: `read` without the spend (costs, agents' caps and spend), the connections and
     # the configuration, and without `task` and `progress`, which carry a run's cost. A profile lists `read` or `read-limited`, not both.

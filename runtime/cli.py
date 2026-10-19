@@ -60,6 +60,7 @@ Usage:
   python3 runtime/cli.py source-calendar --project <dir> --source <id> [--origin google:calendar=<id>;past=<0-7>;ahead=<0-31> | outlook:calendar=<default|id>;past=<0-7>;ahead=<0-31>] [--description <text>]
   python3 runtime/cli.py sources  --project <dir>
   python3 runtime/cli.py attachments --project <dir>
+  python3 runtime/cli.py items --project <dir> [--kind mail|calendar] [--source <id>]
   python3 runtime/cli.py attachment-add --project <dir> --id <attachment id>
   python3 runtime/cli.py attachment-discard --project <dir> --id <attachment id>
   python3 runtime/cli.py remind --project <dir> --when <HH:MM | YYYY-MM-DD HH:MM | in <n>m|h|d> (--text <words> | --text-file <path>) --to <platform>:<sender id>
@@ -322,6 +323,9 @@ sources   the catalog of the sources: each one's newest version (name, type, siz
 attachments  the files people sent through a messaging app that wait for your answer (what each is, the source it would become, when it expires), the
           latest decisions, the day's count and the limits. A held file lives in the data folder, never in a run, a prompt or the sources
           folder; it is deleted when it is added, refused, discarded or after 7 days. It calls no model.
+items     the numbered items of the newest snapshot of each mail or calendar source (--kind and --source narrow it): a message by its sender and subject, an event by
+          its line, numbered as the references <source>#<n> number them, so that "the e-mail 3" and "event 2" of a line in words point to something you can see. A
+          snapshot older than 26 hours is not listed (refresh it first). Private: another person's words. Nothing is written and no model is called.
 attachment-add  adds a held file (--id) as a source of the project, or as the next version of the source it names: the same container with no
           network, credential scan and immutable version as source-import, with where it came from (the platform and the profile, never
           who sent it). The held file is deleted whatever the result.

@@ -333,6 +333,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
 | `attachments` | - | `attachments` |
+| `items` | `[--kind]` `[--source]` | `items` |
 | `attachment-add` | `--id` | `attachment_add` |
 | `attachment-discard` | `--id` | `attachment_discard` |
 | `remind` | `--when` `--text \| --text-file` `[--to]` | `remind` |
@@ -476,6 +477,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/sources/{name}/refresh/files` | `source-refresh` | `source_id` from `{name}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/sources/{name}/description` | `source-describe` | `source_id` from `{name}` | `description` | - | - |
 | GET | `/projects/{p}/attachments` | `attachments` | - | none | - | - |
+| GET | `/projects/{p}/items` | `items` | - | `source` | - | - |
 | POST | `/projects/{p}/attachments/{id}/add` | `attachment-add` | `attachment_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/attachments/{id}/discard` | `attachment-discard` | `attachment_id` from `{id}` | every other argument | - | - |
 | GET | `/projects/{p}/reminders` | `reminders` | - | none | - | - |

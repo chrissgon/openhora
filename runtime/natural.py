@@ -297,7 +297,8 @@ def _draft(need, how, line, text, readings=None, day=None, doubt=False):
 
 
 def understand(line, now, how="trigger", languages=None, trust=False, confirm=False):
-    """The reminder `line` asks for at the clock `now` (see the module's text). `how` is "trigger", "bare", "note" or "command". `trust` is true when the person has
+    """The reminder `line` asks for at the clock `now` (see the module's text). `how` is "trigger", "bare", "note", "command" or "write" (package NR-5: the caller has cut the head of
+    a write to the person's accounts, there is no trigger to cut, and the words that are left are the event's title). `trust` is true when the person has
     just answered a question about this line, so that a word the parse did not use is not asked about again; `confirm` makes the reading a confirmation whatever the line
     says (the answer to "which day next week?" is always shown with the day it resolved to)."""
     tables = _tables(languages)
@@ -343,7 +344,7 @@ def understand(line, now, how="trigger", languages=None, trust=False, confirm=Fa
     reading = parsed["reading"]
     if reading.get("relative") and reading["relative"].endswith("d") and int(reading["relative"][3:-1]) <= 366 and not any(h["kind"] == "clock" for h in found["hits"]):
         return {"ask": _draft("time", how, text, words, day=nt._info(datetime.date.fromisoformat(reading["date"]), now))}          # "in 3 days": the day, and the hour is asked
-    shipped = trigger is not None and how in ("trigger", "note")
+    shipped = (trigger is not None and how in ("trigger", "note")) or how == "write"          # a write's head ("marca", "put on my calendar") was cut by the caller and is a shipped trigger
     dated = any(h["kind"] in ("date", "slash", "relative") for h in found["hits"])
     guard = nt.leftover_doubt(found, trigger, tables, unknown=how != "command" and not shipped and not dated)
     doubt = confirm or (not trust and (bool(parsed.get("vague")) or reading["assumed_year"] or flagged or guard))
@@ -870,7 +871,7 @@ CLASSES = {
     # R: reads
     "status": "R", "progress": "R", "pending": "R", "task": "R", "agents": "R", "skills": "R", "costs": "R", "artifacts": "R", "artifact": "R",
     "instructions": "R", "routines": "R", "sources": "R", "attachments": "R", "reminders": "R", "flows": "R", "flow-check": "R",
-    "connections": "R", "commands": "R",
+    "connections": "R", "commands": "R", "items": "R",
     # N: a notice and the person's own writes
     "remind": "N", "reminder-forget": "N", "reminder-restore": "N",
     # W: confirmed writes
@@ -897,7 +898,7 @@ CLASSES = {
 PLANNED = ()
 CANDIDATE_OPS = {"calendar-event-create": "event-create"}
 
-# A slot: "<slot the router writes>": [kind, the parameter of the operation it fills]. Kinds: int (digits written in the line), word (a piece of the line as it
+# A slot: "<slot the router writes>": [kind, the parameter of the operation it fills]. Kinds: int (digits written in the line), ints (several integers, each written in the line), word (a piece of the line as it
 # is written: an id, a path), span (a span of the normalised line: a text), when (the router's normalised time, the typed `When:` line).
 NATURAL = {
     "status": {"slots": {}, "what": "where the work stands"},
@@ -918,6 +919,7 @@ NATURAL = {
     "flow-check": {"slots": {"flow": ["word", "flow"]}, "what": "the check of one flow"},
     "connections": {"slots": {}, "what": "which provider each requirement class resolves to"},
     "commands": {"slots": {}, "what": "what can be asked and the commands"},
+    "items": {"slots": {}, "what": "the numbered messages and events of the mail and calendar snapshots"},
     "remind": {"slots": {"text": ["span", "text"], "when": ["when", "when"]}, "what": "a reminder sent back once at a time"},
     "reminder-forget": {"slots": {"id": ["int", "reminder_id"]}, "what": "cancel a reminder that waits"},
     "reminder-restore": {"slots": {"id": ["int", "reminder_id"]}, "what": "bring back a reminder cancelled a moment ago"},
@@ -935,19 +937,19 @@ NATURAL = {
     "release": {"slots": {"id": ["int", "pending_id"]}, "what": "release a delivery (from its card)"},
     "answer": {"slots": {"id": ["int", "pending_id"]}, "what": "answer a question a task asked (from its card)"},
     "go-ahead": {"slots": {"id": ["int", "task_id"]}, "what": "go ahead on a task that waits for another request"},
-    "event-create": {"slots": {}, "what": "a card that creates an event on the person's own calendar"},
-    "event-change": {"slots": {}, "what": "a card that changes an event of the person's own calendar"},
-    "event-cancel": {"slots": {}, "what": "a card that removes an event of the person's own calendar"},
-    "mail-send": {"slots": {}, "what": "a card that sends an e-mail from the person's own account"},
-    "mail-reply": {"slots": {}, "what": "a card that sends a reply to an e-mail"},
-    "mail-draft": {"slots": {}, "what": "a card that saves a draft in the person's own mailbox"},
-    "mail-archive": {"slots": {}, "what": "a card that takes messages out of the inbox"},
-    "mail-move": {"slots": {}, "what": "a card that moves messages to a folder"},
-    "mail-mark": {"slots": {}, "what": "a card that marks messages read or unread"},
-    "mail-trash": {"slots": {}, "what": "a card that moves messages to the trash"},
-    "file-create": {"slots": {}, "what": "a card that creates a file in the person's own drive"},
-    "file-replace": {"slots": {}, "what": "a card that writes a new revision of a file that is a source"},
-    "file-save": {"slots": {}, "what": "a card that saves a file someone sent"},
+    "event-create": {"slots": {"title": ["span", "title"], "time": ["span", "start"], "calendar": ["word", "calendar"], "service": ["word", "account"]}, "what": "a card that creates an event on the person's own calendar"},
+    "event-change": {"slots": {"event": ["int", "event"], "time": ["span", "start"], "title": ["span", "title"]}, "what": "a card that changes an event of the person's own calendar"},
+    "event-cancel": {"slots": {"event": ["int", "event"]}, "what": "a card that removes an event of the person's own calendar"},
+    "mail-send": {"slots": {"to": ["word", "to"], "subject": ["span", "subject"], "body": ["span", "text"]}, "what": "a card that sends an e-mail from the person's own account"},
+    "mail-reply": {"slots": {"message": ["int", "message"], "body": ["span", "text"]}, "what": "a card that sends a reply to an e-mail"},
+    "mail-draft": {"slots": {"to": ["word", "to"], "subject": ["span", "subject"], "body": ["span", "body"], "message": ["int", "message"]}, "what": "a card that saves a draft in the person's own mailbox"},
+    "mail-archive": {"slots": {"messages": ["ints", "messages"]}, "what": "a card that takes messages out of the inbox"},
+    "mail-move": {"slots": {"messages": ["ints", "messages"], "folder": ["word", "folder"]}, "what": "a card that moves messages to a folder"},
+    "mail-mark": {"slots": {"messages": ["ints", "messages"], "state": ["span", "state"]}, "what": "a card that marks messages read or unread"},
+    "mail-trash": {"slots": {"messages": ["ints", "messages"]}, "what": "a card that moves messages to the trash"},
+    "file-create": {"slots": {"name": ["word", "file_name"], "content": ["span", "content"], "folder": ["word", "folder"]}, "what": "a card that creates a file in the person's own drive"},
+    "file-replace": {"slots": {"file": ["span", "file"], "content": ["span", "content"]}, "what": "a card that writes a new revision of a file that is a source"},
+    "file-save": {"slots": {"attachment": ["int", "attachment"], "folder": ["word", "folder"]}, "what": "a card that saves a file someone sent"},
     "give-consent": {"slots": {}, "what": "the consent an autonomous agent needs"},
     "set-mode": {"slots": {}, "what": "move an agent's autonomy mode"},
     "set-model": {"slots": {}, "what": "fix an agent to a model"},
@@ -1001,7 +1003,8 @@ NATURAL = {
 #
 # Each language table (runtime/natural_lang_<tag>.py) holds a key `requests`: {"forms": {operation: [regular expression, ...]}, "aliases": [[word, ...], ...] (words
 # for one kind of document, for runtime/source_resolve.py), "cues": [...] (words that say "a file"), "generic": [...] (words that never name a source), "short_stop":
-# [...] (function words of the language), "yes": [...] and "no": [...] (the words of a confirmation that the table of `answers` does not hold, in any script)}.
+# [...] (function words of the language), "yes": [...] and "no": [...] (the words of a confirmation that the table of `answers` does not hold, in any script), "writes": {...} (the lists of phrases of the natural writes, package NR-5:
+# runtime/natural_writes.py `check_writes` reads it; here it is only checked to be an object)}.
 # A form is matched against the WHOLE line, lower case, no accent, every run of other characters one space (`ascii_normal`); it has NO open tail: a verb, the
 # object it acts on and a closed ending, so that a request for work that starts with the same words is never taken (a line that no form matches goes on to
 # the router). The only argument a form gives is an integer, the group `n`. The table of EVERY language is tried on EVERY line, as for the time words.
@@ -1147,10 +1150,13 @@ def needs(line: str, languages=None):
 
 
 def private(line: str, languages=None) -> bool:
-    """Whether the line is a reminder asked in words (`candidate` says `remind`): the conversation stores a neutral word for it, as the words are the person's
-    private ones (limit L51)."""
+    """Whether the line is a reminder asked in words (`candidate` says `remind`) or a write to the person's accounts (runtime/natural_writes.py `candidate`): the conversation
+    stores a neutral word for it, as the words are the person's private ones (limits L51 and L61)."""
     found = candidate(line, languages)
-    return found is not None and found["op"] in PRIVATE
+    if found is not None and found["op"] in PRIVATE:
+        return True
+    import importlib
+    return importlib.import_module("natural_writes").candidate(line, languages) is not None          # a write to the person's accounts (package NR-5, limit L61)
 
 
 def confirm_kind(said, languages=None):
@@ -1194,6 +1200,11 @@ def check_operation(name, slots: dict, when, line) -> dict:
             if not (words.isascii() and words.isdigit() and len(words) <= 9) or int(words) not in _numbers(line):
                 return {"ok": False, "why": f"the argument {slot!r} is not a number written in the line"}
             args[param] = int(words)
+        elif kind == "ints":
+            parts = [p for p in re.split(r"[\s,;]+", words.strip()) if p]
+            if not parts or len(parts) > 20 or not all(p.isascii() and p.isdigit() and len(p) <= 9 and int(p) in _numbers(line) for p in parts):
+                return {"ok": False, "why": f"the argument {slot!r} is not a list of numbers written in the line"}
+            args[param] = [int(p) for p in parts]
         elif kind == "word":
             tokens = [t.strip(WORD_EDGE) for t in unicodedata.normalize("NFKC", line).split()]      # a whole word of the line, as written: never a piece inside a longer word
             if not WORD_RE.fullmatch(words) or words not in tokens:

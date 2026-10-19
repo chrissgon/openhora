@@ -33,8 +33,10 @@ The family interface:
         {"say": {"sentence_key", "fields"}}                      a final sentence: nothing is opened (nothing found, nothing held, a recurrence)
         `said` is the list of the person's lines so far (the provenance of a text slot). Nothing is read from a project that the caller may not read: a reference into a
         snapshot is resolved with `channel` and `sender`, and a message is listed only after `item_refs.read_index` allowed it
-  natural_writes_<family>.answer(need, line, slots, tables, now) -> {"slots": {...}} | None      (optional)
-        the answer to a question of the family that the generic answers of runtime/ops_natural_writes.py (an option, a text, an address, a file name, a time) do not take
+  natural_writes_<family>.NEEDS = (need, ...)        (optional) the needs the family answers itself
+  natural_writes_<family>.answer(need, line, slots, tables, now, options=None) -> {"slots": {...}} | None      (optional)
+        the answer to a question whose need is in NEEDS, tried BEFORE the generic answers of runtime/ops_natural_writes.py (an option by number or word, a text, a number, a time);
+        `options` are the options the question stored ([{"value", "label"}], what the person was shown), so that an answer can be a number the person was shown. None: not an answer
 
 The shape of a draft, the order of the questions and the answers to them are runtime/ops_natural_writes.py's. The helpers below (`Line`, `numbers`, `service`,
 `reminder_outside`) are for the families.
@@ -44,6 +46,7 @@ The shape of a draft, the order of the questions and the answers to them are run
   read(line, now=None, languages=None, op=None)   the family's reading plus {"family"}; with `op` the family of that operation reads the line with the operation fixed
                                     (the seed of a question answered "event", and the router's hint)
   check_writes(table)               ValueError(sentence) when `requests.writes` of a language table is not of the shape of SECTIONS
+  problems(op, args, said, accounts, offered, now)   why the arguments of a write about to be opened are not all from the person's lines (the provenance check of the fuzz)
 
 Standard library only. Runs on Python 3.9: python3 runtime/natural_writes.py --help
 """
@@ -79,7 +82,7 @@ MENTION = re.compile(r"(?:^|\s)@\S")      # an `@id` mention of a source; an add
 TOP_KEYS = ("polite", "articles", "joiners", "range", "service_in")
 SECTIONS = {
     "services": ("google", "microsoft"),
-    "calendar": ("in_calendar", "calendar_after", "range_from", "range_to", "all_day", "change_verbs", "cancel_verbs", "nouns", "to_time", "rename", "rename_to"),
+    "calendar": ("in_calendar", "calendar_after", "range_from", "range_to", "all_day", "change_verbs", "cancel_verbs", "nouns", "nouns_plural", "to_time", "rename", "rename_to"),
     "mail": ("send_verbs", "reply_verbs", "draft_verbs", "archive_verbs", "move_verbs", "mark_verbs", "trash_verbs", "nouns", "plural", "to", "subject", "body", "of",
              "folder", "read", "unread", "newest"),
     "files": ("create_verbs", "replace_verbs", "save_verbs", "nouns", "named", "content", "folder", "this", "held_nouns", "gdoc", "text_words", "of", "replace_with"),
@@ -147,6 +150,17 @@ class Line:
             return ""
         return self.text[self.origin[start]:self.origin[end - 1] + 1].strip()
 
+    def without(self, ranges) -> str:
+        """The line with the folded ranges taken out (each cut leaves one space), in the person's own characters; overlapping ranges are one."""
+        spans = sorted((self.origin[s], self.origin[e - 1] + 1) for s, e in ranges if 0 <= s < e <= len(self.origin))
+        merged = []
+        for s, e in spans:
+            if merged and s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(e, merged[-1][1]))
+            else:
+                merged.append((s, e))
+        return nt.without(self.text, merged)
+
     def find(self, phrases, start: int = 0, end=None):
         """(s, e), in the folded line, of the first place at or after `start` (before `end`) where a phrase of `phrases` stands as whole words; the longest phrase at that
         place wins. None when there is none."""
@@ -172,7 +186,7 @@ class Line:
             return None
         polite = sorted({p for t in tables for p in writes_of(t).get("polite", []) + t.get("polite", [])}, key=lambda p: (-len(p), p))
         lead = nt._alt(polite)
-        pre = f"(?:{lead}\\s+)*" if lead else ""
+        pre = f"(?:{lead}(?![a-z0-9])[\\s,;:]*)*" if lead else ""          # a comma after a polite word is part of it ("por favor, marca ...")
         m = re.match(f"[^a-z0-9@]*{pre}{alt}(?![a-z0-9])", self.norm)
         if m:
             best = m.end()
@@ -266,6 +280,14 @@ def service(line: Line, tables: list, start: int = 0, end=None):
     return account, found[account][0], found[account][1]
 
 
+def items_kind(line, languages=None) -> str:
+    """"calendar" when the line that asks for the numbered items names events (`requests.writes.calendar` nouns, singular or plural), else "mail"."""
+    tables = _tables(languages)
+    shaped = Line(line if isinstance(line, str) else "")
+    names = listed(tables, "calendar", "nouns") + listed(tables, "calendar", "nouns_plural")
+    return "calendar" if shaped.find(names) else "mail"
+
+
 def reminder_outside(line: Line, tables: list, ranges: dict) -> bool:
     """Whether the line holds a reminder trigger ("me lembra") that is not inside one of the text spans the family took (`ranges`, folded): a body that says "me lembra"
     is a body, a line that also asks for a reminder is two requests and no write form."""
@@ -277,6 +299,111 @@ def reminder_outside(line: Line, tables: list, ranges: dict) -> bool:
     if head is not None:
         spots.append((0, head))
     return any(not any(s >= rs and e <= re_ for rs, re_ in ranges.values()) for s, e in spots)
+
+
+# --- the provenance check (the fuzz of tests/test_natural_writes_dialogues.py reads it) ---------------------------------------------------------------------
+
+TEXT_ARGS = ("title", "subject", "text", "body", "content", "file_name", "name")
+SECTION_OF = {"event-create": "calendars", "event-change": "calendars", "event-cancel": "calendars", "file-create": "folders", "file-replace": "folders", "file-save": "folders"}
+
+
+def _words(text) -> list:
+    return natural.normal(text).split()
+
+
+def _subsequence(small: list, big: list) -> bool:
+    it = iter(big)
+    return all(word in it for word in small)
+
+
+def _contiguous(small: list, big: list) -> bool:
+    n = len(small)
+    return n > 0 and any(big[i:i + n] == small for i in range(len(big) - n + 1))
+
+
+def problems(op: str, args: dict, said: list, accounts: dict, offered: dict, now, languages=None) -> list:
+    """Why the arguments of a write the code is about to open are not all from the person: [] when every slot traces to one of the person's lines (`said`), to a name of the
+    configuration (`accounts`: the checked `accounts` object, with its `default`), or to an option code listed and the person chose (`offered`: {"numbers": ids of the files
+    and events code listed, "sources": ids of the file sources code listed, "source_accounts": the accounts of the calendar sources code listed}). A span slot is the person's
+    words in order (a body, a content and a file name are one contiguous run of a line); a number is written in a line or was listed; an account is named in a line, is the only
+    one that has what the operation needs, is the default, or was picked among the options; a calendar or folder is a configured name written in a line or picked; a time is a
+    reading of the time engine on the person's words."""
+    tables = _tables(languages)
+    out = []
+    lines = [natural.normal(s) for s in said]
+    line_words = [l.split() for l in lines]
+    digits = {int(d) for l in lines for d in re.findall(r"[0-9]+", l) if len(d) <= 9}
+    picks = any(re.fullmatch(r"[0-9]{1,2}", l) for l in lines)
+    for key, value in args.items():
+        if key in TEXT_ARGS:
+            words = _words(str(value).removesuffix(".gdoc") if key == "file_name" else value)
+            contiguous = key in ("body", "content", "text", "subject", "file_name", "name")
+            check = _contiguous if contiguous else _subsequence
+            if not words or not any(check(words, w) for w in line_words):
+                out.append(f"{key} is not the person's words: {value!r}")
+        elif key in ("start", "end"):
+            out += _time_problems(key, str(value), said, now, tables)
+        elif key in ("event", "attachment"):
+            n = value if isinstance(value, int) else int(str(value).rsplit("#", 1)[-1])
+            if n not in digits and n not in offered.get("numbers", ()):
+                out.append(f"{key} {n} is not written in a line nor listed")
+        elif key == "file":
+            if value not in offered.get("sources", ()):
+                out.append(f"file {value!r} is not a source code listed")
+        elif key == "account":
+            out += _account_problems(op, value, lines, accounts, offered, picks, tables)
+        elif key in ("calendar", "folder"):
+            section = "calendars" if key == "calendar" else "folders"
+            listed = ((accounts.get(args.get("account")) or {}).get(section)) or {}
+            if value not in listed or not (any(value in w for w in line_words) or picks):
+                out.append(f"{key} {value!r} is not a configured name written or picked")
+        else:
+            out.append(f"{key} is not a slot of a natural write")
+    return out
+
+
+def _account_problems(op, value, lines, accounts, offered, picks, tables) -> list:
+    if value not in ("google", "microsoft"):
+        return [f"account {value!r} is not an account"]
+    names = {w for p in listed(tables, "services", value) for w in p.split()}
+    if any(set(l.split()) & names for l in lines):
+        return []          # named in a line: an account the file does not list is refused by the operation itself, with its sentence
+    if value not in accounts:
+        return [f"account {value!r} is not configured and was not named"]
+    section = SECTION_OF.get(op)
+    qualifying = [a for a in ("google", "microsoft") if a in accounts and (accounts[a].get(section) if section else True)]
+    if value in offered.get("source_accounts", ()) or qualifying == [value] or (accounts.get("default") == value and value in qualifying) or (picks and len(qualifying) > 1):
+        return []
+    return [f"the account {value} was guessed: {len(qualifying)} qualify, none was named, chosen or the default"]
+
+
+def _time_problems(key, value, said, now, tables) -> list:
+    """A start or end whose date and time are not a reading of the engine on the person's words (some window of consecutive lines)."""
+    day, _, clock = value.partition("T")
+    seen_days, seen_times = set(), set()
+    for i in range(len(said)):
+        for j in range(i + 1, len(said) + 1):
+            text = " ".join(said[i:j])
+            found = nt.find(text, tables)
+            for hit in found["hits"]:
+                if hit["kind"] == "clock":
+                    seen_times |= {f"{h:02d}:{m:02d}" for h, m in hit["times"]}
+            parsed = nt.parse(text, now, tables)
+            readings = []
+            if parsed and "when" in parsed:
+                readings = [parsed["reading"]]
+            elif parsed and "ask" in parsed:
+                readings = list(parsed["ask"])
+            elif parsed and parsed.get("day"):
+                seen_days.add(parsed["day"]["date"])
+            for r in readings:
+                seen_days.add(r["date"])
+                seen_times.add(r["time"])
+    if not clock:
+        return [] if day in seen_days else [f"{key} {value}: the day is not a reading of the person's words"]
+    if key == "end":
+        return [] if clock in seen_times else [f"{key} {value}: the time is not written"]
+    return [] if day in seen_days and clock in seen_times else [f"{key} {value}: not a reading of the person's words"]
 
 
 # --- recognition -------------------------------------------------------------------------------------------------------------------------------------

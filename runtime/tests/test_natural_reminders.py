@@ -325,7 +325,7 @@ def test_a_question_stores_nothing_and_keeps_nothing_and_an_answer_to_it_makes_t
     assert ops.remind(world.path, channel="messaging", sender=SENDER, said="something else entirely", draft=retry["ask"]) == {"declined": True}
     kind = ops.remind(world.path, channel="messaging", sender=SENDER, said="violin class tomorrow 1pm", how="bare")["ask"]
     assert kind["need"] == "kind" and len(world.rows()) == 1
-    assert ops.remind(world.path, channel="messaging", sender=SENDER, said="agenda", draft=kind) == {"event": True} and len(world.rows()) == 1
+    assert ops.remind(world.path, channel="messaging", sender=SENDER, said="agenda", draft=kind)["event"] is True and len(world.rows()) == 1
     assert ops.remind(world.path, channel="messaging", sender=SENDER, said="reminder", draft=kind)["reminder"]["text"] == "violin class"
 
 

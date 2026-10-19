@@ -17,7 +17,10 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
   {"kind": "natural", "op": ..., "how": ..., "text": "..."}   a line in the person's own words that code matched to an operation, with no model (NR-1,
                                                       runtime/natural.py): op "remind" (how "trigger" | "bare" | "note" | "command"), "reminders", "reminder-forget"
                                                       (with "id": n, or "words": what was said of it, or "many") or "calendar-event-create" (planned; how "trigger" or "ask"); `/remind <rest>` that the strict grammar above
-                                                      does not claim is one too (how "command"). The time is worked out by the operation, with the clock
+                                                      does not claim is one too (how "command"). The time is worked out by the operation, with the clock. A line that asks for a
+                                                      write to the person's own accounts (NR-5, runtime/natural_writes.py: an event, a file; a family module reads each form) is
+                                                      {"kind": "natural", "op": "write", "write": <the operation>, "text"}: it is read and asked back by code, never by a model,
+                                                      and only OPENS the card of its exact content
   {"kind": "reminders"} {"kind": "forget", "id": 3}   /reminders, /forget <n>
   {"kind": "pending"} {"kind": "project", "name": ""} {"kind": "help"}
   {"kind": "reply", "reply_to": "<message id>", "text": "..."}   a reply to a message, not a command
@@ -39,6 +42,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import natural  # noqa: E402  (the same folder: a line in the person's own words, matched by code to an operation; package NR-1)
+import natural_writes  # noqa: E402  (the same folder: a line that asks for a write to the person's accounts; package NR-5)
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language; the bridge says them, this module only names them)
 import reminders  # noqa: E402  (the same folder: the pure part of a reminder, which reads the words after /remind)
 
@@ -117,6 +121,9 @@ def parse(update: dict) -> dict:
         if name in ("help", "start"):
             return {"kind": "help"}
         return {"kind": "text", "text": text}
+    written = natural_writes.candidate(text)          # a write to the person's accounts (NR-5): before the reminders' intents, so that "marca o e-mail 3 como lido" is a mail form
+    if written:
+        return {"kind": "natural", "op": "write", "write": written["op"], "how": "trigger", "text": text}
     named = natural.candidate(text)          # before the reply gesture: a reminder asked as a reply to a message is still a reminder (NR-1)
     if named:
         return {"kind": "natural", "text": text, **named}

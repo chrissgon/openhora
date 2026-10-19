@@ -184,6 +184,8 @@ TABLE = {
             "deps": [r"(instala|instale)( as)? dependencias"],
             "verdict": [r"(registra|registre) (um )?veredito"],
             "proof": [r"(mostra|mostre)( a)? prova"],
+            "items": [r"(meus|minhas) (e mails|emails|eventos|compromissos)", r"(lista|liste|mostra|mostre)( os| as| meus| minhas)? (e mails|emails|eventos|compromissos)",
+                      r"(quais|que) (e mails|emails|eventos|compromissos)( eu tenho| chegaram| tenho)?"],
             "mail-send": [r"(manda|mande|mandar|envia|envie|enviar)( um| uma| o| a)? (e mail|email)"],
             "mail-reply": [r"(responde|responda|responder)( ao| a| o)? (e mail|email)"],
             "mail-draft": [r"(rascunha|rascunhe)( um| uma| o| a)? (e mail|email)"],
@@ -205,7 +207,7 @@ TABLE = {
         # caractere que uma expressao regular entenda), nunca uma expressao. A familia `mail` e preenchida pelo NR-5b.
         "writes": {
             "polite": ["por favor", "pf", "pode", "poderia", "consegue", "oi", "ola", "ei"],
-            "articles": ["o", "a", "os", "as", "um", "uma", "uns", "umas", "meu", "minha", "meus", "minhas", "ao", "aos"],
+            "articles": ["o", "a", "os", "as", "um", "uma", "uns", "umas", "meu", "minha", "meus", "minhas", "ao", "aos", "novo", "nova"],
             "joiners": ["e"],
             "range": ["a", "ate"],
             "service_in": ["no", "na", "pelo", "pela", "via", "usando", "pro", "pra"],
@@ -216,12 +218,13 @@ TABLE = {
             "calendar": {
                 "in_calendar": ["na agenda", "no calendario", "na agenda de", "na agenda do", "na agenda da", "no calendario de", "no calendario do", "no calendario da"],
                 "calendar_after": [],
-                "range_from": ["das", "de", "entre as"],
+                "range_from": ["das", "de"],
                 "range_to": ["as", "ate", "ate as", "a"],
                 "all_day": ["dia todo", "o dia todo", "o dia inteiro", "dia inteiro"],
                 "change_verbs": ["remarca", "remarque", "reagenda", "reagende", "muda", "mude", "move", "mova", "adia", "adie", "antecipa", "antecipe"],
                 "cancel_verbs": ["cancela", "cancele", "desmarca", "desmarque", "apaga", "apague", "remove", "remova"],
                 "nouns": ["evento", "reuniao", "compromisso"],
+                "nouns_plural": ["eventos", "reunioes", "compromissos", "agenda", "calendario"],
                 "to_time": ["para", "pra", "pro"],
                 "rename": ["muda o titulo do", "muda o titulo da", "mude o titulo do", "mude o titulo da", "troca o titulo do", "troca o titulo da", "renomeia", "renomeie"],
                 "rename_to": ["para", "pra", "por"],

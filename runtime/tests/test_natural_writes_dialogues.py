@@ -1,0 +1,216 @@
+"""Natural writes: a dialogue fuzz over the question-and-answer machine (package NR-5, SPEC-NATURAL-WRITES 9.1). The rule: a write is opened only with every slot from code, the
+person's own lines or a list code made and the person chose from; a slot that is missing, or that has two readings, is asked and never filled by a guess. For every line of
+the corpus (natural_writes_corpus.jsonl: every operation of the calendar and files families in pt-BR and en, and requests for work that merely start with a write verb), the
+corpus of the other natural families (natural_writes*corpus.jsonl) and both corpora of the reminders (test_natural_corpus.py), and every answer of a list of 40, the dialogue
+is walked two answers deep from a sample and one deep from all, in three configurations (one account; two accounts and no default; two with a default) and three states of the
+snapshots and of the files a sender sent (none, one, two). The open step is a stand-in that records the call; each recorded call must pass `natural_writes.problems`, slot by
+slot. Offline, no model, no network, no writer.
+
+Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_writes_dialogues.py
+"""
+from __future__ import annotations
+
+import copy
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import standin_tree as st
+from test_calendar_write import world  # noqa: F401  (the calendar world: a real project to read the configuration of)
+from test_natural_corpus import clock
+from test_natural_dialogues import lines as reminder_lines
+from test_reminders import Clock
+
+ops = st.load("ops")
+ops_core = st.load("ops_core")
+ops_natural_calendar = st.load("ops_natural_calendar")
+ops_natural_files = st.load("ops_natural_files")
+ops_natural_writes = st.load("ops_natural_writes")
+drafts = st.load("drafts")
+natural = st.load("natural")
+natural_writes = st.load("natural_writes")
+
+HERE = Path(__file__).resolve().parent
+NOW = clock("2026-10-19 09:00")
+CHANNEL = "terminal"
+ANSWERS = ["sim", "yes", "não", "no", "cancela", "cancel", "1", "2", "3", "4", "5", "6", "8h", "às 15h", "9", "21", "amanhã", "sexta", "quinta às 10h", "dia todo", "o dia todo",
+           "all day", "google", "outlook", "microsoft", "work", "personal", "trabalho", "ideias.md", "notas.txt", "documento google", "Dentista da Júlia", "Reunião com o time",
+           "bia@exemplo.example", "um assunto qualquer", "um texto de corpo", "marca outra coisa quinta às 9h", "/status", "lista os e-mails", "hmm"]      # validate: allow english-only -- answers in Portuguese, data of the case
+GOOGLE = {"address": "pat@example.com", "calendars": {"personal": "pat@example.com", "side": "side.calendar@example.com"}, "folders": {"default": "FolderId0001", "cv": "Cv_Folder_0001"},
+          "mail_folders": {"contas": "Label_1"}, "move_removes_inbox": True}
+MICROSOFT = {"address": "casey.rivera@mail.example", "calendars": {"personal": "default", "work": "AAMkWork="}, "folders": {"default": "FolderId0002", "docs": "/Documents/openhora"},
+             "mail_folders": {"contas": "AAMkBox="}, "move_removes_inbox": True}
+CONFIGS = {"one": {"google": GOOGLE}, "two": {"google": GOOGLE, "microsoft": MICROSOFT}, "default": {"google": GOOGLE, "microsoft": MICROSOFT, "default": "google"}}
+STATES = {"none": (0, 0), "one": (1, 1), "two": (2, 2)}
+HELD = [{"id": 11, "name": "Contract.pdf", "kind": "pdf", "bytes": 1000}, {"id": 12, "name": "Minutes.docx", "kind": "docx", "bytes": 2000}]
+CAL_SOURCES = [{"id": "agenda", "account": "google"}, {"id": "trabalho", "account": "google"}]
+FILE_ROWS = [{"id": "lista-de-compras", "type": "drive", "origin": "x1", "description": "", "version": 1, "catalog": {"name": "lista de compras.md", "date": "2026-10-10"}},
+             {"id": "roteiro", "type": "drive", "origin": "x2", "description": "", "version": 1, "catalog": {"name": "roteiro.md", "date": "2026-10-10"}}]
+
+
+def corpus():
+    rows = []
+    for path in sorted(HERE.glob("natural_writes*corpus.jsonl")):
+        rows += [json.loads(raw) for raw in path.read_text(encoding="utf-8").splitlines() if raw.strip()]
+    return rows
+
+
+class Env:
+    """One configuration and state of the world, the recorder of the calls and the walk."""
+
+    def __init__(self, world, monkeypatch, config, state):
+        self.project, self.accounts, self.calls, self.bad = world["path"], config, [], []
+        self.opened = self.asked = 0
+        base = ops_core.context(self.project)
+        self.ctx = dict(base, cfg=dict(base["cfg"], accounts=config))
+        sources_n, files_n = STATES[state]
+        self.sources, self.held = CAL_SOURCES[:sources_n], HELD[:files_n]
+        self.file_rows = FILE_ROWS if files_n else []
+        self.offered = {"numbers": {h["id"] for h in self.held}, "sources": {r["id"] for r in self.file_rows}, "source_accounts": {s["account"] for s in self.sources}}
+        monkeypatch.setattr(ops_natural_calendar, "calendar_sources", lambda ctx: list(self.sources))
+        monkeypatch.setattr(ops_natural_files, "held_files", lambda ctx, channel, sender: list(self.held))
+        monkeypatch.setattr(ops_natural_files, "sources", SimpleNamespace(list_catalog=lambda ctx, hashes=False: list(self.file_rows)))
+        monkeypatch.setattr(ops_natural_writes, "_call_operation", self.record)
+
+    def record(self, project, op, args, channel, sender):
+        self.calls.append((op, dict(args)))
+        return {"request": 1, "task": 1, "pending": 7, "word": "calendar", "on_cards": True}
+
+    def step(self, text):
+        """The messaging bridge's `natural_write` without the seed: the sender's open question first, then the line as a new write. Returns (the reply, whether the line was
+        taken as the answer to the open question)."""
+        extras = {}
+        draft = ops_natural_writes.live(CHANNEL, None)
+        reply = ops_natural_writes.answer(self.project, self.ctx, draft, text, CHANNEL, None, extras) if draft is not None else None
+        taken = reply is not None
+        if reply is None:
+            reply = ops_natural_writes.open_line(self.project, self.ctx, text, CHANNEL, None, extras)
+        if ops_natural_writes.live(CHANNEL, None) is not None:
+            self.asked += 1
+        return reply, taken
+
+    def check(self, said, work=False):
+        for op, args in self.calls:
+            self.opened += 1
+            found = natural_writes.problems(op, args, said, self.accounts, self.offered, NOW)
+            if work:
+                found.append("a request for work opened a write")
+            if found:
+                self.bad.append((said, op, args, found))
+        self.calls.clear()
+
+    def explore(self, said, depth, limit):
+        state = ops_natural_writes.live(CHANNEL, None)
+        if state is None:
+            return
+        snapshot = copy.deepcopy(state)
+        for answer in ANSWERS:
+            drafts.clear()
+            drafts.put(CHANNEL, "", copy.deepcopy(snapshot), "write", ttl=600)
+            self.calls.clear()
+            _, taken = self.step(answer)
+            lines = said + [answer] if taken else [answer]          # a line that answers nothing is a new line of its own
+            self.check(lines)
+            after = ops_natural_writes.live(CHANNEL, None)
+            if depth + 1 < limit and after is not None:
+                self.explore(lines, depth + 1, limit)
+        drafts.clear()
+
+
+@pytest.fixture(autouse=True)
+def forget():
+    drafts.clear()
+    yield
+    drafts.clear()
+
+
+@pytest.fixture
+def moment(monkeypatch):
+    return Clock(monkeypatch, wall="2026-10-19 09:00")
+
+
+@pytest.mark.parametrize("config", sorted(CONFIGS))
+@pytest.mark.parametrize("state", sorted(STATES))
+def test_no_write_is_opened_with_a_guessed_slot(world, moment, monkeypatch, config, state):  # noqa: F811
+    env = Env(world, monkeypatch, CONFIGS[config], state)
+    every = [(row["line"], row["op"] == "work") for row in corpus()]
+    for index, (text, work) in enumerate(every):
+        drafts.clear()
+        env.calls.clear()
+        env.step(text)
+        env.check([text], work)
+        if work:
+            assert ops_natural_writes.live(CHANNEL, None) is None, text
+            continue
+        env.explore([text], 0, 2 if index % 9 == 0 else 1)
+    assert env.bad == [], "\n".join(map(str, env.bad[:12]))
+    assert env.opened > 100 and env.asked > 100, (env.opened, env.asked)          # the walk reaches both ends: calls made and questions asked
+
+
+def test_the_provenance_check_catches_a_slot_the_person_never_gave():
+    two = {"google": GOOGLE, "microsoft": MICROSOFT}
+    offered = {"numbers": {11}, "sources": set(), "source_accounts": set()}
+    ok = natural_writes.problems("event-create", {"account": "google", "title": "dentista", "start": "2026-10-22T10:00"}, ["marca dentista quinta às 10h no google"], two, offered, NOW)
+    assert ok == []
+    bad = natural_writes.problems("event-create", {"account": "google", "title": "Invented", "start": "2026-10-23T10:00", "end": "2026-10-23T12:00"},
+                                  ["marca dentista quinta às 10h"], two, offered, NOW)
+    assert len(bad) == 4 and any("account" in b for b in bad) and any("title" in b for b in bad) and any("start" in b for b in bad) and any("end" in b for b in bad)
+    assert natural_writes.problems("file-save", {"account": "google", "attachment": 99}, ["salva esse pdf no drive"], two, offered, NOW) != []
+    assert natural_writes.problems("file-save", {"account": "google", "attachment": 11}, ["salva esse pdf no drive"], two, offered, NOW) == []
+    assert natural_writes.problems("event-create", {"account": "microsoft", "title": "dentista", "start": "2026-10-22T10:00"}, ["marca dentista quinta às 10h", "2"], two, offered, NOW) == []
+
+
+def test_both_reminder_corpora_never_open_a_write_and_the_calendar_lines_among_them_open_nothing_with_a_guessed_slot(world, moment, monkeypatch):  # noqa: F811
+    env = Env(world, monkeypatch, CONFIGS["two"], "one")
+    for index, (text, now) in enumerate(reminder_lines()):
+        moment.moment = now
+        drafts.clear()
+        env.calls.clear()
+        named = natural.candidate(text)
+        env.step(text)
+        if named is not None and named["op"] in ("remind", "reminders", "reminder-forget", "reminder-restore"):
+            assert env.calls == [] and ops_natural_writes.live(CHANNEL, None) is None, (text, named)
+        env.check([text])
+        if index % 40 == 0:
+            env.explore([text], 0, 1)
+    assert env.bad == [], "\n".join(map(str, env.bad[:12]))
+
+
+def test_the_corpus_holds_what_the_spec_asks_of_it():
+    rows = corpus()
+    for lang in ("pt-BR", "en"):
+        assert sum(1 for r in rows if r["lang"] == lang and r["op"] != "work") >= 150, lang
+    assert sum(1 for r in rows if r["op"] == "work") >= 60 and len(ANSWERS) >= 30
+    assert {r["op"] for r in rows} >= {"event-create", "event-change", "event-cancel", "file-create", "file-replace", "file-save", "work"}
+    for row in rows:
+        found = natural_writes.read(row["line"], NOW)
+        assert (found["op"] if found else "work") == row["op"], row
+
+
+def test_a_line_from_the_mcp_mode_opens_nothing_whatever_the_corpus(world, moment, monkeypatch):  # noqa: F811
+    env = Env(world, monkeypatch, CONFIGS["default"], "two")
+    for row in corpus():
+        extras = {}
+        assert ops_natural_writes.open_line(env.project, env.ctx, row["line"], "mcp", None, extras) is None, row
+    assert env.calls == []
+
+
+def test_a_router_that_names_random_write_operations_with_random_spans_opens_a_write_only_where_the_code_parse_and_the_checks_hold(world, moment, monkeypatch):  # noqa: F811
+    import random
+    rng = random.Random(5)
+    env = Env(world, monkeypatch, CONFIGS["default"], "two")
+    names = ["event-create", "event-change", "event-cancel", "file-create", "file-replace", "file-save", "mail-send", "mail-reply"]
+    for row in corpus():
+        for _ in range(2):
+            hint = rng.choice(names)
+            drafts.clear()
+            env.calls.clear()
+            extras = {}
+            reply = ops_natural_writes.open_line(env.project, env.ctx, row["line"], CHANNEL, None, extras, hint=hint, when=rng.choice([None, "2026-10-21 10:00", "2026-13-40 99:99"]))
+            parsed = natural_writes.read(row["line"], NOW, op=hint)
+            if parsed is None:
+                assert reply is None and env.calls == [], (row["line"], hint)
+            env.check([row["line"]])
+    assert env.bad == [], "\n".join(map(str, env.bad[:12]))

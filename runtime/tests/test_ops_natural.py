@@ -408,3 +408,19 @@ def test_a_typed_ask_written_as_a_reminder_ends_with_one_hint_and_is_never_rerou
     assert pt.endswith("'me lembra sexta às 17h de pegar a encomenda na portaria'.")      # validate: allow english-only -- the Portuguese sentence under test
     plain = say(docs, "/ask qual o prazo do contrato?")["reply"]
     assert "write it in words" not in plain and "escreva em palavras" not in plain
+
+
+def test_limit_54_amended_a_line_that_names_a_write_and_is_not_a_write_form_still_answers_with_the_place_and_the_operation_and_a_write_form_never_reaches_gated(world, monkeypatch):
+    """NR-5: a write form opens the card of its exact content (limit L61) and never the sentence that sends the person to the terminal; a line that only names a write (the whole-line
+    forms of NR-2, with no slot) is answered as before."""
+    with_senders(world)
+    reached = []
+    real = ops_natural._gated
+    monkeypatch.setattr(ops_natural, "_gated", lambda ctx, name, *a, **k: (reached.append(name), real(ctx, name, *a, **k))[1])
+    for line, name in (("cria um arquivo", "file-create"), ("manda um e-mail", "mail-send"), ("remarca o evento", "event-change"), ("arquiva os e-mails", "mail-archive")):
+        reached.clear()
+        reply = say(world, line)["reply"]
+        assert reply.startswith("That is not done from a line of words. Do it in the terminal or on the page: ") and name in reply and reached == [name], (line, reply)
+    reached.clear()
+    reply = say(world, "marca dentista quinta às 10h")["reply"]
+    assert reached == [] and not reply.startswith("That is not done from a line of words"), "a write form is read by the family, not sent to the terminal"

@@ -255,6 +255,11 @@ def account_items(cfg: dict, secret: str = "") -> list:
         if entry.get("move_removes_inbox") is True:
             items.append((f"{provider}:move_removes_inbox", f"moving a message to a mail folder of the {shown} account also takes it out of the Inbox"))
         out += [{"place": "accounts", "channel": "accounts", "group": group, "means": means, "digest": _digest(group, secret)} for group, means in items]
+    default = ((cfg or {}).get("accounts") or {}).get("default")
+    if default in PROVIDER_NAME:      # NR-5 (Q2): a line in words that names no service goes to this account when both could serve it
+        group = f"default-account={default}"
+        out.append({"place": "accounts", "channel": "accounts", "group": group, "means": f"a line in words that names no service goes to your {PROVIDER_NAME[default]} account when both could serve it",
+                    "digest": _digest(group, secret)})
     return out
 
 
