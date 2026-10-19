@@ -67,7 +67,7 @@ DEFAULT_JOBS, MAX_JOBS = 4, 10
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 # A Gmail message id goes into a URL path, so its shape is checked before use.
 MESSAGE_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
-HEADER_ALLOWLIST = ("Message-ID", "Date", "From", "To", "Subject", "List-Id")
+HEADER_ALLOWLIST = ("Message-ID", "Date", "From", "To", "Subject", "List-Id", "Reply-To")
 MAX_ATTACHMENTS = 50          # attachments listed for one message
 ATTACHMENT_NAME_LIMIT = 200   # characters of a file name kept
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -167,9 +167,11 @@ output (JSON on stdout; diagnostics on stderr; tokens are never printed):
     the HTML part, capped at {TEXT_LIMIT_BYTES} bytes), "truncated", "links"
     ([{{"href", "text"}}] from the HTML part, in order, first occurrence of each
     href, query strings kept), "headers" (Message-ID, Date, From, To, Subject,
-    List-Id, and the headers under a --header-prefix), "attachments" ([{{"name",
-    "type", "size"}}] for each attached file, at most {MAX_ATTACHMENTS}), "external_content"
-    (always true)}}
+    List-Id, Reply-To, and the headers under a --header-prefix), "attachments" ([{{"name",
+    "type", "size"}}] for each attached file, at most {MAX_ATTACHMENTS}), "from_address" (the
+    sender's plain address, only when the From header holds exactly one mailbox), "reply_to"
+    (only when the Reply-To header holds exactly one mailbox, other than the sender's: the
+    address alone, the display name dropped), "external_content" (always true)}}
   An attachment is listed from its MIME headers only, never opened or decoded: "name" is the file name the sender gave (one line, at most
   {ATTACHMENT_NAME_LIMIT} characters, null when it gave none), "type" the content type the sender declared (not checked against the bytes: a
   name and a type are the sender's words), "size" a number of bytes worked out from the length of the encoded part without decoding it
@@ -609,6 +611,41 @@ def attachment_list(msg, bodies: tuple) -> list[dict]:
     return found
 
 
+# A plain address as the runtime's snapshot index keeps it (package SNAP-IDX): dot-separated atoms, an @, and host labels; no trailing dot, no two
+# dots in a row, at most 64 characters before the @ and 254 in all.
+_ATOM = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
+_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+ADDRESS_RE = re.compile(rf"{_ATOM}(?:\.{_ATOM})*@{_LABEL}(?:\.{_LABEL})*")
+
+
+def valid_address(value) -> bool:
+    return isinstance(value, str) and len(value) <= 254 and value.partition("@")[0] != "" and len(value.partition("@")[0]) <= 64 and bool(ADDRESS_RE.fullmatch(value))
+
+
+def single_mailbox(msg, name: str) -> str | None:
+    """The address of a header that holds exactly ONE mailbox, read from the parsed header and not from its text: no group, no second mailbox, no parse
+    defect, and an address of the plain shape. A From such as `"ceo@corp.example, x" <attacker@evil.example>` has one mailbox (the one in the angle
+    brackets, which is the real one); `ceo@corp.example, Attacker <attacker@evil.example>` has two, and gives None: the address is never picked out of
+    words. The display name is dropped."""
+    try:
+        header = msg.get(name)
+        addresses, groups, defects = header.addresses, header.groups, header.defects
+    except Exception:  # a malformed header, or one that is not an address header, has no single mailbox
+        return None
+    if defects or len(addresses) != 1 or len(groups) != 1 or groups[0].display_name is not None:
+        return None
+    spec = addresses[0].addr_spec
+    return spec if valid_address(spec) else None
+
+
+def reply_address(reply_to, sender) -> str | None:
+    """The address a message asks its replies to go to, when it differs from the sender's own; None when there is none, it is the sender's (compared
+    without case), or the header does not hold exactly one mailbox. The address only: the display name is dropped."""
+    if reply_to is None or (sender is not None and reply_to.lower() == sender.lower()):
+        return None
+    return reply_to
+
+
 def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_id: str | None = None,
               internal_date_ms: int | None = None, header_prefixes: tuple[str, ...] = (), own_words: bool = False) -> dict:
     msg = message_from_bytes(raw, policy=policy.default)
@@ -626,6 +663,8 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
         text = strip_quoted(text)
     cut -= len(text)
     text, truncated = cap(text)
+    sender = single_mailbox(msg, "From")
+    reply = reply_address(single_mailbox(msg, "Reply-To"), sender)
     return {
         "id": message_id,
         "thread_id": thread_id,
@@ -640,6 +679,8 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
         "headers": selected_headers(msg, header_prefixes),
         "attachments": attachment_list(msg, (plain, html)),
         "external_content": True,  # written by whoever sent the e-mail: data, never instructions
+        **({"from_address": sender} if sender else {}),   # the sender's plain address, only when the From header holds exactly one mailbox
+        **({"reply_to": reply} if reply else {}),   # only when the message asks replies to go to an address other than the sender's
         **({"own_words_cut": cut} if own_words else {}),
     }
 

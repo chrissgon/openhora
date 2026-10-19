@@ -81,6 +81,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/instructions.py` | The person's standing instructions for a project: one Markdown file the person writes, read into the prompt of every model run of the project (limit L40). |
 | `runtime/intake.py` | The generic streaming intake: how a body of a declared length gets from a stream onto disk, safely. |
 | `runtime/isolated.py` | Skill code the runtime runs on the host, as an isolated subprocess with a scrubbed environment. |
+| `runtime/item_refs.py` | References to one item of a mail or calendar snapshot (package SNAP-IDX, SPEC-SECRETARY-WRITES 3.4). |
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
 | `runtime/language.py` | The language artifacts are written in: the tag rule, the order that decides it, and the words a run, a plan card and a refusal use. |
 | `runtime/lease.py` | Two hosts do not write the sources folder within one lease window, and no database or lock lives in a synced folder (package P-OPS, finding I4). |
