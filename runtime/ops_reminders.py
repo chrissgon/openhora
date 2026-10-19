@@ -162,7 +162,7 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
         if understood is None:
             return {"declined": True}
         if understood.get("cancel"):
-            return {"cancel": True}
+            return {"cancel": True, "kept": bool(understood.get("kept"))}
         if understood.get("event"):
             return {"event": True}
         if understood.get("forget"):
@@ -254,7 +254,7 @@ def _forget_matching(project: str, words: list, channel, sender, at: str | None 
     with_text = channel != MESSAGING or _notices_text(cfg)
     if len(found) > 1:
         return {"choose": [_shown(r, cfg, with_text) for r in found]}
-    if at is not None:
+    if at is not None or (keys and all(k.isdigit() for k in keys)):          # an hour, or nothing but numbers, is no name: shown and confirmed, never acted on
         return reminder_forget(project, found[0]["id"], channel, sender, preview=True)
     return reminder_forget(project, found[0]["id"], channel, sender)
 

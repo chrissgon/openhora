@@ -1,0 +1,472 @@
+# Probe lines of the independent reviews of #474 (package NR-1): one line per probe, `text || expectation`, in Portuguese and English, invented names. `@clock <date> <time>`
+# sets the clock of the lines that follow (America/Sao_Paulo, -03:00). The expectation is what a person would accept:  =<date> <time>  the line may be made at that moment
+# or asked about, never made at another;  ?  the line must be asked about (or not matched), never made;  R  a routine's, said so, never made;  N  not a reminder (the
+# line is matched to no reminder row);  any  nothing is asserted except that the line does not break. Read by test_natural_corpus.py.
+
+@clock 2026-10-18 14:00
+@clock 2026-10-18 14:00
+@clock 2026-10-18 14:00
+me lembra amanhã às 9h de pagar a luz || =2026-10-19 09:00
+me lembra amanha as 9h de pagar a luz || =2026-10-19 09:00
+me lembra de pagar a luz amanhã às 9h || =2026-10-19 09:00
+me avisa amanhã às 7h30 de acordar cedo || =2026-10-19 07:30
+me avise amanhã às 7:45 do ônibus || =2026-10-19 07:45
+me lembre amanhã às 18h de buscar as crianças || =2026-10-19 18:00
+lembrete: amanhã às 10h reunião com a Paula || =2026-10-19 10:00
+lembrete amanhã 10h reunião com a Paula || =2026-10-19 10:00
+me lembra hoje às 18h de tirar o lixo || =2026-10-18 18:00
+me lembra hj às 18h de tirar o lixo || =2026-10-18 18:00
+me lembra hje às 18h de tirar o lixo || =2026-10-18 18:00
+me lembra hoje às 13h de tirar o lixo || any
+me lembra depois de amanhã às 9h do exame || =2026-10-20 09:00
+me lembra segunda às 9h do relatório || =2026-10-19 09:00
+me lembra segunda-feira às 9h do relatório || =2026-10-19 09:00
+me lembra terça às 14h da consulta || =2026-10-20 14:00
+me lembra terca as 14h da consulta || =2026-10-20 14:00
+me lembra quarta às 10h de ligar pro banco || =2026-10-21 10:00
+me lembra quinta às 11h de ligar pro banco || =2026-10-22 11:00
+me lembra sexta às 17h de fechar o caixa || =2026-10-23 17:00
+me lembra sábado às 8h da feira || =2026-10-24 08:00
+me lembra sabado as 8h da feira || =2026-10-24 08:00
+me lembra domingo às 10h da missa || =2026-10-25 10:00
+me lembra domingo às 18h da missa || any
+me lembra 2ª às 9h de pagar || =2026-10-19 09:00
+me lembra 6a feira às 9h de pagar || =2026-10-23 09:00
+me lembra Seg às 9h da reunião || =2026-10-19 09:00
+me lembra na Sex às 9h da reunião || =2026-10-23 09:00
+me lembra Qua às 15h do dentista || =2026-10-21 15:00
+me lembra Qui 10h de ligar || =2026-10-22 10:00
+me lembra sex às 9h de ligar || =2026-10-23 09:00
+me lembra seg 9h de ligar || =2026-10-19 09:00
+me lembra sab às 10h do mercado || =2026-10-24 10:00
+Sex às 9h me lembra da reunião || =2026-10-23 09:00
+Seg 8h me lembra de levar o carro || =2026-10-19 08:00
+me lembra às 9 de tomar remédio || ?
+me lembra às 3 de buscar o pão || ?
+me lembra às 15 de buscar o pão || =2026-10-18 15:00
+me lembra às 21 de ligar || =2026-10-18 21:00
+me lembra às 12 de almoçar || any
+me lembra amanhã às 9 do dentista || ?
+me lembra amanhã às 9 da manhã do dentista || =2026-10-19 09:00
+me lembra amanhã às 9 da noite do dentista || =2026-10-19 21:00
+me lembra amanhã de manhã às 9 do dentista || =2026-10-19 09:00
+me lembra amanhã à tarde às 3 do dentista || =2026-10-19 15:00
+me lembra amanhã de tarde às 4 do dentista || =2026-10-19 16:00
+me lembra amanhã à noite às 8 de ligar pra mãe || =2026-10-19 20:00
+me lembra hoje à noite às 9 de ligar pra mãe || =2026-10-18 21:00
+me lembra hoje de noite às 10 de ligar pra mãe || =2026-10-18 22:00
+me lembra hoje à noite às 12 de ligar || any
+me lembra amanhã de manhã às 15h de ligar || ?
+me lembra amanhã à tarde às 9h de ligar || ?
+me lembra amanhã à noite às 9h de ligar || ?
+me lembra amanhã à noite às 21h de ligar || =2026-10-19 21:00
+me lembra amanhã de manhã às 9h de ligar || =2026-10-19 09:00
+me lembra amanhã de manhã de ligar pro João || ?
+me lembra à tarde de ligar pro João || ?
+me lembra às 9h de tomar o remédio || =2026-10-19 09:00
+me lembra às 9 30 da reunião || ?
+me lembra às 9:30 da reunião || =2026-10-19 09:30
+me lembra às 21:30 da reunião || =2026-10-18 21:30
+me lembra às 13.30 da reunião || any
+me lembra às 15.30 da reunião || =2026-10-18 15:30
+me lembra amanhã 15.30 da reunião || any
+me lembra amanhã às 15 e meia da reunião || =2026-10-19 15:30
+me lembra amanhã às 3 e meia da tarde da reunião || =2026-10-19 15:30
+me lembra amanhã ao meio-dia de almoçar com o Rui || =2026-10-19 12:00
+me lembra amanhã ao meio dia de almoçar com o Rui || =2026-10-19 12:00
+me lembra à meia-noite de desligar o forno || =2026-10-19 00:00
+me lembra amanhã às 9h15 de ligar || =2026-10-19 09:15
+me lembra amanhã 9h15 de ligar || =2026-10-19 09:15
+me lembra amanhã às 9hrs de ligar || =2026-10-19 09:00
+me lembra amanhã às 9 horas de ligar || =2026-10-19 09:00
+me lembra amanhã às nove horas de ligar || =2026-10-19 09:00
+me lembra amanhã às nove de ligar || ?
+me lembra amanhã às 1h30 de ligar || any
+me lembra daqui 2 horas de tirar a roupa || =2026-10-18 16:00
+me lembra daqui a 2 horas de tirar a roupa || =2026-10-18 16:00
+me lembra em 30 minutos de desligar o fogo || =2026-10-18 14:30
+me lembra em 30 min de desligar o fogo || =2026-10-18 14:30
+me lembra daqui meia hora de desligar o fogo || =2026-10-18 14:30
+me lembra daqui uma hora e meia de sair || =2026-10-18 15:30
+me lembra em 1h30 de sair || =2026-10-18 15:30
+me lembra daqui 2 dias às 9h do exame || =2026-10-20 09:00
+me lembra daqui a 3 dias de pagar || ?
+me lembra em 2 dias às 10h de pagar || =2026-10-20 10:00
+daqui 15 min me avisa do café || =2026-10-18 14:15
+me lembra dia 25 às 9h de pagar o boleto || =2026-10-25 09:00
+me lembra no dia 25 às 9h de pagar o boleto || =2026-10-25 09:00
+me lembra dia 5 às 9h de pagar o aluguel || =2026-11-05 09:00
+me lembra dia 5 de pagar o aluguel || ?
+me lembra 5/11 às 9h de pagar o aluguel || =2026-11-05 09:00
+me lembra dia 5/11 às 9h de pagar o aluguel || =2026-11-05 09:00
+me lembra 31/10 às 18h da festa || =2026-10-31 18:00
+me lembra 5 de novembro às 9h do aniversário || =2026-11-05 09:00
+me lembra dia 5 de nov às 9h do aniversário || =2026-11-05 09:00
+me lembra 5 de dez às 9h do aniversário || =2026-12-05 09:00
+me lembra 1º de dezembro às 10h do curso || =2026-12-01 10:00
+me lembra 10 de jan às 9h do IPVA || any
+me lembra 10/01 às 9h do IPVA || any
+me lembra 29/02 às 9h de x || ?
+me lembra 31/11 às 9h de x || ?
+me lembra 17/10 às 9h do aniversário || any
+me lembra de pagar a parcela 3/10 amanhã às 9h || =2026-10-19 09:00
+me lembra de pagar R$ 13.30 amanhã às 9h || =2026-10-19 09:00
+me lembra de pagar 13.30 amanhã || ?
+me lembra de ler o capítulo 3/10 amanhã às 20h || =2026-10-19 20:00
+me lembra de ligar pro 0800 amanhã às 9h || =2026-10-19 09:00
+me lembra de comprar 2 pães amanhã às 7h || =2026-10-19 07:00
+me lembra de levar 3 caixas sexta às 9h || =2026-10-23 09:00
+me lembra de pagar o apto 302 amanhã às 9h || =2026-10-19 09:00
+me lembra semana que vem às 10h de pagar o aluguel || ?
+me lembra na semana que vem de pagar o aluguel || ?
+me lembra próxima semana às 9h da reunião || ?
+me lembra semana que vem segunda às 9h da reunião || =2026-10-26 09:00
+me lembra segunda da semana que vem às 9h da reunião || =2026-10-26 09:00
+me lembra sexta que vem às 9h de x || any
+me lembra próxima sexta às 9h de x || any
+me lembra na sexta da semana que vem às 9h de x || =2026-10-30 09:00
+me lembra no fim de semana de lavar o carro || ?
+me lembra toda segunda às 9h da reunião || R
+me lembra todo dia às 8h de tomar remédio || R
+me lembra todos os dias às 8h de tomar remédio || R
+me lembra a cada 2 horas de beber água || R
+me lembra de 8 em 8 horas de tomar remédio || R
+me lembra diariamente às 9h de meditar || R
+me lembra semanalmente de regar as plantas || R
+me lembra toda sexta de pagar a diarista || R
+me lembra todo mês dia 5 de pagar o aluguel || R
+me lembra amanhã às 9h de mandar o relatório semanal || =2026-10-19 09:00
+me lembra amanhã às 9h de pagar a cada um o que devo || =2026-10-19 09:00
+me lembra amanhã às 9h de revisar todo dia da planilha || =2026-10-19 09:00
+me lembra amanhã às 9h de ligar pra todos os clientes || =2026-10-19 09:00
+me lembra amanhã às 9h da reunião mensal || =2026-10-19 09:00
+me lembra amanhã às 9h de checar a cada fornecedor || =2026-10-19 09:00
+me lembra amanhã às 9h de levar toda a papelada || =2026-10-19 09:00
+me lembra amanhã às 9h de falar do plano anual || =2026-10-19 09:00
+me lembra amanhã às 9h de cancelar a cobrança diária || =2026-10-19 09:00
+me lembra amnhã às 13h do corte || ?
+me lembra amanhâ às 13h do corte || =2026-10-19 13:00
+me lembra amanah às 13h do corte || ?
+me lembra sexat às 9h de ligar || ?
+me lembra terãa às 9h de ligar || any
+me lembra quinat às 9h de ligar || ?
+me lembra Sexra às 9h de ligar || any
+me lembra de ligar pro Amanda amanhã às 9h || =2026-10-19 09:00
+me lembra de ligar pra Marta amanhã às 9h || =2026-10-19 09:00
+me lembra de falar com o Segundo amanhã às 9h || =2026-10-19 09:00
+me lembra de ligar pro Domingos amanhã às 9h || =2026-10-19 09:00
+me lembra de visitar a Quintana amanhã às 9h || =2026-10-19 09:00
+me lembra de ligar pra Sex Shop às 9h || ?
+me lembra de ligar pro Seg amanhã às 9h || any
+me lembra de ver o Mar amanhã às 9h || =2026-10-19 09:00
+me lembra de ir ao mar amanhã às 9h || =2026-10-19 09:00
+me lembra de ir no set amanhã às 9h || =2026-10-19 09:00
+me lembra de pagar o dez amanhã às 9h || =2026-10-19 09:00
+me lembra de levar a Qua amanhã às 9h || any
+@clock 2026-10-18 14:00
+@clock 2026-10-18 14:00
+remind me tomorrow at 9am to call the bank || =2026-10-19 09:00
+remind me to call the bank tomorrow at 9am || =2026-10-19 09:00
+remind me tomorrow at 9 am to call the bank || =2026-10-19 09:00
+remind me tomorrow at 9:30am to call the bank || =2026-10-19 09:30
+remind me tomorrow at 9.30am to call the bank || =2026-10-19 09:30
+remind me tomorrow at 9 to call the bank || ?
+remind me tomorrow at 9 in the morning to call the bank || =2026-10-19 09:00
+remind me tomorrow morning at 9 to call the bank || =2026-10-19 09:00
+remind me tomorrow afternoon at 3 to call the bank || any
+remind me tomorrow evening at 7 to call the bank || any
+remind me tomorrow night at 9 to call the bank || any
+remind me tonight at 9 to call mom || =2026-10-18 21:00
+remind me tonight at 11 to call mom || =2026-10-18 23:00
+remind me tonight at 1 to call mom || any
+remind me tonight at 9am to call mom || ?
+remind me this afternoon at 3 to call || =2026-10-18 15:00
+remind me this afternoon at 1 to call || any
+remind me this morning at 9 to call || ?
+remind me this evening at 8 to call || =2026-10-18 20:00
+remind me at 9pm to call mom || =2026-10-18 21:00
+remind me at 9 pm to call mom || =2026-10-18 21:00
+remind me at 21:00 to call mom || =2026-10-18 21:00
+remind me at 3 to call || ?
+remind me at 3pm to call || =2026-10-18 15:00
+remind me at noon to call || =2026-10-19 12:00
+remind me at midnight to lock up || =2026-10-19 00:00
+remind me in 2 hours to check the oven || =2026-10-18 16:00
+remind me in 30 minutes to check the oven || =2026-10-18 14:30
+remind me in 30 mins to check the oven || =2026-10-18 14:30
+remind me in an hour to check the oven || =2026-10-18 15:00
+remind me in half an hour to check the oven || =2026-10-18 14:30
+remind me in 2 days at 9am to renew || =2026-10-20 09:00
+remind me in 3 days to renew || any
+remind me the day after tomorrow at 9am to renew || =2026-10-20 09:00
+remind me monday at 9am to renew || =2026-10-19 09:00
+remind me on monday at 9am to renew || =2026-10-19 09:00
+remind me Monday at 9am to renew || =2026-10-19 09:00
+remind me Mon at 9am to renew || =2026-10-19 09:00
+remind me mon 9am to renew || =2026-10-19 09:00
+remind me Tue at 9am to renew || =2026-10-20 09:00
+remind me tues at 9am to renew || =2026-10-20 09:00
+remind me Wed at 3pm to renew || =2026-10-21 15:00
+remind me Thu at 10am to renew || =2026-10-22 10:00
+remind me Thurs at 10am to renew || =2026-10-22 10:00
+remind me Fri at 9am to call the bank || =2026-10-23 09:00
+remind me on Fri at 9am to call the bank || =2026-10-23 09:00
+remind me friday at 5pm to file taxes || =2026-10-23 17:00
+remind me saturday at 10am to mow || =2026-10-24 10:00
+remind me sunday at 10am to mow || =2026-10-25 10:00
+remind me sunday at 6pm to mow || any
+remind me next friday at 9am to pay || any
+remind me this friday at 9am to pay || =2026-10-23 09:00
+remind me friday next week at 9am to pay || =2026-10-30 09:00
+remind me next week at 10am to pay rent || ?
+remind me next week on tuesday at 10am to pay rent || =2026-10-27 10:00
+remind me tuesday next week at 10am to pay rent || =2026-10-27 10:00
+remind me on Dec 5 at 9am to pay rent || =2026-12-05 09:00
+remind me Dec 5 at 9am to pay rent || =2026-12-05 09:00
+remind me December 5 at 9am to pay rent || =2026-12-05 09:00
+remind me 5 December at 9am to pay rent || =2026-12-05 09:00
+remind me Nov 5 at 9am to pay rent || =2026-11-05 09:00
+remind me on Nov 5 at 9am to pay rent || =2026-11-05 09:00
+remind me Oct 25 at 9am to pay rent || =2026-10-25 09:00
+remind me Jan 2 at 9am to renew || any
+remind me on 11/5 at 9am to pay || ?
+remind me on 25/10 at 9am to pay || =2026-10-25 09:00
+remind me on 10/25 at 9am to pay || =2026-10-25 09:00
+remind me to pay rent in December at 9am || ?
+remind me to pay rent in May at 9am || ?
+remind me to call Monica tomorrow at 9am || =2026-10-19 09:00
+remind me to call Fridah tomorrow at 9am || =2026-10-19 09:00
+remind me to email Dec at 9am || any
+remind me to call Mar at 9am || any
+remind me to visit May at 9am || any
+remind me to call Wed tomorrow at 9am || any
+remind me to call Sundar at 9am || any
+remind me to buy a mar bar at 9am || any
+remind me tommorow at 9am to pay || =2026-10-19 09:00
+remind me tomorow at 9am to pay || =2026-10-19 09:00
+remind me tmrw at 9am to pay || =2026-10-19 09:00
+remind me tmr at 9am to pay || =2026-10-19 09:00
+remind me 2morrow at 9am to pay || =2026-10-19 09:00
+remind me tommorrow at 9am to pay || =2026-10-19 09:00
+remind me todya at 5pm to pay || =2026-10-18 17:00
+remind me wendesday at 9am to pay || =2026-10-21 09:00
+remind me firday at 9am to pay || =2026-10-23 09:00
+remind me satuday at 9am to pay || =2026-10-24 09:00
+remind me mondy at 9am to pay || =2026-10-19 09:00
+remind me Tommorow at 9am to pay || =2026-10-19 09:00
+remind me to pay Tommorow at 9am || =2026-10-19 09:00
+remind me to pay tomorrw at 9am || =2026-10-19 09:00
+remind me every monday at 8am to plan the week || R
+remind me every day at 9am to stretch || R
+remind me daily at 9am to stretch || R
+remind me every 2 hours to drink water || R
+remind me every other week to water the plants || R
+remind me weekly to back up the laptop || R
+remind me each morning at 7 to stretch || R
+remind me tomorrow at 9am about the weekly report || =2026-10-19 09:00
+remind me tomorrow at 9am to email every client || =2026-10-19 09:00
+remind me tomorrow at 9am to thank each supplier || =2026-10-19 09:00
+remind me tomorrow at 9am to pay the monthly bill || =2026-10-19 09:00
+remind me tomorrow at 9am to review the daily log || =2026-10-19 09:00
+remind me tomorrow at 9am to check every day of the schedule || =2026-10-19 09:00
+remind me at 4pm to call each of them || =2026-10-18 16:00
+marca um lembrete amanhã às 10h de pagar a escola || =2026-10-19 10:00
+marque um lembrete pra amanhã às 10h de pagar a escola || =2026-10-19 10:00
+agende um lembrete sexta às 9h de ligar pro João || =2026-10-23 09:00
+agenda um lembrete sexta às 9h de ligar pro João || =2026-10-23 09:00
+cria um lembrete amanhã às 9h de pagar || =2026-10-19 09:00
+schedule a reminder for friday at 9am to call John || =2026-10-23 09:00
+set a reminder for tomorrow at 9am to call John || =2026-10-19 09:00
+book a reminder tomorrow at 9am to call John || =2026-10-19 09:00
+add a reminder tomorrow at 9am to call John || =2026-10-19 09:00
+marca reunião amanhã às 10h com a Paula || N
+marca dentista sexta às 9h || N
+agenda reunião com o contador quinta às 15h || N
+schedule a meeting tomorrow at 10am with Paula || N
+escreva um post sobre o lançamento amanhã às 9h || N
+crie um relatório de vendas para amanhã || N
+o lembrete não chegou ontem às 9h || N
+meus lembretes não funcionam || N
+bom dia || N
+obrigado || N
+write a blog post for tomorrow at 9am || N
+why did my reminder not arrive at 9am? || N
+what reminders do I have? || N
+quais lembretes eu tenho? || N
+@clock 2026-10-18 14:00
+me lembra de pagar o IPVA em janeiro às 9h || ?
+me lembra em dezembro às 9h de comprar presentes || ?
+me lembra de pagar o IPTU em fevereiro || ?
+me lembra no Natal às 9h de ligar pra vó || ?
+me lembra no ano novo às 9h de ligar || ?
+me lembra no mês que vem às 9h de pagar || ?
+me lembra mês que vem de pagar o seguro || ?
+me lembra semana que vem segunda às 9h da reunião || =2026-10-26 09:00
+me lembra hoje de manhã às 9 de ligar || ?
+me lembra hoje de manhã às 9h de ligar || ?
+remind me today at 9am to call || ?
+remind me this morning at 9am to call || ?
+remind me this afternoon at 1pm to call || ?
+remind me next month at 9am to pay || ?
+remind me at Christmas at 9am to call grandma || ?
+remind me on the 31st at 9am to pay || =2026-10-31 09:00
+remind me on the 31st of November at 9am to pay || ?
+remind me on Feb 29 at 9am to pay || ?
+remind me 2/29 at 9am to pay || ?
+me lembra dia 31 às 9h de pagar || =2026-10-31 09:00
+me lembra amanhã às 25h de pagar || ?
+me lembra amanhã às 9h60 de pagar || ?
+me lembra às 24h de pagar || any
+me lembra amanhã às 0h de pagar || =2026-10-19 00:00
+me lembra ontem às 9h de pagar || ?
+remind me yesterday at 9am to pay || ?
+me lembra sexta passada às 9h de pagar || ?
+me lembra daqui 0 minutos de pagar || ?
+me lembra daqui -5 minutos de pagar || ?
+me lembra em 2 semanas de pagar || any
+me lembra daqui 1 mês de pagar || any
+me lembra em 10 anos de pagar || any
+remind me in 2 weeks at 9am to pay || =2026-11-01 09:00
+remind me in 1 week to pay || any
+me lembra daqui 1 semana às 9h de pagar || =2026-10-25 09:00
+me lembra amanhã ou depois às 9h de ligar || ?
+me lembra amanhã às 9h ou 10h de ligar || ?
+me lembra amanhã às 9h e às 15h de ligar || ?
+me lembra sexta ou sábado às 9h de ligar || ?
+remind me friday or saturday at 9am to call || ?
+remind me at 9am or 10am tomorrow to call || ?
+me lembra amanhã às 9h da reunião das 10h || any
+me lembra amanhã às 8h da reunião de segunda || any
+me lembra amanhã às 9h de levar o carro na sexta || any
+remind me tomorrow at 9am about the friday meeting || any
+remind me tomorrow at 9am about the meeting on friday || any
+me lembra sexta às 9h do jogo de amanhã || any
+me lembra até sexta de entregar o relatório || ?
+remind me by friday to send the report || ?
+me lembra antes das 18h de ligar || ?
+remind me before 6pm to call || ?
+me lembra depois das 18h de ligar || ?
+me lembra lá pelas 9h de ligar || any
+me lembra por volta das 9h de ligar || any
+remind me around 9am to call || any
+me lembra às 9h amanhã não hoje de ligar || any
+me lembra amanhã não, depois de amanhã às 9h de ligar || ?
+@clock 2026-10-18 14:00
+@clock 2026-10-22 22:30
+remind me tonight at 9 to call mom || ?
+remind me tonight at 11 to call mom || =2026-10-22 23:00
+remind me tonight at 10pm to call mom || ?
+remind me this evening at 8 to call || ?
+remind me this afternoon at 3 to call || ?
+me lembra hoje à noite às 9 de ligar || ?
+me lembra hoje à noite às 11 de ligar || =2026-10-22 23:00
+me lembra à noite às 9 de ligar || any
+me lembra de noite às 11 de ligar || any
+me lembra de manhã às 9 de ligar || any
+remind me in the morning at 9 to call || any
+remind me in the morning to call || ?
+me lembra amanhã de manhã às 9 de ligar || =2026-10-23 09:00
+me lembra de ligar pro Seg amanhã às 9h || ?
+me lembra de levar a Qua amanhã às 9h || ?
+me lembra amanhã às 8h da reunião de segunda || ?
+me lembra segunda às 9h de ligar || =2026-10-26 09:00
+me lembra quinta às 9h de ligar || =2026-10-29 09:00
+me lembra quinta às 23h de ligar || any
+me lembra hoje às 23h de ligar || =2026-10-22 23:00
+me lembra às 23h de ligar || =2026-10-22 23:00
+me lembra às 22h de ligar || =2026-10-23 22:00
+me lembra às 11 de ligar || ?
+remind me at 11 to call || ?
+me lembra sexta às 9h da reunião || =2026-10-23 09:00
+me lembra Sex às 9h da reunião || =2026-10-23 09:00
+me lembra amanhã às 9h da Sex Shop || any
+me lembra semana que vem às 10h de pagar || ?
+me lembra dia 22 às 9h de pagar || =2026-11-22 09:00
+me lembra dia 23 às 9h de pagar || =2026-10-23 09:00
+me lembra 22/10 às 23h de pagar || =2026-10-22 23:00
+remind me Oct 22 at 11pm to pay || =2026-10-22 23:00
+remind me May 5 at 9am to pay rent || ?
+remind me to pay rent in December at 9am || ?
+@clock 2026-10-18 14:00
+remind me at 9am that Dr. Mon called || any
+remind me at 9am to call Fri about the order || any
+remind me at 9am to see Wed || any
+remind me tomorrow at 9am to call Thu || =2026-10-19 09:00
+remind me to call Tue tomorrow at 9am || any
+me lembra às 9h de falar com a Sex || any
+me lembra às 9h de ligar pro Qui do RH || any
+me lembra de ligar pro Qui do RH às 9h || any
+me lembra de ver o Seg amanhã || any
+me lembra amanhã às 9h da Seg || any
+me lembra amanhã às 9h de comprar sex toys || any
+me lembra de ir na sex shop amanhã às 9h || =2026-10-19 09:00
+remind me Fri 9am to call || =2026-10-23 09:00
+remind me Fri, 9am to call || =2026-10-23 09:00
+remind me Fri. at 9am to call || =2026-10-23 09:00
+me lembra Sex, 9h, de ligar || =2026-10-23 09:00
+me lembra Sex - 9h - ligar || =2026-10-23 09:00
+me lembra na Sex de ligar || ?
+me lembra Sex de ligar || ?
+remind me Fri to call || ?
+remind me on Fri to call || ?
+me lembra sexta de ligar || ?
+@clock 2026-10-18 14:00
+me lembra de tomar remédio todo dia às 8h || R
+me lembra às 8h todos os dias de tomar remédio || R
+me lembra de tomar remédio todos os dias || R
+me lembra toda semana de regar as plantas || R
+me lembra todo santo dia às 8h de tomar remédio || R
+me lembra toda terça e quinta às 9h da academia || R
+me lembra às 9h toda segunda da reunião || R
+me lembra de 15 em 15 dias de trocar o filtro || R
+me lembra mensalmente de pagar o aluguel || R
+me lembra de pagar o aluguel mensalmente || R
+me lembra de pagar o aluguel todo mês || R
+me lembra de pagar o aluguel todo dia 5 || R
+me lembra todas as manhãs às 7h de meditar || R
+me lembra toda noite às 22h de desligar o wifi || R
+me lembra de beber água a cada hora || R
+me lembra a cada meia hora de alongar || R
+me lembra de hora em hora de beber água || R
+me lembra dia sim dia não às 9h de regar || R
+me lembra nos dias úteis às 9h de bater o ponto || R
+me lembra de segunda a sexta às 9h de bater o ponto || R
+remind me to stretch every day || R
+remind me to stretch every day at 9am || R
+remind me to pay rent monthly || R
+remind me to water the plants weekly on monday || R
+remind me every weekday at 9 to clock in || R
+remind me on weekdays at 9am to clock in || R
+remind me every tuesday and thursday at 9am to go to the gym || R
+remind me at 9am every monday to plan || R
+remind me every hour to drink water || R
+remind me every 30 minutes to stretch || R
+remind me twice a day to take meds || R
+remind me each week to back up || R
+remind me hourly to drink water || R
+remind me every night at 10pm to lock up || R
+remind me nightly at 10pm to lock up || R
+remind me tomorrow at 9am to plan every detail || =2026-10-19 09:00
+remind me tomorrow at 9am to check each hour of the log || =2026-10-19 09:00
+me lembra amanhã às 9h de ver toda a semana do relatório || =2026-10-19 09:00
+me lembra amanhã às 9h de revisar todas as horas lançadas || =2026-10-19 09:00
+me lembra amanhã às 9h de levar toda a noite de trabalho || =2026-10-19 09:00
+@clock 2026-10-18 14:00
+me lembra 1º de dezembro às 10h do curso || =2026-12-01 10:00
+me lembra 1° de dezembro às 10h do curso || =2026-12-01 10:00
+me lembra 1o de dezembro às 10h do curso || =2026-12-01 10:00
+me lembra primeiro de dezembro às 10h do curso || =2026-12-01 10:00
+me lembra 1 de dezembro às 10h do curso || =2026-12-01 10:00
+me lembra dia 1º às 10h do curso || =2026-11-01 10:00
+me lembra dia primeiro às 10h do curso || =2026-11-01 10:00
+remind me May 5 at 9am to pay rent || =2027-05-05 09:00
+remind me may 5 at 9am to pay rent || =2027-05-05 09:00
+remind me to pay rent May 5 at 9am || =2027-05-05 09:00
+remind me May 5th at 9am to pay rent || =2027-05-05 09:00
+remind me 5 May at 9am to pay rent || =2027-05-05 09:00
+remind me the 5th of May at 9am to pay rent || =2027-05-05 09:00
+remind me on the 5th of May at 9am to pay rent || =2027-05-05 09:00
+remind me Nov 1st at 9am to vote || =2026-11-01 09:00
+remind me November 1st at 9am to vote || =2026-11-01 09:00
+remind me on the 1st at 9am to pay || =2026-11-01 09:00
+remind me on the 25th at 9am to pay || =2026-10-25 09:00

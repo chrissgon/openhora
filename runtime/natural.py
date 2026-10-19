@@ -24,7 +24,8 @@ on to the router as before.
                                      (only an explicit one: "#9", "reminder 9"; with "confirm" a number after another word, "reminder of 3": shown and confirmed), "ids"
                                      (several, confirmed), "at" (an hour, "the reminder at 9": matched against the moment and confirmed), "words" (what the person said
                                      of it, matched by whole words) or "many"; `reminder-restore` is the bare "undo"
-  understand(line, now, how)         the reminder the line asks for, with the clock: {"when", "text", "reading"} when it is complete, or {"ask": {...}} with what
+  understand(line, now, how)         the reminder the line asks for, with the clock (the guard of runtime/natural_time.py `leftover_doubt` makes a reading a confirmation
+                                     when the words outside the time may hold a date, a holiday or a language no table knows): {"when", "text", "reading"} when it is complete, or {"ask": {...}} with what
                                      is missing or uncertain (`need`: time | reading | text | kind | confirm | recurring | weekday | again | forget) and the draft the caller keeps to finish it
   complete(draft, said, now)         the next line of the same chat finishing a draft: the same shapes, {"event": True} when the person chose the calendar,
                                      {"cancel": True} when they gave it up, {"forget": [ids]} when they said yes to cancelling,
@@ -129,13 +130,24 @@ def _forget(norm: str, tables: list):
         polite = nt._alt(table["polite"])
         lead = f"(?:{polite}\\s+)*" if polite else ""
         fill = f"(?:{fillers}\\s+)*" if fillers else ""
+        tail = f"(?:\\s+{polite})*" if polite else ""
         m = re.match(f"[^a-z0-9]*{lead}{verbs}\\s+{fill}{nouns}(?![a-z0-9])", norm)
         if not m:
+            bare = re.fullmatch(f"[^a-z0-9]*{lead}{verbs}\\s+(?:{fillers}\\s+)*#?\\s*([0-9]{{1,6}}){tail}[\\s?!.]*", norm) if fillers else None
+            if bare and int(bare.group(1)) >= 1:          # "cancela #3", "cancela o 3": no noun, so it is shown and confirmed, and a sender who has no such reminder gets a plain line
+                return {"id": int(bare.group(1)), "confirm": True, "bare": True}
+            last = re.match(f"[^a-z0-9]*{lead}{verbs}\\s+{fill}(?P<mid>.+?)\\s+{nouns}[\\s?!.]*$", norm)
+            if last:          # "cancel the 9am reminder": an hour in front of the noun
+                found = nt.find(last.group("mid"), tables)
+                stop = _stop(tables)
+                left = _tidy(nt.without(last.group("mid"), nt._spans(found)), tables)
+                if any(h["kind"] == "clock" for h in found["hits"]) and not [w for w in _words(left) if w not in stop]:
+                    return {"id": None, "at": last.group("mid").strip(), "confirm": True}
             continue
         rest = norm[m.end():]
-        tail = f"(?:\\s+{polite})*" if polite else ""
         idw = nt._alt(forget["id_words"])
-        idp = f"(?:{idw}\\s*)?" if idw else ""
+        idm = nt._alt(forget["id_marked"])
+        idp = f"(?:{idw}\\.?\\s*" + (f"|{idm}(?:\\.\\s*|(?=#?[0-9]))" if idm else "") + ")?" if idw else (f"(?:{idm}(?:\\.\\s*|(?=#?[0-9])))?" if idm else "")
         one = re.fullmatch(f"\\s*{idp}#?\\s*([0-9]{{1,6}}){tail}[\\s?!.]*", rest)
         if one and int(one.group(1)) >= 1:
             return {"id": int(one.group(1))}
@@ -185,7 +197,7 @@ def _verb_noun(norm: str, tables: list):
     best = None
     for table in tables:
         triggers = table["triggers"]
-        verbs, nouns = nt._alt(triggers["calendar_verb"] + triggers["calendar_loose"]), nt._alt(table["remind_nouns"])
+        verbs, nouns = nt._alt(triggers["calendar_verb"] + triggers["calendar_loose"] + triggers["calendar_noun"]), nt._alt(table["remind_nouns"])
         if not verbs or not nouns:
             continue
         polite = nt._alt(table["polite"])
@@ -290,9 +302,10 @@ def _draft(need, how, line, text, readings=None, day=None, doubt=False):
     return {"need": need, "how": how, "line": line, "text": text, "readings": readings or [], "day": day, "doubt": doubt}
 
 
-def understand(line, now, how="trigger", languages=None, trust=False):
+def understand(line, now, how="trigger", languages=None, trust=False, confirm=False):
     """The reminder `line` asks for at the clock `now` (see the module's text). `how` is "trigger", "bare", "note" or "command". `trust` is true when the person has
-    just answered a question about this line, so that a word the parse did not use is not asked about again."""
+    just answered a question about this line, so that a word the parse did not use is not asked about again; `confirm` makes the reading a confirmation whatever the line
+    says (the answer to "which day next week?" is always shown with the day it resolved to)."""
     tables = _tables(languages)
     text = line if isinstance(line, str) else ""
     if nt.recurring(text, tables):
@@ -303,15 +316,24 @@ def understand(line, now, how="trigger", languages=None, trust=False):
             text = text[:start] + meant + text[end:]
     norm, origin = nt.normalise(text)
     week = _week(norm, tables)
-    if week and not any(h["kind"] in ("date", "slash") for h in nt.find(text, tables)["hits"]):          # "next week at 10": the week is named, the day of it is asked
-        line = text[:origin[week[0]]] + " " + text[origin[week[1] - 1] + 1:]
-        norm2, origin2 = nt.normalise(line)
-        parsed = nt.parse(line, now, tables)
-        cuts = list(parsed["spans"]) if parsed else []
-        trigger = _trigger_span(norm2, tables, how)
-        if trigger:
-            cuts.append((origin2[trigger[0]], origin2[trigger[1] - 1] + 1))
-        return {"ask": _draft("weekday", how, " ".join(line.split()), _tidy(nt.without(line, cuts), tables))}
+    if week:          # "next week at 10", "tuesday next week": the week is named; with no day of it the day is asked, with one it is the day of THAT week, shown and confirmed
+        line2 = " ".join((text[:origin[week[0]]] + " " + text[origin[week[1] - 1] + 1:]).split())
+        found2 = nt.find(line2, tables)
+        if not any(h["kind"] in ("date", "slash") for h in found2["hits"]):
+            norm2, origin2 = nt.normalise(line2)
+            parsed = nt.parse(line2, now, tables)
+            cuts = list(parsed["spans"]) if parsed else []
+            trigger = _trigger_span(norm2, tables, how)
+            if trigger:
+                cuts.append((origin2[trigger[0]], origin2[trigger[1] - 1] + 1))
+            return {"ask": _draft("weekday", how, line2, _tidy(nt.without(line2, cuts), tables))}
+        inner = understand(line2, now, how, tables, trust=True)
+        shape = inner["ask"] if "ask" in inner else {**inner, "readings": [inner["reading"]], "how": how, "line": line2, "doubt": False, "day": None, "need": "ready"}
+        if shape["need"] in ("confirm", "kind", "text", "ready") and shape["readings"] and any(h["kind"] == "date" and h["spec"]["k"] == "wd" for h in found2["hits"]):
+            reading = _next_week(shape["readings"][0], now) if shape["readings"][0].get("date") else shape["readings"][0]
+            return _next(_draft("ready", how, line2, shape["text"], readings=[reading], doubt=True), reading)
+        return inner
+    found = nt.find(text, tables)
     parsed = nt.parse(text, now, tables)
     cuts = list(parsed["spans"]) if parsed else []
     trigger = _trigger_span(norm, tables, how)
@@ -323,7 +345,12 @@ def understand(line, now, how="trigger", languages=None, trust=False):
     if "ask" in parsed:
         return {"ask": _draft("reading", how, text, words, readings=parsed["ask"])}
     reading = parsed["reading"]
-    doubt = not trust and (bool(parsed.get("vague")) or reading["assumed_year"] or flagged)
+    if reading.get("relative") and reading["relative"].endswith("d") and int(reading["relative"][3:-1]) <= 366 and not any(h["kind"] == "clock" for h in found["hits"]):
+        return {"ask": _draft("time", how, text, words, day=nt._info(datetime.date.fromisoformat(reading["date"]), now))}          # "in 3 days": the day, and the hour is asked
+    shipped = trigger is not None and how in ("trigger", "note")
+    dated = any(h["kind"] in ("date", "slash", "relative") for h in found["hits"])
+    guard = nt.leftover_doubt(found, trigger, tables, unknown=how != "command" and not shipped and not dated)
+    doubt = confirm or (not trust and (bool(parsed.get("vague")) or reading["assumed_year"] or flagged or guard))
     return _next(_draft("ready", how, text, words, readings=[reading], doubt=doubt), reading)
 
 
@@ -453,6 +480,11 @@ def _pick(draft: dict, said: str, now, tables: list):
     return None
 
 
+def _cancelled(need: str) -> dict:
+    """The question is given up; a forget question says that nothing was cancelled."""
+    return {"cancel": True, "kept": True} if need == "forget" else {"cancel": True}
+
+
 def affirm(said, languages=None) -> bool:
     """Whether a reply is a yes and nothing else ("yes", "yes please", "ok thanks", "sure, go ahead"): courtesies and thanks around it are not an answer."""
     kinds, rest = _only(said if isinstance(said, str) else "", _tables(languages))
@@ -507,33 +539,48 @@ def _next_week(reading: dict, now) -> dict:
 
 
 def _complete_week(draft: dict, said: str, now, tables: list):
-    """The answer to "which day next week?": a weekday (or a date). A weekday is the one of next week; the line gets the date, so everything after (the hour, the
-    words, a confirmation) runs as for any line."""
+    """The answer to "which day next week?": a weekday (or a date). A weekday is the one of next week (Monday to Sunday, the week after this one); the line gets the date,
+    so everything after (the hour, the words) runs as for any line, and the reading is ALWAYS shown with the day it resolved to, whatever convention the person has."""
     found = nt.find(said, tables)
-    parsed = nt.parse(said, now, tables)
-    if parsed is None:
-        return None
-    weekday = any(h["kind"] == "date" and h["spec"]["k"] == "wd" for h in found["hits"])
-    if "missing" in parsed and parsed["day"]:
-        day = _next_week({"date": parsed["day"]["date"], "time": "00:00"}, now)["date"] if weekday else parsed["day"]["date"]
-        return understand(draft["line"] + " " + day, now, draft["how"], tables, trust=True)
-    if "when" in parsed and parsed["reading"]["dated"] and weekday:
-        shifted = _next_week(parsed["reading"], now)
-        old = nt.parse(draft["line"], now, tables)          # the hour of the answer replaces the one the line had
-        base = nt.without(draft["line"], old["spans"]) if old and "spans" in old else draft["line"]
-        return understand(base + " " + shifted["date"] + " " + shifted["time"], now, draft["how"], tables, trust=True)
-    return None
+    wd = next((h for h in found["hits"] if h["kind"] == "date" and h["spec"]["k"] == "wd"), None)
+    if wd is None:
+        parsed = nt.parse(said, now, tables)
+        if parsed is None or "missing" not in parsed or not parsed["day"]:
+            return None
+        return understand(draft["line"] + " " + said, now, draft["how"], tables, trust=True, confirm=True)
+    first = now.date() + datetime.timedelta(days=7 - now.date().weekday())
+    day = (first + datetime.timedelta(days=wd["spec"]["i"])).isoformat()
+    left = nt.without(said, nt._spans({"origin": found["origin"], "hits": [wd]}))
+    base = draft["line"]
+    if any(h["kind"] == "clock" for h in found["hits"]):          # the hour of the answer replaces the one the line had
+        old = nt.parse(base, now, tables)
+        base = nt.without(base, old["spans"]) if old and "spans" in old else base
+    return understand(f"{base} {day} {left}".strip(), now, draft["how"], tables, trust=True, confirm=True)
 
 
 def _complete_when(draft: dict, said: str, now, tables: list, settled: dict):
-    """The answer to "for when?" after "another time": a whole moment, or a day (the hour is then asked), or an hour (the day is the next one it comes)."""
+    """The answer to "for when?" after "another time": a whole moment, or a day (the hour is then asked), or an hour (on the day the person was shown, when the line named
+    one: "tomorrow 13:00", "another time", "3pm" is tomorrow at 15:00), or a bare hour (asked: 09:00 or 21:00)."""
+    date = draft.get("date")
+    digits = re.fullmatch(r"\s*([0-9]{1,2})\s*", said)
+    if digits and int(digits.group(1)) <= 23:
+        prefix = _table_of(draft, tables)["bare_hour_prefixes"]
+        said = (prefix[0] + " " if prefix else "") + digits.group(1)
     parsed = nt.parse(said, now, tables)
     if parsed is None:
         return _retry(draft, said, tables)
+
+    def onday(reading):
+        return nt.moment(date, reading["time"], now) if date and not reading["dated"] else reading
     if "when" in parsed:
-        return _next(settled, parsed["reading"])
+        return _next(settled, onday(parsed["reading"]))
     if "ask" in parsed:
-        return {"ask": {**settled, "need": "reading", "readings": parsed["ask"]}}
+        seen, readings = set(), []
+        for r in (onday(x) for x in parsed["ask"]):
+            if r["when"] not in seen:
+                seen.add(r["when"])
+                readings.append(r)
+        return {"ask": {**settled, "need": "reading", "readings": readings}}
     return {"ask": _draft("time", draft["how"], f"{draft['text']} {said}".strip(), draft["text"], day=parsed.get("day"))}
 
 
@@ -546,12 +593,16 @@ def complete(draft, said, now, languages=None):
     if not said.strip() or said.lstrip().startswith("/"):
         return None
     kinds, rest = _only(said, tables)
+    if need == "forget" and not rest and kinds and set(kinds) <= {"yes", "cancel", "thanks"} and "yes" in kinds:
+        return {"forget": draft["ids"]}          # "yes, cancel it": the word cancel is the action here, not a way out
+    if need == "forget" and kinds == ["cancel"] and not rest:
+        return _retry(draft, said, tables)          # "cancel" to "cancel it?" does not say which way: asked once more
     if kinds and set(kinds) <= {"cancel", "thanks"} and "cancel" in kinds and not rest:
-        return {"cancel": True}
-    if kinds == ["other"] and not rest and need != "kind":          # "no": the question is given up
-        return {"cancel": True}
+        return _cancelled(need)
+    if kinds and set(kinds) <= {"other", "thanks"} and "other" in kinds and not rest and need != "kind":          # "no", "no thanks": the question is given up
+        return _cancelled(need)
     named = candidate(said, tables)
-    if named is not None and need != "kind":
+    if named is not None and need != "kind" and not (named["op"] == "remind" and named["how"] == "bare"):          # "sim mas as 15h" is a yes with an hour, not a line of its own
         return None          # a line that starts a request of its own ("me lembra ...", "cancela o lembrete 3") is a new line, never the answer to a question
     settled = {**draft, "doubt": False}
     cued = _cued(said, draft, tables)
@@ -567,8 +618,14 @@ def complete(draft, said, now, languages=None):
             return {"cancel": True}
         if affirm(said, tables):
             return _next(settled, _dated(reading))          # the person saw the day and said yes: it is theirs, not a time that "rolled"
+        if "yes" in kinds and set(kinds) <= {"yes", "thanks"} and rest:
+            but = {w for t in tables for p in t["but_words"] for w in p.split()}
+            change = _time_only(" ".join(w for w in rest if w not in but), now, tables)          # "yes, but at 3pm": a yes with a new hour (or day)
+            new = _replace(reading, change, now) if change else None
+            if new is not None:
+                return _next(settled, new)
         if kinds == ["again"] and not rest:
-            return {"ask": _draft("again", how, draft["text"], draft["text"])}          # "another time": the words are kept, the moment is asked
+            return {"ask": {**_draft("again", how, draft["text"], draft["text"]), "date": reading["date"] if not reading.get("relative") else None}}          # "another time": the words are kept, the moment is asked
         parsed = _time_only(cued, now, tables)
         new = _replace(reading, parsed, now) if parsed else None
         return _retry(draft, said, tables) if new is None else _next(settled, new)

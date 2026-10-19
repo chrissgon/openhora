@@ -43,6 +43,19 @@ TABLE = {
     "day_words": [],
     "ordinal_prefixes": ["the"],
     "ordinal_suffixes": ["st", "nd", "rd", "th"],
+    # a sign written after the number of a day that is not a suffix ("1o", from the ordinal sign)
+    "ordinal_marks": [],
+    # an ordinal word that is the number 1 where a date stands ("the first of may")
+    "first_words": ["first"],
+    # "quarter past 4 pm" is 16:15, "quarter to 5 pm" 16:45, "half past 4 pm" 16:30
+    "quarter_past": ["quarter past", "a quarter past"],
+    "quarter_to": ["quarter to", "a quarter to"],
+    "half_past": ["half past"],
+    # words that make a number right after them a date ("on 5", "by 5"); a number beside one of these in the reminder's words is a date the engine did not read
+    "date_markers": ["on", "by", "until", "due", "dated"],
+    # the name of a day of the year: in the reminder's words it is a date the engine does not know
+    "date_nouns": ["christmas", "christmas eve", "easter", "new year", "new years", "new years eve", "thanksgiving", "halloween", "holiday", "holidays", "valentines day",
+                   "mothers day", "fathers day"],
     # connectors that stand just before a time phrase and leave the reminder's words with it
     "prefixes": ["at", "on", "for"],
     # after a number: a 24-hour clock ("13h" is rare in English, "1300 hours" is not read)
@@ -52,10 +65,11 @@ TABLE = {
     "meridiem": {"am": ["am", "a.m.", "a.m"], "pm": ["pm", "p.m.", "p.m"]},
     # a number and a part of the day: "9 in the morning"
     "dayparts": {"morning": ["in the morning"], "dawn": [], "afternoon": ["in the afternoon"], "evening": ["in the evening"], "night": ["at night", "in the night"]},
-    "vague": ["later", "later today", "this morning", "this afternoon", "this evening", "tonight", "in the morning", "in the afternoon", "in the evening", "soon"],
+    "vague": ["later", "later today", "this morning", "this afternoon", "this evening", "tonight", "in the morning", "in the afternoon", "in the evening", "soon", "morning", "afternoon",
+              "evening", "night"],
     # the vague words that name a part of the day: with an hour that has no marker they say which of the two is meant ("tonight at 9" is 21:00)
-    "vague_parts": {"morning": ["this morning", "in the morning"], "afternoon": ["this afternoon", "in the afternoon"], "evening": ["this evening", "in the evening"],
-                    "night": ["tonight"]},
+    "vague_parts": {"morning": ["this morning", "in the morning", "morning"], "afternoon": ["this afternoon", "in the afternoon", "afternoon"],
+                    "evening": ["this evening", "in the evening", "evening"], "night": ["tonight", "night"]},
     "noon": ["noon", "midday"],
     "midnight": ["midnight"],
     # words that introduce an hour with no marker ("at 9"): asked back, 09:00 or 21:00
@@ -79,13 +93,17 @@ TABLE = {
     # an opener that repeats when a length of time or a weekday follows it ("every monday", "every 2 hours"); "every client" and "each supplier" are the reminder's words
     "recurrence": ["every", "each"],
     # what may follow an opener besides a weekday: "every day", "every 2 hours", "every other week"
-    "recurrence_units": ["day", "days", "week", "weeks", "month", "months", "year", "years", "hour", "hours", "minute", "minutes", "min", "mins", "weekday",
-                         "weekdays", "weekend", "weekends", "morning", "afternoon", "evening", "night"],
+    "recurrence_units": ["day", "days", "week", "weeks", "month", "months", "year", "years", "hour", "minute", "min", "weekday", "weekdays", "weekend", "weekends",
+                         "morning", "afternoon", "evening", "night", "half hour", "half an hour", "fortnight", "fortnights"],
+    # units that repeat only after a number ("every 2 hours"), never alone
+    "recurrence_counted_units": ["hours", "minutes", "mins"],
+    # phrases that repeat by themselves
+    "recurrence_phrases": ["on weekdays", "on weekends", "twice a day", "three times a day", "once a day", "once a week", "twice a week", "three times a week", "once a month"],
     "recurrence_other": ["other"],
     # a word right after the unit that makes the opener part of the reminder's words ("every day of the month")
     "recurrence_not_before": ["of"],
     # adverbs that repeat only beside the time ("daily at 9") or at the edge of the words ("remind me weekly to ..."); "weekly report" is the reminder's words
-    "recurrence_adverbs": ["daily", "weekly", "monthly", "yearly", "annually"],
+    "recurrence_adverbs": ["daily", "weekly", "monthly", "yearly", "annually", "hourly", "nightly", "fortnightly"],
     "recurrence_before_day": [],
     "recurrence_joiners": [],
     # a word just before or just after x/y that makes it a fraction or a count and not a date ("installment 3/10", "3/10 of the rent")
@@ -127,12 +145,16 @@ TABLE = {
     },
     "forget": {"verbs": ["forget", "cancel", "delete", "remove", "drop"], "nouns": ["reminder", "reminders"], "fillers": ["the", "my", "of", "number", "no", "n"],
                # the words that make the number after the noun its id ("reminder number 9"); any other word between them is not an id
-               "id_words": ["number", "no", "n", "num"]},
+               "id_words": ["number", "n", "num", "nr"],
+               # words that make the number after them an id only when written with a full stop or glued to it ("no. 3", "no3"); "no 3" is a preposition and a number
+               "id_marked": ["no"]},
     # the noun of a reminder: "schedule a reminder", "book a reminder" make a reminder, whatever the scheduling verb
     "remind_nouns": ["reminder", "reminders"],
     # a week that is named without a day: the day of it is asked ("next week at 10")
-    "week_phrases": ["next week"],
+    "week_phrases": ["of next week", "in next week", "next week"],
     "polite": ["please", "can you", "could you", "would you", "hey", "hi"],
+    # "yes, but at 3pm": the word that joins a yes to the change
+    "but_words": ["but", "except", "only"],
     # one of these directly after the trigger is not part of the reminder's words
     "connectors": ["to", "about", "of", "that"],
     "answers": {"yes": ["yes", "y", "yeah", "yep", "ok", "okay", "sure", "confirm", "do it", "go ahead", "sounds good", "of course", "thats right", "exactly", "that is right"], "notice": ["reminder", "notice", "alert", "ping", "notification"],

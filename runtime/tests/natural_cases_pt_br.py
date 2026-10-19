@@ -311,9 +311,9 @@ NAME_LINES = [
     ("me lembra Seg às 9h de ligar", ("when", "2026-10-19 09:00")),
     ("me lembra na Sex às 9h de ligar", ("when", "2026-10-23 09:00")),
     ("me lembra seg. às 10h da reunião", ("when", "2026-10-19 10:00")),
-    ("me lembra ligar pra Sex Shop às 9h", ("confirm", "2026-10-23 09:00")),
-    ("me lembra ligar pra sex shop às 9h", ("confirm", "2026-10-23 09:00")),
-    ("me lembra sex shop às 9h", ("confirm", "2026-10-23 09:00")),
+    ("me lembra ligar pra Sex Shop às 9h", ("confirm", "09:00")),
+    ("me lembra ligar pra sex shop às 9h", ("confirm", "09:00")),
+    ("me lembra sex shop às 9h", ("confirm", "09:00")),
 ]
 # The repeating word is part of the time phrase: a routine's. The same words inside the reminder's own text are text: made at once.
 REPEAT_LINES = [
@@ -354,3 +354,36 @@ LINE_AGENDE_LEMBRETE = "agende um lembrete amanhã às 9h de pagar o boleto"
 LINE_JUJHO = "me lembra amanhã às 9h de pagar jujho"
 ASK_FORGET_ONE = "Cancelar o lembrete #1: amanhã, seg 19/10, às 13:00 (BRT): aula de violão? (sim / não)"
 FORGOT_ONE = "Lembrete #1 cancelado: amanhã, seg 19/10, às 13:00 (BRT): aula de violão. Para tê-lo de volta, envie: desfaz"
+KEPT = "Certo, nada foi cancelado."
+
+# --- round 4: the guard, ordinals, the answers ---------------------------------------------------------------------------------------------------------
+# What the line says outside the time it read may be a date it did not read: the reading is shown and confirmed, never made. The clock is Sunday 2026-10-18 14:00.
+GUARD_LINES = [
+    "me lembra no Natal às 9h de ligar pra vó", "me lembra em dezembro às 9h de comprar presentes", "me lembra de pagar o IPVA em janeiro às 9h",
+    "me lembra amanhã às 9h do ano novo", "me lembra de comprar presente pro dia dos pais às 9h", "me lembra amanhã às 9h da reunião de sexta",
+    "recuérdame mañana a las 15:00 llamar a mamá", "recuérdame el 25 de diciembre a las 10:00 comprar regalos", "recuérdame el próximo martes a las 10:00",
+    "rappelle-moi vendredi à 21h30 de payer l'électricité", "rappelle-moi après-demain à 18h", "rappelle-moi lundi prochain à 10h",
+    "erinnere mich am Freitag um 21:30 die Stromrechnung zu bezahlen",
+]
+# An ordinal of the first day is a 1, however it is written.
+ORDINAL_LINES = [
+    ("me lembra 1º de dezembro às 10h do curso", "2026-12-01 10:00"), ("me lembra 1° de dezembro às 10h do curso", "2026-12-01 10:00"),
+    ("me lembra 1o de dezembro às 10h do curso", "2026-12-01 10:00"), ("me lembra primeiro de dezembro às 10h do curso", "2026-12-01 10:00"),
+    ("me lembra dia 1º às 10h do curso", "2026-11-01 10:00"), ("me lembra dia primeiro às 10h do curso", "2026-11-01 10:00"),
+]
+# Q1: the forms of an explicit number ("n° 3", "n.3", "no. 3", "nº3" act at once), and the ones that are only shown.
+ID_FORMS = ["cancela o lembrete n° 3", "cancela o lembrete N° 3", "cancela o lembrete n.3", "cancela o lembrete n. 3", "cancela o lembrete no. 3", "cancela o lembrete nº3",
+            "cancela o lembrete numero 3", "cancela o lembrete 3", "cancela o lembrete #3"]
+BARE_FORGET = ["cancela #3", "cancela o 3", "esquece o 3"]
+# Repetitions that are not "every" followed by a unit.
+REPEAT_MORE = ["me lembra todo santo dia às 8h de tomar remédio", "me lembra a cada meia hora de alongar", "me lembra de hora em hora de beber água",
+               "me lembra dia sim dia não às 9h de regar", "me lembra nos dias úteis às 9h de bater o ponto", "me lembra de segunda a sexta às 9h de bater o ponto"]
+LINE_HOURS_TEXT = "me lembra amanhã às 9h de revisar todas as horas lançadas"
+LINE_DAYS = "me lembra daqui a 3 dias de pagar"
+LINE_SPOKEN = "me lembra amanhã às nove de ligar"
+LINE_HALF_AFTERNOON = "me lembra amanhã às 3 e meia da tarde da reunião"
+LINE_SUNDAY = "me lembra domingo às 20h de ligar"
+LINE_WEEK_MONDAY = "me lembra semana que vem segunda às 9h da reunião"
+LINE_WEEK_FRIDAY = "me lembra na sexta da semana que vem às 9h de pagar"
+ASK_TIME_DAYS = "Qua 21/10: a que horas? Responda com uma hora, por exemplo 13h."
+NO_THANKS = ["nao obrigado", "não, obrigada"]

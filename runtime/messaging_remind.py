@@ -103,7 +103,14 @@ class Reminders:
         if op == "reminders":
             self.listing(project, chat)
         elif op == "reminder-forget":
-            if intent.get("ids") or (intent.get("id") and intent.get("confirm")):
+            if intent.get("bare"):          # "cancela #3", "cancela o 3": no noun, so a sender with no such reminder (or no such group) has a plain line
+                try:
+                    bridge.allow(project, "reminder-forget", sender=chat)
+                    bridge.run_op(project, "reminder-forget", sender=chat, reminder_id=intent["id"], preview=True)
+                except (bridge.Refused, bridge.ops.OpsError):
+                    return False
+                self.forget_confirm(project, chat, [intent["id"]])
+            elif intent.get("ids") or (intent.get("id") and intent.get("confirm")):
                 self.forget_confirm(project, chat, intent.get("ids") or [intent["id"]])
             elif intent.get("at"):
                 self.forget_at(project, chat, intent["at"])
@@ -233,7 +240,7 @@ class Reminders:
         if done.get("declined"):
             return False
         if done.get("cancel"):
-            bridge.reply(chat, phrases.text("NT_CANCELLED", cfg), project)
+            bridge.reply(chat, phrases.text("NT_KEPT" if done.get("kept") else "NT_CANCELLED", cfg), project)
         elif done.get("event"):
             bridge.reply(chat, phrases.text("NT_CALENDAR_NOT_BUILT", cfg), project)
         elif done.get("forget"):
@@ -258,6 +265,8 @@ class Reminders:
             return
         if need == "confirm":
             when = natural.describe(draft["readings"][0], cfg)
+            if draft["readings"][0].get("rolled"):          # "this morning at 9" said in the afternoon: tomorrow's is shown as such
+                when = phrases.text("NT_ROLLED", cfg, time=draft["readings"][0]["time"], when=when)
             sentence = phrases.text("NT_CONFIRM_TEXT", cfg, when=when, text=draft["text"]) if with_text else phrases.text("NT_CONFIRM_COUNT", cfg, when=when)
         elif need == "time":
             if draft.get("day"):
@@ -416,6 +425,8 @@ class Reminders:
         elif done.get("choose"):
             if self.listing(project, chat):
                 bridge.reply(chat, phrases.text("NT_WHICH", cfg), project)
+        elif done.get("preview"):
+            self.ask_forget(project, chat, [done])
         else:
             self.forgot(project, chat, done)
 

@@ -1,0 +1,575 @@
+{"text": "aula de violão as 13hrs amanha", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:00"}}
+{"text": "amanhã às 13h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:00"}}
+{"text": "amanha 13h30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}}
+{"text": "13h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:00"}, "timeonly": true}
+{"text": "13 hrs", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:00"}, "timeonly": true}
+{"text": "13hs", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:00"}, "timeonly": true}
+{"text": "9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}, "timeonly": true}
+{"text": "21h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 21:00"}, "timeonly": true}
+{"text": "13:00", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:00"}, "timeonly": true}
+{"text": "9:30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:30"}, "timeonly": true}
+{"text": "09:00", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}, "timeonly": true}
+{"text": "às 13 horas", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:00"}, "timeonly": true}
+{"text": "às 15", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:00"}, "timeonly": true}
+{"text": "às 12", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 12:00"}, "timeonly": true}
+{"text": "13h 30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}, "timeonly": true}
+{"text": "13h30min", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}, "timeonly": true}
+{"text": "13h 30min", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}, "timeonly": true}
+{"text": "às 13.30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}, "timeonly": true}
+{"text": "amanhã 13.30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}}
+{"text": "às 9.30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:30"}, "timeonly": true}
+{"text": "às 13 e 30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}, "timeonly": true}
+{"text": "às 13 e meia", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}, "timeonly": true}
+{"text": "meio-dia e meia", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 12:30"}, "timeonly": true}
+{"text": "13.30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "custa 13.30 reais", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "às 9 30 da reunião", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "às 9", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "as 3", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "às 3 e meia", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "às 9 horas", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "sexta às 9", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "sexta às 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "daqui a 1h30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:30"}}
+{"text": "em 1h 30min", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:30"}}
+{"text": "daqui a 2h15", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 16:15"}}
+{"text": "daqui a uma hora e meia", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:30"}}
+{"text": "daqui a 1 hora e 30 minutos", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:30"}}
+{"text": "1h30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "meio-dia", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 12:00"}, "timeonly": true}
+{"text": "amanhã meio-dia", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 12:00"}}
+{"text": "meia-noite", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 00:00"}, "timeonly": true}
+{"text": "sexta à meia-noite", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "9 da manhã", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}, "timeonly": true}
+{"text": "3 da tarde", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:00"}, "timeonly": true}
+{"text": "9 da noite", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 21:00"}, "timeonly": true}
+{"text": "3 da madrugada", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 03:00"}, "timeonly": true}
+{"text": "hoje às 18h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 18:00"}}
+{"text": "hoje 13h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask", "why": "past"}}
+{"text": "depois de amanhã às 8h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-24 08:00"}}
+{"text": "depois de amanha 9h30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-24 09:30"}}
+{"text": "sexta-feira 14h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 14:00"}}
+{"text": "quinta 15h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:00"}}
+{"text": "quinta 13h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-29 13:00"}}
+{"text": "próxima quinta às 10h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "próxima sexta 10h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "quinta que vem às 15h30", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "sexta que vem 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "segunda às 10h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-26 10:00"}}
+{"text": "2a feira às 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-26 09:00"}}
+{"text": "6a feira 14h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 14:00"}}
+{"text": "sábado 10h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-24 10:00"}}
+{"text": "hj às 15h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:00"}}
+{"text": "na 2a às 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-26 09:00"}}
+{"text": "2ª feira às 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-26 09:00"}}
+{"text": "sexta dia 23 às 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "sexta dia 24 às 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "dia 3 de mar às 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2027-03-03 09:00"}}
+{"text": "domingo às 20h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 20:00"}}
+{"text": "na quarta às 8h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-28 08:00"}}
+{"text": "dia 25 às 8h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 08:00"}}
+{"text": "dia 10 às 8h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-11-10 08:00"}}
+{"text": "dia 22 às 15h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:00"}}
+{"text": "dia 22 às 13h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask", "why": "past"}}
+{"text": "25/10 às 10h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 10:00"}}
+{"text": "22/10 às 13h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask", "why": "past"}}
+{"text": "25/10/2027 10h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2027-10-25 10:00"}}
+{"text": "5/11 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-11-05 09:00"}}
+{"text": "2026-10-25 08:00", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 08:00"}}
+{"text": "25 de outubro às 14h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 14:00"}}
+{"text": "5 de janeiro 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2027-01-05 09:00"}}
+{"text": "30/02 10h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask", "why": "invalid-date"}}
+{"text": "parcela 3/10 vence amanhã 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "3/10 do aluguel amanhã 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "dia 3/10 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2027-10-03 09:00"}}
+{"text": "3/10", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "nota 7/10 na prova", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "daqui a 2 horas", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 16:00"}}
+{"text": "em 2 horas", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 16:00"}}
+{"text": "em 30 min", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 14:30"}}
+{"text": "daqui 40 min", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 14:40"}}
+{"text": "daqui a 3 dias", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 14:00"}}
+{"text": "daqui a 2 dias às 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-24 09:00"}}
+{"text": "daqui a uma hora", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:00"}}
+{"text": "em meia hora", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 14:30"}}
+{"text": "daqui a 2 semanas", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-11-05 14:00"}}
+{"text": "amanhã", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "sexta de manhã", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "mais tarde", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "à tarde", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "daqui a pouco", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "amanhã em 2 horas", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "amanhã 9h ou 10h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "sexta 9h ou sábado 9h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "nada de hora aqui", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "comprar 3 pães", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "amanhã at 3pm", "language": "mixed", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 15:00"}}
+{"text": "tomorrow às 15h", "language": "mixed", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 15:00"}}
+{"text": "me lembra in 2 hours", "language": "mixed", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 16:00"}}
+{"text": "sex 15h", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 15:00"}}
+{"text": "Sex Shop", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "Maria da Silva", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "fui na loja sex 3", "language": "pt-BR", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "tomorrow at 3pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 15:00"}}
+{"text": "tomorrow 3 pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 15:00"}}
+{"text": "1pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:00"}, "timeonly": true}
+{"text": "1 pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:00"}, "timeonly": true}
+{"text": "1:30pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}, "timeonly": true}
+{"text": "9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}, "timeonly": true}
+{"text": "12am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 00:00"}, "timeonly": true}
+{"text": "12pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 12:00"}, "timeonly": true}
+{"text": "noon", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 12:00"}, "timeonly": true}
+{"text": "midnight", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 00:00"}, "timeonly": true}
+{"text": "tomorrow noon", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 12:00"}}
+{"text": "9 in the morning", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}, "timeonly": true}
+{"text": "7 in the evening", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 19:00"}, "timeonly": true}
+{"text": "at 3:30pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:30"}, "timeonly": true}
+{"text": "at 15", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:00"}, "timeonly": true}
+{"text": "at 9", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "friday at 9", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "in 2 hours", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 16:00"}}
+{"text": "within 2 hours", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 16:00"}}
+{"text": "in 30 minutes", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 14:30"}}
+{"text": "in 3 days", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 14:00"}}
+{"text": "in an hour", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:00"}}
+{"text": "in half an hour", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 14:30"}}
+{"text": "in 1 week", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-29 14:00"}}
+{"text": "friday at 9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "next friday 9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "next thursday 10am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "thursday 3pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:00"}}
+{"text": "thursday 1pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-29 13:00"}}
+{"text": "on monday at 8am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-26 08:00"}}
+{"text": "this saturday 11am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-24 11:00"}}
+{"text": "the day after tomorrow at 10:00", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-24 10:00"}}
+{"text": "today at 6pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 18:00"}}
+{"text": "on the 25th at 5pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 17:00"}}
+{"text": "the 10th at 9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-11-10 09:00"}}
+{"text": "october 25 2pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 14:00"}}
+{"text": "25 october 2pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 14:00"}}
+{"text": "oct 25th at 2pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 14:00"}}
+{"text": "jan 5 at 9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2027-01-05 09:00"}}
+{"text": "25/10 at 10:00", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 10:00"}}
+{"text": "10/25 at 10:00", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-25 10:00"}}
+{"text": "in 1h30", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:30"}}
+{"text": "in an hour and a half", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:30"}}
+{"text": "in 1 hour 30 minutes", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 15:30"}}
+{"text": "in 2 days at 9", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "at 9.30", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:30"}, "timeonly": true}
+{"text": "at midnight", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 00:00"}, "timeonly": true}
+{"text": "friday at midnight", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "remind me fri 3pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 15:00"}}
+{"text": "fri 3pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 15:00"}}
+{"text": "I may 2 people", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "sex ed class", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "installment 3/10 tomorrow 9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "3/10 of the rent tomorrow 9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "on 3/10 at 9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "1.30pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}, "timeonly": true}
+{"text": "9.30 pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 21:30"}, "timeonly": true}
+{"text": "at 1.30pm", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 13:30"}, "timeonly": true}
+{"text": "10 a.m.", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 10:00"}, "timeonly": true}
+{"text": "at 10 p.m.", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-22 22:00"}, "timeonly": true}
+{"text": "at 10 o'clock", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "email Seg at 9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}, "timeonly": true}
+{"text": "on may 5 at 9am", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "time", "due": "2027-05-05 09:00"}}
+{"text": "read the may 5 report", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "5/6 at 10:00 pay Maria da Silva", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "tomorrow", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "later", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "tonight", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "this afternoon", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "friday morning", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "nothing in this line", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "remind me", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "none"}}
+{"text": "5/6 at 10:00", "language": "en", "clock": "2026-10-22 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra amanhã às 13h da aula de violão", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
+{"text": "me lembra de pagar a conta dia 10 às 9h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-11-10 09:00"}}
+{"text": "Me lembre sexta às 9h que o gás acaba", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "lembra-me em 2 horas de tirar o pão do forno", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 16:00"}}
+{"text": "pode me lembrar hoje às 18h para ligar para o Rui", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 18:00"}}
+{"text": "lembrete: veterinário amanhã 15h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 15:00"}}
+{"text": "daqui 40 min me avisa pra desligar o forno", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:40"}}
+{"text": "às 9h me lembra de regar as plantas", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "me lembra amanhã 9h de pagar a parcela 3/10", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "remind me tomorrow at 1 pm to call the florist", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
+{"text": "remind me to phone the neighbour tomorrow at 9am", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "Please remind me in 2 hours about the oven", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 16:00"}}
+{"text": "reminder: friday at 15:00 pay the rent", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-23 15:00"}}
+{"text": "me lembra amanha as 13h do corte", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 13:00"}}
+{"text": "me lembra amnhã às 13h do corte de cabelo", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 13:00"}}
+{"text": "me lembra amanhâ às 13h do corte de cabelo", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 13:00"}}
+{"text": "me lembra às 13.30 da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 13:30"}, "timeonly": true}
+{"text": "me lembra às 13h 30 da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 13:30"}, "timeonly": true}
+{"text": "me lembra às 13h 30min da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 13:30"}, "timeonly": true}
+{"text": "me lembra às 13:5 da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "me lembra às 13 e 30 da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 13:30"}, "timeonly": true}
+{"text": "me lembra às 3 e meia da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "me lembra ao meio-dia e meia do almoço", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 12:30"}, "timeonly": true}
+{"text": "me lembra às 25h do x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra à meia-noite de tomar remédio", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 00:00"}, "timeonly": true}
+{"text": "me lembra amanhã à meia-noite de tomar remédio", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra sexta à meia-noite do prazo", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra hoje à meia-noite do prazo", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra quinta que vem às 15h do dentista", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra segunda que vem às 15h do dentista", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra semana que vem às 10h de pagar o aluguel", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra mês que vem às 10h de pagar o aluguel", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra no fim de semana às 10h de lavar o carro", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra dia 31 às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-31 09:00"}}
+{"text": "me lembra 31/11 às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra daqui 0 min de x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra daqui a 9999 dias de x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra daqui a 99999 minutos de x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-12-23 20:39"}}
+{"text": "me lembra às 12 do almoço", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 12:00"}, "timeonly": true}
+{"text": "me lembra às 0 de x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 00:00"}, "timeonly": true}
+{"text": "me lembra daqui a 2 dias às 9h do médico", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-17 09:00"}}
+{"text": "me lembra em 2 dias às 9h do médico", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-17 09:00"}}
+{"text": "me lembra 15/10 às 9h do aniversário", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra 15 de outubro às 9h do aniversário", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra às 9h ou às 10h do x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra às 9h30 da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:30"}, "timeonly": true}
+{"text": "me lembra às 9 30 da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "me lembra 9h de amanha da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã de manhã às 9 da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra às 21h de hoje da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 21:00"}}
+{"text": "me lembra hj às 15h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 15:00"}}
+{"text": "me lembra amanha 15hs reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 15:00"}}
+{"text": "me lembra 2a feira às 10h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-19 10:00"}}
+{"text": "me lembra seg. às 10h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-19 10:00"}}
+{"text": "me lembra domingo 10h missa", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-18 10:00"}}
+{"text": "me lembra no domingo às 10h da missa", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-18 10:00"}}
+{"text": "me lembra em 10 min do forno", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 10:10"}}
+{"text": "me lembra daqui uma hora do forno", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 11:00"}}
+{"text": "me lembra daqui meia hora do forno", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 10:30"}}
+{"text": "me lembra daqui a uma hora e meia do forno", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 11:30"}}
+{"text": "me lembra daqui a 1h30 do forno", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 11:30"}}
+{"text": "me lembra daqui 2h do forno", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 12:00"}}
+{"text": "me lembra às 18h do dia 20 da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-20 18:00"}}
+{"text": "me lembra dia 20 às 18h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-20 18:00"}}
+{"text": "me lembra na sexta dia 23 às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "me lembra sexta dia 24 às 9h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra 2026-02-30 09:00 x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra às 9h da noite do x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-10-15 21:00"]}
+{"text": "me lembra às 9 da noite do x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 21:00"}}
+{"text": "me lembra às 21 da noite do x", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 21:00"}}
+{"text": "remind me tomorrow at 1 pm to call the dentist", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 13:00"}}
+{"text": "remind me tomorow at 1pm to call the dentist", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 13:00"}}
+{"text": "remind me at 12am to take pills", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 00:00"}, "timeonly": true}
+{"text": "remind me at 12pm to eat", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 12:00"}, "timeonly": true}
+{"text": "remind me at 12 to eat", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 12:00"}, "timeonly": true}
+{"text": "remind me at 9.30 to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:30"}, "timeonly": true}
+{"text": "remind me at 9:30 to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:30"}, "timeonly": true}
+{"text": "remind me next week at 10am to pay rent", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me next month at 10am to pay rent", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me in 1h30 to check the oven", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 11:30"}}
+{"text": "remind me in an hour and a half to check the oven", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 11:30"}}
+{"text": "remind me in 90 minutes to check the oven", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 11:30"}}
+{"text": "remind me friday at midnight about the deadline", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me tonight at 9 to call mom", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 21:00"}}
+{"text": "remind me at 9 tonight to call mom", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 21:00"}}
+{"text": "remind me 5/6 at 9am to pay Maria da Silva", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me 5/6 at 9am to pay Mary", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me 13/6 at 9am to pay Mary", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-06-13 09:00"}}
+{"text": "remind me on the 31st at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-31 09:00"}}
+{"text": "remind me at 1:30 pm to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 13:30"}, "timeonly": true}
+{"text": "remind me at 1.30pm to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 13:30"}, "timeonly": true}
+{"text": "remind me at 0am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me in 2 days at 9am to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-17 09:00"}}
+{"text": "remind me thursday at 3pm to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 15:00"}}
+{"text": "remind me this thursday at 9am to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me at 5 in the evening to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 17:00"}, "timeonly": true}
+{"text": "remind me at 7 in the morning to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 07:00"}, "timeonly": true}
+{"text": "remind me in a week to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-22 10:00"}}
+{"text": "remind me in a minute to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 10:01"}}
+{"text": "remind me in 2 weeks at 9am to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-29 09:00"}}
+{"text": "remind me at 10 a.m. to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 10:00"}, "timeonly": true}
+{"text": "remind me at 10 a m to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me at 10 o'clock to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "remind me Monday at 3pm to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-19 15:00"}}
+{"text": "remind me mon 3pm to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-19 15:00"}}
+{"text": "remind me on dec 25 at 9am to buy gifts", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-12-25 09:00"}}
+{"text": "remind me december 25th at 9am to buy gifts", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-12-25 09:00"}}
+{"text": "remind me in 5 m to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 10:05"}}
+{"text": "remind me to call mom in 2 hours", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 12:00"}}
+{"text": "remind me to call at 3", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "timeonly": true}
+{"text": "remind me to pay 300 at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to take 2 pills at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to call room 12 at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to buy 2 eggs tomorrow at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to check flight AA 100 at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de pagar 1/3 do aluguel às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de pagar a parcela 3/10 às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de tomar 2 comprimidos às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de tomar o remédio de 8 em 8 horas", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra da sala 12 às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ligar 11 98765-4321 às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de assistir o episódio 5 às 21h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 21:00"}}
+{"text": "me lembra de ligar pro João em 5 min", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 10:05"}}
+{"text": "me lembra de mandar o relatório de 2025-12-01 às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra do jogo de 2 a 1 às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra do aniversário de 15 anos da Ana sábado às 20h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-17 20:00"}}
+{"text": "me lembra de dar 13h de folga sábado às 20h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-10-17 20:00"]}
+{"text": "me lembra do treino de 1h amanhã às 7h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-10-16 07:00"]}
+{"text": "me lembra do curso de 3 dias amanhã às 7h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 07:00"}}
+{"text": "me lembra do filme das 21h amanhã às 7h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-10-16 07:00"]}
+{"text": "me lembra do prazo de 30 dias amanhã às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra do texto dia de folga às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de comprar presente pro dia dos pais às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me about sex ed class at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to buy 2 dez cookies at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra que a Ana chega dia 3 de mar às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-03-03 09:00"}}
+{"text": "remind me to read the may 5 report at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-10-16 09:00"]}
+{"text": "remind me at 9am that I may 2 people", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ligar pra Sex Shop às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to email Seg at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-10-16 09:00"]}
+{"text": "me lembra do jogo de qui às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me tomorrow at 9am about the weekly report", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorrow at 9am to send the weekly report", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me at 3pm to call each supplier", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 15:00"}}
+{"text": "remind me tomorrow at 9 am to email every client", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorrow at 9am to send the monthly invoice", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me friday at 5pm to file the daily log", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 17:00"}}
+{"text": "remind me at 9am to repeat the test", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorrow at 10am to review the recurring payments", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 10:00"}}
+{"text": "remind me tomorrow at 9am to cancel my yearly subscription", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me at 4pm to pick up the kids, every one of them", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 16:00"}}
+{"text": "me lembra amanhã às 9h de mandar o relatório semanal", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 10h de pagar a cada um o que devo", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 10:00"}}
+{"text": "me lembra amanhã às 9h de revisar todo dia da planilha", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h de cancelar a assinatura mensalmente cobrada", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h de levar todos os documentos", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h de ligar pra toda a família", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h de comprar todo o material", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra sexta às 9h de ver todos os pedidos", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra todo dia às 9h de tomar remédio", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra toda segunda às 8h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra de 8 em 8 horas de tomar remédio", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "remind me every monday at 8am to plan the week", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra de ligar pra sex shop às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "Sex às 9h me lembra da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra Sex às 9h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ligar pra Qui às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-10-16 09:00"]}
+{"text": "remind me to call Mar at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-10-16 09:00"]}
+{"text": "remind me to buy a mar bar at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me may 5 at 9am to pay rent", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-05-05 09:00"}}
+{"text": "remind me to pay rent may 5 at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-05-05 09:00"}}
+{"text": "remind me to pay rent on may 5 at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-05-05 09:00"}}
+{"text": "remind me to pay rent by may 5 at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-05-05 09:00"}}
+{"text": "remind me to visit May at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to call may at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me May 5 at 9am to pay rent", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-05-05 09:00"}}
+{"text": "me lembra de jogar o set de tênis às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ver o set às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de pagar o dez às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to pay the dec invoice at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to email Dec at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to call Sundar at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to call sundar at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ligar pro Sergio sexts às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra quinte às 9h de ligar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-22 09:00"}}
+{"text": "me lembra sexts às 9h de ligar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhâ às 9h de ligar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanah às 9h de ligar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhaa às 9h de ligar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra domngo às 9h da missa", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-18 09:00"}}
+{"text": "me lembra de ligar pra Marta amanhã às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ligar pra Junia amanhã às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ligar pro Sabino amanhã às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ligar pra Hoja amanhã às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ligar pra Amanda amanhã às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorrow at 9am to call Monica", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorrow at 9am to call Fridah", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me todya at 5pm to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-15 17:00"}}
+{"text": "remind me tommorow at 5pm to call", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 17:00"}}
+{"text": "me lembra de ver o jogo da semana amanhã às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h de ver o jogo da semana", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h da reunião semana", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h do ano novo", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã cedo às 9h de ligar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h da manhã de ligar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h antes do almoço", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h depois do café", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de ir à feira amanhã às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhã às 9h de ir à feira", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra sexta-feira às 9h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorrow at 9am before the meeting", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorrow at 9am after lunch", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me at 9am on my last day", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorrow at 9am about the happy hour", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorrow at 9am to call the night shift", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me on May 5 at 9am to pay rent", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-05-05 09:00"}}
+{"text": "remind me Dec 5 at 9am to pay rent", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-12-05 09:00"}}
+{"text": "remind me on Dec 5 at 9am to pay rent", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-12-05 09:00"}}
+{"text": "remind me December 5 at 9am to pay rent", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-12-05 09:00"}}
+{"text": "remind me Mar 3 at 9am to call the bank", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-03-03 09:00"}}
+{"text": "remind me Fri at 9am to call the bank", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me to call the bank Fri at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me Monday at 9am to call the bank", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "remind me to call the bank on Monday at 9am", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "remind me Jan 2 at 9am to renew", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2027-01-02 09:00"}}
+{"text": "me lembra Seg às 9h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "me lembra na Sex às 9h da reunião", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra Dia 5 às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-11-05 09:00"}}
+{"text": "me lembra Amanhã às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra de pagar Amanhã às 9h", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me Tomorrow at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tommorow at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tommorrow at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tmrw at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tmr at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me 2morrow at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me tomorroww at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amnha às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhan às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanhãa às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amanham às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra amaña às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "me lembra manhã às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra hj as 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra hje às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra sabadu às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-17 09:00"}}
+{"text": "me lembra segund às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "me lembra terça às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-20 09:00"}}
+{"text": "me lembra terca feira às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-20 09:00"}}
+{"text": "me lembra 3ª às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-20 09:00"}}
+{"text": "me lembra 2ª feira às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "me lembra na 6a às 9h de pagar", "language": "pt-BR", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me wendesday at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-21 09:00"}}
+{"text": "remind me wednsday at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-21 09:00"}}
+{"text": "remind me thrusday at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-22 09:00"}}
+{"text": "remind me firday at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-16 09:00"}}
+{"text": "remind me satuday at 9am to pay", "language": "en", "clock": "2026-10-15 10:00", "expected": {"kind": "time", "due": "2026-10-17 09:00"}}
+{"text": "me lembra amanhã às 9h de x", "language": "pt-BR", "clock": "2026-12-31 23:00", "expected": {"kind": "time", "due": "2027-01-01 09:00"}}
+{"text": "me lembra dia 1 às 9h de x", "language": "pt-BR", "clock": "2026-12-31 23:00", "expected": {"kind": "time", "due": "2027-01-01 09:00"}}
+{"text": "me lembra 1/1 às 9h de x", "language": "pt-BR", "clock": "2026-12-31 23:00", "expected": {"kind": "time", "due": "2027-01-01 09:00"}}
+{"text": "me lembra 31/12 às 9h de x", "language": "pt-BR", "clock": "2026-12-31 23:00", "expected": {"kind": "ask"}}
+{"text": "me lembra 1 de janeiro às 9h de x", "language": "pt-BR", "clock": "2026-12-31 23:00", "expected": {"kind": "time", "due": "2027-01-01 09:00"}}
+{"text": "me lembra hoje às 23h30 de x", "language": "pt-BR", "clock": "2026-12-31 23:00", "expected": {"kind": "time", "due": "2026-12-31 23:30"}}
+{"text": "me lembra dia 31 às 9h de pagar", "language": "pt-BR", "clock": "2026-11-05 10:00", "expected": {"kind": "ask"}, "also_ok": ["2026-12-31 09:00"]}
+{"text": "me lembra dia 30 às 9h de pagar", "language": "pt-BR", "clock": "2026-11-05 10:00", "expected": {"kind": "time", "due": "2026-11-30 09:00"}}
+{"text": "me lembra 29/02 às 9h de x", "language": "pt-BR", "clock": "2026-11-05 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra 29/02 às 9h de x", "language": "pt-BR", "clock": "2027-03-05 10:00", "expected": {"kind": "ask"}}
+{"text": "me lembra 18/10 às 9h do aniversário", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra daqui a 1h30 do forno", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 15:30"}}
+{"text": "me lembra às 13.30 da reunião", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:30"}}
+{"text": "me lembra semana que vem às 10h de pagar o aluguel", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra de pagar a parcela 3/10 às 9h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "me lembra amanhã às 13h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
+{"text": "me lembra do dentista", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "none"}}
+{"text": "me lembra amanhã do dentista", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra amanhã às 9h do dentista", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "me lembra às 9 do dentista", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "corte de cabelo secreto amanhã 13h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
+{"text": "me lembra amanhã do segredo xyz", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra às 9 do segredo xyz", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra 5/6 do segredo xyz", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "remind me tomorrow at 1 pm to see the secret xyz", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
+{"text": "remind me next week at 9am about the secret xyz", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "remind me friday at 9 to call the printer", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "remind me tomorrow at 1 pm", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
+{"text": "remind me at 1.30pm to call the bank", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:30"}}
+{"text": "remind me tomorrow at 9.30 pm to call the bank", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 21:30"}}
+{"text": "remind me to pay 13.30 tomorrow", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra de pagar a conta de 13.30 amanhã", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra amanhã daqui a 2h de ligar", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra na 2a às 9h da reunião", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "me lembra hj às 9h de ligar", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra 5/6 às 9h de pagar o aluguel", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2027-06-05 09:00"}}
+{"text": "me lembra 1 de março às 9h de pagar o IPVA", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2027-03-01 09:00"}}
+{"text": "me lembra 17/10 às 9h do aniversário", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2027-10-17 09:00"}}
+{"text": "me lembra dia 5 às 9h de pagar", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-11-05 09:00"}}
+{"text": "agende o dentista sexta 9h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-23 09:00"}}
+{"text": "marca um lembrete amanhã às 9h de pagar o boleto", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "me lembra daqui 3 min de tirar o bolo", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:03"}}
+{"text": "me lembra amnhã às 13h do corte de cabelo", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
+{"text": "remind me tomorow at 1pm to call the dentist", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 13:00"}}
+{"text": "remind me tomorrow at 9am to send the weekly report", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "remind me on May 5 at 9am to pay rent", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2027-05-05 09:00"}}
+{"text": "me lembra de ligar pra Sex Shop às 9h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "me lembra semana que vem às 10h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra Seg às 9h de ligar", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 09:00"}}
+{"text": "recuérdame mañana a las 15:00 llamar a mamá", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 15:00"}}
+{"text": "avísame en 30 minutos que saque el pan", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:30"}}
+{"text": "recuérdame el viernes a las 9 de la noche pagar la luz", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-23 21:00"}}
+{"text": "recuérdame mañana a las 9", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "recuérdame el lunes a las 8:30 de la mañana ir al médico", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 08:30"}}
+{"text": "recuérdame pasado mañana a las 18:00", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-20 18:00"}}
+{"text": "recuérdame dentro de 2 horas apagar el horno", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 16:00"}}
+{"text": "recuérdame el 25 de diciembre a las 10:00 comprar regalos", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-12-25 10:00"}}
+{"text": "recuérdame mañana por la tarde", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "recuérdame al mediodía llamar", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 12:00"}, "timeonly": true}
+{"text": "recuérdame el próximo martes a las 10:00", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "recuérdame hoy a las 20:30 la cena", "language": "es", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 20:30"}}
+{"text": "rappelle-moi demain à 10h d'appeler le dentiste", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 10:00"}}
+{"text": "rappelle-moi dans 30 minutes de sortir le pain", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:30"}}
+{"text": "rappelle-moi vendredi à 21h30 de payer l'électricité", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-23 21:30"}}
+{"text": "rappelle-moi demain à 9 heures", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "rappelle-moi lundi à 8h30 d'aller chez le médecin", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 08:30"}}
+{"text": "rappelle-moi après-demain à 18h", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-20 18:00"}}
+{"text": "rappelle-moi dans 2 heures d'éteindre le four", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 16:00"}}
+{"text": "rappelle-moi le 25 décembre à 10h d'acheter les cadeaux", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-12-25 10:00"}}
+{"text": "rappelle-moi demain après-midi", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "rappelle-moi à midi d'appeler", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 12:00"}, "timeonly": true}
+{"text": "rappelle-moi lundi prochain à 10h", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "rappelle-moi ce soir à 20h30 pour le dîner", "language": "fr", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 20:30"}}
+{"text": "erinnere mich morgen um 10 Uhr den Zahnarzt anzurufen", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 10:00"}}
+{"text": "erinnere mich in 30 Minuten das Brot rauszunehmen", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:30"}}
+{"text": "erinnere mich am Freitag um 21:30 die Stromrechnung zu bezahlen", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-23 21:30"}}
+{"text": "erinnere mich morgen um 9", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "erinnere mich am Montag um 8:30 zum Arzt zu gehen", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 08:30"}}
+{"text": "erinnere mich übermorgen um 18 Uhr", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-20 18:00"}}
+{"text": "erinnere mich in 2 Stunden den Ofen auszuschalten", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 16:00"}}
+{"text": "erinnere mich am 25. Dezember um 10 Uhr Geschenke zu kaufen", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-12-25 10:00"}}
+{"text": "erinnere mich morgen Nachmittag", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "erinnere mich heute Abend um 20:30 ans Abendessen", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 20:30"}}
+{"text": "erinnere mich nächsten Montag um 10 Uhr", "language": "de", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "明日の午前10時に歯医者に電話するようにリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 10:00"}}
+{"text": "30分後にパンを取り出すようにリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:30"}}
+{"text": "金曜日の午後9時半に電気代を払うようにリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-23 21:30"}}
+{"text": "明日の9時にリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "月曜日の午前8時30分に病院に行くようにリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 08:30"}}
+{"text": "明後日の午後6時にリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-20 18:00"}}
+{"text": "2時間後にオーブンを消すようにリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 16:00"}}
+{"text": "12月25日の午前10時にプレゼントを買うようにリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-12-25 10:00"}}
+{"text": "明日の午後にリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "今夜の8時半に夕食をリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 20:30"}}
+{"text": "来週の月曜日の午前10時にリマインドして", "language": "ja", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me avisa daqui a 15 dias de renovar a carteira", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-11-02 14:00"}}
+{"text": "me lembra hoje à noite às 8 de ligar pra minha mãe", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 20:00"}}
+{"text": "me lembra amanhã depois do almoço", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra 1º de novembro às 10h de votar", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-11-01 10:00"}}
+{"text": "me lembra no dia 20 de novembro às 14h30", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-11-20 14:30"}}
+{"text": "me lembra amanhã às 7 da manhã de acordar o João", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 07:00"}}
+{"text": "me lembra na próxima segunda às 9h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra às 23h45 de desligar o computador", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 23:45"}, "timeonly": true}
+{"text": "me lembra de ligar pro banco às 10 da manhã", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 10:00"}}
+{"text": "me lembra amanhã 8:00 aula", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 08:00"}}
+{"text": "me lembra daqui a 3 horas de buscar a Lia", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 17:00"}}
+{"text": "me lembra no sábado às 15h do churrasco", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-24 15:00"}}
+{"text": "me lembra depois de amanhã às 16h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-20 16:00"}}
+{"text": "me lembra às 18h30 de sexta de pagar o condomínio", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-23 18:30"}}
+{"text": "me lembra fim do mês de pagar o aluguel", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "me lembra em uma semana", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-25 14:00"}}
+{"text": "me lembra às 17h de ir buscar as crianças", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 17:00"}, "timeonly": true}
+{"text": "me lembra quarta às 7h30 do treino", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-21 07:30"}}
+{"text": "me lembra amanhã às 16h", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 16:00"}}
+{"text": "me lembra de tomar água em 20 minutos", "language": "pt-BR", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:20"}}
+{"text": "remind me in 15 minutes to stand up", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:15"}}
+{"text": "remind me next tuesday at 4pm", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "remind me on the 3rd of november at 11am", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-11-03 11:00"}}
+{"text": "remind me tonight at 10pm to lock the door", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 22:00"}}
+{"text": "remind me saturday morning", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "remind me at 6:15 am to catch the train", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 06:15"}}
+{"text": "remind me in 2 days to call the landlord", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-20 14:00"}}
+{"text": "remind me this evening at 7", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 19:00"}}
+{"text": "remind me end of day", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "remind me tomorrow at 15:30", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 15:30"}}
+{"text": "remind me a week from friday at noon", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-30 12:00"}}
+{"text": "remind me at quarter past 4 pm", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 16:15"}}
+{"text": "remind me wednesday at 9", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "ask"}}
+{"text": "remind me on the 1st at 8am", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-11-01 08:00"}}
+{"text": "remind me in 45 minutes", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 14:45"}}
+{"text": "remind me at 9 pm", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-18 21:00"}, "timeonly": true}
+{"text": "call the vet tomorrow 3pm", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-19 15:00"}}
+{"text": "dentist friday 10:30", "language": "en", "clock": "2026-10-18 14:00", "expected": {"kind": "time", "due": "2026-10-23 10:30"}}

@@ -47,9 +47,9 @@ EN_NAME_LINES = [
     ("remind me Mar 3 at 9am to pay rent", ("confirm", "2027-03-03 09:00")),
     ("remind me Jan 2 at 9am to pay rent", ("confirm", "2027-01-02 09:00")),
     ("remind me Fri at 9am to call Ana", ("when", "2026-10-23 09:00")),
-    ("remind me to call Fri Hotel at 9am", ("confirm", "2026-10-23 09:00")),
-    ("remind me to call fri hotel at 9am", ("confirm", "2026-10-23 09:00")),
-    ("remind me tomorrow at 9am to call May", ("when", "2026-10-19 09:00")),
+    ("remind me to call Fri Hotel at 9am", ("confirm", "09:00")),          # a word that may be a name is no date: it stays in the words and the reading is shown
+    ("remind me to call fri hotel at 9am", ("confirm", "09:00")),
+    ("remind me tomorrow at 9am to call May", ("confirm", "2026-10-19 09:00")),
 ]
 
 
@@ -60,11 +60,12 @@ def test_a_weak_word_next_to_the_time_or_a_number_is_the_day_and_anywhere_else_i
 
 def test_a_weak_word_that_may_be_a_name_is_confirmed_with_the_words_it_left():
     ask = asked("remind me to call fri hotel at 9am")
-    assert ask["need"] == "confirm" and ask["readings"][0]["when"] == "2026-10-23 09:00" and ask["text"] == "call hotel"
-    assert natural.complete(ask, "yes", NOW)["when"] == "2026-10-23 09:00"
+    assert ask["need"] == "confirm" and ask["readings"][0]["when"] == "09:00" and ask["text"] == "call fri hotel", "the word is kept in the words, not used as a day"
+    assert natural.complete(ask, "yes", NOW)["when"] == "2026-10-19 09:00"
     assert natural.complete(ask, "no", NOW) == {"cancel": True}, "a name: the person says so"
     capital = asked("remind me to call Fri Hotel at 9am")
-    assert capital["need"] == "confirm" and capital["text"] == "call Hotel"
+    assert capital["need"] == "confirm" and capital["text"] == "call Fri Hotel"
+    assert natural.complete(asked("remind me tomorrow at 9am to call Fri"), "friday", NOW)["when"] == "2026-10-23 09:00", "the person says the day if it was one"
 
 
 # --- M1: a repetition is part of the time phrase ----------------------------------------------------------------------------------------------------
@@ -175,15 +176,20 @@ def test_a_week_with_no_day_asks_which_day_of_it_and_never_offers_tomorrow():
         assert ask["need"] == "weekday" and ask["readings"] == [] and "week" not in ask["text"] and "semana" not in ask["text"], line
     ask = asked("remind me next week at 10am to pay rent")
     assert ask["text"] == "pay rent"
-    assert natural.complete(ask, "tuesday", NOW)["when"] == "2026-10-20 10:00", "the Tuesday of the week that starts tomorrow"
-    assert natural.complete(ask, "friday", NOW)["when"] == "2026-10-23 10:00"
-    assert natural.complete(ask, "friday at 3pm", NOW)["when"] == "2026-10-23 15:00", "the hour of the answer replaces the one of the line"
+    def confirmed(draft, answer):
+        """The answer to 'which day next week?' is always shown with the day it resolved to, and a yes makes it."""
+        shown = natural.complete(draft, answer, NOW)["ask"]
+        assert shown["need"] == "confirm", answer
+        return natural.complete(shown, "yes", NOW)["when"]
+    assert confirmed(ask, "tuesday") == "2026-10-20 10:00", "the Tuesday of the week that starts tomorrow, shown"
+    assert confirmed(ask, "friday") == "2026-10-23 10:00"
+    assert confirmed(ask, "friday at 3pm") == "2026-10-23 15:00", "the hour of the answer replaces the one of the line"
     assert natural.complete(ask, "yes", NOW)["ask"]["retries"] == 1
     assert natural.complete(ask, "no", NOW) == {"cancel": True}
     no_time = natural.complete(asked("remind me next week to pay rent"), "wednesday", NOW)["ask"]
     assert no_time["need"] == "time" and no_time["day"]["date"] == "2026-10-21"
-    assert natural.complete(asked(pt.LINE_WEEK), "terça", NOW)["when"] == "2026-10-20 10:00"      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert natural.complete(ask, "the 27th", NOW)["when"] == "2026-10-27 10:00", "a date is a date"
+    assert confirmed(asked(pt.LINE_WEEK), "terça") == "2026-10-20 10:00"      # validate: allow english-only -- a Portuguese answer, the case of the tests
+    assert confirmed(ask, "the 27th") == "2026-10-27 10:00", "a date is a date"
     named = natural.understand("remind me next week friday at 10am to pay rent", NOW)
     assert named["ask"]["need"] == "confirm", "a week and a day: the day is read and confirmed, nothing is asked again"
 
@@ -313,7 +319,7 @@ def test_a_forget_by_the_hour_matches_the_moment_of_the_senders_own_and_is_only_
 def test_a_yes_to_a_forget_question_is_the_ids_for_the_bridge_to_cancel_one_by_one(world):  # noqa: F811
     draft = {**natural._draft("forget", "trigger", "", ""), "ids": [1, 2], "sentence": "x"}
     assert natural.complete(draft, "yes please", NOW) == {"forget": [1, 2]}
-    assert natural.complete(draft, "no", NOW) == {"cancel": True}
+    assert natural.complete(draft, "no", NOW) == {"cancel": True, "kept": True}, "nothing was cancelled, and it is said"
     assert natural.complete(draft, "hmm", NOW)["ask"]["retries"] == 1
     done = ops.remind(world.path, channel="messaging", sender=SENDER, said="yes", draft=draft)
     assert done == {"forget": [1, 2]} and world.rows() == [], "the operation passes the ids on and cancels nothing itself"

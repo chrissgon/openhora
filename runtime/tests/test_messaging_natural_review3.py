@@ -96,6 +96,8 @@ def test_a_week_with_no_day_asks_the_day_and_the_weekday_answered_is_the_one_of_
     day.say(OWNER, pt.LINE_WEEK)
     assert day.texts(OWNER)[-1] == pt.ASK_WEEKDAY and day.all()["open"] == []
     day.say(OWNER, "terça")      # validate: allow english-only -- a Portuguese answer, the case of the tests
+    assert day.texts(OWNER)[-1] == "Entendi: ter 20/10 às 10:00: pagar o aluguel. Confirma? (sim / outra hora)" and day.all()["open"] == [], "the day it resolved to is always shown first"      # validate: allow english-only -- the expected Portuguese sentence
+    day.say(OWNER, "sim")
     assert day.texts(OWNER)[-1] == "Lembrete #1: ter 20/10 às 10:00 (BRT): pagar o aluguel. Para desfazer: /forget 1."      # validate: allow english-only -- the expected Portuguese sentence
     day.say(OWNER, pt.LINE_WEEK_NO_TIME)
     day.say(OWNER, "sexta")
@@ -121,7 +123,7 @@ def test_a_number_after_another_word_is_shown_and_confirmed_before_it_cancels_an
     day.say(OWNER, "cancela o lembrete do 1")      # validate: allow english-only -- a Portuguese line, the case of the tests
     assert day.texts(OWNER)[-1] == pt.ASK_FORGET_ONE and open_ids(day) == [1]
     day.say(OWNER, "não")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1] == pt.CANCELLED and open_ids(day) == [1] and day.bridge.remind.drafts == {}
+    assert day.texts(OWNER)[-1] == pt.KEPT and open_ids(day) == [1] and day.bridge.remind.drafts == {}, "nothing was cancelled, and it says so"
     day.say(OWNER, "esquece o lembrete de 1")      # validate: allow english-only -- a Portuguese line, the case of the tests
     day.say(OWNER, "sim, pode")      # validate: allow english-only -- a Portuguese answer, the case of the tests
     assert day.texts(OWNER)[-1] == pt.FORGOT_ONE and open_ids(day) == [] and day.bridge.remind.drafts == {}
