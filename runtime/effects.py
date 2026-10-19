@@ -160,7 +160,7 @@ def recover_payload(reply: str, tmp_dir, readable) -> dict:
 # opens a review, never an effect. For the policy path it is the kind of the document a handler hands over.
 KINDS = {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_publish", "write": "effect_write", "send": "effect_send",
          "calendar": "effect_calendar",
-         "files": "effect_files"}
+         "files": "effect_files", "mailbox": "effect_mailbox"}
 
 # The keys of the effect document a handler hands to ops.execute_under_policy, and no others; and the flags only the
 # operation adds to the provider's verb, never a handler.

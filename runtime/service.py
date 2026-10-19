@@ -351,6 +351,11 @@ ROUTES = (
     _route("POST", "/projects/{p}/files/save", "file-save", take=("account", "attachment", "file_name", "folder")),
     _route("POST", "/projects/{p}/mail/send", "mail-send"),
     _route("POST", "/projects/{p}/mail/reply", "mail-reply"),
+    _route("POST", "/projects/{p}/mail/draft", "mail-draft"),
+    _route("POST", "/projects/{p}/mail/archive", "mail-archive"),
+    _route("POST", "/projects/{p}/mail/move", "mail-move"),
+    _route("POST", "/projects/{p}/mail/mark", "mail-mark"),
+    _route("POST", "/projects/{p}/mail/trash", "mail-trash"),
     _route("POST", "/projects/{p}/dispatch", "dispatch", take=()),
     _route("GET", "/jobs/{id}", own="job"),
 )

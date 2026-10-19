@@ -57,7 +57,8 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `script:project` | `script/` | `container.py` | `--check`, `build`, `run`, `deps`, `reap` |
 | `writer:calendar` | `writer/` | `google-calendar.py` | `--check`, `event-get`, `event-insert`, `event-patch`, `event-delete` |
 | `writer:calendar` | `writer/` | `outlook-calendar.py` | `--check`, `event-get`, `event-create`, `event-patch` |
-| `writer:mailbox` | `writer/` | none ships | - |
+| `writer:mailbox` | `writer/` | `gmail.py` | `--check`, `message-meta`, `modify`, `trash`, `draft-create` |
+| `writer:mailbox` | `writer/` | `outlook-mail.py` | `--check`, `message-meta`, `folder-get`, `move`, `mark`, `draft-create`, `draft-reply` |
 | `writer:files` | `writer/` | `gdrive.py` | `--check`, `file-meta`, `create`, `update` |
 | `writer:files` | `writer/` | `onedrive.py` | `--check`, `file-meta`, `create`, `replace` |
 | `generator:image` | `generator/` | none ships | - |

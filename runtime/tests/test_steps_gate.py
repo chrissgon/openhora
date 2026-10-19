@@ -189,6 +189,7 @@ ALLOWED = {
     "step_publish_post.py": {"publish_document", "steps"},
     "step_calendar_event.py": {"calendar_document", "steps"},
     "step_files.py": {"files_document", "phrases", "steps", "workcopy"},      # W4a: the pure document of a file write, the sentences, the engine; the writers are in effect_files.py alone
+    "step_mailbox.py": {"mail_address", "mailbox_document", "send_document", "steps"},
 }
 
 

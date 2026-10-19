@@ -39,6 +39,7 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
   status(word, cfg)           a status word of the store as a word of the language (the word itself when unknown or the language has no table)
   heading(title, cfg)         the title of a decision that code wrote whole, as a word of the language; any other title unchanged
   body(text, cfg)             the body of a decision that code wrote whole, in the language; any other body unchanged
+  card_without_private(card)  the lines of a card that are not private (CARD_PRIVATE); hidden_note_key(card, kept) the key of the note that ends a card drawn without them
   card_valid(card)            whether a decision's `card` (a list of [key, {field: text}] lines, every key of the family CARD_) can be said line by line
   card_text(card, cfg)        the lines of a valid card said in the project's language, one per line (the stored body of an effect that carries one is this in English)
 
@@ -324,6 +325,50 @@ TABLE = {
         "ACCT_MAIL_REF_STALE": "The newest snapshot of {ref} is more than 26 hours old, or its time cannot be trusted: refresh it, then ask again.",
         "ACCT_MAIL_REF_NO_INDEX": "The newest snapshot of {ref} was made before messages could be referred to: refresh it first.",
         "ACCT_MAIL_REF_INTEGRITY": "The snapshot of {ref} does not match its record, or its index does not match its text: refresh it, then ask again.",
+        # --- the mailbox of the person's own account (package W3, runtime/mailbox_document.py and runtime/ops_mailbox.py) ---
+        "TITLE_BOX_ARCHIVE": "Mailbox: archive messages",
+        "TITLE_BOX_MOVE": "Mailbox: move messages to a folder",
+        "TITLE_BOX_MARK": "Mailbox: mark messages as read or unread",
+        "TITLE_BOX_TRASH": "Mailbox: move messages to the trash",
+        "TITLE_BOX_DRAFT": "Mailbox: save a draft",
+        "CARD_BOX_CODE": "Code makes this change in your mailbox {address} after your approval. Nothing is sent and nothing is deleted.",
+        "CARD_BOX_CODE_DRAFT": "Code saves this draft in your mailbox {address} after your approval. It is not sent: it waits in your Drafts for you to read and send yourself.",
+        "CARD_BOX_ARCHIVE": "Archive: {n} message(s)",
+        "CARD_BOX_MOVE": "Move to \"{folder}\": {n} message(s)",
+        "CARD_BOX_READ": "Mark as read: {n} message(s)",
+        "CARD_BOX_UNREAD": "Mark as unread: {n} message(s)",
+        "CARD_BOX_TRASH_GMAIL": "Move to the trash (Gmail empties it after 30 days): {n} message(s)",
+        "CARD_BOX_TRASH_OUTLOOK": "Move to Deleted Items (Outlook deletes them from there after 30 days): {n} message(s)",
+        "CARD_BOX_ITEM": "{i}. {date} \u00b7 from {sender} \u00b7 {subject}",
+        "CARD_BOX_READ_AT": "Read from your mailbox at {read_at}. Nothing is changed unless every message is still as listed.",
+        "CARD_BOX_SNAPSHOT": "Chosen from a snapshot read at {snapshot_at}.",
+        "CARD_BOX_DRAFT_TO": "To: {to}",
+        "CARD_BOX_DRAFT_CC": "Cc: {cc}",
+        "CARD_BOX_DRAFT_BCC": "Bcc: {bcc}",
+        "CARD_BOX_DRAFT_SUBJECT": "Subject: {subject}",
+        "CARD_BOX_DRAFT_REPLY_TO": "To: {to}",
+        "CARD_BOX_DRAFT_REPLY_SUBJECT": "Subject: {subject}",
+        "CARD_BOX_DRAFT_REPLY": "Reply to: {address}, the sender of {ref} ({date}, '{subject}')",
+        "CARD_BOX_DRAFT_REPLY_DIFFERS": "The message asks replies to go to {other}: this draft goes to the sender above, not there.",
+        "CARD_BOX_DRAFT_TEXT": "The draft's text, exactly as it will be saved (every line starts with \u2502):\n{body}",
+        "CARD_BOX_DRAFT_END": "----- end of the draft -----",
+        "ACCT_MBOX_NO_MESSAGES": "Name at least one message: <source id>#<number>, several separated by commas.",
+        "ACCT_MBOX_TOO_MANY": "One card changes at most {max} messages; {n} were named.",
+        "ACCT_MBOX_DUPLICATE": "{ref} is named twice.",
+        "ACCT_MBOX_OTHER_ACCOUNT": "{ref} is a message of another account than the {account} account.",
+        "ACCT_MBOX_NO_ID": "{ref} cannot be changed: its snapshot could not keep the message's id. Refresh the source and name it again.",
+        "ACCT_MBOX_REF_MALFORMED": "{ref} is not a reference to a message: write <source id>#<number>, for example inbox#3.",
+        "ACCT_MBOX_REF_ZERO": "The numbers of a snapshot start at 1: {ref} names no message.",
+        "ACCT_MBOX_REF_NOT_READABLE": "{ref} points into a snapshot of your mailbox, and this channel may not read it: ask in the terminal or on the page, or have the project's configuration give the sender the group ask-mail.",
+        "ACCT_MBOX_REF_PAST_END": "{ref} does not exist: the newest snapshot of {source} has fewer messages.",
+        "ACCT_MBOX_REF_NO_SOURCE": "There is no source {source}: a message is named by a registered mail source and a number.",
+        "ACCT_MBOX_REF_NOT_SNAPSHOT": "{source} is not a mail source.",
+        "ACCT_MBOX_REF_WRONG_KIND": "{ref} does not name a message of your mailbox: a message is named <source id>#<number> of a mail source.",
+        "ACCT_MBOX_REF_NO_VERSION": "{source} has no snapshot yet: refresh {source} first.",
+        "ACCT_MBOX_REF_STALE": "The newest snapshot of {source} is too old to name a message: refresh {source} first.",
+        "ACCT_MBOX_REF_NO_INDEX": "The newest snapshot of {source} was made before messages could be named: refresh {source} first.",
+        "ACCT_MBOX_REF_INTEGRITY": "The snapshot of {source} cannot be trusted to name a message (its files were changed outside the runtime, or do not match its text): refresh {source} first.",
+        "ACCT_MBOX_REF_EVENT": "{ref} names an event, not a message.",
         # --- writes to the person's own accounts (package FND, runtime/account_start.py; the lines of each kind's card are CARD_, added with the kind) ---
         "ACCT_CARD_SENT": "Card #{pending} waits for your approval.",
         "ACCT_NOT_CONFIGURED": "The account {account} is not set up for this project: the key accounts of runtime.json lists it, with its address and what it may write to.",
@@ -357,6 +402,8 @@ TABLE = {
         "CARD_CAL_DROP_NOTES": "Removing, notes: {notes}",
         "CARD_HIDDEN_NOTE": "Some of the current text of the event or the message is not shown here: the page and the terminal show all of it.",
         "CARD_HIDDEN_NOTE_FILE": "Some of the file's name is not shown here: the page and the terminal show all of it.",
+        "CARD_HIDDEN_NOTE_MAIL": "Some of the addresses, subjects and text of the e-mail are not shown here: the page and the terminal show all of it.",
+        "CARD_HIDDEN_NOTE_WHOLE": "The card of this change is not shown here: the page and the terminal show it.",
         "CARD_CAL_CALENDAR": "Calendar: {calendar}",
         "CARD_CAL_TITLE": "Title: {title}",
         "CARD_CAL_WHEN": "When: {when}",
@@ -609,7 +656,9 @@ CARD_LINES_MAX = 300        # lines in one card
 # e-mail (who it goes to, its subject, its text, the names of its attachments): a messaging app draws them only for a
 # sender who also holds the group CARD_PRIVATE_GROUP (the answer from mail and calendar), and a card with such a line left out is not whole, so it is not approved there.
 CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES")) + ("CARD_CAL_NOW_TITLE", "CARD_FILE_NOW") \
-    + ("CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY")      # W2: what a reply shows of the message answered
+    + ("CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY") \
+    + ("CARD_BOX_ITEM", "CARD_BOX_DRAFT_REPLY", "CARD_BOX_DRAFT_REPLY_DIFFERS", "CARD_BOX_DRAFT_REPLY_TO", "CARD_BOX_DRAFT_REPLY_SUBJECT") \
+    + ("CARD_BOX_DRAFT_TO", "CARD_BOX_DRAFT_CC", "CARD_BOX_DRAFT_BCC", "CARD_BOX_DRAFT_SUBJECT", "CARD_BOX_DRAFT_TEXT")      # W2: what a reply shows of the message answered; W3: the same of a mailbox card, and who a draft goes to, its subject and its text
 CARD_PRIVATE += ("CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_BCC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT")      # the maintainer's decision of 2026-10-19: who an e-mail goes to, its subject, its text and the names of its attachments
 # W4a: the name of a file a sender sent (CARD_FILE_SAVE) is shown to that sender, who may approve the save, and to a reader of the person's own items, and to no one else: not to the MCP
 # mode, not to another messaging sender. (The name of a file the service holds now, CARD_FILE_NOW, is in CARD_PRIVATE above.)
@@ -651,9 +700,12 @@ def card_valid(card) -> bool:
 
 
 def hidden_note_key(card, kept) -> str:
-    """The key of the note that says some lines were left out: the file's when every line left out is a file's line, else the event's."""
+    """The key of the note that says some lines were left out: the file's when every line left out is a file's line, the e-mail's when every one is a line of an
+    e-mail or of the mailbox (CARD_MAIL_, CARD_BOX_: addresses, subjects, text), else the event's."""
     left_out = [line[0] for line in card if line not in kept]
-    return "CARD_HIDDEN_NOTE_FILE" if left_out and all(key.startswith("CARD_FILE") for key in left_out) else "CARD_HIDDEN_NOTE"
+    if left_out and all(key.startswith("CARD_FILE") for key in left_out):
+        return "CARD_HIDDEN_NOTE_FILE"
+    return "CARD_HIDDEN_NOTE_MAIL" if left_out and all(key.startswith(("CARD_MAIL_", "CARD_BOX_")) for key in left_out) else "CARD_HIDDEN_NOTE"
 
 
 def card_without_private(card, owner: bool = False) -> list:

@@ -42,6 +42,9 @@ module builds those services, once, for the process that runs the task (runtime/
                    checked against its bytes; it moves nothing out of the hold
   file_source      FileSources (package W4a): `lookup(source id)`, a registered source's type, origin and the version of its newest copy
   accounts         AccountTargets (package W4a): `address(account)` and `target(account, section, name)` of the project's accepted `accounts` (limit L55)
+  mailbox_read     MailboxReader (package W3): the project's `accounts` (`enabled`, `address`, `target`, `move_removes_inbox`), `message_meta` and `folder_get` (the mailbox
+                   writer's two reads, with the account's token, no other secret) and `dry_run` (the writer's dry run of a document: no credential, no connection). It has
+                   no way to write: the only verbs it starts are `message-meta`, `folder-get` and a write verb with `--dry-run`
 
 So the write to a platform has no function in a step kind's reach: the only code that makes it is runtime/effect_write.py `execute`,
 called from runtime/ops_step_effects.py `approve`. What Python cannot do is stop a module from importing another: that a step kind does
@@ -62,10 +65,12 @@ sys.path.insert(0, HERE)
 import calendar_document  # noqa: E402
 import documents  # noqa: E402
 import effect_calendar  # noqa: E402
+import effect_mailbox  # noqa: E402
 import effects  # noqa: E402
 import item_refs  # noqa: E402
 import files_document  # noqa: E402
 import mail_refs  # noqa: E402
+import mailbox_document  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
 import phrases  # noqa: E402
@@ -85,6 +90,8 @@ CALENDAR_TIMEOUT = 120
 CALENDAR_READ_VERBS = ("event-get",)      # the only verb of a calendar writer a step kind can reach with a credential (a write verb is reached with --dry-run and none)
 IMPLEMENTATION_ACCOUNT = {"google": "google", "outlook": "microsoft"}      # the implementation of a calendar source's origin (sources_mail.calendar_origin) -> the account
 SNAPSHOT_CLOCK = None      # the clock item_refs reads a snapshot's age against (None: the real one); a test replaces it
+MAILBOX_TIMEOUT = 300
+MAILBOX_READ_VERBS = ("message-meta", "folder-get")      # the only verbs of a mailbox writer a step kind can reach with a credential (a write verb is reached with --dry-run and none)
 OUTPUT_MAX = 8 * 1024 * 1024       # the exporter's own cap (providers/exporter/container.py OUTPUT_CAP)
 
 
@@ -418,6 +425,66 @@ def ref_sentence(code: str, reference) -> str:
     return english.get(key, english["ACCT_REF_NOT_AN_EVENT"]).format(source=source)
 
 
+class MailboxReader:
+    """The project's mailbox writers, for reading only (package W3): where the platform may write (the project's `accounts`), the state of the messages a change is
+    about, a folder's id, and the dry run of a request. It starts no verb that writes: `message_meta` and `folder_get` are the writer's reads, and `dry_run` hands a write
+    verb `--dry-run` and no credential. A failure is a StepServiceError whose code is a closed word."""
+
+    def __init__(self, ctx: dict):
+        self._ctx, self._cfg, self._root = ctx, ctx["cfg"], os.path.dirname(HERE)
+
+    def enabled(self, account) -> bool:
+        return project_config.account_entry(self._cfg, account) is not None
+
+    def address(self, account) -> str:
+        return project_config.account_entry(self._cfg, account)["address"]
+
+    def target(self, account, name):
+        """(the id of the mail folder or label, None) the project lists under `name`, or (None, the sentence that refuses it): limit L55."""
+        return project_config.account_target(self._cfg, account, "mail_folders", name)
+
+    def move_removes_inbox(self, account) -> bool:
+        return project_config.account_entry(self._cfg, account)["move_removes_inbox"] is True
+
+    def _fail(self, e: "effects.EffectError"):
+        code = {"not-configured": "not_configured", "usage": "refused"}.get(e.kind, "provider_failed")
+        raise StepServiceError(code, e.reason) from None
+
+    def _read(self, account: str, verb: str, args: list) -> dict:
+        if verb not in MAILBOX_READ_VERBS:
+            raise StepServiceError("refused", f"the mailbox service reads with {', '.join(MAILBOX_READ_VERBS)} and nothing else")
+        implementation = mailbox_document.IMPLEMENTATION[account]
+        try:
+            return effect_mailbox.provider_call(self._root, implementation, verb, args, (mailbox_document.SECRET[account],), MAILBOX_TIMEOUT)
+        except effects.EffectError as e:
+            self._fail(e)
+
+    def message_meta(self, account: str, ids: list) -> list:
+        """The writer's `message-meta` for messages of the account: one row for each id, in the order asked, {"id", "found", ...} (subject and sender are another person's
+        words). The one verb that carries the account's token to read mail."""
+        got = self._read(account, "message-meta", ["--account", self.address(account), "--ids", ",".join(ids)])
+        rows = got.get("messages") if isinstance(got, dict) else None
+        if not isinstance(rows, list) or [r.get("id") if isinstance(r, dict) else None for r in rows] != list(ids):
+            raise StepServiceError("provider_failed", "the writer's answer about the messages is not one this code understands")
+        return rows
+
+    def folder_get(self, account: str, folder: str) -> dict:
+        """The writer's `folder-get` (Outlook): {"found": bool, "id"}."""
+        return self._read(account, "folder-get", ["--account", self.address(account), "--folder", folder])
+
+    def dry_run(self, doc: dict) -> dict:
+        """The writer's dry run of `doc` (runtime/mailbox_document.py): the requests it would send and their hash. The words of the person are handed over as a private
+        file that is removed at once, and the writer starts with the minimum environment, with no secret in it and with no connection to open."""
+        folder = tempfile.mkdtemp(prefix="openhora-mailbox-dry-run-")
+        try:
+            args = mailbox_document.provider_args(doc, effect_mailbox.spec_file(folder, doc)) + ["--dry-run"]
+            return effect_mailbox.provider_call(self._root, doc["implementation"], mailbox_document.verb_of(doc), args, (), MAILBOX_TIMEOUT)
+        except effects.EffectError as e:
+            self._fail(e)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+
 class EffectFiles:
     """The effect documents of a write-back, by task and cycle, in the runtime's data folder (0700 at every level, files 0600)."""
 
@@ -587,7 +654,7 @@ def services(ctx: dict) -> dict:
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
             "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx),
-            "files_read": FilesReader(cfg, root), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx)}
+            "files_read": FilesReader(cfg, root), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx), "mailbox_read": MailboxReader(ctx)}
 
 
 if __name__ == "__main__":
