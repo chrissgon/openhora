@@ -152,7 +152,7 @@ SAMPLES = {
     "reject": ["rejeita o pedido 3", "reject 3"],
     "release": ["libera a entrega 9", "release delivery 9"],
     "go-ahead": ["siga com a tarefa 4", "go ahead on task 4"],
-    "cancel": ["cancela o pedido 4", "cancel request 4"],
+    "cancel": ["cancela o pedido 8", "cancel request 8"],
     "stop-task": ["para a tarefa 7", "stop task 7"],
     "retry": ["tenta de novo a tarefa 7", "retry task 7"],
     "routine-pause": ["pausa a rotina 2", "pause routine 2"],
@@ -249,7 +249,7 @@ def test_a_short_phrase_that_is_a_form_reaches_it(line, op):
 @pytest.mark.parametrize("line", [
     "escreva o post de lancamento para amanha as 9", "write the launch post for tomorrow at 9", "aprova a entrega e depois publica o post",
     "cancela tudo", "how are we going to launch the site", "qual o prazo do contrato?", "o que diz meu CV sobre Vue?", "aprova", "approve",
-    "tarefa", "para a tarefa", "responde: qual o status?", "/approve 12", "mande o resumo da semana para o time", "", "   ",
+    "tarefa", "para a tarefa", "responde: qual o status?", "/approve 12", "mande o balanco do mes para a equipe", "", "   ",
     "approve 21 and then release 22", "aprova a entrega 21 @lease",
 ])
 def test_a_work_request_a_command_and_a_half_form_match_no_operation(line):
@@ -264,13 +264,13 @@ def test_needs_names_the_group_a_messaging_sender_must_hold_for_a_tier_1_line():
     assert natural.needs("quais arquivos voce tem?") == "sources"
     assert natural.needs("pendencias") == "pending"
     assert natural.needs("aprova o 12") == "pending", "a decision is a read of its card: the group that reads"
-    for line in ("cancela o pedido 4", "muda o modelo", "marca na agenda o dentista", "escreva um post", "/status", "me lembra amanha as 9h de pagar a luz"):
+    for line in ("cancela o pedido 8", "muda o modelo", "marca na agenda o dentista", "escreva um post", "/status", "me lembra sexta as 18h de regar as samambaias"):
         assert natural.needs(line) is None, line
 
 
 def test_private_and_the_confirmation_words_are_the_reminders_and_the_tables():
     assert natural.private("me lembra amanha as 15h de buscar a encomenda") and natural.private("remind me tomorrow at 2pm to water the plants")
-    assert not natural.private("what files do you have?") and not natural.private("quais lembretes eu tenho?")
+    assert not natural.private("what files do you have?") and not natural.private("quais sao os meus lembretes?")
     for yes in ("yes", "sim", "Sim.", "ok", "はい", "si", "oui", "да"):
         assert natural.confirm_kind(yes) == "yes", yes
     for no in ("no", "nao", "cancel", "cancela", "いいえ", "nein"):
@@ -350,16 +350,16 @@ def test_a_word_slot_is_a_piece_of_the_line_as_written_and_an_invented_path_is_r
 def test_a_text_is_a_span_of_the_normalised_line_in_any_script_and_a_text_the_line_does_not_hold_is_refused():
     assert check("remind", {"text": "buscar a encomenda"})["args"] == {"text": "buscar a encomenda"}
     assert check("remind", {"text": "Buscar a Encomenda"})["ok"] is True, "case is the person's own spelling"
-    assert check("remind", {"text": "cortar o cab\u00ealo"}, line="me lembra de cortar o cabelo")["ok"] is True, "and so are accents"
+    assert check("remind", {"text": "trocar o filtro d\u00e1gua"}, line="me lembra de trocar o filtro dagua")["ok"] is True, "and so are accents"
     assert check("remind", {"text": "BUSCAR A ENCOMENDA."})["ok"] is True
-    assert check("remind", {"text": "cortar o cabelo"})["ok"] is False
+    assert check("remind", {"text": "podar a cerca viva"})["ok"] is False
     assert check("remind", {"text": ""})["ok"] is False
     assert check("remind", {"text": "x" * 301}, line="x" * 400)["ok"] is False
-    spanish = "recuérdame mañana a las 13 cortarme el pelo"
-    assert check("remind", {"text": "cortarme el pelo"}, line=spanish)["ok"] is True
+    spanish = "recuérdame el viernes a las 17 recoger el paquete en la porteria"
+    assert check("remind", {"text": "recoger el paquete en la porteria"}, line=spanish)["ok"] is True
     assert check("remind", {"text": "recordar al dentista"}, line=spanish)["ok"] is False
-    japanese = "明日の13時に髪を切ると私に思い出させて"
-    assert check("remind", {"text": "髪を切る"}, line=japanese)["ok"] is True
+    japanese = "金曜の17時に荷物を受け取ると私に思い出させて"
+    assert check("remind", {"text": "荷物を受け取る"}, line=japanese)["ok"] is True
     assert check("remind", {"text": "髪を染める"}, line=japanese)["ok"] is False
 
 

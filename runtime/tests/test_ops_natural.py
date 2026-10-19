@@ -354,7 +354,7 @@ def test_limit_54_an_argument_the_line_does_not_bear_out_is_never_passed_to_an_o
     spied = spy_all(monkeypatch)
     ctx = ops_core.context(world["path"])
     for name, args, line in (("reminder-forget", {"reminder_id": 9}, "forget reminder 3"), ("artifact", {"path": "docs/secret.md"}, "show docs/plan.md"),
-                             ("remind", {"text": "buy milk"}, "remind me to call mom")):
+                             ("remind", {"text": "renew the library card"}, "remind me to water the ferns")):
         reply = ops_natural.run_routed(world["path"], ctx, {"name": name, "args": args, "when": None}, line, "page", None, {})
         assert reply == phrases.text("NAT_NOT_BELIEVED", None), name
     assert spied == {}
@@ -372,14 +372,14 @@ def test_limit_54_a_router_normalised_time_makes_no_reminder_until_the_person_co
     monkeypatch.setattr(ops, "remind", spy)
     ctx = ops_core.context(world["path"])
     rows = lambda: ctx["store"].reminders_list(ctx["conn"], None)
-    reply = ops_natural.run_routed(world["path"], ctx, {"name": "remind", "args": {"text": "cortarme el pelo"}, "when": "2026-10-19 13:00"},
-                                   "recuerdame manana a las 13 cortarme el pelo", "messaging", KEY["owner"], {})
+    reply = ops_natural.run_routed(world["path"], ctx, {"name": "remind", "args": {"text": "recoger el paquete en la porteria"}, "when": "2026-10-23 17:00"},
+                                   "recuerdame el viernes a las 17 recoger el paquete en la porteria", "messaging", KEY["owner"], {})
     assert reply.endswith("Confirm? (yes / another time)") and rows() == [], "asked, not made"
-    assert [k["said"] for k in seen] == ["cortarme el pelo 2026-10-19 13:00"] and seen[0]["channel"] == "messaging" and seen[0]["sender"] == KEY["owner"]
+    assert [k["said"] for k in seen] == ["recoger el paquete en la porteria 2026-10-23 17:00"] and seen[0]["channel"] == "messaging" and seen[0]["sender"] == KEY["owner"]
     done = ops_natural.take(world["path"], ctx, "yes", "messaging", KEY["owner"], {})
-    assert seen[-1]["when"] == "2026-10-19 13:00" and seen[-1]["channel"] == "messaging" and seen[-1]["sender"] == KEY["owner"], \
+    assert seen[-1]["when"] == "2026-10-23 17:00" and seen[-1]["channel"] == "messaging" and seen[-1]["sender"] == KEY["owner"], \
         "the moment shown is the moment made, called with the carrying channel and the sender, as the typed command is"
-    assert done.startswith("Reminder #1: tomorrow, Mon 19/10, at 13:00 (BRT): cortarme el pelo") and [r["text"] for r in rows()] == ["cortarme el pelo"]
+    assert done.startswith("Reminder #1: Fri 23/10 at 17:00 (BRT): recoger el paquete en la porteria") and [r["text"] for r in rows()] == ["recoger el paquete en la porteria"]
 
 
 # --- the rest of the contract ---------------------------------------------------------------------------------------------------------------
@@ -400,11 +400,11 @@ def docs_first_reply(world) -> str:
 
 def test_a_typed_ask_written_as_a_reminder_ends_with_one_hint_and_is_never_rerouted(docs, monkeypatch):
     import re
-    out = say(docs, "/ask remind me tomorrow at 1 pm about the haircut")
+    out = say(docs, "/ask remind me Friday at 5 pm to pick up the parcel")
     assert out["reply"].endswith("\n\n" + phrases.text("NAT_ASK_REMIND_HINT", None)) and "write it in words" in out["reply"]
     assert st.calls(docs["adapter"]) == ["demo-answers 1"], "it stayed an ask: one answer run, no router"
     accept(docs["path"], language="pt-BR")
-    pt = say(docs, "/ask remind me tomorrow at 1 pm about the haircut")["reply"]
-    assert pt.endswith("'me lembra amanhã às 13h do corte de cabelo'.")      # validate: allow english-only -- the Portuguese sentence under test
+    pt = say(docs, "/ask remind me Friday at 5 pm to pick up the parcel")["reply"]
+    assert pt.endswith("'me lembra sexta às 17h de pegar a encomenda na portaria'.")      # validate: allow english-only -- the Portuguese sentence under test
     plain = say(docs, "/ask qual o prazo do contrato?")["reply"]
     assert "write it in words" not in plain and "escreva em palavras" not in plain

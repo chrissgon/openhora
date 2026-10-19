@@ -23,11 +23,11 @@ ops_ask = st.load("ops_ask")
 operations = st.load("operations")
 phrases = st.load("phrases")
 
-SPANISH = "recuerdame manana a las 13 cortarme el pelo"
-JAPANESE = "明日の13時に髪を切ると私に思い出させて"
-HAIRCUT_ES = OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nWhen: 2026-10-19 13:00\n"
-HAIRCUT_JA = OPERATION.format(name="remind") + "Argument text: 髪を切る\nWhen: 2026-10-19 13:00\n"
-CONFIRM_ES = "I understood: tomorrow, Mon 19/10, at 13:00: cortarme el pelo. Confirm? (yes / another time)"
+SPANISH = "recuerdame el viernes a las 17 recoger el paquete en la porteria"
+JAPANESE = "金曜の17時に荷物を受け取ると私に思い出させて"
+HAIRCUT_ES = OPERATION.format(name="remind") + "Argument text: recoger el paquete en la porteria\nWhen: 2026-10-23 17:00\n"
+HAIRCUT_JA = OPERATION.format(name="remind") + "Argument text: 荷物を受け取る\nWhen: 2026-10-23 17:00\n"
+CONFIRM_ES = "I understood: Fri 23/10 at 17:00: recoger el paquete en la porteria. Confirm? (yes / another time)"
 
 
 def reminders(world) -> list:
@@ -110,8 +110,8 @@ def test_a_mail_snapshot_named_in_an_ask_from_a_messaging_app_is_snapshot_here_a
 
 
 @pytest.mark.parametrize("reply", [
-    OPERATION.format(name="remind") + "Argument text: recordar al dentista\nWhen: 2026-10-19 13:00\n",
-    OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nWhen: manana a las 13\n",
+    OPERATION.format(name="remind") + "Argument text: recordar al dentista\nWhen: 2026-10-23 17:00\n",
+    OPERATION.format(name="remind") + "Argument text: recoger el paquete en la porteria\nWhen: manana a las 13\n",
     OPERATION.format(name="delete-everything"),
     OPERATION.format(name="sources") + OPERATION.format(name="reminders"),
     OPERATION.format(name="reminder-forget") + "Argument id: 7\n",
@@ -149,8 +149,8 @@ def test_the_router_naming_a_decision_a_gated_act_or_a_planned_effect_executes_n
 
 
 @pytest.mark.parametrize("line, reply, shown, words", [
-    (SPANISH, HAIRCUT_ES, CONFIRM_ES, "cortarme el pelo"),
-    (JAPANESE, HAIRCUT_JA, "I understood: tomorrow, Mon 19/10, at 13:00: 髪を切る. Confirm? (yes / another time)", "髪を切る"),
+    (SPANISH, HAIRCUT_ES, CONFIRM_ES, "recoger el paquete en la porteria"),
+    (JAPANESE, HAIRCUT_JA, "I understood: Fri 23/10 at 17:00: 荷物を受け取る. Confirm? (yes / another time)", "荷物を受け取る"),
 ])
 def test_a_reminder_with_a_router_normalised_time_asks_first_and_is_made_only_by_the_answer(world, line, reply, shown, words):
     with_senders(world)
@@ -161,9 +161,9 @@ def test_a_reminder_with_a_router_normalised_time_asks_first_and_is_made_only_by
     stored_texts = [m["text"] for m in stored(world)]
     assert not any(words in t for t in stored_texts[1:]), "the reply is not stored with the words"
     made = phone(world, "owner", "yes")
-    assert made["ran"] is False and made["request_id"] is None and "Reminder #1" in made["reply"] and "Mon 19/10, at 13:00 (BRT)" in made["reply"]
+    assert made["ran"] is False and made["request_id"] is None and "Reminder #1" in made["reply"] and "Fri 23/10 at 17:00 (BRT)" in made["reply"]
     [row] = reminders(world)
-    assert row["text"] == words and row["due_local"] == "2026-10-19T13:00" and row["status"] == "open"
+    assert row["text"] == words and row["due_local"] == "2026-10-23T17:00" and row["status"] == "open"
     assert drafts.count() == 0
     assert st.calls(world["adapter"]) == ["core-orchestrator 1"], "the answer to the draft ran no model"
     assert not any(words in m["text"] for m in stored(world) if m["role"] == "assistant"), "L51: the words are in the reminders table alone"
@@ -209,7 +209,7 @@ def test_in_count_mode_the_question_carries_no_words_and_the_answer_makes_the_re
     accept(world["path"], policies=PROFILES, messaging={"senders": SENDERS, "notices": "count"})
     router_says(world, HAIRCUT_ES)
     asked = phone(world, "owner", SPANISH)
-    assert asked["reply"] == "I understood: tomorrow, Mon 19/10, at 13:00. Confirm? (yes / another time)" and "pelo" not in asked["reply"]
+    assert asked["reply"] == "I understood: Fri 23/10 at 17:00. Confirm? (yes / another time)" and "paquete" not in asked["reply"]
     phone(world, "owner", "yes")
     assert len(reminders(world)) == 1
 
@@ -233,12 +233,12 @@ def test_the_group_is_asked_again_when_the_answer_comes_a_profile_narrowed_meanw
 
 def test_a_time_that_is_past_or_missing_or_a_text_that_is_missing_is_refused_or_asked_back_before_any_draft(world):
     with_senders(world)
-    router_says(world, OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nWhen: 2026-10-17 13:00\n")
+    router_says(world, OPERATION.format(name="remind") + "Argument text: recoger el paquete en la porteria\nWhen: 2026-10-17 13:00\n")
     past = phone(world, "owner", SPANISH)
     assert past["reply"].startswith("error: ") and drafts.count() == 0
-    router_says(world, OPERATION.format(name="remind") + "Argument text: cortarme el pelo\n")
+    router_says(world, OPERATION.format(name="remind") + "Argument text: recoger el paquete en la porteria\n")
     assert phone(world, "owner", SPANISH)["reply"] == phrases.text("NT_ASK_WHEN_SLASH", None) and drafts.count() == 1, "the engine asks the time and keeps the question"
-    router_says(world, OPERATION.format(name="remind") + "When: 2026-10-19 13:00\n")
+    router_says(world, OPERATION.format(name="remind") + "When: 2026-10-23 17:00\n")
     assert phone(world, "owner", SPANISH)["reply"] == phrases.text("NT_ASK_TEXT", None)
     assert reminders(world) == [] and drafts.count() == 1, "the engine asks the words and keeps the question: nothing is made"
 

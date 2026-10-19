@@ -14,8 +14,8 @@ from test_ops_natural import FLOW, OPERATION, router_says, world  # noqa: F401
 router = st.load("router")
 ops = st.load("ops")
 
-LINE = "recuerdame manana a las 13 cortarme el pelo"
-JAPANESE = "明日の13時に髪を切ると私に思い出させて"
+LINE = "recuerdame el viernes a las 17 recoger el paquete en la porteria"
+JAPANESE = "金曜の17時に荷物を受け取ると私に思い出させて"
 
 
 def read(reply, said=LINE, **kw):
@@ -23,11 +23,11 @@ def read(reply, said=LINE, **kw):
 
 
 def test_an_operation_with_arguments_and_a_normalised_time_is_read_with_the_words_checked_against_the_line():
-    got = read(OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nWhen: 2026-10-19 13:00\n")
-    assert got == {"kind": "operation", "name": "remind", "args": {"text": "cortarme el pelo"}, "when": "2026-10-19 13:00"}
+    got = read(OPERATION.format(name="remind") + "Argument text: recoger el paquete en la porteria\nWhen: 2026-10-23 17:00\n")
+    assert got == {"kind": "operation", "name": "remind", "args": {"text": "recoger el paquete en la porteria"}, "when": "2026-10-23 17:00"}
     assert read(OPERATION.format(name="sources"), "tell me which sources you hold") == {"kind": "operation", "name": "sources", "args": {}, "when": None}
-    got = read(OPERATION.format(name="remind") + "Argument text: 髪を切る\nWhen: 2026-10-19 13:00\n", JAPANESE)
-    assert got["kind"] == "operation" and got["args"] == {"text": "髪を切る"}
+    got = read(OPERATION.format(name="remind") + "Argument text: 荷物を受け取る\nWhen: 2026-10-23 17:00\n", JAPANESE)
+    assert got["kind"] == "operation" and got["args"] == {"text": "荷物を受け取る"}
 
 
 def test_the_other_lines_of_a_route_reply_are_not_read_for_an_operation():
@@ -44,12 +44,12 @@ def test_the_other_lines_of_a_route_reply_are_not_read_for_an_operation():
     (OPERATION.format(name="delete-everything"), "not an operation a line may reach"),
     (OPERATION.format(name="say"), "planning agent's own work"),
     (OPERATION.format(name="remind") + "Argument color: red\n", "no argument 'color'"),
-    (OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nArgument text: cortarme el pelo\n", "two Argument lines"),
+    (OPERATION.format(name="remind") + "Argument text: recoger el paquete en la porteria\nArgument text: recoger el paquete en la porteria\n", "two Argument lines"),
     (OPERATION.format(name="remind") + "Argument text: recordar al dentista\n", "not a span of the line"),
-    (OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nWhen: 2026-10-19\n", "not YYYY-MM-DD HH:MM"),
-    (OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nWhen: 2026-10-19 13:00\nWhen: 2026-10-19 14:00\n", "2 When lines"),
-    (OPERATION.format(name="remind") + "Argument text: cortarme el pelo\nWhen: 2026-02-30 13:00\n", "not a date"),
-    (OPERATION.format(name="sources") + "When: 2026-10-19 13:00\n", "takes no time"),
+    (OPERATION.format(name="remind") + "Argument text: recoger el paquete en la porteria\nWhen: 2026-10-23\n", "not YYYY-MM-DD HH:MM"),
+    (OPERATION.format(name="remind") + "Argument text: recoger el paquete en la porteria\nWhen: 2026-10-23 17:00\nWhen: 2026-10-23 18:00\n", "2 When lines"),
+    (OPERATION.format(name="remind") + "Argument text: recoger el paquete en la porteria\nWhen: 2026-02-30 13:00\n", "not a date"),
+    (OPERATION.format(name="sources") + "When: 2026-10-23 17:00\n", "takes no time"),
     (OPERATION.format(name="reminder-forget") + "Argument id: 7\n", "not a number written in the line"),
 ])
 def test_a_reply_that_cannot_be_believed_is_unclassified_and_says_why(reply, why):

@@ -106,8 +106,8 @@ def test_words_are_canonical_and_leave_out_the_stop_words_the_generic_words_and_
 
 
 def test_typing_the_exact_id_selects_the_file_without_asking_and_the_longer_id_wins_over_the_one_it_contains():
-    rows = [row("cv", "CV.pdf"), row("cv-old", "CV-old.pdf", date="2025-01-03"), row("cover-letter", "Cover letter.docx"), LEASE]
-    assert pick("what does the cv-old say about Vue", rows) == ("one", ["cv-old"]), "cv-old, not cv and not both"
+    rows = [row("invoice", "Invoice.pdf"), row("invoice-old", "Invoice-old.pdf", date="2025-01-03"), row("cover-letter", "Cover letter.docx"), LEASE]
+    assert pick("what does the invoice-old say about the total", rows) == ("one", ["invoice-old"]), "invoice-old, not invoice and not both"
     assert pick("read cover-letter please", rows) == ("one", ["cover-letter"])
     assert pick("compare lease-contract with cover-letter", rows) == ("free", []), "two ids typed: the old selection reads documents as before"
 

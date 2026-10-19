@@ -17,6 +17,7 @@ from test_messaging_natural_ops import rig  # noqa: F401
 from test_ops_natural import KEY, OPERATION, OWNER, READER, NOTALK, docs, phone, router_says, say, with_senders, world  # noqa: F401
 
 ops = st.load("ops")
+ops_say = st.load("ops_say")
 ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
 drafts = st.load("drafts")
@@ -162,3 +163,49 @@ def test_a_question_about_a_reminder_the_page_left_open_is_swept_when_it_expires
     assert ops_natural.peek(ctx, "yes", "page", None) is False
     assert drafts.count() == 0, "swept, not only ignored"
     assert reminders(world, "open"), "and nothing was cancelled"
+
+
+# --- L51: the words of a reminder are in the reminders table and in no reader's conversation --------------------------------------------------------------
+
+
+SECRET = "trocar o filtro do ar"      # validate: allow english-only -- a Portuguese errand is the input under test
+SPANISH_LINE = "recuerdame el martes a las 16 recoger el paquete en la porteria"
+SPANISH_WORDS = "recoger el paquete en la porteria"
+
+
+def seen_by_mcp(rig) -> list:
+    return [m["text"] for m in ops.conversation(rig.project["path"], channel="mcp")["messages"]]
+
+
+def test_the_question_of_a_routed_forget_shows_the_words_to_the_chat_and_the_conversation_keeps_a_neutral_word(rig):
+    ops.remind(rig.project["path"], "in 2h", SECRET, to=KEY["owner"], channel="terminal")
+    rid = [r for r in ops.reminders_read(rig.project["path"], channel="terminal")["open"]][0]["id"]
+    router_says(rig.world, OPERATION.format(name="reminder-forget") + f"Argument id: {rid}\n")
+    rig.bridge.handle(rig.update(OWNER, f"esse lembrete {rid} pode sair"))      # validate: allow english-only -- a Portuguese line is the input under test
+    assert wait_for(lambda: len(rig.sent()) == 1 and not rig.bridge.exclusive)
+    assert SECRET in rig.sent()[0]["message"]["text"] and rig.sent()[0]["message"]["text"].startswith("Cancel reminder #"), "the chat that asked reads the words"
+    assert not any(SECRET in t for t in seen_by_mcp(rig)), seen_by_mcp(rig)
+    rig.bridge.handle(rig.update(OWNER, "yes"))
+    assert wait_for(lambda: len(rig.sent()) == 2)
+    assert ops.reminders_read(rig.project["path"], channel="terminal")["open"] == []
+    assert not any(SECRET in t for t in seen_by_mcp(rig)) and not any(SECRET in m["text"] for m in ops_core.context(rig.project["path"])["store"].messages_list(
+        ops_core.context(rig.project["path"])["conn"], ops_say.CONVERSATION, limit=500) if m["role"] == "assistant")
+
+
+def test_a_reminder_in_a_language_no_table_ships_is_shown_to_no_reader_but_the_persons_own_shell_and_never_reaches_the_routers_memory(rig):
+    router_says(rig.world, OPERATION.format(name="remind") + f"Argument text: {SPANISH_WORDS}\nWhen: 2026-10-20 16:00\n")
+    rig.bridge.handle(rig.update(OWNER, SPANISH_LINE))
+    assert wait_for(lambda: len(rig.sent()) == 1 and not rig.bridge.exclusive)
+    router_says(rig.world, "Route: none (direct)\nNext: nothing\n")
+    rig.bridge.handle(rig.update(OWNER, "yes"))
+    assert wait_for(lambda: len(rig.sent()) == 2)
+    assert [r["text"] for r in ops.reminders_read(rig.project["path"], channel="terminal")["open"]] == [SPANISH_WORDS]
+    for channel in ("mcp", "messaging", None):
+        texts = [m["text"] for m in ops.conversation(rig.project["path"], channel=channel, sender=KEY["owner"])["messages"]]
+        assert not any(SPANISH_WORDS in t or "paquete" in t for t in texts), (channel, texts)
+        assert phrases.text("NAT_PRIVATE_LINE", None) in texts, channel
+    page = [m["text"] for m in ops.conversation(rig.project["path"], channel="page")["messages"]]
+    assert SPANISH_LINE in page, "the person's own shell shows their line"
+    ctx = ops_core.context(rig.project["path"])
+    rows = ctx["store"].messages_list(ctx["conn"], ops_say.CONVERSATION, limit=500)
+    assert "paquete" not in ops_say.chat_memory(rows, set()), "the router's memory never carries the words"

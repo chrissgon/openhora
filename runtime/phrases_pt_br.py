@@ -310,7 +310,7 @@ TABLE = {
     "NAT_ASK_WHICH": "Qual arquivo você quer dizer? Responda com o número.\n{list}",
     "NAT_NO_SOURCE": "Nenhuma fonte deste projeto corresponde a isso. A busca nas suas contas está planejada, ainda não foi construída.",
     "NAT_USED": "Usei: {name}.",
-    "NAT_ASK_REMIND_HINT": "Isso parece um lembrete: escreva em palavras, por exemplo 'me lembra amanhã às 13h do corte de cabelo'.",
+    "NAT_ASK_REMIND_HINT": "Isso parece um lembrete: escreva em palavras, por exemplo 'me lembra sexta às 17h de pegar a encomenda na portaria'.",
     # --- um e-mail da própria conta da pessoa (pacote W2) ---
     "TITLE_MAIL_SEND": "E-mail: enviar da sua conta",
     "TITLE_MAIL_REPLY": "E-mail: responder da sua conta",

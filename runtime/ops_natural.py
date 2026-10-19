@@ -170,6 +170,14 @@ def keeps_private(ctx: dict, name, channel, sender) -> bool:
     return channel == "messaging" and name in PRIVATE_READS and bool(sender) and importlib.import_module("item_refs").may_read(ctx, "messaging", sender)
 
 
+def private_ids(rows: list) -> set:
+    """The ids of the lines of the person that were followed, in the conversation, by the neutral reply of a reminder (the reply stored for a reminder asked in
+    words or a reminder to forget): a reminder in a language no table ships is recognised only after the router named it, so its line was stored as written, and
+    every reader but the person's own shell is shown the neutral word instead (limit L51)."""
+    replies = set(phrases.every("NAT_PRIVATE_REPLY"))
+    return {a["id"] for a, b in zip(rows, rows[1:]) if a.get("id") is not None and a["role"] == "user" and b["role"] == "assistant" and b["text"] in replies}
+
+
 def is_placeholder(text) -> bool:
     return isinstance(text, str) and text in phrases.every("NAT_PRIVATE_LINE") + phrases.every("NAT_PRIVATE_REPLY")
 
@@ -412,6 +420,7 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
     except core.OpsError as e:
         return _error(cfg, e, channel)
     sentence, draft = natural.forget_question([shown], cfg, channel != "messaging" or _notices_text(cfg))
+    extras["stored"] = t("NAT_PRIVATE_REPLY")      # the question shows the reminder's words: the conversation keeps a neutral word (limit L51)
     drafts.put(*_slot(channel, sender), dict(draft, project=project_key(ctx["cfg"]["project"]), at=monotonic(), message_id=None), "remind")
     return sentence
 

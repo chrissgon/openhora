@@ -354,7 +354,7 @@ TABLE = {
         "NAT_ASK_WHICH": "Which file do you mean? Answer with its number.\n{list}",
         "NAT_NO_SOURCE": "No source of this project matches that. Searching your accounts is planned, not built yet.",
         "NAT_USED": "I used: {name}.",
-        "NAT_ASK_REMIND_HINT": "That looks like a reminder: write it in words, for example 'remind me tomorrow at 1 pm about the haircut'.",
+        "NAT_ASK_REMIND_HINT": "That looks like a reminder: write it in words, for example 'remind me Friday at 5 pm to pick up the parcel at the front desk'.",
         # --- an e-mail from the person's own account (package W2: runtime/send_document.py, runtime/mail_refs.py) ---
         "TITLE_MAIL_SEND": "Mail: send from your account",
         "TITLE_MAIL_REPLY": "Mail: reply from your account",

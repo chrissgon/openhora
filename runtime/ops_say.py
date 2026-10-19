@@ -124,7 +124,8 @@ def chat_memory(messages: list, settled: set) -> str:
     for n, m in enumerate(messages):
         if m["role"] == "assistant" and m.get("task_id") in settled:
             start = n + 1
-    kept = [m for m in messages[start:] if (m["role"] == "user" and not m["text"].startswith("/") and not state_question(m["text"])
+    private = ops_natural.private_ids(messages)      # a reminder in a language no table ships: the router named it after the line was stored
+    kept = [m for m in messages[start:] if (m["role"] == "user" and m.get("id") not in private and not m["text"].startswith("/") and not state_question(m["text"])
                                             and natural.match(m["text"]) is None and natural.candidate(m["text"]) is None
                                             and not ops_natural.is_placeholder(m["text"])) or
             (m["role"] == "assistant" and m.get("task_id") is not None)][-MEMORY_TURNS:]

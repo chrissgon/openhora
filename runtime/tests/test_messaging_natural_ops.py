@@ -96,16 +96,16 @@ def test_a_decision_named_in_words_is_answered_and_its_card_goes_out_again_and_n
 def test_a_reminder_the_router_chose_waits_in_the_one_store_and_the_bridges_own_rules_finish_it(rig):
     """A line in a language no table knows goes to the router, which names the operation and a time it normalised; the question is the reminders' own (the engine's
     confirmation), kept in the store the bridge's questions are kept in, and the bridge finishes it with the reminders' rules: a yes makes it, for the moment shown."""
-    router_says(rig.world, "Route: none (operation)\nOperation: remind\nArgument text: cortarme el pelo\nWhen: 2026-10-19 13:00\n")
-    rig.bridge.handle(rig.update(OWNER, "recuerdame manana a las 13 cortarme el pelo"))
+    router_says(rig.world, "Route: none (operation)\nOperation: remind\nArgument text: recoger el paquete en la porteria\nWhen: 2026-10-23 17:00\n")
+    rig.bridge.handle(rig.update(OWNER, "recuerdame el viernes a las 17 recoger el paquete en la porteria"))
     assert wait_for(lambda: len(rig.sent()) == 1 and not rig.bridge.exclusive)
-    assert rig.sent()[0]["message"]["text"] == "I understood: tomorrow, Mon 19/10, at 13:00: cortarme el pelo. Confirm? (yes / another time)"
+    assert rig.sent()[0]["message"]["text"] == "I understood: Fri 23/10 at 17:00: recoger el paquete en la porteria. Confirm? (yes / another time)"
     assert set(rig.bridge.remind.drafts) == {OWNER} and drafts.count() == 1, "the bridge sees the question in its own view of the one store"
     assert ops.reminders_read(rig.project["path"], channel="terminal")["open"] == []
     rig.bridge.handle(rig.update(OWNER, "yes"))
     assert wait_for(lambda: len(rig.sent()) == 2)
-    assert rig.sent()[1]["message"]["text"].startswith("Reminder #1: tomorrow, Mon 19/10, at 13:00 (BRT): cortarme el pelo")
-    assert drafts.count() == 0 and [r["text"] for r in ops.reminders_read(rig.project["path"], channel="terminal")["open"]] == ["cortarme el pelo"]
+    assert rig.sent()[1]["message"]["text"].startswith("Reminder #1: Fri 23/10 at 17:00 (BRT): recoger el paquete en la porteria")
+    assert drafts.count() == 0 and [r["text"] for r in ops.reminders_read(rig.project["path"], channel="terminal")["open"]] == ["recoger el paquete en la porteria"]
     assert st.calls(rig.world["adapter"]) == ["core-orchestrator 1"], "the yes ran no model"
 
 
@@ -120,8 +120,8 @@ def test_a_new_bridge_starts_with_no_question_open_and_the_project_key_is_the_sh
 
 
 @pytest.mark.parametrize("language, line, text, when, yes", [
-    ("Spanish", "recuerdame el domingo a las 13 cortarme el pelo", "cortarme el pelo", "2026-10-25 13:00", "sí"),      # validate: allow english-only -- a foreign-language line is the input under test
-    ("Japanese", "日曜の13時に散髪を思い出させて", "散髪", "2026-10-25 13:00", "はい"),
+    ("Spanish", "recuerdame el viernes a las 17 recoger el paquete en la porteria", "recoger el paquete en la porteria", "2026-10-25 13:00", "sí"),      # validate: allow english-only -- a foreign-language line is the input under test
+    ("Japanese", "金曜の17時に荷物の受け取りを思い出させて", "荷物の受け取り", "2026-10-25 13:00", "はい"),
 ])
 def test_a_foreign_language_yes_confirms_a_routed_reminder_through_the_real_bridge(rig, language, line, text, when, yes):
     """The bridge answers the question with the same yes and no lists as the operations layer (the language data: one source), so the word of a language no table
