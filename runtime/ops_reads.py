@@ -352,8 +352,10 @@ def conversation(project: str, conversation: str | None = ops_say.CONVERSATION, 
     keys = ("id", "role", "text", "task_id", "run_id", "created_at")
     queued = ops_say.queued_ids(ctx) if conversation == ops_say.CONVERSATION else set()
     asker = importlib.import_module("ops_ask").asked_by
+    private = importlib.import_module("ops_natural").private_ids(rows) if channel not in ("terminal", "page", "chat") else set()      # the person's own shells see their line; no other reader sees a reminder's words (limit L51)
     return {"conversation": conversation,
-            "messages": [{**{key: row[key] for key in keys}, "text": _shown_text(ctx, row, asker, channel, sender), "queued": row["id"] in queued}
+            "messages": [{**{key: row[key] for key in keys}, "text": phrases.text("NAT_PRIVATE_LINE", ctx["cfg"]) if row["id"] in private else _shown_text(ctx, row, asker, channel, sender),
+                          "queued": row["id"] in queued}
                          for row in rows]}
 
 

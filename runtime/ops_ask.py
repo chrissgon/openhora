@@ -19,7 +19,11 @@ never imported at module level. contracts/runtime.md, "The answer from sources",
      TOO_LARGE) and no model runs.
      A mail or calendar snapshot is selected only when the question names it with @<id>, and then only for a question asked in the terminal,
      the conversation's own shell or the page: from a messaging app (or the MCP mode) the reply is SNAPSHOT_HERE, refusal `snapshot-channel`, and
-     nothing is copied or run.
+     nothing is copied or run. The one exception (NR-2, the maintainer's decision of 2026-10-18, superseding this rule for its holders): a messaging
+     sender whose profile lists the group `ask-mail` may name a snapshot, and the snapshots join the automatic selection of that sender's questions.
+     Before the selection, a source named in the person's words (no @ mention) is resolved by code (runtime/source_resolve.py): one strong match is
+     used and the reply ends "I used: <name>", several or weak ones are listed and the person is asked which (refusal `which-source`), and a line that
+     names a kind of document no source matches says so (refusal `no-source`).
   4. Under the project's route lock (one conversation model call at a time: a busy lock is RunBusy, before anything is stored): the
      copies of the selected sources are made as a task's are (sources.task_copies: the newest version, checked against its record; a
      version the person changed by hand only to an ask typed in the terminal), the owning agent's caps are asked (autonomy.may_start),
@@ -48,6 +52,7 @@ import ask_reply
 import ask_select
 import autonomy
 import lab
+import natural
 import operations
 import ops_actor
 import ops_cancel
@@ -59,6 +64,7 @@ import phrases
 import plan
 import roles
 import router
+import source_resolve
 import sources
 import workcopy
 
@@ -190,10 +196,10 @@ def _check_policy(ctx: dict, channel, sender) -> None:
             raise core.OpsError(refused, 1)
 
 
-def _still_may_ask(project: str, channel, sender) -> bool:
+def _still_may_ask(project: str, channel, sender, mail: bool = False) -> bool:
     """Whether the sender may still ask, read from the configuration as it is NOW (the answer took minutes): a sender removed from the list,
-    narrowed to a profile without `ask`, or a configuration that is no longer the accepted one gets nothing. The terminal and the
-    conversation's own shell are never narrowed."""
+    narrowed to a profile without `ask`, or a configuration that is no longer the accepted one gets nothing; an answer that read a mail or calendar
+    snapshot for a messaging sender (`mail`) also needs the group `ask-mail` now. The terminal and the conversation's own shell are never narrowed."""
     try:
         fresh = core.context(project)
     except core.OpsError:
@@ -206,11 +212,28 @@ def _still_may_ask(project: str, channel, sender) -> bool:
         platform, ident = ops_actor.split(sender)
         if ident not in ((cfg.get("messaging") or {}).get("senders") or {}).get(platform, ()):
             return False
-        return operations.permitted("ask", "messaging", cfg["channels"], None, sender)
+        return operations.permitted("ask", "messaging", cfg["channels"], None, sender) and (not mail or holds_mail(cfg, "messaging", sender))
     return operations.permitted("ask", where, cfg["channels"])
 
 
+def holds_mail(cfg: dict, channel, sender) -> bool:
+    """Whether the asker is a messaging sender whose profile lists the group `ask-mail` (NR-2): only then a mail or calendar snapshot is read for a
+    messaging app. Listed, never inherited: no other channel holds it."""
+    return channel == "messaging" and bool(sender) and operations.holds("ask-mail", "messaging", cfg["channels"], sender)
+
+
 def ask(project: str, text: str, channel: str | None = None, sender: str | None = None) -> dict:
+    """`_ask`, and, when the question is written as a reminder (a tier-1 form of runtime/natural.py), one more line at the end of the reply that
+    says how to ask for a reminder in words (package NR-2, contracts/runtime.md "Natural requests"). The question is never rerouted: an explicit
+    /ask stays an ask."""
+    out = _ask(project, text, channel, sender)
+    found = natural.candidate(text) if isinstance(text, str) else None
+    if found and found["op"] == "remind" and isinstance(out.get("reply"), str):
+        out = dict(out, reply=out["reply"] + "\n\n" + phrases.text("NAT_ASK_REMIND_HINT", core._config_of(project)))
+    return out
+
+
+def _ask(project: str, text: str, channel: str | None = None, sender: str | None = None) -> dict:
     """Answer one question from the project's sources (see the module's text). `channel` is the shell that carries it (the terminal, the
     page, a messaging app, or `chat`, with the carrying channel recorded by ops_actor.carried_by when a typed line made the call);
     `sender` is the messaging sender (`<platform>:<id>`) who asked. Returns {"reply": the text for the person, "ran": whether a model
@@ -228,11 +251,22 @@ def ask(project: str, text: str, channel: str | None = None, sender: str | None 
     if not skill:
         return _outcome(phrases.text("NOT_BUILT", cfg), refusal="not-built")
     ops_contained._contained_scope(ctx, skill)
-    picked = ask_select.select(said, _catalog(ctx))
+    catalog = _catalog(ctx)
+    mail = holds_mail(cfg, channel, sender)
+    used = None
+    if not sources.mentions(said, [r["id"] for r in catalog if r.get("version")]):      # a named @<id> wins; otherwise the person's words may name a file
+        found = source_resolve.resolve(said, catalog, snapshots=mail)
+        if found["kind"] == "ask":
+            return _outcome(phrases.text("NAT_ASK_WHICH", cfg, list=source_resolve.listing(found["rows"])), refusal="which-source",
+                            candidates=found["ids"])
+        if found["kind"] == "none":
+            return _outcome(phrases.text("NAT_NO_SOURCE", cfg), refusal="no-source")
+        used = found["rows"][0] if found["kind"] == "one" else None
+    picked = ask_select.select(said, catalog, named=[used["id"]] if used else None, snapshots=mail)
     if picked["refusal"]:
         return _outcome(_refusal(picked["refusal"], picked, cfg), refusal=picked["refusal"])
-    kinds = {r["id"]: r["type"] for r in _catalog(ctx)}
-    if any(kinds.get(i) in sources.SNAPSHOT_TYPES for i in picked["ids"]) and ops_actor.label(cfg, channel, sender) not in SNAPSHOT_ASKERS:
+    kinds = {r["id"]: r["type"] for r in catalog}
+    if any(kinds.get(i) in sources.SNAPSHOT_TYPES for i in picked["ids"]) and not mail and ops_actor.label(cfg, channel, sender) not in SNAPSHOT_ASKERS:
         return _outcome(phrases.text("SNAPSHOT_HERE", cfg), refusal="snapshot-channel")      # decided by the maintainer: the text of a mailbox or a calendar goes to a model only for a question typed where the person is
     try:
         agent = plan.agent_of(skill, plan.agent_skills(cfg, core.ROOT))
@@ -246,15 +280,18 @@ def ask(project: str, text: str, channel: str | None = None, sender: str | None 
         number, dest = ops_contained._contained_folder(cfg)
         prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
         try:
-            out = _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel, sender)
+            out = _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel, sender,
+                          mail=any(kinds.get(i) in sources.SNAPSHOT_TYPES for i in picked["ids"]))
         finally:
             shutil.rmtree(prepared_dir, ignore_errors=True)
             with contextlib.suppress(OSError):
                 os.rmdir(dest)                        # a refusal before the run leaves the folder it claimed empty: it goes (a folder with a run in it stays)
+    if used and out.get("ran") and out.get("reply") and not out.get("refusal"):
+        out = dict(out, reply=out["reply"] + "\n\n" + phrases.text("NAT_USED", cfg, name=source_resolve.label(used)))      # the reply says which file the person's words meant
     return out
 
 
-def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel=None, sender=None) -> dict:
+def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picked, dest, prepared_dir, channel=None, sender=None, mail=False) -> dict:
     cfg, store = ctx["cfg"], ctx["store"]
     try:
         got = ops_sources.copies_for(ctx, {"sources": picked["ids"]}, prepared_dir, not attended)
@@ -327,7 +364,7 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
                        tokens=every.get("tokens", number_of("total_tokens", int)), duration_ms=number_of("duration_ms", int),
                        skill_loaded=_ops()._skill_loaded(timing, skill), image_digest=result["image_digest"],
                        redactions=_ops()._count(counts.get("redactions")))
-    if not cancelled and not _still_may_ask(ctx["cfg"]["project"], channel, sender):
+    if not cancelled and not _still_may_ask(ctx["cfg"]["project"], channel, sender, mail):
         return _outcome(phrases.text("WITHHELD", cfg), ran=True, refusal="withheld", **base)     # the run is recorded: it was made and spent
     return cancelled or _outcome(text, ran=True, answer=checked["outcome"], flags=checked["flags"], **base)
 

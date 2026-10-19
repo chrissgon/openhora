@@ -99,12 +99,10 @@ def test_a_messaging_sender_reads_a_snapshot_reference_only_with_ask_mail_and_a_
 
 
 def test_a_messaging_sender_with_ask_mail_uses_a_snapshot_reference(world, monkeypatch):
-    from test_calendar_write import operations
-    monkeypatch.setitem(operations.GROUPS, "ask-mail", {"operations": ("ask",), "kind": None})      # NR-2's group, as item_refs.may_read names it, until it is in the table
-    monkeypatch.setitem(operations.GROUP_TEXT, "ask-mail", "asks about the person's mail and calendar")
+    from test_channel_grants_mailbox import accept as accept_holder       # the group `ask-mail` is given in the listed sender's own profile (NR-2)
     seed_google(world)
     install_item_refs(world, monkeypatch, {"agenda#1": {"id": SEEDED, "calendar": fgw.CALENDAR, "account": "google"}})
-    accept(world["path"], {"messaging": ["read", "calendar-write", "ask-mail"]})
+    accept_holder(world["path"], {"messaging": ["read", "calendar-write", "ask-mail"]})
     started = ops.event_change(world["path"], "google", "agenda#1", title="X", channel="messaging", sender=SENDER)
     assert effect_doc(world, started)["reference"]["source"] == "agenda"
 

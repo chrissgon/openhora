@@ -1028,3 +1028,37 @@ def test_a_card_with_private_lines_is_approved_from_messaging_only_by_a_reader_o
     assert whole["approvable"] is True and TO in whole["message"]["text"] and SUBJECT in whole["message"]["text"]
     assert approve(world, started, "messaging")["task_state"] == "done" and approve(world, answered, "terminal")["task_state"] == "done"
     assert len(world["gmail"].sent) == 2
+
+
+def test_the_private_lines_of_an_email_card_show_and_approve_for_the_sender_whose_own_profile_lists_ask_mail_alone(world):
+    """The real configuration (NR-2): `ask-mail` is in one listed sender's own profile, never in the channel's list; the card and the approval follow that policy."""
+    from test_channel_grants_mailbox import accept as accept_holder      # the channel keeps the list without ask-mail; SENDER's profile `holder` lists it
+    accept_holder(world["path"], {"messaging": ["read", "mail-send", "approve-effect-send-own", "ask-mail"]})
+    started = send(world, channel="messaging", sender=SENDER)
+    channels = ops.config(world["path"])["channels"]
+    full = ops.pending(world["path"], started["pending"])
+    holder = cards.build("office", full, CAPS, channels, "text", None, operations=operations, sender=SENDER)
+    other = cards.build("office", full, CAPS, channels, "text", None, operations=operations, sender="telegram:777")
+    assert TO in holder["message"]["text"] and SUBJECT in holder["message"]["text"] and holder["approvable"] is True
+    assert TO not in other["message"]["text"] and other["approvable"] is False
+    ctx = ops_core.context(world["path"])
+    item = item_of(world, started)
+    facts = ops_grants.effect_facts(ctx, item)
+    assert ops_grants.effect_refusal(ctx, item, "messaging", facts, SENDER) is None
+    assert "ask-mail" in ops_grants.effect_refusal(ctx, item, "messaging", facts, "telegram:777")
+
+
+def test_the_private_card_a_holder_of_ask_mail_reads_is_not_kept_in_the_conversation_the_mcp_mode_reads(world):
+    """A messaging read drawn under the wider view of a holder of `ask-mail` (a typed /pending, a natural line) goes to that chat; the conversation keeps a neutral word,
+    so the MCP mode, which reads it, never sees the recipient or the subject (limit L51)."""
+    from test_channel_grants_mailbox import accept as accept_holder      # the channel keeps the list without ask-mail; SENDER's profile `holder` lists it
+    accept_holder(world["path"], {"messaging": ["read", "talk", "mail-send", "approve-effect-send-own", "ask-mail"]})
+    started = send(world, channel="messaging", sender=SENDER)
+    neutral = phrases.text("NAT_READ_REPLY", None)
+    typed = ops.say(world["path"], f"/pending {started['pending']}", channel="messaging", sender=SENDER)
+    assert TO in typed["reply"] and SUBJECT in typed["reply"], "the holder reads the whole card"
+    words = ops.say(world["path"], f"task {started['task']}", channel="messaging", sender=SENDER)
+    assert "Mail: send from your account" in words["reply"]
+    messages = ops.conversation(world["path"], channel="mcp")["messages"]
+    assert [m["text"] for m in messages if m["role"] == "assistant"] == [neutral, neutral]
+    assert not any(TO in m["text"] or SUBJECT in m["text"] for m in messages)

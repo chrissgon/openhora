@@ -25,10 +25,10 @@ def open_rows(day):  # noqa: F811
 def test_a_line_in_a_language_with_no_table_is_shown_with_the_moment_that_was_read_and_nothing_is_made_until_the_person_says(day, planner):  # noqa: F811
     portuguese(day)
     day.say(OWNER, "rappelle-moi vendredi à 21h30 de payer l'électricité")      # validate: allow english-only -- a French line, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Hoje, dom 18/10, às 21:30:") and day.texts(OWNER)[-1].endswith("A agenda ainda não está disponível.")      # validate: allow english-only -- the expected Portuguese sentence
+    assert day.texts(OWNER)[-1].startswith("Hoje, dom 18/10, às 21:30:") and day.texts(OWNER)[-1].endswith("sua agenda?")      # validate: allow english-only -- the expected Portuguese sentence
     assert day.all()["open"] == []
     day.say(OWNER, "sexta")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Sex 23/10 às 21:30:") and day.texts(OWNER)[-1].endswith("A agenda ainda não está disponível.") and day.all()["open"] == [], "a line with no remind word of a table is also asked reminder or event"      # validate: allow english-only -- the expected Portuguese sentence
+    assert day.texts(OWNER)[-1].startswith("Sex 23/10 às 21:30:") and day.texts(OWNER)[-1].endswith("sua agenda?") and day.all()["open"] == [], "a line with no remind word of a table is also asked reminder or event"      # validate: allow english-only -- the expected Portuguese sentence
     day.say(OWNER, "lembrete")      # validate: allow english-only -- a Portuguese answer, the case of the tests
     assert day.texts(OWNER)[-1].startswith("Lembrete #1: sex 23/10 às 21:30 (BRT):")      # validate: allow english-only -- the expected Portuguese sentence
     no_model(planner)

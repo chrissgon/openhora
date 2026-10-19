@@ -113,11 +113,13 @@ def _date(row: dict) -> str:
     return str((row.get("catalog") or {}).get("date") or "")
 
 
-def select(question: str, rows: list) -> dict:
+def select(question: str, rows: list, named=None, snapshots: bool = False) -> dict:
     """{"ids": [source ids, in the order the run receives them], "skipped": [{"id", "bytes"}] (a single source over the cap that a
     ranking left out), "refusal": None, or one of NO_SOURCES, NO_MATCH, TOO_MANY, TOO_LARGE, "detail": what the refusal names:
     NO_MATCH the ids to offer, TOO_MANY the number mentioned, TOO_LARGE [{"id", "bytes"}]}. `rows` are catalog rows (id, version,
-    description, catalog); a row with no version is not a source to read."""
+    description, catalog); a row with no version is not a source to read. `named` (package NR-2): the ids the person's words named, resolved by code
+    (runtime/source_resolve.py), taken as rule 1 takes `@<id>` mentions when the question has none. `snapshots` (the group `ask-mail` of a messaging
+    sender): a mail or calendar snapshot is then a source of rules 2 and 3 like any other; without it the rules are as they were."""
     have = {r["id"]: r for r in rows if r.get("version")}
 
     def refuse(word, detail=None):
@@ -125,14 +127,14 @@ def select(question: str, rows: list) -> dict:
 
     if not have:
         return refuse(NO_SOURCES)
-    named = sources.mentions(question, list(have))
-    if named:
-        if len(named) > ASK_SOURCES_MAX:
-            return refuse(TOO_MANY, len(named))
-        if sum(size_of(have[i]) for i in named) > ASK_BYTES_MAX:
-            return refuse(TOO_LARGE, [{"id": i, "bytes": size_of(have[i])} for i in named])
-        return {"ids": named, "skipped": [], "refusal": None, "detail": None}
-    ordered = sorted(i for i, r in have.items() if r.get("type") not in sources.SNAPSHOT_TYPES)     # a snapshot is read only when it is named
+    mentioned = sources.mentions(question, list(have)) or [i for i in (named or []) if i in have]
+    if mentioned:
+        if len(mentioned) > ASK_SOURCES_MAX:
+            return refuse(TOO_MANY, len(mentioned))
+        if sum(size_of(have[i]) for i in mentioned) > ASK_BYTES_MAX:
+            return refuse(TOO_LARGE, [{"id": i, "bytes": size_of(have[i])} for i in mentioned])
+        return {"ids": mentioned, "skipped": [], "refusal": None, "detail": None}
+    ordered = sorted(i for i, r in have.items() if snapshots or r.get("type") not in sources.SNAPSHOT_TYPES)     # a snapshot is read only when it is named, unless the sender holds ask-mail
     if not ordered:
         return refuse(NO_MATCH, sorted(have)[:NO_MATCH_IDS])
     if len(ordered) <= ASK_SOURCES_MAX and sum(size_of(have[i]) for i in ordered) <= ASK_BYTES_MAX:

@@ -233,7 +233,7 @@ ALLOWED = (
     ("runtime/messaging.py", ("runtime/ops.py", "runtime/shell_kit.py", "runtime/messaging_*.py")),
     # (ATT-1b: the modules also read runtime/attachments.py, the limits, sentences and folders of the files a sender sends: pure helpers and the one fetch lock,
     # which reach the intake and the sources inside runtime/, never the operations layer; RM-1: and runtime/reminders.py, the pure words of a reminder; LR-1: and runtime/phrases.py, the table of sentences in the project's language; NR-1: and runtime/natural.py, a line in the person's own words matched to a reminder operation by code)
-    ("runtime/messaging_*.py", ("runtime/messaging_*.py", "runtime/shell_kit.py", "runtime/attachments.py", "runtime/reminders.py", "runtime/phrases.py", "runtime/natural.py", "runtime/natural_time.py", "providers/resolve.py", "scripts/redact.py")),
+    ("runtime/messaging_*.py", ("runtime/messaging_*.py", "runtime/shell_kit.py", "runtime/attachments.py", "runtime/reminders.py", "runtime/phrases.py", "runtime/natural.py", "runtime/natural_time.py", "runtime/drafts.py", "providers/resolve.py", "scripts/redact.py")),
     # the handlers: the resolver of providers and the shell's verbs, nothing imported from runtime/
     # a handler reaches the resolver, the terminal shell, the shared credential formats and its sibling handlers
     ("runtime/handlers/*.py", ("providers/resolve.py", "runtime/cli.py", "scripts/redact.py", "runtime/handlers/")),

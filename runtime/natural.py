@@ -11,15 +11,16 @@ the rules that turn a line into a call. The rule that governs it: what is ambigu
 reading is understood and only something about it is uncertain, the reading is SHOWN and confirmed ("yes" makes it, a time or a day replaces only the part it
 names); an open question is asked only when nothing was understood.
 
-NR-1 builds the rows of the reminders (`remind`, `reminders`, `reminder-forget`, `reminder-restore`) and one more, the calendar event
-(`calendar-event-create`, class E, planned: the reply is "not built yet", never a reminder in its place). The other operations of the platform, the dispatcher that
-executes them by class and the router's `operation` outcome are package NR-2; `NATURAL` is the closed list of the rows, and a line that matches none of them goes
-on to the router as before.
+NR-1 builds the intents of the reminders (`remind`, `reminders`, `reminder-forget`, `reminder-restore`) and one more, the calendar event
+(`calendar-event-create`, the operation `event-create`: a verb with a calendar word, or a scheduling verb with a time, which is asked). The other operations of the
+platform, the class of each (`CLASSES`, the one table that says it), their closed tier-1 forms (language data), the dispatcher that executes them by class
+(runtime/ops_natural.py) and the router's `operation` outcome are package NR-2, in the second half of this file; a line that no intent and no form matches goes on to
+the router as before.
 
   candidate(line)                    what the line is, with no clock: {"op", "how", ...} | None. For `remind`, `how` is "trigger" (a remind word in the line),
                                      "bare" (a note word with a time, or a short line that holds a clock and nothing that asks for work: reminder or event is
                                      asked), "note" (a note word and no time: a reminder is offered), or "command" (the words after `/remind`, which the
-                                     caller passes in itself); `calendar-event-create` has "trigger" (a verb with a calendar word, or "marca" with a time) or
+                                     caller passes in itself); `calendar-event-create` (the operation `event-create`) has "trigger" (a verb with a calendar word, or "marca" with a time) or
                                      "ask" (a scheduling verb with a time and no calendar word: event or something else is asked); `reminder-forget` has "id"
                                      (only an explicit one: "#9", "reminder 9"; with "confirm" a number after another word, "reminder of 3": shown and confirmed), "ids"
                                      (several, confirmed), "at" (an hour, "the reminder at 9": matched against the moment and confirmed), "words" (what the person said
@@ -57,14 +58,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import natural_time as nt  # noqa: E402  (the same folder: the time words and the engine)
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language)
 
-# The rows of the operations a line may name (package NR-2 adds the rest). `class`: N is a notice the person made, R a read, E an effect on the person's accounts.
-NATURAL = (
-    {"op": "remind", "class": "N", "trigger": "remind"},
-    {"op": "reminders", "class": "R", "trigger": "reminders"},
-    {"op": "reminder-forget", "class": "N", "trigger": "forget"},
-    {"op": "reminder-restore", "class": "N", "trigger": "undo"},
-    {"op": "calendar-event-create", "class": "E", "trigger": "calendar", "planned": True},
-)
 LIST_WORDS_MAX = 5          # "what reminders do I have": a list request is short; a longer line that starts with the word asks for something else
 FORGET_WORDS_MAX = 5        # "cancel the reminder about the florist": what the person says of the reminder is short
 BARE_WORDS_MAX = 6          # a line with no trigger is asked about only when it is this short, once the time is taken out
@@ -620,10 +613,24 @@ def _complete_when(draft: dict, said: str, now, tables: list, settled: dict):
     return {"ask": _draft("time", draft["how"], f"{draft['text']} {said}".strip(), draft["text"], day=parsed.get("day"))}
 
 
+def engine_word(draft, said, languages=None):
+    """The line as the engine reads the answer to a question that asks for a confirmation: one word of the lists `yes` and `no` of the tables (a language no table
+    ships, in any script: the one source of those words is the language data) is the engine's own "yes" or "no". Any other line is returned as it is."""
+    if isinstance(said, str) and draft.get("need") in ("confirm", "forget"):
+        word = normal(said)
+        if word in words_of("yes", languages):
+            return "yes"
+        if word in words_of("no", languages):
+            return "no"
+    return said
+
+
 def complete(draft, said, now, languages=None):
     """The next line of the chat finishing `draft` (see the module's text), or None when it is not an answer to it. A short reply that does not fit is asked once
-    more (the same draft, `retries` 1) instead of being dropped."""
+    more (the same draft, `retries` 1) instead of being dropped. The yes and no words of the language data count for every caller, the bridge's and the operations
+    layer's alike (`engine_word`)."""
     tables = _tables(languages)
+    said = engine_word(draft, said, languages)
     said = said if isinstance(said, str) else ""
     need, how = draft["need"], draft["how"]
     if not said.strip() or said.lstrip().startswith("/"):
@@ -768,6 +775,442 @@ def describe(info: dict, cfg=None, zone=None) -> str:
 
 def capital(text: str) -> str:
     return text[:1].upper() + text[1:]
+
+
+# --- the sentences of a question, a reminder made and a reminder cancelled (one place; the bridge and the operations layer both say them) -----------------
+
+def question(draft: dict, cfg=None, with_text: bool = True, how: str = "trigger") -> tuple:
+    """(the sentence that asks what `draft` needs, whether the draft is kept for the answer), in the project's language. The words of the reminder are repeated only
+    when `with_text` (the project's notices carry text). `how` is how the line started ("command" for the words after /remind, "note" for a note word). A repetition
+    is said and nothing is kept: it is a routine's."""
+    need = draft["need"]
+    if need == "recurring":
+        return phrases.text("NT_RECURRING", cfg), False
+    if need == "confirm":
+        when = describe(draft["readings"][0], cfg)
+        if draft["readings"][0].get("rolled"):          # "this morning at 9" said in the afternoon: tomorrow's is shown as such
+            when = phrases.text("NT_ROLLED", cfg, time=draft["readings"][0]["time"], when=when)
+        return (phrases.text("NT_CONFIRM_TEXT", cfg, when=when, text=draft["text"]) if with_text else phrases.text("NT_CONFIRM_COUNT", cfg, when=when)), True
+    if need == "time":
+        if draft.get("day"):
+            return phrases.text("NT_ASK_TIME_DAY", cfg, day=capital(describe_day(draft["day"], cfg))), True
+        if how == "note":
+            return phrases.text("NT_ASK_NOTE", cfg), True
+        return phrases.text("NT_ASK_WHEN_SLASH" if how == "command" else "NT_ASK_WHEN", cfg), True
+    if need == "reading":
+        options = f" {phrases.text('NT_OR', cfg)} ".join(describe(r, cfg) for r in draft["readings"])
+        return phrases.text("NT_ASK_READINGS", cfg, options=options), True
+    if need == "text":
+        return phrases.text("NT_ASK_TEXT", cfg), True
+    if need == "again":
+        return phrases.text("NT_ASK_AGAIN", cfg), True
+    if need == "weekday":
+        return phrases.text("NT_ASK_WEEKDAY", cfg), True
+    if need == "forget":
+        return draft["sentence"], True
+    when = capital(describe(draft["readings"][0], cfg))
+    return (phrases.text("NT_ASK_KIND_TEXT", cfg, when=when, text=draft["text"]) if with_text else phrases.text("NT_ASK_KIND_COUNT", cfg, when=when)), True
+
+
+def made_sentence(done: dict, cfg=None, with_text: bool = True) -> str:
+    """The reply to a reminder just made (the result of the operation `remind`): its number, the moment as a person reads it, the words only when `with_text`, and the way
+    to undo it; a time of day that had passed says so and gives tomorrow's."""
+    human, reminder = done["human"], done["reminder"]
+    when = describe(human, cfg, human["zone"])
+    if human["rolled"]:
+        when = phrases.text("NT_ROLLED", cfg, time=human["time"], when=when)
+    if with_text:
+        return phrases.text("NT_SET_TEXT", cfg, id=reminder["id"], when=when, text=reminder["text"])
+    return phrases.text("NT_SET_COUNT", cfg, id=reminder["id"], when=when)
+
+
+def forgot_sentence(done: dict, cfg=None, with_text: bool = True) -> str:
+    """The reply to a reminder just cancelled: what it was (its moment and, with `with_text`, its words) and how to get it back."""
+    human, row = done["human"], done["reminder"]
+    when = describe(human, cfg, human["zone"])
+    if "text" in row and with_text:
+        return phrases.text("NT_FORGOT_TEXT", cfg, id=row["id"], when=when, text=row["text"])
+    return phrases.text("NT_FORGOT_COUNT", cfg, id=row["id"], when=when)
+
+
+def forget_question(shown: list, cfg=None, with_text: bool = True) -> tuple:
+    """(the sentence, the draft) that asks "cancel it?" for the reminders `shown` (the previews of the operation `reminder-forget`): their moments and, with
+    `with_text`, their words. A "yes" to the draft cancels exactly those numbers."""
+    def one(done):
+        when = describe(done["human"], cfg, done["human"]["zone"])
+        row = done["preview"]
+        return f"#{row['id']} {when}" + (f": {row['text']}" if "text" in row and with_text else "")
+    numbers = [done["preview"]["id"] for done in shown]
+    if len(shown) == 1:
+        row, when = shown[0]["preview"], describe(shown[0]["human"], cfg, shown[0]["human"]["zone"])
+        if "text" in row and with_text:
+            sentence = phrases.text("NT_ASK_FORGET_TEXT", cfg, id=row["id"], when=when, text=row["text"])
+        else:
+            sentence = phrases.text("NT_ASK_FORGET_COUNT", cfg, id=row["id"], when=when)
+    else:
+        sentence = "\n".join([phrases.text("NT_ASK_FORGET_MANY", cfg)] + [one(done) for done in shown])
+    return sentence, {**_draft("forget", "trigger", "", ""), "ids": numbers, "sentence": sentence}
+
+
+# --- NR-2: what a line may do with each operation of the platform ------------------------------------------------------------------------------------
+#
+# The class of every operation (and the dispatcher that executes by class, runtime/ops_natural.py) is package NR-2. `CLASSES` is the ONE literal that gives an
+# operation its class; no other table says it. The classes (contracts/runtime.md, "Natural requests"):
+#
+#   R  a read: runs at once, checked by the policy as the typed command is
+#   N  a notice or an own write of the person's (a reminder): runs at once; a choice of the router's, or a time it normalised, asks first
+#   W  a confirmed write (cancel, stop, retry, a routine's brakes and edits, a held file): never run from a line; the reply is the exact command to send
+#   D  a decision (approve, reject, release, answer, go ahead): never decided from a line; the reply points to its card, which is sent again
+#   E  an effect on the person's own accounts (a calendar event, an e-mail, a file in their drive): never run from a line; the reply is the exact operation to
+#      run, which ends in a card of the exact content (package NR-5 routes a line into them with slots)
+#   G  gated elsewhere (consent, mode, model, configuration, sources, the instructions, the terminal's own verbs): never run; the reply names the place and
+#      the exact command
+#   work  the planning agent's own work (say, request, route) and `ask`, which only the router's `Operation: ask` reaches
+CLASSES = {
+    # R: reads
+    "status": "R", "progress": "R", "pending": "R", "task": "R", "agents": "R", "skills": "R", "costs": "R", "artifacts": "R", "artifact": "R",
+    "instructions": "R", "routines": "R", "sources": "R", "attachments": "R", "reminders": "R", "flows": "R", "flow-check": "R",
+    "connections": "R", "commands": "R",
+    # N: a notice and the person's own writes
+    "remind": "N", "reminder-forget": "N", "reminder-restore": "N",
+    # W: confirmed writes
+    "cancel": "W", "stop-task": "W", "retry": "W", "routine-pause": "W", "routine-cancel": "W", "routine-create": "W", "routine-change": "W",
+    "attachment-add": "W", "attachment-discard": "W",
+    # D: decisions
+    "approve": "D", "reject": "D", "release": "D", "answer": "D", "go-ahead": "D",
+    # E: effects on the person's own accounts, each ending in a card
+    "event-create": "E", "event-change": "E", "event-cancel": "E", "mail-send": "E", "mail-reply": "E", "mail-draft": "E", "mail-archive": "E", "mail-move": "E",
+    "mail-mark": "E", "mail-trash": "E", "file-create": "E", "file-replace": "E", "file-save": "E",
+    # G: gated elsewhere
+    "give-consent": "G", "set-mode": "G", "set-model": "G", "config": "G", "accept-config": "G", "routine-approve": "G", "routine-resume": "G",
+    "instructions-set": "G", "instructions-add": "G", "source-add": "G", "source-import": "G", "source-refresh": "G", "source-describe": "G",
+    "source-drive": "G", "source-onedrive": "G", "source-mail": "G", "source-calendar": "G", "flow-save": "G", "stage-file": "G", "sync": "G",
+    "hand-over": "G", "dispatch": "G", "verdict": "G", "deps": "G", "run-next": "G", "run-task": "G", "run-step": "G", "proof": "G",
+    "approve-policy": "G", "revoke-policy": "G", "standing": "G", "execute-under-policy": "G", "contained-run": "G", "poll": "G", "handler": "G",
+    "pin": "G", "stop-runs": "G", "service-check": "G", "route-queued": "G", "attachment-hold": "G", "conversation": "G", "version": "G",
+    "artifact-raw": "G",
+    # work: the planning agent's own work, and the answer from sources
+    "say": "work", "request": "work", "route": "work", "ask": "work",
+}
+# What a class E or a planned effect named but no operation is yet: empty since the writes of SPEC-SECRETARY-WRITES exist (a name here is not an operation; a test
+# ties it both ways). The intent `candidate` calls a calendar event is the operation `event-create`.
+PLANNED = ()
+CANDIDATE_OPS = {"calendar-event-create": "event-create"}
+
+# A slot: "<slot the router writes>": [kind, the parameter of the operation it fills]. Kinds: int (digits written in the line), word (a piece of the line as it
+# is written: an id, a path), span (a span of the normalised line: a text), when (the router's normalised time, the typed `When:` line).
+NATURAL = {
+    "status": {"slots": {}, "what": "where the work stands"},
+    "progress": {"slots": {"since": ["word", "since"]}, "what": "what happened lately"},
+    "pending": {"slots": {"id": ["int", "pending_id"]}, "what": "what waits for the person; with an id, that decision"},
+    "task": {"slots": {"id": ["int", "task_id"]}, "what": "one task or request with its runs"},
+    "agents": {"slots": {}, "what": "each area agent and its use of today"},
+    "skills": {"slots": {}, "what": "the skills in scope with their proof"},
+    "costs": {"slots": {"since": ["word", "since"]}, "what": "the runs by day, agent and model with their cost"},
+    "artifacts": {"slots": {}, "what": "the project's files under docs/"},
+    "artifact": {"slots": {"path": ["word", "path"]}, "what": "the text of one file under docs/"},
+    "instructions": {"slots": {}, "what": "the project's standing instructions"},
+    "routines": {"slots": {"id": ["int", "routine_id"]}, "what": "the routines and their state"},
+    "sources": {"slots": {}, "what": "the project's sources: what files there are"},
+    "attachments": {"slots": {}, "what": "the files people sent through a messaging app"},
+    "reminders": {"slots": {}, "what": "the reminders that wait"},
+    "flows": {"slots": {}, "what": "the flows the project can run"},
+    "flow-check": {"slots": {"flow": ["word", "flow"]}, "what": "the check of one flow"},
+    "connections": {"slots": {}, "what": "which provider each requirement class resolves to"},
+    "commands": {"slots": {}, "what": "what can be asked and the commands"},
+    "remind": {"slots": {"text": ["span", "text"], "when": ["when", "when"]}, "what": "a reminder sent back once at a time"},
+    "reminder-forget": {"slots": {"id": ["int", "reminder_id"]}, "what": "cancel a reminder that waits"},
+    "reminder-restore": {"slots": {"id": ["int", "reminder_id"]}, "what": "bring back a reminder cancelled a moment ago"},
+    "cancel": {"slots": {"id": ["int", "request_id"]}, "what": "cancel a request"},
+    "stop-task": {"slots": {"id": ["int", "task_id"]}, "what": "stop a running task"},
+    "retry": {"slots": {"id": ["int", "task_id"]}, "what": "make a failed or blocked task ready again"},
+    "routine-pause": {"slots": {"id": ["int", "routine_id"]}, "what": "pause a routine"},
+    "routine-cancel": {"slots": {"id": ["int", "routine_id"]}, "what": "cancel a routine"},
+    "routine-create": {"slots": {}, "what": "create a routine"},
+    "routine-change": {"slots": {"id": ["int", "routine_id"]}, "what": "change a routine"},
+    "attachment-add": {"slots": {"id": ["int", "attachment_id"]}, "what": "add a file that was sent as a source"},
+    "attachment-discard": {"slots": {"id": ["int", "attachment_id"]}, "what": "delete a file that was sent"},
+    "approve": {"slots": {"id": ["int", "pending_id"]}, "what": "approve a plan or an acceptance (from its card)"},
+    "reject": {"slots": {"id": ["int", "pending_id"]}, "what": "reject a decision (from its card)"},
+    "release": {"slots": {"id": ["int", "pending_id"]}, "what": "release a delivery (from its card)"},
+    "answer": {"slots": {"id": ["int", "pending_id"]}, "what": "answer a question a task asked (from its card)"},
+    "go-ahead": {"slots": {"id": ["int", "task_id"]}, "what": "go ahead on a task that waits for another request"},
+    "event-create": {"slots": {}, "what": "a card that creates an event on the person's own calendar"},
+    "event-change": {"slots": {}, "what": "a card that changes an event of the person's own calendar"},
+    "event-cancel": {"slots": {}, "what": "a card that removes an event of the person's own calendar"},
+    "mail-send": {"slots": {}, "what": "a card that sends an e-mail from the person's own account"},
+    "mail-reply": {"slots": {}, "what": "a card that sends a reply to an e-mail"},
+    "mail-draft": {"slots": {}, "what": "a card that saves a draft in the person's own mailbox"},
+    "mail-archive": {"slots": {}, "what": "a card that takes messages out of the inbox"},
+    "mail-move": {"slots": {}, "what": "a card that moves messages to a folder"},
+    "mail-mark": {"slots": {}, "what": "a card that marks messages read or unread"},
+    "mail-trash": {"slots": {}, "what": "a card that moves messages to the trash"},
+    "file-create": {"slots": {}, "what": "a card that creates a file in the person's own drive"},
+    "file-replace": {"slots": {}, "what": "a card that writes a new revision of a file that is a source"},
+    "file-save": {"slots": {}, "what": "a card that saves a file someone sent"},
+    "give-consent": {"slots": {}, "what": "the consent an autonomous agent needs"},
+    "set-mode": {"slots": {}, "what": "move an agent's autonomy mode"},
+    "set-model": {"slots": {}, "what": "fix an agent to a model"},
+    "config": {"slots": {}, "what": "the configuration and its hash"},
+    "accept-config": {"slots": {}, "what": "accept the configuration's hash"},
+    "routine-approve": {"slots": {"id": ["int", "routine_id"]}, "what": "approve a routine by its hash"},
+    "routine-resume": {"slots": {"id": ["int", "routine_id"]}, "what": "resume a paused routine"},
+    "instructions-set": {"slots": {}, "what": "replace the standing instructions"},
+    "instructions-add": {"slots": {}, "what": "add a line to the standing instructions"},
+    "source-add": {"slots": {}, "what": "register a source"},
+    "source-import": {"slots": {}, "what": "import a version of a source"},
+    "source-refresh": {"slots": {}, "what": "refresh a source"},
+    "source-describe": {"slots": {}, "what": "describe a source"},
+    "source-drive": {"slots": {}, "what": "make Drive files sources"},
+    "source-onedrive": {"slots": {}, "what": "make OneDrive files sources"},
+    "source-mail": {"slots": {}, "what": "a window of the mailbox as a source"},
+    "source-calendar": {"slots": {}, "what": "a calendar's window as a source"},
+    "flow-save": {"slots": {}, "what": "save an approved plan as a flow"},
+    "stage-file": {"slots": {}, "what": "hand a file over for a request's plan"},
+    "sync": {"slots": {}, "what": "mirror the tasks and the documents"},
+    "hand-over": {"slots": {}, "what": "copy a file into a task's file drop"},
+    "dispatch": {"slots": {}, "what": "one round of the dispatcher"},
+    "verdict": {"slots": {}, "what": "record a verdict on a run"},
+    "deps": {"slots": {}, "what": "install the dependency sets"},
+    "run-next": {"slots": {}, "what": "run the next ready task"},
+    "run-task": {"slots": {}, "what": "run one named task"},
+    "run-step": {"slots": {}, "what": "run one named step task"},
+    "proof": {"slots": {}, "what": "the model each skill would run on"},
+    "approve-policy": {"slots": {}, "what": "a standing approval of a policy file"},
+    "revoke-policy": {"slots": {}, "what": "end a standing approval"},
+    "standing": {"slots": {}, "what": "whether a standing approval covers a policy"},
+    "execute-under-policy": {"slots": {}, "what": "execute an effect inside a standing approval"},
+    "contained-run": {"slots": {}, "what": "run one skill in the container"},
+    "poll": {"slots": {}, "what": "the short job"},
+    "handler": {"slots": {}, "what": "start one verb of a handler"},
+    "pin": {"slots": {}, "what": "write the pin of the dispatcher's jobs"},
+    "stop-runs": {"slots": {}, "what": "end the runs this process started"},
+    "service-check": {"slots": {}, "what": "what the local service checks at its start"},
+    "route-queued": {"slots": {}, "what": "route the oldest queued line"},
+    "attachment-hold": {"slots": {}, "what": "the bridge's own call for a file that arrived"},
+    "conversation": {"slots": {}, "what": "the messages of the project's conversation"},
+    "version": {"slots": {}, "what": "the change signal of the store"},
+    "artifact-raw": {"slots": {}, "what": "the bytes of one image under docs/"},
+    "say": {"slots": {}, "what": "one turn of the conversation with the planning agent"},
+    "request": {"slots": {}, "what": "record what the person wants"},
+    "route": {"slots": {}, "what": "plan a request"},
+    "ask": {"slots": {}, "what": "answer a question from the text of the project's sources (the question is the person's whole line)"},
+}
+
+# --- tier 1 for the other operations: the forms are language data -----------------------------------------------------------------------------------
+#
+# Each language table (runtime/natural_lang_<tag>.py) holds a key `requests`: {"forms": {operation: [regular expression, ...]}, "aliases": [[word, ...], ...] (words
+# for one kind of document, for runtime/source_resolve.py), "cues": [...] (words that say "a file"), "generic": [...] (words that never name a source), "short_stop":
+# [...] (function words of the language), "yes": [...] and "no": [...] (the words of a confirmation that the table of `answers` does not hold, in any script)}.
+# A form is matched against the WHOLE line, lower case, no accent, every run of other characters one space (`ascii_normal`); it has NO open tail: a verb, the
+# object it acts on and a closed ending, so that a request for work that starts with the same words is never taken (a line that no form matches goes on to
+# the router). The only argument a form gives is an integer, the group `n`. The table of EVERY language is tried on EVERY line, as for the time words.
+LINE_WORDS = 40          # a longer line is a request, not a form
+PRIVATE = ("remind",)    # the operations whose line is the person's private words: the conversation does not store them (limit L51)
+# The only constructs a tier-1 form may use (the whitelist `check_requests` applies): literal characters, groups `( )` and `(?: )`, alternation `|`, an optional `?`, and a
+# class `[..]` of listed characters. Anything that matches an unbounded run (`.`, `*`, `+`, `{n,}`, `\w`, `\S`, a range, a look-around) is refused, so a form can only be a
+# closed phrase and a request for work that starts with the same words is never taken.
+CLOSED_FORM = re.compile(r"(?:[^\\.*+{}^$\[\]()|?]|\(\?:|\((?!\?)|\)|\||\?|\[[^\]\\^\-*+.?]+\])*")
+NUMBER = r"(?P<n>[0-9]{1,9})"          # what `{n}` stands for in a form
+REQUEST_KEYS = ("forms", "aliases", "cues", "generic", "short_stop", "yes", "no")
+_COMPILED = {}
+WHEN_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}")
+WORD_EDGE = ".,;:!?()\"'"      # punctuation around a word of the line that is not part of it
+WORD_RE = re.compile(r"[^\s]{1,200}")
+SPAN_MAX = 300           # characters of a text slot
+
+
+def ascii_normal(text: str) -> str:
+    """Lower case, no accents, every run of other characters one space (a-z and 0-9 only): the form tier 1 matches on."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", str(text).lower()) if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", " ", plain).strip()
+
+
+def normal(text: str) -> str:
+    """The rule a text is compared by in any language: compatibility form (full-width digits become digits), case folded, accents removed, every run of
+    characters that are neither a letter nor a digit one space. A script with no spaces (Japanese, Chinese) stays one run."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", str(text)).casefold() if not unicodedata.combining(c))
+    return re.sub(r"[\W_]+", " ", plain).strip()
+
+
+def check_requests(table: dict) -> None:
+    """ValueError(sentence) when the key `requests` of a language table is not of the shape above (a table without it has none of these words)."""
+    where = f"language table {table.get('tag')!r}: requests"
+    given = table.get("requests", {})
+    if not isinstance(given, dict) or set(given) - set(REQUEST_KEYS):
+        raise ValueError(f"{where} is a dict with the keys {', '.join(REQUEST_KEYS)}")
+    for key in REQUEST_KEYS:
+        value = given.get(key, {} if key == "forms" else [])
+        if key == "forms":
+            if not isinstance(value, dict):
+                raise ValueError(f"{where}.forms maps an operation to a list of regular expressions")
+            for op, forms in value.items():
+                if op not in CLASSES or not isinstance(forms, list) or not all(isinstance(f, str) for f in forms):
+                    raise ValueError(f"{where}.forms: {op!r} is not an operation with a list of regular expressions")
+                for form in forms:
+                    if not CLOSED_FORM.fullmatch(form.replace("{n}", "")):
+                        raise ValueError(f"{where}.forms: {form!r} is not a closed phrase: a form is words, spaces, groups, `|` and `?` (and `[..]` of listed letters) with the "
+                                         "integer written `{n}`, and nothing that matches an unbounded run (`.`, `*`, `+`, `{n,}`, `\\w`, `\\S`, a range)")
+                    re.compile(form.replace("{n}", NUMBER))
+        elif key == "aliases":
+            if not isinstance(value, list) or not all(isinstance(g, list) and all(isinstance(w, str) and w for w in g) for g in value):
+                raise ValueError(f"{where}.aliases is a list of lists of words")
+        elif not isinstance(value, list) or not all(isinstance(w, str) and w for w in value):
+            raise ValueError(f"{where}.{key} is a list of words")
+
+
+def _requests(languages=None) -> list:
+    """The `requests` of every table, checked once."""
+    out = []
+    for table in _tables(languages):
+        key = id(table)
+        if key not in _COMPILED:
+            check_requests(table)
+            given = table.get("requests", {})
+            _COMPILED[key] = {"forms": {op: tuple(re.compile(f.replace("{n}", NUMBER)) for f in forms) for op, forms in given.get("forms", {}).items()},
+                              **{k: list(given.get(k, [])) for k in REQUEST_KEYS if k != "forms"}}
+        out.append(_COMPILED[key])
+    return out
+
+
+def words_of(key: str, languages=None) -> list:
+    """The words of one list of `requests` ("cues", "generic", "short_stop", "yes", "no"), the union over every table, in order."""
+    out = []
+    for given in _requests(languages):
+        out += [w for w in given[key] if w not in out]
+    return out
+
+
+def aliases(languages=None) -> dict:
+    """{word: the first word of its group}: the groups of every table, those that share a word being one."""
+    groups = []
+    for given in _requests(languages):
+        for group in given["aliases"]:
+            merged = [g for g in groups if set(g) & set(group)]
+            for g in merged:
+                groups.remove(g)
+            groups.append(list(dict.fromkeys([w for g in merged for w in g] + group)))
+    return {w: g[0] for g in groups for w in g}
+
+
+def class_of(name: str):
+    """The class of an operation, or None when the table has none."""
+    return CLASSES.get(name)
+
+
+def operation_of(intent_op: str) -> str:
+    """The operation an intent of `candidate` is: the calendar event is `event-create`; every other intent is the operation of its own name."""
+    return CANDIDATE_OPS.get(intent_op, intent_op)
+
+
+def match(line: str, languages=None):
+    """Tier 1 for the operations other than the reminders (those are `candidate`): {"op", "args": {parameter: value}, "tier": 1} when the line is one closed form of
+    exactly one operation, else None. The only argument a form gives is the integer written in the line."""
+    if not isinstance(line, str) or line.startswith("/") or "@" in line:
+        return None
+    flat = ascii_normal(line)
+    if not flat or len(flat.split()) > LINE_WORDS:
+        return None
+    found = []
+    for given in _requests(languages):
+        for op, forms in given["forms"].items():
+            for form in forms:
+                hit = form.fullmatch(flat)
+                if hit:
+                    found.append((op, hit))
+                    break
+    if len({op for op, _hit in found}) != 1:
+        return None
+    op, hit = found[0]
+    args = {}
+    if "n" in hit.groupdict() and hit.group("n") is not None:
+        slot = next((v for v in NATURAL[op]["slots"].values() if v[0] == "int"), None)
+        if slot is None:
+            return None
+        args[slot[1]] = int(hit.group("n"))
+    return {"op": op, "args": args, "tier": 1}
+
+
+def needs(line: str, languages=None):
+    """The operation whose group a messaging sender must hold for this line to be tier 1 (a form of `match`), or None (the line
+    needs the group `talk`, as every plain line does): a read or a notice needs its own group, a decision needs to read (`pending`), the other classes `talk`."""
+    found = match(line, languages)          # not `candidate`: a reminder in words is the messaging bridge's own, done before a line reaches `say`; one it declined is a plain line
+    if found is None:
+        return None
+    cls = CLASSES[found["op"]]
+    if cls in ("R", "N"):
+        return found["op"]
+    return "pending" if cls == "D" else None
+
+
+def private(line: str, languages=None) -> bool:
+    """Whether the line is a reminder asked in words (`candidate` says `remind`): the conversation stores a neutral word for it, as the words are the person's
+    private ones (limit L51)."""
+    found = candidate(line, languages)
+    return found is not None and found["op"] in PRIVATE
+
+
+def confirm_kind(said, languages=None):
+    """"yes" or "no" for the answer to a question that asks for a confirmation, else None. A yes is a yes and nothing else (`affirm`: courtesies are not an answer) or
+    one word of the lists `yes` of the tables, in any script; a no is a no, a cancel or a never mind and nothing else, or one word of the lists `no`."""
+    if not isinstance(said, str):
+        return None
+    word = normal(said)
+    if word in words_of("yes", languages) or affirm(said, languages):
+        return "yes"
+    if word in words_of("no", languages):
+        return "no"
+    kinds, rest = _only(said, _tables(languages), kinds=("other", "cancel"))
+    return "no" if kinds and not rest else None
+
+
+def _numbers(line: str) -> set:
+    return {int(n) for n in re.findall(r"[0-9]+", unicodedata.normalize("NFKC", line)) if len(n) <= 9}
+
+
+def check_operation(name, slots: dict, when, line) -> dict:
+    """Whether the router's `Operation:` outcome can be believed against the person's line, by code only: {"ok": True, "name", "args": {parameter:
+    value}, "when": the normalised time or None} or {"ok": False, "why"}. `slots` is {slot: words} from the `Argument <slot>:` lines. The name must be
+    in the table and not one of the work operations other than `ask`; a slot must be one the row has and must be of its kind (an integer written in the
+    line; a word that is a piece of the line as written; a text that is a span of the normalised line); `when` must have the shape YYYY-MM-DD HH:MM, be
+    a date and a time, and belong to a row that has a time slot. Nothing is read from the catalog or the router's other lines."""
+    if not isinstance(line, str) or not line.strip():
+        return {"ok": False, "why": "an operation is read only for the person's line"}
+    if name not in NATURAL or name not in CLASSES:
+        return {"ok": False, "why": f"{name!r} is not an operation a line may reach"}
+    if CLASSES[name] == "work" and name != "ask":
+        return {"ok": False, "why": f"{name!r} is the planning agent's own work, not an operation a line names"}
+    row = NATURAL[name]["slots"]
+    flat, args = normal(line), {}
+    for slot, words in slots.items():
+        spec = row.get(slot)
+        if spec is None or spec[0] == "when":
+            return {"ok": False, "why": f"the operation {name} has no argument {slot!r}"}
+        kind, param = spec
+        if kind == "int":
+            if not (words.isascii() and words.isdigit() and len(words) <= 9) or int(words) not in _numbers(line):
+                return {"ok": False, "why": f"the argument {slot!r} is not a number written in the line"}
+            args[param] = int(words)
+        elif kind == "word":
+            tokens = [t.strip(WORD_EDGE) for t in unicodedata.normalize("NFKC", line).split()]      # a whole word of the line, as written: never a piece inside a longer word
+            if not WORD_RE.fullmatch(words) or words not in tokens:
+                return {"ok": False, "why": f"the argument {slot!r} is not a piece of the line"}
+            args[param] = words
+        else:
+            mine = normal(words)
+            if not mine or len(words) > SPAN_MAX or mine not in flat:
+                return {"ok": False, "why": f"the argument {slot!r} is not a span of the line"}
+            args[param] = words
+    if when is not None:
+        if "when" not in row:
+            return {"ok": False, "why": f"the operation {name} takes no time"}
+        if not WHEN_RE.fullmatch(when):
+            return {"ok": False, "why": "the When line is not YYYY-MM-DD HH:MM"}
+        try:
+            datetime.datetime.strptime(when, "%Y-%m-%d %H:%M")
+        except ValueError:
+            return {"ok": False, "why": "the When line is not a date and a time"}
+    return {"ok": True, "name": name, "args": args, "when": when}
 
 
 if __name__ == "__main__":

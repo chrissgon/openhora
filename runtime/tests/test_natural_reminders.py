@@ -180,10 +180,11 @@ def test_every_new_sentence_is_a_key_of_the_phrase_table_in_both_languages():
         assert phrases.text(f"NT_WD_{day}", {"language": "pt-BR"}) != phrases.text(f"NT_WD_{day}", None)
 
 
-def test_the_table_of_rows_is_closed_and_a_planned_row_is_marked():
-    assert [r["op"] for r in natural.NATURAL] == ["remind", "reminders", "reminder-forget", "reminder-restore", "calendar-event-create"]
-    assert [r["op"] for r in natural.NATURAL if r.get("planned")] == ["calendar-event-create"]
-    assert {r["op"] for r in natural.NATURAL if r["class"] in ("N", "R")} == {"remind", "reminders", "reminder-forget", "reminder-restore"}
+def test_the_table_of_classes_holds_the_reminders_and_the_calendar_event_is_an_operation_now():
+    assert {op: natural.CLASSES[op] for op in ("remind", "reminders", "reminder-forget", "reminder-restore")} == \
+        {"remind": "N", "reminders": "R", "reminder-forget": "N", "reminder-restore": "N"}
+    assert natural.CLASSES["event-create"] == "E" and natural.operation_of("calendar-event-create") == "event-create", "the intent is the operation the platform has"
+    assert natural.PLANNED == ()
 
 
 def test_a_full_reading_with_something_uncertain_is_shown_and_confirmed_never_asked_open_and_never_lost():

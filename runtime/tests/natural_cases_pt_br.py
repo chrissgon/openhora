@@ -243,11 +243,11 @@ ASK_NOTE = "Quer um lembrete? Então diga para quando, por exemplo: amanhã às 
 ASK_NINE = "Qual horário você quer: sex 23/10 às 09:00 ou sex 23/10 às 21:00? Responda com a hora."
 ASK_THURSDAY = "Qual horário você quer: qui 22/10 às 15:30 ou qui 29/10 às 15:30? Responda com a hora."
 REPLY_FRIDAY_21 = "Lembrete #1: sex 23/10 às 21:00 (BRT): ligar para a gráfica. Para desfazer: /forget 1."
-ASK_KIND = "Amanhã, seg 19/10, às 13:00: aula de violão. Um lembrete aqui no chat, ou um evento na sua agenda? A agenda ainda não está disponível."
-ASK_KIND_COUNT = "Amanhã, seg 19/10, às 13:00. Um lembrete aqui no chat, ou um evento na sua agenda? A agenda ainda não está disponível."
-ASK_EVENT_OR_OTHER = ("Evento na agenda, ou outra coisa? A agenda ainda não está disponível. "
+ASK_KIND = "Amanhã, seg 19/10, às 13:00: aula de violão. Um lembrete aqui no chat, ou um evento na sua agenda?"
+ASK_KIND_COUNT = "Amanhã, seg 19/10, às 13:00. Um lembrete aqui no chat, ou um evento na sua agenda?"
+ASK_EVENT_OR_OTHER = ("Evento na agenda, ou outra coisa? "
                       "Responda agenda, ou outra coisa para enviar a mensagem adiante.")
-NOT_BUILT = "Ainda não sei fazer isso: colocar um evento na sua agenda (planejado). Posso enviar um lembrete aqui no chat."
+EVENT_START = "Isso não é feito por uma frase. Faça no terminal ou na página: "          # the calendar event is the operation event-create: the place and the exact command follow
 PAST_TODAY = "Lembrete #1: 13:00 de hoje já passou: amanhã, seg 19/10, às 13:00 (BRT): aula de violão. Para desfazer: /forget 1."
 ASK_TIME_TOMORROW = "Amanhã, seg 19/10: a que horas? Responda com uma hora, por exemplo 13h."
 WHICH = "Qual deles? Envie /forget <n>."

@@ -334,10 +334,15 @@ def _policies(value) -> dict:
     return out
 
 
-def _check_assigned(where: str, channel: str, groups: list, profile: str | None) -> None:
+def _check_assigned(where: str, channel: str, groups: list, profile: str | None, own: bool = False) -> None:
     """The groups of a channel's entry, or of a profile at the place it is assigned, against the channel: every group is one the channel takes, the
-    networked plans need the plans, and the page and the MCP mode list `read`. The sentence names the profile (when there is one) and the channel."""
+    networked plans need the plans, and the page and the MCP mode list `read`. The sentence names the profile (when there is one) and the channel. `own` is a
+    sender's own profile (messaging.senders.<platform>[].policy): the group `ask-mail` is given there and nowhere else, never to a whole channel, because the text of a
+    mailbox or a calendar is read for one person, not for every sender the channel lists."""
     label = f"profile {profile!r}: " if profile else ""
+    if "ask-mail" in groups and not own:
+        raise ConfigError(f"runtime.json {where}: {label}the group 'ask-mail' is given in the profile of one listed sender (messaging.senders.<platform> with a policy), "
+                          "never to a whole channel: the text of a mailbox or a calendar is read for the person it belongs to")
     for group in groups:
         why = _refused_group(channel, group, groups)
         if why:
@@ -449,7 +454,7 @@ def _messaging(value, policies=None) -> dict:
     if not isinstance(senders, dict):
         raise ConfigError("runtime.json messaging.senders must be an object from a platform to a list of sender ids")
     policies = policies or {}
-    out_senders, out_profiles, checked = {}, {}, set()
+    out_senders, out_profiles, checked, holders = {}, {}, set(), {}
     for platform, entries in senders.items():
         if not isinstance(platform, str) or not PLATFORM_NAME.fullmatch(platform) or len(platform) > PLATFORM_MAX:
             raise ConfigError(f"runtime.json messaging.senders: {platform!r} is not a platform name (lowercase words joined by hyphens, at most {PLATFORM_MAX} characters)")
@@ -466,12 +471,18 @@ def _messaging(value, policies=None) -> dict:
             ids.append(sender)
             if profile:
                 named[sender] = profile
+                if "ask-mail" in policies[profile]["groups"]:
+                    holders.setdefault(profile, set()).add((platform, sender))
                 if profile not in checked:
                     checked.add(profile)
-                    _check_assigned(f"messaging.senders.{platform}", "messaging", policies[profile]["groups"], profile)
+                    _check_assigned(f"messaging.senders.{platform}", "messaging", policies[profile]["groups"], profile, own=True)
         out_senders[platform] = ids
         if named:
             out_profiles[platform] = named
+    for profile, who in sorted(holders.items()):
+        if len(who) > 1:      # the text of a mailbox or a calendar is read for the person it belongs to: a profile that lists ask-mail is one person's
+            raise ConfigError(f"runtime.json messaging.senders: the profile {profile!r} lists the group 'ask-mail' and is named by {len(who)} senders; "
+                              "a profile with 'ask-mail' belongs to one sender, so give each sender who reads their own mail and calendar a profile of their own")
     if sum(len(ids) for ids in out_senders.values()) > SENDERS_MAX:
         raise ConfigError(f"runtime.json messaging.senders lists more than {SENDERS_MAX} senders in all: the record of what the file gives them "
                           "is kept in the store (a cursor of 4 KiB) and is bounded")

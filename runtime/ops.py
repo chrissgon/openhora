@@ -1750,11 +1750,12 @@ def _route_request(ctx: dict, request_id: int) -> dict:
         return {**_route_run(ctx, request), "recovered": recovered["tasks"]}
 
 
-def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) -> dict:
+def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False, said: str | None = None) -> dict:
     """One run of the router skill on a request, asked only for the route, with text as the request's words. Returns
     {"out", "failed"} and, for a run that did not fail, "response", "body", "finish" (the arguments of
     route_run_finish), "common" (the payload keys every decision of the run carries) and "read" (router.read_route).
-    A failed run is finished here; a run that did not fail is finished by the caller, with its decision."""
+    A failed run is finished here; a run that did not fail is finished by the caller, with its decision. `said` is the person's own line, given
+    for a request of one line only: a reply that names an operation (package NR-2) is believed against it, and without it such a reply is unclassified."""
     cfg, store, skill = ctx["cfg"], ctx["store"], router.ROUTER_SKILL
     try:
         meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
@@ -1838,7 +1839,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
     common = {"run_dir": dest, "response_file": os.path.join(result["outputs"], "response.md"), "kept": out["kept"],
               "routing": routing, "use": out["use"], "body_masked": masked}
     return {"out": out, "failed": False, "response": result["response"], "body": body, "finish": finish,
-            "common": common, "read": router.read_route(result["response"], ignore_language=bool(request.get("language")))}
+            "common": common, "read": router.read_route(result["response"], ignore_language=bool(request.get("language")), said=said)}
 
 
 def _checked(ctx: dict, read: dict) -> dict:
@@ -1876,7 +1877,7 @@ def _route_run(ctx: dict, request: dict) -> dict:
     """One run of the router on a request of one delivery (stage 3's behaviour): a valid route becomes a plan (through
     plan.combine), a reply that asks a question, anything else a question that names the flow command."""
     store = ctx["store"]
-    call = _router_call(ctx, request, request["text"])
+    call = _router_call(ctx, request, request["text"], said=ops_say.person_line(request["text"]))
     out = call["out"]
     if call["failed"]:
         return out
@@ -1904,6 +1905,10 @@ def _route_run(ctx: dict, request: dict) -> dict:
     if read["kind"] == "direct":  # a direct turn: nothing to plan and nothing to ask; the conversation answers it
         core._stored(ctx, store.route_run_finish, out["run_id"], ending="done", **finish)
         out.update(status="ok", ending="done", routed=False, kind="direct", next=read["next"])
+        return out
+    if read["kind"] == "operation":   # an operation of the table of natural requests (package NR-2): nothing to plan and nothing to ask; the conversation executes it by code
+        core._stored(ctx, store.route_run_finish, out["run_id"], ending="done", **finish)
+        out.update(status="ok", ending="done", routed=False, kind="operation", operation={k: read[k] for k in ("name", "args", "when")})
         return out
     if read["kind"] == "question":
         decision = {"kind": "question", "title": "The router asks", "body": body,
@@ -2679,7 +2684,7 @@ OpsError = core.OpsError  # a shell catches ops.OpsError; the class has one home
 DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this name
 
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
-from ops_say import chat_memory, route_queued, say  # noqa: E402,F401
+from ops_say import chat_memory, natural_needs, natural_reply, route_queued, say  # noqa: E402,F401
 from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEAD, MEMORY_TAIL, MEMORY_TURNS, PLAN_NEXT  # noqa: E402,F401
 # The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401

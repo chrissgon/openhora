@@ -1064,3 +1064,19 @@ def test_a_failure_sentence_of_a_file_write_is_cut_to_its_code_for_those_readers
     assert ops_grants.task_view(ctx, other, "mcp") is other, "a task that is not an account write is returned as it is"
     monkeypatch.setattr(ops_grants.item_refs, "may_read", lambda *a, **k: True)
     assert ops_grants.task_view(ctx, row, "messaging", SENDER) is row, "a reader of the person's mail and files gets the row whole"
+
+
+def test_the_private_lines_of_a_files_card_show_and_approve_for_the_sender_whose_own_profile_lists_ask_mail_alone(world):
+    """The real configuration (NR-2): `ask-mail` is in one listed sender's own profile, never in the channel's list. A replace shows the current name of the file
+    to that sender alone; the save of a file a sender sent keeps its own rule (the sender who sent it, whatever the profile)."""
+    from test_channel_grants_mailbox import accept as accept_holder      # the channel keeps the list without ask-mail; SENDER's profile `holder` lists it
+    seed_drive(world)
+    replace = ops.file_replace(world["path"], "google", "cv", content=NEW)
+    accept_holder(world["path"], {"messaging": ["read", "approve-effect-files", "ask-mail"]})
+    channels = ops.config(world["path"])["channels"]
+    full = ops.pending(world["path"], replace["pending"], reader=SENDER)
+    holder = cards.build("office", full, CAPS, channels, "text", None, operations=operations, sender=SENDER)
+    full_other = ops.pending(world["path"], replace["pending"], reader=OTHER)
+    other = cards.build("office", full_other, CAPS, channels, "text", None, operations=operations, sender=OTHER)
+    assert "CV 2026.md" in holder["message"]["text"] and holder["approvable"] is True
+    assert "CV 2026.md" not in other["message"]["text"] and other["approvable"] is False

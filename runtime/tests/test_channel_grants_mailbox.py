@@ -24,7 +24,25 @@ import pytest
 
 import standin_tree as st
 from test_mailbox_write import NEW_DRAFT, approve, archive, effect_doc, item_of, ops, ops_core, operations, phrases, rows, world  # noqa: F401  (the mailbox world: `world` is a fixture the tests below use)
-from test_channel_grants import accept
+from test_channel_grants import accept as accept_channels
+
+HOLDER = {"telegram": [{"id": "4242", "policy": "holder"}]}
+
+
+def accept(path, channels, **extra):
+    """`test_channel_grants.accept`, with the group `ask-mail` where it can be given: in the profile of the listed sender (SENDER), never to a whole channel (the
+    configuration refuses it there). A list of the channel that names it becomes the profile `holder` of SENDER and the channel keeps the list without it."""
+    file = Path(path) / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(file.read_text())
+    raw.pop("policies", None)
+    raw.pop("messaging", None)
+    channels = dict(channels or {})
+    if "ask-mail" in (channels.get("messaging") or ()):
+        raw["policies"] = {"holder": list(channels["messaging"])}
+        raw["messaging"] = {"senders": HOLDER}
+        channels["messaging"] = [g for g in channels["messaging"] if g != "ask-mail"]
+    file.write_text(json.dumps(raw))
+    return accept_channels(path, channels, **extra)
 
 cards = st.load("messaging_cards")
 account_start = st.load("account_start")
@@ -36,9 +54,7 @@ EXPENSIVE = "Approve this exact content"
 
 @pytest.fixture
 def desk(world, monkeypatch):
-    """The mailbox world with a stand-in for the group `ask-mail` (NR-2) in the table of groups."""
-    monkeypatch.setitem(operations.GROUPS, "ask-mail", {"operations": ("ask",), "kind": None})
-    monkeypatch.setitem(operations.GROUP_TEXT, "ask-mail", "answers from your mail and calendar (a stand-in of the group NR-2 adds)")
+    """The mailbox world; the group `ask-mail` (NR-2) is the real one."""
     return world
 
 
@@ -91,7 +107,7 @@ def test_a_sender_who_may_ask_may_not_approve_without_the_grant_and_the_grant_ne
         approve(desk, started, "messaging")
     assert desk["google"].writes() == []
     accepted = accept(desk["path"], {"messaging": ["read", "mail-organize", "ask-mail", "approve-effect-mailbox"]})
-    assert [w["group"] for w in accepted["widened"]] == ["approve-effect-mailbox"] and "mailbox" in accepted["widened"][0]["means"]
+    assert {w["group"] for w in accepted["widened"]} == {"approve-effect-mailbox"} and "mailbox" in accepted["widened"][0]["means"]      # the channel's list and the holder's profile both widen
     card = card_for(desk, started, ["read", "ask-mail", "approve-effect-mailbox"])
     assert EXPENSIVE in labels(card) and card["whole"] is True and card["approvable"] is True
     for line in ("Archive: 2 message(s)", "1. 2026-10-17 06:00 · from ana@clinic.example · Appointment confirmed for Monday", "Read from your mailbox at"):
@@ -390,3 +406,17 @@ def test_a_reader_who_cannot_approve_is_not_shown_the_line_that_says_how(desk):
     assert with_line in view("messaging", SENDER)["body"], "a reader who may approve reads it"
     assert with_line not in card_for(desk, started, ["read", "ask-mail"])["message"]["text"], "the messaging card of a reader without the grant leaves it out"
     assert with_line in card_for(desk, started, ["read", "ask-mail", "approve-effect-mailbox"])["message"]["text"]
+
+
+def test_the_private_card_of_a_mailbox_change_a_holder_reads_is_not_kept_in_the_conversation_the_mcp_mode_reads(desk):
+    """A messaging read of the card drawn for a holder of `ask-mail` (the senders and subjects of the messages) goes to that chat alone; the conversation keeps a
+    neutral word."""
+    accept(desk["path"], {"messaging": ["read", "talk", "mail-organize", "ask-mail"]})
+    started = archive(desk, channel="messaging", sender=SENDER)
+    neutral = phrases.text("NAT_READ_REPLY", None)
+    typed = ops.say(desk["path"], f"/pending {started['pending']}", channel="messaging", sender=SENDER)
+    assert "ana@clinic.example" in typed["reply"], "the holder reads the whole card"
+    ops.say(desk["path"], f"task {started['task']}", channel="messaging", sender=SENDER)
+    messages = ops.conversation(desk["path"], channel="mcp")["messages"]
+    assert [m["text"] for m in messages if m["role"] == "assistant"] == [neutral, neutral]
+    assert not any("ana@clinic.example" in m["text"] or "bob@shop.example" in m["text"] for m in messages)

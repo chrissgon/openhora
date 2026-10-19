@@ -439,7 +439,7 @@ def test_the_page_keeps_ask_in_its_ceiling_unless_its_policy_narrows_it_and_the_
     accept(two["path"], channels={"page": ["read", "talk"]})
     with pytest.raises(ops.OpsError, match="channels.page"):
         ask(two, channel="page")
-    with pytest.raises(ops.OpsError, match="channels.mcp"):
+    with pytest.raises(ops.OpsError, match="/ask is done in the terminal or on the page"):      # no configuration can turn it on there: the sentence says where it is done (NR-2)
         ask(two, channel="mcp")
     assert len(runs(two)) == 1
 
