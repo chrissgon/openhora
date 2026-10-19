@@ -253,6 +253,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `approve-effects` | `approve` | `effect` | `page` | - | approves any effect with its hash (the page alone) |
 | `approve-effect-create` | `approve` | `effect:create` | `page`, `messaging` | - | approves a pull request, with its hash |
 | `approve-effect-write` | `approve` | `effect:write` | `page`, `messaging` | - | approves the write of a page of the documents platform, with its hash |
+| `approve-effect-send-own` | `approve` | `effect:send-own` | `page`, `messaging` | - | approves an e-mail sent from one of the person's own accounts, with its hash |
 | `approve-effect-send` | `approve` | `effect:send` | `page`, `messaging` | - | approves an e-mail sent from the project's outbox, with its hash |
 | `approve-effect-publish` | `approve` | `effect:publish` | `page`, `messaging` | - | approves a post to a social platform, with its hash |
 | `approve-networked-plans` | `approve` | `plan:networked` | `messaging` | - | approves a plan that holds a script which reaches the network, with the plan's hash |
@@ -279,6 +280,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `approve-effect-calendar` | `approve` | `effect:calendar` | `page`, `messaging` | - | approves an event on the person's own calendars (create, change or remove), with its hash |
 | `files-write` | `file-create`, `file-replace`, `file-save` | - | `page`, `messaging` | - | prepares new files and new revisions in your own Drive and OneDrive, and the saving of a file you sent; each one waits for approval of its card |
 | `approve-effect-files` | `approve` | `effect:files` | `page`, `messaging` | - | approves a new file or a new revision in your own Drive or OneDrive, with its hash |
+| `mail-send` | `mail-send`, `mail-reply` | - | `page`, `messaging` | - | prepares e-mails from your own accounts (a new e-mail, a reply to a message of a mail snapshot); each one waits for approval of its card |
 
 A grant (`GRANTS`) widens a channel and counts only when the project's own entry for the channel lists it, never through the default policy; accepting a file that gives a channel or a sender any group the accepted file did not effectively give them, a grant or not, asks for the hash of the widening list (`accept-config --widen`).
 
@@ -287,6 +289,7 @@ A grant (`GRANTS`) widens a channel and counts only when the project's own entry
 | `messaging` | `approve-effect-create` | a messaging app may approve a pull request, with its hash; today its card shows the files and their hashes and not the code, so no pull request is approved from a card yet and this grant approves nothing until a card shows the change |
 | `messaging` | `approve-effect-write` | a messaging app may approve the write of a page of your documents platform (never a table: its card is a preview), from a card that carries the whole text, with its hash |
 | `messaging` | `approve-effect-send` | a messaging app may approve an e-mail sent from your outbox (never one with an attachment), from a card that carries the whole text, with its hash |
+| `messaging` | `approve-effect-send-own` | a messaging app may approve an e-mail sent from one of your own accounts (never one with an attachment), from a card that carries the whole text, with its hash; the grant of the outbox's e-mail does not cover it |
 | `messaging` | `approve-effect-publish` | a messaging app may approve a post to a social platform (never one with an image), from a card that carries the whole text, with its hash |
 | `messaging` | `approve-networked-plans` | a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash |
 | `messaging` | `add-sources-direct` | a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card) |

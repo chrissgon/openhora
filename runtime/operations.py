@@ -450,6 +450,19 @@ OPERATIONS = (
               {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"}, {"name": "calendar", "kind": "str"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
      "help": "prepare the removal of an event of your own calendar and stop at a card (nothing is removed until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; Google is expected to move it to the calendar's trash for 30 days (to verify live); on Outlook this is not available yet; nobody is told"},
+    # W2: an e-mail from the person's own account (SPEC-SECRETARY-WRITES 3.2). Each one PREPARES a card and sends nothing: the e-mail is sent when its card is approved with its
+    # hash (limits L55 and L42). Off for a messaging app until a profile lists the group mail-send; never on the MCP mode.
+    {"name": "mail-send", "call": "mail_send",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "to", "kind": "str", "required": True, "label": "a@x.example[,b@y.example]"}, {"name": "cc", "kind": "str"}, {"name": "bcc", "kind": "str"},
+              {"name": "subject", "kind": "str", "required": True}, {"name": "text", "kind": "text", "required": True}, {"name": "attach", "kind": "list"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "prepare an e-mail from your own Google or Microsoft account and stop at a card that shows the whole e-mail (nothing is sent until you approve the card with its hash): --text or --text-file is the body; --to, --cc and --bcc are plain comma-separated addresses, at most 20 in all (a Google account sends no Bcc in this version); --attach is a file under docs/ (repeat it), and an e-mail with a file is approved in the terminal or on the page, never on a messaging card; the sender is the address of the account in runtime.json (the key accounts); it is sent once"},
+    {"name": "mail-reply", "call": "mail_reply",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "message", "kind": "str", "required": True, "label": "<source>#<n>"}, {"name": "text", "kind": "text", "required": True}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "prepare a reply to a message of a mail snapshot and stop at a card (nothing is sent until you approve the card with its hash): --message is <source>#<n>, the n-th message of the newest snapshot of a mail source of that account; --text or --text-file is the body; the reply goes to the sender of that message and to no one else (a Reply-To is shown on the card and not used; there is no reply to all), with the subject after Re:, in the message's conversation; from a messaging app the sender also needs the group ask-mail to name a message"},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -481,6 +494,7 @@ GROUPS = {
     "approve-effects": {"operations": ("approve",), "kind": "effect"},   # the umbrella: every word, on the page alone; a messaging app takes the per-word groups below, as grants
     "approve-effect-create": {"operations": ("approve",), "kind": "effect:create"},       # a pull request (effect_pull_request.py)
     "approve-effect-write": {"operations": ("approve",), "kind": "effect:write"},         # a write to the documents platform (effect_write.py)
+    "approve-effect-send-own": {"operations": ("approve",), "kind": "effect:send-own"},      # an e-mail from the person's own account (effect_send.approval_word; its own grant, decision of 2026-10-19)
     "approve-effect-send": {"operations": ("approve",), "kind": "effect:send"},           # an e-mail from the project's outbox (effect_send.py APPROVAL_GROUP)
     "approve-effect-publish": {"operations": ("approve",), "kind": "effect:publish"},     # a post (effect_publish.py APPROVAL_GROUP)
     "approve-networked-plans": {"operations": ("approve",), "kind": "plan:networked"},    # a plan that holds a step reaching the network (P9, limit L36): on top of approve-plans
@@ -520,6 +534,9 @@ GROUPS = {
     # terminal and the page.
     "files-write": {"operations": ("file-create", "file-replace", "file-save"), "kind": None},
     "approve-effect-files": {"operations": ("approve",), "kind": "effect:files"},          # a file in the person's own Drive or OneDrive (effect_files.py APPROVAL_GROUP)
+    # W2: e-mail from the person's own account (SPEC-SECRETARY-WRITES 5). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
+    # --widen; never on the MCP mode. It prepares a card and sends nothing: the send is the approval of the card's hash (`approve-effect-send` on a messaging app).
+    "mail-send": {"operations": ("mail-send", "mail-reply"), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -533,7 +550,7 @@ MESSAGING_ONLY_GROUPS = ("read-limited",)          # valid on a messaging app al
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
-           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files")}
+           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files")}
 SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy mapping (never in runtime.json), {"<platform>:<sender id>": [groups]} of each listed sender whose entry names a profile
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
@@ -555,9 +572,9 @@ BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel") 
 # Profiles (POL-2). A policy is a named set of groups, a profile (runtime.json `policies`); a channel's entry may name one, and on a messaging
 # app each listed sender may have their own, which REPLACES the channel's groups for that sender (SENDERS_KEY in the loaded policy mapping;
 # effective_groups(channel, cfg, sender)). Nothing but accept-config in the terminal changes a profile, and nothing a sender sends names one.
-EFFECT_APPROVAL_WORDS = ("create", "write", "send", "publish", "calendar", "files")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
+EFFECT_APPROVAL_WORDS = ("create", "write", "send", "send-own", "publish", "calendar", "files")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
-    "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans",
+    "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-networked-plans",
                   "add-sources-direct", "approve-effect-calendar", "approve-effect-files"),
     "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
 }
@@ -565,6 +582,7 @@ GRANT_TEXT = {
     "messaging:approve-effect-create": "a messaging app may approve a pull request, with its hash; today its card shows the files and their hashes and not the code, so no pull request is approved from a card yet and this grant approves nothing until a card shows the change",
     "messaging:approve-effect-write": "a messaging app may approve the write of a page of your documents platform (never a table: its card is a preview), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-send": "a messaging app may approve an e-mail sent from your outbox (never one with an attachment), from a card that carries the whole text, with its hash",
+    "messaging:approve-effect-send-own": "a messaging app may approve an e-mail sent from one of your own accounts (never one with an attachment), from a card that carries the whole text, with its hash; the grant of the outbox's e-mail does not cover it",
     "messaging:approve-effect-publish": "a messaging app may approve a post to a social platform (never one with an image), from a card that carries the whole text, with its hash",
     "messaging:approve-effect-calendar": "a messaging app may approve an event on your own calendars (create, change or remove), from a card that carries the whole event, with its hash",
     "messaging:approve-effect-files": "a messaging app may approve a new file or a new revision in your own Drive or OneDrive, from a card that carries the whole text, with its hash; a file you sent from the phone is saved on a card that names it, its size and its hash, and only the sender who sent it approves it",
@@ -588,6 +606,7 @@ GROUP_TEXT = {
     "approve-effect-create": "approves a pull request, with its hash",
     "approve-effect-write": "approves the write of a page of the documents platform, with its hash",
     "approve-effect-send": "approves an e-mail sent from the project's outbox, with its hash",
+    "approve-effect-send-own": "approves an e-mail sent from one of the person's own accounts, with its hash",
     "approve-effect-publish": "approves a post to a social platform, with its hash",
     "approve-effect-calendar": "approves an event on the person's own calendars (create, change or remove), with its hash",
     "approve-effect-files": "approves a new file or a new revision in your own Drive or OneDrive, with its hash",
@@ -611,6 +630,7 @@ GROUP_TEXT = {
     "add-sources": "takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files",
     "add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation; a file for an existing source still waits for a card (it holds the hold alone, and adds nothing else)",
     "calendar-write": "prepares changes to your own calendars (create, change, remove an event); each one waits for approval of its card",
+    "mail-send": "prepares e-mails from your own accounts (a new e-mail, a reply to a message of a mail snapshot); each one waits for approval of its card",
     "reminders": "makes, lists and forgets reminders: one-shot lines of the sender's own words that the bridge sends back to their own chat at the time they chose",
     "files-write": "prepares new files and new revisions in your own Drive and OneDrive, and the saving of a file you sent; each one waits for approval of its card",
 }

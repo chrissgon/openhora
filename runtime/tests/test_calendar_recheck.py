@@ -112,7 +112,7 @@ def test_a_plan_cannot_carry_a_step_whose_gate_word_is_an_account_write():
             steps.plan_task("calendar-event", args, key="k", title="t", text="x")
         assert why.value.code == "not_plannable"
     import account_start
-    assert set(steps.ACCOUNT_WORDS) == set(account_start.WORDS), "the list of the plan check is the one the account entry uses"
+    assert set(steps.ACCOUNT_WORDS) | {"send"} == set(account_start.WORDS), "the list of the plan check is the one the account entry uses; `send` is a plain kind too, its account arguments are refused by ACCOUNT_ARGS (W2)"
 
 
 def test_a_project_flow_with_a_calendar_event_step_is_refused_when_it_is_planned(world, monkeypatch):

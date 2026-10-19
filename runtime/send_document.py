@@ -22,6 +22,15 @@ the body, the reply and the attachments (name and hash), so one e-mail is sent o
 derives from it. The recipients are inside the hash the person approves, so an approval of an e-mail covers no other recipient. The date
 and the MIME boundaries are not content: the provider makes them.
 
+An e-mail from the person's own account (package W2, SPEC-SECRETARY-WRITES 3.2) is the same document with four keys more: `account` (`google` or `microsoft`),
+`thread_id` (Gmail's conversation of the message answered, else null), `references` (the Message-ID chain a reply names) and `reply` (null, or what the snapshot
+index recorded of the message answered: `ref`, `address` (its sender, the one recipient of the reply), `reply_to` (another address it asked replies to go to, shown
+and never used), `subject` (as the index cleaned it), `read_at`, `provider_id` and `message_id`). Its `from` is the account's address (`accounts.<account>.address`)
+and its `provider` is the mailer of the account (`gmail`, `outlook`). A document without `account` is the outbox's, with the keys and the hash it always had. The
+card of an own-account e-mail is said line by line (`card_lines`, the family CARD_MAIL_ of runtime/phrases.py): the person's text sits behind a gutter mark on every
+line, a line of it that could pass for the frame of the card is refused, and so is a hidden character. Recipients come only from the approved document: the
+arguments the person gave or, for a reply, the sender of the message answered as the index recorded it (limit L60).
+
 Standard library only, plus the credential scan of runtime/workcopy.py and the error class of runtime/effects.py. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -31,12 +40,14 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import effects  # noqa: E402  (the error class only)
 import mail_address  # noqa: E402
 import operations  # noqa: E402  (the command line the preview shows)
+import phrases  # noqa: E402  (the lines of the card of an e-mail from the person's own account)
 import workcopy  # noqa: E402  (the credential formats, loaded from this checkout)
 
 WORD = "send"
@@ -63,6 +74,15 @@ REFERENCE = re.compile(r"<[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]{1,200}@[A-Za-z0-9.-]{1
 MESSAGE_ID = re.compile(r"<oh\.[0-9a-f]{32}@[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?>")
 CONTROL = re.compile(r"[\x00-\x1f\x7f\x85  ]")
 CONTROL_TEXT = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")       # a body may have newlines (\n, \r) and tabs, no other control character
+ACCOUNTS = {"google": "gmail", "microsoft": "outlook"}      # the account of the person's own -> the mailer (an implementation of the class sender:email) that sends from it
+ACCOUNT_KEYS = ("account", "thread_id", "references", "reply")      # the keys an own-account document has beside KEYS
+REPLY_KEYS = ("ref", "address", "reply_to", "subject", "read_at", "provider_id", "message_id")
+THREAD_ID = re.compile(r"[A-Za-z0-9_=-]{1,200}")
+PROVIDER_ID = re.compile(r"[A-Za-z0-9=_+-]{1,700}")
+SNAPSHOT_REF = re.compile(r"[a-z0-9][a-z0-9-]{0,39}#[1-9][0-9]{0,3}")
+REPLY_SUBJECT_MAX = 120      # characters: what the index keeps of a subject
+HIDDEN = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")
+INVISIBLE = "\u3164\u115f\u1160\uffa0\u2800\u034f\ufe0f\u180b\u180c\u180d\u17b4\u17b5"      # letters and marks that draw nothing (Hangul fillers, the blank braille pattern, variation selectors...)      # control (but the line end and the tab of a text), format, separators, surrogate, private use
 
 
 def sha(data) -> str:
@@ -148,11 +168,20 @@ def check_reference(value):
     return value
 
 
-def key_of(*, task_id: int, from_addr: str, to, cc, bcc, subject: str, body: str, in_reply_to, attachments) -> str:
-    """`send-` and 32 hex digits: the key of one e-mail, from everything the person approves of it."""
+def key_of(*, task_id: int, from_addr: str, to, cc, bcc, subject: str, body: str, in_reply_to, attachments, own=None) -> str:
+    """`send-` and 32 hex digits: the key of one e-mail, from everything the person approves of it. `own` is what an e-mail from the person's own account adds
+    to that (its account, conversation, references and the message answered); the outbox's e-mail has none, and its key is the one it always had."""
     said = {"task": task_id, "from": from_addr, "to": list(to), "cc": list(cc), "bcc": list(bcc), "subject": subject, "body": body,
             "in_reply_to": in_reply_to, "attachments": [[a["name"], a["sha256"]] for a in attachments]}
+    if own is not None:
+        said["own"] = own
     return "send-" + sha(json.dumps(said, sort_keys=True, ensure_ascii=True, separators=(",", ":")))[:32]
+
+
+def _own_of(account, thread_id, references, reply):
+    """What key_of adds for an own-account e-mail: nothing the card does not show or the service does not need."""
+    return {"account": account, "thread_id": thread_id, "references": list(references or []),
+            "reply": None if reply is None else {k: reply.get(k) for k in REPLY_KEYS}}
 
 
 def message_id_of(key: str, from_addr: str) -> str:
@@ -161,17 +190,21 @@ def message_id_of(key: str, from_addr: str) -> str:
 
 
 def document(*, task_id: int, provider: str, from_addr: str, to: list, cc: list, bcc: list, subject: str, body: str, in_reply_to,
-             attachments: list, dry_run_sha256: str) -> dict:
+             attachments: list, dry_run_sha256: str, account=None, thread_id=None, references=None, reply=None) -> dict:
     """The effect document, checked. `attachments` is [{path, name, bytes, sha256}] (the media type is derived). EffectError usage when a
-    piece is not in its form, a limit is passed, or the subject or the body holds what looks like a credential."""
+    piece is not in its form, a limit is passed, or the subject or the body holds what looks like a credential. `account` (with `thread_id`, `references` and
+    `reply`) makes it an e-mail from the person's own account."""
     items = [{"path": a["path"], "name": a["name"], "media_type": _media_or_blank(a["name"]), "bytes": a["bytes"], "sha256": a["sha256"]}
              for a in attachments]
+    own = _own_of(account, thread_id, references, reply) if account is not None else None
     key = key_of(task_id=task_id, from_addr=from_addr, to=to, cc=cc, bcc=bcc, subject=subject, body=body, in_reply_to=in_reply_to,
-                 attachments=items)
+                 attachments=items, own=own)
     doc = {"effect": WORD, "task": task_id, "provider": provider, "from": from_addr, "to": list(to), "cc": list(cc), "bcc": list(bcc),
            "subject": subject, "body": body, "body_sha256": sha(body), "in_reply_to": in_reply_to, "attachments": items,
            "message_id": message_id_of(key, from_addr) if isinstance(from_addr, str) and "@" in from_addr else "", "idempotency_key": key,
            "dry_run_sha256": dry_run_sha256}
+    if own is not None:
+        doc.update(account=account, thread_id=thread_id, references=list(references or []), reply=None if reply is None else {k: reply.get(k) for k in REPLY_KEYS})
     check(doc)
     return doc
 
@@ -188,9 +221,14 @@ def _addresses_in(doc: dict, name: str) -> list:
     return found
 
 
+def is_own(doc) -> bool:
+    """Whether the document is an e-mail from the person's own account (it has an `account`), not the outbox's."""
+    return isinstance(doc, dict) and "account" in doc
+
+
 def check(doc) -> dict:
     """The document is in its form, or EffectError usage. Run when it is made and again just before the send."""
-    if not isinstance(doc, dict) or set(doc) != set(KEYS) or doc["effect"] != WORD:
+    if not isinstance(doc, dict) or set(doc) not in (set(KEYS), set(KEYS) | set(ACCOUNT_KEYS)) or doc["effect"] != WORD:
         raise _usage("the effect document of an e-mail has exactly its keys")
     if not isinstance(doc["task"], int) or isinstance(doc["task"], bool) or doc["task"] < 1:
         raise _usage("task is a task id")
@@ -227,8 +265,11 @@ def check(doc) -> dict:
         total += item["bytes"]
     if total > ATTACH_TOTAL_MAX:
         raise _usage(f"the attachments are {total} bytes together, over the {ATTACH_TOTAL_MAX} one e-mail takes")
+    if is_own(doc):
+        _check_own(doc)
     key = key_of(task_id=doc["task"], from_addr=doc["from"], to=to, cc=cc, bcc=bcc, subject=doc["subject"], body=doc["body"],
-                 in_reply_to=doc["in_reply_to"], attachments=attachments)
+                 in_reply_to=doc["in_reply_to"], attachments=attachments,
+                 own=_own_of(doc["account"], doc["thread_id"], doc["references"], doc["reply"]) if is_own(doc) else None)
     if doc["idempotency_key"] != key or doc["message_id"] != message_id_of(key, doc["from"]) or not MESSAGE_ID.fullmatch(doc["message_id"]):
         raise _usage("the key and the Message-ID are the ones the content derives")
     if not isinstance(doc["dry_run_sha256"], str) or not SHA256.fullmatch(doc["dry_run_sha256"]):
@@ -245,32 +286,182 @@ def recipients(doc: dict) -> list:
 
 
 def title(doc: dict) -> str:
-    """The title of the pending decision."""
+    """The title of the pending decision. An e-mail from the person's own account has a fixed one, written by code: the subject is the person's words and is on
+    the card, not in the heading."""
+    if is_own(doc):
+        return phrases.en("TITLE_MAIL_REPLY" if doc["reply"] else "TITLE_MAIL_SEND")
     return f"Send e-mail: {doc['subject'][:80]}"
 
 
 def describe(doc: dict) -> str:
     """What is approved, in one line."""
     n = len(recipients(doc))
+    if is_own(doc):      # the record of an approval is kept for good: it names the account and the count, never the person's words
+        return f"send an e-mail from their own {doc['account']} account {doc['from']} to {n} recipient{'' if n == 1 else 's'}"
     return f"send an e-mail from {doc['from']} to {n} recipient{'' if n == 1 else 's'}: {doc['subject'][:120]}"
 
 
 def summary(doc: dict) -> dict:
     """What the pending decision's payload records of the effect: closed words and numbers, never the text or an address."""
-    return {"recipients": len(recipients(doc)), "bcc": len(doc["bcc"]), "attachments": len(doc["attachments"]), "bytes": len(doc["body"].encode("utf-8")),
-            "body_sha256": doc["body_sha256"], "message_id": doc["message_id"]}
+    out = {"recipients": len(recipients(doc)), "bcc": len(doc["bcc"]), "attachments": len(doc["attachments"]), "bytes": len(doc["body"].encode("utf-8")),
+           "body_sha256": doc["body_sha256"], "message_id": doc["message_id"]}
+    if is_own(doc):
+        out.update(account=doc["account"], reply=doc["reply"] is not None)
+    return out
 
 
-def facts(doc: dict, kind: str) -> dict:
-    """What the execution records of a send that landed: `kind` is "sent" or "replayed"."""
-    return {"sent": True, "replayed": kind == "replayed", "message_id": doc["message_id"], "recipients": len(recipients(doc)),
-            "attachments": len(doc["attachments"]), "bytes": len(doc["body"].encode("utf-8")), "idempotency_key": doc["idempotency_key"]}
+def facts(doc: dict, kind: str, service_message_id=None) -> dict:
+    """What the execution records of a send that landed: `kind` is "sent" or "replayed". `service_message_id` is the Message-ID the service gave the message when it
+    is not the one the document asked for (Graph's `internetMessageId`): recorded, in its plain form, so that the message can be found in the sent mail."""
+    out = {"sent": True, "replayed": kind == "replayed", "message_id": doc["message_id"], "recipients": len(recipients(doc)),
+           "attachments": len(doc["attachments"]), "bytes": len(doc["body"].encode("utf-8")), "idempotency_key": doc["idempotency_key"]}
+    if is_own(doc):
+        out.update(account=doc["account"], reply=doc["reply"] is not None)
+        if isinstance(service_message_id, str) and REFERENCE.fullmatch(service_message_id) and "=?" not in service_message_id:
+            out["service_message_id"] = service_message_id
+    return out
+
+
+# --- an e-mail from the person's own account: what the card must not let a text fake, and the checks of its extra keys -------------------------------------
+
+FRAME_MARK = "-----"
+DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u2500\u2501\ufe58\ufe63\uff0d\u00ad"      # look-alikes of a hyphen that NFKC leaves alone
+MARKDOWN = " \t#>*_`~|+:"      # what a Markdown renderer strips or turns into a style before a line's visible text
+BULLET = re.compile(r"(?:[-+*]|\d+[.)])\s+")
+GUTTER = "\u2502"      # the mark in front of every line of the text on the card: a line of the text can never be taken for a line of the card
+
+
+def frame_like(line: str) -> bool:
+    """Whether the visible form of a line of the person's text starts with the mark of the card's frame rules (five hyphens), as a phone shows it after a
+    Markdown renderer made a heading, a quote, a bold span or a list item of it: NFKC, the look-alike dashes read as hyphens, the Markdown markers and a list
+    bullet stripped. Such a line could look like the end of the text (the card also puts a mark in front of every line of the text, so this is the second guard)."""
+    seen = unicodedata.normalize("NFKC", line)
+    seen = "".join("-" if unicodedata.category(c) == "Pd" or c in DASHES else c for c in seen)
+    for _ in range(8):
+        stripped = seen.lstrip(MARKDOWN)
+        found = BULLET.match(stripped)
+        stripped = stripped[found.end():] if found else stripped
+        if stripped == seen:
+            break
+        seen = stripped
+    return seen.startswith(FRAME_MARK)
+
+
+def guttered(text: str) -> str:
+    """The text as the card shows it: every line behind the gutter mark, an empty line too, the last line break dropped. A renderer that reads Markdown finds a
+    line that begins with the mark, never a heading, a quote, a rule or a fence."""
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(f"{GUTTER} {line}" if line else GUTTER for line in lines)
+
+
+def text_problem(text, multiline: bool = True) -> str:
+    """Why a text of an e-mail from the person's own account cannot be on a card as it is, or "": it holds a control character (but the line end and the tab of a
+    body), a format, separator, surrogate or private-use character (a card with one is no card: a hidden character could make a line say what it does not), or a
+    line that could pass for the frame of the card."""
+    if not isinstance(text, str):
+        return ""
+    for c in text:
+        if multiline and c in "\n\t":
+            continue
+        if unicodedata.category(c) in HIDDEN or c in INVISIBLE:
+            return phrases.en("ACCT_MAIL_TEXT_HIDDEN")
+    if multiline and any(frame_like(line) for line in text.split("\n")):
+        return phrases.en("ACCT_MAIL_FRAME")
+    return ""
+
+
+def _check_own(doc: dict) -> None:
+    """The extra keys of an e-mail from the person's own account are in their form, and they agree with the rest of the document."""
+    account = doc["account"]
+    if account not in ACCOUNTS or doc["provider"] != ACCOUNTS[account]:
+        raise _usage("account is google or microsoft, and the provider is the mailer of that account")
+    thread, references, reply = doc["thread_id"], doc["references"], doc["reply"]
+    if thread is not None and (not isinstance(thread, str) or not THREAD_ID.fullmatch(thread)):
+        raise _usage("thread_id is the id of a conversation")
+    if not isinstance(references, list) or not all(isinstance(r, str) for r in references):
+        raise _usage("references is a list of Message-IDs")
+    for item in references:
+        check_reference(item)
+    if account == "google" and doc["bcc"]:
+        raise _usage("a Bcc is not sent from a Google account in this version")
+    if text_problem(doc["body"]) or text_problem(doc["subject"], multiline=False):
+        raise _usage("the subject or the body holds a character or a line a card cannot show")
+    if reply is None:
+        if thread is not None or references or doc["in_reply_to"] is not None:
+            raise _usage("an e-mail that answers no message has no conversation and no references")
+        return
+    if not isinstance(reply, dict) or set(reply) != set(REPLY_KEYS):
+        raise _usage("the message answered has exactly its keys")
+    for name in ("address", "reply_to"):
+        value = reply[name]
+        if value is None and name == "reply_to":
+            continue
+        try:
+            if not isinstance(value, str) or mail_address.normalize_address(value) != value:
+                raise mail_address.AddressError("an address in its normal form")
+        except mail_address.AddressError as e:
+            raise _usage(f"the message answered: {name}: {e.reason}") from None
+    if not isinstance(reply["ref"], str) or not SNAPSHOT_REF.fullmatch(reply["ref"]):
+        raise _usage("the message answered is named by a reference of a snapshot")
+    if not isinstance(reply["subject"], str) or len(reply["subject"]) > REPLY_SUBJECT_MAX or CONTROL.search(reply["subject"]) \
+            or text_problem(reply["subject"], multiline=False) or not isinstance(reply["read_at"], str) or len(reply["read_at"]) > 40 \
+            or text_problem(reply["read_at"], multiline=False):
+        raise _usage("the message answered has a subject of at most 120 characters, and the time of its snapshot")
+    if reply["provider_id"] is not None and (not isinstance(reply["provider_id"], str) or not PROVIDER_ID.fullmatch(reply["provider_id"])):
+        raise _usage("the message answered has the service's id")
+    if reply["message_id"] is None:
+        raise _usage("a reply names the message it answers in In-Reply-To and References")
+    check_reference(reply["message_id"])
+    if doc["in_reply_to"] != reply["message_id"] or references != [reply["message_id"]]:
+        raise _usage("a reply names the message it answers in In-Reply-To and References")
+    if doc["to"] != [reply["address"]] or doc["cc"] or doc["bcc"] or doc["attachments"]:
+        raise _usage("a reply goes to the sender of the message it answers, and to no one else, with no attachment")
+    if doc["subject"][:3].lower() != "re:":
+        raise _usage("the subject of a reply starts with Re:")
+    if account == "google" and (thread is None or reply["provider_id"] is None):
+        raise _usage("a reply from a Google account names the conversation and the id of the message")
+    if account == "microsoft" and (thread is not None or reply["provider_id"] is None):
+        raise _usage("a reply from a Microsoft account names the service's id of the message, and no conversation")
+
+
+def card_lines(doc: dict, digest: str) -> list:
+    """The card of an e-mail from the person's own account, line by line: [[phrase key, {field: text}], ...], every key of the family CARD_ (runtime/phrases.py).
+    The sender (the account) and every recipient come first, so that nothing a long text can do hides one; the Bcc is listed; then the subject, the message answered
+    (and the other address it asked replies to go to, which is not used), the text exactly as it will be sent behind a mark on every line, each attachment by
+    name, size and hash, and the hash with the command that approves it. The values are the person's or a service's words and are never translated."""
+    own = [["CARD_MAIL_REPLY" if doc["reply"] else "CARD_MAIL_SEND", {}], ["CARD_MAIL_FROM_ACCOUNT", {"address": doc["from"], "account": doc["account"]}]]
+    reply = doc["reply"]
+    if reply:
+        own.append(["CARD_MAIL_REPLY_TO", {"address": reply["address"], "ref": reply["ref"], "read_at": reply["read_at"], "subject": reply["subject"] or "-"}])
+        if reply["reply_to"]:
+            own.append(["CARD_MAIL_REPLY_TO_DIFFERS", {"other": reply["reply_to"]}])
+        own.append(["CARD_MAIL_IN_REPLY", {"message_id": doc["in_reply_to"]}])
+    else:
+        own.append(["CARD_MAIL_TO", {"addresses": ", ".join(doc["to"])}])
+    for key, name in (("CARD_MAIL_CC", "cc"), ("CARD_MAIL_BCC", "bcc")):
+        if doc[name]:
+            own.append([key, {"addresses": ", ".join(doc[name])}])
+    own += [["CARD_MAIL_SUBJECT_REPLY" if reply else "CARD_MAIL_SUBJECT", {"subject": doc["subject"]}], ["CARD_MAIL_COUNT", {"count": str(len(recipients(doc)))}],
+            ["CARD_MAIL_MESSAGE", {"body": guttered(doc["body"])}]]
+    if doc["attachments"]:
+        own.append(["CARD_MAIL_ATTACHMENTS", {"count": str(len(doc["attachments"]))}])
+        own += [["CARD_MAIL_ATTACHMENT", {"name": a["name"], "bytes": str(a["bytes"]), "sha": a["sha256"], "path": a["path"]}] for a in doc["attachments"]]
+        own.append(["CARD_MAIL_ATTACH_NOTE", {}])
+    own += [["CARD_MAIL_HASH", {"sha": digest}],
+            ["CARD_MAIL_APPROVE", {"command": operations.command_line("approve", "<project>", pending_id="<this pending decision's id>", sha256=digest)}],
+            ["CARD_MAIL_ONCE", {}]]
+    return own
 
 
 def body(doc: dict, digest: str) -> str:
     """What the person reads before approving, the whole e-mail: the sender and every recipient first (so that nothing a long text can do
     hides one), the Bcc included, then the subject, the reply, the text exactly as it will be sent, each attachment by name, size and hash, and
-    the hash of the effect with the command that approves it."""
+    the hash of the effect with the command that approves it. For an e-mail from the person's own account, the lines of its card in English."""
+    if is_own(doc):
+        return phrases.card_text(card_lines(doc, digest))
+
     def line(label, items):
         return f"{label}: " + (", ".join(items) if items else "(none)")
     lines = ["Code sends this e-mail after your approval, to exactly these recipients and no one else, and nothing else.", "",
@@ -303,4 +494,11 @@ def provider_args(doc: dict, subject_file: str, body_file: str, attachment_files
         args += ["--attach", f"{path}={item['name']}"]
     if doc["in_reply_to"]:
         args += ["--in-reply-to", doc["in_reply_to"]]
+    if is_own(doc):      # the conversation of the message answered: Gmail's thread, Outlook's id of the message
+        if doc["references"]:
+            args += ["--references", *doc["references"]]
+        if doc["account"] == "google" and doc["thread_id"]:
+            args += ["--thread-id", doc["thread_id"]]
+        if doc["account"] == "microsoft" and doc["reply"]:
+            args += ["--reply-id", doc["reply"]["provider_id"]]
     return args + ["--message-id", doc["message_id"], "--idempotency-key", doc["idempotency_key"]]

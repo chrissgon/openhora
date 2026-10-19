@@ -134,18 +134,26 @@ def held_file_sender(ctx: dict, item: dict):
 
 
 def effect_facts(ctx: dict, item: dict) -> dict:
-    """{"word": the effect's word or None, "on_cards": whether the whole effect can be on a messaging card} of an `effect` decision."""
+    """{"word": the word the policy is asked about or None, ("effect": the effect's own word, only when it is not the same), "on_cards": whether the whole effect can be on a messaging card} of an
+    `effect` decision. The two words differ for a kind that has a grant of its own for a part of its documents (`approval_word(doc)` of the kind: an e-mail from the
+    person's own account is `send-own`, so that the grant of the outbox's `send` does not cover it)."""
     doc = effect_document(ctx, item)
-    word = doc.get("effect") if doc else None
-    if not isinstance(word, str) or word not in effects.KINDS:
+    effect = doc.get("effect") if doc else None
+    if not isinstance(effect, str) or effect not in effects.KINDS:
         return dict(NO_WORD)
+    word = effect
     try:
-        module = effects.module_for(word)
+        module = effects.module_for(effect)
         on_cards = getattr(module, "on_cards", None)
         whole = True if on_cards is None else bool(on_cards(doc))
+        named = getattr(module, "approval_word", None)
+        if named is not None:
+            word = named(doc)
+            if word not in operations.EFFECT_APPROVAL_WORDS:
+                return dict(NO_WORD)
     except Exception:   # a kind that fails to answer is not on a card: the check fails closed
         whole = False
-    return {"word": word, "on_cards": whole}
+    return {"word": word, "on_cards": whole, **({"effect": effect} if effect != word else {})}      # `effect` only when the policy's word is another than the effect's own
 
 
 def effect_kind(facts) -> str:

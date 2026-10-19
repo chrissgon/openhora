@@ -68,6 +68,8 @@ Usage:
   python3 runtime/cli.py file-create --project <dir> --account google|microsoft --name <name>.md|.txt|.docx|.gdoc (--content <text> | --content-file <path> | --from docs/<path>) [--folder <name>]
   python3 runtime/cli.py file-replace --project <dir> --account google|microsoft --file <source id> (--content <text> | --content-file <path> | --from docs/<path>)
   python3 runtime/cli.py file-save --project <dir> --account google|microsoft --attachment <held file number> [--name <name>] [--folder <name>]
+  python3 runtime/cli.py mail-send --project <dir> --account google|microsoft --to <addresses> [--cc <addresses>] [--bcc <addresses>] --subject <one line> (--text <words> | --text-file <path>) [--attach <docs/...>]...
+  python3 runtime/cli.py mail-reply --project <dir> --account google|microsoft --message <source>#<n> (--text <words> | --text-file <path>)
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -350,6 +352,16 @@ file-save  prepares the saving of a file someone sent through a messaging app (-
           sent or by --name, in a folder the project lists (--folder), and stops at its card, which names the file, its size and its hash. The held file stays held.
           No model.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
+mail-send prepares an e-mail from your own Google or Microsoft account (--account google|microsoft) and stops at a card that shows the whole e-mail: nothing is sent
+          until you approve the card with its hash (approve --id <the card> --sha256 <its hash>). --to, --cc and --bcc are plain comma-separated addresses, at most
+          20 in all (a Google account sends no Bcc in this version); --text or --text-file is the body; --attach is a file under docs/ and may be repeated (an e-mail
+          with a file is approved in the terminal or on the page, never on a messaging card). The sender is the address of the account in runtime.json (the key
+          accounts), never an argument. It is sent once, by the account's mailer with the account's token. It calls no model.
+mail-reply  prepares a reply to a message of a mail snapshot (--account, --message <source>#<n>: the n-th message of the newest snapshot of a mail source of that
+          account, with --text or --text-file as the body) and stops at a card. The reply goes to the sender of that message as the snapshot's index recorded it,
+          and to no one else: a Reply-To is shown on the card and not used, and there is no reply to all. The subject is Re: and the message's subject; it joins the
+          message's conversation. It calls no model.
+deps     installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.
 progress  where the work stands (each open request, what waits for you, what is stuck) and what happened in a

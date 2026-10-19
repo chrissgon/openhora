@@ -21,6 +21,10 @@ module builds those services, once, for the process that runs the task (runtime/
                    resolves to) and `dry_run(doc, attachments)`: the provider's `send --dry-run` for a document and the bytes of its
                    attachments (what it would send: its headers, its envelope, its text, each attachment's name, size and hash). It reads no
                    credential, opens no connection, sends nothing and has no way to: the one flag it adds to the provider's verb is that dry run
+  account_mail     AccountMailReader (package W2): the project's `accounts` for an e-mail from the person's own account (`enabled`, `address`, `implementation`: the mailer
+                   of the account), `reply_facts` (what the index of a snapshot recorded of the message a reply answers, through runtime/item_refs.py) and `dry_run(doc,
+                   attachments)` (the account's mailer, which reads no credential, opens no connection and sends nothing). It has no way to send: the one flag it adds to
+                   the mailer's `send` is that dry run
   publisher        PublisherReader: `provider`, `check` and `preview` for a platform (PUBLISH-EFFECT): the implementation of the class
                    publisher:<platform> the project resolves to, the provider's `--check`, and the post as the publishing skill's own script builds it
                    with the provider's dry run of it (what it would send, and what its ledger holds under the key). It reads no credential of its
@@ -61,6 +65,7 @@ import effect_calendar  # noqa: E402
 import effects  # noqa: E402
 import item_refs  # noqa: E402
 import files_document  # noqa: E402
+import mail_refs  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
 import phrases  # noqa: E402
@@ -159,32 +164,82 @@ class OutboxReader:
         """The implementation of the class sender:email that this project and this machine resolve to."""
         resolve = project_config.resolver(self._root)
         try:
-            return resolve.resolve(OUTBOX_CLASS, root=self._root, implementation=self._implementation())["implementation"]
+            name = resolve.resolve(OUTBOX_CLASS, root=self._root, implementation=self._implementation())["implementation"]
         except (resolve.UnknownClass, resolve.Unresolved) as e:
             raise StepServiceError("not_configured", str(e)) from None
+        if name in project_config.OWN_ACCOUNT_MAILERS:      # a variable chose a mailer of an own account: the outbox is an SMTP account
+            raise StepServiceError("not_configured", "the outbox is an SMTP account; the mailers of the person's own accounts are not an outbox")
+        return name
 
     def dry_run(self, doc: dict, attachments) -> dict:
         """The provider's dry run of `doc` (runtime/send_document.py): the subject, the text and each attachment are handed over as private
         files that are removed at once, and the provider starts with the minimum environment, with no secret in it."""
-        folder = tempfile.mkdtemp(prefix="openhora-dry-run-")
+        return mailer_dry_run(self._root, self._implementation(), doc, attachments)
+
+
+def mailer_dry_run(root: str, implementation, doc: dict, attachments) -> dict:
+    """The dry run of a mailer of the class sender:email for `doc` (runtime/send_document.py): the subject, the text and each attachment are handed over as private
+    files that are removed at once, and the mailer starts with the minimum environment, with no secret in it. `implementation` is None for the project's outbox
+    ("auto") and the name of a mailer otherwise. StepServiceError with a closed code."""
+    folder = tempfile.mkdtemp(prefix="openhora-dry-run-")
+    try:
+        def put(name: str, data: bytes) -> str:
+            path = os.path.join(folder, name)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            return path
+        files = [put(f"attachment-{i}", data) for i, data in enumerate(attachments)]
+        args = send_document.provider_args(doc, put("subject.txt", doc["subject"].encode("utf-8")), put("body.txt", doc["body"].encode("utf-8")),
+                                           files) + ["--dry-run"]
+        resolve = project_config.resolver(root)
         try:
-            def put(name: str, data: bytes) -> str:
-                path = os.path.join(folder, name)
-                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-                with os.fdopen(fd, "wb") as f:
-                    f.write(data)
-                return path
-            files = [put(f"attachment-{i}", data) for i, data in enumerate(attachments)]
-            args = send_document.provider_args(doc, put("subject.txt", doc["subject"].encode("utf-8")), put("body.txt", doc["body"].encode("utf-8")),
-                                               files) + ["--dry-run"]
-            resolve = project_config.resolver(self._root)
-            try:
-                return resolve.call(OUTBOX_CLASS, "send", args, root=self._root, implementation=self._implementation(), timeout=OUTBOX_TIMEOUT,
-                                    env=resolve.provider_environment(OUTBOX_CLASS, None, ()))
-            except resolve.ProviderCallError as e:
-                raise StepServiceError({"not-configured": "not_configured", "usage": "refused"}.get(e.kind, "provider_failed"), e.reason) from None
-        finally:
-            shutil.rmtree(folder, ignore_errors=True)
+            return resolve.call(OUTBOX_CLASS, "send", args, root=root, implementation=implementation, timeout=OUTBOX_TIMEOUT,
+                                env=resolve.provider_environment(OUTBOX_CLASS, None, ()))
+        except resolve.ProviderCallError as e:
+            raise StepServiceError({"not-configured": "not_configured", "usage": "refused"}.get(e.kind, "provider_failed"), e.reason) from None
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+class AccountMailReader:
+    """The person's own mail accounts, for reading only (package W2): where the platform may send from (the project's `accounts`), the message a reply answers, and the
+    dry run of an e-mail by the account's mailer. It starts no verb that sends: `dry_run` hands the mailer `--dry-run` and no credential. A failure is a
+    StepServiceError whose code is a closed word and whose reason, for a refusal, is a sentence written by code from the phrase table."""
+
+    def __init__(self, ctx: dict):
+        self._ctx, self._cfg, self._root = ctx, ctx["cfg"], os.path.dirname(HERE)
+
+    def enabled(self, account) -> bool:
+        return account in send_document.ACCOUNTS and project_config.account_entry(self._cfg, account) is not None
+
+    def address(self, account) -> str:
+        return project_config.account_entry(self._cfg, account)["address"]
+
+    def implementation(self, account) -> str:
+        """The mailer (an implementation of the class sender:email) that sends from the account: gmail for google, outlook for microsoft."""
+        return send_document.ACCOUNTS[account]
+
+    def reply_facts(self, reference, account, channel, sender=None) -> dict:
+        """What the index of the snapshot recorded of the message `reference` names (`<source id>#<n>`), as a reply needs it (runtime/mail_refs.py): its sender, another
+        address it asked replies to go to, its subject, the time of its snapshot, the service's id of the message, its Message-ID and, for Gmail, its conversation. The
+        reference is resolved with the `channel` and the `sender` the operation wrote into the task's arguments (a messaging sender needs the group `ask-mail`);
+        a caller that names none is refused, never read as the operations' own. StepServiceError `refused`, with the sentence, when it cannot be answered from this account."""
+        try:
+            if channel not in ("terminal", "page", "messaging"):
+                raise StepServiceError("refused", mail_refs.ref_sentence("not_readable", reference))
+            found = item_refs.resolve(self._ctx, reference, channel=channel, sender=sender, kinds=("mail",), clock=SNAPSHOT_CLOCK)
+            return mail_refs.reply_facts(found, account)
+        except item_refs.ItemRefError as e:
+            raise StepServiceError("refused", mail_refs.ref_sentence(e.code, reference)) from None
+        except mail_refs.MailRefError as e:
+            raise StepServiceError("refused", e.sentence) from None
+        except sources.SourcesError as e:
+            raise StepServiceError("refused", " ".join(str(e).split())[:200]) from None
+
+    def dry_run(self, doc: dict, attachments) -> dict:
+        """The account's mailer's dry run of `doc`: what it would send, and nothing is sent, no credential is read and no connection is opened."""
+        return mailer_dry_run(self._root, doc["provider"], doc, attachments)
 
 
 class PublisherReader:
@@ -532,7 +587,7 @@ def services(ctx: dict) -> dict:
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
             "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx),
-            "files_read": FilesReader(cfg, root), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg)}
+            "files_read": FilesReader(cfg, root), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx)}
 
 
 if __name__ == "__main__":

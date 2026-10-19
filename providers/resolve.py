@@ -111,6 +111,10 @@ SERVES_LINE = re.compile(r'^SERVES\s*=\s*"([^"\n]*)"', re.M)
 SERVES_READ = 32768      # characters of an implementation read for its SERVES line (a long module docstring comes first)
 # Documented defaults per platform (sys.platform prefix -> implementation).
 PLATFORM_DEFAULTS = {"scheduler:job": {"darwin": "launchd", "linux": "systemd"}}
+# What "auto" means for a class that ships several implementations, when nothing chooses one (package W2): the SMTP outbox is the sender:email of a project that
+# sets none; the mailers of the person's own account (gmail.py, outlook.py) are named explicitly by the runtime, from a document that says whose account it is,
+# and are never what "auto" picks. A variable or a caller's implementation still wins.
+CLASS_DEFAULTS = {"sender:email": "smtp"}
 
 EXIT_OK, EXIT_USAGE, EXIT_UNRESOLVED = 0, 2, 3
 
@@ -281,7 +285,7 @@ def resolve(cls: str, root=None, env=None, platform=None, implementation=None) -
     """Choose the provider script for a class. Returns class (as contracts/environment.md writes it),
     implementation, path, source, variable, variables.
 
-    source is one of: configuration (the caller's `implementation`), environment, platform-default,
+    source is one of: configuration (the caller's `implementation`), environment, platform-default, class-default,
     only-implementation. Raises UnknownClass (not a class) or Unresolved (nothing to choose).
     `platform` is the operating system (sys.platform), for the platform default; the platform of a class
     with a parameter is part of the class.
@@ -321,6 +325,8 @@ def resolve(cls: str, root=None, env=None, platform=None, implementation=None) -
     for prefix, name in PLATFORM_DEFAULTS.get(cls, {}).items():
         if platform.startswith(prefix) and name in candidates:
             return chosen(name, "platform-default")
+    if CLASS_DEFAULTS.get(cls) in candidates:
+        return chosen(CLASS_DEFAULTS[cls], "class-default")
     if len(candidates) == 1:
         return chosen(candidates[0], "only-implementation")
     if not shipped:

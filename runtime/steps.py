@@ -337,6 +337,7 @@ def vet(project: str, kind_name: str, args, protected=lambda path: False) -> Non
         kind.vet(project, args if isinstance(args, dict) else {}, protected)
 
 
+ACCOUNT_ARGS = {"send-email": ("account", "reply", "reply_pin", "channel", "sender")}      # a kind that is also a plain kind (the outbox's send) and has arguments only an operation writes (W2)
 ACCOUNT_WORDS = ("calendar", "mailbox", "files")      # the effect words of a write to the person's own accounts (runtime/account_start.py WORDS)
 
 
@@ -364,6 +365,8 @@ def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_
     kind = kind_of(kind_name)
     if not account_write and any(gate.word in ACCOUNT_WORDS for gate in kind.gates.values()):
         raise StepFailure("not_plannable", "step", "", "a change to the person's own account is started by its own operation, never by a plan or a flow")
+    if not account_write and isinstance(args, dict) and any(name in args for name in ACCOUNT_ARGS.get(kind.name, ())):
+        raise StepFailure("not_plannable", "step", "", "an e-mail from the person's own account is started by its own operation, never by a plan or a flow")
     checked = kind.check(args if args is not None else {})
     if not isinstance(checked, dict):
         raise StepFailure("bad_args", "args")
