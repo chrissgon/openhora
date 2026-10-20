@@ -600,3 +600,31 @@ def test_vacuity_a_go_that_ignores_the_route_languages_is_caught(tmp_path, monke
     fx.write_file(tmp_path, fx.event(T2, hs, route="fx-ref", model="example/strong-1"), fx.lines_of(T2, fx.corpus(100), cost=0.009))
     fx.write_file(tmp_path, fx.current_event(T3, hs), fx.lines_of(T3, fx.corpus(100, missed_from(100, 50)), cost=None))
     assert go(tmp_path)["go"] is True
+
+
+def sequential_sample_of(root, calls_items):
+    """Both routes complete (not sequential) plus a sequential event of the cheap route holding `calls_items` items, one run each."""
+    hs = fx.checkout(root)
+    for test, route, model in ((T1, "fx-cheap", "example/cheap-1"), (T2, "fx-ref", "example/strong-1")):
+        fx.write_file(root, fx.event(test, hs, route=route, model=model, sequential=False), fx.lines_of(test, fx.corpus(100), cost=0.001))
+        small = {(lang, n): "correct" for lang in fx.LANGS for n in range(1, calls_items // len(fx.LANGS) + 1)}
+        seq = "20301007T010101Z-00000007" if route == "fx-cheap" else "20301008T010101Z-00000008"
+        fx.write_file(root, fx.event(seq, hs, route=route, model=model, sequential=True), fx.lines_of(seq, small, runs=1, cost=0.001))
+    fx.write_file(root, fx.current_event(T3, hs), fx.lines_of(T3, fx.corpus(100, missed_from(100, 50)), cost=None))
+
+
+def test_go_needs_a_sequential_sample_of_at_least_100_calls(tmp_path):
+    sequential_sample_of(tmp_path / "few", 60)   # 60 sequential calls
+    assert set(bands(tmp_path / "few").values()) == {"reliable"}  # the band is not asked for the sample
+    got = go(tmp_path / "few")
+    assert got["go"] is False
+    assert "fx-cheap: needs a sequential sample of at least 100 calls (it has 60)" in got["cause"]
+    assert "fx-ref: needs a sequential sample of at least 100 calls (it has 60)" in got["cause"]
+    sequential_sample_of(tmp_path / "enough", 102)  # 102 calls
+    assert go(tmp_path / "enough")["go"] is True
+
+
+def test_vacuity_a_go_without_the_sample_minimum_is_caught(tmp_path, monkeypatch):
+    monkeypatch.setattr(ist, "SEQUENTIAL_MIN_CALLS", 0)
+    sequential_sample_of(tmp_path, 60)
+    assert go(tmp_path)["go"] is True  # the test above asserts it is not

@@ -43,7 +43,8 @@ The band of one (model, route, language), by the rules below, in this order:
     of those languages (so its per-language conditions hold there), the median cost of a call (from the lines that report one)
     is at most median_cost_usd_max in the language, and thresholds.versus_current holds against the current pipeline's run
     (correct_direct greater, wrong_card rate not greater) on the same corpus, taxonomy, thresholds and served catalog, with the
-    same completeness as the B-prime set. The cheapest qualifying route is chosen and serves the languages in which it
+    same completeness as the B-prime set, and its sequential events hold at least SEQUENTIAL_MIN_CALLS calls (100: this plan's
+    choice, not measured; fewer is "needs a sequential sample of at least 100 calls"). The cheapest qualifying route is chosen and serves the languages in which it
     qualifies ("route_languages"); the others of "languages" run on the reference route.
 
 The correct_direct and clarify_rate denominators leave out the items whose gold is `clarify`; an item line states the outcome
@@ -69,6 +70,9 @@ EPOCHS_REL = os.path.join("evals", "interpreter", "epochs.json")
 EVIDENCE_REL = os.path.join("evals", "interpreter", "evidence")
 BANDS = ("reliable", "below the gate", "needs a run")
 WRONG = ("wrong_card", "wrong_read", "wrong_reminder_reading", "wrong_item_binding")
+# The fewest calls of the sequential events that go accepts for a route's latency and cost. This plan's choice, not measured: a p95 of
+# fewer than 20 calls is the maximum, and 100 calls give a p95 that five slow calls can move.
+SEQUENTIAL_MIN_CALLS = 100
 ROUTE_KEYS = ("id", "base_url", "upstream_model", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint")
 
 
@@ -487,6 +491,9 @@ def go_of(inputs, statuses, events):
         served = [row for row in status["rows"] if row["band"] == "reliable" and row["lang"] in langs]
         if ov["band"] != "reliable":
             reasons.append(f"{route['id']}: {ov['cause']}")
+        elif ov["sequential"]["calls"] < SEQUENTIAL_MIN_CALLS:
+            reasons.append(f"{route['id']}: needs a sequential sample of at least {SEQUENTIAL_MIN_CALLS} calls "
+                           f"(it has {ov['sequential']['calls']})")
         elif not served:
             reasons.append(f"{route['id']}: reliable in no language where the reference route is reliable")
         elif ov["median_cost_usd"] is None:
