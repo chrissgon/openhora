@@ -57,6 +57,10 @@ FOLDER_NAME = re.compile(r"[a-z0-9-]{1,32}")           # runtime/project_config.
 TEXT_EXTENSIONS = ("md", "txt", "csv")
 HELD_KINDS = {"md": ("text",), "txt": ("text",), "csv": ("csv", "text"), "pdf": ("pdf",), "docx": ("docx", "ooxml"), "xlsx": ("xlsx", "ooxml"),
               "pptx": ("pptx", "ooxml")}      # what the bytes of a held file may be, by the extension of the name it is saved as (the sniffed subtype of the hold)
+FREE_NAME_TRIES = 9      # `name (2)` to `name (10)`: the most names tried for a file that was sent when its own is taken
+HEIC_BRANDS = ("heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1")      # runtime/attachments.py HEIC_BRANDS: a test compares
+HELD_KINDS.update({"png": ("png",), "jpg": ("jpeg",), "jpeg": ("jpeg",), "webp": ("webp",), "gif": ("gif",),
+                   "heic": HEIC_BRANDS, "heif": HEIC_BRANDS})      # an image is saved only when its bytes are the image its name says (package ATT-3)
 STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
@@ -282,17 +286,25 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
                 content = _content_for(ctx, fd.MEDIA_TYPES[ext], ext)
         else:
             held = _asked(_service(ctx, "held_files").meta, args["attachment"], field="attachment", next=phrases.en("ATT_NOT_HELD").format(status="gone"))
-            name = args.get("name") or held["name"]
+            given_name = args.get("name") is not None
+            name = args.get("name") or fd.safe_name(held["name"])          # the name a sender's file came with, made one this platform writes (a character it refuses becomes `_`)
             problem = fd.name_problem(name, fd.SAVE_EXTENSIONS)
             if problem:
                 raise steps.StepFailure("bad_args", "name", "", problem[:200])
             ext = fd.extension_of(name)
             if held.get("kind") not in HELD_KINDS[ext]:
                 raise steps.StepFailure("type_mismatch", "name", "", phrases.en("ACCT_FILE_TYPE").format(given=fd.clean_display(held.get("kind"), 20), wanted=ext))
-            content = {"kind": "held", "bytes": held["bytes"], "sha256": held["sha256"], "media_type": fd.MEDIA_TYPES[ext], "text": None, "path": None,
+            content = {"kind": "held", "bytes": held["bytes"], "sha256": held["sha256"], "media_type": fd.SAVE_TYPES[ext], "text": None, "path": None,
                        "attachment": held["id"], "gdoc": False}
         looked = _asked(reader.meta, account, ["--folder", folder, "--name", name], field="folder", provider=fd.IMPLEMENTATION[account],
                         next="the folder could not be read: check that the account is authorized and that the folder is still there, then start this task again")
+        if looked.get("exists") and operation == "save" and not given_name:          # a file that was sent is saved beside the one of its name, as `name (2).ext`
+            for n in range(2, FREE_NAME_TRIES + 2):
+                candidate = fd.numbered(name, n)
+                if not _asked(reader.meta, account, ["--folder", folder, "--name", candidate], field="folder", provider=fd.IMPLEMENTATION[account],
+                              next="the folder could not be read: check that the account is authorized and that the folder is still there, then start this task again").get("exists"):
+                    name, looked = candidate, {}
+                    break
         if looked.get("exists"):
             raise steps.StepFailure("name_taken", "name", "", phrases.en("ACCT_FILE_NAME_TAKEN"))
     if state.get("pinned_target") not in (None, target["id"]):      # a start over after a stale prepares the same target, or refuses

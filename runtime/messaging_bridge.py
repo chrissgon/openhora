@@ -696,6 +696,8 @@ class Bridge(shell_kit.Jobs):
                 self.remind.discarded.add(chat)
         if kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands":      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project)
             self.reply(chat, self.t("HELP", project=project), project)
+        elif kind in ("text", "natural") and self.attach.line(project, chat, intent.get("text") or ""):
+            pass          # "descarta", "adiciona ao projeto": a line about the file just sent (ATT-3)
         elif kind == "attachment":
             self.attach.arrived(project, chat, intent)
         elif kind in ("add", "discard"):
@@ -1002,29 +1004,37 @@ class Bridge(shell_kit.Jobs):
         no route lock and no place in the router's queue, and not stored in the conversation. The card of the exact content is what it opens."""
         self.start(project, chat, "event-create", lambda: self.write_now(project, chat, text, seed))          # the job is labelled with a row that calls no model, so it takes no model slot
 
-    def write_now(self, project: dict, chat: str, text: str, seed=None) -> None:
-        """The body of `write`, for a caller that is already in a job (the caption of a file that was just held)."""
+    def write_now(self, project: dict, chat: str, text: str, seed=None) -> bool:
+        """The body of `write`, for a caller that is already in a job (the caption of a file that was just held, a button of its card). True when the card of the write
+        was sent to the chat."""
+        needed = None
         try:
             needed = seed["op"] if seed else self.needs(text, project, chat)
             if needed:
                 self.allow(project, needed, sender=chat)          # the operation's own group, never `talk`: the layer asks it again
             result = self.ops.natural_write(project["path"], text, channel=CHANNEL, sender=self.key(chat), seed=seed)
         except Refused as e:
-            self.reply(chat, str(e), project)
-            return
+            self.reply(chat, self.t("ATT_SAVE_OFF", project=project) if needed == "file-save" else str(e), project)          # a plain sentence for a save, never the name of an operation
+            return False
         except self.ops.OpsError as e:
             self.reply(chat, f"error: {e}", project)
-            return
+            return False
+        if result.get("silent"):          # the line opens nothing and says nothing (a caption never asks a question): the caller sends the file's card
+            return False
         said = result.get("reply")
         if said is None:          # no write and no answer: a plain line, as it always was
             self.line(project, chat, text, None)()
-            return
-        if result.get("resend") is not None and not self.resend(project, chat, result["resend"]):
-            said = self.t("NW_CARD_NOT_SENT", project=project, pending=result["resend"])
+            return False
+        opened = result.get("resend") is not None
+        if opened and not self.resend(project, chat, result["resend"]):
+            said, opened = self.t("NW_CARD_NOT_SENT", project=project, pending=result["resend"]), False
         if result.get("asked") and chat in self.remind.discarded:
             self.remind.discarded.discard(chat)
             said = self.t("NT_DISCARDED", project=project) + " " + said
         self.reply(chat, said, project)
+        if result.get("cards"):          # the files to choose among, or the file whose card says where to save it: their cards (ATT-3)
+            self.attach.resend(project, chat, result["cards"])
+        return result["resend"] if opened else None
 
     def line(self, project: dict, chat: str, text: str, entry):
         """The call that runs one line through `say`. `entry` is the kept line this run answers (None: the line has just come); it leaves the waiting

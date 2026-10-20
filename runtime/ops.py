@@ -2684,7 +2684,7 @@ OpsError = core.OpsError  # a shell catches ops.OpsError; the class has one home
 DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this name
 
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
-from ops_say import chat_memory, natural_draft, natural_forget, natural_needs, natural_reply, natural_write, route_queued, say  # noqa: E402,F401
+from ops_say import chat_memory, natural_draft, natural_file_accounts, natural_forget, natural_needs, natural_reply, natural_write, route_queued, say  # noqa: E402,F401
 from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEAD, MEMORY_TAIL, MEMORY_TURNS, PLAN_NEXT  # noqa: E402,F401
 # The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401

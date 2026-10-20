@@ -102,6 +102,11 @@ out.empty = fresh.el.hidden;
 state = { held: [held(9, { name: "<img src=x onerror=alert(1)>.pdf", sender: "4242424242" })], recent: [], today: { files: 1, bytes: 1 }, limits: {} };
 section.update({}, true, 2); await settle();
 out.hostile = { text: textOf(byClass(section.el, "wb-at-item")[0]), elements: [...section.el.walk()].filter((n) => ["IMG", "SCRIPT"].includes(n.tagName)).length };
+// a save-only image (ATT-3) has no source to become: no "Add as a source", and the line says it is never added
+state = { held: [held(10, { name: "photo.jpg", kind: "jpeg", save_only: true, target: null, label: null })], recent: [], today: { files: 1, bytes: 1 }, limits: {} };
+section.update({}, true, 4); await settle();
+const image = byClass(section.el, "wb-at-item")[0];
+out.image = { buttons: tag(image, "button").map(textOf), text: textOf(image), words: [becomesWords({ save_only: true, target: "x" }), becomesWords({ target: null }), becomesWords(null)] };
 // the policy: with no group there are no buttons and no read
 policy = { permissions: { allowed: ["status"] } };
 section.update({}, true, 3); await settle();
@@ -128,6 +133,7 @@ def test_the_section_lists_the_held_files_adds_or_discards_one_and_shows_a_refus
     assert got["discarded"]["calls"] == [["discard", "p", 2]] and got["discarded"]["left"] == 0 and got["discarded"]["error"] == 0
     assert got["empty"] is True
     assert got["hostile"]["text"].startswith("<img src=x onerror=alert(1)>.pdf (pdf") and got["hostile"]["elements"] == 0 and "4242424242" not in got["hostile"]["text"]
+    assert got["image"]["buttons"] == ["Discard"] and "never added as a source" in got["image"]["text"] and "null" not in got["image"]["text"] and got["image"]["words"] == ["", "", ""]
     assert got["withheld"]["buttons"] == [] and got["notShown"] is True
 
 

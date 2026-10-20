@@ -25,6 +25,9 @@ A refusal is an OpsError whose message is the sentence the person reads (the bri
 is deleted and its row ends `refused` with a code of attachments.CODES; a problem of this machine that is not the file's (the sources folder is
 not usable, another host holds its lease) leaves the file held, so that it can be added once that is mended.
 
+A save-only image (a photo; PNG, JPEG, WebP, GIF, HEIC; package ATT-3) is held the same way, read from its bytes, with no source id: `attachment_add` refuses it with a sentence and leaves it
+held, to be saved to the person's Drive or OneDrive (runtime/ops_files.py `file_save`) or discarded.
+
 Sibling of runtime/ops.py, which exposes the operations under their names. The shared names come from ops_core, read as `core.<name>` at call
 time. It reaches no operation of ops.py. Standard library only. Runs on Python 3.9.
 """
@@ -230,7 +233,7 @@ def _hold(project, ctx, folder, platform, ref, name, declared, declared_bytes, w
             raise refuse(None, None, "held_max", att.HELD_FULL.format(n=waiting))
         cap = min(att.FILE_CAP, max_bytes if type(max_bytes) is int and max_bytes >= 1 else att.FILE_CAP, max(1, att.DAY_BYTES - today["bytes"]))
         try:
-            received = intake.stream_in(stream, length, folder, cap=cap, minimum=1, accept=sources.accept_type,
+            received = intake.stream_in(stream, length, folder, cap=cap, minimum=1, accept=att.accept_hold,
                                         lock_path=sources.upload_lock_path(cfg))
         except intake.IntakeError as e:
             if e.code == "refused":
@@ -241,10 +244,14 @@ def _hold(project, ctx, folder, platform, ref, name, declared, declared_bytes, w
     if att.mismatch(declared, sniffed):
         raise refuse(sniffed, received.sha256, "mismatch", att.MISMATCH.format(name=name, declared=att.media_type(declared),
                                                                                sniffed=att.SUBTYPE_WORDS.get(sniffed, sniffed)))
-    try:
-        chosen, label = _target(ctx, wanted, name)
-    except core.OpsError as e:
-        raise refuse(sniffed, received.sha256, "target", str(e)) from None
+    save_only = att.is_save_only(sniffed)
+    if save_only:          # an image is held only to be saved to the person's Drive or OneDrive: no source id, no add, and the extension its bytes say (package ATT-3)
+        name, chosen, label, direct = att.image_name(name, sniffed), None, None, False
+    else:
+        try:
+            chosen, label = _target(ctx, wanted, name)
+        except core.OpsError as e:
+            raise refuse(sniffed, received.sha256, "target", str(e)) from None
     declined = False
     if direct and wanted is not None and wanted in _registered(ctx):
         direct, declined = False, True       # the grant makes new sources and never a new version of one that exists: that waits for a card
@@ -265,6 +272,8 @@ def _hold(project, ctx, folder, platform, ref, name, declared, declared_bytes, w
     known = _registered(ctx).get(chosen) or {}
     out = {"attachment": att.public(row), "held": True, "target": chosen, "label": label,
            "next_version": (known.get("versions") or 0) + 1, "card_sha256": att.card_sha256(received.sha256, chosen, label)}
+    if save_only:
+        out["save_only"] = True
     if declined:
         out["direct_declined"] = True
     if direct:
@@ -288,6 +297,8 @@ def _add(project: str, ctx: dict, row: dict, sender) -> dict:
     the sender. The held file is deleted whatever the result (but a problem of this machine, which leaves it held)."""
     cfg, store = ctx["cfg"], ctx["store"]
     name = row["name"]
+    if att.is_save_only(row.get("kind")):          # an image never becomes a source: it waits to be saved or discarded (nothing is decided, nothing deleted)
+        raise _fail(att.IMAGE_NOT_SOURCE)
     if row["created_at"] < att.expired_before():
         _decide(ctx, row, "expired")
         att.delete_held(cfg["data_dir"], row["id"])

@@ -45,7 +45,7 @@ call made on purpose.
 
 Attachments (ATT-2). A message with a document, photo, voice note, video, audio or sticker becomes an update whose
 `attachments` holds {"ref": the file_id, "name", "size", "type"} (a photo is the largest size Telegram made; `type` is
-the media type of a document, else photo, voice, video, audio or sticker) and whose `text` is the caption. `fetch-attachment`
+the media type of a document, else photo, voice, video, audio or sticker; the bridge takes a photo and an image document as save-only images) and whose `text` is the caption. `fetch-attachment`
 asks getFile for the path, builds the address from the fixed base and a path checked against a closed pattern, downloads
 it with no redirect followed, counts the bytes while it streams (over --max-bytes: exit 2, the partial file removed), and writes
 `<out>/content` (O_EXCL, O_NOFOLLOW, mode 0600) and prints {"bytes", "sha256"}. A file Telegram no longer knows is exit 1

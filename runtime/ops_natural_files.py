@@ -26,6 +26,7 @@ import ops_core as core
 import source_resolve
 import sources
 
+CARDS_MAX = 5      # the most cards of held files one line brings back
 SOURCE_ACCOUNT = {"drive": "google", "onedrive": "microsoft"}      # the type of a file source -> the account it belongs to
 
 
@@ -90,17 +91,29 @@ def _save(ctx: dict, slots: dict, channel, sender):
         held = held_files(ctx, channel, sender)
         if not held:
             return w.say_spec("NW_NO_HELD")
-        if slots.get("kind"):
+        if slots.get("kind") == "image":
+            held = [r for r in held if r.get("save_only")]
+            if not held:
+                return w.say_spec("NW_NO_HELD_KIND", kind=slots["kind"])
+        elif slots.get("kind"):
             held = [r for r in held if r.get("kind") == slots["kind"] or str(r.get("name") or "").lower().endswith("." + slots["kind"])]
             if not held:
                 return w.say_spec("NW_NO_HELD_KIND", kind=slots["kind"])
-        if len(held) > 1:
-            cfg = ctx["cfg"]
-            return w.ask_spec("attachment", "NW_ASK_ATTACHMENT", options=[{"value": r["id"], "label": f"{r['name']} ({att.size_text(r.get('bytes') or 0, cfg)})"} for r in held])
+        if len(held) > 1:          # which of several files: the card of each, with its buttons, is sent again (package ATT-3); no numbered question
+            return w.cards_spec([r["id"] for r in held[-CARDS_MAX:]], "NW_WHICH_FILE")
         slots = dict(slots, attachment=held[0]["id"])
     state, account = w.pick_account(ctx, slots.get("account"), "folders")
     if state == "spec":
+        if account.get("ask", {}).get("need") == "account":          # both services could serve it and the line names none: the file's card offers each (package ATT-3)
+            return w.cards_spec([slots["attachment"]], "NW_PICK_ON_CARD")
         return account
+    listed = list(((ctx["cfg"].get("accounts") or {}).get(account) or {}).get("folders") or {})
+    if slots.get("folder") is None and listed and "default" not in listed and slots.get("_folders"):
+        # a caption or a button of a file's card never opens a question: a folder list with no `default` leaves the file's card (a caption), or takes the first folder listed (a
+        # button; the card of the save names the folder, and the approval is of that card)
+        if slots["_folders"] == "silent":
+            return {"silent": True}
+        slots = dict(slots, folder=listed[0])
     state, folder = w.named_target(ctx, account, "folders", slots.get("folder"), "folder")
     if state == "spec":
         return folder

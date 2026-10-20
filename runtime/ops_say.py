@@ -231,6 +231,13 @@ def natural_forget(project: str, sender, channel: str = "messaging") -> None:
     importlib.import_module("ops_natural_writes").forget(channel, sender)
 
 
+def natural_file_accounts(project: str) -> list:
+    """The accounts ("google", "microsoft") the project lists with folders, in that order: the places a file a sender sent can be saved to (package ATT-3; the card of a
+    file draws one button for each). Not an operation of the table."""
+    ctx = core.context(project)
+    return importlib.import_module("ops_natural_writes").accounts_with(ctx, "folders")
+
+
 def natural_needs(project: str, text: str, sender=None, channel: str = "messaging"):
     """The operation whose group a sender must hold for a plain line to be handled by code (ops_natural.needs), or None: the bridge asks it before it asks
     `talk`. Not an operation of the table."""
