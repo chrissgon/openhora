@@ -41,6 +41,7 @@ import time
 import unicodedata
 
 import drafts
+import messaging_guard as guard
 import ops_core as core
 import natural
 import operations
@@ -151,6 +152,16 @@ def peek(ctx: dict, said: str, channel, sender) -> bool:
     return drafts.get(*slot, owner) is not None and _answers(ctx, draft, said, owner) is not None
 
 
+def recognises(ctx: dict, said: str, channel, sender) -> bool:
+    """Whether a plain line is a request or an answer that code recognises as its own: a tier-1 form that is not a read, a reminder, a write to the person's accounts (a
+    save of a file included), or the answer to this sender's live draft. Such a line is NEW, never the answer to a question the router left open (package LIVE-2);
+    a read ("progress") may still be the one-word answer to it. Reads, changes nothing."""
+    found = natural.match(said)
+    if found is not None:
+        return natural.class_of(found["op"]) != "R"
+    return peek(ctx, said, channel, sender) or natural.candidate(said) is not None
+
+
 def peek_model(ctx: dict, said: str, channel, sender) -> bool:
     """Whether the line answers a draft whose completion calls a model (the choice of a file for an `ask`): it takes the route lock like any model call, so
     it waits in the queue (the page) or is kept by the bridge when the router is busy, and the draft is not lost."""
@@ -259,6 +270,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     row = operations.by_name(name)
     where = "terminal" if channel == "chat" else channel      # the conversation's own shell is the terminal's equal, not a channel of its own
     if where not in row["channels"]:
+        if channel == "messaging":      # a phone has no terminal: what and where, never a command (limit L62)
+            return phone_sentence(ctx, name)
         extra = _command(ctx, name, args, "terminal", channel) if cls in ("G", "E") else None
         return f"error: /{name} is done in the terminal or on the page" + (f". {extra}" if extra else "")
     policy = cfg["channels"]
@@ -276,7 +289,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     if cls == "N":
         return _notice(project, ctx, name, row, args, said, channel, sender, extras, when, routed)
     if cls == "W":
-        return t("NAT_TYPE_IT", command=_command(ctx, name, args, channel, channel))
+        command = _command(ctx, name, args, channel, channel)
+        return t("NAT_TYPE_IT", command=command) if command else phone_sentence(ctx, name)
     if cls == "D":
         return _decision(project, ctx, name, args, channel, sender, extras)
     if cls in ("G", "E"):      # run nothing: the place and the exact command (an E operation, run there, ends in a card of the exact content)
@@ -347,7 +361,9 @@ def _error(cfg: dict, error, channel) -> str:
     """An error of the operations layer as a person is told: its message in the project's language where a table has it; on a messaging app a message with a path
     in it, or a problem of this machine, is a fixed sentence."""
     text = str(error)
-    if channel == "messaging" and (PATH.search(text) or getattr(error, "code", 1) == 3):
+    if channel == "messaging" and getattr(error, "phone", None):      # a sentence the operation wrote for a phone: plain words, what failed and what to check (messaging_failure)
+        return str(error.phone)
+    if channel == "messaging" and (PATH.search(text) or guard.find(text) or getattr(error, "code", 1) == 3):
         return phrases.text("ATT_MACHINE", cfg)
     return "error: " + phrases.localize(text, cfg)
 
@@ -456,13 +472,14 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
     if _missing(row, args):
         return t("NAT_ASK_ID")
     if name == "reminder-restore" and routed:      # the router chose it and no code can check the choice against the line: nothing is brought back from it, the reply is the command
-        return t("NAT_TYPE_IT", command=_command(ctx, name, args, channel, channel))
+        command = _command(ctx, name, args, channel, channel)
+        return t("NAT_TYPE_IT", command=command) if command else phone_sentence(ctx, name)
     if not routed:
         try:
             done = _call(project, row, args, channel, sender)
         except core.OpsError as e:
             return _error(cfg, e, channel)
-        return phrases.localize(done["reply"], cfg)
+        return phrases.localize(done["reply"], cfg) if "reply" in done else t("RM_NOTHING_TO_RESTORE") if name == "reminder-restore" else t("NAT_NOTHING")      # {"none": True}: nothing to bring back
     # a reminder to forget that the router chose: shown with what it is, and cancelled only on a yes
     try:
         shown = _call(project, row, dict(args, preview=True), channel, sender)
@@ -529,7 +546,7 @@ def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, e
     number = args.get("pending_id")
     command = _command(ctx, name, args, channel, channel)
     if number is None or name == "go-ahead":
-        return t("NAT_DECISION_TYPED", command=command)
+        return t("NAT_DECISION_TYPED", command=command) if command else phone_sentence(ctx, name)
     try:
         item = _ops().pending(project, pending_id=number)
     except core.OpsError:
@@ -542,8 +559,37 @@ def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, e
     return t("NAT_DECISION_TYPED", command=command)
 
 
+# What a phone is told of an operation that is not done from a line (limit L62): one plain sentence of the family the operation belongs to, and where it is done. The
+# default is PHONE_ELSEWHERE; a test ties each name to an operation of the table.
+PHONE_FAMILY = {
+    "give-consent": "PHONE_SETTINGS", "set-mode": "PHONE_SETTINGS", "set-model": "PHONE_SETTINGS", "config": "PHONE_SETTINGS", "accept-config": "PHONE_SETTINGS",
+    "approve-policy": "PHONE_SETTINGS", "revoke-policy": "PHONE_SETTINGS", "standing": "PHONE_SETTINGS", "execute-under-policy": "PHONE_SETTINGS",
+    "instructions-set": "PHONE_INSTRUCTIONS", "instructions-add": "PHONE_INSTRUCTIONS",
+    "source-add": "PHONE_SOURCES", "source-import": "PHONE_SOURCES", "source-refresh": "PHONE_SOURCES", "source-describe": "PHONE_SOURCES", "source-drive": "PHONE_SOURCES",
+    "source-onedrive": "PHONE_SOURCES", "source-mail": "PHONE_SOURCES", "source-calendar": "PHONE_SOURCES", "stage-file": "PHONE_SOURCES", "sync": "PHONE_SOURCES",
+    "hand-over": "PHONE_SOURCES", "attachment-hold": "PHONE_SOURCES",
+    "routine-create": "PHONE_ROUTINES", "routine-change": "PHONE_ROUTINES", "routine-approve": "PHONE_ROUTINES", "routine-resume": "PHONE_ROUTINES",
+    "routine-pause": "PHONE_ROUTINES", "routine-cancel": "PHONE_ROUTINES",
+    "reminder-restore": "PHONE_RESTORE",
+}
+for _name in ("event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
+              "file-create", "file-replace", "file-save"):
+    PHONE_FAMILY[_name] = "PHONE_ACCOUNT_WRITE"
+
+
+def phone_sentence(ctx: dict, name: str, retry: bool = False) -> str:
+    """The one sentence a phone gets for an operation it cannot do from a line: what is done and where, in the project's language, with the page link when the project has
+    one (`messaging.page_url`), else "on the platform's page". Never a command, a path or a hash (limit L62). `retry` is for a write to the person's accounts that a line
+    named but the code did not read as a write: the person is asked to say it again, with an example, since a phone can ask it in words."""
+    if retry and natural.class_of(name) == "E":      # a write the person can ask in words, named but not read as one: say it again, with an example
+        return phrases.phone("PHONE_EVENT_AGAIN" if name.startswith("event-") else "PHONE_WRITE_AGAIN", ctx["cfg"])
+    return phrases.phone(PHONE_FAMILY.get(name, "PHONE_ELSEWHERE"), ctx["cfg"])
+
+
 def _gated(ctx: dict, name: str, args: dict, channel=None) -> str:
     cfg = ctx["cfg"]
+    if channel == "messaging":
+        return phone_sentence(ctx, name, retry=True)
     row = operations.by_name(name)
     where = ("NAT_PLACE_BOTH" if "terminal" in row["channels"] and "page" in row["channels"] else
              "NAT_PLACE_TERMINAL" if "terminal" in row["channels"] else "NAT_PLACE_PAGE")
@@ -556,6 +602,8 @@ def _command(ctx: dict, name: str, args: dict, channel, carried=None) -> str:
     command, with `<name>` where the line gave no value. The one place that spells it is operations (chat_line, command_line). For the MCP mode (`carried`) the
     terminal's command is the relative form with `<project>`: a model client is never told a path of this machine."""
     row = operations.by_name(name)
+    if carried == "messaging" and channel == "terminal":      # a phone is never given the terminal's command (limit L62): the caller says where it is done
+        return None
     filled = dict(args)
     for arg in row["args"]:
         if arg.get("required") and arg["name"] not in filled:
@@ -567,6 +615,8 @@ def _command(ctx: dict, name: str, args: dict, channel, carried=None) -> str:
             return operations.chat_line(name, **filled)
         except ValueError:
             pass
+    if carried == "messaging":      # no slash form of its own: none
+        return None
     if "terminal" in row["channels"]:
         if carried == "mcp":
             return operations.command_line(name, "<project>", checkout=None, **filled)

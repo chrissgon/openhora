@@ -176,7 +176,7 @@ def test_the_closed_default_policy_draws_no_action_and_says_where_to_act(world):
     world.items[2] = decision("question", 2)
     world.bridge.tick()
     plan, question = [s["message"] for s in world.sent()]
-    assert plan["actions"] == [] and "/approve" not in plan["text"] and "Act on it on the page or in the terminal." in plan["text"]
+    assert plan["actions"] == [] and "/approve" not in plan["text"] and "Act on it on the platform's page." in plan["text"]
     assert plan["link"] == {"label": "Open the page", "url": "https://page.example/open"}
     assert question["actions"] == [] and "Reply to this message to answer." in question["text"]
     assert "Act on it on the page" not in question["text"] and question["link"] is None
@@ -211,20 +211,18 @@ def test_a_long_text_is_cut_with_a_line_about_the_page_or_sent_as_a_document(wor
     assert len(doc["text"]) <= 300 and doc["document"]["text"].endswith("y" * 2000) and doc["document"]["name"] == "plan-2.txt"
 
 
-def test_an_effect_card_has_no_approve_and_carries_the_exact_command_and_the_link(world):
+def test_an_effect_card_has_no_approve_names_the_page_and_carries_no_command_and_the_link(world):
     world.config["messaging"]["page_url"] = "https://page.example/open"
     world.items[7] = decision("effect", 7, title="Pull request", payload_sha256="e" * 64)
     world.bridge.tick()
     [card] = world.sent()
     message = card["message"]
     assert [a["label"] for a in message["actions"]] == ["Reject"]
-    assert "Approve it on the page or in the terminal:" in message["text"]
-    command = bridge.scrub(operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256="e" * 64))   # the card spells the home folder as ~
-    assert message["text"].rstrip().endswith(f"`{command}`") and "e" * 64 in command  # on its own line, tap-to-copy
-    assert message["text"].rstrip().splitlines()[-1] == f"`{command}`"
+    assert "Approve it on the platform's page." in message["text"]
+    assert "cli.py" not in message["text"] and "uv run" not in message["text"] and "--sha256" not in message["text"] and "e" * 64 not in message["text"]      # a phone is never given the command or the hash (LIVE-2)
     assert message["link"]["url"] == "https://page.example/open"
-    world.say("/approve 7")  # typed: no operation, the command again
-    assert world.calls("approve") == [] and command in world.texts()[-1]
+    world.say("/approve 7")  # typed: no operation, and the page is named, with its link
+    assert world.calls("approve") == [] and "cli.py" not in world.texts()[-1] and "https://page.example/open" in world.texts()[-1] and "e" * 64 not in world.texts()[-1]
 
 
 # --- the ledger -----------------------------------------------------------------------------------------------------

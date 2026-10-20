@@ -48,7 +48,7 @@ def test_a_reminder_to_bring_back_that_the_router_chose_is_not_brought_back_at_o
     router_says(world, OPERATION.format(name="reminder-restore") + f"Argument id: {rid}\n")
     out = phone(world, "owner", f"what about number {rid} then")
     assert [(r["id"], r["status"]) for r in reminders(world)] == before, "nothing was restored from a choice no code can check"
-    assert out["reply"].startswith(phrases.text("NAT_TYPE_IT", None, command="").rstrip()) and drafts.count() == 0, out["reply"]
+    assert out["reply"] == phrases.phone("PHONE_RESTORE", None) and drafts.count() == 0, out["reply"]      # a phone is told where, never the command (LIVE-2)
     ops.reminder_restore(world["path"], channel="messaging", sender=KEY["owner"])      # the typed command is as it was
     assert len(reminders(world)) == len(before) + 1
 

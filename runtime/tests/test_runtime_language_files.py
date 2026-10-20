@@ -31,7 +31,7 @@ def test_a_provider_that_takes_no_file_and_a_channel_without_the_group_are_told_
     w.messenger._caps = None
     accept(case.path, channels={"messaging": ["read", "talk"]}, policies=None, language="pt-BR")
     w.send([w.file()])
-    assert w.texts() == ["Arquivos não são recebidos por este aplicativo neste projeto. Adicione na página ou no terminal (source-import)."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert w.texts() == ["Arquivos não são recebidos por este aplicativo neste projeto. Adicione na página da plataforma."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert w.fetches() == [] and case.rows() == []
 
 

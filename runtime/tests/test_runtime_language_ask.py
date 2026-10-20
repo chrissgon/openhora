@@ -90,10 +90,10 @@ def test_the_state_of_a_project_with_work_open_names_every_part_in_portuguese(tw
     expected = {
         None: ['Request 4, "Launch": 1 of 6 tasks done (Copy).', "Running now: Images.", "Waiting for you: Review.", 'Ready: task 8, "Post" (held: paused).',
                'Stuck: task 9, "Send", is blocked: needs a key.', 'Stuck: task 10, "Tidy", is failed.',
-               'Request 11, "Later": recorded; it waits for its route.', 'What waits for you: plan "Launch" (decision 12); effect "Post" (decision 13).'],
+               'Request 11, "Later": recorded; it waits for its route.', 'What waits for you: plan "Launch" (decision 12); request "Post" (decision 13).'],
         "pt-BR": ['Pedido 4, "Launch": 1 de 6 tarefas concluídas (Copy).', "Rodando agora: Images.", "Esperando você: Review.", 'Pronta: tarefa 8, "Post" (retida: paused).',  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
                   'Travada: tarefa 9, "Send", status bloqueado: needs a key.', 'Travada: tarefa 10, "Tidy", status com falha.',
-                  'Pedido 11, "Later": registrado; espera pelo encaminhamento.', 'O que espera por você: plano "Launch" (decisão 12); efeito "Post" (decisão 13).'],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+                  'Pedido 11, "Later": registrado; espera pelo encaminhamento.', 'O que espera por você: plano "Launch" (decisão 12); pedido "Post" (decisão 13).'],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     }
     for tag, lines in expected.items():
         assert ops_say.state_reply(two["path"], cfg={"language": tag}).splitlines() == lines, tag

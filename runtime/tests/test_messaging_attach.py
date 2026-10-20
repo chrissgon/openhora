@@ -178,7 +178,7 @@ def test_a_provider_that_does_not_take_files_gets_the_sentence_and_nothing_else(
 def test_a_channel_without_the_group_takes_no_file_and_nothing_is_fetched(world):
     accept(world.case.path, channels={"messaging": ["read", "talk"]}, policies=None)
     world.send([world.file()])
-    assert world.texts() == ["Files are not taken from this app for this project. Add it on the page or in the terminal (source-import)."]
+    assert world.texts() == ["Files are not taken from this app for this project. Add it on the platform's page."]
     assert world.fetches() == [] and world.case.rows() == [] and world.incoming() == []
     assert [x for x in world.log if "4242" in x or "r1" in x or "Q3" in x] == [], "one log line, no id"
     assert any("takes none" in x for x in world.log)
@@ -471,7 +471,7 @@ def test_the_card_of_a_platform_with_no_buttons_carries_typed_lines_and_the_coun
     count = cards.attachment_card("northwind-shop", row, 1, {"buttons": True, "max_buttons": 6, "max_text": 4096}, policy, "count", operations, sender)
     assert count["message"]["text"] == "northwind-shop · file #3\n\nA file from you waits for your answer." and "Q3" not in count["message"]["text"]
     narrow = cards.attachment_card("northwind-shop", row, 1, {"buttons": True, "max_buttons": 6, "max_text": 4096}, {"messaging": ["read"]}, "text", operations, sender)
-    assert narrow["message"]["actions"] == [] and narrow["actionable"] is False and narrow["message"]["text"].endswith("Act on it on the page or in the terminal.")
+    assert narrow["message"]["actions"] == [] and narrow["actionable"] is False and narrow["message"]["text"].endswith("Act on it on the platform's page.")
     cut = cards.attachment_card("northwind-shop", dict(row, name="n" * 100), 1, {"buttons": True, "max_buttons": 6, "max_text": 120}, policy, "text", operations, sender)
     assert len(cut["message"]["text"]) <= 120
 
@@ -590,7 +590,7 @@ def test_a_machine_problem_reaches_a_phone_as_a_fixed_sentence_and_the_path_stay
         m.setattr(ops_sources, "import_bytes", lambda *a, **k: (_ for _ in ()).throw(ops.OpsError(f"the sources folder {data_dir}/sources cannot be opened: no", 3)))
         world.reset()
         world.say(action=action)
-    assert world.texts() == ["This machine could not do that now. Try again later, or use the page or the terminal."]
+    assert world.texts() == ["This could not be done now. Try again later, or use the platform's page."]
     for text in world.texts() + world.log:
         assert data_dir not in text and "/private/" not in text and "/var/" not in text, text
     assert any("a machine problem was told to a phone (MachineProblem)" in x for x in world.log) or any("(OpsError)" in x for x in world.log)

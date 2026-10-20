@@ -138,10 +138,10 @@ def test_the_router_naming_a_decision_a_gated_act_or_a_planned_effect_executes_n
     assert ops.pending(world["path"], plan_id)["status"] == "open"
     router_says(world, OPERATION.format(name="set-model"))
     gated = phone(world, "owner", "use the cheap model for the writer")
-    assert gated["reply"].startswith("error: /set-model is done in the terminal or on the page")
+    assert gated["reply"] == "Settings, accounts and permissions are changed on the platform's page."
     router_says(world, OPERATION.format(name="event-create"))
     planned = phone(world, "owner", "pon al dentista en mi calendario")      # a line in a language no table ships has no head the code reads: the place and the command, as before (NR-5)
-    assert planned["reply"].startswith("That is not done from a line of words. Do it in the terminal or on the page: ") and "event-create" in planned["reply"]
+    assert planned["reply"] == phrases.text("PHONE_EVENT_AGAIN", None) and "event-create" not in planned["reply"]
     assert reminders(world) == []
 
 

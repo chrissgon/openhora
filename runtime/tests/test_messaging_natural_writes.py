@@ -103,7 +103,7 @@ def test_a_write_line_is_handled_by_code_before_say_with_no_route_lock_no_model_
     monkeypatch.setattr(ops, "say", forbidden)
     day.say(OWNER, "marca dentista quinta às 10h no google")
     assert day.bridge.waiting == [] and not day.bridge.exclusive and conversation(day) == []
-    assert any(t.startswith("Card #") and "waits for your approval" in t for t in day.texts(OWNER))
+    assert any("Calendar: new event" in t for t in day.texts(OWNER)) and not any("waits for your approval" in t for t in day.texts(OWNER)), "the card says it waits: the line that says so again is not sent (LIVE-2)"
 
 
 def test_the_card_of_the_exact_content_is_sent_to_the_asking_chat_at_once(day):
@@ -146,7 +146,7 @@ def test_the_loose_verb_question_answered_event_opens_the_event_and_something_el
     day.say(OWNER, "agende dentista quinta 10h")
     assert day.texts(OWNER)[-1].startswith("An event in your calendar, or something else?")
     day.say(OWNER, "agenda")
-    assert "waits for your approval" in day.texts(OWNER)[-1]
+    assert "Calendar: new event" in day.texts(OWNER)[-1] and not any("waits for your approval" in t for t in day.texts(OWNER))
     cards = [t for t in day.texts(OWNER) if "Title: dentista" in t]
     assert cards and "Thu 22/10/2026 10:00-11:00" in cards[-1]
 
@@ -162,7 +162,7 @@ def test_a_sender_without_ask_mail_naming_an_event_number_gets_the_sentence_and_
     day.say(OWNER, "cancela o evento 2")
     assert day.texts(OWNER)[-1] == phrases.text("NW_REF_NOT_READABLE", None) and "agenda-privada" not in " ".join(day.texts(OWNER))
     day.say(READER, "cancela o evento 2")
-    assert "waits for your approval" in day.texts(READER)[-1]
+    assert "Calendar: remove an event" in day.texts(READER)[-1] and not any("waits for your approval" in t for t in day.texts(READER))
 
 
 def test_a_write_draft_expires_with_the_ten_minutes_and_a_late_answer_is_a_plain_line(day, monkeypatch):

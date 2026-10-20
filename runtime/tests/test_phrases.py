@@ -83,7 +83,8 @@ def test_the_angle_bracket_arguments_of_a_command_are_not_translated():
 
 def test_the_portuguese_column_is_translated_and_says_plataforma_never_bancada():
     same = {key for key in EN if EN[key] == PT[key]}
-    assert same == {"HEADER", "ATT_SUBTYPE_PDF"}, "only a sentence that is the same in both languages is the same"
+    assert same == {"HEADER", "ATT_SUBTYPE_PDF", "OUT_ACCT_GOOGLE", "OUT_ACCT_MICROSOFT",
+                    "FAIL_SERVICE_FILES_GOOGLE", "FAIL_SERVICE_FILES_MICROSOFT", "FAIL_SERVICE_MAIL_GOOGLE", "FAIL_SERVICE_MAIL_MICROSOFT"}, "only a sentence that is the same in both languages is the same"
     assert not any("bancada" in text.lower() for text in PT.values())
     left = {key: re.findall(r"\b(?:the|and|you|your|with|from|this|that|was|were)\b", text) for key, text in PT.items() if key != "HELP"}
     assert {key: words for key, words in left.items() if words} == {}, "no English word left in a sentence"
@@ -112,8 +113,8 @@ def test_english_is_byte_for_byte_what_the_modules_said_before_the_table():
         "QUOTE_CHECKED": 'Checked quote [{id}]: "{text}"',
         "UNPROVEN": "Unproven: {skill} has no passing test on {model}; check the answer against the quotes.",
         "RM_SET": "Reminder #{id} set for {wall} ({zone}).",
-        "ATT_OFF": "Files are not taken from this app for this project. Add it on the page or in the terminal (source-import).",
-        "ATT_MACHINE": "This machine could not do that now. Try again later, or use the page or the terminal.",
+        "ATT_OFF": "Files are not taken from this app for this project. Add it on the platform's page.",
+        "ATT_MACHINE": "This could not be done now. Try again later, or use the platform's page.",
         "STATE_STUCK": 'Stuck: task {id}, "{title}", is {state}{note}.',
         "PLANNING_NOT_STARTED": "The planning agent may not start now: {why}. Nothing was run.",
         "ROUTER_FAILED": "The router could not run: {failure}",
@@ -157,9 +158,9 @@ def test_a_key_a_table_lacks_falls_back_to_english_and_a_key_english_lacks_is_an
 
 def test_the_kind_of_a_decision_is_a_word_of_the_language_and_an_unknown_kind_stays_as_it_is():
     assert [phrases.kind_word(k, PT_CFG) for k in ("plan", "effect", "question", "review", "acceptance", "your_document")] == [
-        "plano", "efeito", "pergunta", "revisão", "aceite", "documento"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+        "plano", "pedido", "pergunta", "revisão", "aceite", "documento"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert [phrases.kind_word(k, None) for k in ("plan", "effect", "question", "review", "acceptance", "your_document")] == [
-        "plan", "effect", "question", "review", "acceptance", "your_document"]
+        "plan", "request", "question", "review", "acceptance", "your_document"]
     assert phrases.kind_word("attachment", PT_CFG) == "attachment" and phrases.kind_word("plan", {"language": "fr"}) == "plan"
 
 

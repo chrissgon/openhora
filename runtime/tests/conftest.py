@@ -62,3 +62,12 @@ def pytest_ignore_collect(collection_path, config):
         if not any(marker in text for marker in PYTHON_MARKERS):
             return True
     return None
+
+
+@pytest.fixture(autouse=True)
+def the_time_facts_of_the_natural_writes_do_not_outlive_their_test():
+    """`natural_writes._facts` keeps the engine's answers by the content of the language tables; no test inherits another's (LIVE-2)."""
+    yield
+    module = sys.modules.get("natural_writes")
+    if module is not None:
+        module.clear_facts()

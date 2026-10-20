@@ -47,7 +47,7 @@ def effect(card, body=None, word="send", **more):
 
 
 def build(item, cfg=None, **kw):
-    return cards.build("northwind", item, CAPS, POLICY, "text", None, operations=operations, effect_command="cmd", cfg=cfg, **kw)
+    return cards.build("northwind", item, CAPS, POLICY, "text", None, operations=operations, cfg=cfg, **kw)
 
 
 # --- the rule of a well-formed card ---------------------------------------------------------------------------------------------------------------
@@ -135,13 +135,13 @@ def test_the_title_of_the_card_is_the_stored_one_and_a_translated_heading_is_sti
 def test_a_long_card_goes_as_a_document_with_the_translated_text(table):
     long_title = "x" * 5000
     item = effect(lines(long_title))
-    card = cards.build("northwind", item, {**CAPS, "documents": True}, POLICY, "text", None, operations=operations, effect_command="cmd", cfg=PT)
+    card = cards.build("northwind", item, {**CAPS, "documents": True}, POLICY, "text", None, operations=operations, cfg=PT)
     assert card["message"]["document"] is not None and "Título: " + long_title in card["message"]["document"]["text"] and card["whole"] is True
 
 
 def test_the_count_notice_carries_nothing_of_the_card(table):
     item = effect(lines())
-    said = cards.build("northwind", item, CAPS, POLICY, "count", None, operations=operations, effect_command="cmd", cfg=PT)["message"]["text"]
+    said = cards.build("northwind", item, CAPS, POLICY, "count", None, operations=operations, cfg=PT)["message"]["text"]
     assert "ana@mail.example" not in said and TITLE_WORDS not in said
 
 

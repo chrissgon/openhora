@@ -62,7 +62,7 @@ def test_a_granted_whole_card_has_the_approve_button_the_hash_line_and_the_ledge
     [card] = world.sent()
     message = card["message"]
     assert [a["label"] for a in message["actions"]] == [LABEL, "Reject"] or [a["label"] for a in message["actions"]] == ["Reject", LABEL]
-    assert "Open at nine." in message["text"] and f"sha256 {HASH}" in message["text"] and "Approve it on the page or in the terminal" not in message["text"]
+    assert "Open at nine." in message["text"] and cards.APPROVES_LINE in message["text"] and "sha256" not in message["text"] and "terminal" not in message["text"]      # the hash binds the button, it is not printed (LIVE-2)
     [entry] = world.bridge.ledger.data["cards"]
     assert entry["whole"] is True and entry["approvable"] is True and entry["effect_word"] == "write" and entry["content_sha256"] == HASH
     assert "Open at nine" not in open(world.tmp / "data" / "messaging-telegram.json", encoding="utf-8").read(), "the ledger holds no project text"
@@ -80,9 +80,9 @@ def test_the_default_and_a_wrong_word_and_notices_of_count_draw_no_button_and_ke
         world.bridge.tick()
         [card] = world.sent()
         assert [a["label"] for a in card["message"]["actions"]] == ["Reject"], (groups, notices)
-        assert "Approve it on the page or in the terminal:" in card["message"]["text"] and f"`{command}`" in card["message"]["text"]
+        assert cards.EFFECT_LINE in card["message"]["text"] and "cli.py" not in card["message"]["text"] and command not in card["message"]["text"]
         world.say("/approve 7")
-        assert approve_calls(world) == [] and command in world.texts()[-1] and world.texts()[-1].startswith(bridge.EFFECT_REPLY), (groups, notices)
+        assert approve_calls(world) == [] and command not in world.texts()[-1] and "cli.py" not in world.texts()[-1] and world.texts()[-1].startswith(bridge.EFFECT_REPLY), (groups, notices)
     assert approve_calls(world) == []
 
 
@@ -94,11 +94,11 @@ def test_a_card_cut_on_a_platform_without_documents_draws_no_approve_and_says_so
     [card] = world.sent()
     message = card["message"]
     assert [a["label"] for a in message["actions"]] == ["Reject"] and message["document"] is None
-    assert cards.TOO_LONG_LINE in message["text"] and "Approve it on the page or in the terminal:" in message["text"] and len(message["text"]) <= 1600
+    assert cards.TOO_LONG_LINE in message["text"] and cards.EFFECT_LINE in message["text"] and len(message["text"]) <= 1600
     [entry] = world.bridge.ledger.data["cards"]
     assert entry["whole"] is False and entry["approvable"] is False
     world.say("/approve 7")
-    assert approve_calls(world) == [] and world.texts()[-1].startswith(bridge.TOO_LONG) and HASH in world.texts()[-1]
+    assert approve_calls(world) == [] and world.texts()[-1].startswith(bridge.TOO_LONG) and HASH not in world.texts()[-1] and "cli.py" not in world.texts()[-1]
 
 
 def test_the_same_long_effect_on_a_platform_with_documents_sends_the_file_first_and_the_card_after_it_is_confirmed(world):
@@ -130,7 +130,7 @@ def test_a_file_that_the_provider_says_did_not_arrive_makes_a_card_with_no_appro
     assert first["message"]["document"] is not None
     message = second["message"]
     assert [a["label"] for a in message["actions"]] == ["Reject"] and message["document"] is None
-    assert cards.DOCUMENT_LINE in message["text"] and "Approve it on the page or in the terminal:" in message["text"]
+    assert cards.DOCUMENT_LINE in message["text"] and cards.EFFECT_LINE in message["text"]
     [entry] = world.bridge.ledger.data["cards"]
     assert entry["whole"] is False and entry["approvable"] is False
     world.say("/approve 7")
@@ -223,7 +223,7 @@ def test_an_effect_that_cannot_be_on_a_card_draws_no_button_and_no_card_or_typed
         world.bridge.tick()
         [card] = world.sent()
         assert [a["label"] for a in card["message"]["actions"]] == ["Reject"], word
-        assert "Approve it on the page or in the terminal:" in card["message"]["text"] and cards.APPROVES_LINE.format(sha=HASH) not in card["message"]["text"]
+        assert cards.EFFECT_LINE in card["message"]["text"] and cards.APPROVES_LINE not in card["message"]["text"]
         # forced: even a card the ledger calls whole, whatever the bridge was told, the decision says it does not fit
         for entry in world.bridge.ledger.data["cards"]:
             entry["whole"], entry["approvable"] = True, True
@@ -261,8 +261,8 @@ def test_a_refusal_of_the_operations_layer_is_replied_and_nothing_else_is_said(w
     world.bridge.tick()
     world.fake.answers["approve"] = ops.OpsError("nothing was written: the page changed; the effect stays open", 1)
     world.say(None, action=approve_action(world))
-    assert wait_for(lambda: "the page changed" in world.texts()[-1])
-    assert len(approve_calls(world)) == 1 and "Approved" not in " ".join(world.texts())
+    assert wait_for(lambda: world.texts()[-1] == "It was not done, and nothing was written. Try again in a moment, or check it on the platform's page.")      # plain words (LIVE-2); the full text is the terminal's
+    assert len(approve_calls(world)) == 1 and "Approved" not in " ".join(world.texts()) and "the page changed" not in " ".join(world.texts())
 
 
 def test_a_typed_approve_binds_to_the_newest_whole_card_and_a_typed_hash_must_be_the_cards(world):
@@ -294,7 +294,7 @@ def test_a_stale_card_is_refused_with_the_decision_changed_and_a_new_card_with_t
     world.say(None, action=old)
     assert approve_calls(world) == [] and bridge.CHANGED in world.texts()
     fresh = world.sent()[-1]["message"]
-    assert f"sha256 {new_hash}" in fresh["text"] and LABEL in [a["label"] for a in fresh["actions"]]
+    assert "sha256" not in fresh["text"] and world.bridge.ledger.data["cards"][-1]["content_sha256"] == new_hash and LABEL in [a["label"] for a in fresh["actions"]]
     world.fake.answers["approve"] = {"task_state": "done"}
     world.say(None, action=approve_action(world))
     assert wait_for(lambda: approve_calls(world)) and approve_calls(world)[0][2]["sha256"] == new_hash

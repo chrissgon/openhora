@@ -207,6 +207,8 @@ def _admit(ctx: dict, op: str, channel, sender):
         return f"error: {op} is not a write to your accounts"
     where = "terminal" if channel == "chat" else channel          # the conversation's shell is the terminal's equal for the channels a row lists and for the policy
     if where not in row["channels"]:
+        if channel == "messaging":      # a phone has no terminal: what and where, never a command (limit L62)
+            return ops_natural.phone_sentence(ctx, op)
         extra = ops_natural._command(ctx, op, {}, "terminal", channel)
         return f"error: /{op} is done in the terminal or on the page" + (f". {extra}" if extra else "")
     refused = operations.refusal(op, where, cfg["channels"], sender=sender)

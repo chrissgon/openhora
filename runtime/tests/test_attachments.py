@@ -96,7 +96,7 @@ def test_the_numbers_are_fixed_in_code():
 
 def test_the_sentences_are_the_ones_the_spec_names():
     a = attachments
-    assert a.OFF == "Files are not taken from this app for this project. Add it on the page or in the terminal (source-import)."
+    assert a.OFF == "Files are not taken from this app for this project. Add it on the platform's page."
     assert a.MEDIA == ("Photos, voice notes, videos and stickers are not taken as sources: send a PDF, a Word document, a spreadsheet, "
                        "a presentation, an HTML page or a text file.")
     assert a.TOO_LARGE.format(name="a.pdf", size="30.0 MiB", cap="25.0 MiB") == "a.pdf is 30.0 MiB; a file from this app is at most 25.0 MiB."

@@ -63,6 +63,8 @@ MEMORY_TAIL = "The request now:"
 PLAN_NEXT = phrases.en("PLAN_NEXT")
 ANSWERED_AS = phrases.en("ANSWERED_AS")   # what `conversation` shows in place of an answer to a reader that did not ask
 ASK_NEXT = phrases.en("ASK_NEXT")
+ROUTER_QUESTION_TTL = 7200    # seconds an open question of the router stays the thing a plain line on a messaging app answers (package LIVE-2: two hours, this spec's choice, not measured); older, the next line is new and the request is cancelled by code
+_question_clock = lambda: datetime.datetime.now(datetime.timezone.utc)      # noqa: E731  (the clock of that age; a test replaces it)
 NOT_NAMED = phrases.en("BODY_NOT_NAMED")
 NOT_NAMED_ACTIONS = ["choose-flow", "cancel"]    # the words of the payload's `actions`: the page draws one button for each
 NOT_NAMED_NEXT = phrases.en("NOT_NAMED_NEXT")
@@ -159,7 +161,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     said = core._text(text, "the line")
     store = ctx["store"]
     handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender)
-    if _turn_routes(said) and not asks_state(ctx, said) and not handled:
+    if _turn_routes(said) and not asks_state(ctx, said, channel) and not handled:
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
         # router is free again; a shell that drains nothing is refused while the router answers another request.
         if channel in QUEUING_CHANNELS and (route_busy(ctx) or _queue_read(ctx, peek=True)):
@@ -202,10 +204,12 @@ def may_talk(ctx: dict, channel: str, sender=None) -> bool:
 
 def asks_natural(ctx: dict, said: str, channel: str, sender=None) -> bool:
     """Whether a plain line is handled by code as a natural request (a tier-1 form, or the answer to the sender's draft): it runs no model, so it takes
-    no route lock and is never queued. As with the state, an open question of the router means the line is its answer, unless the sender may not talk:
-    a sender who may not talk never answers it."""
-    return (_router_question(ctx, _last_request(ctx)) is None or not may_talk(ctx, channel, sender)) \
-        and ops_natural.peek(ctx, said, _natural_channel(channel), sender)
+    no route lock and is never queued. As with the state, an open question of the router means the line is its answer, unless the sender may not talk
+    (a sender who may not talk never answers it) or the line is a request code recognises (LIVE-2: a new line, never the answer)."""
+    natural_channel = _natural_channel(channel)
+    if not ops_natural.peek(ctx, said, natural_channel, sender):
+        return False
+    return not may_talk(ctx, channel, sender) or _open_question(ctx, channel) is None or ops_natural.recognises(ctx, said, natural_channel, sender)
 
 
 def natural_reply(project: str, name: str, channel: str = "messaging") -> str:
@@ -250,7 +254,9 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
             extras["stored"] = phrases.text("NAT_READ_REPLY", ctx["cfg"])
         return (*out, None)
     talks = may_talk(ctx, channel, sender)
-    asked = _router_question(ctx, _last_request(ctx)) if talks else None      # a sender who may not talk never answers the router's question
+    asked = _open_question(ctx, channel, expire=True) if talks else None      # a sender who may not talk never answers the router's question
+    if asked is not None and ops_natural.recognises(ctx, said, _natural_channel(channel), sender):      # a request code recognises is a new line, never the answer (LIVE-2)
+        asked = None
     if asked is None and state_question(said):
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
             return f"error: {operations.not_enabled('status', channel)}", None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
@@ -263,6 +269,8 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
     if not talks:      # admitted under another group, and no form of it took the line: it is not a model's, so it is refused as the typed `talk` is
         return f"error: {operations.refusal('say', channel, ctx['cfg']['channels'], sender=sender)}", None, None, False, None, None
     out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender, extras=extras)
+    if asked is not None and channel == "messaging":      # the person is told what their line was taken for
+        out = (phrases.text("ANSWER_TAKEN", ctx["cfg"], id=asked) + "\n\n" + out[0], *out[1:])
     offered = importlib.import_module("ops_instructions").proposal(ctx, out[1], said, channel) if asked is not None else None
     return (out[0] + "\n\n" + offered["text"], *out[1:], offered) if offered else (*out, None)
 
@@ -300,10 +308,10 @@ def state_question(said: str) -> bool:
         and not WORK_WORDS & set(normal.split())
 
 
-def asks_state(ctx: dict, said: str) -> bool:
+def asks_state(ctx: dict, said: str, channel=None) -> bool:
     """Whether a plain line is answered as a question about the state: it is one of the forms, and the router has no
     open question on the conversation's last request (a one-word answer such as "progress" then reaches the router)."""
-    return state_question(said) and _router_question(ctx, _last_request(ctx)) is None
+    return state_question(said) and _open_question(ctx, channel) is None
 
 
 def _short(text) -> str:
@@ -601,6 +609,27 @@ def _last_request(ctx: dict):
     return None
 
 
+def _open_question(ctx: dict, channel, expire: bool = False):
+    """The router's open question on the conversation's last request, as a line on this channel may answer it. On a messaging app a question older than
+    ROUTER_QUESTION_TTL is no longer answered by a plain line: it is None, and with `expire` the request it belongs to is cancelled by code (no notice is sent; its card
+    is a stale button and the page still shows it as cancelled). The other channels keep the question until it is answered or cancelled."""
+    request_id = _last_request(ctx)
+    asked = _router_question(ctx, request_id)
+    if asked is None or channel != "messaging":
+        return asked
+    try:
+        made = datetime.datetime.fromisoformat(str(core._stored(ctx, ctx["store"].pending_get, asked).get("created_at")).replace("Z", "+00:00"))
+        old = (_question_clock() - made).total_seconds() > ROUTER_QUESTION_TTL
+    except (ValueError, TypeError):
+        return asked      # a time that cannot be read keeps the question, as it always was
+    if not old:
+        return asked
+    if expire:
+        import ops_cancel      # at call time, like the other operations this sibling reaches
+        core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:stale-question", context=ctx)
+    return None
+
+
 def _router_question(ctx: dict, request_id):
     """The newest open pending decision of the request, when it is a question on the request itself (the router
     asked); else None."""
@@ -632,6 +661,8 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
         channel = "page"
     row = operations.by_name(name)
     if channel not in row["channels"]:
+        if channel == "messaging":      # a phone has no terminal (limit L62)
+            return ops_natural.phone_sentence(ctx, name), None, None, False, None
         return f"error: /{name} is done in the terminal or on the page", None, None, False, None
     policy = ctx["cfg"]["channels"]
     refused = operations.refusal(name, channel, policy, sender=sender)  # the project's policy, under the channel that carries the line (and the sender's profile)
@@ -644,6 +675,8 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
             kind = core._stored(ctx, ctx["store"].pending_get, found["pending_id"])["kind"]
         except core.OpsError as e:
             return f"error: {e}", None, None, False, None
+        if kind == "effect" and channel == "messaging":  # a phone is told where, never the command or the hash (limit L62)
+            return phrases.phone("PHONE_APPROVE_EFFECT", ctx["cfg"]), None, None, False, None
         if kind == "effect":  # from a line, on any channel and whatever the policy
             return ("error: an effect is approved in the terminal, with its hash: "
                     + core._command("approve", ctx["cfg"]["project"], pending_id=found["pending_id"], sha256="<hash>")), None, None, False, None
@@ -747,9 +780,12 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         lines.append(phrases.text("PLAN_NEXT", ctx["cfg"], pending=item["id"]))
         reply = "\n".join(lines)
     elif (item.get("payload") or {}).get("ending") == "unclassified":
-        command = core._command("route", project, request_id=request_id, flow="<name>")
-        reply = phrases.body(item["body"], ctx["cfg"]).rstrip("\n") + "\n\n" + phrases.text("NOT_NAMED_NEXT", ctx["cfg"], request=request_id, route=command)
+        if channel == "messaging":      # no terminal command on a phone (limit L62)
+            tail = phrases.phone("NOT_NAMED_NEXT_PHONE", ctx["cfg"], request=request_id)
+        else:
+            tail = phrases.text("NOT_NAMED_NEXT", ctx["cfg"], request=request_id, route=core._command("route", project, request_id=request_id, flow="<name>"))
+        reply = phrases.body(item["body"], ctx["cfg"]).rstrip("\n") + "\n\n" + tail
     else:
         shown = phrases.asked_view(item["body"], ctx["cfg"]) if channel == "messaging" and phrases.is_router_question(item) else item["body"]      # a phone shows the question and its framing, never the template around it
-        reply = shown.rstrip("\n") + "\n\n" + phrases.text("ASK_NEXT", ctx["cfg"])
+        reply = shown.rstrip("\n") + "\n\n" + phrases.text("ASK_NEXT_PHONE" if channel == "messaging" else "ASK_NEXT", ctx["cfg"])
     return reply, request_id, item["id"], True, routed.get("run_id")

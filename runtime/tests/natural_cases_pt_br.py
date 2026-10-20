@@ -300,7 +300,7 @@ LINE_MARCA = "marca aula de violão sábado 10h"
 CONFIRM_YEAR = "Entendi: ter 05/01/2027 às 09:00: renovar o seguro. Confirma? (sim / outra hora)"
 CONFIRM_AMNHA = "Entendi: amanhã, seg 19/10, às 09:00: pagar a conta. Confirma? (sim / outra hora)"
 REPLY_AMNHA = "Lembrete #1: amanhã, seg 19/10, às 09:00 (BRT): pagar a conta. Para desfazer: /forget 1."
-RECURRING = "Um lembrete aqui acontece uma vez. O que se repete é uma rotina: configure no terminal ou na página. Para um lembrete único, diga quando."
+RECURRING = "Um lembrete aqui acontece uma vez. O que se repete é uma rotina: configure na página da plataforma. Para um lembrete único, diga quando."
 CANCELLED = "Certo, nenhum lembrete foi criado."
 RESTORED = "O lembrete #1 está de volta como #2: amanhã, seg 19/10, às 13:00 (BRT): aula de violão."
 
