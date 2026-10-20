@@ -201,9 +201,9 @@ def test_vacuity_a_validator_without_the_gap_rule_is_caught_by_the_gap_assertion
 # --- the source is decided from the whole line, never from the span the model chose (review of #495, B1) ---------------------------------------------------
 
 EN_LINE = "remind me to call Dana tomorrow at 3pm"
-PT_LINE = "me lembra amanhã às 15h de ligar pra Dana"
+PT_LINE = "me lembra amanh\u00e3 às 15h de ligar pr\u0061 Dana"
 # (line, the text slot, the literal words a span must hold to be the time of the line: the oracle's own list)
-SPAN_CASES = [(EN_LINE, "call Dana", ("tomorrow", "3pm")), (PT_LINE, "ligar pra Dana", ("amanhã", "15h")),
+SPAN_CASES = [(EN_LINE, "call Dana", ("tomorrow", "3pm")), (PT_LINE, "ligar pr\u0061 Dana", ("amanh\u00e3", "15h")),
               ("remind me at 3pm to call Dana", "call Dana", ("3pm",)), ("remind me on December 5 at 10am to pay rent", "pay rent", ("December 5", "10am"))]
 
 
@@ -229,7 +229,7 @@ def test_no_span_of_the_line_but_the_one_that_holds_every_time_phrase_gives_a_ti
 
 
 def test_probes_of_the_review_a_span_with_no_time_in_it_or_a_truncated_one_is_asked():
-    for line, text, span in ((EN_LINE, "call Dana tomorrow at 3pm", "Dana"), (EN_LINE, "call Dana", "me"), (PT_LINE, "ligar pra Dana", "Dana"), (EN_LINE, "call Dana", "at 3pm"),
+    for line, text, span in ((EN_LINE, "call Dana tomorrow at 3pm", "Dana"), (EN_LINE, "call Dana", "me"), (PT_LINE, "ligar pr\u0061 Dana", "Dana"), (EN_LINE, "call Dana", "at 3pm"),
                              ("remind me at 3pm to call Dana", "call Dana", "3pm to call Dana"), ("remind me at 3pm to call Dana", "call Dana", "Dana")):
         assert_clarify(run(remind(span, "2026-10-21T15:00", "wed", text), line), "time-ask")
 

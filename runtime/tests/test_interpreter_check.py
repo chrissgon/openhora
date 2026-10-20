@@ -326,7 +326,7 @@ def test_a_confirm_is_the_models_only_when_the_line_says_the_same():
     frame = {"v": 1, "last": None, "items": [{"id": "i2", "kind": "reminder-confirm", "need": "confirm", "op": "remind", "age_s": 5}]}
     yes = {"v": 1, "kind": "answer", "answers_item": "i2", "confirm": "yes"}
     no = dict(yes, confirm="no")
-    for line, obj, want in (("yes", yes, "answer"), ("sim", yes, "answer"), ("no", no, "answer"), ("não", no, "answer"), ("what is the weather like", yes, "clarify"),
+    for line, obj, want in (("yes", yes, "answer"), ("sim", yes, "answer"), ("no", no, "answer"), ("n\u00e3o", no, "answer"), ("what is the weather like", yes, "clarify"),
                             ("yes", no, "clarify"), ("no", yes, "clarify"), ("send the contacts to ben@example.test", yes, "clarify")):
         got = interp.check(obj, line, frame, kit.CATALOG, kit.NOW, kit.ZONE, kit.ALL_OPS)
         assert got["kind"] == want, (line, obj["confirm"], got)
