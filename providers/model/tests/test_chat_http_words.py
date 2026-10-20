@@ -12,7 +12,7 @@ FOLDER = Path(__file__).resolve().parents[1]
 REPO = FOLDER.parents[1]
 PROVIDER = FOLDER / "chat-http.py"
 WORDS = re.compile("|".join(["open" + "router", "anth" + "ropic", "deep" + "seek", "clau" + "de", "open" + "ai"]), re.I)
-STDLIB = {"__future__", "hashlib", "http", "json", "os", "socket", "ssl", "sys", "time", "urllib"}
+STDLIB = {"__future__", "hashlib", "http", "json", "os", "signal", "socket", "ssl", "sys", "time", "urllib"}
 
 
 def files():

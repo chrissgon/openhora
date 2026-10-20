@@ -7,6 +7,7 @@ Every key, route and text is fictional.
 import hashlib
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -83,6 +84,51 @@ class Stub:
     def close(self):
         self.server.shutdown()
         self.server.server_close()
+
+
+class Trickle:
+    """A service that answers one byte at a time, so that every single read succeeds and only a deadline over the whole exchange ends the call.
+    mode "headers": the status line and headers trickle; mode "body": the headers come at once and a long body trickles."""
+
+    def __init__(self, mode):
+        self.mode, self.stopped = mode, threading.Event()
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(5)
+        self.port = self.listener.getsockname()[1]
+        self.base_url = f"http://127.0.0.1:{self.port}/v1"
+        self.threads = [threading.Thread(target=self._accept, daemon=True)]
+        self.threads[0].start()
+
+    def _accept(self):
+        self.listener.settimeout(0.2)
+        while not self.stopped.is_set():
+            try:
+                conn, _ = self.listener.accept()
+            except OSError:
+                continue
+            t = threading.Thread(target=self._serve, args=(conn,), daemon=True)
+            t.start()
+
+    def _serve(self, conn):
+        try:
+            conn.recv(65536)
+            head = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000000\r\n\r\n"
+            if self.mode == "body":
+                conn.sendall(head)
+                head = b'{"choices": [{"message": {"content": "' + b"x" * 999000
+            for i in range(len(head)):
+                if self.stopped.wait(0.1):
+                    break
+                conn.sendall(head[i:i + 1])
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+    def close(self):
+        self.stopped.set()
+        self.listener.close()
 
 
 def route(stub=None, **over):

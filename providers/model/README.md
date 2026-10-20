@@ -18,6 +18,8 @@ A chat-completions request over HTTPS, standard library only (`dependencies = []
 
 **What it refuses before any connection** (exit 3, `E_ROUTE`): a route whose hash is not in `accepted` (a route changed after it was accepted is another route); a `base_url` that is not `https`, has a login, a query or a fragment; `allow_fallbacks` other than false; `data_collection` other than `deny`. `MODEL_TEXT_LOOPBACK_TEST=1` additionally lets an `http` address on `127.0.0.1`, `::1` or `localhost` through; it is for the test stand-in and nothing in the runtime sets it. The request always carries `provider: {allow_fallbacks: false, data_collection: "deny", zdr}`, with `order: [pin]` when the route has a pin. No redirect is followed, and no proxy variable is read.
 
+**The deadline** is hard: `deadline_ms` is a timer (`SIGALRM`) over the whole exchange, connection and every read included, so a service that sends one byte at a time is cut at the deadline (`E_TIMEOUT`). **The text** must be encodable: a lone surrogate in `system` or `user` is `E_USAGE`; the reply is printed ASCII-escaped, so no text can fail to print.
+
 **The key** arrives only as `MODEL_TEXT_KEY` in the process environment (`runtime/interpreter_route.py` reads it through the secret resolver and passes it, the writers' precedent); this file never reads the store.
 
 **Failures.** The only output is one line on standard error, `chat-http: <CODE>`: never a request, a reply body, a URL, a key or a traceback, not even from an unexpected exception. The caller reads that one line and nothing else.

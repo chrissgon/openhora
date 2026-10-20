@@ -47,6 +47,11 @@ CODE = re.compile(r"chat-http: (E_[A-Z_]+)")
 ROUTE_KEYS = ("id", "model", "upstream_model", "base_url", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint",
               "key", "reference", "retention")
 FINISHES = ("stop", "length", "other")
+# The secrets a route may name: the one the interpreter reads, and only while this module is among that secret's readers. Another
+# registered secret (a subscription token, an account token) is never sent to a model service, whatever a routes file says.
+ALLOWED_KEYS = frozenset({"WB_RUNTIME_KEY_OPENROUTER_API_KEY"})
+READER = "runtime/interpreter_route.py"
+MARGIN_SECONDS = 0.5      # beyond deadline_ms: the provider enforces the deadline itself, so only its start and exit are left
 
 
 class RouteError(ValueError):
@@ -57,15 +62,16 @@ def canonical(obj) -> bytes:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def _registered_names(root: str) -> set:
+def _registered_names(root: str) -> dict:
+    """name -> readers of each secret runtime/secrets.json lists."""
     try:
         with open(os.path.join(root, "runtime", "secrets.json"), encoding="utf-8") as f:
-            return {e["name"] for e in json.load(f)["secrets"]}
+            return {e["name"]: list(e["readers"]) for e in json.load(f)["secrets"]}
     except (OSError, ValueError, KeyError, TypeError):
         raise RouteError("runtime/secrets.json cannot be read") from None
 
 
-def _check_route(route, names: set, seen: set) -> None:
+def _check_route(route, names: dict, seen: set) -> None:
     if not isinstance(route, dict) or set(route) != set(ROUTE_KEYS):
         raise RouteError("a route has exactly the keys " + ", ".join(ROUTE_KEYS))
     for key in ("model", "upstream_model", "base_url", "data_collection", "key", "retention"):
@@ -76,8 +82,8 @@ def _check_route(route, names: set, seen: set) -> None:
     if route["id"] in seen:
         raise RouteError(f"route {route['id']}: the id is used twice")
     seen.add(route["id"])
-    if route["pin"] is not None and (not isinstance(route["pin"], str) or not route["pin"]):
-        raise RouteError(f"route {route['id']}: pin is a provider name or null")
+    if not isinstance(route["pin"], str) or not route["pin"].strip():
+        raise RouteError(f"route {route['id']}: pin is the name of the provider that serves it (every route is pinned)")
     for key in ("allow_fallbacks", "zdr", "cache_breakpoint", "reference"):
         if not isinstance(route[key], bool):
             raise RouteError(f"route {route['id']}: {key} is true or false")
@@ -90,8 +96,8 @@ def _check_route(route, names: set, seen: set) -> None:
         raise RouteError(f"route {route['id']}: base_url is not an address") from None
     if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
         raise RouteError(f"route {route['id']}: base_url is an https address with no login, query or fragment")
-    if route["key"] not in names:
-        raise RouteError(f"route {route['id']}: key {route['key']} is not a name in runtime/secrets.json")
+    if route["key"] not in names or route["key"] not in ALLOWED_KEYS or READER not in names[route["key"]]:
+        raise RouteError(f"route {route['id']}: key must be one of {sorted(ALLOWED_KEYS)}, listed in runtime/secrets.json with {READER} among its readers")
 
 
 def load(root=None) -> dict:
@@ -161,13 +167,17 @@ def complete(route_id, system, user, *, accepted, deadline_ms, run=None, root=No
     if value is None:
         return {"ok": False, "code": "E_KEY"}
     resolve = project_config.resolver(root)
+    if not (isinstance(system, str) and isinstance(user, str)):
+        return {"ok": False, "code": "E_USAGE"}
     request = {"v": 1, "route": stdin_route(route), "accepted": list(accepted),
                "params": {"temperature": temperature, "max_tokens": max_tokens, "reasoning": reasoning},
                "system": system, "user": user, "deadline_ms": deadline_ms}
     env = resolve.provider_environment(CLASS, env={**os.environ, KEY_VARIABLE: value}, passes=(KEY_VARIABLE,))
     try:
-        out = resolve.call(CLASS, "complete", [], root=root, stdin=json.dumps(request, ensure_ascii=False),
-                           timeout=deadline_ms / 1000.0 + 2, env=env, run=run)
+        out = resolve.call(CLASS, "complete", [], root=root, stdin=json.dumps(request),      # ASCII-escaped: a lone surrogate cannot fail to encode here
+                           timeout=deadline_ms / 1000.0 + MARGIN_SECONDS, env=env, run=run)
+    except (ValueError, UnicodeError):      # never read e.object or the message: they can hold the whole request
+        return {"ok": False, "code": "E_USAGE"}
     except resolve.ProviderCallError as e:
         found = CODE.fullmatch(e.stderr_last or "")      # the last line of stderr alone: reason and stderr_tail are never read
         return {"ok": False, "code": "E_TIMEOUT" if e.kind == "timeout" else (found.group(1) if found else "E_UNKNOWN")}

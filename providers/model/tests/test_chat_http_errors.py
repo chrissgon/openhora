@@ -3,12 +3,14 @@ output. Only a stand-in on loopback is reached; the key is the fake `sk-test-not
 """
 import json
 import socket
+import subprocess
 import sys
 import textwrap
+import time
 
 import pytest
 
-from chat_http_stub import FAKE_KEY, leaked, request, route, run, sha, stub  # noqa: F401  (stub is a fixture)
+from chat_http_stub import CHAT, FAKE_KEY, Trickle, leaked, request, route, run, sha, stub  # noqa: F401  (stub is a fixture)
 
 BODY_MARKER = "zz-planted-body-marker-91"       # planted in what a service answers
 PROMPT_MARKER = "zz-planted-prompt-marker-47"    # planted in what the person's prompt says
@@ -131,12 +133,58 @@ def test_a_bad_command_or_input_is_a_usage_error(args, raw):
     fails(run(args, raw=raw), "E_USAGE", 2)
 
 
-def test_an_unexpected_failure_is_an_internal_error_with_no_trace(stub):
-    lone = secret_request(route(stub))
-    text = json.dumps(lone).replace(PROMPT_MARKER + '", "user"', '\\ud800' + PROMPT_MARKER + '", "user"')   # a lone surrogate: the body cannot be encoded
+@pytest.mark.parametrize("where", ["system", "user"])
+def test_a_lone_surrogate_in_the_text_is_a_usage_error_and_nothing_is_sent(stub, where):
+    req = secret_request(route(stub))
+    text = json.dumps(req).replace(f'"{where}": "{where} ', f'"{where}": "\\ud800 ')
     assert "\\ud800" in text
-    fails(run(["complete"], raw=text), "E_INTERNAL", 1)
+    fails(run(["complete"], raw=text), "E_USAGE", 2)
     assert stub.requests == []
+
+
+def test_an_unexpected_failure_is_an_internal_error_with_no_trace(stub, tmp_path):
+    """A copy of the provider with a planted fault that carries the key, a body marker and the prompt in its message: only the code leaves."""
+    source = CHAT.read_text(encoding="utf-8")
+    assert "def canonical(obj) -> bytes:\n" in source
+    planted = source.replace("def canonical(obj) -> bytes:\n", "def canonical(obj) -> bytes:\n    raise RuntimeError(%r + __import__('os').environ['MODEL_TEXT_KEY'])\n" % (BODY_MARKER + PROMPT_MARKER))
+    copy = tmp_path / "planted.py"
+    copy.write_text(planted, encoding="utf-8")
+    fails(run(["complete"], secret_request(route(stub)), script=copy), "E_INTERNAL", 1)
+    assert stub.requests == []
+
+
+def test_the_reply_is_printed_in_ascii_so_no_text_can_fail_to_encode(stub):
+    stub.ok(content="caf\u00e9 \u4e2d \U0001f600 \ud800")
+    done = run(["complete"], request(route(stub)))
+    assert done.returncode == 0 and done.stdout.isascii()
+    assert json.loads(done.stdout)["text"] == "caf\u00e9 \u4e2d \U0001f600 \ud800"
+
+
+@pytest.mark.parametrize("mode", ["headers", "body"])
+def test_a_service_that_trickles_a_byte_at_a_time_is_cut_at_the_deadline(mode):
+    trickle = Trickle(mode)
+    try:
+        start = time.monotonic()
+        done = run(["complete"], secret_request(route(base_url=trickle.base_url), deadline_ms=1000), timeout=15)
+        took = time.monotonic() - start
+    finally:
+        trickle.close()
+    fails(done, "E_TIMEOUT", 1)
+    assert took < 4.0, took
+
+
+def test_vacuity_without_the_watchdog_the_trickle_outlasts_the_deadline(tmp_path):
+    """The same test on a copy of the provider whose watchdog is switched off does not end by itself within four seconds."""
+    source = CHAT.read_text(encoding="utf-8")
+    assert 'armed = hasattr(signal, "setitimer")' in source
+    copy = tmp_path / "no_watchdog.py"
+    copy.write_text(source.replace('armed = hasattr(signal, "setitimer")', "armed = False"), encoding="utf-8")
+    trickle = Trickle("body")
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            run(["complete"], secret_request(route(base_url=trickle.base_url), deadline_ms=1000), script=copy, timeout=4)
+    finally:
+        trickle.close()
 
 
 def test_a_success_never_prints_the_key_or_the_prompt_either(stub):

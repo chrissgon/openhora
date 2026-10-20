@@ -47,6 +47,7 @@ import hashlib
 import http.client
 import json
 import os
+import signal
 import socket
 import ssl
 import sys
@@ -116,6 +117,10 @@ def read_request() -> dict:
     ok = ok and is_int(req["deadline_ms"]) and 1 <= req["deadline_ms"] <= MAX_DEADLINE_MS
     if not ok:
         raise Fail("E_USAGE")
+    try:
+        (req["system"] + req["user"]).encode("utf-8")      # a lone surrogate cannot be sent: refused here, as a usage error
+    except UnicodeEncodeError:
+        raise Fail("E_USAGE") from None
     return req
 
 
@@ -180,10 +185,18 @@ def post(req: dict, loopback: bool, host: str, port, base: str) -> dict:
             raise Fail("E_TIMEOUT")
         return left
 
-    data = json.dumps(build_body(req), ensure_ascii=False).encode("utf-8")
+    data = json.dumps(build_body(req), ensure_ascii=False).encode("utf-8")      # a lone surrogate was refused at read_request
     headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json", "Accept": "application/json",
                "Content-Length": str(len(data))}
     conn = None
+    fired = []
+    armed = hasattr(signal, "setitimer")
+    if armed:     # a hard deadline for the whole exchange: a service that sends a byte at a time cannot keep the call past it
+        def on_deadline(signum, frame):
+            fired.append(True)
+            raise Fail("E_TIMEOUT")
+        previous = signal.signal(signal.SIGALRM, on_deadline)
+        signal.setitimer(signal.ITIMER_REAL, req["deadline_ms"] / 1000.0)
     try:
         if loopback:
             conn = http.client.HTTPConnection(host, port, timeout=remaining())
@@ -215,8 +228,11 @@ def post(req: dict, loopback: bool, host: str, port, base: str) -> dict:
     except (socket.timeout, TimeoutError):
         raise Fail("E_TIMEOUT") from None
     except (OSError, http.client.HTTPException, ssl.SSLError, ValueError, AttributeError):
-        raise Fail("E_NETWORK") from None
+        raise Fail("E_TIMEOUT" if fired else "E_NETWORK") from None
     finally:
+        if armed:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
         if conn is not None:
             try:
                 conn.close()
@@ -267,7 +283,7 @@ def run(argv) -> int:
         sys.stdout.write(json.dumps({"ok": True}) + "\n")
         return 0
     if argv in (["complete"], ["complete", "--dry-run"]):
-        sys.stdout.write(json.dumps(complete(argv[-1] == "--dry-run"), ensure_ascii=False) + "\n")
+        sys.stdout.write(json.dumps(complete(argv[-1] == "--dry-run")) + "\n")      # ASCII-escaped: no text can fail to encode
         return 0
     raise Fail("E_USAGE")
 

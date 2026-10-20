@@ -99,7 +99,8 @@ def mutations():
             ("query", setv("base_url", "https://x.example/v1?a=1")), ("no host", setv("base_url", "https:///v1")),
             ("fallbacks", setv("allow_fallbacks", True)), ("data collection", setv("data_collection", "allow")),
             ("zdr text", setv("zdr", "yes")), ("key not registered", setv("key", "NOT_A_REGISTERED_SECRET")), ("empty retention", setv("retention", " ")),
-            ("pin empty", setv("pin", "")), ("no reference", lambda d: [r.update(reference=False) for r in d["routes"]]),
+            ("pin empty", setv("pin", "")), ("pin null", setv("pin", None)), ("pin blank", setv("pin", "  ")),
+            ("subscription token", setv("key", "WB_RUNTIME_KEY_CLAUDE_CODE_OAUTH_TOKEN")), ("no reference", lambda d: [r.update(reference=False) for r in d["routes"]]),
             ("two references", lambda d: [r.update(reference=True) for r in d["routes"]]), ("not a route", lambda d: d["routes"].append("x"))]
 
 
@@ -109,6 +110,28 @@ def test_a_routes_file_that_breaks_a_rule_is_refused(tmp_path, name, mutate):
     mutate(doc)
     with pytest.raises(ir.RouteError):
         ir.load(workbench(tmp_path, doc))
+
+
+def test_a_registered_secret_that_this_module_does_not_read_is_never_a_route_key(tmp_path, key, monkeypatch):
+    """The allow-list and the readers both stand: the interpreter's key with this module removed from its readers, and another registered secret."""
+    secrets = json.loads((REPO / "runtime" / "secrets.json").read_text(encoding="utf-8"))
+    root = Path(workbench(tmp_path, ROUTES))
+    entry = next(e for e in secrets["secrets"] if e["name"] == KEY_NAME)
+    entry["readers"] = [r for r in entry["readers"] if r != "runtime/interpreter_route.py"]
+    (root / "runtime" / "secrets.json").write_text(json.dumps(secrets), encoding="utf-8")
+    with pytest.raises(ir.RouteError):
+        ir.load(str(root))
+    assert ir.ALLOWED_KEYS == {KEY_NAME}
+
+
+def test_a_routes_file_naming_another_secret_sends_nothing(tmp_path, monkeypatch, key):
+    """The probe of the review: a route whose key is the subscription token; its value is set, and no process is started with it."""
+    doc = copy.deepcopy(ROUTES)
+    doc["routes"][2]["key"] = "WB_RUNTIME_KEY_CLAUDE_CODE_OAUTH_TOKEN"
+    monkeypatch.setenv("WB_RUNTIME_KEY_CLAUDE_CODE_OAUTH_TOKEN", "token-not-for-a-model")
+    seen = []
+    got = ir.complete("or-claude-sonnet-5.5", "s", "u", accepted=[], deadline_ms=1000, run=runner(seen=seen), root=workbench(tmp_path, doc))
+    assert got == {"ok": False, "code": "E_ROUTE"} and seen == []
 
 
 def test_vacuity_the_unchanged_file_loads_and_a_missing_or_broken_file_is_refused(tmp_path):
@@ -179,7 +202,7 @@ def test_the_key_reaches_the_provider_process_alone_and_the_start_is_given_a_dea
     monkeypatch.setenv("SOME_OTHER_SECRET", "must-not-pass")
     monkeypatch.setenv("OPENROUTER_API_KEY", "must-not-pass-either")
     assert call(None)["ok"] is True
-    assert (spy["cls"], spy["verb"], spy["args"]) == ("model:text", "complete", []) and spy["timeout"] == 8.0
+    assert (spy["cls"], spy["verb"], spy["args"]) == ("model:text", "complete", []) and spy["timeout"] == 6.5
     assert spy["env"]["MODEL_TEXT_KEY"] == FAKE and "SOME_OTHER_SECRET" not in spy["env"] and "OPENROUTER_API_KEY" not in spy["env"]
     assert KEY_NAME not in spy["env"] and set(spy["env"]) <= set(resolve.ENV_MINIMUM) | {"MODEL_TEXT_KEY", "MODEL_TEXT_PROVIDER", "MODEL_PROVIDER"}
 
@@ -241,3 +264,24 @@ def test_the_real_provider_accepts_what_the_caller_builds_and_refuses_another_ro
     assert would["body"]["provider"]["order"] == ["anthropic"] and "cache_control" in json.dumps(would["body"]["messages"][0])
     ir.complete(r["id"], "s", "u", accepted=[ir.route_sha256(ROUTES["routes"][0])], deadline_ms=6000, run=dry)    # another route's hash
     assert results[1].returncode == 3 and results[1].stderr == "chat-http: E_ROUTE\n"
+
+
+def test_a_lone_surrogate_is_a_usage_error_and_the_request_never_leaves_in_an_exception(key):
+    """The text goes to the provider ASCII-escaped, so it cannot fail to encode; the provider refuses it (E_USAGE); an encoding error from the start
+    is caught and answered with the code alone."""
+    seen = []
+    r = ROUTES["routes"][2]
+    ask = lambda run: ir.complete(r["id"], "s", "u \ud800 " + PROMPT, accepted=[ir.route_sha256(r)], deadline_ms=6000, run=run)  # noqa: E731
+    assert ask(runner(seen=seen))["ok"] is True and seen[0][1].isascii() and "\\ud800" in seen[0][1]
+
+    def real_dry(argv, stdin=None):
+        return subprocess.run(argv + ["--dry-run"], input=stdin, capture_output=True, text=True, timeout=30, check=False, env={"PATH": "/usr/bin:/bin"})
+
+    assert ask(real_dry) == {"ok": False, "code": "E_USAGE"}
+
+    def broken(argv, stdin=None):
+        raise UnicodeEncodeError("utf-8", "\ud800", 0, 1, "surrogates not allowed " + PROMPT)
+
+    got = ask(broken)
+    assert got == {"ok": False, "code": "E_USAGE"} and PROMPT not in json.dumps(got)
+    assert ir.complete(r["id"], None, "u", accepted=[], deadline_ms=1000, run=runner()) == {"ok": False, "code": "E_USAGE"}
