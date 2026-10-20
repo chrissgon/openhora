@@ -43,18 +43,8 @@
 {"lang": "pt-BR", "line": "arquiva os e-mails inbox#2", "op": "mail-archive"}
 {"lang": "pt-BR", "line": "arquiva os e-mails inbox#2 pelo outlook", "op": "mail-archive"}
 {"lang": "pt-BR", "line": "arquiva os e-mails do banco pelo outlook", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails do banco dizendo que ok", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails do banco como lidos", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails do banco como não lido", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails do banco para a pasta contas", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails do banco para a pasta inexistente", "op": "mail-archive"}
 {"lang": "pt-BR", "line": "arquiva os e-mails da Bia sobre a fatura", "op": "mail-archive"}
 {"lang": "pt-BR", "line": "arquiva os e-mails da Bia sobre a fatura pelo outlook", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails da Bia sobre a fatura dizendo que ok", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails da Bia sobre a fatura como lidos", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails da Bia sobre a fatura como não lido", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails da Bia sobre a fatura para a pasta contas", "op": "mail-archive"}
-{"lang": "pt-BR", "line": "arquiva os e-mails da Bia sobre a fatura para a pasta inexistente", "op": "mail-archive"}
 {"lang": "pt-BR", "line": "rascunha um e-mail pra bia@exemplo.example", "op": "mail-draft"}
 {"lang": "pt-BR", "line": "rascunha um e-mail pra bia@exemplo.example com o assunto Reunião de sexta", "op": "mail-draft"}
 {"lang": "pt-BR", "line": "rascunha um e-mail pra bia@exemplo.example com o assunto \"Fatura de outubro\"", "op": "mail-draft"}
@@ -98,14 +88,12 @@
 {"lang": "pt-BR", "line": "marca os e-mails inbox#2 como não lido", "op": "mail-mark"}
 {"lang": "pt-BR", "line": "marca os e-mails do banco", "op": "mail-mark"}
 {"lang": "pt-BR", "line": "marca os e-mails do banco pelo outlook", "op": "mail-mark"}
-{"lang": "pt-BR", "line": "marca os e-mails do banco dizendo que ok", "op": "mail-mark"}
 {"lang": "pt-BR", "line": "marca os e-mails do banco como lidos", "op": "mail-mark"}
 {"lang": "pt-BR", "line": "marca os e-mails do banco como não lido", "op": "mail-mark"}
-{"lang": "pt-BR", "line": "marca os e-mails do banco para a pasta contas", "op": "mail-mark"}
-{"lang": "pt-BR", "line": "marca os e-mails do banco para a pasta inexistente", "op": "mail-mark"}
 {"lang": "pt-BR", "line": "marca os e-mails da Bia sobre a fatura", "op": "mail-mark"}
 {"lang": "pt-BR", "line": "marca os e-mails da Bia sobre a fatura pelo outlook", "op": "mail-mark"}
-{"lang": "pt-BR", "line": "marca os e-mails da Bia sobre a fatura dizendo que ok", "op": "mail-mark"}
+{"lang": "pt-BR", "line": "marca os e-mails da Bia sobre a fatura como lidos", "op": "mail-mark"}
+{"lang": "pt-BR", "line": "marca os e-mails da Bia sobre a fatura como não lido", "op": "mail-mark"}
 {"lang": "pt-BR", "line": "move os e-mails 3 para a pasta contas", "op": "mail-move"}
 {"lang": "pt-BR", "line": "move os e-mails 3 para a pasta inexistente", "op": "mail-move"}
 {"lang": "pt-BR", "line": "move os e-mails 2 e 4 para a pasta contas", "op": "mail-move"}
@@ -126,23 +114,21 @@
 {"lang": "pt-BR", "line": "responde o e-mail do banco", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde o e-mail do banco pelo outlook", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde o e-mail do banco dizendo que ok", "op": "mail-reply"}
-{"lang": "pt-BR", "line": "responde o e-mail do banco como lidos", "op": "mail-reply"}
-{"lang": "pt-BR", "line": "responde o e-mail do banco como não lido", "op": "mail-reply"}
-{"lang": "pt-BR", "line": "responde o e-mail do banco para a pasta contas", "op": "mail-reply"}
-{"lang": "pt-BR", "line": "responde o e-mail do banco para a pasta inexistente", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde o e-mail da Bia sobre a fatura", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde o e-mail da Bia sobre a fatura pelo outlook", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde o e-mail da Bia sobre a fatura dizendo que ok", "op": "mail-reply"}
-{"lang": "pt-BR", "line": "responde o e-mail da Bia sobre a fatura como lidos", "op": "mail-reply"}
-{"lang": "pt-BR", "line": "responde o e-mail da Bia sobre a fatura como não lido", "op": "mail-reply"}
-{"lang": "pt-BR", "line": "responde o e-mail da Bia sobre a fatura para a pasta contas", "op": "mail-reply"}
-{"lang": "pt-BR", "line": "responde o e-mail da Bia sobre a fatura para a pasta inexistente", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde ao e-mail 3", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde ao e-mail 3 pelo outlook", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde ao e-mail 3 dizendo que ok", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde ao e-mail inbox#2", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde ao e-mail inbox#2 pelo outlook", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "responde ao e-mail inbox#2 dizendo que ok", "op": "mail-reply"}
+{"lang": "pt-BR", "line": "responde ao e-mail do banco", "op": "mail-reply"}
+{"lang": "pt-BR", "line": "responde ao e-mail do banco pelo outlook", "op": "mail-reply"}
+{"lang": "pt-BR", "line": "responde ao e-mail do banco dizendo que ok", "op": "mail-reply"}
+{"lang": "pt-BR", "line": "responde ao e-mail da Bia sobre a fatura", "op": "mail-reply"}
+{"lang": "pt-BR", "line": "responde ao e-mail da Bia sobre a fatura pelo outlook", "op": "mail-reply"}
+{"lang": "pt-BR", "line": "responde ao e-mail da Bia sobre a fatura dizendo que ok", "op": "mail-reply"}
 {"lang": "pt-BR", "line": "manda um e-mail pra bia@exemplo.example com o assunto \"Fatura de outubro\" falando que o contrato segue amanhã", "op": "mail-send"}
 {"lang": "pt-BR", "line": "manda um e-mail para caio@exemplo.example e dora@exemplo.example com o assunto \"Fatura de outubro\" dizendo que chego às 9", "op": "mail-send"}
 {"lang": "pt-BR", "line": "manda um e-mail pelo gmail pra bia@exemplo.example", "op": "mail-send"}
@@ -178,18 +164,8 @@
 {"lang": "pt-BR", "line": "apaga o e-mail inbox#2 pelo outlook", "op": "mail-trash"}
 {"lang": "pt-BR", "line": "apaga o e-mail do banco", "op": "mail-trash"}
 {"lang": "pt-BR", "line": "apaga o e-mail do banco pelo outlook", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail do banco dizendo que ok", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail do banco como lidos", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail do banco como não lido", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail do banco para a pasta contas", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail do banco para a pasta inexistente", "op": "mail-trash"}
 {"lang": "pt-BR", "line": "apaga o e-mail da Bia sobre a fatura", "op": "mail-trash"}
 {"lang": "pt-BR", "line": "apaga o e-mail da Bia sobre a fatura pelo outlook", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail da Bia sobre a fatura dizendo que ok", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail da Bia sobre a fatura como lidos", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail da Bia sobre a fatura como não lido", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail da Bia sobre a fatura para a pasta contas", "op": "mail-trash"}
-{"lang": "pt-BR", "line": "apaga o e-mail da Bia sobre a fatura para a pasta inexistente", "op": "mail-trash"}
 {"lang": "en", "line": "send an email to bia@example.example saying the contract goes out tomorrow", "op": "mail-send"}
 {"lang": "en", "line": "send an email to bia@example.example with the subject Contract saying it goes out tomorrow", "op": "mail-send"}
 {"lang": "en", "line": "write an email to bia@example.example and dora@example.example with the subject \"October invoice\": attached.", "op": "mail-send"}
@@ -219,22 +195,14 @@
 {"lang": "en", "line": "archive emails inbox#2 via outlook", "op": "mail-archive"}
 {"lang": "en", "line": "archive emails from the bank", "op": "mail-archive"}
 {"lang": "en", "line": "archive emails from the bank via outlook", "op": "mail-archive"}
-{"lang": "en", "line": "archive emails from the bank saying ok", "op": "mail-archive"}
 {"lang": "en", "line": "archive emails from the bank as read", "op": "mail-archive"}
 {"lang": "en", "line": "archive emails from the bank as unread", "op": "mail-archive"}
-{"lang": "en", "line": "archive emails from the bank to the folder bills", "op": "mail-archive"}
-{"lang": "en", "line": "archive emails from the bank to the folder missing", "op": "mail-archive"}
 {"lang": "en", "line": "archive emails from Bia about the invoice", "op": "mail-archive"}
 {"lang": "en", "line": "archive emails from Bia about the invoice via outlook", "op": "mail-archive"}
-{"lang": "en", "line": "archive emails from Bia about the invoice saying ok", "op": "mail-archive"}
-{"lang": "en", "line": "archive emails from Bia about the invoice as read", "op": "mail-archive"}
-{"lang": "en", "line": "archive emails from Bia about the invoice as unread", "op": "mail-archive"}
-{"lang": "en", "line": "archive emails from Bia about the invoice to the folder bills", "op": "mail-archive"}
-{"lang": "en", "line": "archive emails from Bia about the invoice to the folder missing", "op": "mail-archive"}
 {"lang": "en", "line": "archive emails latest from the bank", "op": "mail-archive"}
 {"lang": "en", "line": "archive emails latest from the bank via outlook", "op": "mail-archive"}
-{"lang": "en", "line": "archive emails latest from the bank saying ok", "op": "mail-archive"}
 {"lang": "en", "line": "archive emails latest from the bank as read", "op": "mail-archive"}
+{"lang": "en", "line": "archive emails latest from the bank as unread", "op": "mail-archive"}
 {"lang": "en", "line": "draft an email to bia@example.example", "op": "mail-draft"}
 {"lang": "en", "line": "draft an email to bia@example.example with the subject Friday meeting", "op": "mail-draft"}
 {"lang": "en", "line": "draft an email to bia@example.example with the subject \"October invoice\"", "op": "mail-draft"}
@@ -279,20 +247,18 @@
 {"lang": "en", "line": "mark emails inbox#2 as unread", "op": "mail-mark"}
 {"lang": "en", "line": "mark emails from the bank", "op": "mail-mark"}
 {"lang": "en", "line": "mark emails from the bank via outlook", "op": "mail-mark"}
-{"lang": "en", "line": "mark emails from the bank saying ok", "op": "mail-mark"}
 {"lang": "en", "line": "mark emails from the bank as read", "op": "mail-mark"}
 {"lang": "en", "line": "mark emails from the bank as unread", "op": "mail-mark"}
-{"lang": "en", "line": "mark emails from the bank to the folder bills", "op": "mail-mark"}
-{"lang": "en", "line": "mark emails from the bank to the folder missing", "op": "mail-mark"}
 {"lang": "en", "line": "mark emails from Bia about the invoice", "op": "mail-mark"}
 {"lang": "en", "line": "mark emails from Bia about the invoice via outlook", "op": "mail-mark"}
-{"lang": "en", "line": "mark emails from Bia about the invoice saying ok", "op": "mail-mark"}
+{"lang": "en", "line": "mark emails from Bia about the invoice as read", "op": "mail-mark"}
+{"lang": "en", "line": "mark emails from Bia about the invoice as unread", "op": "mail-mark"}
+{"lang": "en", "line": "mark emails latest from the bank", "op": "mail-mark"}
+{"lang": "en", "line": "mark emails latest from the bank via outlook", "op": "mail-mark"}
 {"lang": "en", "line": "move emails 3 to the folder bills", "op": "mail-move"}
 {"lang": "en", "line": "move emails 3 to the folder missing", "op": "mail-move"}
 {"lang": "en", "line": "move emails 2 and 4 to the folder bills", "op": "mail-move"}
 {"lang": "en", "line": "move emails 2 and 4 to the folder missing", "op": "mail-move"}
-{"lang": "en", "line": "move emails 1 to 3", "op": "mail-move"}
-{"lang": "en", "line": "move emails 1 to 3 via outlook", "op": "mail-move"}
 {"lang": "en", "line": "move emails 1 to 3 saying ok", "op": "mail-move"}
 {"lang": "en", "line": "move emails 1 to 3 as read", "op": "mail-move"}
 {"lang": "en", "line": "move emails 1 to 3 as unread", "op": "mail-move"}
@@ -317,21 +283,14 @@
 {"lang": "en", "line": "reply to email from the bank saying ok", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email from the bank as read", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email from the bank as unread", "op": "mail-reply"}
-{"lang": "en", "line": "reply to email from the bank to the folder bills", "op": "mail-reply"}
-{"lang": "en", "line": "reply to email from the bank to the folder missing", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email from Bia about the invoice", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email from Bia about the invoice via outlook", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email from Bia about the invoice saying ok", "op": "mail-reply"}
-{"lang": "en", "line": "reply to email from Bia about the invoice as read", "op": "mail-reply"}
-{"lang": "en", "line": "reply to email from Bia about the invoice as unread", "op": "mail-reply"}
-{"lang": "en", "line": "reply to email from Bia about the invoice to the folder bills", "op": "mail-reply"}
-{"lang": "en", "line": "reply to email from Bia about the invoice to the folder missing", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email latest from the bank", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email latest from the bank via outlook", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email latest from the bank saying ok", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email latest from the bank as read", "op": "mail-reply"}
 {"lang": "en", "line": "reply to email latest from the bank as unread", "op": "mail-reply"}
-{"lang": "en", "line": "reply to email latest from the bank to the folder bills", "op": "mail-reply"}
 {"lang": "en", "line": "send an email to bia@example.example", "op": "mail-send"}
 {"lang": "en", "line": "send an email to bia@example.example with the subject \"October invoice\" saying the contract goes out tomorrow", "op": "mail-send"}
 {"lang": "en", "line": "send an email to caio@example.example and dora@example.example with the subject \"October invoice\" saying I will be there at 9", "op": "mail-send"}
@@ -368,22 +327,14 @@
 {"lang": "en", "line": "delete email inbox#2 via outlook", "op": "mail-trash"}
 {"lang": "en", "line": "delete email from the bank", "op": "mail-trash"}
 {"lang": "en", "line": "delete email from the bank via outlook", "op": "mail-trash"}
-{"lang": "en", "line": "delete email from the bank saying ok", "op": "mail-trash"}
 {"lang": "en", "line": "delete email from the bank as read", "op": "mail-trash"}
 {"lang": "en", "line": "delete email from the bank as unread", "op": "mail-trash"}
-{"lang": "en", "line": "delete email from the bank to the folder bills", "op": "mail-trash"}
-{"lang": "en", "line": "delete email from the bank to the folder missing", "op": "mail-trash"}
 {"lang": "en", "line": "delete email from Bia about the invoice", "op": "mail-trash"}
 {"lang": "en", "line": "delete email from Bia about the invoice via outlook", "op": "mail-trash"}
-{"lang": "en", "line": "delete email from Bia about the invoice saying ok", "op": "mail-trash"}
-{"lang": "en", "line": "delete email from Bia about the invoice as read", "op": "mail-trash"}
-{"lang": "en", "line": "delete email from Bia about the invoice as unread", "op": "mail-trash"}
-{"lang": "en", "line": "delete email from Bia about the invoice to the folder bills", "op": "mail-trash"}
-{"lang": "en", "line": "delete email from Bia about the invoice to the folder missing", "op": "mail-trash"}
 {"lang": "en", "line": "delete email latest from the bank", "op": "mail-trash"}
 {"lang": "en", "line": "delete email latest from the bank via outlook", "op": "mail-trash"}
-{"lang": "en", "line": "delete email latest from the bank saying ok", "op": "mail-trash"}
 {"lang": "en", "line": "delete email latest from the bank as read", "op": "mail-trash"}
+{"lang": "en", "line": "delete email latest from the bank as unread", "op": "mail-trash"}
 {"lang": "pt-BR", "line": "manda um e-mail para todos os clientes sobre a promoção de novembro", "op": "work"}
 {"lang": "pt-BR", "line": "escreve um e-mail de boas-vindas para novos clientes", "op": "work"}
 {"lang": "pt-BR", "line": "escreve um e-mail para a equipe sobre a mudança de horário", "op": "work"}

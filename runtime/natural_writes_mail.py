@@ -52,6 +52,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import mail_address  # noqa: E402
+import natural  # noqa: E402
 import natural_time as nt  # noqa: E402
 
 WORDS_MAX = 120          # a longer line is a request for work, not a write form
@@ -64,8 +65,9 @@ NAME_WORDS_MAX = 3       # words of a recipient written as a name
 NUMBER_DIGITS_MAX = 9
 TEXT_WORDS_MAX = 12        # a subject is short: a longer line is a new line (natural.TEXT_MAX_WORDS, the limit of every text answer)
 FOLDER_MAX = 64          # characters of a folder name written in a line
+WORDS_CAP = 3            # content words of a message named by words ("o e-mail do banco itau"): a longer tail is a sentence, not a name
 MAIL_KEYS = ("send_verbs", "reply_verbs", "draft_verbs", "archive_verbs", "move_verbs", "mark_verbs", "trash_verbs", "nouns", "plural", "to", "subject", "body", "of",
-             "folder", "read", "unread", "newest")
+             "folder", "read", "unread", "newest", "date_words")
 SHARED_KEYS = ("polite", "articles", "joiners", "range", "service_in")
 VERB_OPS = (("send_verbs", "mail-send"), ("reply_verbs", "mail-reply"), ("draft_verbs", "mail-draft"), ("archive_verbs", "mail-archive"), ("move_verbs", "mail-move"),
             ("mark_verbs", "mail-mark"), ("trash_verbs", "mail-trash"))
@@ -140,8 +142,14 @@ def _data(table):
             shared = {name: _phrases(writes.get(name) or []) for name in SHARED_KEYS}
             single = {name: {p[0] for p in shared[name] if len(p) == 1} for name in ("joiners", "range")}
             stop = {w for name in ("articles", "joiners") for p in shared[name] for w in p} | {w for v in mail.get("of") or [] for w in v.split()}
+            work = {w for name in ("work_verbs", "work_starters") for phrase in table.get(name) or [] for w in str(phrase).split()}
+            dates = {w for v in mail.get("date_words") or [] for w in v.split()} | {w for names in (table.get("days") or {}).values() for v in names for w in v.split()}
+            dates |= {w for names in table.get("weekdays") or [] for v in names for w in v.split()} | {w for names in table.get("months") or [] for v in names for w in v.split()}
+            dates -= stop | set(table.get("weak") or [])      # an abbreviation that is also a common word ("mar", "may") is no date here
+            service_words = {w for phrases in services.values() for p in phrases for w in p} | {w for p in shared["service_in"] for w in p}
             _COMPILED[key] = (table, {"mail": {name: _phrases(mail.get(name) or []) for name in MAIL_KEYS}, "shared": shared, "services": services,
-                                      "plural": {tuple(v.split()) for v in mail.get("plural") or []}, "joiners": single["joiners"], "range": single["range"], "stop": stop})
+                                      "plural": {tuple(v.split()) for v in mail.get("plural") or []}, "joiners": single["joiners"], "range": single["range"], "stop": stop,
+                                      "work": work, "dates": dates, "service_words": service_words})
     return _COMPILED[key][1]
 
 
@@ -380,9 +388,11 @@ def _parse_reference(reg, d, plural: bool, newest: bool):
         if suffix is not None:
             ref["service"], words = suffix
         content = [t.norm for t in words if t.norm not in d["stop"]]
-        if not content:
-            return None
+        if not content or len(content) > WORDS_CAP or any(_gerund(w) or w in d["work"] for w in content):
+            return None      # a long tail, a verb or a gerund is a sentence ("o e-mail do cliente explicando o atraso"), not the name of a sender or a subject
         ref["words"] = content
+        if any(w in d["dates"] for w in content):
+            ref["by_date"] = True      # "os e-mails de ontem": a message is not found by its date here, and the resolution says so
         return ref
     if newest:
         service = _service_of(reg, d) if reg else None
@@ -392,10 +402,17 @@ def _parse_reference(reg, d, plural: bool, newest: bool):
     return None
 
 
+def _gerund(word: str) -> bool:
+    """Whether a word looks like a gerund ("explicando", "saying"): the verb that begins a clause after the name of a message."""
+    return len(word) >= 6 and (word.endswith("ndo") or word.endswith("ing"))
+
+
 def _slots_of_reference(ref: dict) -> dict:
     slots = {"numbers": ref["numbers"], "refs": ref["refs"], "plural": ref["plural"], "newest": ref["newest"]}
     if ref["over"]:
         slots["over"] = True
+    if ref.get("by_date"):
+        slots["by_date"] = True
     if ref["words"]:
         slots["words"] = ref["words"]
     if ref["service"]:
@@ -438,6 +455,13 @@ def _head(toks, d):
         if newest:
             return None
     return {"op": op, "i": j + k, "plural": plural, "newest": newest, "reply_draft": reply_draft}
+
+
+def is_head(text, tables) -> bool:
+    """Whether a line starts with a CLOSED head of this family: a verb, the articles, the object ("manda um e-mail", "arquiva os e-mails", "o ultimo e-mail"). The foundation asks
+    it of a line offered as a title or a subject; a bare verb ("Passa no banco", "Send flowers", "Reply to Ana") is a title."""
+    toks = tokenize(text) if isinstance(text, str) else None
+    return bool(toks) and any(_head(toks, d) is not None for d in (_data(t) for t in _tables_with_mail(tables)))
 
 
 def _recipients(seg, d):
@@ -543,6 +567,13 @@ def _compose(line: str, toks, head, d, tables):
     return {"op": head["op"], "slots": slots, "at": spans, "need": [x for x in ("to", "subject", "body") if x not in slots]}
 
 
+def _folder_tokens_ok(tail, d) -> bool:
+    """Whether the words after a folder marker can be a folder name: not a number alone (`move emails 1 to 3`), none a service word (`to 3 via gmail`)."""
+    if any(t.kind not in ("word", "num") for t in tail) or all(t.kind == "num" for t in tail):
+        return False
+    return not any(t.norm in d["service_words"] for t in tail)
+
+
 def _last_phrase(toks, i, phrases):
     """(index, length) of the LAST place at or after i where one of `phrases` starts, or None."""
     found = None
@@ -557,7 +588,7 @@ def _reference_op(line: str, toks, head, d, tables):
     """The operations that name messages: a reply (or a reply draft), archive, trash, move and mark."""
     op, i, n = head["op"], head["i"], len(toks)
     reply_like = op == "mail-reply" or head["reply_draft"]
-    end, body_from, state, folder = n, None, None, None
+    end, body_from, state, folder, bare = n, None, None, None, False
     if reply_like:
         j = i
         while j < n and not _at(toks, j, d["mail"]["body"]) and not (toks[j].kind == "punct" and toks[j].norm == ":"):
@@ -576,10 +607,13 @@ def _reference_op(line: str, toks, head, d, tables):
             if any(_last_phrase(toks, i, d["mail"][key]) for key in ("unread", "read")):
                 return None      # a state word that does not end the line is not a closed form
     elif op == "mail-move":
-        found = _last_phrase(toks, i, d["mail"]["folder"])
-        if found is None or found[0] + found[1] >= n:
+        for j in range(n - 1, i - 1, -1):      # the last marker whose tail can be a folder: `1 to 3 via gmail` is a range and a service, not a folder `3 via gmail`
+            k = _at(toks, j, d["mail"]["folder"])
+            if k and j + k < n and _folder_tokens_ok(toks[j + k:], d):
+                end, folder, bare = j, toks[j + k:], k == 1
+                break
+        else:
             return None
-        end, folder = found[0], toks[found[0] + found[1]:]
     region = toks[i:end]
     while region and _is_comma(region[-1]):
         region = region[:-1]
@@ -601,6 +635,8 @@ def _reference_op(line: str, toks, head, d, tables):
         if not name or len(name) > FOLDER_MAX or any(t.kind not in ("word", "num") for t in folder):
             return None
         slots["folder_name"] = name
+        if bare:
+            slots["folder_bare"] = True      # `para o joao`: a person after a bare "to" is not a folder unless the project lists one by that name
     need = (["body"] if reply_like and "body" not in slots else []) + (["state"] if op == "mail-mark" and not state else [])
     if _time_outside(line, list(spans.values()), tables):
         return None
@@ -652,19 +688,37 @@ def fold(text: str) -> str:
     return " ".join(t.norm for t in (tokenize(text) or []) if t.kind in ("word", "num"))
 
 
-def _not_an_answer(text: str, tables, word_cap) -> bool:
-    """Whether a line offered as a subject or a body is rather a question or a request (it is then a new line, never the text), by the rules of the foundation's text answers
-    (runtime/ops_natural_writes.py `_another_request`): it ends in a question mark, is over `word_cap` words, or, at three words or more, holds a work verb anywhere or starts with
-    a question or request word. (A line that starts a write or any other request of the platform was already refused before the family is asked.)"""
-    if text.endswith("?") or (word_cap and len(text.split()) > word_cap):
+def folder_key(text: str) -> str:
+    """A folder name as the person wrote it, to be compared with a configured name: folded, without the articles that stand first ("para o contas")."""
+    words = fold(text).split()
+    articles = {p[0] for table in nt.languages() if _data(table) for p in _data(table)["shared"]["articles"] if len(p) == 1}
+    while words and words[0] in articles:
+        words = words[1:]
+    return " ".join(words)
+
+
+def clean_shown(text: str, width: int = 40) -> str:
+    """A name the person wrote, as a sentence may echo it: one line, cut."""
+    return " ".join(str(text).split())[:width]
+
+
+def _not_an_answer(need: str, text: str, tables) -> bool:
+    """Whether a line offered as a subject or a body is rather a yes or a no, a question or a request (it is then a new line or is asked again, never the text).
+    A yes or a no is never a subject or a body ("sim", "ok", "yes"). A SUBJECT follows the rules of the foundation's text answers (runtime/ops_natural_writes.py
+    `_another_request`): a question mark, more than TEXT_WORDS_MAX words, and, at three words or more, a work verb anywhere or a question or request word first. A BODY is the
+    person's sentence to somebody else and may ask, want or need ("voce pode vir?"): it is refused only when it starts with a closed head of this family or with a mail verb
+    ("escreve uma resposta educada dizendo..."), which is the person talking to the platform. (A line that starts a write of another family or any other request was refused before the family is asked.)"""
+    if natural.confirm_kind(text, tables) in ("yes", "no"):
         return True
-    words = text.split()
-    if len(words) >= 3:
-        tokens = re.findall(r"[^\W_]+", nt.normalise(text)[0])
-        verbs = {w for table in tables for w in table.get("work_verbs", [])}
-        starters = {w for table in tables for w in table.get("work_starters", [])}
-        return bool(verbs & set(tokens)) or bool(tokens and tokens[0] in starters)
-    return False
+    tokens = re.findall(r"[^\W_]+", nt.normalise(text)[0])
+    verbs = {w for table in tables for w in table.get("work_verbs", [])}
+    starters = {w for table in tables for w in table.get("work_starters", [])}
+    if need == "body":
+        first = {p[0] for table in _tables_with_mail(tables) for key, _op in VERB_OPS for p in _data(table)["mail"][key]}
+        return bool(is_head(text, tables) or (tokens and tokens[0] in first))
+    if text.endswith("?") or len(text.split()) > TEXT_WORDS_MAX:
+        return True
+    return len(text.split()) >= 3 and bool(verbs & set(tokens) or (tokens and tokens[0] in starters))
 
 
 def answer(need, line, slots, tables, now=None, options=None):
@@ -682,6 +736,8 @@ def _answer(need, line, options, tables):
     text = line.strip()
     live = _tables_with_mail(tables)
     joiners = set().union(*[_data(t)["joiners"] for t in live]) if live else set()
+    if need in ("to", "subject", "body") and natural.confirm_kind(text, tables) in ("yes", "no"):
+        return None      # "sim", "ok", "yes" answer a question of yes or no; they are never an address, a subject or a body
     if need == "to":
         toks = tokenize(text)
         if not toks or any(t.kind != "addr" and not (_is_comma(t) or (t.kind == "word" and t.norm in joiners)) for t in toks):
@@ -692,7 +748,7 @@ def _answer(need, line, options, tables):
                 out.append(t.value)
         return {"to": out, "to_names": None} if 0 < len(out) <= ADDRESSES_MAX else None
     if need in ("subject", "body"):
-        if _not_an_answer(text, tables, TEXT_WORDS_MAX if need == "subject" else None):
+        if _not_an_answer(need, text, tables):
             return None
         got = _text_slot(text, 0, len(text), SUBJECT_MAX if need == "subject" else BODY_MAX, need == "subject", to_end=True)
         return {need: got[0]} if got and got[0] else None

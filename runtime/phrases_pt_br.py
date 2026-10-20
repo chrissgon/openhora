@@ -537,6 +537,8 @@ TABLE = {
     "NW_MAIL_NO_SOURCE": "Nenhuma fonte de e-mail da sua caixa está registrada para isso: registre uma com source-mail primeiro e peça de novo.",
     "NW_MAIL_NONE": "Nenhuma mensagem do snapshot mais novo de {source} tem todas estas palavras: {words}.",
     "NW_MAIL_TOO_MANY": "Um card aceita no máximo {max} mensagens: indique menos.",
+    "NW_MAIL_BY_DATE": "Ainda não sei escolher e-mails por data: diga os números (peça a lista dos seus e-mails para vê-los).",
+    "NW_MAIL_NO_FORWARD": "Ainda não sei encaminhar um e-mail, e '{name}' não é uma das suas pastas de e-mail ({names}). Mover é para uma delas.",
     "NW_MAIL_NO_FOLDERS": "Nenhuma pasta de e-mail está configurada para a conta {account}, então nada pode ser movido: a chave accounts do runtime.json as lista.",
     "NW_MAIL_ASK_SOURCE": "De qual caixa?",
     "NW_MAIL_ASK_MESSAGE": "Achei {count} e-mails. Qual deles? Responda com o número.",

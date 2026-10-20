@@ -215,6 +215,8 @@ def _messages(ctx: dict, slots: dict, channel, sender):
         raise _ref_say("not_readable", _first_written(slots))
     if slots.get("over"):
         raise _say("NW_MAIL_TOO_MANY", max=nwm.MESSAGES_MAX)
+    if slots.get("by_date"):
+        raise _say("NW_MAIL_BY_DATE")      # a message is not found by its date: no match is made, however many words come with it
     chosen = slots.get("chosen")
     if chosen:      # the person chose among the messages code listed: those references are the messages, whatever else the line said of them
         refs = [chosen] if isinstance(chosen, str) else list(chosen)
@@ -234,6 +236,9 @@ def _messages(ctx: dict, slots: dict, channel, sender):
                 return None, None, ask
             refs += found
         elif slots.get("newest"):
+            snapshot = _read_snapshot(ctx, source_id, channel, sender)      # also the age check: a snapshot older than the limit for an unattended task (L53) names nothing
+            if not snapshot["entries"]:
+                raise _say("NW_MAIL_NONE", source=source_id, words="-")
             refs.append(f"{source_id}#1")
     refs = list(dict.fromkeys(refs))
     if len(refs) > nwm.MESSAGES_MAX:
@@ -256,8 +261,10 @@ def _folder(ctx: dict, account: str, slots: dict):
         raise _say("NW_MAIL_NO_FOLDERS", account=ACCOUNT_NAMES.get(account, account))
     given = slots.get("folder_name")
     for name in names:
-        if given and nwm.fold(str(given)) == nwm.fold(name):
+        if given and nwm.folder_key(str(given)) == nwm.fold(name):
             return name, None
+    if given and slots.get("folder_bare"):
+        raise _say("NW_MAIL_NO_FORWARD", name=nwm.clean_shown(given), names=", ".join(names))      # `para o joao`: a person after a bare "to", not a folder; forwarding is not built
     return None, _ask("folder", "NW_ASK_FOLDER", [(n, n) for n in names], slot="folder_name", name=given or "", names=", ".join(names))
 
 

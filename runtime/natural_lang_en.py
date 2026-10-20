@@ -120,7 +120,7 @@ TABLE = {
     # a verb or the opening of a request for work: a line that holds one is not the words of a reminder
     "work_verbs": ["write", "create", "make", "generate", "build", "draft", "prepare", "review", "analyze", "analyse", "summarize", "summarise", "search", "find",
                    "send", "publish", "post", "plan", "design", "implement", "fix", "check", "run", "show", "list", "give", "tell", "please", "want", "need",
-                   "could", "would", "can", "schedule", "book", "update", "delete", "remove"],
+                   "could", "would", "can", "schedule", "book", "update", "delete", "remove", "explain", "ask", "request", "compose", "notify"],
     # the words after a bare calendar noun that make it a question about the calendar, not a request to write to it
     "calendar_noun_reads": ["of", "for", "on", "today", "tomorrow", "this", "next", "view", "full"],
     # the words that start a line the engine reads as a request of the tier
@@ -295,6 +295,8 @@ TABLE = {
                 "read": ["as read"],
                 "unread": ["as unread"],
                 "newest": ["latest", "last", "newest", "most recent"],
+                "date_words": ["yesterday", "today", "tomorrow", "last week", "last month", "last year", "this week", "this month", "week", "month", "year", "day", "days", "hour",
+                               "hours", "morning", "afternoon", "evening", "night", "recent", "recently"],
             },
             "files": {
                 "create_verbs": ["create", "make", "save", "write"],

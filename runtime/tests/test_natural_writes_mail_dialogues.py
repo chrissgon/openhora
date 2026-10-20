@@ -34,10 +34,10 @@ onm = st.load("ops_natural_mail")
 onw = st.load("ops_natural_writes")
 nt = st.load("natural_time")
 natural = st.load("natural")
+natural_writes = st.load("natural_writes")
 item_refs = st.load("item_refs")
 TABLES = nt.languages()
 ACCOUNTS = ("google", "microsoft")
-SERVICES = {a: {tuple(p.split()) for p in phrases} for table in TABLES for a, phrases in table["requests"]["writes"]["services"].items()}
 
 
 def index_of(prefix: str) -> list:
@@ -70,37 +70,6 @@ CONFIGS = {"one-account": (("google",), (("inbox", "google"),), None),
            "two-accounts-one-mailbox": (("google", "microsoft"), (("inbox", "google"),), None),
            "two-accounts-two-mailboxes": (("google", "microsoft"), (("inbox", "google"), ("work", "microsoft")), None),
            "two-accounts-a-default": (("google", "microsoft"), (("inbox", "google"), ("work", "microsoft")), "google")}
-
-
-def normal(text) -> str:
-    return natural.normal(text)
-
-
-def says_account(said, account) -> bool:
-    for line in said:
-        toks = [t.norm for t in nwm.tokenize(line) or []]
-        for phrase in SERVICES[account]:
-            n = len(phrase)
-            if any(tuple(toks[i:i + n]) == phrase for i in range(len(toks) - n + 1)):
-                return True
-    return False
-
-
-def written_numbers(line: str) -> set:
-    """The numbers a line writes: its digit groups, and every number between two digit groups joined by a range word (`1 a 3`, `1 to 3`, `1-3`)."""
-    out = {int(n) for n in re.findall(r"[0-9]{1,9}", line)}
-    for a, b in re.findall(r"([0-9]{1,9})\s*(?:-|a|ate|até|to|through)\s*([0-9]{1,9})", line):
-        out |= set(range(int(a), int(b) + 1)) if int(a) <= int(b) <= int(a) + 40 else set()
-    return out
-
-
-def says_state(said, state) -> bool:
-    for line in said:
-        got = (nwm.answer("state", line, {}, TABLES) or {}).get("slots")
-        found = nwm.read(line, TABLES)
-        if (got and got["state"] == state) or (found and found["slots"].get("state") == state):
-            return True
-    return False
 
 
 class Walk:
@@ -154,66 +123,15 @@ def walk(world, line, answers):
 
 
 def violations(w) -> list:
-    """Everything a recorded call holds that the person did not say, choose or leave to a unique match of what was said."""
+    """Everything a recorded call holds that the person did not say, choose or leave to a unique match of what was said: the foundation's provenance check
+    (`natural_writes.problems`, which reads the RAW lines with the marker words of the tables and never the mail family's own reading), plus what a reply never carries."""
     op, args = w.call
-    world, said, found = w.world, w.said, w.found
-    bad = []
-    joined = [normal(line) for line in said]
-
-    def span(text):
-        return any(normal(text) in line for line in joined)
-    for name in ("subject", "text", "body"):
-        if name in args and not span(args[name]):
-            bad.append(f"{name} {args[name]!r} is no span of what was said")
-    if "to" in args:
-        for address in args["to"].split(","):
-            if not any(address.lower() in line.lower() for line in said):
-                bad.append(f"address {address} was never written")
-    if op in ("mail-reply",) or "message" in args:
-        if "to" in args or "cc" in args or "bcc" in args or "subject" in args:
-            bad.append("a reply or a reply draft carries a recipient or a subject")
-    refs = args["messages"].split(",") if "messages" in args else [args["message"]] if "message" in args else []
-    words = found["slots"].get("words")
-    for ref in refs:
-        source, _hash, number = ref.partition("#")
-        number = int(number)
-        written = any(number in written_numbers(line) for line in said) or any(ref in line.replace(",", " ").split() for line in said)
-        strong = [e["n"] for e in nwm.match_words(world.indexes[source], words, False)] if words else []
-        first = found["slots"].get("newest") and number == 1 and not words
-        newest = found["slots"].get("newest") and words and strong and number == strong[0]
-        by_words = number in strong and (found["slots"].get("plural") and not found["slots"].get("newest") and len(strong) <= 20 or len(strong) == 1)
-        picked = (w.chosen.get("message") or {}).get("chosen") or []
-        chosen = ref in ([picked] if isinstance(picked, str) else picked)
-        if not (written or first or newest or by_words or chosen):
-            bad.append(f"{ref} was neither written, chosen nor the unique match")
-        if source not in {s["id"] for s in world.sources}:
-            bad.append(f"{source} is no mailbox")
-    if words and found["slots"].get("plural") and not found["slots"].get("newest") and refs and not w.chosen.get("message"):
-        strong = {f"{r.partition('#')[0]}#{e['n']}" for r in refs[:1] for e in nwm.match_words(world.indexes[r.partition('#')[0]], words, False)}
-        if set(refs) != strong:
-            bad.append("a plural object by words is exactly the strong set")
-    account = args.get("account")
-    if account not in ACCOUNTS:
-        bad.append(f"account {account!r}")
-    else:
-        named = says_account(said[:1], account) and not any(says_account(said[:1], a) for a in ACCOUNTS if a != account)      # a service word of the LINE, not of an answer that is a subject or a body
-        only = world.accounts == (account,)
-        default = world.default == account
-        chose = (w.chosen.get("account") or {}).get("account") == account
-        via_source = refs and all(world.account_of(r.partition("#")[0]) == account for r in refs) and (
-            len(world.sources) == 1 or (w.chosen.get("source") or w.chosen.get("message") or any(r.partition("#")[0] + "#" in " ".join(said) for r in refs))
-            or len([s for s in world.sources if s["account"] == account]) == 1 and (says_account(said, account)))
-        if not (named or only or default or chose or via_source):
-            bad.append(f"the account {account} was not named, chosen, the only one, the default or the account of the mailbox")
-    if "folder" in args:
-        folded = {normal(n): n for n in ("contas", "viagens")}
-        if args["folder"] not in folded.values():
-            bad.append("a folder the project does not list")
-        written = any(normal(args["folder"]) in line for line in joined)
-        if not (written or (w.chosen.get("folder") or {}).get("folder_name") == args["folder"]):
-            bad.append("a folder nobody wrote or chose")
-    if "state" in args and not (says_state(said, args["state"]) or (w.chosen.get("state") or {}).get("state") == args["state"]):
-        bad.append("a state nobody said")
+    world = w.world
+    offered = {"numbers": set(), "sources": set(), "source_accounts": set(), "mail_sources": {s["id"]: s["account"] for s in world.sources}, "mail_index": world.indexes,
+               "options": {v for upd in w.chosen.values() for value in upd.values() for v in (value if isinstance(value, list) else [value]) if isinstance(v, str)}}      # the values the person CHOSE
+    bad = list(natural_writes.problems(op, args, w.said, world.cfg["accounts"], offered, None))
+    if "message" in args and any(key in args for key in ("to", "cc", "bcc", "subject")):
+        bad.append("a reply or a reply draft carries a recipient or a subject")
     return bad
 
 

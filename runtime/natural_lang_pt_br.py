@@ -93,7 +93,7 @@ TABLE = {
     "work_verbs": ["escreva", "escrever", "crie", "criar", "faca", "fazer", "gere", "gerar", "monte", "montar", "prepare", "preparar", "analise", "analisa", "revise",
                    "revisa", "resuma", "resume", "pesquise", "pesquisa", "procure", "envie", "envia", "mande", "manda", "publique", "planeje", "desenhe",
                    "implemente", "corrija", "verifique", "rode", "mostre", "liste", "diga", "quero", "preciso", "gostaria", "pode", "poderia", "atualize",
-                   "apague", "remova"],
+                   "apague", "remova", "escreve", "explica", "explique", "pede", "peca", "avisa"],
     "calendar_noun_reads": ["de", "da", "do", "dos", "das", "para", "hoje", "amanha", "semana", "mes", "completa", "cheia", "lotada"],
     "triggers": {
         "remind": ["me lembra", "me lembre", "me lembrar", "lembre me", "lembra me", "me avisa", "me avise", "me avisar", "lembrete", "cria um lembrete",
@@ -242,7 +242,7 @@ TABLE = {
                 "trash_verbs": ["apaga", "apague", "apagar", "exclui", "exclua", "excluir", "deleta", "delete", "joga fora", "jogue fora", "remove", "remova"],
                 "nouns": ["e mail", "email", "e mails", "emails", "mensagem", "mensagens"],
                 "plural": ["e mails", "emails", "mensagens"],
-                "to": ["pra", "para", "a", "ao"],
+                "to": ["pra", "para", "a", "ao", "pro", "pros", "prum"],
                 "subject": ["com o assunto", "com assunto", "assunto"],
                 "body": ["dizendo que", "dizendo", "falando que", "com o texto"],
                 "of": ["do", "da", "de", "dos", "das", "sobre"],
@@ -250,6 +250,8 @@ TABLE = {
                 "read": ["como lido", "como lidos", "como lida", "como lidas"],
                 "unread": ["como nao lido", "como nao lidos", "como nao lida", "como nao lidas"],
                 "newest": ["ultimo", "ultima", "mais recente"],
+                "date_words": ["ontem", "anteontem", "hoje", "amanha", "semana passada", "mes passado", "ano passado", "esta semana", "este mes", "semana", "mes", "ano", "dia", "dias",
+                               "hora", "horas", "manha", "tarde", "noite", "recentes"],
             },
             "files": {
                 "create_verbs": ["cria", "crie", "criar", "salva", "salve", "faz", "faca"],

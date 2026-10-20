@@ -285,8 +285,8 @@ def test_an_answer_is_the_closed_thing_the_question_asked_for_and_anything_else_
         assert answer(need, "1", [{"value": "x", "label": "x"}]) is None, "an option is answered by the foundation's generic answer (the number shown or the word), not by the family"
     assert nwm.NEEDS == ("to", "subject", "body", "state")
     # the rules of the foundation for a text answer: a question, a work verb, a request or an over-long line is never the subject or the body
-    assert answer("subject", "o que você acha?") is None and answer("body", "você vem hoje?") is None      # validate: allow english-only -- a Portuguese line is the input under test
-    assert answer("subject", "prepare um resumo do projeto") is None and answer("body", "prepare um resumo do projeto") is None
+    assert answer("subject", "o que você acha?") is None and answer("body", "você vem hoje?") == {"body": "você vem hoje?"}      # validate: allow english-only -- a Portuguese line is the input under test
+    assert answer("subject", "prepare um resumo do projeto") is None and answer("body", "escreve um resumo do projeto") is None, "a subject with a work verb, a body that starts with a mail verb"
     assert answer("subject", "uma frase que passa bastante do limite de palavras de um assunto de e-mail curto") is None
     assert answer("body", "chego as 9 e levo o bolo e depois a gente combina o resto com calma sem pressa nenhuma hoje") is not None
     assert answer("subject", "Fatura") == {"subject": "Fatura"} and answer("body", "chego às 9") == {"body": "chego às 9"}
@@ -414,6 +414,8 @@ def test_a_number_takes_the_only_mailbox_of_the_account_and_the_written_source_a
 def test_the_newest_is_the_first_of_the_snapshot_and_a_list_over_a_card_is_refused_before_anything_is_read(monkeypatch):
     desk = Desk(monkeypatch, accounts=("google",), sources=(("inbox", "google"),))
     assert resolve(desk, "responde o último e-mail dizendo que ok") == {"args": {"account": "google", "message": "inbox#1", "text": "ok"}}
+    assert desk.reads == [("inbox", "chat", None)], "the latest reads the snapshot (its age is checked)"
+    desk.reads.clear()
     with pytest.raises(Said) as why:
         resolve(desk, "arquiva os e-mails 1 a 40")
     assert str(why.value) == phrases.en("NW_MAIL_TOO_MANY").format(max=20) and desk.reads == []
@@ -442,7 +444,7 @@ def test_a_singular_object_by_words_needs_exactly_one_match_and_several_are_list
 def test_a_plural_object_by_words_takes_every_match_up_to_20_and_asks_beyond(monkeypatch):
     desk = Desk(monkeypatch, accounts=("google",), sources=(("inbox", "google"),))
     assert resolve(desk, "arquiva os e-mails do banco") == {"args": {"account": "google", "messages": "inbox#2,inbox#4"}}
-    assert resolve(desk, "arquiva os e-mails do banco sobre fatura de setembro") == {"args": {"account": "google", "messages": "inbox#4"}}
+    assert resolve(desk, "arquiva os e-mails do banco sobre noreply") == {"args": {"account": "google", "messages": "inbox#4"}}
     assert resolve(desk, "arquiva o último e-mail do banco") == {"args": {"account": "google", "messages": "inbox#2"}}
     many = [{"n": n, "from_address": "banco@banco.example", "subject": f"Fatura {n}"} for n in range(1, 26)]
     big = Desk(monkeypatch, accounts=("google",), sources=(("inbox", "google"),), indexes={"inbox": many})
@@ -521,7 +523,7 @@ def test_every_phrase_the_resolution_can_ask_or_say_is_in_both_columns_with_the_
     for key in keys:
         assert key in phrases.TABLE["pt-BR"], key
         assert phrases._fields_of(phrases.TABLE["en"][key]) == phrases._fields_of(phrases.TABLE["pt-BR"][key]), key
-    used = {"NW_MAIL_NO_SOURCE", "NW_MAIL_NONE", "NW_MAIL_TOO_MANY", "NW_MAIL_NO_FOLDERS", "NW_MAIL_ASK_SOURCE", "NW_MAIL_ASK_MESSAGE", "NW_MAIL_ASK_MESSAGES_OVER", "NW_MAIL_ASK_TO",
+    used = {"NW_MAIL_NO_SOURCE", "NW_MAIL_NONE", "NW_MAIL_TOO_MANY", "NW_MAIL_NO_FOLDERS", "NW_MAIL_BY_DATE", "NW_MAIL_NO_FORWARD", "NW_MAIL_ASK_SOURCE", "NW_MAIL_ASK_MESSAGE", "NW_MAIL_ASK_MESSAGES_OVER", "NW_MAIL_ASK_TO",
             "NW_MAIL_ASK_SUBJECT", "NW_MAIL_ASK_BODY", "NW_MAIL_ASK_BODY_REPLY", "NW_MAIL_ASK_STATE", "NW_MAIL_STATE_READ", "NW_MAIL_STATE_UNREAD"}
     assert used == set(keys), "a phrase nothing asks is a phrase to remove, and a question with no phrase would be a bug"
     fields = {"count": 2, "max": 20, "shown": 5, "name": "n", "names": "a, b", "to": "t", "source": "s", "words": "w", "account": "Google"}
@@ -664,7 +666,7 @@ def test_the_mcp_mode_reads_no_snapshot_for_a_line_and_a_page_or_terminal_caller
 def test_the_family_reaches_no_effect_no_writer_and_no_approval_and_no_operation_of_the_layer():
     import ast
     allowed = {"__future__", "bisect", "os", "re", "sys", "unicodedata", "mail_address", "natural_time", "item_refs", "mail_refs", "natural_writes_mail", "ops_core", "phrases", "project_config",
-               "sources", "sources_mail"}
+               "sources", "sources_mail", "natural"}
     for name in ("natural_writes_mail.py", "ops_natural_mail.py"):
         tree = ast.parse((st.RUNTIME / name).read_text(encoding="utf-8"))
         imported = set()
@@ -761,3 +763,152 @@ def test_the_mail_family_keeps_the_contract_of_a_family_of_the_foundation():
     sample = {"need": "state", "slot": "state", "sentence_key": "NW_MAIL_ASK_STATE", "fields": {}, "options": [{"value": "read", "label": "lido"}, {"value": "unread", "label": "nao lido"}],
               "multi": False, "engine": None}
     assert set(sample) == {"need", "slot", "sentence_key", "fields", "options", "multi", "engine"}
+
+
+# --- the review of the package (M1 to M6 and the minor points): each probe is a test ----------------------------------------------------------------------------
+
+
+def talk(world, lines, channel="terminal", sender=None):
+    """The lines a person types one after the other to the card-opening path (the open question first, then the line as a new one): [(line, reply, the decision resent)]."""
+    onw = st.load("ops_natural_writes")
+    ctx = ops_core.context(world["path"])
+    out = []
+    for line in lines:
+        extras = {}
+        draft = onw.live(channel, sender)
+        reply = onw.answer(world["path"], ctx, draft, line, channel, sender, extras) if draft is not None else None
+        if reply is None:
+            reply = onw.open_line(world["path"], ctx, line, channel, sender, extras)
+        out.append((line, reply, extras.get("resend")))
+    return out
+
+
+def test_the_provenance_check_reads_the_raw_line_and_catches_a_misreading_of_the_family():
+    """M1: the oracle of the fuzz is derived from the raw lines with the marker words of the tables, never from the family's own reading, so a misreading cannot vouch for itself."""
+    nw = st.load("natural_writes")
+    accounts = {"google": {"address": "me@exemplo.example", "calendars": {}, "folders": {}, "mail_folders": {"contas": "L1"}}}
+    offered = {"mail_sources": {"inbox": "google"}, "mail_index": {"inbox": INDEX}, "options": set()}
+
+    def check(op, args, *said):
+        return nw.problems(op, args, list(said), accounts, offered, None)
+    send = "manda um e-mail pra bia@exemplo.example com o assunto Oi dizendo que fala com ana@outra.example"      # validate: allow english-only -- a Portuguese line is the input under test
+    assert check("mail-send", {"account": "google", "to": "bia@exemplo.example", "subject": "Oi", "text": "fala com ana@outra.example"}, send) == []
+    assert check("mail-send", {"account": "google", "to": "bia@exemplo.example,ana@outra.example", "subject": "Oi", "text": "fala com ana@outra.example"}, send), "an address of the body is no recipient"
+    subject = "manda um e-mail pra bia@exemplo.example com o assunto ana@outra.example dizendo oi"      # validate: allow english-only -- a Portuguese line is the input under test
+    assert check("mail-send", {"account": "google", "to": "ana@outra.example", "subject": "x", "text": "oi"}, subject), "an address of the subject is no recipient"
+    assert check("mail-send", {"account": "google", "to": "bia@exemplo.example", "subject": "ana@outra.example", "text": "oi"}, subject) == []
+    assert check("mail-send", {"account": "google", "to": "ana@outra.example", "subject": "Oi", "text": "oi"}, "manda um e-mail pra Ana com o assunto Oi dizendo oi", "ana@outra.example") == []      # an address answer: a line of addresses      # validate: allow english-only -- a Portuguese line is the input under test
+    reply = "responde o e-mail 1 dizendo que chego às 3"      # validate: allow english-only -- a Portuguese line is the input under test
+    assert check("mail-reply", {"account": "google", "message": "inbox#1", "text": "chego às 3"}, reply) == []      # validate: allow english-only -- a Portuguese line is the input under test
+    assert check("mail-reply", {"account": "google", "message": "inbox#3", "text": "chego às 3"}, reply), "a number of the body is no reference"      # validate: allow english-only -- a Portuguese line is the input under test
+    bank = "arquiva os e-mails do banco"
+    assert check("mail-archive", {"account": "google", "messages": "inbox#2,inbox#4"}, bank) == []
+    assert check("mail-archive", {"account": "google", "messages": "inbox#2,inbox#3,inbox#4"}, bank), "a message that does not hold the words, however near"
+    assert check("mail-archive", {"account": "google", "messages": "inbox#2"}, bank), "a plural object is the whole set of matches, not a part"
+    body_words = "responde o e-mail 3 dizendo que o banco ligou"      # validate: allow english-only -- a Portuguese line is the input under test
+    assert check("mail-reply", {"account": "google", "message": "inbox#2", "text": "que o banco ligou"}, body_words), "words of the body are no words of the message"
+    widened = "arquiva os e-mails do banco sobre noreply"
+    assert check("mail-archive", {"account": "google", "messages": "inbox#4"}, widened) == []
+    assert check("mail-archive", {"account": "google", "messages": "inbox#2,inbox#4"}, widened), "words widened by the family: only the one that holds all of them is a match"
+    mark = "marca o e-mail 4 como lido"
+    assert check("mail-mark", {"account": "google", "messages": "inbox#4", "state": "read"}, mark) == []
+    assert check("mail-mark", {"account": "google", "messages": "inbox#4", "state": "unread"}, mark), "a state nobody said"
+    assert check("mail-mark", {"account": "google", "messages": "inbox#4", "state": "read"}, "marca o e-mail 4 como não lido") != [], "`nao lido` says unread, not read"      # validate: allow english-only -- a Portuguese line is the input under test
+    assert check("mail-mark", {"account": "google", "messages": "inbox#4", "state": "read"}, "marca o e-mail 4 dizendo que li") != []      # validate: allow english-only -- a Portuguese line is the input under test
+    middle = "manda um e-mail pelo gmail pra bia@exemplo.example dizendo que o e-mail foi lido"      # validate: allow english-only -- a Portuguese line is the input under test
+    assert check("mail-mark", {"account": "google", "messages": "inbox#4", "state": "read"}, middle, "marca o e-mail 4"), "a state word inside a body is no state"      # validate: allow english-only -- a Portuguese line is the input under test
+
+
+def test_a_yes_is_never_a_subject_a_body_or_an_address_and_the_question_is_asked_again_once_then_given_up(world, no_drafts):
+    """M2: the foundation hands the needs of the family to the family before its own yes guard, so the family applies the guard itself."""
+    for word in ("sim", "yes", "ok", "claro", "sure"):
+        assert ans("subject", word) is None and ans("body", word) is None and ans("to", word) is None, word
+    first = "manda um e-mail pelo gmail pra bia@exemplo.example com o assunto Oi"      # validate: allow english-only -- a Portuguese line is the input under test
+    out = talk(world, [first, "sim"])
+    assert out[0][1] == phrases.text("NW_MAIL_ASK_BODY", ops_core.context(world["path"])["cfg"], to="bia@exemplo.example") and "waits" not in out[1][1], out
+    out = talk(world, [first, "sim", "sim"])
+    assert out[2][1] == phrases.text("NW_GIVE_UP", None) and out[2][2] is None and no_drafts.count() == 0, "asked once more, then given up: no trap loop"
+    out = talk(world, [first, "sim", "confirmo sexta"])
+    assert out[2][2] is not None and "waits for your approval" in out[2][1], "a real body after the re-ask opens the card"
+
+
+def test_a_name_with_a_verb_or_a_long_tail_is_a_sentence_and_not_a_message_and_a_request_is_never_a_body():
+    """M3: the words after `do/da/de` are the name of a sender or a subject: at most three content words, and neither a verb nor a gerund."""
+    for line in ("responde o e-mail do cliente explicando o atraso", "responde o e-mail do cliente pedindo desconto", "arquiva os e-mails do banco itau bradesco santander",      # validate: allow english-only -- a Portuguese line is the input under test
+                 "reply to the email from the client explaining the delay saying ok", "archive the emails from the bank asking for a discount"):
+        assert read(line) is None, line
+    assert read("responde o e-mail do banco itau dizendo ok")["slots"]["words"] == ["banco", "itau"]
+    assert read("arquiva os e-mails do banco itau bradesco")["slots"]["words"] == ["banco", "itau", "bradesco"]
+    for text in ("escreve uma resposta educada dizendo que não posso", "write a polite reply saying no", "arquiva os e-mails 2 e 4", "manda um e-mail pra bia@exemplo.example"):      # validate: allow english-only -- a Portuguese line is the input under test
+        assert ans("body", text) is None, text
+    assert ans("body", "você pode vir amanhã?") == {"body": "você pode vir amanhã?"} and ans("body", "preciso do contrato até sexta") is not None      # validate: allow english-only -- a Portuguese line is the input under test
+    for word in ("explica", "explique", "pede", "avisa", "escreve"):
+        assert any(word in table["work_verbs"] for table in TABLES), word
+
+
+def test_a_message_is_never_found_by_a_date_and_the_line_says_so(monkeypatch):
+    """M4: a day, a month, a weekday or a relative time among the words is not the name of a sender or a subject; no match is made, however many words come with it."""
+    for line in ("apaga os e-mails de ontem", "apaga os e-mails de hoje", "arquiva os e-mails de sexta", "arquiva os e-mails de setembro", "apaga os e-mails da semana passada",      # validate: allow english-only -- a Portuguese line is the input under test
+                 "arquiva os e-mails do banco de ontem", "archive the emails from yesterday", "delete the emails from last week", "archive the emails from September", "trash emails from friday"):
+        found = read(line)
+        assert found is not None and found["slots"].get("by_date") is True, line
+        desk = Desk(monkeypatch, accounts=("google",), sources=(("inbox", "google"),))
+        out = onm.resolve(desk.ctx, found["op"], found["slots"], "chat", None, [line])
+        assert out == {"say": {"sentence_key": "NW_MAIL_BY_DATE", "fields": {}}} and desk.reads == [], line
+    assert "by_date" not in read("arquiva os e-mails do banco")["slots"] and "by_date" not in read("arquiva os e-mails da loja")["slots"]      # validate: allow english-only -- a Portuguese line is the input under test
+
+
+def test_a_range_of_numbers_is_not_a_folder_and_a_move_needs_a_name_that_is_neither_a_number_nor_a_service():
+    """M5: `to` is a range word and a folder marker; `move emails 1 to 3 via gmail` is a range and a service, not the folder `3 via gmail`."""
+    assert read("move emails 1 to 3 via gmail") is None and read("move email 6 to 3") is None and read("move emails 1 to 3") is None
+    found = read("move emails 1 to 3 via gmail to bills")
+    assert found["slots"]["numbers"] == [1, 2, 3] and found["slots"]["folder_name"] == "bills" and found["slots"]["service"] == "google"
+    assert read("move emails 1 to 3 to the folder bills")["slots"]["numbers"] == [1, 2, 3]
+    assert read("move email 6 to google") is None and read("move email 6 via gmail") is None
+    assert read("move os e-mails 1 a 3 para contas")["slots"]["numbers"] == [1, 2, 3]      # validate: allow english-only -- a Portuguese line is the input under test
+
+
+def test_the_title_of_an_event_that_starts_with_a_bare_mail_verb_is_a_title_and_a_closed_head_is_a_request():
+    """M6: `HEADS` are verbs for the prefilter; a line offered as a title is a request only when it starts with a closed head (verb, articles, object)."""
+    onw = st.load("ops_natural_writes")
+    for title in ("Passa no banco", "Envia proposta", "Send flowers", "Reply to Ana", "Archive old photos", "Marca presença"):      # validate: allow english-only -- a Portuguese line is the input under test
+        assert onw._another_request(title, TABLES) is False, title
+        assert nwm.is_head(title, TABLES) is False, title
+    for request in ("manda um e-mail pra bia", "arquiva os e-mails 2 e 4", "responde o e-mail 3", "send an email to bia", "archive the emails from the bank"):      # validate: allow english-only -- a Portuguese line is the input under test
+        assert nwm.is_head(request, TABLES) is True and onw._another_request(request, TABLES) is True, request
+
+
+def test_a_reply_body_may_ask_and_is_kept_verbatim_with_its_question_mark_and_the_card_shows_it(world, no_drafts):
+    """Minor 1 and 2: a body that is a question is a valid body; it is the person's words, kept as written (the final `?` too), and the card shows it whole."""
+    out = talk(world, ["pode mandar um e-mail pelo gmail pra bia@exemplo.example com o assunto Oi dizendo você pode vir hoje?"])      # validate: allow english-only -- a Portuguese line is the input under test
+    assert out[0][2] is not None and "você pode vir hoje?" in out[0][1], out      # validate: allow english-only -- a Portuguese line is the input under test
+    ctx = ops_core.context(world["path"])
+    started = {"pending": out[0][2], "task": max(t["id"] for t in ctx["store"].tasks_list(ctx["conn"]))}
+    assert effect_doc(world, started)["body"] == "você pode vir hoje?"      # validate: allow english-only -- a Portuguese line is the input under test
+
+
+def test_pro_is_a_marker_of_the_recipient_and_a_person_after_a_bare_to_is_not_a_folder(monkeypatch):
+    """Minor 3 and 5: `pro joao` addresses a person; `move o e-mail da ana para o joao` is a forward, which is not built, and never a move to a folder called `o joao`."""
+    assert read("manda um e-mail pro João dizendo oi")["slots"]["to_names"] == ["João"]      # validate: allow english-only -- a Portuguese line is the input under test
+    assert read("manda um e-mail pros clientes dizendo oi")["slots"]["to_names"] == ["clientes"]      # validate: allow english-only -- a Portuguese line is the input under test
+    found = read("move o e-mail da ana para o joão")      # validate: allow english-only -- a Portuguese line is the input under test
+    assert found["slots"].get("folder_bare") is True and read("move o e-mail 6 para a pasta contas")["slots"].get("folder_bare") is None
+    desk = Desk(monkeypatch, accounts=("google",), sources=(("inbox", "google"),))
+    out = onm.resolve(desk.ctx, found["op"], found["slots"], "chat", None, [])
+    assert out["say"]["sentence_key"] == "NW_MAIL_NO_FORWARD" and out["say"]["fields"]["names"] == "contas, viagens"
+    ok = read("move o e-mail 6 para o contas")      # validate: allow english-only -- a Portuguese line is the input under test
+    assert onm.resolve(desk.ctx, ok["op"], ok["slots"], "chat", None, [])["args"]["folder"] == "contas", "a bare marker still moves to a folder the project lists"
+
+
+def test_the_latest_message_with_no_words_reads_the_snapshot_and_a_stale_one_names_nothing(monkeypatch):
+    """Minor 4: `o ultimo e-mail` is message 1 of the newest snapshot, which is read (its age is checked: more than the limit of an unattended task names nothing)."""
+    desk = Desk(monkeypatch, accounts=("google",), sources=(("inbox", "google"),))
+    found = read("responde o último e-mail dizendo ok")      # validate: allow english-only -- a Portuguese line is the input under test
+    out = onm.resolve(desk.ctx, found["op"], found["slots"], "chat", None, [])
+    assert out == {"args": {"account": "google", "message": "inbox#1", "text": "ok"}} and desk.reads == [("inbox", "chat", None)]
+
+    def stale(ctx, source_id, **kw):
+        raise item_refs.ItemRefError("stale", "old")
+    monkeypatch.setattr(item_refs, "read_index", stale)
+    out = onm.resolve(desk.ctx, found["op"], found["slots"], "chat", None, [])
+    assert out["say"]["sentence_key"] == "ACCT_MAIL_REF_STALE"

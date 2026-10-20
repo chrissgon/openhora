@@ -422,9 +422,22 @@ def _another_request(text: str, tables: list) -> bool:
         if verbs & set(tokens) or (tokens and tokens[0] in starters):
             return True
     if len(words) >= 2:
-        shaped = nw.Line(text)
-        return any(importlib.import_module(nw.FAMILIES[name]).HEADS(tables) and shaped.lead(importlib.import_module(nw.FAMILIES[name]).HEADS(tables), tables) is not None
-                   for name in nw.FAMILIES)
+        return _starts_with_head(text, tables)
+    return False
+
+
+def _starts_with_head(text: str, tables: list) -> bool:
+    """Whether a line starts with a write head of any family. A family that knows its CLOSED head (`is_head`: the verb, the articles and the object, as the mail family does) says
+    it itself, so that a title that begins with a bare verb ("Passa no banco", "Send flowers", "Reply to Ana") is a title; a family without it is asked by its verbs."""
+    shaped = nw.Line(text)
+    for name in nw.FAMILIES:
+        module = importlib.import_module(nw.FAMILIES[name])
+        closed = getattr(module, "is_head", None)
+        if closed is not None:
+            if closed(text, tables):
+                return True
+        elif module.HEADS(tables) and shaped.lead(module.HEADS(tables), tables) is not None:
+            return True
     return False
 
 

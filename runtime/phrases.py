@@ -583,6 +583,8 @@ TABLE = {
         "NW_MAIL_NO_SOURCE": "No mail source of your mailbox is registered for this: add one with source-mail first, then ask again.",
         "NW_MAIL_NONE": "No message of the newest snapshot of {source} has all of these words: {words}.",
         "NW_MAIL_TOO_MANY": "One card takes at most {max} messages: name fewer.",
+        "NW_MAIL_BY_DATE": "I cannot pick e-mails by date yet: say their numbers (ask for your e-mails to see the list).",
+        "NW_MAIL_NO_FORWARD": "I cannot forward an e-mail yet, and '{name}' is not one of your mail folders ({names}). A move goes to one of them.",
         "NW_MAIL_NO_FOLDERS": "No mail folders are set up for the {account} account, so nothing can be moved: the key accounts of runtime.json lists them.",
         "NW_MAIL_ASK_SOURCE": "From which mailbox?",
         "NW_MAIL_ASK_MESSAGE": "I found {count} e-mails. Which one? Answer with its number.",

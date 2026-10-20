@@ -85,7 +85,7 @@ SECTIONS = {
     "services": ("google", "microsoft"),
     "calendar": ("in_calendar", "calendar_after", "range_from", "range_to", "all_day", "change_verbs", "cancel_verbs", "nouns", "nouns_plural", "to_time", "rename", "rename_to"),
     "mail": ("send_verbs", "reply_verbs", "draft_verbs", "archive_verbs", "move_verbs", "mark_verbs", "trash_verbs", "nouns", "plural", "to", "subject", "body", "of",
-             "folder", "read", "unread", "newest"),
+             "folder", "read", "unread", "newest", "date_words"),
     "files": ("create_verbs", "replace_verbs", "save_verbs", "nouns", "named", "content", "folder", "this", "held_nouns", "gdoc", "text_words", "of", "replace_with"),
 }
 PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")      # a phrase: words of a-z and 0-9 separated by one space; no character a regular expression means anything by
@@ -353,7 +353,7 @@ def problems(op: str, args: dict, said: list, accounts: dict, offered: dict, now
             if value not in offered.get("sources", ()):
                 out.append(f"file {value!r} is not a source code listed")
         elif key == "account":
-            if not (op.startswith("mail-") and _mailbox_account(value, args, said, offered, picks if options is None else bool(options))):
+            if not (op.startswith("mail-") and (_of_service(value, said, tables) or _mailbox_account(value, args, said, offered, picks if options is None else bool(options), tables))):
                 out += _account_problems(op, value, lines, accounts, offered, picks if options is None else value in options, tables)
         elif key in ("calendar", "folder"):
             section = "calendars" if key == "calendar" else "mail_folders" if op.startswith("mail-") else "folders"
@@ -361,7 +361,7 @@ def problems(op: str, args: dict, said: list, accounts: dict, offered: dict, now
             if value not in listed or not (any(_contiguous(_words(value), w) for w in line_words) or (picks if options is None else value in options)):
                 out.append(f"{key} {value!r} is not a configured name written or picked")
         elif key in ("to", "cc", "bcc"):
-            out += _address_problems(key, value, said)
+            out += _address_problems(key, value, said, tables)
         elif key in ("message", "messages"):
             out += _message_problems(key, value, said, offered, tables, options)
         elif key == "state":
@@ -377,21 +377,83 @@ def problems(op: str, args: dict, said: list, accounts: dict, offered: dict, now
     return out
 
 
-def _address_problems(key: str, value, said: list) -> list:
-    """The addresses of a recipient list (comma-separated, at most 20) must each be written in one of the person's lines: a recipient is never found in a mailbox or a body."""
+# --- the provenance of a mail write: derived from the person's RAW lines, never from a reading of the mail family ----------------------------------------------
+#
+# The checks below take the closed marker words of the language tables (the `mail` lists) and look at the raw line with small expressions of their own. They do not call the
+# mail family (`read`, `match_words`, `answer`), so a misreading of the family cannot vouch for itself: an address must stand in the recipients' part of a line (after a
+# recipient marker, before the subject marker, the body marker or the first colon), a number in the references' part (after the object, before the body, the folder or the
+# state words), a message found by words must match the words written after an "of" marker, and a state is a state word at the end of a line.
+
+ADDRESS = re.compile(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+class _Frame:
+    """The parts of one raw line of a mail write, found with the marker words of the tables (folded positions; `part` gives the raw text of a part)."""
+
+    def __init__(self, text: str, tables: list):
+        self.line, self.tables = Line(text), tables
+        norm = self.line.norm
+        noun = self.line.find(listed(tables, "mail", "nouns"))
+        self.noun = noun
+        self.after = noun[1] if noun else 0
+        self.subject = self.line.find(listed(tables, "mail", "subject"), self.after)
+        body = self.line.find(listed(tables, "mail", "body"), self.after)
+        colon = norm.find(":", self.after)
+        self.body_at = min([m[0] for m in (body,) if m] + ([colon] if colon >= 0 else []), default=None)
+        self.stop = min([m[0] for m in (self.subject,) if m] + ([self.body_at] if self.body_at is not None else []), default=len(norm))
+
+    def part(self, start: int, end: int) -> str:
+        return self.line.span(start, end) if start < end else ""
+
+    def recipients(self) -> str:
+        to = self.line.find(listed(self.tables, "mail", "to"), self.after)
+        return self.part(to[1], max(self.stop, to[1])) if to else ""
+
+    def references_end(self) -> int:
+        """Where the references end: the body, the subject, a folder marker or a state word (whichever comes first)."""
+        ends = [self.stop]
+        for key in ("read", "unread"):
+            found = self.line.find(listed(self.tables, "mail", key), self.after)
+            if found:
+                ends.append(found[0])
+        markers = self.line.find_all(listed(self.tables, "mail", "folder"), self.after)
+        if markers:      # the last folder marker with a name after it: a number alone, or a state or a service clause, is not a folder ("1 to 3 as read" is a range)
+            tail = self.line.norm[markers[-1][1]:]
+            clauses = listed(self.tables, "mail", "read") + listed(self.tables, "mail", "unread") + [p + " " + n for p in listed(self.tables, None, "service_in") + [""]
+                                                                                                       for a in ("google", "microsoft") for n in listed(self.tables, "services", a)]
+            alt = nt._alt(clauses)
+            rest = re.sub(rf"(?<![a-z0-9]){alt}(?![a-z0-9])", " ", tail) if alt else tail
+            if rest.strip() and not rest.strip().isdigit():
+                ends.append(markers[-1][0])
+        return min(ends)
+
+    def references(self) -> str:
+        return self.part(self.after, self.references_end()) if self.noun else ""
+
+
+def _address_problems(key: str, value, said: list, tables: list) -> list:
+    """The addresses of a recipient list (at most 20) must each stand in the recipients' part of a line (after a recipient marker, before the subject, the body or a colon), or
+    be the whole of a line that is nothing but addresses (the answer to "what is the address?"): never inside a body or a subject, never found in a mailbox."""
     addresses = [a for a in str(value).split(",") if a]
     if not addresses or len(addresses) > 20:
         return [f"{key} is {len(addresses)} addresses: an e-mail takes 1 to 20"]
-    haystack = [s.lower() for s in said]
-    return [f"{key} {a!r} is not an address written in a line" for a in addresses if not any(a.lower() in line for line in haystack)]
+    joiners = set(listed(tables, None, "joiners"))
+    regions = []
+    for text in said:
+        regions.append(_Frame(text, tables).recipients().lower())
+        bare = ADDRESS.sub(" ", text)
+        if ADDRESS.search(text) and all(w in joiners for w in re.findall(r"[a-z]+", natural.normal(bare))):
+            regions.append(text.lower())
+    return [f"{key} {a!r} is not an address written as a recipient" for a in addresses if not any(a.lower() in region for region in regions)]
 
 
-def _written_numbers(text: str) -> set:
-    """The numbers a line writes: its digit groups, and every number between two of them joined by a range word or a dash (`1 a 3`, `1 to 3`, `1-3`)."""
+def _written_numbers(text: str, tables: list) -> set:
+    """The numbers a part of a line writes: its digit groups, and every number between two of them joined by a range word of the tables or a dash."""
     folded = natural.normal(text)
     out = {int(n) for n in re.findall(r"[0-9]{1,9}", folded)}
-    for a, b in re.findall(r"([0-9]{1,9})\s*(?:a|ate|to|through|thru)?\s*([0-9]{1,9})", folded):
-        if int(a) < int(b) <= int(a) + 40 and re.search(rf"{a}\s*(?:a|ate|to|through|thru)\s*{b}", folded):
+    ranges = nt._alt(listed(tables, None, "range"))
+    for a, b in re.findall(rf"([0-9]{{1,9}})\s+(?:{ranges})\s+([0-9]{{1,9}})", folded) if ranges else []:
+        if int(a) < int(b) <= int(a) + 40:
             out |= set(range(int(a), int(b) + 1))
     for a, b in re.findall(r"([0-9]{1,9})\s*-\s*([0-9]{1,9})", text):
         if int(a) < int(b) <= int(a) + 40:
@@ -399,28 +461,48 @@ def _written_numbers(text: str) -> set:
     return out
 
 
-def _mail_readings(said: list, tables: list) -> list:
-    """What the mail family reads of each of the person's lines ({} for a line it does not read)."""
-    module = family_module("mail")
-    return [module.read(s, tables) or {} for s in said]
+def _entry_words(entry: dict) -> set:
+    """The whole words of a message of an index (its sender's address and its subject), written again here from the rule of the contract, not taken from the family."""
+    local, _, domain = str(entry.get("from_address") or "").partition("@")
+    labels = domain.lower().split(".")
+    pieces = [local] + (labels[:-1] if len(labels) > 1 else labels) + [str(entry.get("subject") or "")]
+    return {w for piece in pieces for w in re.findall(r"[a-z0-9]+", _norm(piece))}
+
+
+def _words_of_the_line(frame: _Frame, tables: list) -> list:
+    """The content words written after the first "of" marker, up to where the references end, without a service clause at the end and without the little words."""
+    of = frame.line.find(listed(tables, "mail", "of"), frame.after)
+    if not of:
+        return []
+    end = frame.references_end()
+    served = service(frame.line, tables, of[1], end)
+    words = [(w, s_, e_) for w, s_, e_ in frame.line.words_after(of[1]) if e_ <= end and not (served and served[1] <= s_ and e_ <= served[2])]
+    little = {w for phrase in listed(tables, None, "articles") + listed(tables, None, "joiners") + listed(tables, "mail", "of") for w in phrase.split()}
+    return [w for w, _s, _e in words if w not in little]
 
 
 def _message_problems(key: str, value, said: list, offered: dict, tables: list, options) -> list:
-    """Each `<source>#<n>` of a message write: the source is a mailbox code listed (`offered["mail_index"]`: {source: entries of its index}), and the number is written in a line,
-    is an option the person was shown (`offered["options"]`), is the first message for "the latest", or is the unique strong match (a plural object: the strong set, up to 20)
-    of the words the line said."""
+    """Each `<source>#<n>` of a message write: the source is a mailbox code listed (`offered["mail_index"]`: {source: entries of its index}), and the number is written in the
+    references' part of a line (or is the whole of a line of numbers), is an option the person was shown (`offered["options"]`), is the first message for "the latest", or is
+    the unique match (a plural object: every match, up to 20) of the words written after an "of" marker."""
     refs = [r for r in str(value).split(",") if r]
     index = offered.get("mail_index") or {}
     if not refs or len(refs) > LIST_MAX:
         return [f"{key} is {len(refs)} messages: a card takes 1 to {LIST_MAX}"]
-    written = set()
-    for s in said:
-        written |= _written_numbers(s)
-    readings = [r.get("slots", {}) for r in _mail_readings(said, tables) if r]
-    words = next((r["words"] for r in readings if r.get("words")), None)
-    newest = any(r.get("newest") for r in readings)
-    plural = any(r.get("plural") for r in readings)
-    module = family_module("mail")
+    only_numbers = nt._alt(listed(tables, None, "joiners") + listed(tables, None, "range"))
+    written, words, newest, plural, named = set(), None, False, False, ""
+    for text in said:
+        frame = _Frame(text, tables)
+        if frame.noun:
+            region = frame.references()
+            written |= _written_numbers(region, tables)
+            named += " " + region.lower()
+            found = _words_of_the_line(frame, tables)
+            words = found or words
+            newest = newest or bool(frame.line.find(listed(tables, "mail", "newest")))
+            plural = plural or bool(frame.line.find(listed(tables, "mail", "plural"), frame.noun[0], frame.noun[1]))
+        elif re.fullmatch(rf"[0-9\s,;#-]*(?:(?:{only_numbers})[0-9\s,;#-]*)*" if only_numbers else r"[0-9\s,;#-]*", natural.normal(text)) and natural.normal(text):
+            written |= _written_numbers(text, tables)      # a line of numbers alone answers "which one?"
     out = []
     for ref in refs:
         source, _, n = ref.partition("#")
@@ -428,31 +510,53 @@ def _message_problems(key: str, value, said: list, offered: dict, tables: list, 
             out.append(f"{ref!r} is not a message of a mailbox code listed")
             continue
         n = int(n)
-        strong = [e["n"] for e in module.match_words(index[source], words, False)] if words else []
-        by_words = n in strong and (len(strong) == 1 or (plural and not newest and len(strong) <= LIST_MAX)) or (newest and strong and n == min(strong))
-        if not (n in written or ref in (offered.get("options") or ()) or (newest and not words and n == 1) or by_words):
-            out.append(f"message {ref} is not written, shown or the unique match of the words")
+        strong = sorted(e["n"] for e in index[source] if words and set(words) <= _entry_words(e))
+        by_words = n in strong and (len(strong) == 1 or (plural and not newest and len(strong) <= LIST_MAX)) or bool(newest and strong and n == strong[0])
+        if not (n in written or ref in (offered.get("options") or ()) or ref in named or (newest and not words and n == 1) or by_words):
+            out.append(f"message {ref} is not written in the references, shown or the unique match of the words")
+    if words and plural and not newest and not written and not out:      # a plural object found by words is the WHOLE set of matches (up to a card), unless the person chose among them
+        for source in {r.partition("#")[0] for r in refs}:
+            strong = {e["n"] for e in index[source] if set(words) <= _entry_words(e)}
+            given = {int(r.partition("#")[2]) for r in refs if r.partition("#")[0] == source}
+            if len(strong) <= LIST_MAX and given != strong and not all(r in (offered.get("options") or ()) for r in refs):
+                out.append(f"messages {sorted(given)} are a part of the {len(strong)} that hold the words")
     return out
 
 
 def _state_said(value: str, said: list, tables: list) -> bool:
-    module = family_module("mail")
-    for line in said:
-        got = module.answer("state", line, {}, tables)
-        read = module.read(line, tables)
-        if (got and got["slots"].get("state") == value) or (read and read["slots"].get("state") == value):
+    """Whether a line ends in the state words of `value`, or is nothing but them or their tail ("lido" for "como lido"). The words of "unread" are tried first: a line that
+    ends in them says "unread", whatever its last word is."""
+    for text in said:
+        norm = natural.normal(text)
+        unread = [p for p in listed(tables, "mail", "unread") if norm.endswith(p) or norm == " ".join(p.split()[1:])]
+        if unread:
+            if value == "unread":
+                return True
+            continue
+        if value == "read" and any(norm.endswith(p) or norm == " ".join(p.split()[1:]) for p in listed(tables, "mail", "read")):
             return True
     return False
 
 
-def _mailbox_account(value: str, args: dict, said: list, offered: dict, picked: bool) -> bool:
+def _of_service(value: str, said: list, tables: list) -> bool:
+    """Whether a line ends its references with an "of" word and the name of the service of `value` ("os e-mails 2 e 4 do gmail", "emails 2 and 4 from gmail"): the "of" word
+    introduces the bare name, as `service_in` does elsewhere."""
+    of = nt._alt(listed(tables, "mail", "of"))
+    names = nt._alt(listed(tables, "services", value))
+    if not of or not names:
+        return False
+    return any(_Frame(text, tables).noun and re.search(rf"(?<![a-z0-9]){of}\s+{names}\s*$", natural.normal(_Frame(text, tables).references())) for text in said)
+
+
+def _mailbox_account(value: str, args: dict, said: list, offered: dict, picked: bool, tables: list) -> bool:
     """Whether the account of a write on messages is the account of their mailbox: the references' sources all belong to `value`, and the mailbox is the only one code listed, is
-    written in a line, or was picked."""
+    written in the references' part of a line, or was picked."""
     sources = offered.get("mail_sources") or {}
     refs = [r for r in str(args.get("messages") or args.get("message") or "").split(",") if r]
     if not refs or any(sources.get(r.partition("#")[0]) != value for r in refs):
         return False
-    return len(sources) == 1 or picked or any(r.partition("#")[0] in natural.normal(" ".join(said)).split() or r in " ".join(said) for r in refs)
+    written = " ".join(_Frame(text, tables).references().lower() for text in said)
+    return len(sources) == 1 or picked or any(re.search(rf"(?<![a-z0-9]){re.escape(r.partition('#')[0])}(?![a-z0-9])", written) for r in refs)
 
 
 def _named(op: str, value: str, lines: list, tables: list) -> bool:
