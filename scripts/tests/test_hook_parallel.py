@@ -37,28 +37,29 @@ def test_the_hook_runs_pytest_with_xdist_under_the_clean_git_environment():
     assert "python3 scripts/test_slots.py -- uv run" in line  # the run takes one of the machine's test slots first
 
 
-def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_25_minute_limit():
-    for name in ("tests", "python39"):
+def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_time_limit():
+    for name, limit in (("tests", 45), ("python39", 25)):
         block = job_block(name)
-        assert re.search(r"^    timeout-minutes: 25\s*$", block, re.M), name
+        assert re.search(r"^    timeout-minutes: %d\s*$" % limit, block, re.M), name
         assert "--with pytest-xdist==3.8.0" in block, name
         assert re.search(r"pytest -q -n auto\b", block), name
         assert "--durations=20" in block, name
 
 
-def test_the_whole_suite_job_runs_every_test_folder_with_the_full_fuzz_and_a_longer_limit():
-    block = job_block("full-suite")
-    assert re.search(r"^    timeout-minutes: 45\s*$", block, re.M)
-    assert 'WB_FULL_FUZZ: "1"' in block and "$(python3 scripts/test_dirs.py)" in block
-    assert "--with pytest-xdist==3.8.0" in block and re.search(r"pytest -q -n auto\b", block) and "--durations=20" in block
-    assert "select_tests" not in block  # the whole suite is not a selection
-    assert "WB_FULL_FUZZ" not in job_block("tests")
-
-
-def test_the_selected_tests_job_runs_what_the_selector_prints():
+def test_the_tests_job_has_the_whole_suite_mode_with_the_full_fuzz_and_a_longer_limit():
     block = job_block("tests")
-    assert 'python3 scripts/select_tests.py --base "$BASE_SHA"' in block and "fetch-depth: 0" in block
-    assert "test_dirs.py" not in block
+    assert re.search(r"^    timeout-minutes: 45\s*$", block, re.M)
+    whole = block[block.index("- name: Scanner and provider tests, the whole suite"):]
+    assert 'WB_FULL_FUZZ: "1"' in whole and "$(python3 scripts/test_dirs.py)" in whole
+    assert "select_tests" not in whole  # the whole suite is not a selection
+    assert "pytest-xdist==3.8.0" in whole and re.search(r"pytest -q -n auto\b", whole) and "--durations=20" in whole
+
+
+def test_the_selected_mode_runs_what_the_selector_prints_and_never_the_full_fuzz():
+    block = job_block("tests")
+    selected = block[block.index("- name: Choose the tests"):block.index("- name: Scanner and provider tests, the whole suite")]
+    assert 'python3 scripts/select_tests.py --base "$BASE_SHA"' in selected and "fetch-depth: 0" in block
+    assert "test_dirs.py" not in selected and "WB_FULL_FUZZ" not in selected
 
 
 def test_only_the_python39_job_leaves_out_the_javascript_only_interface_tests():

@@ -15,6 +15,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -170,6 +172,27 @@ def job_condition(name):
     return None
 
 
+def step_condition(job, step_name):
+    """The `if:` of the step of that job with that name (None when it has none)."""
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    lines = job_block(text, job).splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == "- name: " + step_name)
+    parts, found = [], False
+    for line in lines[start + 1:]:
+        if re.match(r"^      - ", line):
+            break
+        match = re.match(r"^        if:\s*(.*)$", line)
+        if match:
+            found = True
+            if match.group(1) not in (">-", ">", "|"):
+                parts.append(match.group(1))
+        elif found and re.match(r"^ {10,}\S", line):
+            parts.append(line.strip())
+        elif found:
+            break
+    return " ".join(parts) if found else None
+
+
 def evaluate(expression, event_name, action=None, base_ref="", labels=(), label=None):
     if expression is None:
         return True  # a job without a condition runs
@@ -211,33 +234,64 @@ EVENTS = {
 }
 
 
-def test_the_whole_suite_runs_on_the_four_events_of_the_end_of_a_delivery_and_on_nothing_else():
-    condition = job_condition("full-suite")
-    assert condition is not None
-    ran = {name for name, event in EVENTS.items() if evaluate(condition, **event)}
-    assert ran == {"a push to main", "a pull request into main", "a manual run", "a pull request labelled full-suite, a new commit",
-                   "the label full-suite just added"}
+WHOLE = "Scanner and provider tests, the whole suite"
+SELECTED = "Selected scanner, provider, runtime and script tests"
+CHOOSE = "Choose the tests this pull request can reach"
 
 
-def test_the_selected_tests_run_on_a_pull_request_into_a_branch_other_than_main_unless_it_carries_the_label():
-    condition = job_condition("tests")
-    ran = {name for name, event in EVENTS.items() if evaluate(condition, **event)}
-    assert ran == {"a pull request into an integration branch"}
+def modes(job_if, whole_if, selected_if):
+    """For each event: None (the job does not run), "whole" or "selected" (the step that runs the tests)."""
+    out = {}
+    for name, event in EVENTS.items():
+        if not evaluate(job_if, **event):
+            out[name] = None
+            continue
+        whole, selected = evaluate(whole_if, **event), evaluate(selected_if, **event)
+        assert whole != selected, (name, "exactly one of the two test steps runs")
+        out[name] = "whole" if whole else "selected"
+    return out
 
 
-def test_the_planted_condition_that_forgets_the_label_is_caught_by_the_oracle():
-    planted = "github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.base_ref == 'main'"
-    assert {name for name, event in EVENTS.items() if evaluate(planted, **event)} != {"a push to main", "a pull request into main", "a manual run",
-                                                                                      "a pull request labelled full-suite, a new commit",
-                                                                                      "the label full-suite just added"}
+WANTED_MODES = {
+    "a push to main": "whole", "a pull request into main": "whole", "a manual run": "whole",
+    "a pull request labelled full-suite, a new commit": "whole", "the label full-suite just added": "whole",
+    "a pull request into an integration branch": "selected", "another label just added": None, "another label added to a pull request into main": None,
+}
+
+
+def test_the_one_tests_job_runs_the_whole_list_on_the_four_events_of_the_end_of_a_delivery_and_the_selection_otherwise():
+    """The required check of the main ruleset is `tests`: on a pull request into main it must run, and run every test folder."""
+    got = modes(job_condition("tests"), step_condition("tests", WHOLE), step_condition("tests", SELECTED))
+    assert got == WANTED_MODES
+    assert step_condition("tests", CHOOSE) == step_condition("tests", SELECTED)  # the selector runs exactly when its targets are used
+    text = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "tests")
+    whole_step = text[text.index("- name: " + WHOLE):]
+    assert "$(python3 scripts/test_dirs.py)" in whole_step and 'WB_FULL_FUZZ: "1"' in whole_step and "select_tests" not in whole_step
+    selected_step = text[text.index("- name: " + SELECTED):text.index("- name: " + WHOLE)]
+    assert "selected-tests.txt" in selected_step and "WB_FULL_FUZZ" not in selected_step
+    assert not re.search(r"^  full-suite:\s*$", (REPO / ".github" / "workflows" / "checks.yml").read_text(), re.M)  # no second job to be the only gate
+
+
+def test_planted_workflows_that_skip_tests_on_a_pull_request_into_main_are_caught_by_the_oracle():
+    whole, selected = step_condition("tests", WHOLE), step_condition("tests", SELECTED)
+    # the first design of this package: the job `tests` is skipped for a pull request into main (a skipped required check passes)
+    skipped_into_main = "github.event.action != 'labeled' && github.base_ref != 'main'"
+    assert modes(skipped_into_main, whole, selected) != WANTED_MODES
+    # a whole-suite step that forgets the base: a pull request into main would get the selection
+    forgets_base = "github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-suite')"
+    with pytest.raises(AssertionError):  # a pull request into main would run neither step: the helper refuses it
+        modes(job_condition("tests"), forgets_base, selected)
+    # both steps true at once is refused by the helper itself
+    with pytest.raises(AssertionError):
+        modes(job_condition("tests"), "github.event_name == 'push' || github.event_name == 'pull_request'", "github.event_name == 'pull_request'")
 
 
 def test_an_unrelated_label_starts_no_job_and_the_label_of_the_whole_suite_starts_the_checks_of_the_delivery():
     other = EVENTS["another label just added"]
     full = EVENTS["the label full-suite just added"]
-    for name in ("validate", "python39", "changes", "tests", "full-suite"):
+    for name in ("validate", "python39", "changes", "tests"):
         assert evaluate(job_condition(name), **other) is False, name
-    for name in ("validate", "python39", "changes", "full-suite"):
+    for name in ("validate", "python39", "changes", "tests"):
         assert evaluate(job_condition(name), **full) is True, name
 
 

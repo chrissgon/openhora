@@ -4,7 +4,7 @@
 The repository standard (docs/decisions.md, 2026-10-20): during development only the SELECTED tests run (every commit, every
 pull request into an integration branch); the whole suite runs at the end of a large delivery (a pull request into main, a push to
 main, a manual run, a pull request labelled `full-suite`). The pre-commit hook and the `tests` job of .github/workflows/checks.yml
-call this script.
+call this script (the job runs the whole list instead on the four events above).
 
 Usage:
   python3 scripts/select_tests.py --files <path>...          # exactly these changed files (paths from the repository root)
