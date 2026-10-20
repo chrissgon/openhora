@@ -5,6 +5,7 @@ model, docs/architecture/reliability-model-2026-10-02.md), the gate, the version
 Usage:
   python3 evals/eval_status.py status [--skill <name>]
   python3 evals/eval_status.py status --skill-dir <folder of a skill from outside>
+  python3 evals/eval_status.py interpreter [--json] [--go]
   python3 evals/eval_status.py hash --skill <name>
   python3 evals/eval_status.py evidence [--skill <name> | --file <path>]
   python3 evals/eval_status.py gate --skill <name> [--model <id>]
@@ -14,6 +15,11 @@ Usage:
   python3 evals/eval_status.py measurement --close --cause "<why>" [--date YYYY-MM-DD]
   python3 evals/eval_status.py bump --skill <name> [--class x|y|z] [--date YYYY-MM-DD]
   python3 evals/eval_status.py migrate-versions [--date YYYY-MM-DD]
+
+The interpreter's standing (evals/interpreter_status.py; the reliability model, section 5 "Interpreter bands") is computed
+from its own evidence kind, evals/interpreter/evidence/ix-<test id>.jsonl, and printed by `interpreter`: one band per model,
+route and language, and with --go the go computation (exit 0 when go). `status` adds the same figures as its "interpreter"
+section, and `evidence` validates the interpreter files with the others. It never moves a skill's band.
 
 The records of the first round, skills/<name>/evals/result.json, were removed on 2026-10-15 (`git show
 bc830832:skills/<name>/evals/result.json`). Nothing writes one, nothing reads one, and no evidence is converted
@@ -351,6 +357,22 @@ def _load_evidence_lines():
 
 
 EVIDENCE_LINES = _load_evidence_lines()
+
+
+def _interpreter_status():
+    """evals/interpreter_status.py as a module (cached), or None in a tree that does not hold it (a partial copy of the
+    workbench): the interpreter's standing is an addition, and no other command reads it."""
+    import importlib.util
+    name = "workbench_interpreter_status"
+    if name not in sys.modules:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "interpreter_status.py")
+        if not os.path.isfile(path):
+            return None
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
 EVIDENCE_REL = EVIDENCE_LINES.EVIDENCE_REL
 CACHE_DIRS = ("__pycache__", ".pytest_cache")
 INSTALL_MARKER = ".installed-by-openhora"  # what an installer writes into a skill folder it copied
@@ -1036,7 +1058,7 @@ def evidence_standing(root=ROOT):
     kind, value = base_resolution(root)
     if kind != "base":
         return (lambda path: "unchecked"), (value if kind == "error" else None), (value if kind == "none" else None)
-    listing = git_out(root, "ls-tree", "-r", "--", value, "skills")
+    listing = git_out(root, "ls-tree", "-r", "--", value, "skills", EVIDENCE_LINES.INTERPRETER_EVIDENCE_REL)
     if listing is None:
         return (lambda path: "unchecked"), None, "the tree at the comparison base cannot be listed: evidence files are read by their own event line"
     at_base = {}
@@ -1082,6 +1104,10 @@ def evidence_problems(root=ROOT, only=None):
                                                       strict_for=evidence_reading(standing, strict_reading(root)),
                                                       community_problems=community_file_problems,
                                                       community_for=evidence_reading(standing, community_strict_reading(root)))
+    # the interpreter's own evidence kind (evals/interpreter/evidence/, epochs.json): the same standing of a file, its own forms
+    found_ix, checked_ix = ({}, 0) if only else EVIDENCE_LINES.interpreter_evidence_problems(
+        root, standing, EVIDENCE_LINES.interpreter_strict(root))
+    found, checked = {**found, **found_ix}, checked + checked_ix
     return ({("WB_BASE_REF" if error.startswith("WB_BASE_REF") else BASE_CONFIG_KEY): [error], **found}
             if error else found), checked
 
@@ -3368,7 +3394,7 @@ def main(argv, root=None):
                 die(f"{rest[i]} needs a value.")
             opts[rest[i][2:]] = rest[i + 1]
             i += 2
-        elif rest[i] in ("--write", "--check", "--close"):
+        elif rest[i] in ("--write", "--check", "--close", "--json", "--go"):
             flags.add(rest[i])
             i += 1
         else:
@@ -3420,6 +3446,18 @@ def main(argv, root=None):
         print(f"{GATE_REL} written. Add the entry below to docs/decisions.md, in the same commit as the change.", file=sys.stderr)
         print(json.dumps(out, indent=2))
         return 0
+    if flags & {"--json", "--go"} and cmd != "interpreter":
+        die("--json and --go go with the interpreter command. See --help.")
+    if cmd == "interpreter":
+        module = _interpreter_status()
+        if module is None or skill or opts or flags - {"--json", "--go"}:
+            die("interpreter takes --json and --go only, and needs evals/interpreter_status.py. See --help.")
+        result = module.status(root)
+        if "--go" in flags:
+            print(json.dumps(result["go"], indent=2))
+            return 0 if result["go"] and result["go"]["go"] else 1
+        print(json.dumps(result, indent=2) if "--json" in flags else "\n".join(module.table(result)))
+        return 0
     if "skill-dir" in opts and (cmd != "status" or skill or flags):
         die("--skill-dir goes with the status command alone, and not with --skill. See --help.")
     if cmd == "status":
@@ -3429,7 +3467,11 @@ def main(argv, root=None):
             except ValueError as e:
                 die(str(e), 2)
             return 0
-        print(json.dumps(all_status(root, skill, local_evidence_base()), indent=2))
+        out = all_status(root, skill, local_evidence_base())
+        module = None if skill else _interpreter_status()
+        if module is not None:  # the interpreter's own section, after the skills (it never moves a skill's band)
+            out["interpreter"] = module.status(root)
+        print(json.dumps(out, indent=2))
         return 0
     if cmd == "hash":
         if not skill:
@@ -3443,6 +3485,13 @@ def main(argv, root=None):
         if opts.get("file"):
             if os.path.basename(opts["file"]).startswith("field-"):
                 problems = field_file_problems(opts["file"], root, skill)
+            elif os.path.basename(opts["file"]).startswith("ix-"):
+                standing, error, note = evidence_standing(root)
+                inside = os.path.realpath(opts["file"]).startswith(os.path.realpath(root) + os.sep)
+                state = standing(os.path.relpath(os.path.realpath(opts["file"]), os.path.realpath(root))) if inside else "unchecked"
+                problems = ([error] if error else [EDITED_TEXT] if state == "edited"
+                            else EVIDENCE_LINES.interpreter_file_problems(
+                                opts["file"], EVIDENCE_LINES.interpreter_strict(root) if state == "new" else None))
             elif os.path.basename(opts["file"]).startswith("community-"):
                 standing, error, note = evidence_standing(root)
                 inside = os.path.realpath(opts["file"]).startswith(os.path.realpath(root) + os.sep)

@@ -117,6 +117,15 @@ community_file_problems checks the shape and the agreement of the three files wi
 call; the signature itself is verified by scripts/verify_community.py, in CI, on the pull request that adds the
 files. The manifest is a closed form with no free text (MANIFEST_KEYS).
 
+The interpreter's evidence (package IX-E)
+-----------------------------------------
+The natural-language interpreter is not a skill, so it has its own evidence kind: evals/interpreter/evidence/ix-<test id>.jsonl, an
+event line, then item lines (split dev or test) or aggregate lines (split local), written by the interpreter harness only and never
+edited once committed. Every value is a closed word, a pattern, a hash, an id, a number or a bool: there is no free-text field. The
+forms and `interpreter_evidence_problems` are at the end of this file; the bands and the go computation are evals/interpreter_status.py
+(the reliability model, section 5, "Interpreter bands"). A file is judged by its own event line, and a new one against the base
+strictly (the configured runs, a configured route). evals/interpreter/epochs.json is read here for its form and the served catalog.
+
 Usage (a library):
   python3 evals/evidence_lines.py --help        print this text
 """
@@ -870,6 +879,321 @@ def evidence_problems(root=ROOT, only=None, field_problems=None, strict_for=None
             if problems:
                 found[rel] = problems
     return found, checked
+
+
+# --- interpreter evidence (package IX-E; the reliability model, section 5 "Interpreter bands") -------------------------
+# Files evals/interpreter/evidence/ix-<test id>.jsonl, written by the interpreter harness only and never edited once
+# committed. A file holds an event line, then item lines (split dev or test) or aggregate lines (split local). Every
+# value is a closed word, a pattern, a hash, an id, a number or a bool: there is no free-text field, and a string that
+# is not one of those forms is a problem. A file new against the base of the change is read strictly (the event of a
+# split-test file states the configured number of runs, and its model and route are a row of the routes file); an
+# older one is judged by its own event line, as a lab file is.
+INTERPRETER_REL = os.path.join("evals", "interpreter")
+INTERPRETER_EVIDENCE_REL = os.path.join(INTERPRETER_REL, "evidence")
+INTERPRETER_EPOCHS_REL = os.path.join(INTERPRETER_REL, "epochs.json")
+INTERPRETER_CATALOG_REL = os.path.join("runtime", "interpreter_catalog.json")
+INTERPRETER_FILE_RE = re.compile(r"ix-(" + TEST_ID_RE.pattern + r")\.jsonl")
+IX_EVENT_KEYS = ("record", "kind", "test", "date", "arm", "split", "model", "route", "route_sha256", "protocol", "protocol_sha256",
+                 "prompt_sha256", "catalog_sha256", "corpus_sha256", "taxonomy_sha256", "thresholds_sha256", "harness_sha256",
+                 "runs", "items", "sequential", "billing")
+IX_ITEM_KEYS = ("record", "test", "item", "run", "lang", "hard", "category", "observed", "parse", "error", "time_source",
+                "latency_ms", "usage", "cost_usd", "upstream")
+IX_AGGREGATE_KEYS = ("record", "test", "lang", "n", "counts", "parse_invalid")
+IX_ARMS, IX_SPLITS, IX_BILLING = ("bprime", "current"), ("dev", "test", "local"), ("metered", "none")
+IX_PARSE, IX_TIME_SOURCES = ("ok", "fenced", "invalid", "none"), ("code", "model")
+IX_LANGS = ("pt-BR", "en", "es", "fr", "de", "it", "ja", "mixed")
+# What the pipeline did with a line, and the categories of an item, worst first (taxonomy.json "observed" and "severity",
+# frozen at IX-1's merge: a test keeps the two equal while the file exists).
+IX_OBSERVED = ("executed", "card", "confirm", "remind_confirm", "read", "answer", "clarify", "route", "none", "refuse_d",
+               "refuse_g", "refuse_policy", "forwarded", "outage")
+IX_SEVERITY = ("wrong_effect_unconfirmed", "wrong_card", "wrong_reminder_reading", "wrong_item_binding", "wrong_read",
+               "wrong_route", "missed", "clarify", "correct")
+IX_LANG_CODES = {"pt-BR": "pt-br", "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it", "ja": "ja", "mixed": "mx"}
+IX_ITEM_RE = re.compile(r"(dev|test)-(pt-br|en|es|fr|de|it|ja|mx)-[0-9]{5}")
+IX_ROUTE_RE = re.compile(r"[a-z0-9][a-z0-9.-]{0,63}")
+IX_UPSTREAM_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,39}")
+IX_ERROR_RE = re.compile(r"E_[A-Z]+(_[A-Z]+)*")
+IX_USAGE_KEYS = ("input", "output", "cache_read", "cache_write")
+IX_MAX_LINES = 200000
+
+
+def _flag(value):
+    return isinstance(value, bool)
+
+
+def _nullable(check, value):
+    return value is None or check(value)
+
+
+def interpreter_event_problems(line):
+    """Why an interpreter event line is outside its closed form; [] when it is valid."""
+    out = [f"unknown key {k!r}" for k in line if k not in IX_EVENT_KEYS] + [f"missing key {k!r}" for k in IX_EVENT_KEYS if k not in line]
+    if out:
+        return out
+    checks = (
+        ("record", line["record"] == "event", "must be \"event\""),
+        ("kind", line["kind"] == "interpreter", "must be \"interpreter\""),
+        ("test", _is(TEST_ID_RE, line["test"]), "must be a test id"),
+        ("date", _date(line["date"]), "must be a YYYY-MM-DD date"),
+        ("arm", line["arm"] in IX_ARMS, f"must be one of {', '.join(IX_ARMS)}"),
+        ("split", line["split"] in IX_SPLITS, f"must be one of {', '.join(IX_SPLITS)}"),
+        ("model", _nullable(lambda v: _is(MODEL_RE, v), line["model"]), "must be a model id or null"),
+        ("route", _nullable(lambda v: _is(IX_ROUTE_RE, v), line["route"]), "must be a route id or null"),
+        ("route_sha256", _nullable(lambda v: _is(HEX64_RE, v), line["route_sha256"]), "must be a sha256 or null"),
+        ("protocol", _count(line["protocol"], 1), "must be a whole number from 1"),
+        ("protocol_sha256", _is(HEX64_RE, line["protocol_sha256"]), "must be a sha256"),
+        ("prompt_sha256", _nullable(lambda v: _is(HEX64_RE, v), line["prompt_sha256"]), "must be a sha256 or null"),
+        ("catalog_sha256", _is(HEX64_RE, line["catalog_sha256"]), "must be a sha256"),
+        ("corpus_sha256", _is(HEX64_RE, line["corpus_sha256"]), "must be a sha256"),
+        ("taxonomy_sha256", _is(HEX64_RE, line["taxonomy_sha256"]), "must be a sha256"),
+        ("thresholds_sha256", _is(HEX64_RE, line["thresholds_sha256"]), "must be a sha256"),
+        ("harness_sha256", _is(HEX64_RE, line["harness_sha256"]), "must be a sha256"),
+        ("runs", _count(line["runs"], RUNS_RANGE[0]) and line["runs"] <= RUNS_RANGE[1], f"must be a whole number from {RUNS_RANGE[0]} to {RUNS_RANGE[1]}"),
+        ("items", _count(line["items"], 1), "must be a whole number from 1"),
+        ("sequential", _flag(line["sequential"]), "must be true or false"),
+        ("billing", line["billing"] in IX_BILLING, f"must be one of {', '.join(IX_BILLING)}"),
+    )
+    out = [f"{key} {text}" for key, ok, text in checks if not ok]
+    if out:
+        return out
+    pair = (line["model"], line["route"], line["route_sha256"], line["prompt_sha256"])
+    if line["arm"] == "bprime" and any(v is None for v in pair):
+        out.append("a bprime event names its model, route, route_sha256 and prompt_sha256")
+    if line["arm"] == "current" and any(v is not None for v in pair):
+        out.append("a current event has no model, route, route_sha256 or prompt_sha256 (null)")
+    if line["split"] == "local" and line["arm"] != "bprime":
+        out.append("a local event is the bprime arm")
+    return out
+
+
+def interpreter_item_problems(line, event=None):
+    """Why an interpreter item line is outside its closed form; [] when it is valid. With the event line, the line must also
+    agree with it (test, split, runs, billing)."""
+    out = [f"unknown key {k!r}" for k in line if k not in IX_ITEM_KEYS] + [f"missing key {k!r}" for k in IX_ITEM_KEYS if k not in line]
+    if out:
+        return out
+    usage = line["usage"]
+    usage_ok = usage is None or (isinstance(usage, dict) and sorted(usage) == sorted(IX_USAGE_KEYS)
+                                 and all(_nullable(_count, v) for v in usage.values()))
+    checks = (
+        ("record", line["record"] == "item", "must be \"item\""),
+        ("test", _is(TEST_ID_RE, line["test"]), "must be a test id"),
+        ("item", _is(IX_ITEM_RE, line["item"]), "must be a corpus item id"),
+        ("run", _count(line["run"], 1), "must be a whole number from 1"),
+        ("lang", line["lang"] in IX_LANGS, f"must be one of {', '.join(IX_LANGS)}"),
+        ("hard", _flag(line["hard"]), "must be true or false"),
+        ("category", line["category"] in IX_SEVERITY, "must be one of the categories of the taxonomy"),
+        ("observed", line["observed"] in IX_OBSERVED, "must be one of the observed words of the taxonomy"),
+        ("parse", line["parse"] in IX_PARSE, f"must be one of {', '.join(IX_PARSE)}"),
+        ("error", _nullable(lambda v: _is(IX_ERROR_RE, v), line["error"]), "must be an E_ code or null"),
+        ("time_source", line["time_source"] is None or line["time_source"] in IX_TIME_SOURCES, "must be code, model or null"),
+        ("latency_ms", _nullable(_count, line["latency_ms"]), "must be a whole number or null"),
+        ("usage", usage_ok, "must be null or {input, output, cache_read, cache_write} of whole numbers or null"),
+        ("cost_usd", _nullable(lambda v: _number(v, 0, 100), line["cost_usd"]), "must be a number from 0 to 100 or null"),
+        ("upstream", _nullable(lambda v: _is(IX_UPSTREAM_RE, v), line["upstream"]), "must be a provider word or null"),
+    )
+    out = [f"{key} {text}" for key, ok, text in checks if not ok]
+    if out:
+        return out
+    if line["item"].split("-", 1)[1].rsplit("-", 1)[0] != IX_LANG_CODES[line["lang"]]:
+        out.append("item and lang disagree: the id carries the language's code")
+    if event is None:
+        return out
+    if line["test"] != event.get("test"):
+        out.append("test differs from the event's")
+    if event.get("split") in ("dev", "test") and not line["item"].startswith(event["split"] + "-"):
+        out.append("item is not of the event's split")
+    if _count(event.get("runs"), 1) and line["run"] > event["runs"]:
+        out.append("run is more than the event's runs")
+    if event.get("billing") == "none" and line["cost_usd"] is not None:
+        out.append("cost_usd must be null in an event that is not metered")
+    return out
+
+
+def interpreter_aggregate_problems(line, event=None):
+    """Why an aggregate line (split local: counts only, no id) is outside its closed form; [] when it is valid."""
+    out = [f"unknown key {k!r}" for k in line if k not in IX_AGGREGATE_KEYS] + [f"missing key {k!r}" for k in IX_AGGREGATE_KEYS if k not in line]
+    if out:
+        return out
+    counts = line["counts"]
+    counts_ok = isinstance(counts, dict) and all(k in IX_SEVERITY and _count(v) for k, v in counts.items())
+    checks = (
+        ("record", line["record"] == "aggregate", "must be \"aggregate\""),
+        ("test", _is(TEST_ID_RE, line["test"]), "must be a test id"),
+        ("lang", line["lang"] in IX_LANGS, f"must be one of {', '.join(IX_LANGS)}"),
+        ("n", _count(line["n"], 1), "must be a whole number from 1"),
+        ("counts", counts_ok, "must be {category: whole number} with the taxonomy's categories"),
+        ("parse_invalid", _count(line["parse_invalid"]), "must be a whole number"),
+    )
+    out = [f"{key} {text}" for key, ok, text in checks if not ok]
+    if out:
+        return out
+    if sum(counts.values()) != line["n"]:
+        out.append("counts must add up to n")
+    if line["parse_invalid"] > line["n"]:
+        out.append("parse_invalid is more than n")
+    if event is not None and line["test"] != event.get("test"):
+        out.append("test differs from the event's")
+    return out
+
+
+def interpreter_file_problems(path, strict=None):
+    """Why one interpreter evidence file (ix-<test id>.jsonl) is not valid; [] when it is. strict is None (judge it by its own
+    event line) or a dict read from the routes and thresholds files (interpreter_strict): {"runs": the configured number of runs
+    or None, "routes": {route id: model} or None}; a new file is read with it."""
+    name = os.path.basename(path)
+    m = INTERPRETER_FILE_RE.fullmatch(name)
+    if not m:
+        return [f"the name must be ix-<test id>.jsonl, not {name}"]
+    event, rest, problems = read_evidence_file(path)
+    if event is None:
+        return problems
+    first = interpreter_event_problems(event)
+    problems += [f"line 1: {p}" for p in first]
+    if first:
+        return problems
+    if event["test"] != m.group(1):
+        problems.append("line 1: test differs from the file's name")
+    if len(rest) > IX_MAX_LINES:
+        problems.append(f"the file has more than {IX_MAX_LINES} lines")
+        return problems
+    seen = set()
+    kinds = {"local": "aggregate", "dev": "item", "test": "item"}
+    for n, line in rest:
+        record = line.get("record")
+        if record != kinds[event["split"]]:
+            problems.append(f"line {n}: a {event['split']} event holds {kinds[event['split']]} lines, not {record!r}")
+            continue
+        found = (interpreter_aggregate_problems if record == "aggregate" else interpreter_item_problems)(line, event)
+        problems += [f"line {n}: {p}" for p in found]
+        if not found:
+            key = (line["lang"],) if record == "aggregate" else (line["item"], line["run"])
+            if key in seen:
+                problems.append(f"line {n}: {'aggregate' if record == 'aggregate' else 'item and run'} {'/'.join(map(str, key))} appears twice")
+            seen.add(key)
+    if not problems and event["split"] != "local":
+        held = {line["item"] for _, line in rest}
+        if len(held) > event["items"]:
+            problems.append(f"the file holds {len(held)} items, more than the event's items, {event['items']}")
+    if strict and not first:
+        if strict.get("runs") and event["split"] == "test" and event["arm"] == "bprime" and event["runs"] != strict["runs"]:
+            problems.append(f"line 1: runs is {event['runs']}, and the configured number is {strict['runs']} (thresholds.json): "
+                            "a new file of the test split comes only from an event that used the configured number")
+        routes = strict.get("routes")
+        if routes is not None and event["arm"] == "bprime" and routes.get(event["route"]) != event["model"]:
+            problems.append("line 1: route and model are not a row of runtime/interpreter_routes.json: a new file names a configured route")
+    return problems
+
+
+def _json_file(root, rel):
+    try:
+        with open(os.path.join(root, rel), encoding="utf-8") as f:
+            value = json.load(f)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def interpreter_strict(root=ROOT):
+    """The strict reading of a new interpreter file, from the thresholds and routes files read as data (None for a part whose
+    file is absent or unreadable: that part is not checked)."""
+    thresholds = _json_file(root, os.path.join(INTERPRETER_REL, "thresholds.json"))
+    routes = _json_file(root, os.path.join("runtime", "interpreter_routes.json"))
+    runs = thresholds.get("runs") if thresholds and _count(thresholds.get("runs"), 1) else None
+    rows = routes.get("routes") if routes and isinstance(routes.get("routes"), list) else None
+    return {"runs": runs, "routes": {r.get("id"): r.get("model") for r in rows if isinstance(r, dict)} if rows is not None else None}
+
+
+def interpreter_epochs_problems(data):
+    """Why the parsed epochs file is not valid; [] when it is. Not read: the served catalog file or the generator (the status
+    script and a test compare them to the epochs)."""
+    if not isinstance(data, dict) or set(data) != {"v", "served", "epochs"}:
+        return ["epochs.json must be {\"v\", \"served\", \"epochs\"}"]
+    out = []
+    if data["v"] != 1:
+        out.append("v must be 1")
+    if not _is(HEX64_RE, data["served"]):
+        out.append("served must be a catalog sha256")
+    rows = data["epochs"]
+    if not isinstance(rows, list) or not rows:
+        return out + ["epochs must be a non-empty list"]
+    shas = []
+    for n, row in enumerate(rows, 1):
+        if not (isinstance(row, dict) and set(row) == {"catalog_sha256", "date", "state"}):
+            out.append(f"epoch {n} must be {{\"catalog_sha256\", \"date\", \"state\"}}")
+            continue
+        if not _is(HEX64_RE, row["catalog_sha256"]):
+            out.append(f"epoch {n}: catalog_sha256 must be a sha256")
+        if not _date(row["date"]):
+            out.append(f"epoch {n}: date must be a YYYY-MM-DD date")
+        if row["state"] not in ("served", "pending-rerun", "retired"):
+            out.append(f"epoch {n}: state must be served, pending-rerun or retired")
+        shas.append(row["catalog_sha256"])
+    if len(set(shas)) != len(shas):
+        out.append("an epoch's catalog_sha256 appears twice")
+    served = [r for r in rows if isinstance(r, dict) and r.get("state") == "served"]
+    if len(served) != 1 or served[0].get("catalog_sha256") != data["served"]:
+        out.append("exactly one epoch is served, and it is the one the served key names")
+    return out
+
+
+def interpreter_evidence_problems(root=ROOT, standing=None, strict=None):
+    """({relative path: [problems]}, files checked) for evals/interpreter/evidence/ and evals/interpreter/epochs.json. standing
+    (evidence_standing of eval_status.py) tells a file new against the base from an edited one: an edited file is refused, a new
+    one is read with `strict` (interpreter_strict); with no standing every file is judged by its own event line."""
+    found, checked = {}, 0
+    folder = os.path.join(root, INTERPRETER_EVIDENCE_REL)
+    for entry in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if entry == ".gitkeep":
+            continue
+        rel = os.path.join(INTERPRETER_EVIDENCE_REL, entry)
+        checked += 1
+        state = standing(rel) if standing else "unchecked"
+        if state == "edited":
+            problems = ["committed evidence is never edited: this file differs from the one at the base of the change; "
+                        "restore it (git checkout <base> -- <path>), and write a new test event instead"]
+        else:
+            problems = interpreter_file_problems(os.path.join(folder, entry), (strict or interpreter_strict(root)) if state == "new" else None)
+        if problems:
+            found[rel] = problems
+    if os.path.exists(os.path.join(root, INTERPRETER_EPOCHS_REL)):
+        checked += 1
+        problems = interpreter_epochs_file_problems(root)
+        if problems:
+            found[INTERPRETER_EPOCHS_REL] = problems
+    return found, checked
+
+
+def _catalog_sha256(root):
+    """The hash of the served catalog file (runtime/interpreter_catalog.json) in the canonical form, else None."""
+    data = _json_file(root, INTERPRETER_CATALOG_REL)
+    if data is None:
+        return None
+    return hashlib.sha256(json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def interpreter_epochs_file_problems(root=ROOT, generated_sha256=None):
+    """The rule of the catalog epochs, on the files of `root`: epochs.json has its form, the hash of the served catalog file is the
+    epoch named `served`, and, when generated_sha256 (the hash of what interpreter_catalog.generate() returns now) is given, it is
+    that hash or one of an epoch in `pending-rerun` (the catalog changed and the test split has not run on it yet). The generator
+    is runtime code: the caller (a test, in a child process) computes its hash, and this module reads no code of runtime/."""
+    data = _json_file(root, INTERPRETER_EPOCHS_REL)
+    if data is None:
+        return ["epochs.json is not a JSON object"]
+    problems = interpreter_epochs_problems(data)
+    if problems:
+        return problems
+    actual = _catalog_sha256(root)
+    if actual is None:
+        problems.append(f"{INTERPRETER_CATALOG_REL.replace(os.sep, '/')} is missing or not a JSON object")
+    elif actual != data["served"]:
+        problems.append("the served catalog file's hash is not the epoch named served: a change to the catalog is a new epoch "
+                        "(the old one retired, the new one served after the test split has run on it)")
+    if generated_sha256 is not None and generated_sha256 != data["served"] and not any(
+            e["catalog_sha256"] == generated_sha256 and e["state"] == "pending-rerun" for e in data["epochs"]):
+        problems.append("the catalog the generator returns now is neither the served epoch nor one in pending-rerun: "
+                        "write the snapshot (interpreter_catalog.py --write) and add its epoch")
+    return problems
 
 
 def main(argv):
