@@ -359,7 +359,7 @@ def test_an_answer_to_the_routers_question_may_end_with_one_proposal_of_the_pers
     assert (chat_tree["project"] / PATH).read_text() == f"- {LINE}\n"
 
 
-def test_a_line_that_starts_a_request_or_is_short_is_not_proposed_and_messaging_is_told_where_to_accept(chat_tree):
+def test_a_line_that_starts_a_request_or_is_short_is_not_proposed_and_messaging_is_never_proposed_anything(chat_tree):
     reply(chat_tree, ASKING)
     new = say(chat_tree, "Which market should the invented studio go after first?")
     assert "instruction_proposal" not in new
@@ -369,8 +369,7 @@ def test_a_line_that_starts_a_request_or_is_short_is_not_proposed_and_messaging_
     other = ops.say(str(chat_tree["project"]), "/new Another invented request about pricing.")
     assert other["request_id"] != new["request_id"]
     on_messaging = ops.say(str(chat_tree["project"]), LINE, channel="messaging", sender="telegram:4242")
-    assert on_messaging["instruction_proposal"]["line"] == LINE
-    assert "accept it on the page (Building > Instructions) or in the terminal" in on_messaging["reply"]
+    assert "instruction_proposal" not in on_messaging and "Add this line" not in on_messaging["reply"], "an answer on a messaging app is never proposed (LIVE-1)"
     assert not (chat_tree["project"] / PATH).exists()
 
 
@@ -449,10 +448,11 @@ def test_an_answer_through_the_page_or_a_messaging_reply_proposes_nothing_and_sp
 
 def test_the_proposal_tells_a_channel_that_cannot_write_where_to_accept_it_and_the_drained_queue_is_one_of_them(plain_tree):
     ctx = ops_core.context(str(plain_tree["project"]))
-    said = {c: ops_instructions.proposal(ctx, 700 + n, LINE, c)["text"] for n, c in enumerate(("terminal", "page", "queue", "messaging", "mcp", "chat"))}
+    said = {c: ops_instructions.proposal(ctx, 700 + n, LINE, c)["text"] for n, c in enumerate(("terminal", "page", "queue", "mcp", "chat"))}
     assert said["terminal"].endswith(ops_instructions.WHERE_SAYS) and said["page"].endswith(ops_instructions.WHERE_SAYS)
-    for channel in ("queue", "messaging", "mcp", "chat"):
+    for channel in ("queue", "mcp", "chat"):
         assert said[channel].endswith(ops_instructions.WHERE_ELSEWHERE), channel
+    assert ops_instructions.proposal(ctx, 799, LINE, "messaging") is None, "a messaging app is never proposed an addition (LIVE-1)"
 
 
 def test_the_router_refuses_a_broken_file_before_a_use_of_the_skill_is_recorded(chat_tree, monkeypatch):

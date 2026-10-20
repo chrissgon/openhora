@@ -35,6 +35,8 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
   heads(key)                  the part of a sentence before its first `[` in every language of the table, for the check of an imitated quote
   every(key)                  the sentence of a key in every language of the table (the forms a model must not write, the headings a model's line may imitate)
   decimal(text, cfg)          a number written with a point, as the language writes it (a comma in Portuguese)
+  question_lines(reply)       the `Q<n>: ... Recommended: ...` lines of a router reply that asks, and nothing else of its template
+  asked_view(reply, cfg)      what a messaging app shows of such a reply: the framing (ROUTER_ASKS_FRAME) in the project's language, then those lines
   localize(sentence, cfg)     an English sentence of a reminder or a file, as an operation raised it, in the project's language; any other text unchanged
   status(word, cfg)           a status word of the store as a word of the language (the word itself when unknown or the language has no table)
   heading(title, cfg)         the title of a decision that code wrote whole, as a word of the language; any other title unchanged
@@ -267,6 +269,10 @@ TABLE = {
         # --- the conversation (ops_say.py) ---
         "PLAN_NEXT": "Approve with /approve {pending}",
         "ASK_NEXT": "Answer with a plain line, or start again with /new <text>",
+        "ROUTER_ASKS_FRAME": "Before I start I need your answer:",
+        "INSTR_PROPOSAL_ASK": "Add this line to the project's instructions?",
+        "INSTR_WHERE_SAYS": "or on the page: Building > Instructions",
+        "INSTR_WHERE_ELSEWHERE": "accept it on the page (Building > Instructions) or in the terminal",
         "ANSWERED_AS": "(answered from the sources: request {request})",
         "BODY_NOT_NAMED": "The planning agent did not name a flow or a skill for request {request}",
         "NOT_NAMED_NEXT": "Cancel it with /cancel {request}, name a flow in the terminal with: {route}, or start again with /new <text>",
@@ -696,6 +702,32 @@ def body(text_, cfg=None):
         return text_
     found = _match(text_, BODIES)
     return text(found[0], cfg, **found[1]) if found else text_
+
+
+QUESTION_LINE = re.compile(r"^(?:Next: )?Q[0-9]+: ")      # the same shape as router.QUESTION_RE (a test compares the two); this module imports no sibling that reads the router
+
+
+def question_lines(reply) -> list:
+    """The questions of a router reply that asks, each as the line `Q<n>: <question> Recommended: <answer>, because <reason>` (the label `Next: ` of a question
+    written on the template's `Next:` line is dropped; a question written twice is listed once), in the order they were asked. Nothing else of the reply is in
+    the list: not the route line, the why, the context, the requirements, the sources, the autonomy, the assumptions or the section of instructions found in
+    external content. An empty list for a reply that asks nothing."""
+    found = []
+    for line in (reply or "").splitlines():
+        line = line.rstrip()
+        if QUESTION_LINE.match(line):
+            line = line[len("Next: "):] if line.startswith("Next: ") else line
+            if line not in found:
+                found.append(line)
+    return found
+
+
+def asked_view(reply, cfg=None) -> str:
+    """What a messaging app shows of a router reply that asks: the framing sentence in the project's language (`cfg` maps `language`), a blank line and the
+    question lines (question_lines), nothing more. The page and the terminal show the reply whole; a phone shows the question. A reply with no question line
+    comes back as it was (nothing is guessed, nothing is hidden that is not a template)."""
+    lines = question_lines(reply)
+    return text("ROUTER_ASKS_FRAME", cfg) + "\n\n" + "\n".join(lines) if lines else reply
 
 
 def localize(sentence, cfg=None):

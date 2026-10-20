@@ -20,7 +20,9 @@ call time, never imported at module level.
                  changed meanwhile, by hand or by the other operation, is never overwritten.
   answer         the proposal. The `answer` row calls `answer_proposing`: the answer is recorded as ever, and an answer to a
                  question may end with one proposal to add the person's own line to the instructions, on the channels that show the
-                 whole result (DISPLAYS), and through `say` on every channel. The proposal is made
+                 whole result (DISPLAYS), and through `say` on every channel but a messaging app, where an answer is never proposed
+                 (NO_PROPOSAL_CHANNELS; the request's one proposal is not spent). Its sentences are the phrase table's, in the project's
+                 language (INSTR_PROPOSAL_ASK, INSTR_WHERE_SAYS, INSTR_WHERE_ELSEWHERE); the line and the command are not changed. The proposal is made
                  by code: no model, no word list. It is offered only when the line is the person's own stored text (the
                  line they typed; never a model's reply, a source, a document of the mirror, an e-mail, a ticket or a
                  notification), one line of 20 to 300 characters, passes the checks of the file together with the file as
@@ -43,17 +45,21 @@ import sys
 import ops_core as core
 import instructions as standing
 import operations
+import phrases
 
 PROPOSAL_MIN = 20          # characters: an answer shorter than this is a choice ("yes", "the second one"), not a standing rule
 PROPOSAL_MAX = 300         # characters of the one line a proposal offers
 PROPOSED = "instructions:proposed:"      # the store's cursor <this><request id>: a proposal was made for the request
-PROPOSAL_ASK = "Add this line to the project's instructions?"
+PROPOSAL_ASK = phrases.en("INSTR_PROPOSAL_ASK")      # the English sentences; the proposal says them in the project's language (runtime/phrases.py)
 # Where a proposal is shown to the person: the terminal and the conversation print the whole result of an answer, MCP returns it to its client,
-# and `say` shows it in the reply on every channel. The page's inbox and a messaging app's reply to a card show "Answered #N." and nothing of
-# the result, so an answer through them proposes nothing and spends no request's one proposal where it would not be seen.
+# and `say` shows it in the reply on every channel that is not a messaging app. The page's inbox and a messaging app's reply to a card show "Answered #N."
+# and nothing of the result, so an answer through them proposes nothing and spends no request's one proposal where it would not be seen. A line typed on
+# a messaging app is never proposed either (NO_PROPOSAL_CHANNELS): the file is written from the terminal or the page, the person is on a phone, and the
+# proposal's text is a command with a path and a hash.
 DISPLAYS = ("terminal", "chat", "mcp")
-WHERE_SAYS = "or on the page: Building > Instructions"
-WHERE_ELSEWHERE = "accept it on the page (Building > Instructions) or in the terminal"
+NO_PROPOSAL_CHANNELS = ("messaging",)
+WHERE_SAYS = phrases.en("INSTR_WHERE_SAYS")
+WHERE_ELSEWHERE = phrases.en("INSTR_WHERE_ELSEWHERE")
 BASE = re.compile(r"none|[0-9a-f]{64}")
 NOT_HERE = "the standing instructions are written from the terminal or from the page, by default, and no channel policy widens it yet (limit L40)"
 ROUTINE_CHANGED = ("the project's instructions changed after the routine {name} was approved: approve the routine again "
@@ -203,7 +209,7 @@ def proposal(ctx: dict, request_id, line, channel=None):
     """None, or {"line", "text", "command", "base_sha256"} when the person's own line is offered for the instructions (the module's
     text lists the conditions). The cursor of the request is written when it is offered, so a request gets one proposal. `line` is
     the text the person typed; a caller never passes a reply of a model or any other text."""
-    if request_id is None or not isinstance(line, str):
+    if request_id is None or not isinstance(line, str) or channel in NO_PROPOSAL_CHANNELS:      # a messaging app's answer is never proposed, and the request's one proposal is not spent
         return None
     one = line.strip()
     if "\n" in one or "\r" in one or not PROPOSAL_MIN <= len(one) <= PROPOSAL_MAX:
@@ -221,9 +227,10 @@ def proposal(ctx: dict, request_id, line, channel=None):
     core._stored(ctx, ctx["store"].cursor_set, name, standing.sha256(one.encode("utf-8")))
     base = found["sha256"] or "none"
     command = core._command("instructions-add", project, line=one, base_sha256=base)
-    where = WHERE_SAYS if channel in ("terminal", "page") else WHERE_ELSEWHERE      # a channel that cannot write the file is told where to accept it
+    say = lambda key: phrases.text(key, ctx["cfg"])  # noqa: E731      # the frames are the phrase table's, in the project's language; the line and the command are not changed
+    where = say("INSTR_WHERE_SAYS") if channel in ("terminal", "page") else say("INSTR_WHERE_ELSEWHERE")      # a channel that cannot write the file is told where to accept it
     return {"line": one, "base_sha256": base, "command": command,
-            "text": f'{PROPOSAL_ASK} "{one}"\n{command}\n{where}'}
+            "text": f'{say("INSTR_PROPOSAL_ASK")} "{one}"\n{command}\n{where}'}
 
 
 def answer_proposing(project: str, pending_id: int, text: str, with_comments: bool = False, channel=None, sender=None) -> dict:
