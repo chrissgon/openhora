@@ -28,6 +28,9 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
                                                       bridge does not handle itself, such as /status, goes there too:
                                                       the operations layer decides, by the channel's policy)
   {"kind": "usage", "text": "Usage: ..."}             a command it handles with arguments it cannot read
+  {"kind": "forwarded"}                               a message the sender forwarded (the update's `forwarded` key; FWD): no text is carried. It is never a request, a command,
+                                                      an answer or an approval, whatever its words say; the bridge answers it with one sentence (FWD_NOT_A_REQUEST) and reads
+                                                      nothing else of it. A forwarded FILE stays an `attachment` intent with "text": None, so its caption never preselects
 
 The sentences it names (HELP, the usage lines) are the phrase table's English text (runtime/phrases.py); the bridge says them in the project's language, and `usage_key`
 maps the sentence of a `usage` intent to its key. The intents themselves are the same in every language.
@@ -86,8 +89,11 @@ def parse(update: dict) -> dict:
     if action:
         return {"kind": "action", "action": action}
     text = (update.get("text") or "").strip()
+    forwarded = "forwarded" in update and update["forwarded"] is not False      # as messaging_provider.forwarded_of: fail closed
     if update.get("attachments"):
-        return {"kind": "attachment", "attachments": list(update["attachments"]), "text": text or None}
+        return {"kind": "attachment", "attachments": list(update["attachments"]), "text": None if forwarded else (text or None)}
+    if forwarded:
+        return {"kind": "forwarded"}          # before the "/" test and every matcher: a forwarded "/approve 12" or "remind me at 15:00" is nothing the person asked
     if not text:
         return {"kind": "ignore"}
     if text.startswith("/"):

@@ -136,6 +136,7 @@ WRONG_HASH = phrases.en("WRONG_HASH")
 NOT_OPEN = phrases.en("NOT_OPEN")
 NOT_OFFERED = phrases.en("NOT_OFFERED")
 REPLY_TO_CARD = phrases.en("REPLY_TO_CARD")
+FWD_NOT_A_REQUEST = phrases.en("FWD_NOT_A_REQUEST")
 UNREAD_ONE = phrases.en("UNREAD_ONE")
 UNREAD_MANY = phrases.en("UNREAD_MANY")
 UNREAD_EVERY = 3600.0   # seconds between two such lines to one chat
@@ -701,6 +702,9 @@ class Bridge(shell_kit.Jobs):
         project = self.project_of(sender, listed)
         kind = intent["kind"]
         if kind == "ignore":
+            return
+        if kind == "forwarded":
+            self.reply(chat, self.t("FWD_NOT_A_REQUEST", project=project), project)          # a forwarded message is never a request (FWD): one sentence, and nothing of it is read by a draft, a reminder, a write or a card
             return
         replied = update.get("reply_to")
         shown = self.ledger.by_message(chat, replied) if kind == "natural" and replied else None

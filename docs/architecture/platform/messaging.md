@@ -454,7 +454,7 @@ The neutral message the bridge sends is `{"text", "actions": [{"id", "label"}], 
 
 ### An update and an intent
 
-An **update** is one element of what a provider receives (a `receive` answer, or a listen `update` event): `{"update_id"?, "sender", "chat", "private", "text", "action", "action_ref", "reply_to", "attachments"?}` (`attachments`: at most 10 of `{"ref", "name", "size", "type"}`, checked by `messaging_provider.valid_attachments` on both paths; an invalid element drops the update; `text` is then the caption, or null). For a listen provider the bridge validates it (`messaging_provider.valid_update`, `:164`): it must be a JSON object with `private` true, a non-empty string `sender` and `chat`, and `text`, `action` and `reply_to` each a string or null; `action_ref` is forced to null (the provider has already acknowledged). Anything else is dropped and logged by class. An **intent** is what `messaging_inbound.parse` (`:37`) makes of it, one dict with a `kind`:
+An **update** is one element of what a provider receives (a `receive` answer, or a listen `update` event): `{"update_id"?, "sender", "chat", "private", "text", "action", "action_ref", "reply_to", "attachments"?, "forwarded"?}` (`attachments`: at most 10 of `{"ref", "name", "size", "type"}`, checked by `messaging_provider.valid_attachments` on both paths; an invalid element drops the update; `text` is then the caption, or null). For a listen provider the bridge validates it (`messaging_provider.valid_update`, `:164`): it must be a JSON object with `private` true, a non-empty string `sender` and `chat`, and `text`, `action` and `reply_to` each a string or null; `action_ref` is forced to null (the provider has already acknowledged); `forwarded` is always there as a boolean (`messaging_provider.forwarded_of`: absent or `false` is false, any other value is true). Anything else is dropped and logged by class. An **intent** is what `messaging_inbound.parse` (`:37`) makes of it, one dict with a `kind`:
 
 | Kind | From | Fields |
 |---|---|---|
@@ -471,7 +471,23 @@ An **update** is one element of what a provider receives (a `receive` answer, or
 | `reply` | a reply to a message, not a command | `reply_to`, `text` |
 | `text` | anything else, a command the bridge does not handle itself (such as `/status`) included | `text` (a line for the planning agent) |
 | `usage` | a command it handles with arguments it cannot read | `text` ("Usage: ...") |
+| `forwarded` | an update with `forwarded` that carries no file | none (no text is carried) |
 | `ignore` | an empty update | none |
+
+### Forwards (FWD)
+
+A forwarded message is never a request, a command, an answer or an approval, whatever its words say: someone else wrote it, and the person only passed it on. Every provider sets `"forwarded": true` on an update from the platform's own mark (per provider below), `messaging_provider.valid_update` keeps the key (absent or `false` is false, any other value fails closed to true), and `messaging_inbound.parse` makes `{"kind": "forwarded"}` of a forwarded line **before** the `/` test and every matcher (the reminders, the writes, the reply gesture), so even a forwarded `/approve 12` is nothing. The bridge answers that intent with one sentence in the project's language (`FWD_NOT_A_REQUEST`: "I don't act on forwarded messages. To ask for something, write it in your own words.") and returns **before** it reads a draft, a reminder, a question about a write or any store: a forward neither answers nor drops an open question, and the person's own next line still does. A forwarded **file** is still an `attachment` intent with `"text": None`: its card opens as any file's, and its caption never names a source or preselects a save. A tap (`action`) is never a forward. A sender that is not listed gets no sentence (the drop comes first).
+
+| Provider | Mark | Notes |
+|---|---|---|
+| Telegram | `forward_origin`, `forward_from`, `forward_from_chat`, `forward_sender_name`, `forward_date`, `is_automatic_forward` | `quote` and `external_reply` alone never set it: they mark a reply that quotes a message, which is the person's own text |
+| Discord | `message_reference.type` 1, `message_snapshots`, the `HAS_SNAPSHOT` flag | the words are in the snapshot, which is never read |
+| WhatsApp, unofficial client | `ContextInfo.IsForwarded`, `ForwardingScore` > 0 | read from the vendored library's protobuf accessors |
+| WhatsApp Cloud API | `context.forwarded`, `context.frequently_forwarded` | |
+| WhatsApp through Twilio | `Forwarded`, `FrequentlyForwarded` | **Twilio's webhook has the fields** (twilio.com/docs/messaging/guides/webhook-request, read 2026-10-20), so it is not forward-blind and declares no `forward_blind` |
+| E-mail | the Subject prefix alone (`Fwd`, `Fw`, `Enc`, `Rv`, `Tr`, `Wg`, `I`, `Vs`, after any `Re:`), a forward marker line of the body in en, pt, es, fr, de or it, or a `message/rfc822` part | a forward by subject is not read further; the body markers and the attached message are found in the budgeted child that makes the text |
+
+**The residue.** An e-mail forwarded by a client that writes no prefix and no marker (the text pasted into a new message) cannot be told from the person's own words and can open a card; the card of the exact content, approved by the person, is the only guard there. The same holds for any platform whose mark is missing from a message. A platform with no field at all is declared `forward_blind` and decided in IX-5 (approval by word off on that provider).
 
 ### Capabilities
 
@@ -1045,10 +1061,12 @@ How to add a platform: add one file, `providers/messenger/<impl>.py`, that decla
 - **Delivery gaps by design.** A resolved decision's card is not edited; acting on it later gets the operation's refusal as the reply. A line that arrives while a run holds the project waits in the bridge's memory, one per chat and 5 per project (a sixth, a second of a chat, a command and a tap get the busy sentence); a crash loses the waiting lines, and the order across shells is not first in, first out (the page has its own queue).
 - **The page does not show a paused bridge.** `GET /projects` reports `running` or `stopped`; the paused state of a listen provider is a log line only.
 
+- **An undetected forwarded e-mail can open a card.** An e-mail forwarded with no prefix and no marker looks like the person's own words; the card of the exact content, approved by the person, is the only guard (see "Forwards").
 - **The platform sees the file.** A file a person sends passes the platform's servers, and the bridge's fetch brings it back through them; the day's caps, a card for each file and the provenance on every version are the protection, and a phone that is unlocked can offer files (threat PHONE).
 
 ## Changes
 
+- 2026-10-20: forwarded messages are never requests (FWD): the update key `forwarded` from every provider, `valid_update` keeps it, the intent `forwarded` and one sentence (`FWD_NOT_A_REQUEST`) before any draft, reminder or store is read; a forwarded file keeps its card and loses its caption.
 - 2026-10-19: the router's question on a phone (LIVE-1): the reply and the notice show the question lines under the project's framing, a chat that got the question as the reply is not sent the same decision's notice (rule 56), and an answer typed on a messaging app is never proposed for the instructions.
 - 2026-10-19: a write asked in words opens its card (NR-5a; the maintainer's approval of the eleven recommendations of `SPEC-NATURAL-WRITES`): the calendar and files families, the questions asked back in the chat, the kind and loose-verb questions answered "event", the caption of a file, rule 57 and L61.
 - 2026-10-19: a mail write asked in words (NR-5b; the maintainer's approval of the recommendations of SPEC-NATURAL-WRITES): a line such as "responde o e-mail 3 dizendo que chego as 9" or "arquiva os e-mails do banco" opens the card of that exact write through the operation's own function (`runtime/natural_writes_mail.py`, `runtime/ops_natural_mail.py`); the body is the person's words verbatim, an address only as written, a message by digits or by whole words of its sender and subject; naming a message needs `ask-mail`, as the typed command does, and a sender without it learns nothing of the mailbox.

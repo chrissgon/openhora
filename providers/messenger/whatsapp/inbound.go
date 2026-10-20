@@ -27,6 +27,8 @@ type Update struct {
 	ActionRef   *string      `json:"action_ref"`
 	ReplyTo     *string      `json:"reply_to"`
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// Forwarded is there (true) only when WhatsApp marked the message as forwarded: the bridge never acts on such a line.
+	Forwarded bool `json:"forwarded,omitempty"`
 }
 
 // Attachment is one element of an update's `attachments` (providers/messenger/README.md): the reference the bridge fetches
@@ -156,6 +158,42 @@ func mediaOf(m *waE2E.Message) (att *Attachment, caption, quoted string) {
 	return nil, "", ""
 }
 
+// contextOf is the context info of the part of a message that carries one: the extended text, a document (also inside the wrapper of
+// a document with a caption), an image, a video, a round video, an audio file or a sticker. A plain `conversation` carries none.
+func contextOf(m *waE2E.Message) *waE2E.ContextInfo {
+	if m == nil {
+		return nil
+	}
+	doc := m.GetDocumentMessage()
+	if doc == nil {
+		doc = m.GetDocumentWithCaptionMessage().GetMessage().GetDocumentMessage()
+	}
+	switch {
+	case m.GetExtendedTextMessage() != nil:
+		return m.GetExtendedTextMessage().GetContextInfo()
+	case doc != nil:
+		return doc.GetContextInfo()
+	case m.GetImageMessage() != nil:
+		return m.GetImageMessage().GetContextInfo()
+	case m.GetVideoMessage() != nil:
+		return m.GetVideoMessage().GetContextInfo()
+	case m.GetPtvMessage() != nil:
+		return m.GetPtvMessage().GetContextInfo()
+	case m.GetAudioMessage() != nil:
+		return m.GetAudioMessage().GetContextInfo()
+	case m.GetStickerMessage() != nil:
+		return m.GetStickerMessage().GetContextInfo()
+	}
+	return nil
+}
+
+// forwardedOf reports whether WhatsApp marked the message as forwarded: `isForwarded` is set, or the forwarding score is above 0
+// (the score counts the hops; a message that was forwarded has at least 1). A message with no context is not forwarded.
+func forwardedOf(m *waE2E.Message) bool {
+	c := contextOf(m)
+	return c.GetIsForwarded() || c.GetForwardingScore() > 0
+}
+
 // fileOf is the attachment for a downloadable part: a declared type cut short, a declared length of 0 as unknown.
 func fileOf(msg whatsmeow.DownloadableMessage, name *string, kind string, length uint64) *Attachment {
 	a := &Attachment{Name: name, msg: msg}
@@ -214,6 +252,7 @@ func inbound(ctx context.Context, evt *events.Message, resolve Resolver) (*Updat
 	if text != "" {
 		u.Text = &text
 	}
+	u.Forwarded = forwardedOf(evt.Message)
 	if quoted != "" {
 		u.ReplyTo = &quoted
 	}

@@ -25,7 +25,7 @@ hidden text and invisible characters removed; HTML is never rendered, a link nev
 a `-- ` signature line, or an attribution or forward marker of a closed list (English, Portuguese, Spanish), so only the sender's own words
 reach the bridge. When the first line is a command (`/approve 12`), that line alone is the text, so a signature a phone adds cannot turn it
 into a typed hash. At most 8,000 characters. `reply_to` is the In-Reply-To of the message, only when it is a Message-ID this provider sent to
-that chat. `action` and `action_ref` are null, `private` is true. Hidden text is removed when the `hidden` attribute or an inline style hides it: `display:none`, `visibility:hidden`, `mso-hide:all`,
+that chat. `action` and `action_ref` are null, `private` is true. A forward is never a request (FWD): a Subject that starts with a forward prefix (Fwd, Fw, Enc, Rv, Tr, Wg, I, Vs, after any `Re:`), a forward marker line in the body (English, Portuguese, Spanish, French, German, Italian) or an attached message (message/rfc822) makes the update carry `forwarded: true`; for a subject the body is not read (`text` null). The bridge answers it with one sentence. Hidden text is removed when the `hidden` attribute or an inline style hides it: `display:none`, `visibility:hidden`, `mso-hide:all`,
 `opacity:0`, a zero `width`, `height`, `max-width` or `max-height` together with `overflow:hidden` (all of what is in the element), or a
 `font-size` of zero (the text written in that element, unless an element inside it sets a size of its own: a size, the `font` shorthand,
 `calc(...)` or a `font` tag's `size`; template e-mails do). The open elements are kept as a browser keeps them where it matters: a stray end
@@ -101,7 +101,7 @@ SENT_KEEP = 1000                   # Message-IDs remembered for each chat
 POLL_DEFAULT, POLL_MIN = 30, 15
 SUBJECT_MAX = 78
 HTML_MAX = 200_000                 # characters of an HTML part that are tried at all
-CHILD_SLOW, CHILD_UNREADABLE = 3, 4  # exit codes of the child that makes the text of a message
+CHILD_SLOW, CHILD_UNREADABLE, CHILD_FORWARDED = 3, 4, 5  # exit codes of the child that makes the text of a message (5: the text is there, and the message holds a forward)
 TEXT_SECONDS = 3.0                 # the budget of the child that makes the text of a message
 TEXT_PART_MAX = 200_000            # characters of a text part that are read
 ADDRESS_HEADER_MAX = 2000          # a From, Sender, To or Cc longer than this is dropped without being parsed
@@ -121,6 +121,18 @@ CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")      # every control cha
 EXTRA_INVISIBLE = re.compile("[\u180b-\u180d\u2800\ufe00-\ufe0f\U000e0000-\U000e007f\U000e0100-\U000e01ef]")      # tag characters, variation selectors, braille blank, Mongolian selectors
 AUTO_PRECEDENCE = ("bulk", "list", "junk", "auto_reply")
 COMMANDS_ALONE = ("/approve", "/reject", "/release", "/pending", "/project", "/help", "/start")      # a command that is its first line alone; /answer takes the rest
+# A forwarded message is never a request (FWD): the subject prefix alone counts, and so does a forward marker line of the body or an attached message.
+# The prefixes are the forward words of the clients in English (Fwd, Fw), Portuguese (Enc), Spanish (Rv), French (Tr), German (Wg), Italian (I) and
+# Danish/Swedish (Vs), after any number of "Re:", with an optional "[n]" counter; "Info:" is not one (a word must be the whole prefix).
+FORWARD_SUBJECT = re.compile(r"^\s*(?:re\s*:\s*)*(?:fwd?|enc|rv|tr|wg|i|vs)\s*(?:\[\d+\])?\s*:", re.I)
+FORWARD_MARKER = re.compile(
+    r"^[-_=* \t]{0,40}(?:forwarded message|begin forwarded message|"                                            # English
+    r"mensagem encaminhada|mensagem reenviada|in\u00edcio da mensagem (?:reenviada|encaminhada)|"                 # Portuguese  # validate: allow english-only -- forward markers of Portuguese mail clients
+    r"mensaje reenviado|mensaje remitido|inicio del mensaje reenviado|"                                          # Spanish  # validate: allow english-only -- forward markers of Spanish mail clients
+    r"message transf[e\u00e9]r[e\u00e9]|message transmis|d[e\u00e9]but du message r[e\u00e9]exp[e\u00e9]di[e\u00e9]|message r[e\u00e9]exp[e\u00e9]di[e\u00e9]|"      # French  # validate: allow english-only -- forward markers of French mail clients
+    r"weitergeleitete nachricht|anfang der weitergeleiteten nachricht|"                                           # German
+    r"messaggio inoltrato|inizio messaggio inoltrato)"                                                           # Italian
+    r"[ \t]*:?[-_=* \t]{0,40}$", re.I | re.M)
 TYPED_LINE = re.compile(r"^Send (/(?:approve|reject|release) \d+)$", re.M)
 ALLOWED_IMAP = ("CAPABILITY", "LOGIN", "EXAMINE", "UID", "NOOP", "LOGOUT")      # what this file may ever cause to be sent to a mailbox
 
@@ -451,7 +463,13 @@ def html_text_here(html: str) -> str:
 
 
 def text_in_child(raw: bytes) -> str:
-    """The text of a message, made by a short-lived child process with a time and CPU budget: the standard library takes time that grows
+    """The text of a message (see text_and_forward_in_child)."""
+    return text_and_forward_in_child(raw)[0]
+
+
+def text_and_forward_in_child(raw: bytes):
+    """(text, forwarded): the text of a message, and whether its body holds a forward marker line or an attached message (message/rfc822), both found by
+    the child. The text is made by a short-lived child process with a time and CPU budget: the standard library takes time that grows
     with the square of the input on unclosed HTML tags (`<a <a <a ...`) and on a part whose Content-Type or Content-Disposition has tens of
     thousands of parameters, and the sender is a stranger who passed authentication for their own domain. The parent reads only the HEADERS
     of the message (headersonly); the structure of the body, each part's headers and the HTML are all parsed in the child. A child that
@@ -463,9 +481,9 @@ def text_in_child(raw: bytes) -> str:
         raise TooSlow() from None
     if done.returncode == CHILD_UNREADABLE:
         raise ValueError("the message could not be read")        # inspect_message: unparsable
-    if done.returncode != 0:
+    if done.returncode not in (0, CHILD_FORWARDED):
         raise TooSlow()
-    return done.stdout.decode("utf-8", "replace")
+    return done.stdout.decode("utf-8", "replace"), done.returncode == CHILD_FORWARDED
 
 
 strip_quoted = _text.strip_quoted      # moved to providers/_email_text.py unchanged, to be shared with the Gmail reader (--own-words)
@@ -485,8 +503,20 @@ def command_only(text: str) -> str:
     return text
 
 
+def forwarded_subject(msg) -> bool:
+    """Whether the Subject starts with a forward prefix of a mail client (FORWARD_SUBJECT). The prefix alone counts."""
+    return bool(FORWARD_SUBJECT.match(str(msg.get("Subject") or "")))
+
+
 def message_text(msg) -> str:
-    """The sender's own words: text/plain, else the HTML part's text; quoted history cut; controls removed; the first-line command alone;
+    return message_text_and_forward(msg)[0]
+
+
+def message_text_and_forward(msg):
+    """(text, forwarded): the text as `message_text` always made it, and whether the body is a forward: a line of the whole text (before the quoted history is cut) is a forward
+    marker of the closed list in FORWARD_MARKER, or a part of the message is an attached message (message/rfc822).
+
+    The sender's own words: text/plain, else the HTML part's text; quoted history cut; controls removed; the first-line command alone;
     at most MAX_TEXT characters. Runs in the child of text_in_child (a part of a hostile message can take minutes)."""
     plain = msg.get_body(preferencelist=("plain",))
     text = _text.clean_block(_text.part_text(plain)[:TEXT_PART_MAX], keep_blank_lines=True) if plain is not None else ""
@@ -496,9 +526,10 @@ def message_text(msg) -> str:
         if len(page) > HTML_MAX:
             raise TooSlow()
         text = _text.clean_block(html_text_here(page), keep_blank_lines=True) if html is not None else ""
-    text = command_only(strip_quoted(EXTRA_INVISIBLE.sub("", CONTROLS.sub("", text))))
-    text = text.strip()
-    return text[:MAX_TEXT].rstrip() + "\n" + CUT_LINE if len(text) > MAX_TEXT else text
+    text = EXTRA_INVISIBLE.sub("", CONTROLS.sub("", text))
+    forward = bool(FORWARD_MARKER.search(text)) or any(part.get_content_type() == "message/rfc822" for part in msg.walk())
+    text = command_only(strip_quoted(text)).strip()
+    return (text[:MAX_TEXT].rstrip() + "\n" + CUT_LINE if len(text) > MAX_TEXT else text), forward
 
 
 # --- one message in: the update, or why not -----------------------------------------------------------------------------------------
@@ -586,7 +617,13 @@ def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail, allow=N
             return None, "automatic"
         if allow is not None and not allow(key, mail.domain_of(key)):
             return None, "rate"
-        text = text_in_child(raw)
+        if forwarded_subject(msg):          # the subject says it: the body is not read at all (a forward is never a request)
+            return {"sender": key, "chat": key, "private": True, "text": None, "action": None, "action_ref": None, "reply_to": None,
+                    "forwarded": True}, None
+        text, forward = text_and_forward_in_child(raw)
+        if forward:
+            return {"sender": key, "chat": key, "private": True, "text": text or None, "action": None, "action_ref": None, "reply_to": None,
+                    "forwarded": True}, None
         if not text:
             return None, "empty"
         reply_to = None
@@ -1320,13 +1357,13 @@ def main(argv=None) -> int:
         except (ImportError, ValueError, OSError):
             pass
         try:
-            found = message_text(message_from_bytes(sys.stdin.buffer.read(MAX_SIZE + 1), policy=policy.default))
+            found, forward = message_text_and_forward(message_from_bytes(sys.stdin.buffer.read(MAX_SIZE + 1), policy=policy.default))
         except TooSlow:
             return CHILD_SLOW
         except Exception:
             return CHILD_UNREADABLE
         sys.stdout.buffer.write(found.encode("utf-8"))
-        return EXIT_OK
+        return CHILD_FORWARDED if forward else EXIT_OK
     try:
         return run(argv)
     except ProviderError as e:
