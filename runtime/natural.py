@@ -754,7 +754,7 @@ def complete(draft, said, now, languages=None):
                 return _next(settled, new)
         corrected = _kind_with_time(said, kinds, rest, draft, now, tables)          # the kind with a time beside it: the time corrects the reading shown
         if corrected is not None:
-            return {"event": True, "reading": corrected["reading"]} if corrected["kind"] == "event" else _next({**settled, "confirmed": True}, corrected["reading"], now)
+            return {"event": True, "reading": corrected["reading"]} if corrected["kind"] == "event" else _next(settled, corrected["reading"], now)          # a reminder with a changed reading is shown and asked again: never made at once
         if rest or len(set(kinds)) != 1 or kinds[0] in ("other", "thanks", "again"):
             return _retry(draft, said, tables)
         if kinds[0] == "event":

@@ -405,15 +405,47 @@ def _hour_written(clock: str, text: str) -> bool:
     return minute == "00" or bool(re.search(rf"[:h]{minute}(?![0-9])", folded))
 
 
+def _range_texts(text: str, tables: list) -> list:
+    """The text with a range written in bare numbers replaced by the clock of its start, for the checker. This is NOT the parser's rewrite (the checker must not accept what
+    the parser misread): it knows two shapes only, written again here from the lists of the tables, and nothing else is a range: (1) a range marker, two numbers and a joiner
+    ("de 13 a 15", "from 13 to 15"), both from 7 to 23; (2) a number, a dash and a number with "h", "am" or "pm" ("13-15h", "1-2pm"), the first not behind a date cue. A
+    range is not longer than 12 hours."""
+    norm = _norm(text)
+    out = []
+    starts = nt._alt(listed(tables, "calendar", "range_from"))
+    joins = nt._alt(listed(tables, "calendar", "range_to"))
+    cues = {w for t in tables for w in t.get("date_cues", [])}
+    if starts and joins:
+        for m in re.finditer(rf"(?<![a-z0-9:/.]){starts}\s+([0-9]{{1,2}})\s*(?:{joins}|-)\s*([0-9]{{1,2}})h?(?![a-z0-9:])", norm):
+            first, last = int(m.group(1)), int(m.group(2))
+            if 7 <= first < last <= 23 and last - first <= 12:
+                out.append(norm[:m.start()] + f"{first:02d}:00" + norm[m.end():])
+    for m in re.finditer(r"(?<![a-z0-9:/.])([0-9]{1,2})\s*-\s*([0-9]{1,2})(h|am|pm)(?![a-z0-9])", norm):
+        first, last, unit = int(m.group(1)), int(m.group(2)), m.group(3)
+        if cues & set(re.findall(r"[a-z0-9]+", norm[:m.start()])[-2:]):
+            continue
+        if unit == "h":
+            ok, begin = 7 <= first < last <= 23 and last - first <= 12, first
+        else:
+            begin = first % 12 + (12 if unit == "pm" else 0)
+            end = last % 12 + (12 if unit == "pm" else 0)
+            if unit == "pm" and begin >= end:
+                begin -= 12
+            ok = 1 <= first <= 12 and 1 <= last <= 12 and begin < end and end - begin <= 12
+        if ok:
+            out.append(norm[:m.start()] + f"{begin:02d}:00" + norm[m.end():])
+    return out
+
+
+def _norm(text: str) -> str:
+    return nt.normalise(text)[0]
+
+
 def _variants(window: list, text: str, tables: list, prefixes: list) -> list:
     """The texts of one window the time engine is asked about: the words as they are; the words with the bare hours of a range read the way the calendar family reads them
     (a deterministic rewrite: "9-10h" -> "09:00"); and, when the last line is a bare number (the answer to "at what time?"), the words with the introducing word the question
     machine puts before it ("at 21")."""
-    out = [text]
-    if "calendar" in FAMILIES:
-        rewritten = family_module("calendar")._bare_range(text, tables)[0]
-        if rewritten != text:
-            out.append(rewritten)
+    out = [text] + _range_texts(text, tables)
     if re.fullmatch(r"[0-9]{1,2}", window[-1].strip()):
         out += [" ".join(window[:-1] + [prefix, window[-1]]) for prefix in prefixes]
     return out

@@ -374,7 +374,7 @@ def test_a_line_in_words_never_uses_a_standing_approval_and_never_approves(world
 
 @pytest.mark.parametrize("line, title, start, end", [
     ("marca reunião quinta 13-15h no google", "reunião", "2026-10-22T13:00", "2026-10-22T15:00"),
-    ("marca reunião quinta 10 às 11h no google", "reunião", "2026-10-22T10:00", "2026-10-22T11:00"),
+    ("marca reunião quinta das 10 às 11h no google", "reunião", "2026-10-22T10:00", "2026-10-22T11:00"),
     ("marca reunião quinta das 10 às 11 no google", "reunião", "2026-10-22T10:00", "2026-10-22T11:00"),
     ("add to my calendar meeting Thursday 1-2pm on google", "meeting", "2026-10-22T13:00", "2026-10-22T14:00"),
 ])
@@ -419,10 +419,14 @@ def test_a_zone_with_a_clock_change_the_hour_that_does_not_exist_is_refused_in_a
     import zoneinfo
     monkeypatch.setenv("TZ", "Europe/Lisbon")
     time.tzset()
-    Clock(monkeypatch, wall="2026-10-19 09:00", zone=zoneinfo.ZoneInfo("Europe/Lisbon"))
-    policy(world)
-    twice = phone(world, "marca dentista 25/10 às 01:30 no google")
-    assert OPEN in twice["reply"] and spy[-1][1]["start"] == "2026-10-25T01:30" and "Europe/Lisbon" in body(world, twice)
-    spy.clear()
-    missing = phone(world, "marca dentista 28/03 às 01:30 no google")
-    assert OPEN not in missing["reply"] and "does not exist" in missing["reply"] and "Traceback" not in missing["reply"]
+    try:
+        Clock(monkeypatch, wall="2026-10-19 09:00", zone=zoneinfo.ZoneInfo("Europe/Lisbon"))
+        policy(world)
+        twice = phone(world, "marca dentista 25/10 às 01:30 no google")
+        assert OPEN in twice["reply"] and spy[-1][1]["start"] == "2026-10-25T01:30" and "Europe/Lisbon" in body(world, twice)
+        spy.clear()
+        missing = phone(world, "marca dentista 28/03 às 01:30 no google")
+        assert OPEN not in missing["reply"] and "does not exist" in missing["reply"] and "Traceback" not in missing["reply"]
+    finally:
+        monkeypatch.undo()          # the zone of the process is put back by this test itself
+        time.tzset()

@@ -91,44 +91,53 @@ def _invalid_date(text: str):
 STRAY = re.compile(r"(?<![\w:])[0-9]{1,2}(?![\w:])")      # a number of one or two digits left among the words of a title: the hour it may have been meant to be
 
 
+MAX_RANGE_HOURS = 12          # a range of more than this is no range written with bare numbers: the number stays among the words and is checked
+
+
 def _bare_range(text: str, tables: list):
-    """(engine_text, end "HH:MM" | None, doubt) for a range whose first hour is a bare number, in the forms that people type: hours bare behind a range marker ("de 13 a 15",
-    both from 7 to 23, the first below the second: read as a 24-hour clock and marked to check; a pair below 7 could be the afternoon and is not read), and a bare number in
-    front of a clock ("13-15h", "10 as 11h", "1-2pm"): the number is the first hour of a range that ends at that clock (with "pm" the afternoon of the same clock; a number
-    that is not below the clock is no range and is left to be checked). The first hour and its marks are replaced in the text by one clock for the engine."""
+    """(engine_text, end "HH:MM" | None, doubt) for a range whose first hour is a bare number. Only these shapes are ranges, and each is marked to check:
+    (1) a range marker, two bare numbers and a joiner ("de 13 a 15", "das 10 as 11h", "from 13 to 15"): both from 7 to 23 and the first below the second; (2) a bare number,
+    a dash and a clock ("13-15h", "9-10am", "1-2pm"): with "am" or "pm" the same half of the day, else both from 7 to 23. Never a range: a bare number that follows a date
+    cue ("dia 12", "no dia 5", "on the 5th"), "N as Mh" with no range marker before it ("sala 3 as 10h", "dia 12 as 14h"), a pair below 7 (it could be the afternoon), and
+    a range longer than MAX_RANGE_HOURS; the number then stays among the words and the card is preceded by the line that says what to check. The first hour and its marks are
+    replaced in the text by one clock for the engine."""
     line = nw.Line(text)
     norm, origin = line.norm, line.origin
     joiners = nt._alt(_list(tables, "range_to"))
     starts = nt._alt(_list(tables, "range_from"))
+    cues = {w for t in tables for w in t["date_cues"]}
+
+    def after_cue(at: int) -> bool:
+        return bool(cues & set(re.findall(r"[a-z0-9]+", norm[:at])[-2:]))
+
     if starts and joiners:
-        m = re.compile(f"{nt._L}{starts}\\s+([0-9]{{1,2}})\\s*(?:{joiners}|-)\\s*([0-9]{{1,2}})(?![a-z0-9:])").search(norm)
-        if m and 7 <= int(m.group(1)) < int(m.group(2)) <= 23:
+        m = re.compile(f"{nt._L}{starts}\\s+([0-9]{{1,2}})\\s*(?:{joiners}|-)\\s*([0-9]{{1,2}})(h?)(?![a-z0-9:])").search(norm)
+        if m and 7 <= int(m.group(1)) < int(m.group(2)) <= 23 and int(m.group(2)) - int(m.group(1)) <= MAX_RANGE_HOURS:
             return text[:origin[m.start()]] + f"{int(m.group(1)):02d}:00" + text[origin[m.end() - 1] + 1:], f"{int(m.group(2)):02d}:00", True
     found = nt.find(text, tables)
     clocks = [h for h in found["hits"] if h["kind"] == "clock" and len(h["times"]) == 1]
-    if len(clocks) != 1 or not joiners:
+    if len(clocks) != 1:
         return text, None, False
     hit = clocks[0]
-    own = found["norm"][hit["s"]:hit["e"]]
-    glued = bool(re.match(f"{joiners}\\s", own))          # the clock hit may carry the joiner itself ("as 11h")
-    tail = "" if glued else f"\\s*(?:{joiners}|-|–|—)"
-    before = re.compile(f"{nt._L.replace('a-z0-9', 'a-z0-9:/.')}([0-9]{{1,2}})(?::([0-9]{{2}}))?{tail}\\s*$").search(found["norm"][:hit["s"]])
-    if not before:
+    before = re.compile(f"{nt._L.replace('a-z0-9', 'a-z0-9:/.')}([0-9]{{1,2}})\\s*[-\u2013\u2014]\\s*$").search(found["norm"][:hit["s"]])
+    if not before or after_cue(before.start(1)):
         return text, None, False
     end_hour, end_minute = hit["times"][0]
-    first, minute = int(before.group(1)), int(before.group(2) or 0)
-    if first > 23 or minute > 59:
-        return text, None, False
+    first = int(before.group(1))
     suffix = found["norm"][hit["s"]:hit["e"]].strip()[-2:]
-    if suffix in ("am", "pm") and first <= 12:
+    if suffix in ("am", "pm"):
+        if not 1 <= first <= 12:
+            return text, None, False
         hour = first % 12 + (12 if suffix == "pm" else 0)
         if suffix == "pm" and hour >= end_hour:
             hour -= 12
     else:
+        if not 7 <= first <= 23:
+            return text, None, False
         hour = first
-    if (hour, minute) >= (end_hour, end_minute):
+    if hour >= end_hour or (end_hour - hour) * 60 + end_minute > MAX_RANGE_HOURS * 60:
         return text, None, False
-    return text[:found["origin"][before.start(1)]] + f"{hour:02d}:{minute:02d}" + text[found["origin"][hit["e"] - 1] + 1:], f"{end_hour:02d}:{end_minute:02d}", False
+    return text[:found["origin"][before.start(1)]] + f"{hour:02d}:00" + text[found["origin"][hit["e"] - 1] + 1:], f"{end_hour:02d}:{end_minute:02d}", True
 
 
 def _stamp(reading: dict, clock=None) -> str:

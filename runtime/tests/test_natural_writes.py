@@ -225,3 +225,30 @@ def test_the_provenance_check_pairs_an_end_with_its_start():
     other_day = nw.problems("event-create", {"title": "reunião", "start": "2026-10-22T13:00", "end": "2026-10-23T15:00"}, said, accounts, {}, NOW)
     before = nw.problems("event-create", {"title": "reunião", "start": "2026-10-22T15:00", "end": "2026-10-22T13:00"}, said, accounts, {}, NOW)
     assert any("after start" in p for p in other_day) and any("after start" in p for p in before)
+
+
+@pytest.mark.parametrize("line", ["marca reunião 3 às 10h", "marca sala 3 às 10h", "marca reunião com 2 às 15h", "marca aula 4 às 18h", "marca reunião quinta 3 às 10h", "marca reunião quinta 10 às 11h",
+                                  "marca reunião quinta 1-3h", "marca reunião quinta 5-6h", "marca reunião quinta 13-15h", "marca reunião quinta de 13 a 15", "add to my calendar meeting Thursday 1-2pm"])
+def test_a_number_beside_a_clock_is_never_silently_an_hour_the_card_is_preceded_by_the_check_line(line):
+    assert nw.read(line, NOW)["doubt"] is True, line
+
+
+@pytest.mark.parametrize("line", ["marca reunião dia 12 às 14h", "marca jantar dia 21 às 22h", "marca consulta no dia 5 às 9h", "remarca o evento 2 para dia 12 às 14h"])
+def test_the_number_after_a_day_word_is_the_day_never_an_hour(line):
+    got = nw.read(line, NOW)
+    assert got["slots"]["start"][11:] in ("14:00", "22:00", "09:00") and "end" not in got["slots"] and got["slots"]["start"][:10] != "2026-10-19", line
+
+
+def test_a_range_is_never_longer_than_twelve_hours_and_a_pair_below_seven_is_not_read():
+    long = nw.read("marca reunião quinta das 7 às 23", NOW)
+    assert "end" not in long["slots"], "16 hours: no range"
+    assert "end" not in nw.read("marca reunião quinta 1-3h", NOW)["slots"] and "end" not in nw.read("marca reunião quinta 5-6h", NOW)["slots"]
+
+
+def test_the_fuzz_checker_reads_ranges_with_its_own_table_and_does_not_accept_a_misreading_of_the_parser():
+    accounts = {"google": {"calendars": {}}}
+    ok = nw.problems("event-create", {"title": "reunião", "start": "2026-10-22T13:00", "end": "2026-10-22T15:00"}, ["marca reunião quinta 13-15h"], accounts, {}, NOW)
+    assert not [p for p in ok if "start" in p or "end" in p]
+    for said, start in (("marca reunião dia 12 às 14h", "2026-10-19T12:00"), ("marca reunião 3 às 10h", "2026-10-19T03:00"), ("marca reunião quinta 1-3h", "2026-10-22T01:00")):
+        bad = nw.problems("event-create", {"title": "reunião", "start": start, "end": start[:11] + "14:00"}, [said], accounts, {}, NOW)
+        assert any("start" in p for p in bad), (said, bad)
