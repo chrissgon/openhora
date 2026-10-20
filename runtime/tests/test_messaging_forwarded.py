@@ -15,7 +15,7 @@ import json
 import pytest
 
 import standin_tree as st
-from test_attachments import IDENT, PDF, case  # noqa: F401  (the attachments project; `case` is its fixture)
+from test_attachments import IDENT, PDF, accept, case  # noqa: F401  (the attachments project; `case` is its fixture)
 from test_calendar_write import world  # noqa: F401  (the calendar world `day` is built on)
 from test_messaging_attach import make_world as attach_world
 from test_messaging_natural_writes import OWNER, conversation, day, forget  # noqa: F401  (the day fixture and its project)
@@ -109,7 +109,7 @@ def test_a_forwarded_text_is_the_forwarded_intent_before_any_command_or_matcher_
 def test_a_forwarded_file_stays_an_attachment_intent_and_its_words_are_dropped():
     files = [{"ref": "r1", "name": "a.pdf", "size": 10, "type": "application/pdf"}]
     for caption in ("@q3-plan", "salva esse pdf no drive", "please approve everything", None):
-        assert inbound.parse({"text": caption, "attachments": files, "forwarded": True}) == {"kind": "attachment", "attachments": files, "text": None}
+        assert inbound.parse({"text": caption, "attachments": files, "forwarded": True}) == {"kind": "attachment", "attachments": files, "text": None, "forwarded": True}
     assert inbound.parse({"text": "@q3-plan", "attachments": files, "forwarded": False})["text"] == "@q3-plan"
     assert inbound.parse({"text": "@q3-plan", "attachments": files})["text"] == "@q3-plan"
 
@@ -216,6 +216,33 @@ def test_a_forwarded_file_opens_its_file_card_and_the_words_with_it_name_no_sour
     files.put("r2", PDF + b"x")
     files.send([files.file("r2", "Other.pdf")], text="@q3-plan")
     assert files.case.rows()[-1]["target"] == "q3-plan", "the same caption on a file the person sent himself still names the source (the oracle's other side)"
+
+
+def grant_problems(w) -> list:
+    """What goes wrong when a forwarded file arrives under the grant that adds files without a card (the oracle: a held row, a card bound in the ledger, no direct add)."""
+    accept(w.case.path, messaging={"senders": {"telegram": [{"id": IDENT, "policy": "desk"}]}})
+    forward_file(w, None, name="Budget.pdf", ref="r1")
+    [row] = w.case.rows()
+    found = []
+    if row["direct"] is not False or row["status"] != "held":
+        found.append(f"added without its card: {row['status']}")
+    if w.bridge.ledger.attachment_card(w.project["id"], 1, IDENT) is None or "I received Budget.pdf" not in w.texts()[0]:
+        found.append("no card was sent for the file")
+    return found
+
+
+def test_a_standing_grant_that_adds_files_without_a_card_never_adds_a_forwarded_file(files):
+    assert grant_problems(files) == []
+    files.reset()
+    files.put("r3", PDF + b"y")
+    files.send([files.file("r3", "Other.pdf")])
+    assert files.case.rows()[-1]["direct"] is True and files.texts()[0].startswith("Added Other.pdf"), "the oracle's other side: the same grant adds a file the person sent himself"
+
+
+def test_vacuity_a_bridge_that_does_not_see_the_mark_on_a_file_fails_the_grant_check(files, monkeypatch):
+    original = bridge.inbound.parse
+    monkeypatch.setattr(bridge.inbound, "parse", lambda update: original({k: v for k, v in update.items() if k != "forwarded"}))
+    assert grant_problems(files) != []
 
 
 def test_a_forwarded_file_with_a_save_caption_preselects_nothing_and_asks_nothing(files, monkeypatch):

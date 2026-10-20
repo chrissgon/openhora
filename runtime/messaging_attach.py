@@ -112,7 +112,7 @@ class Attachments:
             bridge.log("a file was not fetched: the channel's policy takes none")
             bridge.reply(chat, bridge.t("ATT_OFF", cfg=settings), project)
             return
-        direct = operations.granted("attachment-hold", CHANNEL, settings["policy"], "direct", key)
+        direct = operations.granted("attachment-hold", CHANNEL, settings["policy"], "direct", key) and not intent.get("forwarded")          # a forwarded file always opens its card (FWD)
         files = [att.normalised(f) for f in intent["attachments"]]          # a photo is an image/jpeg with a name of its own
         target, ignored = att.caption_target(intent.get("text"), len(files))
         follow = {"preselect": None, "said": None, "note": False}

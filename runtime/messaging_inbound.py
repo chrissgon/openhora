@@ -30,7 +30,7 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
   {"kind": "usage", "text": "Usage: ..."}             a command it handles with arguments it cannot read
   {"kind": "forwarded"}                               a message the sender forwarded (the update's `forwarded` key; FWD): no text is carried. It is never a request, a command,
                                                       an answer or an approval, whatever its words say; the bridge answers it with one sentence (FWD_NOT_A_REQUEST) and reads
-                                                      nothing else of it. A forwarded FILE stays an `attachment` intent with "text": None, so its caption never preselects
+                                                      nothing else of it. A forwarded FILE stays an `attachment` intent with "text": None and "forwarded": True, so its caption never preselects and no grant adds it without its card
 
 The sentences it names (HELP, the usage lines) are the phrase table's English text (runtime/phrases.py); the bridge says them in the project's language, and `usage_key`
 maps the sentence of a `usage` intent to its key. The intents themselves are the same in every language.
@@ -91,7 +91,10 @@ def parse(update: dict) -> dict:
     text = (update.get("text") or "").strip()
     forwarded = "forwarded" in update and update["forwarded"] is not False      # as messaging_provider.forwarded_of: fail closed
     if update.get("attachments"):
-        return {"kind": "attachment", "attachments": list(update["attachments"]), "text": None if forwarded else (text or None)}
+        found = {"kind": "attachment", "attachments": list(update["attachments"]), "text": None if forwarded else (text or None)}
+        if forwarded:
+            found["forwarded"] = True          # the key is there only for a forward: no standing grant adds such a file without its card (messaging_attach)
+        return found
     if forwarded:
         return {"kind": "forwarded"}          # before the "/" test and every matcher: a forwarded "/approve 12" or "remind me at 15:00" is nothing the person asked
     if not text:
