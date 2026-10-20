@@ -437,7 +437,7 @@ def dry_run(steps: list, key: str) -> int:
 
 def cmd_create(a) -> int:
     folder, name = drive_id(a.folder, "--folder"), check_name(a.name)
-    media_type, count, sha = common.check_media_type(a.media_type), common.check_count(a.bytes, "--bytes"), common.check_sha256(a.sha256, "--sha256")
+    media_type, count, sha = common.check_media_type(a.media_type, images=True), common.check_count(a.bytes, "--bytes"), common.check_sha256(a.sha256, "--sha256")
     key = common.check_key(a.idempotency_key)
     if a.gdoc and media_type != "text/markdown":
         raise WriterError("--gdoc makes a Google Doc from Markdown text: --media-type is text/markdown", EXIT_USAGE)

@@ -473,7 +473,7 @@ def dry_run(steps: list, key: str) -> int:
 
 def cmd_create(a) -> int:
     ref, name = folder_ref(a.folder), check_name(a.name)
-    media_type, count, sha = common.check_media_type(a.media_type), common.check_count(a.bytes, "--bytes"), common.check_sha256(a.sha256, "--sha256")
+    media_type, count, sha = common.check_media_type(a.media_type, images=True), common.check_count(a.bytes, "--bytes"), common.check_sha256(a.sha256, "--sha256")
     key = common.check_key(a.idempotency_key)
     steps = plan_create(ref, name, media_type, count, sha)
     if a.dry_run:

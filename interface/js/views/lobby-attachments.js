@@ -29,9 +29,10 @@ export function fromWords(row) {
   return `${row && row.platform ? row.platform : "a messaging app"}${profile}`;
 }
 
-/** What adding a held file does: a new source, or the next version of the one it names. */
+/** What adding a held file does: a new source, or the next version of the one it names; nothing for a save-only image (no source id; it is saved to a Drive or discarded). */
 export function becomesWords(row) {
-  const id = row && row.target ? row.target : "";
+  if (!row || row.save_only || !row.target) return "";
+  const id = row.target;
   return row && row.label === "refresh" ? `a new version of the source ${id}` : `the new source ${id}`;
 }
 
@@ -99,9 +100,10 @@ export function createAttachments(env) {
   function item(row) {
     const li = h("li", { class: "wb-at-item" });
     const what = h("p", { class: "wb-at-name" }, h("strong", { text: row.name }), ` (${row.kind || "file"}, ${sizeWords(row.bytes)})`);
-    const line = h("p", { class: "wb-steps-note wb-at-line", text: `From ${fromWords(row)}. Adding it makes ${becomesWords(row)}.${row.expires_at ? ` It is deleted on ${String(row.expires_at).slice(0, 10)} if you do not answer.` : ""}` });
+    const what_adding = becomesWords(row) ? `Adding it makes ${becomesWords(row)}.` : "It is a picture to save to a Drive or OneDrive from the messaging app; it is never added as a source.";
+    const line = h("p", { class: "wb-steps-note wb-at-line", text: `From ${fromWords(row)}. ${what_adding}${row.expires_at ? ` It is deleted on ${String(row.expires_at).slice(0, 10)} if you do not answer.` : ""}` });
     const actions = h("div", { class: "wb-rt-actions" });
-    if (may("attachment-add")) {
+    if (may("attachment-add") && !row.save_only) {
       const add = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-at-add", type: "button", text: "Add as a source" });
       add.disabled = busy;
       add.addEventListener("click", () => decide((p, id) => env.api.attachmentAdd(p, id), row));

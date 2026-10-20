@@ -49,7 +49,7 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   # ops_say.py and ops_ask.py (NR-2): the line of a request, whether a plain line is a natural request, whether the asker holds ask-mail
                   "person_line", "asks_natural", "holds_mail", "may_talk", "natural_needs", "natural_reply",
                   # ops_say.py and ops_items.py (NR-5): the bridge's entries for a write asked in words, and how the numbered items are written as lines
-                  "natural_write", "natural_draft", "natural_forget", "render",
+                  "natural_write", "natural_draft", "natural_forget", "render", "natural_file_accounts",
                   # ops_sources.py: what the planner and a run ask of the sources, beside the five operations
                   "catalog_block", "router_block", "known_ids", "forced_for", "copies_for", "record_copies", "prompt_lines",
                   # ops_cancel.py: what a run, the router and the board ask of a cancel, beside cancel and stop_task

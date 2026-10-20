@@ -122,9 +122,13 @@ def test_a_reply_that_quotes_data_is_not_cut_and_the_operations_layers_error_tex
     assert world.texts()[-1] == "Title: uv run demo with the team\nNotes: /Users/ana/Desktop/x.pdf", "quoted data is the person's"
     ops = st.load("ops")
     world.fake.answers["say"] = ops.OpsError("could not write: run python3 /srv/co/runtime/cli.py accept-config --project /srv/p --sha256 abc", 1)
+    for thread in list(world.bridge.threads):      # the first reply is sent from a job: it is finished before the next line comes
+        thread.join(30)
     before = len(world.texts())
     world.say("another line")
     assert wait_for(lambda: len(world.texts()) > before)
+    for thread in list(world.bridge.threads):
+        thread.join(30)
     sent = world.texts()[-1]
     assert guard.find(sent) == [] and "cli.py" not in sent and "--project" not in sent and sent.endswith(guard.sentence(world.bridge.cfg(chat="4242"))), sent
 

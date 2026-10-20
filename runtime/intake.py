@@ -38,7 +38,7 @@ stall, so only the wall deadline applies to it.
 The type table. `sniff(head, table=None)` reads `SNIFF_TABLE`, a list of `(kind, test)` entries: `test(head)` returns the
 subtype (a short string) when the first bytes are of that kind and None otherwise; the first entry that answers decides, and
 `sniff` returns `(kind, subtype)`. A later package adds an entry with `add_sniffer(kind, test)` or passes its own list as
-`table`; the function is not edited. The table here knows MP4 and MOV boxes, HEIF boxes and PNG, JPEG and WebP images.
+`table`; the function is not edited. The table here knows MP4 and MOV boxes, HEIF boxes and PNG, JPEG, WebP and GIF images.
 
 Errors are one class, `IntakeError(message, code)`: `code` is a machine word (length, usage, too_large, too_small, type,
 refused, timeout, stalled, no_space) and the message is for a person.
@@ -165,6 +165,8 @@ def _image(head: bytes) -> Optional[str]:
         return "jpeg"
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         return "webp"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
     return None
 
 

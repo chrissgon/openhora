@@ -31,3 +31,4 @@ runtime/tests/test_natural_writes_drafts.py english-only -- tests of the open qu
 runtime/tests/test_ops_natural_writes.py english-only -- tests of the card-opening path of the natural writes (package NR-5), written in English; the lines are what a person types, some in Portuguese, invented
 runtime/tests/test_ops_natural_writes_files.py english-only -- tests of the files family of the natural writes (package NR-5), written in English; the lines are what a person types, some in Portuguese, invented
 runtime/tests/test_messaging_natural_writes.py english-only -- tests of the natural writes through the messaging bridge (package NR-5), written in English; the lines are what a person types, some in Portuguese, invented
+runtime/tests/test_save_images.py english-only -- tests of the files a sender sends and saves (package ATT-3), written in English; the lines are what a person types and the sentences the card says in a Portuguese project, invented

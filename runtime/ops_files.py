@@ -10,7 +10,7 @@ document. Nothing is written to any account here (limit L55); the write is runti
 
   file_create(project, account, file_name, content | content_file | from_path, [folder])   a NEW file in a folder the project lists under `accounts`; it never replaces one
   file_replace(project, account, file, content | content_file | from_path)                   a new revision of a file that is a source (the previous one stays in the history)
-  file_save(project, account, attachment, [file_name], [folder])                            the file a sender sent, in a folder the project lists
+  file_save(project, account, attachment, [file_name], [folder])                            the file a sender sent (a document, or a save-only image: ATT-3), in a folder the project lists
 
 Each returns what runtime/account_start.py returns: {"request", "task", "pending", "word", "on_cards"}; the messaging bridge sends that decision's card as it
 sends every card and says `account_start.reply_text`. Who may ask is the table of operations (runtime/operations.py: the group `files-write`, in no default policy,

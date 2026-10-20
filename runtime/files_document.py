@@ -58,9 +58,12 @@ MEDIA_TYPES = {"md": "text/markdown", "txt": "text/plain", "csv": "text/csv", "p
                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+# The images a save writes (package ATT-3): only a held file, never a create or a replace (a text cannot be an image, and a file of the project is not saved as one).
+IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif", "heic": "image/heic", "heif": "image/heif"}
+SAVE_TYPES = {**MEDIA_TYPES, **IMAGE_TYPES}      # the media type of each extension a save may write
 TEXT_TYPES = ("text/markdown", "text/plain", "text/csv")
 CREATE_EXTENSIONS = ("md", "txt", "docx")      # plus the word `gdoc`, which makes a Google Doc from Markdown text
-SAVE_EXTENSIONS = tuple(MEDIA_TYPES)
+SAVE_EXTENSIONS = tuple(SAVE_TYPES)
 GDOC_WORD = "gdoc"
 TITLE_KEY = {"create": "TITLE_FILE_CREATE", "replace": "TITLE_FILE_REPLACE", "save": "TITLE_FILE_SAVE"}
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -110,6 +113,27 @@ def name_problem(name, extensions) -> str:
     if extension not in extensions:
         return phrases.en("ACCT_FILE_NAME_EXT").format(extensions=", ".join("." + e for e in extensions))
     return ""
+
+
+def safe_name(name, fallback: str = "file") -> str:
+    """A name a person was sent, as a name this platform writes (name_problem accepts it, the extension kept): any character outside the letters, digits and ` ._-()` becomes
+    `_`, the NFC form, no `..`, no leading hyphen, no trailing dot or space, at most NAME_MAX characters. A name that is already one is returned unchanged."""
+    text = unicodedata.normalize("NFC", name if isinstance(name, str) else "").strip(" ")
+    stem, dot, extension = text.rpartition(".") if "." in text else (text, "", "")
+    clean = lambda part: "".join(c if c.isalnum() or c in NAME_EXTRA else "_" for c in part)      # noqa: E731
+    stem, extension = clean(stem).replace("..", "."), clean(extension).replace(" ", "")
+    stem = stem.strip(" .").lstrip("-")
+    if not any(c.isalnum() for c in stem):
+        stem = fallback
+    keep = NAME_MAX - len(dot) - len(extension)
+    return stem[:max(1, keep)].rstrip(" .") + dot + extension
+
+
+def numbered(name: str, n: int) -> str:
+    """`name (2).ext` for `name.ext` (the stem cut to keep the whole inside NAME_MAX)."""
+    stem, dot, extension = name.rpartition(".") if "." in name else (name, "", "")
+    tail = f" ({n})"
+    return stem[:max(1, NAME_MAX - len(dot) - len(extension) - len(tail))].rstrip() + tail + dot + extension
 
 
 def extension_of(name: str) -> str:
@@ -241,7 +265,7 @@ def _shape(doc) -> None:
     problem = name_problem(doc["name"] + ".md", ("md",)) if gdoc else name_problem(doc["name"], CREATE_EXTENSIONS if operation == "create" else SAVE_EXTENSIONS)
     if problem:
         raise _usage(problem)
-    if not gdoc and MEDIA_TYPES[extension_of(doc["name"])] != doc["content"]["media_type"]:
+    if not gdoc and SAVE_TYPES[extension_of(doc["name"])] != doc["content"]["media_type"]:
         raise _usage("the media type of the content is the one the extension of the name says")
 
 
@@ -275,9 +299,11 @@ def _content(doc: dict, operation: str, account: str) -> None:
     if not isinstance(content, dict) or set(content) != keys or content["kind"] not in ("text", "file", "held"):
         raise _usage("content is text, a file of the project or a held file")
     if not _is_int(content["bytes"]) or not 1 <= content["bytes"] <= FILE_MAX or not isinstance(content["sha256"], str) \
-            or not SHA256.fullmatch(content["sha256"]) or content["media_type"] not in MEDIA_TYPES.values() or not isinstance(content["gdoc"], bool):
+            or not SHA256.fullmatch(content["sha256"]) or content["media_type"] not in SAVE_TYPES.values() or not isinstance(content["gdoc"], bool):
         raise _usage("the content states its size, its sha256 and its media type")
     kind = content["kind"]
+    if content["media_type"] in IMAGE_TYPES.values() and (kind != "held" or operation != "save"):
+        raise _usage("an image is only saved, from a file a sender sent")
     if kind == "text":
         text = content["text"]
         if not isinstance(text, str) or content["attachment"] is not None or content["media_type"] not in TEXT_TYPES:

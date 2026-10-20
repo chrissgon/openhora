@@ -33,7 +33,8 @@ natural = st.load("natural")
 phrases = st.load("phrases")
 
 ANSWER = "an event, 13:00, the Linden clinic, Aurora calendar"
-UNRELATED = "Salvar no drive"      # the line of the live case: no attachment, so no form of code reads it as a request (the save of a file is package ATT-3); the window decides
+UNRELATED = "Salvar no drive"      # the line of the live case: since ATT-3 a save form that code reads as a request of its own, never the answer
+PLAIN = "tell me something else about the project today"      # a plain sentence no form of code reads: only the window decides
 WRITE = "marca dentista quinta às 10h no google"      # validate: allow english-only -- a line the person types in Portuguese
 READ = "what files do you have?"      # a tier-1 read: a form of code, not a request
 REMINDER = "me lembra amanhã às 9 de regar as plantas"      # validate: allow english-only -- a line the person types in Portuguese
@@ -185,6 +186,8 @@ def test_the_live_case_a_question_from_yesterday_is_not_the_answer_to_a_line_of_
     reply(phone.tree, FLOW, "router-reply.md")
     before = len(phone.texts(OWNER))
     phone.say(OWNER, UNRELATED)
+    assert not any(phrases.text("ANSWER_TAKEN", {"language": "pt-BR"}, id=question["id"]) in t for t in phone.texts(OWNER)[before:]), "the live line is a request of its own, whatever the age"
+    phone.say(OWNER, PLAIN)
     said = phone.texts(OWNER)[before:]
     assert said and phrases.text("ANSWER_TAKEN", {"language": "pt-BR"}, id=question["id"]) not in said[0] and question["title"] not in said[0]
     assert states(phone)[question["task_id"]] == "cancelled" and ops.pending(phone.path, question["id"])["status"] != "open"
