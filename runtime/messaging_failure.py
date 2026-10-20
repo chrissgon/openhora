@@ -26,13 +26,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language)
 
 SERVICE_OF_KIND = {"file-write": "FILES", "mailbox-change": "MAIL", "send-email": "MAIL"}      # the step kinds whose service is Drive/OneDrive or Gmail/Outlook
-SERVICE_OF_WORD = {"files": "FILES", "mailbox": "MAIL", "send": "MAIL"}
+SERVICE_OF_WORD = {"files": "FILES", "mailbox": "MAIL", "send": "MAIL", "send-own": "MAIL"}
+PLACE_OF_WORD = {"calendar": "FAIL_LOOK_CALENDAR", "mailbox": "FAIL_LOOK_MAILBOX", "files": "FAIL_LOOK_FILES", "send": "FAIL_LOOK_SENT", "send-own": "FAIL_LOOK_SENT",
+                 "publish": "FAIL_LOOK_POST"}      # where the person looks when the outcome of a write is unknown
 QUOTA = re.compile(r"quota|insufficient ?storage|storage (limit|full)|no (space|room) left", re.I)
 TOO_LARGE = re.compile(r"too (large|big)|size limit|payload too large|exceeds the (size|maximum)", re.I)
 TAKEN = re.compile(r"already (exists|there|in)|name (is )?taken|conflict", re.I)
 NETWORK = re.compile(r"time[ds]? ?out|network|connection|unreachable|did not answer|temporarily|try again|5\d\d\b", re.I)
 AUTH = re.compile(r"not authori[sz]ed|authori[sz]e|unauthori[sz]ed|credential|token|not configured|not set up|\b40[13]\b", re.I)
-UNKNOWN = re.compile(r"may or may not|whether .* (was|is) (written|made)|not known", re.I)
+# The words of an outcome that is not known: the effects' UNKNOWN_NEXT ("the outcome is unknown: look in ..."), the writer's "may or may not have been made", and a provider that
+# exits with code 4 (the outcome is not known). An unknown outcome is never told as "nothing was done": the write may have landed.
+UNKNOWN = re.compile(r"outcome is unknown|may or may not|whether .* (was|is) (written|made)|not known|exit(?:ed)?(?: with)?(?: status)?(?: code)? 4\b", re.I)
 
 
 def _family(kind=None, word=None):
@@ -82,7 +86,7 @@ def from_error(error, cfg, word=None, account=None) -> str:
     text = str(error)
     service = _service(_family(None, word), account, cfg)
     if UNKNOWN.search(text):
-        return phrases.phone("FAIL_UNKNOWN", cfg)
+        return phrases.text("FAIL_UNKNOWN", cfg, place=phrases.text(PLACE_OF_WORD.get(word, "FAIL_LOOK_ANY"), cfg))
     if QUOTA.search(text):
         return phrases.text("FAIL_QUOTA", cfg, service=service)
     if TOO_LARGE.search(text):

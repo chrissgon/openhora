@@ -393,9 +393,12 @@ TABLE = {
         "FAIL_NETWORK": "{service} did not answer, so nothing was done. Try again in a moment.",
         "FAIL_GONE": "That item is no longer there, so nothing was done.",
         "FAIL_REFUSED": "{service} refused it, so nothing was done. Check the details and the permissions of the account.",
-        "FAIL_UNKNOWN": "I do not know whether it was written: the service did not confirm. Before asking again, check it {where}",
+        "FAIL_UNKNOWN": "The result is unknown: the service did not confirm whether it was done. Before asking again, look in {place}.",
+        "FAIL_LOOK_CALENDAR": "your calendar", "FAIL_LOOK_MAILBOX": "your mailbox", "FAIL_LOOK_FILES": "your drive", "FAIL_LOOK_SENT": "your sent mail",
+        "FAIL_LOOK_POST": "the profile", "FAIL_LOOK_ANY": "the service",
         "FAIL_NOT_DONE": "It was not done, and nothing was written. Try again in a moment, or check it {where}",
         # --- the outcome of an approved effect, said to the chat that approved it (messaging_outcome.py, package LIVE-2) ---
+        "PHONE_FILE_SAVE": "Saves the file you sent: {name}, {size}.",
         "PHONE_LEDGER_FILE": "a file on this machine",
         "OUT_DONE": "Approved #{id} and carried out.",
         "OUT_REPLAYED": "It had already been done: nothing was repeated.",

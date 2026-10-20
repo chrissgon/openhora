@@ -59,10 +59,9 @@ def test_what_a_phone_may_read_is_not_found(text):
     assert guard.find(text) == [] and guard.clean(text) == (text, [], False)
 
 
-def test_a_line_that_was_only_a_label_for_a_command_is_dropped_and_is_not_an_alteration_of_the_text():
-    text = "Approve exactly this: python3 runtime/cli.py approve --project <project> --id 7 --sha256 abc\nThe next line stays."
-    cleaned, kinds, altered = guard.clean(text)
-    assert cleaned == "The next line stays." and kinds == ["command"] and altered is False
+def test_a_cut_leaves_the_rest_of_the_line_and_drops_only_a_line_the_cut_left_blank():
+    cleaned, kinds, altered = guard.clean("Run this: python3 runtime/cli.py approve --project <project> --id 7 --sha256 abc\nThe next line stays.")
+    assert cleaned == "Run this:\nThe next line stays." and kinds == ["command"] and altered is True, "no line is dropped for being a label: the net never decides what a line meant"
     wrapped, _k, _a = guard.clean("Do it:\n`python3 runtime/cli.py status --project x`\nDone.")
     assert wrapped == "Do it:\nDone."
 

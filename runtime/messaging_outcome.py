@@ -87,7 +87,7 @@ def sentence(item, result, cfg=None):
     if word == "files" and result.get("written") is True:
         key = FILE.get(result.get("operation"))
         return phrases.text(key, cfg, service=_service(ACCOUNT_SERVICE, result.get("account"), cfg)) if key else None
-    if word == "send" and result.get("sent") is True:
+    if word in ("send", "send-own") and result.get("sent") is True:
         return phrases.text("OUT_MAIL_REPLIED" if result.get("reply") is True else "OUT_MAIL_SENT", cfg)
     return None
 

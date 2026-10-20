@@ -45,11 +45,11 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import messaging_guard as guard  # noqa: E402  (the same folder: what a phone never reads, limit L62)
 import phrases  # noqa: E402  (the same folder: the sentences of a card, in the project's language)
 
 CHANNEL = "messaging"
-LEDGER_LINE = re.compile(r"^(Ledger \([^)\n]*\)): .+$", re.M)      # publish_document writes it: the publisher's ledger file by its path on this machine
+LEDGER_LINE = re.compile(r"^(Ledger \(the publisher's record of the keys it published\)): /[^\n]+$", re.M)      # the platform's own frame line (publish_document): the publisher's ledger file by its path on this machine
+APPROVE_FRAME = re.compile(r"^Approve exactly this: python3 runtime/cli\.py approve --project <project> [^\n]*$\n?", re.M)      # the platform's own how-to line of a stored body (command_line("approve", "<project>", ...))
 WORD_OPERATION = {"approved": "approve", "accepted": "approve", "rejected": "reject", "released": "release"}
 # The English frames of a card, kept under their old names; the phrase table (runtime/phrases.py) is their source and `build` says them in the language of
 # the `cfg` it is given (the project's settings: anything that maps `language`), package LR-1.
@@ -134,6 +134,10 @@ def reads_private(policy, sender, operations) -> bool:
     return bool(sender) and bool(groups) and phrases.CARD_PRIVATE_GROUP in groups
 
 
+PHONE_DROPPED = ("CARD_MAIL_HASH", "CARD_FILE_HASH")      # the hash line of a card: a command's argument, which a phone does not type (the button binds to the hash the ledger recorded)
+PHONE_LINE = {"CARD_FILE_SAVE": "PHONE_FILE_SAVE"}      # the save line without the file's short hash
+
+
 def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = False, approvable: bool = True):
     """The body of an `effect` decision said line by line in the project's language, or None. An effect of an account write (package FND) stores, beside
     its English body, its `card`: a list of [key, {field: text}] lines of the phrase table's family CARD_ (runtime/phrases.py card_valid). The lines are
@@ -148,7 +152,9 @@ def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = F
     if phrases.card_text(card).strip() != (item.get("body") or "").strip():
         return None
     shown = card if private else phrases.card_without_private(card, owner)
-    kept = shown if approvable else [line for line in shown if not line[0].endswith("_APPROVE")]      # a reader offered no approval is not told how to approve
+    # `approvable` False is the phone (LIVE-2): the lines that are the platform's own how-to for a terminal go (the approve command, the hash line the command needs), and the
+    # save line says no hash; every line of the person's data is as the card holds it. A reader offered no approval is not told how to approve either.
+    kept = shown if approvable else [[PHONE_LINE.get(line[0], line[0]), line[1]] for line in shown if not line[0].endswith("_APPROVE") and line[0] not in PHONE_DROPPED]
     text = phrases.card_text(kept, cfg)
     return text + "\n" + phrases.text(phrases.hidden_note_key(card, shown), cfg) if len(shown) < len(card) else text
 
@@ -184,12 +190,8 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
         shown_body = phrases.asked_view(item.get("body"), cfg)      # the router's question reaches a phone as the question and its framing, not as the template around it; the hash is made of the stored body
     full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg),
                               body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
-    full = LEDGER_LINE.sub(lambda m: m.group(1) + ": " + phrases.text("PHONE_LEDGER_FILE", cfg), full)      # the one line of a stored body that names a file of this machine by its path: said as a file
-    full, _kinds, altered = guard.clean(full)      # a command line that only said how to run something is dropped; a path is cut
-    if needs_whole and altered and not unreadable:      # the text to approve would differ from the text the card shows: no approval from a card that cannot show it whole (the page does)
-        unreadable = True
-        shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg)
-        full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg), body=shown_body))
+    if shown_body is None and kind == "effect":      # a stored body (no card): only the platform's two frame lines are touched, every other line is the person's data and is shown as it is
+        full = APPROVE_FRAME.sub("", LEDGER_LINE.sub(lambda m: m.group(1) + ": " + phrases.text("PHONE_LEDGER_FILE", cfg), full)).rstrip("\n")
     cut_private = unreadable or (kind == "effect" and not private and effect_card_text(item, None, True) != effect_card_text(item, None, False, owner))      # a line of the current text is left out; so is a card of an account write that cannot be read as a card (fail closed)
     if needs_whole and not blocked and notices == "text" and not cut_private:
         if kind == "effect":

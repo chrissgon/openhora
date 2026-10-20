@@ -415,24 +415,27 @@ class Bridge(shell_kit.Jobs):
 
     # --- sending ---------------------------------------------------------------------------------------------
 
-    def deliver(self, chat: str, message: dict):
-        """The one point where the bridge sends anything: every reply, card and file passes the filter that keeps the home folder off a phone and the net that keeps
-        a command or a path of this machine off it (messaging_guard, limit L62)."""
+    def deliver(self, chat: str, message: dict, guard_text: bool = False):
+        """The one point where the bridge sends anything: every reply, card and file passes the filter that keeps the home folder off a phone and says its dates in the
+        project's language. With `guard_text` (the error text of the operations layer: platform text that is not built from a phrase key) it also passes the net that
+        keeps a command or a path of this machine off a phone (messaging_guard, limit L62). A card and a reply that quotes the person's data never do: what is quoted is
+        theirs, and a card shows what is approved exactly as it is."""
         cfg = self.cfg(chat=chat)
-        return self.messenger.send(chat, guard.guard_message(dated(scrub_message(message), cfg), cfg, self.guarded))
+        message = dated(scrub_message(message), cfg)
+        return self.messenger.send(chat, guard.guard_message(message, cfg, self.guarded) if guard_text else message)
 
     def guarded(self, kinds: list) -> None:
         """What the net under the phone's sentences (messaging_guard) cut from a message: the kinds only, never the text."""
         self.log(f"a message carried {' and '.join(kinds)} of this machine; it was cut before it was sent")
 
-    def reply(self, chat: str, text: str, project=None):
+    def reply(self, chat: str, text: str, project=None, guard=False):
         """Send a reply. True when every piece went out, False when a send failed (logged), None when the platform deferred it
         (it cannot take a message yet: not an error, not logged, and the caller may try again). `project` names the language of the line that says there is
         no reply."""
         caps = self.messenger.capabilities()
         for piece in cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"]):
             try:
-                sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None})
+                sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None}, guard)
                 self.last_message[chat] = str(sent) if sent else None
             except provider.MessengerError as e:
                 if e.kind == "deferred":
@@ -818,7 +821,7 @@ class Bridge(shell_kit.Jobs):
         try:
             found = self.run_op(project, "pending", sender=chat)["pending"]
         except (Refused, self.ops.OpsError) as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, str(e), project, guard=True)
             return
         files = self.attach.waiting(project, chat)      # this sender's own files that wait for an answer and have a card in this chat (their profile permits `attachments`), else None
         if not found:
@@ -865,9 +868,9 @@ class Bridge(shell_kit.Jobs):
             else:
                 self.release(project, chat, pending_id)
         except Refused as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, str(e), project, guard=True)
         except self.ops.OpsError as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, str(e), project, guard=True)
             if op == "approve":
                 self.renew(project, chat, pending_id, card)
 
@@ -955,7 +958,7 @@ class Bridge(shell_kit.Jobs):
                 said = outcome.sentence(item, (done or {}).get("result") if isinstance(done, dict) else None, settings)
                 self.reply(chat, said or self.t("APPROVED", cfg=settings, id=number), project)      # what was done in plain words, else the plain approval
             except Refused as e:
-                self.reply(chat, str(e), project)
+                self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
                 self.reply(chat, self.failed(e, item, settings), project)      # what failed and what to check, in plain words (messaging_failure); the full text is the terminal's
                 self.renew(project, chat, number, card)
@@ -981,9 +984,9 @@ class Bridge(shell_kit.Jobs):
                 self.run_op(project, "release", sender=chat, pending_id=pending_id)
                 self.reply(chat, self.t("RELEASED", project=project, id=pending_id), project)
             except Refused as e:
-                self.reply(chat, str(e), project)
+                self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
-                self.reply(chat, self.t("RUN_BUSY", project=project) if type(e).__name__ == "RunBusy" else str(e), project)
+                self.reply(chat, self.t("RUN_BUSY", project=project) if type(e).__name__ == "RunBusy" else str(e), project, guard=True)
         self.start(project, chat, "release", call)
 
     def say(self, project: dict, chat: str, text: str) -> None:
@@ -1044,10 +1047,10 @@ class Bridge(shell_kit.Jobs):
                 self.allow(project, needed, sender=chat)          # the operation's own group, never `talk`: the layer asks it again
             result = self.ops.natural_write(project["path"], text, channel=CHANNEL, sender=self.key(chat), seed=seed)
         except Refused as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, str(e), project, guard=True)
             return
         except self.ops.OpsError as e:
-            self.reply(chat, f"error: {e}", project)
+            self.reply(chat, f"error: {e}", project, guard=True)
             return
         said = result.get("reply")
         if said is None:          # no write and no answer: a plain line, as it always was
@@ -1089,10 +1092,10 @@ class Bridge(shell_kit.Jobs):
                 if self.reply(chat, said, project) is True and result.get("pending_id") is not None:
                     self.note_asked(project, chat, result["pending_id"])      # the router's question reached this chat as the reply: its notice would be the same question twice
             except Refused as e:
-                self.reply(chat, str(e), project)
+                self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
                 if type(e).__name__ != "RunBusy":
-                    self.reply(chat, f"error: {e}", project)
+                    self.reply(chat, f"error: {e}", project, guard=True)
                 elif entry is not None:       # a kept line met the busy router again: it waits on, with its place and its time
                     if not self.keep(project, chat, text, entry=entry, retry=True):
                         self.reply(chat, self.t("QUEUE_STOPPED", project=project), project)       # the bridge is stopping
@@ -1169,7 +1172,7 @@ class Bridge(shell_kit.Jobs):
         try:
             self.allow(project, self.needs(text, project, chat) or "say", sender=chat)
         except Refused as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, str(e), project, guard=True)
             return
         except self.ops.OpsError:
             self.reply(chat, self.t(refusal, project=project), project)

@@ -11,18 +11,20 @@ of a machine they may not even sit at. So the rule is two layers (contracts/runt
   1. the sentences are written for the phone: a reply that points to somewhere else says WHAT is done and WHERE, in one plain sentence and the page link
      (`messaging.page_url`, else "on the platform's page"), by a phrase key of the family PHONE_ (runtime/phrases.py); the terminal, the page and the conversation keep
      the exact command, because there it can be run;
-  2. this module is the net under them (principle 11: a rule that must hold is code): the bridge's one send point (`Bridge.deliver`) passes every message through
-     `guard_message`, which cuts what looks like a command line of this platform or a path from the text, the footer and the document, says once that the rest is done on
-     the page, and records an event a test can read (`EVENTS`; the text itself is never kept or logged, since it may be private).
+  2. this module is the net under them (principle 11: a rule that must hold is code) for the text the PLATFORM writes that is not built from a phrase key: the error text
+     of the operations layer (`Bridge.reply(..., guard=True)`). `guard_message` cuts what looks like a command line of this platform or a path from the text, the footer and
+     the document, says once that the rest is done on the page, and records an event a test can read (`EVENTS`; the text itself is never kept or logged, since it may be
+     private). It is never applied to what is quoted from the person's data (a card's body, a calendar title, a mail's subject and text, a file's text, a plan's steps, a quote
+     of an answer, a reminder's words): a person's own `uv run demo` or `/Users/ana/x.pdf` is theirs, and a card must show what is approved exactly as it is.
 
 What counts. A COMMAND is a line of the platform's shell: `uv run ...`, `python3 .../cli.py ...` (or the other scripts of runtime/), `keyring set openhora ...`, and a
 flag only this platform's shell has (`--project`, `--sha256`, `--base-sha256`, `--widen`, `--adopt-sources`, `--text-file`, `--content-file`, `--consent`), each to
 the end of its line. A PATH is an absolute path of two or more parts (`/a/b`), a path under the home folder (`~/b`) or a Windows drive path (`C:\\`). A slash command a
-messaging app has (`/approve 12`, `/pending`), a URL, a relative path (`docs/plan.md`) and a bare verb (`accept-config`) are not found. A line that, once its command is cut,
-is only a label ("Approve exactly this:") is dropped; a path is cut and the rest of the line stays.
+messaging app has (`/approve 12`, `/pending`), a URL, a relative path (`docs/plan.md`) and a bare verb (`accept-config`) are not found. A command or a path is cut and the
+rest of its line stays (a line left blank is dropped).
 
-A message that carries the exact text of a decision to be approved is not edited by this net: `messaging_cards.build` reads the same finder before it draws an approval and
-draws no approval for a card whose text it would have to change (the person approves what they read), and the page shows it whole.
+A card is never edited by this net: `messaging_cards.build` shows the body exactly (minus the private-line rules and the platform's own two frame lines for a terminal), so
+the person approves what they read.
 
   find(text)                  the (kind, span) of each command and path in the text, in order
   clean(text)                 (text without them, kinds found, whether a line that stayed was changed)
@@ -67,16 +69,9 @@ def find(text) -> list:
     return sorted(found, key=lambda item: item[1][0])
 
 
-def _label_only(rest: str) -> bool:
-    """Whether what is left of a line, once its command is cut, is only a label that led to it ("Approve exactly this:", "Send:"): it ends with a colon or is empty."""
-    one = rest.strip().strip("`").strip()
-    return not one or one.endswith(":")
-
-
 def clean(text):
-    """(cleaned text, kinds, altered). Each command is cut from its line and a line that was only a label for it is dropped; each path is cut and the line stays. A code span
-    (backticks) that held a cut part is cut with it. `kinds` is the sorted list of the kinds found; `altered` is true when a line that stayed lost words, which a command
-    line that was dropped whole does not count as (it only said how to run something)."""
+    """(cleaned text, kinds, altered). Each command and each path is cut from its line, the rest of the line stays, and a line left blank by the cut is dropped. A code span
+    (backticks) that held a cut part is cut with it. `kinds` is the sorted list of the kinds found; `altered` is true when a line that stayed lost words."""
     if not isinstance(text, str) or not find(text):
         return text, [], False
     kinds, altered, out = set(), False, []
@@ -88,15 +83,15 @@ def clean(text):
         kinds.update(kind for kind, _span in hits)
         rest, last = [], 0
         for kind, (start, end) in hits:
-            rest.append(line[last:start])
+            rest.append(re.sub(r"`+$", "", line[last:start]) if kind == "command" else line[last:start])      # the fence a command was wrapped in goes with it
             last = end
         rest.append(line[last:])
         stripped = re.sub(r"`\s*`", "", "".join(rest))
         stripped = re.sub(r"\s{2,}", " ", stripped).rstrip()
-        if any(kind == "command" for kind, _span in hits) and _label_only(stripped):
+        if not stripped.strip():
             continue
         altered = True
-        out.append(stripped.rstrip(": ").rstrip() if stripped.rstrip().endswith(":") else stripped)
+        out.append(stripped)
     return "\n".join(out), sorted(kinds), altered
 
 

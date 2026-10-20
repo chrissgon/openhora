@@ -681,7 +681,7 @@ def test_a_new_file_asked_for_and_approved_on_a_phone_needs_the_group_the_grant_
     accept(world["path"], {"messaging": ["read", "files-write", "approve-effect-files"]})
     card = card_of(world, started)
     assert card["approvable"] is True and card["whole"] is True and "Pat Example, engineer." in card["message"]["text"]
-    assert item_of(world, started)["payload_sha256"] in card["message"]["text"]
+    assert item_of(world, started)["payload_sha256"] not in card["message"]["text"] and card["content_sha256"] == item_of(world, started)["payload_sha256"]      # bound, not printed (LIVE-2)
     done = approve(world, started, "messaging", SENDER)
     assert done["result"]["written"] is True and [m for m, _ in reads(world["gd"].requests)].count("POST") == 1
     other = ops.file_create(world["path"], "google", "Other.md", content=TEXT, channel="messaging", sender=SENDER)

@@ -243,7 +243,7 @@ class Refusal(Exception):
     ("the request timed out", 1, "OneDrive did not answer, so nothing was done. Try again in a moment."),
     ("HTTP 503 from the service", 1, "OneDrive did not answer, so nothing was done. Try again in a moment."),
     ("the writer's answer is not a finished request: the change may or may not have been made", 1,
-     "I do not know whether it was written: the service did not confirm. Before asking again, check it on the platform's page."),
+     "The result is unknown: the service did not confirm whether it was done. Before asking again, look in your drive."),
     ("a thing nobody foresaw", 1, "It was not done, and nothing was written. Try again in a moment, or check it on the platform's page."),
 ])
 def test_a_failed_approval_is_told_by_the_words_of_its_cause_and_never_by_the_engines_text(text, code, expected):
@@ -294,16 +294,14 @@ def test_a_refused_preparation_reaches_a_phone_as_its_plain_sentence_and_the_ter
 # --- the card that would have to be cut ----------------------------------------------------------------------------------------------
 
 
-def test_a_granted_card_whose_text_holds_a_path_is_drawn_without_an_approval_and_a_known_ledger_line_is_said_as_a_file(fake_world):
+def test_a_granted_card_whose_text_holds_a_path_is_shown_whole_and_stays_approvable_and_the_platforms_ledger_line_is_said_as_a_file(fake_world):
     from test_channel_grants_cards import GRANTED, effect, grant, LABEL
     grant(fake_world, GRANTED)
     fake_world.items[7] = effect(body="Replace the page with:\n\nOpen at nine, see /Users/ana/shop/docs/plan.md for the key.")
     fake_world.bridge.tick()
     [card] = fake_world.sent()
-    text = card["message"]["text"]
-    assert LABEL not in [a["label"] for a in card["message"]["actions"]] and "/Users" not in text and "Open at nine" not in text, "the person is not asked to approve what the card cannot show"
-    assert phrases.text("CARD_HIDDEN_NOTE_WHOLE", None) in text
-    assert fake_world.bridge.ledger.data["cards"][-1]["approvable"] is False
+    assert LABEL in [a["label"] for a in card["message"]["actions"]] and "Open at nine, see /Users/ana/shop/docs/plan.md for the key." in card["message"]["text"], "the person's text is theirs"
+    assert fake_world.bridge.ledger.data["cards"][-1]["approvable"] is True
     fake_world.items[8] = effect(number=8, body="Publish it.\nLedger (the publisher's record of the keys it published): /var/folders/ab/T/standin-ledger.json\nKey: launch")
     fake_world.bridge.tick()
     second = [s for s in fake_world.sent() if "request #8" in s["message"]["text"]][-1]["message"]

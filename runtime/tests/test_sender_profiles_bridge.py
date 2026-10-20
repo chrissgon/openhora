@@ -384,10 +384,9 @@ def test_no_message_the_bridge_sends_carries_the_home_folder_whatever_it_is_and_
         ops.OpsError(f"nothing was done in {lab.path}/docs: see {home}/x", 1)))        # an OpsError that carries a path
     lab.say(OWNER, f"/reject {lab.acceptance}")
     lab.bridge.reply(OWNER, json.dumps({"approve": {"command": operations.command_line("routine-approve", lab.path, checkout=str(lab.tmp / "checkout"),
-                                                                                       routine_id=1, sha256="a" * 64)}}))           # a draft routine's approve command
+                                                                                       routine_id=1, sha256="a" * 64)}}), guard=True)           # the operations layer's own text, a draft routine's approve command: the net cuts it
     real_say = ops.say
-    monkeypatch.setattr(ops, "say", lambda project, text, channel=None, sender=None: {"reply": "unclassified, name a flow with " + operations.command_line(
-        "route", lab.path, checkout=str(lab.tmp / "checkout"), request_id=3)})
+    monkeypatch.setattr(ops, "say", lambda project, text, channel=None, sender=None: {"reply": "unclassified, name a flow"})
     lab.say(OWNER, "make a thing")                                                      # an unclassified route
     assert wait_for(lambda: "unclassified" in everything_sent(lab))
     lab.settle()

@@ -636,7 +636,7 @@ def test_the_card_is_said_line_by_line_in_the_projects_language_with_the_same_ha
     full = ops.pending(world["path"], started["pending"])
     pt = cards.build("northwind", full, CAPS, policy, "text", None, operations=operations, cfg={"language": "pt-BR"})
     en = cards.build("northwind", full, CAPS, policy, "text", None, operations=operations, cfg={})
-    assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] in pt["message"]["text"]
+    assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] not in pt["message"]["text"] and pt["content_sha256"] == full["payload_sha256"]      # the hash binds the button; a phone does not print it (LIVE-2)
     assert phrases.heading(item["title"], {"language": "pt-BR"}) == "E-mail: responder da sua conta"
 
 

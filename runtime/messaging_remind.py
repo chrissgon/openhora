@@ -143,7 +143,7 @@ class Reminders:
         try:
             bridge.allow(project, "say", sender=chat)
         except bridge.Refused as e:
-            bridge.reply(chat, str(e), project)
+            bridge.reply(chat, str(e), project, guard=True)
             return
         self.question(project, chat, phrases.text("NT_ASK_EVENT_OR_OTHER", bridge.cfg(project)), {**natural._draft("eventorother", "ask", line, ""), "retries": retries})
 

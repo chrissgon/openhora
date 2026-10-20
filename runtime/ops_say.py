@@ -703,7 +703,21 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
         return out["reply"], None, None, False, out["run_id"]
     if row.get("chat_reply"):
         return out[row["chat_reply"]], None, None, False, None
-    return json.dumps(out, ensure_ascii=False, indent=1, default=str), None, None, False, None
+    return json.dumps(_phone_view(out) if channel == "messaging" else out, ensure_ascii=False, indent=1, default=str), None, None, False, None
+
+
+PHONE_HIDDEN_KEYS = ("command", "commands", "path", "dir", "folder")      # the fields of an operation's result that are the platform's own terminal commands or paths of this machine
+
+
+def _phone_view(value):
+    """An operation's result as a messaging app is shown it (LIVE-2, limit L62): the fields that hold a terminal command or a path of this machine are left out, by name (a
+    held task's `next` is its command), and nothing else is touched. The terminal, the page and the conversation get the result whole."""
+    if isinstance(value, dict):
+        held = "reason" in value and "task_id" in value
+        return {k: _phone_view(v) for k, v in value.items() if k not in PHONE_HIDDEN_KEYS and not (held and k == "next")}
+    if isinstance(value, list):
+        return [_phone_view(v) for v in value]
+    return value
 
 
 def _planning_may_start(ctx: dict) -> tuple:

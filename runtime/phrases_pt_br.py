@@ -347,9 +347,12 @@ TABLE = {
     "FAIL_NETWORK": "{service}: o serviço não respondeu, então nada foi feito. Tente de novo daqui a pouco.",
     "FAIL_GONE": "Esse item não está mais lá, então nada foi feito.",
     "FAIL_REFUSED": "{service}: o serviço recusou, então nada foi feito. Confira os detalhes e as permissões da conta.",
-    "FAIL_UNKNOWN": "Não sei se foi escrito: o serviço não confirmou. Antes de pedir de novo, confira {where}",
+    "FAIL_UNKNOWN": "O resultado é desconhecido: o serviço não confirmou se foi feito. Antes de pedir de novo, olhe {place}.",
+    "FAIL_LOOK_CALENDAR": "na sua agenda", "FAIL_LOOK_MAILBOX": "na sua caixa de e-mail", "FAIL_LOOK_FILES": "no seu drive", "FAIL_LOOK_SENT": "nos seus e-mails enviados",
+    "FAIL_LOOK_POST": "no perfil", "FAIL_LOOK_ANY": "no serviço",
     "FAIL_NOT_DONE": "Não foi feito, e nada foi escrito. Tente de novo daqui a pouco, ou confira {where}",
     # --- o resultado de um efeito aprovado, dito ao chat que o aprovou (messaging_outcome.py, pacote LIVE-2) ---
+    "PHONE_FILE_SAVE": "Salva o arquivo que você enviou: {name}, {size}.",
     "PHONE_LEDGER_FILE": "um arquivo nesta máquina",
     "OUT_DONE": "Pedido #{id} aprovado e executado.",
     "OUT_REPLAYED": "Isso já tinha sido feito: nada foi repetido.",
