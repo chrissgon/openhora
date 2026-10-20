@@ -97,8 +97,9 @@ def test_the_numbers_are_fixed_in_code():
 def test_the_sentences_are_the_ones_the_spec_names():
     a = attachments
     assert a.OFF == "Files are not taken from this app for this project. Add it on the page or in the terminal (source-import)."
-    assert a.MEDIA == ("Photos, voice notes, videos and stickers are not taken as sources: send a PDF, a Word document, a spreadsheet, "
-                       "a presentation, an HTML page or a text file.")
+    assert a.MEDIA == ("Voice notes, videos, audio and stickers are not taken yet, and neither are images other than PNG, JPEG, WebP, GIF or HEIC. Send a photo or an image of "
+                       "those types to save it to Drive or OneDrive, or a PDF, a Word document, a spreadsheet, a presentation, an HTML page or a text file to add it to the project.")
+    assert a.IMAGE_NOT_SOURCE == "Images are not added to the project; I can save them to Drive or OneDrive."
     assert a.TOO_LARGE.format(name="a.pdf", size="30.0 MiB", cap="25.0 MiB") == "a.pdf is 30.0 MiB; a file from this app is at most 25.0 MiB."
     assert a.DAY.format(n=20, size="80.0 MiB") == ("This project took 20 files (80.0 MiB) from messaging apps today, its limit. "
                                                     "Send it again tomorrow, or add it on the page.")
@@ -108,7 +109,7 @@ def test_the_sentences_are_the_ones_the_spec_names():
         "a.pdf says it is a application/pdf and its bytes are a Word document, so it was not taken.")
     assert a.REFUSED.format(name="a.docx", reason="it holds what looks like a credential") == (
         "a.docx was not added and was deleted: it holds what looks like a credential.")
-    assert a.CAPTION_IGNORED == "The text sent with a file is not read; send it as its own message."
+    assert a.CAPTION_IGNORED == "The text sent with a file is read only as a request to save it; use the buttons on its card for anything else."
 
 
 def test_a_size_is_said_in_binary_units_and_a_name_is_cleaned_and_cut():
@@ -118,7 +119,7 @@ def test_a_size_is_said_in_binary_units_and_a_name_is_cleaned_and_cut():
     assert clean("a\x00b\x1b[31m\nc.pdf") == "a b [31m c.pdf" and clean("") == "file" and clean(None) == "file" and clean(" \x00 ") == "file"
     assert clean("plan\u202egpj.exe") == "plan gpj.exe", "a bidirectional override does not disguise an extension"
     long = clean("x" * 300 + ".pdf")
-    assert len(long) == attachments.NAME_MAX and long.endswith("…")
+    assert len(long) == attachments.NAME_MAX and long.endswith(".pdf") and "…" not in long, "cut cleanly, the extension kept, nothing a file name refuses"
     assert clean("drive:abc.pdf") == "file-drive:abc.pdf", "a file source's origin never starts with the Drive prefix"
     assert attachments.stem("Q3 plan.pdf") == "Q3 plan" and attachments.stem("README") == "README" and attachments.stem(".env") == ".env"
 
@@ -136,8 +137,10 @@ def test_only_an_exact_at_id_on_one_file_is_read_from_the_caption():
 def test_what_the_platform_declared_is_checked_before_a_byte_is_fetched():
     check = attachments.declared_problem
     cap = 20 * 1024 * 1024
-    for kind in ("photo", "voice", "video", "audio", "sticker", "image/jpeg", "audio/ogg", "video/mp4", "IMAGE/PNG"):
+    for kind in ("voice", "video", "audio", "sticker", "audio/ogg", "video/mp4", "image/svg+xml", "image/tiff", "IMAGE/BMP"):
         assert check({"type": kind, "size": 10}, cap) == {"code": "media"}, kind
+    for kind in ("photo", "image/jpeg", "IMAGE/PNG", "image/webp", "image/gif", "image/heic", "image/heif"):
+        assert check({"type": kind, "size": 10}, cap) is None, kind          # a save-only image (ATT-3): taken
     assert check({"type": "application/pdf", "size": cap + 1}, cap) == {"code": "too_large", "size": cap + 1}
     assert check({"type": "application/pdf", "size": cap}, cap) is None and check({"type": None, "size": None}, cap) is None
     assert check({"type": "application/pdf", "size": True}, cap) is None, "a boolean is not a size"
@@ -171,7 +174,7 @@ def test_the_checks_before_a_fetch_count_the_files_of_the_message_against_the_da
     again = [{"ref_sha256": attachments.ref_digest("telegram", "r0"), "id": 77}]
     made = attachments.precheck([one(0), one(0)], cap=10 ** 7, today={"files": 0, "bytes": 0}, held=again, platform="telegram")
     assert made[0]["duplicate"]["id"] == 77 and made[0]["refuse"] is None
-    made = attachments.precheck([one(0, type="photo"), one(1, size=10 ** 9)], cap=10 ** 7, today={"files": 0, "bytes": 0}, held=[], platform="telegram")
+    made = attachments.precheck([one(0, type="voice"), one(1, size=10 ** 9)], cap=10 ** 7, today={"files": 0, "bytes": 0}, held=[], platform="telegram")
     assert [d["refuse"]["code"] for d in made] == ["media", "too_large"]
 
 
@@ -284,7 +287,7 @@ def test_a_declared_type_that_the_bytes_contradict_is_refused_and_still_counts_f
 
 def test_a_type_that_is_not_read_is_refused_with_the_intakes_sentence_and_nothing_is_kept(case):
     with pytest.raises(ops.OpsError, match="was not added and was deleted: .*not read"):
-        case.hold(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64, name="photo.png", declared=None)
+        case.hold(b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00avifmif1miaf" + b"\x00" * 32, name="photo.avif", declared=None)
     assert [(r["status"], r["code"]) for r in case.rows()] == [("refused", "type")]
     assert not (case.data / "attachments" / "held").exists()
 
@@ -687,8 +690,8 @@ def test_a_fetch_that_reached_the_hold_and_was_refused_still_counts_a_duplicate_
     finally:
         lock.release()
     assert case.rows()[-1]["code"] == "busy"
-    with pytest.raises(ops.OpsError, match="Photos, voice notes"):
-        case.hold(PDF, declared="photo")                 # the authority checks what the bridge checked before the fetch
+    with pytest.raises(ops.OpsError, match="Voice notes, videos"):
+        case.hold(PDF, declared="voice")                 # the authority checks what the bridge checked before the fetch
     with pytest.raises(ops.OpsError, match="is 30.0 MiB; a file from this app is at most 25.0 MiB"):
         case.hold(PDF, declared_bytes=30 * 1024 * 1024)
     assert [r["code"] for r in case.rows()][-2:] == ["media", "too_large"]

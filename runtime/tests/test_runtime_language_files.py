@@ -37,14 +37,15 @@ def test_a_provider_that_takes_no_file_and_a_channel_without_the_group_are_told_
 
 def test_the_refusals_before_a_byte_is_fetched_are_in_portuguese(world):
     speak(world, "pt-BR")
-    world.send([world.file("p1", "pic.jpg", 5000, "photo")])
-    assert world.texts() == [PT["ATT_MEDIA"]] == ["Fotos, notas de voz, vídeos e figurinhas não são aceitos como fontes: envie um PDF, um documento Word, uma planilha, "  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-                                                  "uma apresentação, uma página HTML ou um arquivo de texto."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    world.send([world.file("p1", "talk.ogg", 5000, "voice")])
+    assert world.texts() == [PT["ATT_MEDIA"]] == ["Notas de voz, vídeos, áudios e figurinhas ainda não são aceitos, nem imagens que não sejam PNG, JPEG, WebP, GIF ou HEIC. "  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+                                                  "Envie uma foto ou imagem desses tipos para salvar no Drive ou no OneDrive, ou um PDF, um documento Word, uma planilha, "  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+                                                  "uma apresentação, uma página HTML ou um arquivo de texto para adicionar ao projeto."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     world.send([world.file("big", "Big.pdf", 30 * 1024 * 1024)])
     assert world.texts()[-1] == "Big.pdf tem 30,0 MiB; um arquivo deste aplicativo pode ter no máximo 20,0 MiB."
     before = len(world.texts())
     world.send([world.file()], text="please read the file")
-    assert world.texts()[before] == "O texto enviado junto com um arquivo não é lido; envie-o em uma mensagem separada."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert world.texts()[before].endswith("O texto enviado junto com um arquivo é lido só como um pedido para salvar; para o resto, use os botões do card dele.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert len(world.fetches()) == 1
 
 
@@ -52,9 +53,9 @@ def test_the_card_of_a_held_file_and_its_answers_are_in_portuguese(world):
     speak(world, "pt-BR")
     world.send([world.file("r1", "Q3 plan.pdf", len(PDF))])
     [message] = [s["message"] for s in world.sent()]
-    assert message["text"] == (f"northwind-shop · arquivo #1\n\nArquivo seu enviado por telegram: Q3 plan.pdf ({attachments.size_text(len(PDF))}, pdf).\n"
-                               "Adicionar a northwind-shop como a fonte `q3-plan`?")
-    assert [(a["label"], a["id"].split(":")[1]) for a in message["actions"]] == [("Adicionar", "add"), ("Descartar", "discard")]
+    assert message["text"] == (f"northwind-shop · arquivo #1\n\nRecebi Q3 plan.pdf ({attachments.size_text(len(PDF))}, pdf). O que faço?\n"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+                               "\"Adicionar ao projeto\" a transforma em um documento que o assistente pode ler em northwind-shop, como `q3-plan`.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert [(a["label"], a["id"].split(":")[1]) for a in message["actions"]] == [("Adicionar ao projeto", "add"), ("Descartar", "discard")]
     action = card_action(world, "add")
     world.reset()
     world.say("/pending")
@@ -95,10 +96,10 @@ def test_what_a_phone_is_told_of_an_error_of_the_operations_layer(world):
 
 
 def test_an_english_project_gets_the_file_sentences_it_always_got(world):
-    world.send([world.file("p1", "pic.jpg", 5000, "photo")])
+    world.send([world.file("p1", "talk.ogg", 5000, "voice")])
     assert world.texts() == [attachments.MEDIA]
     world.send([world.file("r1", "Q3 plan.pdf", len(PDF))])
-    assert world.texts()[-1].startswith(f"northwind-shop · file #1\n\nFile from you on telegram: Q3 plan.pdf ({attachments.size_text(len(PDF))}, pdf).\n")
+    assert world.texts()[-1].startswith(f"northwind-shop · file #1\n\nI received Q3 plan.pdf ({attachments.size_text(len(PDF))}, pdf). What should I do?\n")
     world.say(action=card_action(world, "add"))
     assert world.texts()[-1].splitlines()[0] == "Added Q3 plan.pdf as `q3-plan`, version 1."
     world.say("/add 77")

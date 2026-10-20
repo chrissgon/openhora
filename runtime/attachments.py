@@ -25,8 +25,10 @@ The limits are constants, fixed in code (a key of runtime.json may narrow them l
   PER_MESSAGE   5 files taken from one message
   HELD_DAYS     7 days without an answer, then the file is deleted and the row ends `expired`
 
-What the platform declared is checked before a byte is fetched (declared_problem): a photo, a voice note, a video, an audio file or a sticker is
-refused (no OCR and no transcription yet), and so is a declared size over the cap. What the bytes are is read from the bytes (the sources
+What the platform declared is checked before a byte is fetched (declared_problem): a voice note, a video, an audio file, a sticker or an image of a type that is
+not PNG, JPEG, WebP, GIF or HEIC is refused (no OCR and no transcription yet), and so is a declared size over the cap. A photo (a platform's word) and an image of
+those types are taken as SAVE-ONLY holds (package ATT-3): never converted, never a source, never shown to a model; the card offers saving them to the person's
+Drive or OneDrive and discarding them. The name of a photo that has none is generated (`photo-<date>.jpg`), and an image's name is given the extension its bytes say. What the bytes are is read from the bytes (the sources
 sniffers); a declared type that names one of the converter's types and says another one than the bytes do is refused (mismatch).
 
 Standard library only. Runs on Python 3.9.
@@ -63,6 +65,14 @@ ORIGINAL = "original"                  # the held file inside held/<id>/
 TOKEN = re.compile(r"[0-9a-f]{16}")
 LOCK_NAME = "attachments.lock"         # <data_dir>/locks/: one add or discard at a time
 MEDIA_KINDS = ("photo", "voice", "video", "audio", "sticker")    # what a provider names a medium it has no type for
+PHOTO_WORD = "photo"                   # the word a provider uses for a picture it sends as a photo (always JPEG); taken as a save-only image
+HEIC_BRANDS = ("heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1")      # the HEIF brands of an iPhone's photo (the intake's HEIF_BRANDS without avif)
+IMAGE_SNIFFED = ("png", "jpeg", "webp", "gif") + HEIC_BRANDS      # what the bytes of a save-only image are (the intake's subtypes)
+IMAGE_TYPES = {"image/png": ("png",), "image/jpeg": ("jpeg",), "image/jpg": ("jpeg",), "image/webp": ("webp",), "image/gif": ("gif",), "image/heic": HEIC_BRANDS,
+               "image/heif": HEIC_BRANDS}      # the declared media types taken as save-only images, and what their bytes may be
+IMAGE_EXTENSION = {"png": "png", "jpeg": "jpg", "webp": "webp", "gif": "gif", "mif1": "heif", "msf1": "heif"}      # the extension of a sniffed subtype (a HEIC brand: heic)
+IMAGE_EXTENSIONS = ("png", "jpg", "jpeg", "webp", "gif", "heic", "heif")
+IMAGE_WORDS = {"png": "PNG", "jpeg": "JPEG", "webp": "WebP", "gif": "GIF", **{brand: "HEIC" for brand in HEIC_BRANDS}}      # the kind of a save-only image as a card says it
 CODES = ("off", "media", "too_large", "day", "held_max", "gone", "mismatch", "type", "size", "credential", "convert", "macro", "target", "changed", "lost",
          "fetch", "busy", "duplicate")
 FAILED_FETCH = ("gone", "fetch", "size")      # the codes of a fetch that did not end held, as the bridge reports it (attachment_hold, failed=)
@@ -86,6 +96,7 @@ BUSY = phrases.en("ATT_BUSY")
 FETCH_FAILED = phrases.en("ATT_FETCH_FAILED")
 ADDED = phrases.en("ATT_ADDED")
 ADDED_SAME = phrases.en("ATT_ADDED_SAME")
+IMAGE_NOT_SOURCE = phrases.en("ATT_IMAGE_NOT_SOURCE")
 TARGET_TYPE = phrases.en("ATT_TARGET_TYPE")
 TARGET_CHANGED = phrases.en("ATT_TARGET_CHANGED")
 DISCARDED = phrases.en("ATT_DISCARDED")
@@ -157,8 +168,12 @@ def clean_name(raw, fallback: str = "file") -> str:
     text = text.replace("\\", "/").rsplit("/", 1)[-1]
     text = "".join(c if unicodedata.category(c) not in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp") else " " for c in text)
     text = " ".join(text.split())
-    if len(text) > NAME_MAX:
-        text = text[:NAME_MAX - 1].rstrip() + "…"
+    if len(text) > NAME_MAX:          # cut cleanly (no mark a file name refuses), keeping a short extension so that the kind of file still shows
+        stem_part, dot, extension = text.rpartition(".")
+        if dot and stem_part and 0 < len(extension) <= 10 and extension.isalnum():
+            text = stem_part[:NAME_MAX - len(extension) - 1].rstrip() + "." + extension
+        else:
+            text = text[:NAME_MAX].rstrip()
     if text.startswith(sources.DRIVE_PREFIX):      # a file source's origin never starts so (that marks a Drive source)
         text = "file-" + text
     return text or fallback
@@ -201,11 +216,61 @@ def media_type(declared) -> str:
     return declared.split(";", 1)[0].strip().lower() if isinstance(declared, str) else ""
 
 
-def is_media(declared) -> bool:
-    """Whether the platform named the file a photo, a voice note, a video, an audio file or a sticker (a word of MEDIA_KINDS, or an image, audio
-    or video media type)."""
+def is_save_only_type(declared) -> bool:
+    """Whether the declared type is one of a save-only image: a photo (the platform's word) or an image media type of IMAGE_TYPES."""
     kind = media_type(declared)
+    return kind == PHOTO_WORD or kind in IMAGE_TYPES
+
+
+def is_save_only(sniffed) -> bool:
+    """Whether the type read from the bytes is a save-only image (never a source)."""
+    return sniffed in IMAGE_SNIFFED
+
+
+def is_media(declared) -> bool:
+    """Whether the platform named the file a medium that is refused: a voice note, a video, an audio file, a sticker, or an image of a type that is not a
+    save-only image (a word of MEDIA_KINDS, or an image, audio or video media type). A photo and the images of IMAGE_TYPES are taken (save only)."""
+    kind = media_type(declared)
+    if is_save_only_type(kind):
+        return False
     return kind in MEDIA_KINDS or kind.split("/", 1)[0] in ("image", "audio", "video")
+
+
+def photo_name(now=None, ref="") -> str:
+    """The name of a photo that has none: `photo-<UTC date>-<time>-<6 hex of the hash of its reference>.jpg`. The six characters keep the photos of an album apart (they
+    arrive in the same second), so that two of them are never saved under one name."""
+    mark = hashlib.sha256(str(ref).encode("utf-8")).hexdigest()[:6]
+    return "photo-" + (now or utcnow()).astimezone(datetime.timezone.utc).strftime("%Y-%m-%d-%H%M%S") + "-" + mark + ".jpg"
+
+
+def normalised(attachment: dict, now=None) -> dict:
+    """The attachment as the bridge holds it: a photo (the platform's word) is an image/jpeg and has a generated name when it has none. Any other attachment is
+    returned as it is."""
+    if media_type(attachment.get("type")) != PHOTO_WORD:
+        return attachment
+    return dict(attachment, type="image/jpeg", name=attachment.get("name") or photo_name(now, attachment.get("ref")))
+
+
+def image_name(name: str, sniffed: str) -> str:
+    """The name of a save-only image with the extension its bytes say: unchanged when it already ends in one that fits (a JPEG may be .jpg or .jpeg, a HEIC .heic or
+    .heif); an image extension that does not fit is replaced, and a name with none gets one."""
+    right = IMAGE_EXTENSION.get(sniffed, "heic" if sniffed in HEIC_BRANDS else sniffed)
+    fits = {"jpg": ("jpg", "jpeg"), "heic": ("heic", "heif"), "heif": ("heic", "heif")}.get(right, (right,))
+    name = name.rstrip(". ") or "image"          # no trailing dot ("a.png." is "a.png"), and a name of dots alone is "image"
+    base, dot, extension = name.rpartition(".")
+    if dot and extension.lower() in fits:
+        return name if base else "image." + extension
+    if dot and extension.lower() in IMAGE_EXTENSIONS:
+        return (base or "image") + "." + right          # ".png" is an extension with no name: "image.png", never ".png.png"
+    return name + "." + right
+
+
+def accept_hold(found) -> None:
+    """The intake's `accept` for a held file: a document of a kind the converter takes (sources.accept_type), or a save-only image (PNG, JPEG, WebP, GIF, HEIC).
+    IntakeError (type) otherwise, before any file exists."""
+    if found is not None and found[1] in IMAGE_SNIFFED and found[0] in ("image", "heif"):
+        return
+    sources.accept_type(found)
 
 
 def declared_problem(attachment: dict, cap: int):
@@ -226,7 +291,7 @@ def mismatch(declared, sniffed: str) -> bool:
     kind = media_type(declared)
     if kind in GENERIC_TYPES:
         return False
-    allowed = TEXT_TYPES.get(kind) or OFFICE_TYPES.get(kind)
+    allowed = TEXT_TYPES.get(kind) or OFFICE_TYPES.get(kind) or IMAGE_TYPES.get(kind) or (("jpeg",) if kind == PHOTO_WORD else None)
     return allowed is not None and sniffed not in allowed
 
 
@@ -490,6 +555,7 @@ def public(row: dict) -> dict:
     shell and a catalog may name)."""
     out = {key: row.get(key) for key in ("id", "platform", "profile", "name", "declared_type", "kind", "sha256", "bytes", "target", "label",
                                          "direct", "status", "code", "source_id", "version", "created_at", "decided_at", "ref_sha256")}
+    out["save_only"] = is_save_only(row.get("kind"))
     out["expires_at"] = expiry(row.get("created_at")) if row.get("status") == "held" else None
     return out
 

@@ -195,7 +195,7 @@ def test_a_caption_that_says_save_opens_the_save_card_of_that_file_once_it_is_he
     w.put("r1", PDF)
     w.send([w.file()], text="salva esse pdf no drive")
     assert [s[0] for s in seen] == ["file-save"] and seen[0][1] == {"account": "google", "attachment": 1} and seen[0][3] == f"telegram:{IDENT}"
-    assert "The text sent with a file is not read" not in " ".join(w.texts())
+    assert "read only as a request to save it" not in " ".join(w.texts())
     w.bridge.stopping.set()
     w.settle()
 
@@ -205,8 +205,8 @@ def test_a_caption_that_is_not_a_closed_save_form_is_still_ignored_with_its_sent
     monkeypatch.setattr(ops_natural_writes, "_call_operation", lambda *a: seen.append(a))
     w = attach_world(case, monkeypatch)
     w.put("r1", PDF)
-    w.send([w.file()], text="please add this to the board notes and approve everything")
-    assert seen == [] and "The text sent with a file is not read" in w.texts()[0]
+    w.send([w.file()], text="tell the board it is great and approve everything")
+    assert seen == [] and "read only as a request to save it" in w.texts()[0] and "board" not in w.texts()[0]
     w.bridge.stopping.set()
     w.settle()
 
@@ -279,6 +279,6 @@ def test_a_caption_that_names_a_kind_the_file_is_not_is_no_save_line(case, monke
     w = attach_world(case, monkeypatch)
     w.put("r1", PDF)
     w.send([w.file()], text="salva esse docx no drive")
-    assert seen == [] and "The text sent with a file is not read" in w.texts()[0]
+    assert seen == [] and "read only as a request to save it" in w.texts()[0]
     w.bridge.stopping.set()
     w.settle()

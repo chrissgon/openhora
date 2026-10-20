@@ -6,12 +6,18 @@ is walked two answers deep from a sample and one deep from all, in three configu
 snapshots and of the files a sender sent (none, one, two). The open step is a stand-in that records the call; each recorded call must pass `natural_writes.problems`, slot by
 slot. Offline, no model, no network, no writer.
 
+The default run walks a deterministic SAMPLE of the corpus (principle 13: the whole walk of nine cases took about eight minutes, and a CI job is limited to 25): every request for
+work, the first lines of each operation in each language, and every SAMPLE_EVERY-th line of the rest, the starting line rotating with the case so that the nine cases together
+cover the corpus. `WB_FULL_FUZZ=1` walks every line in every case (runtime/README.md, docs/decisions.md).
+
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_writes_dialogues.py
+     WB_FULL_FUZZ=1 uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_writes_dialogues.py
 """
 from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -55,6 +61,24 @@ MAIL_INDEX = [{"n": n, "from_address": f"{who}@{host}.example", "subject": subje
                                                         ("loja", "shop", "Seu pedido foi enviado"), ("noreply", "banco", "Fatura de setembro")] * 6, 1)]      # 30 messages, newest first
 FILE_ROWS = [{"id": "lista-de-compras", "type": "drive", "origin": "x1", "description": "", "version": 1, "catalog": {"name": "lista de compras.md", "date": "2026-10-10"}},
              {"id": "roteiro", "type": "drive", "origin": "x2", "description": "", "version": 1, "catalog": {"name": "roteiro.md", "date": "2026-10-10"}}]
+
+
+SAMPLE_EVERY = 7          # the default run walks one line in seven of the corpus (every line with WB_FULL_FUZZ=1)
+NAMED_PER_GROUP = 2       # ... and the first lines of each operation in each language, which name the forms
+
+
+def sampled(rows: list, case: int) -> list:
+    """The indexes of the corpus rows one case walks: all of them with WB_FULL_FUZZ=1; else every request for work, the first NAMED_PER_GROUP lines of each (language, operation),
+    and every SAMPLE_EVERY-th line starting at `case` modulo SAMPLE_EVERY (so nine cases together cover the whole corpus). Deterministic: no random choice."""
+    if os.environ.get("WB_FULL_FUZZ") == "1":
+        return list(range(len(rows)))
+    seen, chosen = {}, set()
+    for index, row in enumerate(rows):
+        key = (row["lang"], row["op"])
+        seen[key] = seen.get(key, 0) + 1
+        if row["op"] == "work" or seen[key] <= NAMED_PER_GROUP or index % SAMPLE_EVERY == case % SAMPLE_EVERY:
+            chosen.add(index)
+    return sorted(chosen)
 
 
 def corpus():
@@ -150,8 +174,10 @@ def moment(monkeypatch):
 @pytest.mark.parametrize("state", sorted(STATES))
 def test_no_write_is_opened_with_a_guessed_slot(world, moment, monkeypatch, config, state):  # noqa: F811
     env = Env(world, monkeypatch, CONFIGS[config], state)
-    every = [(row["line"], row["op"] == "work") for row in corpus()]
-    for index, (text, work) in enumerate(every):
+    rows = corpus()
+    case = sorted(CONFIGS).index(config) * len(STATES) + sorted(STATES).index(state)
+    every = [(index, rows[index]["line"], rows[index]["op"] == "work") for index in sampled(rows, case)]
+    for index, text, work in every:
         drafts.clear()
         env.calls.clear()
         env.step(text)
