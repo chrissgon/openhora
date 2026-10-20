@@ -208,9 +208,17 @@ def normalise(text) -> tuple:
     return folded, origin
 
 
+_ALT_CACHE: dict = {}
+
+
 def _alt(phrases):
-    items = sorted({p for p in phrases if p}, key=lambda p: (-len(p), p))
-    return "(?:" + "|".join(r"\s+".join(re.escape(w) for w in p.split()) for p in items) + ")" if items else None
+    """The alternation of a list of phrases as a regular expression (the longest first), or None for an empty list. The same lists are asked again and again (every line is
+    tried against every list), so the text is kept for each list of phrases."""
+    key = tuple(phrases)
+    if key not in _ALT_CACHE:
+        items = sorted({p for p in key if p}, key=lambda p: (-len(p), p))
+        _ALT_CACHE[key] = "(?:" + "|".join(r"\s+".join(re.escape(w) for w in p.split()) for p in items) + ")" if items else None
+    return _ALT_CACHE[key]
 
 
 def _opt(alt, tail=r"\s+"):

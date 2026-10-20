@@ -451,6 +451,29 @@ def _variants(window: list, text: str, tables: list, prefixes: list) -> list:
     return out
 
 
+_FACTS: dict = {}
+
+
+def _facts(text: str, now, tables: list):
+    """(the clocks written in `text`, the days it names alone, the (date, time) readings of the engine on it): what a window of the person's lines says about time. The
+    engine is the slow part of the checker and a window is asked about again and again, so the answer is kept for the moment `now` and the tables it was made with."""
+    key = (text, str(now), tuple(id(t) for t in tables))
+    if key not in _FACTS:
+        clocks, days, readings = set(), set(), []
+        for hit in nt.find(text, tables)["hits"]:
+            if hit["kind"] == "clock":
+                clocks |= {f"{h:02d}:{m:02d}" for h, m in hit["times"]}
+        parsed = nt.parse(text, now, tables)
+        if parsed and "when" in parsed:
+            readings = [(parsed["reading"]["date"], parsed["reading"]["time"])]
+        elif parsed and "ask" in parsed:
+            readings = [(r["date"], r["time"]) for r in parsed["ask"]]
+        elif parsed and parsed.get("day"):
+            days.add(parsed["day"]["date"])
+        _FACTS[key] = (clocks, days, readings)
+    return _FACTS[key]
+
+
 def _time_problems(key, value, said, now, tables) -> list:
     """A start or end whose date and time are not a reading of the engine on the person's words (some window of consecutive lines). A start with a clock must be read
     TOGETHER with its day: the day and the clock are the two parts of one reading of one window, never a day from one place and a clock from another. An end is a clock the
@@ -463,22 +486,13 @@ def _time_problems(key, value, said, now, tables) -> list:
         for j in range(i + 1, len(said) + 1):
             text = " ".join(said[i:j])
             for variant in _variants(said[i:j], text, tables, prefixes):
-                found = nt.find(variant, tables)
-                for hit in found["hits"]:
-                    if hit["kind"] == "clock":
-                        seen_times |= {f"{h:02d}:{m:02d}" for h, m in hit["times"]}
-                parsed = nt.parse(variant, now, tables)
-                readings = []
-                if parsed and "when" in parsed:
-                    readings = [parsed["reading"]]
-                elif parsed and "ask" in parsed:
-                    readings = list(parsed["ask"])
-                elif parsed and parsed.get("day"):
-                    seen_days.add(parsed["day"]["date"])
-                for r in readings:
-                    seen_days.add(r["date"])
-                    seen_times.add(r["time"])
-                    pairs.add((r["date"], r["time"]))
+                clocks, days, readings = _facts(variant, now, tables)
+                seen_times |= clocks
+                seen_days |= days
+                for date, time in readings:
+                    seen_days.add(date)
+                    seen_times.add(time)
+                    pairs.add((date, time))
             if clock and _hour_written(clock, text):
                 written = True
     if not clock:
