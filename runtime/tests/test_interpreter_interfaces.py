@@ -103,6 +103,10 @@ def snapshot_problems(snap: dict) -> list:
     for r in snap.get("ops", []):
         if set(r) != {"op", "class", "what", "slots"}:
             out.append("%s: row keys" % r.get("op"))
+        want = ("R" if r["op"] in READS else "N" if r["op"] in NOTICES else "W" if r["op"] in WRITES else "E" if r["op"] in EFFECTS
+                else "work" if r["op"] == "ask" else "G" if r["op"] in OPERATIONAL else None)
+        if r.get("class") != want:
+            out.append("%s: class %s, want %s" % (r.get("op"), r.get("class"), want))
     for r in snap.get("refused", []):
         if set(r) != {"op", "class", "what"}:
             out.append("%s: refused keys" % r.get("op"))
@@ -136,7 +140,7 @@ def test_kind_and_group_of_every_row():
     assert {op for op, r in by.items() if r["kind"] == "internal"} == set(INTERNAL)
     for op, r in by.items():
         assert r["group"] == first_group(op), op
-    # the borderline rows the maintainer decided (SPEC-IX-PHASE1 section 6, question 1)
+    # the borderline rows, decided by recommendation (supervisor, reversible), pending the maintainer's confirmation (SPEC-IX-PHASE1 section 6, question 1)
     assert by["instructions-set"]["kind"] == by["instructions-add"]["kind"] == "operational"
     assert by["source-import"]["kind"] == by["deps"]["kind"] == by["config"]["kind"] == "widening"
     assert by["revoke-policy"]["kind"] == "operational"
@@ -255,6 +259,12 @@ def test_vacuity_the_checker_catches_a_stale_file_and_planted_snapshots():
     short["refused"].pop()
     assert any("refused count" in p for p in snapshot_problems(short))
     assert catalog.sha256(extra) != catalog.sha256(snap)        # the hash a stale file would have differs
+    wrong_class = copy.deepcopy(snap)
+    wrong_class["ops"][0]["class"] = "E"             # status is a read
+    assert any("status: class E, want R" in p for p in snapshot_problems(wrong_class))
+    wrong_g = copy.deepcopy(snap)
+    next(r for r in wrong_g["ops"] if r["op"] == "sync")["class"] = "W"
+    assert any("sync: class W, want G" in p for p in snapshot_problems(wrong_g))
 
 
 # --- the other interface files ---------------------------------------------------------------------------------------------------------------------
@@ -320,6 +330,9 @@ def test_the_thresholds_have_their_values():
     assert (doc["overall"]["clarify_rate_max"], doc["overall"]["p95_latency_ms_max"], doc["overall"]["median_cost_usd_max"]) == (0.15, 4000, 0.002)
     assert set(doc["per_language"]["correct_direct_min"]) == set(doc["languages"])
     assert doc["per_language"]["correct_direct_min"]["pt-BR"] == 0.85 and doc["per_language"]["correct_direct_min"]["it"] == 0.75
+    assert doc["per_language"]["point_max"] == {"wrong_card": 0.03, "wrong_read": 0.03, "wrong_reminder_reading": 0.03, "wrong_item_binding": 0.03}
+    assert doc["per_language"]["correct_direct_min"] == {"pt-BR": 0.85, "en": 0.85, "es": 0.75, "fr": 0.75, "de": 0.75, "it": 0.75}
+    assert doc["statements"] == ["0 of n is reported as < 3/n by the rule of three", "at 50 items a per-language bound under 3% is unreachable"]
     assert doc["versus_current"] == {"correct_direct": "greater", "wrong_card": "not_greater"}
 
 
@@ -331,11 +344,67 @@ def test_every_file_is_canonical_json_of_its_own_kind_and_parses():
         assert json.loads(raw) is not None
 
 
-def test_vacuity_a_file_with_an_unknown_key_or_a_changed_value_differs_from_the_literal():
-    doc = load(RUNTIME / "interpreter_protocol.json")
-    planted = dict(doc, extra=1)
-    assert planted != {"v": 1, "protocol": 1, "params": {"temperature": 0, "max_tokens": 300, "reasoning": "off"}, "deadline_ms": 6000,
-                       "max_line_chars": 1000, "max_output_bytes": 2048, "fence": "tolerated"}
+PROTOCOL = {"v": 1, "protocol": 1, "params": {"temperature": 0, "max_tokens": 300, "reasoning": "off"}, "deadline_ms": 6000, "max_line_chars": 1000,
+            "max_output_bytes": 2048, "fence": "tolerated"}
+
+
+def protocol_problems(doc: dict) -> list:
+    return [] if doc == PROTOCOL else ["the protocol file differs from the literal"]
+
+
+def severity_problems(doc: dict) -> list:
+    return [] if doc.get("severity") == SEVERITY else ["severity differs from the literal order"]
+
+
+def test_vacuity_a_file_with_an_unknown_key_or_a_changed_value_fails_its_checker():
+    assert protocol_problems(load(RUNTIME / "interpreter_protocol.json")) == []
+    assert protocol_problems(dict(PROTOCOL, extra=1))
+    assert protocol_problems(dict(PROTOCOL, deadline_ms=7000))
     tax = load(EVALS / "taxonomy.json")
+    assert severity_problems(tax) == []
     tax["severity"] = list(reversed(tax["severity"]))
-    assert tax["severity"] != SEVERITY
+    assert severity_problems(tax)
+
+
+# --- an operational row never takes a path from words ------------------------------------------------------------------------------------------------
+
+PATH_WORDS = ["file", "path", "dir", "directory", "folder", "file_name", "filename"]
+
+
+def path_slot_problems(rows: list, natural_table: dict) -> list:
+    """An operational row has no slot named like a path, and no slot whose parameter is, in `natural_table` ({op: {"slots": {slot: [kind, param]}}})."""
+    out = []
+    for r in rows:
+        if r["kind"] != "operational":
+            continue
+        for slot, (kind, param) in natural_table.get(r["op"], {"slots": {}})["slots"].items():
+            if slot in PATH_WORDS or param in PATH_WORDS or kind == "path":
+                out.append("%s: slot %s is a path" % (r["op"], slot))
+    return out
+
+
+def test_no_operational_row_has_a_path_like_slot_and_the_file_rows_say_where_a_file_comes_from():
+    rows = load(RUNTIME / "gated_ops.json")["rows"]
+    assert path_slot_problems(rows, natural.NATURAL) == []
+    # source-refresh, stage-file and hand-over take a host `file` argument in the table of operations: a line must never fill it
+    file_rows = ["source-refresh", "stage-file", "hand-over"]
+    by = {r["op"]: r for r in rows}
+    for op in file_rows:
+        args = next(r for r in operations.OPERATIONS if r["name"] == op)["args"]
+        assert "file" in [a["name"] for a in args], op
+        assert by[op]["kind"] == "operational" and natural.NATURAL[op]["slots"] == {}
+        assert "the file only from the page or a held attachment, never a path from words" in by[op]["why"], op
+    assert "read" in by["proof"]["why"] and "confirmation" not in by["proof"]["why"]
+
+
+def test_vacuity_a_planted_path_slot_on_an_operational_row_fails_the_checker():
+    rows = load(RUNTIME / "gated_ops.json")["rows"]
+    planted = copy.deepcopy(dict(natural.NATURAL))
+    planted["hand-over"] = {"slots": {"file": ["word", "file"]}}
+    assert any("hand-over: slot file" in p for p in path_slot_problems(rows, planted))
+    renamed = copy.deepcopy(dict(natural.NATURAL))
+    renamed["stage-file"] = {"slots": {"what": ["word", "path"]}}
+    assert path_slot_problems(rows, renamed)
+    widening_planted = copy.deepcopy(dict(natural.NATURAL))
+    widening_planted["source-add"] = {"slots": {"path": ["word", "path"]}}      # a widening row is not this checker's concern
+    assert path_slot_problems(rows, widening_planted) == []
