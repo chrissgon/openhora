@@ -214,7 +214,7 @@ def test_a_caption_that_is_not_a_closed_save_form_is_still_ignored_with_its_sent
 # --- the kind question answered in a phrase (the live bug of 2026-10-19) -----------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("answer", ["Um evento na minha agenda", "evento na agenda", "na agenda", "no calendário", "um evento", "an event in my calendar", "event"])
+@pytest.mark.parametrize("answer", ["evento no calendário", "quero como evento", "na agenda", "no calendário", "um evento", "as an event please", "event"])
 def test_the_kind_question_answered_in_a_phrase_for_the_event_opens_the_w1_card_with_the_reading_shown(day, monkeypatch, answer):
     def forbidden(*a, **k):
         raise AssertionError("an answer to the kind question reaches no model and not `say`")
@@ -227,7 +227,7 @@ def test_the_kind_question_answered_in_a_phrase_for_the_event_opens_the_w1_card_
     assert day.world["google"].requests == [] and drafts.count() == 0, "a card writes nothing, and the question is closed"
 
 
-@pytest.mark.parametrize("answer", ["Um lembrete aqui no chat", "lembrete aqui no chat", "um lembrete", "a reminder here"])
+@pytest.mark.parametrize("answer", ["lembrete aqui", "quero como lembrete", "um lembrete", "a reminder please"])
 def test_the_kind_question_answered_in_a_phrase_for_the_reminder_makes_the_reminder_shown(day, answer):
     day.say(OWNER, "dentista quinta às 10h")
     day.say(OWNER, answer)
@@ -256,3 +256,29 @@ def test_the_loose_verb_question_is_asked_once_more_for_a_phrase_that_is_not_an_
     assert day.texts(OWNER)[-1] == first
     day.say(OWNER, "na agenda")
     assert any("Title: dentista" in t for t in day.texts(OWNER))
+
+
+def test_a_long_line_that_is_no_answer_drops_the_question_and_is_a_new_line_never_a_retry(day):
+    day.say(OWNER, "marca quinta às 10h no google")
+    day.say(OWNER, "marca almoço sexta às 12h no google")
+    assert any("Title: almoço" in t for t in day.texts(OWNER)) and drafts.count() == 0
+
+
+def test_the_kind_question_answered_with_the_kind_and_a_time_applies_the_time_as_a_correction_of_the_reading_it_showed(day, monkeypatch):
+    monkeypatch.setattr(ops, "say", lambda *a, **k: (_ for _ in ()).throw(AssertionError("not routed")))
+    day.say(OWNER, "dentista quinta às 10h")
+    day.say(OWNER, "evento às 15h")
+    texts = day.texts(OWNER)
+    assert any("Title: dentista" in t and "Thu 22/10/2026 15:00" in t for t in texts), texts
+    assert not any("Title: evento" in t for t in texts) and day.world["google"].requests == []
+
+
+def test_a_caption_that_names_a_kind_the_file_is_not_is_no_save_line(case, monkeypatch):  # noqa: F811
+    seen = []
+    monkeypatch.setattr(ops_natural_writes, "_call_operation", lambda *a: seen.append(a))
+    w = attach_world(case, monkeypatch)
+    w.put("r1", PDF)
+    w.send([w.file()], text="salva esse docx no drive")
+    assert seen == [] and "The text sent with a file is not read" in w.texts()[0]
+    w.bridge.stopping.set()
+    w.settle()

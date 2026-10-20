@@ -78,6 +78,14 @@ def decision_text(item: dict) -> str:
     return f"{title}\n\n{body}" if title and body else title or body
 
 
+def router_asks(item: dict) -> bool:
+    """Whether the decision is the question the router asked about a request (ops._route_run writes it whole: the kind `question`, the title "The router asks"
+    and the ending `question`). A card shows such a question as the question alone (phrases.asked_view); a task's question, whose title names its skill, is shown whole."""
+    payload = item.get("payload")
+    return item.get("kind") == "question" and item.get("title") == phrases.en("TITLE_ROUTER_ASKS") \
+        and isinstance(payload, dict) and payload.get("ending") == "question"
+
+
 def content_sha256(item: dict) -> str:
     """What a card is bound to: a plan's hash, an effect's payload hash, else the sha256 of the decision's text."""
     if item["kind"] == "plan":
@@ -234,6 +242,8 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
             footer.append(page_url)
     header = header_of(project_name, item, cfg)
     shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg) if unreadable else (effect_card_text(item, cfg, private, owner, approval_ok) if kind == "effect" else None)      # an effect that carries its card as lines (FND), said line by line in the language
+    if shown_body is None and router_asks(item):
+        shown_body = phrases.asked_view(item.get("body"), cfg)      # the router's question reaches a phone as the question and its framing, not as the template around it; the hash is made of the stored body
     full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg),
                               body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
     document = None

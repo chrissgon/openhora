@@ -288,12 +288,13 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
 
 def run_routed(project: str, ctx: dict, operation: dict, said: str, channel, sender, extras: dict) -> str:
     """The reply for an operation the router named (router.read_route kind `operation`, already believed against the person's line): the dispatcher
-    believes it against the line AGAIN, with the line the request holds, and executes it. A router-normalised time makes the reply a question."""
+    believes it against the line AGAIN, with the line the request holds, and executes it. A router-normalised time makes the reply a question. A write is read again by
+    the family's own parse and the router's time is never used for it: a time the line's words do not give is asked."""
     checked = natural.check_operation(operation.get("name"), _slots_of(operation), operation.get("when"), said)
     if not checked["ok"]:
         return phrases.text("NAT_NOT_BELIEVED", ctx["cfg"])
     if natural.class_of(checked["name"]) == "E" and channel != "mcp":      # the router named a write: the line is read again by the family's own parse, the name is only a hint (limit L61)
-        opened = _writes().open_line(project, ctx, said, channel, sender, extras, hint=checked["name"], when=checked["when"])
+        opened = _writes().open_line(project, ctx, said, channel, sender, extras, hint=checked["name"])
         if opened is not None:
             return opened
     return run(project, ctx, checked["name"], checked["args"], said, channel, sender, extras, when=checked["when"], routed=True)

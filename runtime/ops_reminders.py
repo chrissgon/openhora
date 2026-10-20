@@ -181,7 +181,7 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
             return {"cancel": True, "kept": bool(understood.get("kept"))}
         if understood.get("event"):
             if draft and draft.get("readings"):          # the kind question was answered "event": the reading it showed and the words go to the write (package NR-5)
-                return {"event": True, "reading": draft["readings"][0], "text": draft.get("text") or "", "line": draft.get("line") or ""}
+                return {"event": True, "reading": understood.get("reading") or draft["readings"][0], "text": draft.get("text") or "", "line": draft.get("line") or ""}
             return {"event": True}
         if understood.get("forget"):
             return {"forget": understood["forget"]}

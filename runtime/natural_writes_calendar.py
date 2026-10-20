@@ -19,6 +19,7 @@ python3 runtime/natural_writes_calendar.py --help
 """
 from __future__ import annotations
 
+import calendar
 import datetime
 import os
 import re
@@ -74,6 +75,62 @@ def _range(text: str, tables: list):
     return nt.without(text, spans), _clock(second), cuts
 
 
+DATE_FORM = re.compile(r"(?<![0-9/])([0-9]{1,2})/([0-9]{1,2})(?:/([0-9]{2,4}))?(?![0-9/])")      # day/month[/year], the order of the engine
+
+
+def _invalid_date(text: str):
+    """(start, end) in `text` of a written date that does not exist (a month above 12, "31/02"), or None."""
+    for m in DATE_FORM.finditer(text):
+        day, month = int(m.group(1)), int(m.group(2))
+        year = int(m.group(3)) if m.group(3) and len(m.group(3)) == 4 else 2028          # a leap year: 29/02 is not judged here
+        if not 1 <= month <= 12 or not 1 <= day <= calendar.monthrange(year, month)[1]:
+            return m.start(), m.end()
+    return None
+
+
+STRAY = re.compile(r"(?<![\w:])[0-9]{1,2}(?![\w:])")      # a number of one or two digits left among the words of a title: the hour it may have been meant to be
+
+
+def _bare_range(text: str, tables: list):
+    """(engine_text, end "HH:MM" | None, doubt) for a range whose first hour is a bare number, in the forms that people type: hours bare behind a range marker ("de 13 a 15",
+    both from 7 to 23, the first below the second: read as a 24-hour clock and marked to check; a pair below 7 could be the afternoon and is not read), and a bare number in
+    front of a clock ("13-15h", "10 as 11h", "1-2pm"): the number is the first hour of a range that ends at that clock (with "pm" the afternoon of the same clock; a number
+    that is not below the clock is no range and is left to be checked). The first hour and its marks are replaced in the text by one clock for the engine."""
+    line = nw.Line(text)
+    norm, origin = line.norm, line.origin
+    joiners = nt._alt(_list(tables, "range_to"))
+    starts = nt._alt(_list(tables, "range_from"))
+    if starts and joiners:
+        m = re.compile(f"{nt._L}{starts}\\s+([0-9]{{1,2}})\\s*(?:{joiners}|-)\\s*([0-9]{{1,2}})(?![a-z0-9:])").search(norm)
+        if m and 7 <= int(m.group(1)) < int(m.group(2)) <= 23:
+            return text[:origin[m.start()]] + f"{int(m.group(1)):02d}:00" + text[origin[m.end() - 1] + 1:], f"{int(m.group(2)):02d}:00", True
+    found = nt.find(text, tables)
+    clocks = [h for h in found["hits"] if h["kind"] == "clock" and len(h["times"]) == 1]
+    if len(clocks) != 1 or not joiners:
+        return text, None, False
+    hit = clocks[0]
+    own = found["norm"][hit["s"]:hit["e"]]
+    glued = bool(re.match(f"{joiners}\\s", own))          # the clock hit may carry the joiner itself ("as 11h")
+    tail = "" if glued else f"\\s*(?:{joiners}|-|–|—)"
+    before = re.compile(f"{nt._L.replace('a-z0-9', 'a-z0-9:/.')}([0-9]{{1,2}})(?::([0-9]{{2}}))?{tail}\\s*$").search(found["norm"][:hit["s"]])
+    if not before:
+        return text, None, False
+    end_hour, end_minute = hit["times"][0]
+    first, minute = int(before.group(1)), int(before.group(2) or 0)
+    if first > 23 or minute > 59:
+        return text, None, False
+    suffix = found["norm"][hit["s"]:hit["e"]].strip()[-2:]
+    if suffix in ("am", "pm") and first <= 12:
+        hour = first % 12 + (12 if suffix == "pm" else 0)
+        if suffix == "pm" and hour >= end_hour:
+            hour -= 12
+    else:
+        hour = first
+    if (hour, minute) >= (end_hour, end_minute):
+        return text, None, False
+    return text[:found["origin"][before.start(1)]] + f"{hour:02d}:{minute:02d}" + text[found["origin"][hit["e"] - 1] + 1:], f"{end_hour:02d}:{end_minute:02d}", False
+
+
 def _stamp(reading: dict, clock=None) -> str:
     return f"{reading['date']}T{clock or reading['time']}"
 
@@ -116,9 +173,19 @@ def times(text: str, tables: list, now):
         cuts.append(spot)
     cleaned = line.without(cuts) if cuts else text
     engine_text, end_clock, _ = _range(cleaned, tables)
+    bare = False
+    if end_clock is None:
+        again, bare_end, bare_doubt = _bare_range(engine_text, tables)
+        if bare_end:
+            engine_text, end_clock, bare = again, bare_end, bare_doubt
+    spot = _invalid_date(engine_text) if now is not None and not all_day else None
+    if spot and any(h["kind"] == "clock" for h in nt.find(nt.without(engine_text, [spot]), tables)["hits"]):
+        engine_text = nt.without(engine_text, [spot])          # a date that does not exist: the clock is kept and the day is asked again
+    else:
+        spot = None
     timed = bool(nt.find(engine_text, tables)["hits"])
     out = {"timed": timed or all_day, "engine_text": engine_text, "end_clock": end_clock, "all_day": all_day, "slots": {}, "engine": None, "doubt": False, "recurring": False,
-           "reading": None, "end_ok": True, "day_needed": False}
+           "reading": None, "end_ok": True, "day_needed": False, "date_invalid": False}
     if now is None:
         return out
     if all_day:
@@ -142,6 +209,33 @@ def times(text: str, tables: list, now):
     got = natural.understand(engine_text, now, "write")
     out.update(from_engine(got["ask"], end_clock, False))
     out["timed"] = True
+    start = out["slots"].get("start") or ""
+    if "T" in start:
+        try:
+            if datetime.datetime.fromisoformat(start) < now.replace(tzinfo=None):
+                out["doubt"] = True          # a time that has passed today: the card is preceded by the line that says what to check
+        except ValueError:
+            spot = spot or (0, 0)
+    elif start:
+        try:
+            datetime.date.fromisoformat(start)
+        except ValueError:
+            spot = spot or (0, 0)
+    if spot:
+        out["slots"].pop("start", None)
+        out["slots"].pop("end", None)
+        if "T" in start and re.fullmatch(r"[0-9]{2}:[0-9]{2}", start[11:16]):
+            out["slots"]["_clock"] = start[11:16]
+            if end_clock:
+                out["slots"]["_end_clock"] = end_clock
+            out["engine"], out["day_needed"], out["date_invalid"] = None, True, True
+    if out["slots"].get("title"):
+        out["slots"]["title"] = re.sub(r"(?<![\w])h(?![\w])", " ", out["slots"]["title"]).strip()      # the "h" of an hour the engine cut is no word of a title
+        out["slots"]["title"] = re.sub(r"\s{2,}", " ", out["slots"]["title"])
+        if not out["slots"]["title"]:
+            out["slots"].pop("title")
+    if bare or STRAY.search(out["slots"].get("title") or ""):
+        out["doubt"] = True          # hours written bare, or a number left in the title that may have been an hour: the card is preceded by the line that says what to check
     return out
 
 
@@ -198,6 +292,16 @@ def _change(line: "nw.Line", tables: list, now):
     verb = line.lead(_list(tables, "change_verbs"), tables)
     if verb is None:
         return None
+    form = _change_form(line, tables, now, verb)
+    if form is not None:
+        return form
+    named = natural.candidate(line.text, tables)
+    if named and named["op"] == "remind":          # not a change form, and a line that NR-1 would take for a reminder and then for a NEW event: a change is asked by number
+        return {"op": "event-change", "say": "NW_CHANGE_BY_NUMBER", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
+    return None
+
+
+def _change_form(line: "nw.Line", tables: list, now, verb: int):
     noun_end = _noun_at(line, verb, tables)
     if noun_end is None:
         return None
@@ -214,12 +318,12 @@ def _change(line: "nw.Line", tables: list, now):
     if leftover and not _only_polite(nw.Line(leftover).norm, tables):
         return None
     slots = {"event": number}
-    slots.update({k: v for k, v in got["slots"].items() if k in ("start", "end")})
+    slots.update({k: v for k, v in got["slots"].items() if k in ("start", "end", "_clock", "_end_clock")})
     if service:
         slots["account"] = service[0]
     return {"op": "event-change", "slots": slots, "spans": {}, "ranges": {}, "need": [] if "start" in slots else ["time"], "engine": got["engine"],
             "doubt": got["doubt"], "recurring": got["recurring"], "reading": got["reading"], "end_ok": got["end_ok"], "end_clock": got["end_clock"],
-            "day_needed": got["day_needed"], "all_day": got["all_day"]}
+            "day_needed": got["day_needed"], "all_day": got["all_day"], "date_invalid": got["date_invalid"]}
 
 
 def _cancel(line: "nw.Line", tables: list):
@@ -288,7 +392,8 @@ def _create(line: "nw.Line", tables: list, now):
     rest = line.without(cuts)
     got = times(rest, tables, now)
     out = {"op": "event-create", "slots": dict(slots), "spans": {}, "ranges": {}, "need": [], "engine": got["engine"], "doubt": got["doubt"], "recurring": got["recurring"],
-           "reading": got["reading"], "end_ok": got["end_ok"], "end_clock": got["end_clock"], "day_needed": got["day_needed"], "all_day": got["all_day"]}
+           "reading": got["reading"], "end_ok": got["end_ok"], "end_clock": got["end_clock"], "day_needed": got["day_needed"], "all_day": got["all_day"],
+           "date_invalid": got["date_invalid"]}
     if now is None:
         return out
     out["slots"].update(got["slots"])
@@ -323,7 +428,13 @@ def answer(need, line, slots, tables, now, options=None):
     if need == "day":
         found = nt.parse(line, now, tables)
         if found and "missing" in found and found.get("day"):
-            return {"slots": {"start": found["day"]["date"]}}
+            date, clock = found["day"]["date"], slots.get("_clock")
+            if not clock:
+                return {"slots": {"start": date}}
+            got = {"start": f"{date}T{clock}"}
+            if slots.get("_end_clock") and slots["_end_clock"] > clock:
+                got["end"] = f"{date}T{slots['_end_clock']}"
+            return {"slots": got}
         return None
     if need == "end":
         parsed = natural._time_only(line, now, tables)

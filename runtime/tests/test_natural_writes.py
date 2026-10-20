@@ -188,9 +188,9 @@ def test_the_write_mode_of_the_engine_leaves_the_results_of_nr_1_unchanged():
     assert first["ask"]["need"] == "confirm" and first["ask"]["text"] == "ligar para a gráfica"
 
 
-@pytest.mark.parametrize("said, kind", [("Um evento na minha agenda", "event"), ("evento na agenda", "event"), ("na agenda", "event"), ("no calendário", "event"), ("um evento", "event"),
-                                        ("um lembrete", "notice"), ("lembrete aqui no chat", "notice"), ("Um lembrete aqui no chat", "notice"), ("an event in my calendar", "event"),
-                                        ("a reminder here", "notice"), ("I want an event in my calendar please", "event"), ("outra coisa", "other"),
+@pytest.mark.parametrize("said, kind", [("Evento no calendário", "event"), ("quero como evento", "event"), ("na agenda", "event"), ("no calendário", "event"), ("um evento", "event"),
+                                        ("um lembrete", "notice"), ("lembrete aqui", "notice"), ("Quero como lembrete", "notice"), ("an event in the calendar", "event"),
+                                        ("a reminder here", "notice"), ("I want it as an event please", "event"), ("outra coisa", "other"),
                                         ("um evento ou um lembrete", None), ("evento amanhã às 9", None), ("um evento no banco", None), ("talvez", None), ("", None)])
 def test_the_kind_a_person_names_is_read_with_the_closed_words_around_it_and_nothing_open(said, kind):
     assert natural.answer_kind(said) == kind
@@ -201,3 +201,27 @@ def test_a_reply_to_the_kind_question_is_asked_once_more_up_to_eight_words_but_a
     assert not natural.short_answer("quando abre a loja", wide=True) and not natural.short_answer("quanto custa o evento?", wide=True)
     assert not natural.short_answer("me lembra amanhã às 9 de pagar a luz", wide=True), "a reminder of its own is a new line"
     assert not natural.short_answer(" ".join(["palavra"] * 9), wide=True)
+
+
+def test_hours_written_bare_behind_a_range_marker_are_a_range_to_check_and_a_pair_that_could_be_the_afternoon_is_not_read():
+    got = nw.read("marca reunião quinta de 13 a 15", NOW)
+    assert got["slots"] == {"title": "reunião", "start": "2026-10-22T13:00", "end": "2026-10-22T15:00"} and got["doubt"] is True
+    early = nw.read("marca reunião quinta de 1 a 3", NOW)
+    assert "start" not in early["slots"] and "end" not in early["slots"], "1 to 3 could be the night or the afternoon: not read, the time is asked"
+    assert nw.read("marca reunião quinta das 13h às 15h", NOW)["doubt"] is False
+
+
+def test_a_number_left_among_the_words_of_the_title_is_checked_on_the_card_as_a_doubt():
+    stray = nw.read("marca prova 20 às 14h", NOW)
+    assert stray["slots"]["start"] == "2026-10-19T14:00" and stray["slots"]["title"] == "prova 20" and stray["doubt"] is True, "20 may be a day: checked on the card, never a silent title"
+    assert nw.read("marca dentista quinta às 10h", NOW)["doubt"] is False
+
+
+def test_the_provenance_check_pairs_an_end_with_its_start():
+    accounts = {"google": {"calendars": {}}}
+    said = ["marca reunião quinta das 13h às 15h"]
+    ok = nw.problems("event-create", {"title": "reunião", "start": "2026-10-22T13:00", "end": "2026-10-22T15:00"}, said, accounts, {}, NOW)
+    assert not [p for p in ok if "after start" in p]
+    other_day = nw.problems("event-create", {"title": "reunião", "start": "2026-10-22T13:00", "end": "2026-10-23T15:00"}, said, accounts, {}, NOW)
+    before = nw.problems("event-create", {"title": "reunião", "start": "2026-10-22T15:00", "end": "2026-10-22T13:00"}, said, accounts, {}, NOW)
+    assert any("after start" in p for p in other_day) and any("after start" in p for p in before)

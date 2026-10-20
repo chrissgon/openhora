@@ -434,27 +434,27 @@ def _only(said: str, tables: list, kinds=KINDS) -> tuple:
 
 
 def kind_fillers(tables: list) -> set:
-    """The words that may surround the kind a person names when they answer "a reminder here, or an event in your calendar?" ("um evento na minha agenda", "an event in
-    my calendar", "a reminder here in the chat"): closed lists of the language tables (`requests.writes.kind_fillers`), so that the answer stays a closed form with no open tail."""
+    """The words that may surround the kind a person names when they answer the kind question (an article, a possessive, a place word, a polite word): closed lists of
+    the language tables (`requests.writes.kind_fillers`), so that the answer stays a closed form with no open tail."""
     return {w for t in tables for p in (t.get("requests", {}).get("writes", {}) or {}).get("kind_fillers", []) for w in p.split()}
 
 
 def _kinds_around(said: str, kinds: list, rest: list, tables: list) -> tuple:
-    """(kinds, rest) of an answer to the kind question once the closed words around the kind are taken out of `rest`; the word "no" of one language, which is "in" in
-    another ("no calendario", "aqui no chat"), is not a way out when it stands only as such a word beside a kind."""
-    fillers = kind_fillers(tables)
-    rest = [w for w in rest if w not in fillers]
-    if "other" in kinds and {"event", "notice"} & set(kinds):
-        words = set(_words(nt.normalise(said)[0]))
-        said_other = {w for t in tables for p in t["answers"]["other"] for w in p.split()} & words
-        if said_other and said_other <= fillers:
-            kinds = [k for k in kinds if k != "other"]
+    """(kinds, rest) of an answer to the kind question once the closed words around the kind are taken out of `rest`. The words around the kind are those of the SAME language
+    as the kind word: the answer is read once for each language table alone, and the first table that accounts for the whole line with one kind of event or reminder gives it
+    ("no calendario" is Portuguese: the "no" of another language is not a way out, and an English filler beside a Portuguese kind word is left over). A line no single language
+    accounts for is returned as it was read, with every word left over."""
+    for table in tables:
+        own_kinds, own_rest = _only(said, [table])
+        own_rest = [w for w in own_rest if w not in kind_fillers([table])]
+        if {"event", "notice"} & set(own_kinds) and not own_rest:
+            return own_kinds, own_rest
     return kinds, rest
 
 
 def answer_kind(said, languages=None):
     """"event" when the answer to "an event in the calendar, or something else?" is the calendar, "notice" when it is a reminder, "other" when it is something else,
-    else None. The kind may come with the closed words around it (`kind_fillers`): "um evento na minha agenda"."""
+    else None. The kind may come with the closed words around it (`kind_fillers`)."""
     tables = _tables(languages)
     said = said if isinstance(said, str) else ""
     kinds, rest = _kinds_around(said, *_only(said, tables, kinds=("event", "notice", "other")), tables)
@@ -490,6 +490,22 @@ def _replace(reading: dict, parsed: dict, now):
     if "missing" in parsed and parsed["day"]:
         return nt.moment(parsed["day"]["date"], reading["time"], now)
     return None
+
+
+def _kind_with_time(said: str, kinds: list, rest: list, draft: dict, now, tables: list):
+    """{"kind", "reading"} when the answer to the kind question is the kind AND a time or a day ("event at 3 pm"): the time replaces the part it names in the reading the
+    question showed, and the words of the draft stay; None when the answer is anything else."""
+    if not rest or len(set(kinds)) != 1 or kinds[0] not in ("event", "notice"):
+        return None
+    parsed = nt.parse(said, now, tables)
+    if parsed is None or "spans" not in parsed:
+        return None
+    left = _tidy(nt.without(said, parsed["spans"]), tables)
+    own, own_rest = _kinds_around(left, *_only(left, tables, kinds=("event", "notice", "other")), tables)
+    if own_rest or len(set(own)) != 1 or own[0] != kinds[0]:
+        return None
+    new = _replace(draft["readings"][0], parsed, now)
+    return {"kind": kinds[0], "reading": new} if new is not None else None
 
 
 def _pick(draft: dict, said: str, now, tables: list):
@@ -730,12 +746,15 @@ def complete(draft, said, now, languages=None):
             return _retry(draft, said, tables)
         return _next(settled, picked)          # a pick is not a yes: the picked reading is shown whole (the day, the hour, the words) and the yes makes it
     if need == "kind":
-        kinds, rest = _kinds_around(said, kinds, rest, tables)          # "um evento na minha agenda": the kind with the closed words around it
+        kinds, rest = _kinds_around(said, kinds, rest, tables)          # the kind with the closed words around it
         if not kinds:          # a day or an hour instead of the kind: the reading shown is not the one meant, and the kind is asked again with the new one
             change = _time_only(cued, now, tables)
             new = _replace(draft["readings"][0], change, now) if change else None
             if new is not None:
                 return _next(settled, new)
+        corrected = _kind_with_time(said, kinds, rest, draft, now, tables)          # the kind with a time beside it: the time corrects the reading shown
+        if corrected is not None:
+            return {"event": True, "reading": corrected["reading"]} if corrected["kind"] == "event" else _next({**settled, "confirmed": True}, corrected["reading"], now)
         if rest or len(set(kinds)) != 1 or kinds[0] in ("other", "thanks", "again"):
             return _retry(draft, said, tables)
         if kinds[0] == "event":

@@ -17,6 +17,7 @@ Sibling of runtime/ops.py, which exposes it under its name. Standard library onl
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 
@@ -34,11 +35,17 @@ KINDS = ("mail", "calendar")
 SNAPSHOT_CLOCK = None          # the clock the age of a snapshot is read against (None: the real one); a test replaces it
 
 
-def _event_lines(ctx: dict, source_id: str) -> dict:
-    """{n: the line of the event as the snapshot prints it} of the newest version of a calendar source, after read_index checked the version against the store's record."""
+def _event_lines(ctx: dict, source_id: str, version) -> dict:
+    """{n: the line of the event as the snapshot prints it} of the version `read_index` read the index of: the text is read only when the newest version is still that one
+    and its hash is the one the store records, so that the number and the line always come from the same snapshot (else nothing: the lines are blank)."""
     latest = sources._stored(ctx, "source_latest", source_id)
+    if latest is None or latest["version"] != version:
+        return {}
     with sources.Folder(ctx["cfg"], None) as folder:
-        text = folder.read([source_id, str(latest["version"]), latest["converted_name"]], sources.CONVERTED_CAP).decode("utf-8", errors="replace")
+        raw = folder.read([source_id, str(version), latest["converted_name"]], sources.CONVERTED_CAP)
+    if hashlib.sha256(raw).hexdigest() != latest["converted_sha256"]:
+        return {}
+    text = raw.decode("utf-8", errors="replace")
     out = {}
     for line in text.splitlines():
         found = EVENT_LINE.fullmatch(line.strip())
@@ -69,7 +76,7 @@ def items(project: str, kind: str | None = None, source: str | None = None, chan
         if row["type"] == "mail":
             rows = [{"n": e["n"], "line": snapshot_text.one_line(f"{e.get('from_address') or '?'} · {e.get('subject') or ''}", LINE_MAX)} for e in snapshot["entries"][:ITEMS_MAX]]
         else:
-            lines = _event_lines(ctx, row["id"])
+            lines = _event_lines(ctx, row["id"], snapshot["version"])
             rows = [{"n": e["n"], "line": lines.get(e["n"], "")} for e in snapshot["entries"][:ITEMS_MAX]]
         found.append({"source": row["id"], "type": row["type"], "read_at": snapshot["read_at"], "items": rows})
     return {"sources": found, "refused": refused}

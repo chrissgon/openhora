@@ -1046,7 +1046,8 @@ class Bridge(shell_kit.Jobs):
                 said = result.get("reply") or self.t("NO_REPLY", project=project)
                 if result.get("resend") is not None and not self.resend(project, chat, result["resend"]):      # a decision named in words (NR-2): its card goes out again
                     said = self.t("NAT_DECISION_NO_CARD", project=project)      # and the sentence says so only when a card is there
-                self.reply(chat, said, project)
+                if self.reply(chat, said, project) is True and result.get("pending_id") is not None:
+                    self.note_asked(project, chat, result["pending_id"])      # the router's question reached this chat as the reply: its notice would be the same question twice
             except Refused as e:
                 self.reply(chat, str(e), project)
             except self.ops.OpsError as e:
@@ -1060,6 +1061,21 @@ class Bridge(shell_kit.Jobs):
                 else:
                     self.reply(chat, self.t("QUEUED", project=project), project)
         return call
+
+    def note_asked(self, project: dict, chat: str, pending_id: int) -> None:
+        """The reply to a line was the router's question and it went out in `chat`: the ledger records that this decision, with this content, is in this chat
+        already, so that the notice does not send the same question a second time (decision id, project and chat; another listed sender still gets it). The
+        record is a card of kind `question` with no message id and no action: a tap or a reply cannot be bound to it, and `/answer` from this chat finds the
+        sender's own question. Anything else the reply said (a plan, an unrecognised route) keeps its card."""
+        try:
+            item = self.ops.pending(project["path"], pending_id=pending_id)
+            if item.get("status", "open") != "open" or not cards.router_asks(item):
+                return
+            self.ledger.add({"project": project["id"], "pending_id": item["id"], "kind": "question", "content_sha256": cards.content_sha256(item),
+                             "chat": chat, "message_id": None, "actions": {}, "sent_at": self.clock(), "whole": True, "approvable": False,
+                             "blocked": None, "effect_word": None})
+        except (self.ops.OpsError, OSError) as e:
+            self.log(f"the question's reply could not be recorded ({e.__class__.__name__})")
 
     def leave(self, entry: dict) -> None:
         """A kept line whose run has begun is no longer waiting (until then it stays in the list, marked `starting`, so that a line that comes meanwhile

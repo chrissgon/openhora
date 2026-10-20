@@ -37,7 +37,8 @@ NOW = clock("2026-10-19 09:00")
 CHANNEL = "terminal"
 ANSWERS = ["sim", "yes", "não", "no", "cancela", "cancel", "1", "2", "3", "4", "5", "6", "8h", "às 15h", "9", "21", "amanhã", "sexta", "quinta às 10h", "dia todo", "o dia todo",
            "all day", "google", "outlook", "microsoft", "work", "personal", "trabalho", "ideias.md", "notas.txt", "documento google", "Dentista da Júlia", "Reunião com o time",
-           "bia@exemplo.example", "um assunto qualquer", "um texto de corpo", "marca outra coisa quinta às 9h", "/status", "lista os e-mails", "hmm"]      # validate: allow english-only -- answers in Portuguese, data of the case
+           "bia@exemplo.example", "um assunto qualquer", "um texto de corpo", "marca outra coisa quinta às 9h", "/status", "lista os e-mails", "hmm",
+           "segunda", "dia 25", "9h", "daqui a 2 horas", "20/10 às 10h", "31/02 às 10h", "tomorrow at 3pm", "Friday"]      # validate: allow english-only -- answers in Portuguese, data of the case
 GOOGLE = {"address": "pat@example.com", "calendars": {"personal": "pat@example.com", "side": "side.calendar@example.com"}, "folders": {"default": "FolderId0001", "cv": "Cv_Folder_0001"},
           "mail_folders": {"contas": "Label_1"}, "move_removes_inbox": True}
 MICROSOFT = {"address": "casey.rivera@mail.example", "calendars": {"personal": "default", "work": "AAMkWork="}, "folders": {"default": "FolderId0002", "docs": "/Documents/openhora"},
@@ -68,7 +69,8 @@ class Env:
         sources_n, files_n = STATES[state]
         self.sources, self.held = CAL_SOURCES[:sources_n], HELD[:files_n]
         self.file_rows = FILE_ROWS if files_n else []
-        self.offered = {"numbers": {h["id"] for h in self.held}, "sources": {r["id"] for r in self.file_rows}, "source_accounts": {s["account"] for s in self.sources}}
+        self.offered = {"numbers": {h["id"] for h in self.held}, "sources": {r["id"] for r in self.file_rows}, "source_accounts": {s["account"] for s in self.sources},
+                        "options": set()}          # grows with every option code lists in a question the walk reaches
         monkeypatch.setattr(ops_natural_calendar, "calendar_sources", lambda ctx: list(self.sources))
         monkeypatch.setattr(ops_natural_files, "held_files", lambda ctx, channel, sender: list(self.held))
         monkeypatch.setattr(ops_natural_files, "sources", SimpleNamespace(list_catalog=lambda ctx, hashes=False: list(self.file_rows)))
@@ -83,6 +85,8 @@ class Env:
         taken as the answer to the open question)."""
         extras = {}
         draft = ops_natural_writes.live(CHANNEL, None)
+        if draft is not None:
+            self.offered["options"] |= {o["value"] for o in draft.get("options", []) if isinstance(o["value"], str)}
         reply = ops_natural_writes.answer(self.project, self.ctx, draft, text, CHANNEL, None, extras) if draft is not None else None
         taken = reply is not None
         if reply is None:
@@ -208,7 +212,7 @@ def test_a_router_that_names_random_write_operations_with_random_spans_opens_a_w
             drafts.clear()
             env.calls.clear()
             extras = {}
-            reply = ops_natural_writes.open_line(env.project, env.ctx, row["line"], CHANNEL, None, extras, hint=hint, when=rng.choice([None, "2026-10-21 10:00", "2026-13-40 99:99"]))
+            reply = ops_natural_writes.open_line(env.project, env.ctx, row["line"], CHANNEL, None, extras, hint=hint)
             parsed = natural_writes.read(row["line"], NOW, op=hint)
             if parsed is None:
                 assert reply is None and env.calls == [], (row["line"], hint)

@@ -750,5 +750,6 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         command = core._command("route", project, request_id=request_id, flow="<name>")
         reply = phrases.body(item["body"], ctx["cfg"]).rstrip("\n") + "\n\n" + phrases.text("NOT_NAMED_NEXT", ctx["cfg"], request=request_id, route=command)
     else:
-        reply = item["body"].rstrip("\n") + "\n\n" + phrases.text("ASK_NEXT", ctx["cfg"])
+        shown = phrases.asked_view(item["body"], ctx["cfg"]) if channel == "messaging" else item["body"]      # a phone shows the question and its framing, never the template around it
+        reply = shown.rstrip("\n") + "\n\n" + phrases.text("ASK_NEXT", ctx["cfg"])
     return reply, request_id, item["id"], True, routed.get("run_id")

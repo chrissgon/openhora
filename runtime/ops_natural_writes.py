@@ -38,7 +38,6 @@ import sys
 
 import drafts
 import natural
-import natural_time as nt
 import natural_writes as nw
 import operations
 import ops_actor
@@ -53,6 +52,7 @@ ONE_LINE = ("title", "subject", "name")        # a text slot that is one line
 TEXT_NEEDS = {"title": "title", "subject": "subject", "body": "body", "content": "content", "name": "name"}      # need -> the cap of nw.SPAN_MAX
 NUMBER_NEEDS = ("event",)
 ANSWER_RETRIES = 1
+REASKS = 2                       # a question asked again after answers that left it open (a file name that fails the check) is given up at the second
 
 
 def _t(ctx: dict, key: str, **fields) -> str:
@@ -189,7 +189,7 @@ def new_state(ctx: dict, reading: dict, said_line: str) -> dict:
     return {"kind": KIND, "op": reading["op"], "family": reading["family"], "project": ops_natural.project_key(ctx["cfg"]["project"]), "slots": slots,
             "need": None, "slot": None, "options": [], "multi": False, "said": [said_line], "retries": 0, "doubt": bool(reading.get("doubt")),
             "end_clock": reading.get("end_clock"), "all_day": bool(reading.get("all_day")), "end_ok": reading.get("end_ok", True),
-            "recurring": bool(reading.get("recurring")), "assisted": False}
+            "recurring": bool(reading.get("recurring"))}
 
 
 def _now():
@@ -199,13 +199,13 @@ def _now():
 def _admit(ctx: dict, op: str, channel, sender):
     """The sentence that refuses the operation to this caller (SPEC 5.1 steps 1 and 2), or None."""
     cfg = ctx["cfg"]
-    where = "terminal" if channel == "chat" else channel
     try:
         row = operations.by_name(op)
     except KeyError:
         return f"error: {op} is not an operation of the table"
     if natural.class_of(op) != "E":
         return f"error: {op} is not a write to your accounts"
+    where = "terminal" if channel == "chat" else channel          # the conversation's shell is the terminal's equal for the channels a row lists and for the policy
     if where not in row["channels"]:
         extra = ops_natural._command(ctx, op, {}, "terminal", channel)
         return f"error: /{op} is done in the terminal or on the page" + (f". {extra}" if extra else "")
@@ -221,6 +221,9 @@ def _admit(ctx: dict, op: str, channel, sender):
 
 
 def carrier(channel) -> str:
+    """The channel an operation is called as and records. The conversation's shell (`chat`) is called as the terminal, its equal: the rows of the table list the terminal,
+    and the account step refuses `chat` as a channel it does not know (test_files_write, W4a) so that a channel is never taken for the terminal by accident. This is the one
+    place where the shell is named, and the decision record says so (decisions.md, NR-5)."""
     return "terminal" if channel == "chat" else channel
 
 
@@ -264,8 +267,6 @@ def _opened(project: str, ctx: dict, state: dict, args: dict, channel, sender, e
         lines.append(_t(ctx, "NT_ROLLED", time=when["time"], when=natural.describe(when, cfg)))
     if state.get("doubt") and when:
         lines.append(_t(ctx, "NW_CHECK_DATE", when=natural.describe(when, cfg)))
-    if state.get("assisted"):
-        lines.append(_t(ctx, "NW_CHECK_DATE_ASSISTED"))
     extras["resend"] = started["pending"]
     return "\n".join(lines + [account_start.reply_text(cfg, started)]) + _card_lines(ctx, project, started, channel)
 
@@ -295,6 +296,15 @@ def advance(project: str, ctx: dict, state: dict, channel, sender, extras: dict)
 
 def _ask(ctx: dict, state: dict, spec: dict, channel, sender, extras: dict) -> str:
     ask = spec["ask"]
+    if state.get("answered") == ask["need"]:           # the answer left this very question open: asked again, and given up when it happens twice
+        state["repeats"] = state.get("repeats", 0) + 1
+        if state["repeats"] >= REASKS:
+            drafts.drop(*_slot(channel, sender))
+            extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
+            return _t(ctx, "NW_GIVE_UP")
+    else:
+        state["repeats"] = 0
+    state["answered"] = None
     state.update(need=ask["need"], slot=ask["slot"], options=ask["options"], multi=ask["multi"], sentence_key=ask["sentence_key"], fields=ask["fields"],
                  retries=state.get("retries", 0))
     if ask.get("engine"):
@@ -328,7 +338,7 @@ def _read(ctx: dict, said: str, seed, hint):
     return nw.read(said, now, op=hint)
 
 
-def open_line(project: str, ctx: dict, said: str, channel, sender, extras: dict, *, seed=None, hint=None, when=None):
+def open_line(project: str, ctx: dict, said: str, channel, sender, extras: dict, *, seed=None, hint=None):
     """The reply for a line that is a write form of a family (or the seed of one), or None when it is not (the line goes on as before). Nothing is executed here: the reply
     is a question, a sentence, or the card's notice (see the module's text)."""
     reading = _read(ctx, said, seed, hint)
@@ -341,12 +351,10 @@ def open_line(project: str, ctx: dict, said: str, channel, sender, extras: dict,
     if refused:
         extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
         return refused
+    if reading.get("say"):          # a form that is no write form but that NR-1 would have taken for a new event: the sentence only (a change is asked by number)
+        extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
+        return _t(ctx, reading["say"])
     state = new_state(ctx, reading, said)
-    if when and hint and op in ("event-create", "event-change") and not nt.find(said)["hits"] and re.fullmatch(natural.WHEN_RE.pattern, when):
-        day, clock = when.split(" ")
-        state["slots"]["start"] = f"{day}T{clock}"
-        state["slots"].pop("_engine", None)
-        state["assisted"] = True
     return advance(project, ctx, state, channel, sender, extras)
 
 
@@ -387,7 +395,9 @@ def _classify(ctx: dict, state: dict, said: str):
         return _retry(state, said, tables)
     if need in TEXT_NEEDS:
         text = said.strip()
-        if not text or len(text) > nw.SPAN_MAX[TEXT_NEEDS[need]] or (need in ONE_LINE and "\n" in text):
+        if need in ONE_LINE and _another_request(text, tables):
+            return None
+        if not text or len(text) > nw.SPAN_MAX[TEXT_NEEDS[need]] or (need in ONE_LINE and "\n" in text) or (need in ONE_LINE and natural.confirm_kind(text) == "yes"):
             return _retry(state, said, tables)
         return {"kind": "slots", "slots": {state["slot"]: text}}
     if need in NUMBER_NEEDS:
@@ -398,10 +408,32 @@ def _classify(ctx: dict, state: dict, said: str):
     return _retry(state, said, tables)
 
 
+def _another_request(text: str, tables: list) -> bool:
+    """Whether a line offered as a title, a subject or a name is rather a question or a request (it is then a new line, never the title). What NR-1's text need refuses is
+    refused here: a question mark, a line over its word limit, a recurrence; and, for a line of three words or more, a work verb anywhere, a question or request word first;
+    and, for a line of two words or more, a write head of any family first ("cria um documento sobre..."). A short line is a title."""
+    if text.endswith("?") or len(text.split()) > natural.TEXT_MAX_WORDS or natural.nt.recurring(text, tables):
+        return True
+    words = text.split()
+    tokens = natural._words(natural.nt.normalise(text)[0])
+    if len(words) >= 3:
+        verbs = {w for table in tables for w in table["work_verbs"]}
+        starters = {w for table in tables for w in table["work_starters"]}
+        if verbs & set(tokens) or (tokens and tokens[0] in starters):
+            return True
+    if len(words) >= 2:
+        shaped = nw.Line(text)
+        return any(importlib.import_module(nw.FAMILIES[name]).HEADS(tables) and shaped.lead(importlib.import_module(nw.FAMILIES[name]).HEADS(tables), tables) is not None
+                   for name in nw.FAMILIES)
+    return False
+
+
 def _retry(state: dict, said: str, tables: list):
-    if state.get("retries", 0) >= ANSWER_RETRIES or not natural.short_answer(said, tables):
+    """The same question once more for a short reply that does not answer it; the second time the question is given up (a sentence says nothing was opened); a reply that is
+    not short is a new line (None)."""
+    if not natural.short_answer(said, tables):
         return None
-    return {"kind": "retry"}
+    return {"kind": "retry"} if state.get("retries", 0) < ANSWER_RETRIES else {"kind": "giveup"}
 
 
 def _option(state: dict, said: str):
@@ -419,6 +451,7 @@ def _option(state: dict, said: str):
     matches = []
     for option in options:
         keys = {_folded(str(option["value"])), _folded(option["label"]), _folded(option["label"].split("(")[0])}
+        keys |= {_folded(p) for p in nw.listed(natural._tables(None), "services", str(option["value"]))}          # an account option is also named by its service words, language data
         if digits in keys:
             matches.append(option["value"])
     return matches[0] if len(matches) == 1 else None
@@ -441,6 +474,9 @@ def answer(project: str, ctx: dict, state: dict, said: str, channel, sender, ext
     if found["kind"] == "cancel":
         drafts.drop(*slot)
         return _t(ctx, "NW_CANCELLED")
+    if found["kind"] == "giveup":
+        drafts.drop(*slot)
+        return _t(ctx, "NW_GIVE_UP")
     if found["kind"] == "retry":
         state["retries"] = state.get("retries", 0) + 1
         drafts.put(*slot, state, "write", ttl=DRAFT_TTL)
@@ -471,6 +507,7 @@ def answer(project: str, ctx: dict, state: dict, said: str, channel, sender, ext
         if state["need"] == "day":
             state["day_needed"] = False
     state["slots"] = slots
+    state["answered"] = state["need"]
     return advance(project, ctx, state, channel, sender, extras)
 
 

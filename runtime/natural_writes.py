@@ -334,6 +334,7 @@ def problems(op: str, args: dict, said: list, accounts: dict, offered: dict, now
     line_words = [l.split() for l in lines]
     digits = {int(d) for l in lines for d in re.findall(r"[0-9]+", l) if len(d) <= 9}
     picks = any(re.fullmatch(r"[0-9]{1,2}", l) for l in lines)
+    options = offered.get("options")          # the values of the options code asked the person to choose from (when the caller records them): a pick counts only for those
     for key, value in args.items():
         if key in TEXT_ARGS:
             words = _words(str(value).removesuffix(".gdoc") if key == "file_name" else value)
@@ -351,23 +352,40 @@ def problems(op: str, args: dict, said: list, accounts: dict, offered: dict, now
             if value not in offered.get("sources", ()):
                 out.append(f"file {value!r} is not a source code listed")
         elif key == "account":
-            out += _account_problems(op, value, lines, accounts, offered, picks, tables)
+            out += _account_problems(op, value, lines, accounts, offered, picks if options is None else value in options, tables)
         elif key in ("calendar", "folder"):
             section = "calendars" if key == "calendar" else "folders"
             listed = ((accounts.get(args.get("account")) or {}).get(section)) or {}
-            if value not in listed or not (any(value in w for w in line_words) or picks):
+            if value not in listed or not (any(value in w for w in line_words) or (picks if options is None else value in options)):
                 out.append(f"{key} {value!r} is not a configured name written or picked")
         else:
             out.append(f"{key} is not a slot of a natural write")
+    if "start" in args and "end" in args:
+        start_day, _, start_clock = str(args["start"]).partition("T")
+        end_day, _, end_clock = str(args["end"]).partition("T")
+        if start_day != end_day or not (start_clock and end_clock and end_clock > start_clock):
+            out.append(f"end {args['end']} is not after start {args['start']} on the same day")
     return out
+
+
+def _named(op: str, value: str, lines: list, tables: list) -> bool:
+    """Whether a line names the service of `value` the way the reader takes it: a service word behind its introducing word or a phrase of two words, a line that is nothing
+    but the service's name (the answer to the account question), or, for a new file, the word of a Google Doc."""
+    names = listed(tables, "services", value)
+    docs = listed(tables, "files", "gdoc") if value == "google" and op == "file-create" else []
+    for text in lines:
+        line = Line(text)
+        found = service(line, tables)
+        if (found and found[0] == value) or line.norm.strip() in names or line.norm.strip() == value or (docs and line.find(docs)):
+            return True
+    return False
 
 
 def _account_problems(op, value, lines, accounts, offered, picks, tables) -> list:
     if value not in ("google", "microsoft"):
         return [f"account {value!r} is not an account"]
-    names = {w for p in listed(tables, "services", value) for w in p.split()}
-    if any(set(l.split()) & names for l in lines):
-        return []          # named in a line: an account the file does not list is refused by the operation itself, with its sentence
+    if _named(op, value, lines, tables):
+        return []          # named in a line, where the reader takes a service word: an account the file does not list is refused by the operation itself, with its sentence
     if value not in accounts:
         return [f"account {value!r} is not configured and was not named"]
     section = SECTION_OF.get(op)
@@ -377,33 +395,65 @@ def _account_problems(op, value, lines, accounts, offered, picks, tables) -> lis
     return [f"the account {value} was guessed: {len(qualifying)} qualify, none was named, chosen or the default"]
 
 
+def _hour_written(clock: str, text: str) -> bool:
+    """Whether the hour (and the minutes, when they are not 00) of `clock` "HH:MM" is a number written in `text`, in the 24-hour form or the 12-hour one."""
+    folded = natural.normal(text)
+    hour, minute = int(clock[:2]), clock[3:]
+    numbers = {int(n) for n in re.findall(r"(?<![0-9:])([0-9]{1,2})(?![0-9])", folded)} | {int(n) for n in re.findall(r"(?<![0-9])([0-9]{1,2})(?=[:h][0-9]{2})", folded)}
+    if hour not in numbers and hour % 12 not in numbers and not (hour % 12 == 0 and 12 in numbers):
+        return False
+    return minute == "00" or bool(re.search(rf"[:h]{minute}(?![0-9])", folded))
+
+
+def _variants(window: list, text: str, tables: list, prefixes: list) -> list:
+    """The texts of one window the time engine is asked about: the words as they are; the words with the bare hours of a range read the way the calendar family reads them
+    (a deterministic rewrite: "9-10h" -> "09:00"); and, when the last line is a bare number (the answer to "at what time?"), the words with the introducing word the question
+    machine puts before it ("at 21")."""
+    out = [text]
+    if "calendar" in FAMILIES:
+        rewritten = family_module("calendar")._bare_range(text, tables)[0]
+        if rewritten != text:
+            out.append(rewritten)
+    if re.fullmatch(r"[0-9]{1,2}", window[-1].strip()):
+        out += [" ".join(window[:-1] + [prefix, window[-1]]) for prefix in prefixes]
+    return out
+
+
 def _time_problems(key, value, said, now, tables) -> list:
-    """A start or end whose date and time are not a reading of the engine on the person's words (some window of consecutive lines)."""
+    """A start or end whose date and time are not a reading of the engine on the person's words (some window of consecutive lines). A start with a clock must be read
+    TOGETHER with its day: the day and the clock are the two parts of one reading of one window, never a day from one place and a clock from another. An end is a clock the
+    person wrote (the pairing with the start is checked by `problems`)."""
     day, _, clock = value.partition("T")
-    seen_days, seen_times = set(), set()
+    seen_days, seen_times, pairs = set(), set(), set()
+    written = False
+    prefixes = [p for t in tables for p in t.get("bare_hour_prefixes", [])]
     for i in range(len(said)):
         for j in range(i + 1, len(said) + 1):
             text = " ".join(said[i:j])
-            found = nt.find(text, tables)
-            for hit in found["hits"]:
-                if hit["kind"] == "clock":
-                    seen_times |= {f"{h:02d}:{m:02d}" for h, m in hit["times"]}
-            parsed = nt.parse(text, now, tables)
-            readings = []
-            if parsed and "when" in parsed:
-                readings = [parsed["reading"]]
-            elif parsed and "ask" in parsed:
-                readings = list(parsed["ask"])
-            elif parsed and parsed.get("day"):
-                seen_days.add(parsed["day"]["date"])
-            for r in readings:
-                seen_days.add(r["date"])
-                seen_times.add(r["time"])
+            for variant in _variants(said[i:j], text, tables, prefixes):
+                found = nt.find(variant, tables)
+                for hit in found["hits"]:
+                    if hit["kind"] == "clock":
+                        seen_times |= {f"{h:02d}:{m:02d}" for h, m in hit["times"]}
+                parsed = nt.parse(variant, now, tables)
+                readings = []
+                if parsed and "when" in parsed:
+                    readings = [parsed["reading"]]
+                elif parsed and "ask" in parsed:
+                    readings = list(parsed["ask"])
+                elif parsed and parsed.get("day"):
+                    seen_days.add(parsed["day"]["date"])
+                for r in readings:
+                    seen_days.add(r["date"])
+                    seen_times.add(r["time"])
+                    pairs.add((r["date"], r["time"]))
+            if clock and _hour_written(clock, text):
+                written = True
     if not clock:
         return [] if day in seen_days else [f"{key} {value}: the day is not a reading of the person's words"]
     if key == "end":
-        return [] if clock in seen_times else [f"{key} {value}: the time is not written"]
-    return [] if day in seen_days and clock in seen_times else [f"{key} {value}: not a reading of the person's words"]
+        return [] if clock in seen_times or written else [f"{key} {value}: the time is not written"]
+    return [] if (day, clock) in pairs else [f"{key} {value}: the day and the time are not one reading of the person's words"]
 
 
 # --- recognition -------------------------------------------------------------------------------------------------------------------------------------

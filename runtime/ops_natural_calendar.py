@@ -76,7 +76,7 @@ def _create(ctx: dict, slots: dict):
     if "title" not in slots:
         return w.title_spec(ctx, slots)
     if "start" not in slots:
-        return w.ask_spec("day", "NW_ASK_DAY")
+        return w.ask_spec("day", "NW_ASK_DAY_INVALID" if slots.get("_clock") else "NW_ASK_DAY")          # a kept clock: the date written does not exist
     args = {"account": account, "title": slots["title"], "start": slots["start"]}
     if slots.get("end"):
         args["end"] = slots["end"]

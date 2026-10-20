@@ -163,3 +163,38 @@ def test_a_new_file_opens_its_card_from_the_terminal_shell_and_the_page_with_the
     held = hold(world, sender="4242")
     saved = ops.say(world["path"], "salva o anexo %d no drive" % held, channel=channel)["reply"]
     assert OPEN in saved and spy[-1][1]["operation"] == "save" and spy[-1][2]["channel"] == carried
+
+
+def test_a_file_name_that_fails_the_check_is_asked_again_once_and_then_given_up_so_no_question_loops(world, clock, spy):
+    policy(world)
+    phone(world, "cria uma nota chamada compras com o texto: pão e leite")
+    phone(world, "microsoft")
+    again = phone(world, "compras")
+    assert again["asked"] and "What is the file name?" in again["reply"]
+    gave_up = phone(world, "notas")
+    assert not gave_up["asked"] and gave_up["reply"] == phrases.text("NW_GIVE_UP", None) and spy == []
+    nothing = phone(world, "compras.txt")
+    assert nothing["reply"] is None, "the draft is gone: a name alone is no longer an answer"
+
+
+def test_a_question_or_a_request_offered_as_a_name_is_a_new_line_never_the_name(world, clock, spy):
+    policy(world)
+    phone(world, "cria uma nota chamada compras com o texto: pão e leite")
+    phone(world, "microsoft")
+    for line in ("que horas são?", "qual o status?", "cria um documento sobre o lançamento", "faça um resumo da reunião de ontem", "pesquisa preços de passagens para Lisboa"):
+        phone(world, "cria uma nota chamada compras com o texto: pão e leite")
+        phone(world, "microsoft")
+        other = phone(world, line)
+        assert other["reply"] is None and other["asked"] is False and spy == [], line
+
+
+def test_a_question_with_options_is_asked_once_more_for_a_short_non_answer_and_then_given_up_in_a_sentence(world, clock, spy):
+    policy(world)
+    first = phone(world, "cria uma nota chamada compras com o texto: pão e leite")
+    assert first["reply"].startswith("Which account?")
+    again = phone(world, "talvez")
+    assert again["asked"] and again["reply"] == first["reply"], "the same question once more"
+    gave_up = phone(world, "hmm")
+    assert gave_up["reply"] == phrases.text("NW_GIVE_UP", None) and not gave_up["asked"] and spy == [] and drafts.count() == 0
+    long_line = phone(world, "cria uma nota chamada compras com o texto: pão e leite")
+    assert phone(world, "preciso pensar melhor sobre isso amanhã de manhã")["reply"] is None and long_line["asked"], "a long line is a new line, never a retry"

@@ -257,7 +257,7 @@ TABLE = {
             "joiners": ["and"],
             "range": ["to", "through", "thru"],
             "service_in": ["on", "in", "to", "via", "using", "from", "on my", "in my", "to my", "from my"],
-            # the words that may surround the kind in the answer to "a reminder here in the chat, or an event in your calendar?" ("an event in my calendar", "a reminder here")
+            # the words that may surround the kind in the answer to the reminder-or-event question (an article, a possessive, a place word, a polite word): a closed list
             "kind_fillers": ["a", "an", "the", "my", "in", "on", "here", "at", "chat", "please", "i", "want", "would", "like", "it", "to", "be", "as", "just", "make", "this"],
             "services": {
                 "google": ["google", "gmail", "google drive", "google calendar", "google docs"],

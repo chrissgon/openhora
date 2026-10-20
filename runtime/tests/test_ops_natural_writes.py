@@ -344,15 +344,16 @@ def test_limit_61_a_line_opens_a_write_only_as_its_card_with_every_slot_from_cod
 # chunk:ops_more
 
 
-def test_a_write_the_router_named_is_read_again_by_code_and_its_when_is_used_only_where_no_table_reads_a_time(world, clock, spy):
+def test_a_write_the_router_named_is_read_again_by_code_and_its_when_is_never_used(world, clock, spy):
     policy(world)
     ctx = ops_core.context(world["path"])
     extras = {}
-    out = ops_natural_writes.open_line(world["path"], ctx, "cria um evento viagem no google", "messaging", SENDER, extras, hint="event-create", when="2026-10-23 08:00")
-    assert out.startswith("Check the date on the card: the assistant read it.") and spy[-1][1]["start"] == "2026-10-23T08:00" and spy[-1][1]["title"] == "viagem"
-    spy.clear()
-    again = ops_natural_writes.open_line(world["path"], ctx, "marca dentista quinta às 10h no google", "messaging", SENDER, {}, hint="event-create", when="2026-10-30 08:00")
-    assert spy[-1][1]["start"] == "2026-10-22T10:00" and "assistant read it" not in again, "a time the shipped tables read is code's; the router's is not believed over it"
+    out = ops_natural.run_routed(world["path"], ctx, {"name": "event-create", "args": {}, "when": None}, "cria um evento viagem no google", "messaging", SENDER, extras)
+    assert spy == [] and "When is the event" in out, "a time the line's words do not give is asked, never the router's"
+    refused = ops_natural.run_routed(world["path"], ctx, {"name": "event-create", "args": {}, "when": "2026-10-23 08:00"}, "cria um evento viagem no google", "messaging", SENDER, {})
+    assert spy == [] and "could not match" in refused, "a router time the line does not hold is not believed at all"
+    again = ops_natural_writes.open_line(world["path"], ctx, "marca dentista quinta às 10h no google", "messaging", SENDER, {}, hint="event-create")
+    assert spy[-1][1]["start"] == "2026-10-22T10:00" and OPEN in again
     assert ops_natural_writes.open_line(world["path"], ctx, "marca dentista quinta às 10h no google", "messaging", SENDER, {}, hint="file-save") is None
     spy.clear()
     via_router = ops_natural.run_routed(world["path"], ctx, {"name": "event-create", "args": {}, "when": None}, "marca dentista quinta às 10h no google", "messaging", SENDER, {})
@@ -369,3 +370,59 @@ def test_a_line_in_words_never_uses_a_standing_approval_and_never_approves(world
         phone(world, line)
         say(world, line)
     assert called == [] and world["google"].requests == []
+
+
+@pytest.mark.parametrize("line, title, start, end", [
+    ("marca reunião quinta 13-15h no google", "reunião", "2026-10-22T13:00", "2026-10-22T15:00"),
+    ("marca reunião quinta 10 às 11h no google", "reunião", "2026-10-22T10:00", "2026-10-22T11:00"),
+    ("marca reunião quinta das 10 às 11 no google", "reunião", "2026-10-22T10:00", "2026-10-22T11:00"),
+    ("add to my calendar meeting Thursday 1-2pm on google", "meeting", "2026-10-22T13:00", "2026-10-22T14:00"),
+])
+def test_a_range_written_with_bare_numbers_is_read_as_a_range_and_the_card_shows_both_ends(world, clock, spy, line, title, start, end):
+    policy(world)
+    out = phone(world, line)
+    assert OPEN in out["reply"] and spy[-1][1]["title"] == title and spy[-1][1]["start"] == start and spy[-1][1]["end"] == end
+
+
+def test_a_number_left_in_the_title_is_checked_before_the_card_and_the_title_is_never_cut_silently(world, clock, spy):
+    policy(world)
+    out = phone(world, "marca prova 20 às 14h no google")
+    assert out["reply"].startswith("Check the date: I understood") and spy[-1][1]["title"] == "prova 20"
+
+
+def test_a_time_that_has_passed_today_is_checked_before_the_card(world, clock, spy):
+    policy(world)
+    out = phone(world, "marca dentista hoje às 8h no google")
+    assert out["reply"].startswith("Check the date: I understood") and spy[-1][1]["start"] == "2026-10-19T08:00"
+
+
+def test_a_date_that_does_not_exist_is_asked_again_with_a_plain_sentence_and_the_time_is_kept(world, clock, spy):
+    policy(world)
+    for line in ("marca dentista 31/02 às 10h no google", "marca dentista 10/20 às 10h no google"):
+        out = phone(world, line)
+        assert out["asked"] and out["reply"] == "That date does not exist. Which day is the event?" and spy == [] and "error" not in out["reply"]
+        done = phone(world, "sexta")
+        assert OPEN in done["reply"] and spy[-1][1]["start"] == "2026-10-23T10:00" and spy[-1][1]["title"] == "dentista"
+        spy.clear()
+
+
+def test_a_change_line_that_is_no_change_form_is_answered_by_number_and_never_becomes_a_new_event(world, clock, spy):
+    policy(world)
+    for line in ("remarca o dentista para quinta às 10h", "remarca o evento 2 para quinta às 10h na sala", "reschedule the dentist to Thursday 10am"):
+        out = phone(world, line)
+        assert out["asked"] is False and out["reply"] == phrases.text("NW_CHANGE_BY_NUMBER", None) and spy == [] and drafts.count() == 0
+    assert "event 2" in phrases.text("NW_CHANGE_BY_NUMBER", None)
+
+
+def test_a_zone_with_a_clock_change_the_hour_that_does_not_exist_is_refused_in_a_sentence_and_the_hour_that_happens_twice_is_its_first_time(world, monkeypatch, spy):
+    import time
+    import zoneinfo
+    monkeypatch.setenv("TZ", "Europe/Lisbon")
+    time.tzset()
+    Clock(monkeypatch, wall="2026-10-19 09:00", zone=zoneinfo.ZoneInfo("Europe/Lisbon"))
+    policy(world)
+    twice = phone(world, "marca dentista 25/10 às 01:30 no google")
+    assert OPEN in twice["reply"] and spy[-1][1]["start"] == "2026-10-25T01:30" and "Europe/Lisbon" in body(world, twice)
+    spy.clear()
+    missing = phone(world, "marca dentista 28/03 às 01:30 no google")
+    assert OPEN not in missing["reply"] and "does not exist" in missing["reply"] and "Traceback" not in missing["reply"]

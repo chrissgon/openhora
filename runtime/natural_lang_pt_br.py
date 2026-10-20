@@ -211,8 +211,8 @@ TABLE = {
             "joiners": ["e"],
             "range": ["a", "ate"],
             "service_in": ["no", "na", "pelo", "pela", "via", "usando", "pro", "pra"],
-            # as palavras que podem cercar o tipo na resposta a "um lembrete aqui no chat, ou um evento na sua agenda?" ("um evento na minha agenda", "lembrete aqui no chat")
-            "kind_fillers": ["um", "uma", "o", "a", "os", "as", "meu", "minha", "na", "no", "em", "aqui", "ai", "chat", "la", "quero", "queria", "por", "favor", "pra", "para", "de", "do", "da", "e"],
+            # as palavras que podem cercar o tipo na resposta a pergunta de lembrete ou evento (artigo, possessivo, lugar, cortesia): uma lista fechada
+            "kind_fillers": ["um", "uma", "o", "a", "os", "as", "meu", "minha", "na", "no", "em", "aqui", "ai", "chat", "la", "quero", "queria", "por", "favor", "pra", "para", "de", "do", "da", "e", "como"],
             "services": {
                 "google": ["google", "gmail", "drive", "google drive", "google agenda", "google calendar", "agenda do google", "google docs"],
                 "microsoft": ["outlook", "onedrive", "one drive", "microsoft", "hotmail"],

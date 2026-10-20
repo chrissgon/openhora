@@ -114,13 +114,14 @@ def test_the_account_question_takes_the_number_or_the_word_of_an_option_and_noth
         assert out["asked"] is True and out["reply"].startswith("Which account?") or "reply" in out
 
 
-def test_a_short_reply_that_fits_nothing_is_asked_once_more_and_a_second_one_drops_the_question(world, clock):
+def test_a_short_reply_that_fits_nothing_is_asked_once_more_and_a_second_one_gives_the_question_up_in_a_sentence(world, clock):
     policy(world)
     phone(world, "marca dentista quinta às 10h")
     again = phone(world, "hmm")
     assert again["asked"] and again["reply"].startswith("Which account?") and live()["retries"] == 1
     dropped = phone(world, "talvez")
-    assert dropped["reply"] is None and live() is None, "handled as a new line"
+    assert dropped["reply"] == phrases.text("NW_GIVE_UP", None) and live() is None and not dropped["asked"], "given up in a plain sentence, nothing opened"
+    assert phone(world, "hmm")["reply"] is None, "and the next short line is a plain line"
 
 
 @pytest.mark.parametrize("word", ["não", "cancela", "no", "never mind", "deixa pra lá"])
