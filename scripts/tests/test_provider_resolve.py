@@ -559,3 +559,74 @@ def test_start_names_a_class_that_does_not_resolve_and_a_program_that_cannot_sta
     with pytest.raises(resolve.ProviderCallError) as caught:
         resolve.start("integration:vcs", "listen", [], root=root, env={})
     assert caught.value.kind == "failed" and "PermissionError" in caught.value.reason
+
+
+# --- package IX-2b: the class model:text and the standard input of a call ------------------------------------------
+
+STDIN_ECHO = ("# /// script\n# requires-python = \">=3.9\"\n# dependencies = []\n# ///\nimport json, sys\n"
+              "print(json.dumps({\"args\": sys.argv[1:], \"stdin\": sys.stdin.read()}))\n")
+
+
+def echo_workbench(tmp_path):
+    root = workbench(tmp_path, "model/echo.py")
+    (root / "providers" / "model" / "echo.py").write_text(STDIN_ECHO)
+    return root
+
+
+def test_model_text_is_a_runtime_only_class_that_resolves_to_chat_http_in_this_checkout():
+    assert "model" in resolve.ROLES and "model:text" not in resolve.LISTED
+    assert resolve.folder("model:text") == "model" and resolve.variables("model:text") == ["MODEL_TEXT_PROVIDER", "MODEL_PROVIDER"]
+    got = resolve.resolve("model:text", root=REPO, env={})
+    assert got["implementation"] == "chat-http" and Path(got["path"]) == REPO / "providers" / "model" / "chat-http.py"
+    assert got["source"] == "only-implementation"
+    with pytest.raises(resolve.Unresolved):                     # a name from the environment is accepted only when shipped
+        resolve.resolve("model:text", root=REPO, env={"MODEL_TEXT_PROVIDER": "chat_http"})
+    with pytest.raises(resolve.UnknownClass):                   # a bare role is none
+        resolve.resolve("model", root=REPO, env={})
+
+
+def test_a_text_on_stdin_reaches_the_child_and_no_file_is_written_for_it(tmp_path, monkeypatch):
+    root = echo_workbench(tmp_path)
+    made = []
+    monkeypatch.setattr(resolve.tempfile, "mkstemp", lambda *a, **k: made.append(a) or (_ for _ in ()).throw(AssertionError("a temp file")))
+    text = "line one\né 中\n" + "x" * 200000                 # more than a pipe buffer, with non-ASCII text
+    out = resolve.call("model:text", "complete", ["--dry-run"], root=root, env={}, stdin=text)
+    assert out == {"args": ["complete", "--dry-run"], "stdin": text} and made == []
+    assert resolve.call("model:text", "complete", [], root=root, env={}, stdin="")["stdin"] == ""
+
+
+def test_stdin_is_refused_with_a_configuration_and_when_it_is_not_a_text(tmp_path):
+    root = echo_workbench(tmp_path)
+    for kw in ({"stdin": "x", "config": {"a": 1}}, {"stdin": b"bytes"}, {"stdin": 5}):
+        with pytest.raises(resolve.ProviderCallError) as caught:
+            resolve.call("model:text", "complete", [], root=root, env={}, **kw)
+        assert caught.value.kind == "usage"
+
+
+def test_a_stand_in_run_gets_the_stdin_only_when_there_is_one(tmp_path):
+    root = echo_workbench(tmp_path)
+    seen = []
+
+    def old(argv):                       # a stand-in written before stdin existed keeps working
+        seen.append(("old", argv))
+        return subprocess.CompletedProcess(argv, 0, '{"ok": true}', "")
+
+    def new(argv, stdin):
+        seen.append(("new", argv, stdin))
+        return subprocess.CompletedProcess(argv, 0, '{"ok": true}', "")
+
+    assert resolve.call("model:text", "complete", [], root=root, env={}, run=old) == {"ok": True}
+    assert resolve.call("model:text", "complete", [], root=root, env={}, run=new, stdin="body") == {"ok": True}
+    assert [s[0] for s in seen] == ["old", "new"] and seen[1][2] == "body" and len(seen[0]) == 2
+
+
+def test_vacuity_a_stand_in_that_takes_no_stdin_cannot_be_given_one(tmp_path):
+    root = echo_workbench(tmp_path)
+    with pytest.raises(TypeError):
+        resolve.call("model:text", "complete", [], root=root, env={}, stdin="x", run=lambda argv: subprocess.CompletedProcess(argv, 0, "{}", ""))
+
+
+def test_the_config_file_is_still_written_when_there_is_no_stdin(tmp_path):
+    root = stand_in_workbench(tmp_path)
+    out = resolve.call("integration:vcs", "list", [], root=root, config={"a": 1}, env={}, stdin=None)
+    assert out["config"]["mode"] == 0o600 and not Path(out["config"]["path"]).exists()

@@ -87,6 +87,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/instructions.py` | The person's standing instructions for a project: one Markdown file the person writes, read into the prompt of every model run of the project (limit L40). |
 | `runtime/intake.py` | The generic streaming intake: how a body of a declared length gets from a stream onto disk, safely. |
 | `runtime/interpreter_catalog.py` | The catalog the interpreter is served (package IX-C0): what a line of a person's own words may be turned into, as data. |
+| `runtime/interpreter_route.py` | The routes of the interpreter's model calls, and the one function that makes a call (package IX-2b). |
 | `runtime/isolated.py` | Skill code the runtime runs on the host, as an isolated subprocess with a scrubbed environment. |
 | `runtime/item_refs.py` | References to one item of a mail or calendar snapshot (package SNAP-IDX, SPEC-SECRETARY-WRITES 3.4). |
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |

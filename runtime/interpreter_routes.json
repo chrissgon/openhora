@@ -1,0 +1,47 @@
+{
+ "v": 1,
+ "routes": [
+  {
+   "id": "or-deepseek-v4.1-flash",
+   "model": "openrouter/deepseek/deepseek-v4.1-flash",
+   "upstream_model": "deepseek/deepseek-v4.1-flash",
+   "base_url": "https://openrouter.ai/api/v1",
+   "pin": "deepinfra",
+   "allow_fallbacks": false,
+   "data_collection": "deny",
+   "zdr": false,
+   "cache_breakpoint": false,
+   "key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
+   "reference": false,
+   "retention": "Zero data retention is not confirmed for the pinned provider deepinfra: the request asks for no training on the prompt and no other provider (data_collection deny, no fallbacks), and the pinned provider deepinfra's own terms and OpenRouter's terms decide how long a prompt is kept."
+  },
+  {
+   "id": "or-claude-haiku-4.5",
+   "model": "openrouter/anthropic/claude-haiku-4.5",
+   "upstream_model": "anthropic/claude-haiku-4.5",
+   "base_url": "https://openrouter.ai/api/v1",
+   "pin": "anthropic",
+   "allow_fallbacks": false,
+   "data_collection": "deny",
+   "zdr": false,
+   "cache_breakpoint": true,
+   "key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
+   "reference": false,
+   "retention": "Zero data retention is not confirmed for the pinned provider anthropic: the request asks for no training on the prompt and no other provider (data_collection deny, no fallbacks), and the pinned provider anthropic's own terms and OpenRouter's terms decide how long a prompt is kept."
+  },
+  {
+   "id": "or-claude-sonnet-5.5",
+   "model": "openrouter/anthropic/claude-sonnet-5.5",
+   "upstream_model": "anthropic/claude-sonnet-5.5",
+   "base_url": "https://openrouter.ai/api/v1",
+   "pin": "anthropic",
+   "allow_fallbacks": false,
+   "data_collection": "deny",
+   "zdr": false,
+   "cache_breakpoint": true,
+   "key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
+   "reference": true,
+   "retention": "Zero data retention is not confirmed for the pinned provider anthropic: the request asks for no training on the prompt and no other provider (data_collection deny, no fallbacks), and the pinned provider anthropic's own terms and OpenRouter's terms decide how long a prompt is kept."
+  }
+ ]
+}
