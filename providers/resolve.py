@@ -24,7 +24,8 @@ A class is <role>:<target> (providers/CONTRACT.md). How it maps to a folder and 
   <role>:<target>        -> providers/<role>/      generator:image -> providers/generator/
                             <ROLE>_<TARGET>_PROVIDER, then <ROLE>_PROVIDER
                          (the runtime-only roles, which no skill requires, are the same: messenger:<platform> ->
-                         providers/messenger/, converter:document -> providers/converter/, exporter:document -> providers/exporter/, writer:calendar -> providers/writer/)
+                         providers/messenger/, converter:document -> providers/converter/, exporter:document -> providers/exporter/, writer:calendar -> providers/writer/,
+                         model:text -> providers/model/ with MODEL_TEXT_PROVIDER, then MODEL_PROVIDER)
   integration:<service>  -> providers/<service>/   integration:vcs -> providers/vcs/
                             INTEGRATION_<SERVICE>_PROVIDER only: one integration never serves another
   the four classes of the table FIXED keep the folder and the variable they had when their names
@@ -97,7 +98,8 @@ LISTED = ["generator:image", "generator:video", "integration:design-tool", "inte
 # own accounts: writer:calendar, writer:mailbox, writer:files; folder providers/writer/, always named explicitly, never `auto`) are in ROLES and not in
 # LISTED, on purpose: the runtime uses them (the messaging bridge, the sources module, the project-script step), and no skill may require them, so they are
 # not in contracts/environment.md (providers/CONTRACT.md says so in their rows).
-ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer"}
+# `model` (model:text, providers/model/chat-http.py) is runtime-only the same way: one text prompt in, one reply out, called by runtime/interpreter_route.py alone.
+ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer", "model"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),
@@ -383,17 +385,21 @@ def interpreter_for(path) -> list:
     return ["uv", "run", "--locked"] if os.path.isfile(f"{path}.lock") else ["uv", "run"]
 
 
-def _run(argv, timeout, env):
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, env=env)
+def _run(argv, timeout, env, stdin=None):
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, env=env, input=stdin)
 
 
-def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None) -> dict:
+def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None, stdin=None) -> dict:
     """Start the provider script at `path` with one verb and return the one JSON object it printed. `verb` may be
     None (the verb is then the first of `args`). `config`, when given, is written as JSON to a temporary file of
     mode 0600, passed after the verb as `--config-file`, and removed afterwards. `env`, when given, is the whole
-    environment of the child; else it inherits the caller's. `run(argv)` replaces the process start (a stand-in
-    in tests) and returns an object with returncode, stdout and stderr. No credential is read or passed here: a
+    environment of the child; else it inherits the caller's. `stdin`, a str, is what the child reads on its standard
+    input (a prompt, a request body: nothing written to a file, nothing on the command line); it is refused with
+    `config` (kind "usage"). `run(argv)` replaces the process start (a stand-in in tests; `run(argv, stdin)` when
+    `stdin` is given) and returns an object with returncode, stdout and stderr. No credential is read or passed here: a
     provider reads its own. Raises ProviderCallError."""
+    if stdin is not None and (config is not None or not isinstance(stdin, str)):
+        raise ProviderCallError("usage", "stdin is a str and is not given with config")
     argv = interpreter_for(path) + [str(path)] + ([verb] if verb else [])
     config_file = None
     try:
@@ -405,7 +411,10 @@ def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None) ->
             argv += ["--config-file", config_file]
         argv += [str(a) for a in args]
         try:
-            done = (run or (lambda a: _run(a, timeout, env)))(argv)
+            if run is None:
+                done = _run(argv, timeout, env, stdin)
+            else:
+                done = run(argv) if stdin is None else run(argv, stdin)
         except subprocess.TimeoutExpired:
             raise ProviderCallError("timeout", f"the provider ran over {timeout} s") from None
         except (OSError, subprocess.SubprocessError) as e:
@@ -431,7 +440,7 @@ def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None) ->
 
 
 def call(cls: str, verb, args, *, root=None, implementation=None, platform=None, config=None, timeout=600,
-         env=None, run=None) -> dict:
+         env=None, run=None, stdin=None) -> dict:
     """Resolve the class (see resolve: `implementation` names one, `platform` is the operating system), start the
     provider's verb with `invoke`, and return the one JSON object it printed. A class that does not resolve is a
     ProviderCallError of kind "not-configured"."""
@@ -439,7 +448,7 @@ def call(cls: str, verb, args, *, root=None, implementation=None, platform=None,
         path = resolve(cls, root=root, env=env, platform=platform, implementation=implementation)["path"]
     except (UnknownClass, Unresolved) as e:
         raise ProviderCallError("not-configured", str(e)) from None
-    return invoke(path, verb, args, config=config, timeout=timeout, env=env, run=run)
+    return invoke(path, verb, args, config=config, timeout=timeout, env=env, run=run, stdin=stdin)
 
 
 def start(cls: str, verb: str, args, *, root=None, implementation=None, platform=None, env=None):

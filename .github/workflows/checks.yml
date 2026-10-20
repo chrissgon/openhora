@@ -97,6 +97,7 @@ jobs:
           providers/messenger/tests/test_whatsapp_cloud_send.py providers/messenger/tests/test_whatsapp_cloud_render.py
           providers/messenger/tests/test_whatsapp_twilio.py providers/messenger/tests/test_whatsapp_twilio_webhook.py
           providers/messenger/tests/test_whatsapp_twilio_send.py providers/messenger/tests/test_whatsapp_twilio_render.py
+          providers/model/tests
 
   container:
     name: container

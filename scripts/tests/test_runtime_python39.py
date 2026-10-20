@@ -139,6 +139,8 @@ ON_SYSTEM_PYTHON = [
     "providers/documents/local.py",
     # The interpreter experiment (IX-C0): the catalog a line is read against, generated from the table of natural requests and the classification of the gated operations.
     "runtime/interpreter_catalog.py",
+    # The interpreter's model calls (IX-2b): the provider of the class model:text (standard library only) and the caller that reads the routes file.
+    "providers/model/chat-http.py", "runtime/interpreter_route.py",
 ]
 RUNTIME = ("scripts/runtime.py", "scripts/runtime_vote.py", "scripts/vote_job.py",
            "runtime/handlers/social.py", "runtime/handlers/social_vote_job.py")  # the scheduler starts these
