@@ -6,6 +6,7 @@ Run: uv run --with pytest pytest scripts/tests/test_checks_wiring.py
 """
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
@@ -106,6 +107,8 @@ def test_every_job_of_every_workflow_has_a_timeout():
             assert re.search(r"^    timeout-minutes: [1-9]\d*\s*$", block, re.M), f"{workflow.name}: job {name}"
 
 
+# What the hook used to map by folder, now chosen by scripts/select_tests.py: a path and the test folder that must still be covered
+# (a whole folder, or at least one test file inside it; None: nothing but the guards). Written out here, never read from the selector.
 HOOK_CASES = [
     (".githooks/pre-commit", "scripts/tests"), (".github/workflows/checks.yml", "scripts/tests"),
     ("packs/default.txt", "scripts/tests"), ("templates/agent.md", "scripts/tests"),
@@ -116,25 +119,210 @@ HOOK_CASES = [
     ("flows/market-positioning.json", "runtime/tests"), ("interface/index.html", "runtime/tests"),
     ("interface/js/app.js", "runtime/tests"),
     ("skills/demo/evals/runtime-manifest.json", "runtime/tests"),
-    ("skills/core-demo/scripts/tool.py", "skills/core-demo/scripts/tests"),
+    ("skills/mkt-publish/scripts/payload.py", "skills/mkt-publish/scripts/tests"),
     ("shared/scripts/rank.py", "shared/scripts/tests"), ("shared/scripts/copies.json", "shared/scripts/tests"),
     ("shared/scripts/tests/test_shared_rank.py", "shared/scripts/tests"),
+    ("evals/execution.py", "runtime/tests"),  # the runtime's lab facade loads the execution kit
     ("skills/core-demo/SKILL.md", None), ("docs/backlog.md", None), ("README.md", None),
 ]
 
 
-def test_the_hook_maps_each_folder_to_the_tests_that_cover_it(tmp_path):
-    """The hook's own `case` block, taken from the file and run on one path at a time."""
+def test_the_hook_asks_the_selector_for_the_tests_and_keeps_no_folder_map_of_its_own():
     hook = (REPO / ".githooks" / "pre-commit").read_text()
-    start, end = hook.index('  case "$f" in'), hook.index("  esac\n") + len("  esac\n")
-    block = hook[start:end].replace("*) continue ;;", '*) d="" ;;')
-    script = tmp_path / "map.sh"
-    script.write_text('set -euo pipefail\nf="$1"\n' + block + 'printf "%s" "$d"\n')
-    for path, expected in HOOK_CASES:
-        out = subprocess.run(["bash", str(script), path], capture_output=True, text=True,
-                             env={"PATH": os.environ["PATH"]}, timeout=30)
-        assert out.returncode == 0, out.stderr
-        assert (out.stdout or None) == expected, path
+    assert "scripts/select_tests.py --files-from -" in hook and "scripts/test_slots.py" in hook
+    assert "dirs+=(" not in hook and 'shared/*) d="shared/scripts/tests"' not in hook  # the folder map is gone
+    assert "--no-verify" not in "\n".join(line for line in hook.splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_the_selection_keeps_the_coverage_the_folder_map_of_the_hook_had():
+    """Each path of the old map still reaches its test folder: the folder whole, or a test file inside it. Nothing else may be asserted
+    from the selector here (its own tests are in test_select_tests.py); this is only the check that a mapping was not lost."""
+    select_tests = load("select_tests")
+    repo = select_tests.Repo(str(REPO))
+    for path, folder in HOOK_CASES:
+        chosen = select_tests.select(repo, [path]).result()
+        beyond_guards = [t for t in chosen if t not in select_tests.GUARDS]
+        if folder is None:
+            assert beyond_guards == [], path
+        else:
+            assert any(t == folder or t.startswith(folder + "/") for t in beyond_guards), (path, beyond_guards[:5])
+
+
+# The `if:` expressions of the jobs, read from the text of checks.yml and evaluated for the events that matter. GitHub's expression
+# language is small; the subset used here (&&, ||, !, ==, !=, contains of the label list, the five fields below) is translated to Python.
+def job_condition(name):
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
+    block = dict(zip(re.findall(r"^  ([\w-]+):\s*$", jobs, re.M), re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]))[name]
+    lines = [line for line in block.splitlines() if not line.lstrip().startswith("#")]
+    for i, line in enumerate(lines):
+        match = re.match(r"^    if:\s*(.*)$", line)
+        if match:
+            parts = [match.group(1)]
+            if parts[0] in (">-", ">", "|"):
+                parts = []
+            for follow in lines[i + 1:]:
+                if re.match(r"^ {6,}\S", follow):
+                    parts.append(follow.strip())
+                else:
+                    break
+            return " ".join(parts)
+    return None
+
+
+def evaluate(expression, event_name, action=None, base_ref="", labels=(), label=None):
+    if expression is None:
+        return True  # a job without a condition runs
+    py = re.sub(r"contains\(github\.event\.pull_request\.labels\.\*\.name,\s*'([^']+)'\)", lambda m: "(%r in labels)" % m.group(1), expression)
+    py = py.replace("github.event_name", "event_name").replace("github.event.action", "action").replace("github.base_ref", "base_ref")
+    py = py.replace("github.event.label.name", "label")
+    py = py.replace("&&", " and ").replace("||", " or ")
+    py = re.sub(r"!(?!=)", " not ", py)
+    names = {"event_name": event_name, "action": action, "base_ref": base_ref, "labels": list(labels), "label": label}
+    return bool(walk(ast.parse(py.strip(), mode="eval").body, names))
+
+
+def walk(node, names):
+    """The subset of Python the translated expression uses, interpreted node by node (no eval)."""
+    if isinstance(node, ast.BoolOp):
+        values = (walk(v, names) for v in node.values)
+        return all(values) if isinstance(node.op, ast.And) else any(values)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return not walk(node.operand, names)
+    if isinstance(node, ast.Compare) and len(node.ops) == 1:
+        left, right, op = walk(node.left, names), walk(node.comparators[0], names), node.ops[0]
+        return {ast.Eq: lambda: left == right, ast.NotEq: lambda: left != right, ast.In: lambda: left in right}[type(op)]()
+    if isinstance(node, ast.Name):
+        return names[node.id]
+    if isinstance(node, ast.Constant):
+        return node.value
+    raise AssertionError("an expression of the workflow uses something this reader does not know: %s" % ast.dump(node))
+
+
+EVENTS = {
+    "a push to main": dict(event_name="push"),
+    "a pull request into main": dict(event_name="pull_request", action="synchronize", base_ref="main"),
+    "a manual run": dict(event_name="workflow_dispatch"),
+    "a pull request labelled full-suite, a new commit": dict(event_name="pull_request", action="synchronize", base_ref="feature/x", labels=["full-suite"]),
+    "the label full-suite just added": dict(event_name="pull_request", action="labeled", base_ref="feature/x", labels=["full-suite"], label="full-suite"),
+    "a pull request into an integration branch": dict(event_name="pull_request", action="synchronize", base_ref="feature/x"),
+    "another label just added": dict(event_name="pull_request", action="labeled", base_ref="feature/x", labels=["docs"], label="docs"),
+    "another label added to a pull request into main": dict(event_name="pull_request", action="labeled", base_ref="main", labels=["docs"], label="docs"),
+}
+
+
+def test_the_whole_suite_runs_on_the_four_events_of_the_end_of_a_delivery_and_on_nothing_else():
+    condition = job_condition("full-suite")
+    assert condition is not None
+    ran = {name for name, event in EVENTS.items() if evaluate(condition, **event)}
+    assert ran == {"a push to main", "a pull request into main", "a manual run", "a pull request labelled full-suite, a new commit",
+                   "the label full-suite just added"}
+
+
+def test_the_selected_tests_run_on_a_pull_request_into_a_branch_other_than_main_unless_it_carries_the_label():
+    condition = job_condition("tests")
+    ran = {name for name, event in EVENTS.items() if evaluate(condition, **event)}
+    assert ran == {"a pull request into an integration branch"}
+
+
+def test_the_planted_condition_that_forgets_the_label_is_caught_by_the_oracle():
+    planted = "github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.base_ref == 'main'"
+    assert {name for name, event in EVENTS.items() if evaluate(planted, **event)} != {"a push to main", "a pull request into main", "a manual run",
+                                                                                      "a pull request labelled full-suite, a new commit",
+                                                                                      "the label full-suite just added"}
+
+
+def test_an_unrelated_label_starts_no_job_and_the_label_of_the_whole_suite_starts_the_checks_of_the_delivery():
+    other = EVENTS["another label just added"]
+    full = EVENTS["the label full-suite just added"]
+    for name in ("validate", "python39", "changes", "tests", "full-suite"):
+        assert evaluate(job_condition(name), **other) is False, name
+    for name in ("validate", "python39", "changes", "full-suite"):
+        assert evaluate(job_condition(name), **full) is True, name
+
+
+def test_the_docker_and_go_jobs_wait_for_the_job_that_says_whether_their_paths_changed():
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    for name in ("container", "converter", "go"):
+        block = job_block(text, name)
+        assert re.search(r"^    needs: changes\s*$", block, re.M), name
+        assert "needs.changes.outputs.%s == 'true'" % name in block, name
+    changes = job_block(text, "changes")
+    assert 'everything=true' in changes and '"$BASE_REF" = "main"' in changes and '"$FULL_LABEL" = "true"' in changes and '"$ACTION" = "labeled"' in changes
+
+
+def job_block(text, name):
+    jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
+    return dict(zip(re.findall(r"^  ([\w-]+):\s*$", jobs, re.M), re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]))[name]
+
+
+def changes_script():
+    block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "changes")
+    lines = block.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == "run: |")
+    body = []
+    for line in lines[start + 1:]:
+        if line.strip() and not line.startswith("          "):
+            break
+        body.append(line[10:])
+    return "\n".join(body) + "\n"
+
+
+def run_changes(tmp_path, files, **env):
+    """The shell of the `changes` job, as the workflow has it, on a repository whose branch changed `files` since its base."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    clean.update({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.test", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.test"})
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=clean, check=True, timeout=60).stdout.strip()
+
+    git("init", "-q", "-b", "main")
+    (repo / "README.md").write_text("x\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    base = git("rev-parse", "HEAD")
+    for rel in files:
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text("changed\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "change")
+    out = tmp_path / "github-output"
+    out.write_text("")
+    script = tmp_path / "changes.sh"
+    script.write_text(changes_script())
+    full = {**clean, "GITHUB_OUTPUT": str(out), "BASE_SHA": base, **env}
+    done = subprocess.run(["bash", str(script)], cwd=repo, env=full, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    return dict(line.split("=") for line in out.read_text().split())
+
+
+PR = dict(EVENT="pull_request", ACTION="synchronize", BASE_REF="feature/x", FULL_LABEL="false")
+
+
+def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of_the_whole_suite(tmp_path):
+    for i, (files, env, want) in enumerate([
+        (["providers/messenger/whatsapp/bridge.go"], PR, {"container": "false", "converter": "false", "go": "true"}),
+        (["providers/converter/Dockerfile"], PR, {"container": "false", "converter": "true", "go": "false"}),
+        (["evals/container/Dockerfile"], PR, {"container": "true", "converter": "false", "go": "false"}),
+        (["docs/decisions.md"], PR, {"container": "false", "converter": "false", "go": "false"}),
+        (["docs/decisions.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "go": "true"}),
+        (["docs/decisions.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "go": "true"}),
+        (["docs/decisions.md"], {**PR, "ACTION": "labeled"}, {"container": "true", "converter": "true", "go": "true"}),
+        (["docs/decisions.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": ""}, {"container": "true", "converter": "true", "go": "true"}),
+        (["docs/decisions.md"], {"EVENT": "workflow_dispatch", "ACTION": "", "BASE_REF": "", "FULL_LABEL": ""}, {"container": "true", "converter": "true", "go": "true"}),
+    ]):
+        case = tmp_path / ("case%d" % i)
+        case.mkdir()
+        assert run_changes(case, files, **env) == want, (files, env)
+
+
+def test_the_triggers_of_the_workflow_include_the_label_event_and_the_manual_run():
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    head = text[:text.index("\npermissions:")]
+    assert "workflow_dispatch:" in head and "types: [opened, synchronize, reopened, labeled]" in head and "branches: [main]" in head
+    assert "github.event.action == 'labeled' && 'label' || 'code'" in text  # a label does not cancel the run of the last push
 
 
 def tree(tmp_path, cited):

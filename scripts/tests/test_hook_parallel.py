@@ -34,6 +34,7 @@ def test_the_hook_runs_pytest_with_xdist_under_the_clean_git_environment():
     # The prefix that clears git's variables sits on the line before and continues onto the pytest line.
     previous = lines[index[0] - 1]
     assert previous.strip().startswith(ENV_PREFIX) and previous.endswith(" \\")  # no space after the backslash
+    assert "python3 scripts/test_slots.py -- uv run" in line  # the run takes one of the machine's test slots first
 
 
 def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_25_minute_limit():
@@ -43,6 +44,21 @@ def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_25_minute_lim
         assert "--with pytest-xdist==3.8.0" in block, name
         assert re.search(r"pytest -q -n auto\b", block), name
         assert "--durations=20" in block, name
+
+
+def test_the_whole_suite_job_runs_every_test_folder_with_the_full_fuzz_and_a_longer_limit():
+    block = job_block("full-suite")
+    assert re.search(r"^    timeout-minutes: 45\s*$", block, re.M)
+    assert 'WB_FULL_FUZZ: "1"' in block and "$(python3 scripts/test_dirs.py)" in block
+    assert "--with pytest-xdist==3.8.0" in block and re.search(r"pytest -q -n auto\b", block) and "--durations=20" in block
+    assert "select_tests" not in block  # the whole suite is not a selection
+    assert "WB_FULL_FUZZ" not in job_block("tests")
+
+
+def test_the_selected_tests_job_runs_what_the_selector_prints():
+    block = job_block("tests")
+    assert 'python3 scripts/select_tests.py --base "$BASE_SHA"' in block and "fetch-depth: 0" in block
+    assert "test_dirs.py" not in block
 
 
 def test_only_the_python39_job_leaves_out_the_javascript_only_interface_tests():

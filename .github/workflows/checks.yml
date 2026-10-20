@@ -1,22 +1,35 @@
 # The same checks as .githooks/pre-commit, for every push to main and every pull request.
 # Actions are pinned to a commit (tags can move); Dependabot proposes updates.
+#
+# Which tests run (docs/decisions.md, 2026-10-20): DURING DEVELOPMENT, on a pull request into a branch other than main, the job
+# `tests` runs only the SELECTED tests (scripts/select_tests.py: the tests of what the pull request changed, plus a fixed set of
+# guards). The WHOLE SUITE, job `full-suite`, runs at the end of a large delivery: on a push to main, on a pull request into main,
+# on a manual run (workflow_dispatch, on any branch: the supervisor runs it on the integration branch at the end of a phase), and
+# on a pull request that carries the label `full-suite` (adding the label starts the job, which is why `labeled` is a trigger).
+# The jobs that need docker or Go run when the paths they depend on changed, and always in those four cases.
 name: checks
 
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A label added to a pull request starts a run of its own (below, every job but those of the whole suite is skipped on it), and must
+# not cancel the run of the last push: so the two kinds of run are in two groups.
 concurrency:
-  group: checks-${{ github.ref }}
+  group: checks-${{ github.ref }}-${{ github.event.action == 'labeled' && 'label' || 'code' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   validate:
     name: validate
+    # Not on a label other than full-suite: nothing changed.
+    if: github.event.action != 'labeled' || github.event.label.name == 'full-suite'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -38,15 +51,52 @@ jobs:
       - name: Secrets in history
         run: python3 scripts/security_scan.py --history
 
-  # Every test runs on every pull request: no test is skipped because of the files a change touched.
-  # The suite is split across the runner's processes (pytest-xdist, `-n auto`: one worker per vCPU, four on a public
-  # repository's runner). Run in one process it took 18 to 19 minutes and ran into the old 20-minute limit. The limit
-  # now leaves headroom for a slow runner or a worker that waits on a timeout. --durations lists the slowest tests,
-  # so a later log shows where the time goes.
+  # The selected tests of a pull request into a branch other than main (an integration branch, a feature branch). The selector
+  # (scripts/select_tests.py, rules at the top of the file) reads the files the pull request changed since its merge base with the
+  # base and prints the test files that can reach them; when it cannot compute the diff it selects every test folder. It always adds
+  # the fixed guards, so the output is never empty. A pull request labelled full-suite, or into main, runs the job below instead.
+  # The tests are split across the runner's processes (pytest-xdist, `-n auto`: one worker per vCPU). --durations lists the
+  # slowest tests, so a later log shows where the time goes.
   tests:
     name: tests
+    if: >-
+      github.event_name == 'pull_request' && github.event.action != 'labeled' && github.base_ref != 'main'
+      && !contains(github.event.pull_request.labels.*.name, 'full-suite')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the selector reads the merge base with the pull request's base
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.19"
+          python-version: "3.11"
+      - name: Choose the tests this pull request can reach
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/select_tests.py --base "$BASE_SHA" --explain | tee "$RUNNER_TEMP/selected-tests.txt"
+      - name: Selected scanner, provider, runtime and script tests
+        run: uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n auto -o faulthandler_timeout=120 --durations=20 $(cat "$RUNNER_TEMP/selected-tests.txt")
+
+  # The whole suite: every test folder, and the fuzz of the natural writes walked line by line (WB_FULL_FUZZ=1: about eight
+  # minutes of one process; runtime/README.md, "The natural-writes fuzz"). It runs on a push to main, a pull request into main,
+  # a manual run and a pull request labelled full-suite, and on nothing else: that is the end of a large delivery, where it catches
+  # what the selected tests cannot see (a dynamic import, a long call chain without an import edge). The suite is split across the
+  # runner's processes (pytest-xdist, `-n auto`: one worker per vCPU, four on a public repository's runner); run in one process it
+  # took 18 to 19 minutes. The limit leaves headroom for the full fuzz, a slow runner or a worker that waits on a timeout.
+  full-suite:
+    name: full-suite
+    if: >-
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && github.event.action != 'labeled'
+          && (github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'full-suite')))
+      || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'full-suite')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      WB_FULL_FUZZ: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,8 +105,51 @@ jobs:
         with:
           version: "0.12.19"
           python-version: "3.11"
-      - name: Scanner and provider tests
+      - name: Scanner and provider tests, the whole suite
         run: uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n auto -o faulthandler_timeout=120 --durations=20 $(python3 scripts/test_dirs.py)
+
+  # Which of the docker and Go jobs have anything to check: on a pull request into a branch other than main, those whose paths changed;
+  # in the four cases of the whole suite, all of them. The paths are what each job's tests read: the eval container and its adapters,
+  # the converter and exporter images and the workcopy scan, the WhatsApp program. This file counts for all three.
+  changes:
+    name: changes
+    if: github.event.action != 'labeled' || github.event.label.name == 'full-suite'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      container: ${{ steps.paths.outputs.container }}
+      converter: ${{ steps.paths.outputs.converter }}
+      go: ${{ steps.paths.outputs.go }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the base of the pull request is read
+          persist-credentials: false
+      - id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-suite') }}
+        run: |
+          set -eu
+          everything=false
+          if [ "$EVENT" != "pull_request" ] || [ "$ACTION" = "labeled" ] || [ "$BASE_REF" = "main" ] || [ "$FULL_LABEL" = "true" ]; then
+            everything=true
+          fi
+          changed=""
+          if [ "$everything" = "false" ]; then
+            changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+          fi
+          touched() { [ "$everything" = "true" ] || printf '%s\n' "$changed" | grep -Eq "$1"; }
+          container=false; converter=false; go=false
+          touched '^(evals/|adapters/|shared/|scripts/stage_skills.py|runtime/workcopy.py|.github/workflows/checks.yml)' && container=true
+          touched '^(providers/converter/|providers/exporter/|runtime/workcopy.py|providers/[^/]*[.]py|.github/workflows/checks.yml)' && converter=true
+          touched '^(providers/messenger/whatsapp/|.github/workflows/checks.yml)' && go=true
+          echo "container=$container" >> "$GITHUB_OUTPUT"
+          echo "converter=$converter" >> "$GITHUB_OUTPUT"
+          echo "go=$go" >> "$GITHUB_OUTPUT"
 
   # The scheduler starts the runtime, and the runtime starts these scripts, with the system interpreter
   # (Python 3.9 on macOS): providers/CONTRACT.md, "Python version". Only their tests run here; the rest of
@@ -70,6 +163,7 @@ jobs:
   # tests job runs them. Every test of a Python module stays here.
   python39:
     name: python39
+    if: github.event.action != 'labeled' || github.event.label.name == 'full-suite'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -104,6 +198,8 @@ jobs:
 
   container:
     name: container
+    needs: changes
+    if: needs.changes.outputs.container == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -122,6 +218,8 @@ jobs:
   # each output format made in a real container, the formula guard read back from the real files. No model call.
   converter:
     name: converter
+    needs: changes
+    if: needs.changes.outputs.converter == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -139,6 +237,8 @@ jobs:
   # own Go downloads the toolchain go.mod names (verified by the checksum database); modules are checked against go.sum.
   go:
     name: go
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
