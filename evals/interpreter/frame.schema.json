@@ -1,0 +1,27 @@
+{"$schema": "http://json-schema.org/draft-07/schema#", "$id": "openhora:interpreter-frame:1", "type": "object", "additionalProperties": false,
+ "required": ["v", "items", "last"],
+ "properties": {"v": {"const": 1}, "items": {"type": "array", "maxItems": 5, "items": {"$ref": "#/definitions/item"}},
+                "last": {"oneOf": [{"type": "null"}, {"$ref": "#/definitions/last"}]}},
+ "definitions": {
+  "id": {"type": "string", "pattern": "^i[1-9]$"}, "op": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$"},
+  "slot": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,23}$"}, "words": {"type": "string", "minLength": 1, "maxLength": 300},
+  "item": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "need", "age_s"], "properties": {
+     "id": {"$ref": "#/definitions/id"}, "kind": {"enum": ["write-draft", "reminder-confirm", "router-question", "choice"]},
+     "op": {"$ref": "#/definitions/op"}, "need": {"enum": ["slot", "confirm", "option", "text"]}, "slot": {"$ref": "#/definitions/slot"},
+     "options": {"type": "integer", "minimum": 2, "maximum": 9},
+     "values": {"type": "array", "maxItems": 9, "items": {"type": "object", "additionalProperties": false, "required": ["n", "label"], "properties": {
+        "n": {"type": "integer", "minimum": 1, "maximum": 9}, "code": {"type": "string", "pattern": "^[a-z0-9:._-]{1,64}$"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 60}}}},
+     "words": {"type": "object", "maxProperties": 6, "propertyNames": {"$ref": "#/definitions/slot"}, "additionalProperties": {"$ref": "#/definitions/words"}},
+     "age_s": {"type": "integer", "minimum": 0, "maximum": 86400}}},
+  "last": {"type": "object", "additionalProperties": false, "required": ["op", "words", "age_s"], "properties": {
+     "op": {"$ref": "#/definitions/op"}, "words": {"type": "object", "maxProperties": 6, "propertyNames": {"$ref": "#/definitions/slot"},
+     "additionalProperties": {"$ref": "#/definitions/words"}}, "age_s": {"type": "integer", "minimum": 0, "maximum": 3600}}}},
+ "x-rules": [
+  "R1 router-question: exactly the keys id, kind, need, age_s; need is text (a router item is its kind and age only)",
+  "R2 write-draft and reminder-confirm carry op, an op of the catalog's ops; reminder-confirm has op remind",
+  "R3 need slot: slot present and a slot of op's catalog row; need option: kind choice, options present, values absent or of length options with n 1..options",
+  "R4 values[].label comes only from the accepted configuration (the builder takes labels from a config map, never from an item)",
+  "R5 words keys are slots of op's (or last.op's) catalog row; values are the same sender's own earlier words, never third-party text",
+  "R6 ids unique within items; at most one item per kind except choice",
+  "R7 no string anywhere that the platform did not write or the sender did not type: no mail, file name, source name, router question, card body"]}

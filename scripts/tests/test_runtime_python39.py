@@ -137,6 +137,8 @@ ON_SYSTEM_PYTHON = [
     "providers/messenger/whatsapp-twilio.py", "providers/messenger/whatsapp_meta.py",
     # The documents' local implementation, called the same way (stage 3).
     "providers/documents/local.py",
+    # The interpreter experiment (IX-C0): the catalog a line is read against, generated from the table of natural requests and the classification of the gated operations.
+    "runtime/interpreter_catalog.py",
 ]
 RUNTIME = ("scripts/runtime.py", "scripts/runtime_vote.py", "scripts/vote_job.py",
            "runtime/handlers/social.py", "runtime/handlers/social_vote_job.py")  # the scheduler starts these

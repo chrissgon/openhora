@@ -1,0 +1,8 @@
+{"v": 1, "runs": 2, "per_item": "worst-of-runs", "wilson_z": 1.96, "router_line_cost_usd": 0.0857,
+ "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+ "overall": {"wrong_effect_unconfirmed_max": 0, "wilson_upper_max": {"wrong_card": 0.02, "wrong_read": 0.02, "wrong_reminder_reading": 0.02,
+             "wrong_item_binding": 0.02}, "clarify_rate_max": 0.15, "p95_latency_ms_max": 4000, "median_cost_usd_max": 0.002},
+ "per_language": {"point_max": {"wrong_card": 0.03, "wrong_read": 0.03, "wrong_reminder_reading": 0.03, "wrong_item_binding": 0.03},
+                  "correct_direct_min": {"pt-BR": 0.85, "en": 0.85, "es": 0.75, "fr": 0.75, "de": 0.75, "it": 0.75}},
+ "versus_current": {"correct_direct": "greater", "wrong_card": "not_greater"},
+ "statements": ["0 of n is reported as < 3/n by the rule of three", "at 50 items a per-language bound under 3% is unreachable"]}
