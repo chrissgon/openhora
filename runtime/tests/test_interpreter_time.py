@@ -197,3 +197,78 @@ def test_vacuity_a_validator_without_the_gap_rule_is_caught_by_the_gap_assertion
     except AssertionError:
         return
     raise AssertionError("the assertion did not catch a validator without the gap rule")
+
+# --- the source is decided from the whole line, never from the span the model chose (review of #495, B1) ---------------------------------------------------
+
+EN_LINE = "remind me to call Dana tomorrow at 3pm"
+PT_LINE = "me lembra amanhã às 15h de ligar pra Dana"
+# (line, the text slot, the literal words a span must hold to be the time of the line: the oracle's own list)
+SPAN_CASES = [(EN_LINE, "call Dana", ("tomorrow", "3pm")), (PT_LINE, "ligar pra Dana", ("amanhã", "15h")),
+              ("remind me at 3pm to call Dana", "call Dana", ("3pm",)), ("remind me on December 5 at 10am to pay rent", "pay rent", ("December 5", "10am"))]
+
+
+def word_spans(line):
+    words = line.split(" ")
+    for i in range(len(words)):
+        for j in range(i + 1, len(words) + 1):
+            yield " ".join(words[i:j])
+
+
+def test_no_span_of_the_line_but_the_one_that_holds_every_time_phrase_gives_a_time():
+    seen_time = 0
+    for line, text, needed in SPAN_CASES:
+        for span in word_spans(line):
+            got = run(remind(span, "2026-10-21T15:00", "wed", text), line)
+            if got["kind"] == "op" and got["time"] is not None:
+                seen_time += 1
+                assert all(word in span for word in needed), (line, span, got)          # the oracle: the span holds every time phrase of the line
+                assert got["time"]["source"] == "code"
+            else:
+                assert got["kind"] == "clarify" and got["why"] in ("time-ask", "time-past", "time-far", "weekday", "invalid"), (line, span, got)
+    assert seen_time >= 4          # not vacuous: the right spans are accepted
+
+
+def test_probes_of_the_review_a_span_with_no_time_in_it_or_a_truncated_one_is_asked():
+    for line, text, span in ((EN_LINE, "call Dana tomorrow at 3pm", "Dana"), (EN_LINE, "call Dana", "me"), (PT_LINE, "ligar pra Dana", "Dana"), (EN_LINE, "call Dana", "at 3pm"),
+                             ("remind me at 3pm to call Dana", "call Dana", "3pm to call Dana"), ("remind me at 3pm to call Dana", "call Dana", "Dana")):
+        assert_clarify(run(remind(span, "2026-10-21T15:00", "wed", text), line), "time-ask")
+
+
+def test_the_answer_path_is_decided_from_the_line_too():
+    frame = {"v": 1, "last": None, "items": [kit.item("i1", kind="reminder-confirm", need="slot", op="remind", slot="when", age_s=10)]}
+    answer = {"v": 1, "kind": "answer", "answers_item": "i1", "slot": "when", "span": "no", "time_iso": "2026-10-21T15:00", "weekday": "wed"}
+    got = interp.check(answer, "no, tomorrow at 3pm", frame, kit.CATALOG, kit.NOW, kit.ZONE, kit.ALL_OPS)
+    assert_clarify(got, "time-ask")
+    good = dict(answer, span="tomorrow at 3pm")
+    got = interp.check(good, "no, tomorrow at 3pm", frame, kit.CATALOG, kit.NOW, kit.ZONE, kit.ALL_OPS)
+    assert got["kind"] == "answer" and got["time"] == {"local": "2026-10-21T15:00", "source": "code"}
+
+
+def test_time_source_given_the_line_asks_when_the_span_leaves_a_time_phrase_out():
+    assert interp.time_source("at 3pm", kit.NOW, kit.ZONE, EN_LINE) == "ask"
+    assert interp.time_source("tomorrow at 3pm", kit.NOW, kit.ZONE, EN_LINE) == "code"
+    assert interp.time_source("Dana", kit.NOW, kit.ZONE, EN_LINE) == "ask"
+    assert interp.time_source(JA, kit.NOW, kit.ZONE, line_for(JA)) == "model"
+    assert interp.time_source("Dana", kit.NOW, kit.ZONE, "remind Dana") == "ask"          # a word of a table in the line
+
+
+def test_an_hour_only_reading_is_the_models_only_when_the_line_holds_no_word_of_a_table():
+    span, line = "mañana a las 15:00", "recuérdame mañana a las 15:00 llamar a Dana"
+    assert interp.time_source(span, kit.NOW, kit.ZONE, line) == "model"
+    assert interp.time_source("15:00", kit.NOW, kit.ZONE, line) == "model"
+    # A line with a word of a table ("remind") is code's: the hour code read, today's date.
+    assert interp.time_source("at 3pm", kit.NOW, kit.ZONE, "remind me at 3pm to call Dana") == "code"
+    got = run(remind("at 3pm", "2027-01-05T15:00", "tue"), "remind me at 3pm to call Dana")
+    assert got["time"] == {"local": "2026-10-20T15:00", "source": "code"} and got["time_disagree"] is True
+    # Residue, written down: a line of words no table holds and an hour only is the model's date, shown on the card.
+    assert interp.time_source("at 15:00", kit.NOW, kit.ZONE, "call Dana at 15:00") == "model"
+
+
+# --- years the zone arithmetic cannot take (review of #495, M1) ---------------------------------------------------------------------------------------
+
+def test_a_year_far_from_now_is_asked_back_and_never_an_exception():
+    for stamp, weekday, why in (("9999-12-31T23:59", "fri", "time-far"), ("0001-01-01T00:00", "mon", "time-past"), ("2030-06-03T10:00", "mon", "time-far"), ("2024-10-21T10:00", "mon", "time-past"),
+                                ("2028-10-23T10:00", "mon", "time-far")):
+        for zone in (kit.ZONE, "Asia/Tokyo", "Europe/Berlin"):
+            assert_clarify(run(remind(JA, stamp, weekday), line_for(JA), kit.now_at("2026-10-20 09:00", zone), zone), why)
+    assert interp.parse('{"v":1,"kind":"op","op":"remind","slots":{"when":"x"},"time_iso":"9999-12-31T23:59","weekday":"fri"}')[1] == "ok"

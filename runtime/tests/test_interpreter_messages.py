@@ -61,10 +61,24 @@ def test_the_prompt_holds_the_placeholder_once_and_no_catalog_text_outside_it():
         assert line not in outside
 
 
-def test_a_catalog_change_changes_the_system_message_and_nothing_else_does():
+def test_a_catalog_change_changes_the_system_message_and_nothing_else_does(monkeypatch):
+    served = messages()[0]
     other = json.loads(json.dumps(kit.CATALOG))
     other["ops"][0]["what"] = "a different sentence"
-    assert interp.build_messages(other, kit.NOW, kit.ZONE, None, "hi")[0] != messages()[0]
+    monkeypatch.setattr(interp, "SERVED_SHA256", interp.catalog_sha256(other))          # the catalog that is served now
+    changed = interp.build_messages(other, kit.NOW, kit.ZONE, None, "hi")[0]
+    assert changed != served and changed == PROMPT.replace(PLACEHOLDER, interp.render_catalog(other))
+
+
+def test_a_catalog_that_is_not_the_served_one_is_not_sent():
+    other = json.loads(json.dumps(kit.CATALOG))
+    other["ops"][0]["what"] = "a different sentence"
+    with pytest.raises(ValueError):
+        interp.build_messages(other, kit.NOW, kit.ZONE, None, "hi")
+    widened = json.loads(json.dumps(kit.CATALOG))
+    widened["ops"].append({"op": "approve", "class": "N", "what": "x", "slots": {}})
+    with pytest.raises(ValueError):
+        interp.build_messages(widened, kit.NOW, kit.ZONE, None, "hi")
 
 
 def test_the_catalog_is_rendered_one_line_per_op_then_the_refused_block():

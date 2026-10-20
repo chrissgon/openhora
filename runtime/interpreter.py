@@ -52,6 +52,8 @@ import natural_time as nt  # noqa: E402  (the same folder: the time reader whose
 
 PROMPT_FILE = os.path.join(HERE, "interpreter_prompt.txt")
 PROTOCOL_FILE = os.path.join(HERE, "interpreter_protocol.json")
+SERVED_FILE = os.path.join(HERE, "interpreter_catalog.json")
+GATED_FILE = os.path.join(HERE, "gated_ops.json")
 PLACEHOLDER = "{{CATALOG}}"
 with open(PROTOCOL_FILE, encoding="utf-8") as _handle:
     PROTOCOL = json.load(_handle)
@@ -90,6 +92,7 @@ MAX_ITEMS = 5
 MAX_WORDS = 6
 WORDS_MAX = 300
 LABEL_MAX = 60
+MAX_DEPTH = 4                  # the deepest nesting an output may have (the protocol needs 2: an object holding an object or a list)
 
 
 # --- the files ----------------------------------------------------------------------------------------------------------------------------------------
@@ -97,6 +100,22 @@ LABEL_MAX = 60
 def canonical(obj) -> bytes:
     """The canonical JSON of an object (the form every hash of the interpreter is taken over)."""
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def catalog_sha256(catalog) -> str:
+    """The sha256 of the canonical form of a catalog object (the hash the evidence names)."""
+    return hashlib.sha256(canonical(catalog)).hexdigest()
+
+
+def _read_json(path: str):
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+SERVED = _read_json(SERVED_FILE)
+SERVED_SHA256 = catalog_sha256(SERVED)
+# The operations no line may do, read from the classification that C0 committed and from `natural.CLASSES`, so that a catalog handed in cannot widen them.
+WIDENING = frozenset(row["op"] for row in _read_json(GATED_FILE)["rows"] if row["kind"] == "widening")
 
 
 def prompt_template() -> str:
@@ -141,6 +160,8 @@ def build_messages(catalog: dict, now, zone: str, frame, line: str) -> tuple:
     """(system, user). `system` is the prompt with the rendered catalog and so is constant per (prompt, catalog); `user` is exactly five lines: today, time, zone, the
     frame as canonical JSON (or null) and the line. Nothing else ever enters either message. ValueError for a frame that is not valid or a line that is empty or too long."""
     template = prompt_template()
+    if catalog_sha256(catalog) != SERVED_SHA256:
+        raise ValueError("the catalog is not the served one")
     if template.count(PLACEHOLDER) != 1:
         raise ValueError("the prompt holds the catalog placeholder exactly once")
     if not isinstance(line, str) or not collapse(line):
@@ -228,6 +249,10 @@ def frame_problems(frame, catalog=None) -> list:
             out.append(f"{where}: op is an op name")
             op = None
         row = rows.get(op) if rows is not None and op is not None else None
+        if rows is not None and op is not None and row is None:
+            out.append(f"{where}: op is not an op of the catalog")          # whatever the kind of the item
+        if row is not None and "slot" in item and (not isinstance(item["slot"], str) or item["slot"] not in row):
+            out.append(f"{where}: slot is not a slot of the op")
         if kind == "router-question":          # R1
             if set(item) != ITEM_REQUIRED or need != "text":
                 out.append(f"{where}: a router item is its id, kind, need (text) and age only")
@@ -235,16 +260,12 @@ def frame_problems(frame, catalog=None) -> list:
         if kind in ("write-draft", "reminder-confirm"):          # R2
             if op is None:
                 out.append(f"{where}: a {kind} carries op")
-            elif rows is not None and row is None:
-                out.append(f"{where}: op is not an op of the catalog")
             if kind == "reminder-confirm" and op != "remind":
                 out.append(f"{where}: a reminder-confirm has op remind")
         if need == "slot":          # R3
             slot = item.get("slot")
             if not isinstance(slot, str) or not SLOT_RE.fullmatch(slot) or op is None:
                 out.append(f"{where}: need slot carries a slot and an op")
-            elif row is not None and slot not in row:
-                out.append(f"{where}: slot is not a slot of the op")
         elif "slot" in item:
             out.append(f"{where}: only need slot carries a slot")
         if need == "option":
@@ -284,11 +305,12 @@ def _clean(text) -> str:
     return collapse(text) if isinstance(text, str) else ""
 
 
-def typed_frame(items, last, labels) -> dict:
+def typed_frame(items, last, labels, catalog=None) -> dict:
     """The frame, built by a whitelist: only the keys of the schema are copied, whatever else an item carries (a subject, a file name, a router's question, the body of a
     card) is left behind. `labels` is the accepted configuration's map {code (or the option number as text): label}: a value's label comes from it and never from an item.
     A word is copied only from the field `own_words` of an item (and of `last`), which the caller sets from what the same sender typed; an item's `words` is never read. An item
-    older than a day and a `last` older than an hour are left out. ValueError (with no value in it) when what is left is not a valid frame."""
+    older than a day and a `last` older than an hour are left out. An op and a slot are checked against `catalog` (the served one when none is given) and a value's code must be a key of
+    `labels`. ValueError (with no value in it) when what is left is not a valid frame."""
     if not isinstance(labels, dict):
         raise ValueError("labels is the accepted configuration's map")
     built = []
@@ -308,6 +330,8 @@ def typed_frame(items, last, labels) -> dict:
                 if not isinstance(value, dict):
                     raise ValueError("a value is an object")
                 code = value.get("code")
+                if isinstance(code, str) and code not in labels:
+                    raise ValueError("a value's code is not in the accepted configuration")
                 label = labels.get(code) if isinstance(code, str) else labels.get(str(value.get("n")))
                 entry = {"n": value.get("n"), "label": _clean(label)}
                 if isinstance(code, str):
@@ -324,7 +348,7 @@ def typed_frame(items, last, labels) -> dict:
     if isinstance(last, dict) and _is_int(last.get("age_s")) and last["age_s"] <= 3600:
         kept = {"op": last.get("op"), "words": _own_words(last.get("own_words")) or {}, "age_s": last["age_s"]}
     frame = {"v": 1, "items": built[:MAX_ITEMS], "last": kept}
-    problems = frame_problems(frame, None)
+    problems = frame_problems(frame, SERVED if catalog is None else catalog)
     if problems:
         raise ValueError("the typed frame is not valid: " + "; ".join(problems))
     return frame
@@ -361,18 +385,53 @@ def _constant(_name):
 
 
 def _strings_ok(value) -> bool:
-    """No string anywhere holds a lone surrogate (it cannot be written as UTF-8) or a NUL."""
-    if isinstance(value, str):
-        try:
-            value.encode("utf-8")
-        except UnicodeEncodeError:
-            return False
-        return "\x00" not in value
-    if isinstance(value, dict):
-        return all(_strings_ok(k) and _strings_ok(v) for k, v in value.items())
-    if isinstance(value, list):
-        return all(_strings_ok(v) for v in value)
+    """No string anywhere holds a lone surrogate (it cannot be written as UTF-8) or a NUL. Iterative: no depth of nesting reaches the recursion limit."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            try:
+                item.encode("utf-8")
+            except UnicodeEncodeError:
+                return False
+            if "\x00" in item:
+                return False
+        elif isinstance(item, dict):
+            stack.extend(item.keys())
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
     return True
+
+
+def _depth_ok(body: str) -> bool:
+    """Whether the text nests brackets no deeper than MAX_DEPTH, counted outside strings, before any JSON reader sees it."""
+    depth, in_string, escaped = 0, False, False
+    for ch in body:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                return False
+        elif ch in "]}":
+            depth -= 1
+    return True
+
+
+def _safe_shape(obj):
+    """`_shape`, with any failure of its own read as a refusal."""
+    try:
+        return _shape(obj)
+    except Exception:
+        return "E_JSON"
 
 
 def _shape(obj):
@@ -447,13 +506,15 @@ def parse(text) -> tuple:
         if not fenced or "```" in fenced.group(1):
             return None, "invalid", "E_JSON"
         body, state = fenced.group(1).strip(), "fenced"
+    if not _depth_ok(body):
+        return None, "invalid", "E_JSON"
     try:
         obj = json.loads(body, object_pairs_hook=_pairs, parse_constant=_constant)
     except (ValueError, RecursionError):
         return None, "invalid", "E_JSON"
     if not _strings_ok(obj):
         return None, "invalid", "E_JSON"
-    error = _shape(obj)
+    error = _safe_shape(obj)
     if error:
         return None, "invalid", error
     return obj, state, None
@@ -468,52 +529,82 @@ def _known(span: str, tables: list) -> bool:
     return any(len(word) >= KNOWN_MIN and word in known for word in re.findall(r"[a-z0-9]+", folded))
 
 
-def _classify(span: str, now_local):
-    """(source, reading): who may decide the time of a span, and the reading code has of it (the model's `time_iso` is checked against it, never the other way)."""
-    parsed = nt.parse(span, now_local)
-    found = nt.find(span)
-    tables = found["tables"]
-    flagged = nt.doubt(span)
-    if parsed is not None and "when" in parsed:
-        reading = parsed["reading"]
-        if parsed.get("vague") or flagged or reading.get("assumed_year") or not TIME_RE.fullmatch(f"{reading.get('date')}T{reading.get('time')}"):
-            return "ask", None
-        if nt.leftover_doubt(found, None, tables, unknown=False):          # a date word the engine did not read: asked, as the NR-1 guard shows and confirms
-            return "ask", None
-        if not reading.get("dated") and nt.leftover_doubt(found, None, tables, unknown=True):
-            return "model", reading          # code read an hour only and the span holds words no table has (a language without tables): the model's date, the code's hour
-        return "code", reading
-    if parsed is not None:          # two readings, or a day and no hour
-        return "ask", None
-    if flagged or _known(span, tables):
-        return "ask", None
-    return "model", None
+def _known_outside(found: dict) -> bool:
+    """Whether the line holds, outside its time phrases, a word (of three letters or more) that some shipped table holds."""
+    folded, known = found["norm"], nt.known_words(found["tables"])
+    covered = [(h["s"], h["e"]) for h in found["hits"]]
+    outside = "".join(" " if any(a <= i < b for a, b in covered) else c for i, c in enumerate(folded))
+    return any(len(word) >= KNOWN_MIN and word in known for word in re.findall(r"[a-z0-9]+", outside))
 
 
-def time_source(span, now, zone) -> str:
-    """"code", "ask" or "model" for a span of the line that fills a time slot. Only code decides (D4): "code" when `natural_time.parse` reads the span as one clear reading,
-    which then wins over the model's `time_iso`; "ask" when the span holds any time phrase or word of a table but no single clear reading, or `natural_time.doubt` says it
-    may be misread; "model" otherwise. The model never says which language the line is in."""
-    return _classify(span, _local_now(now, zone))[0]
+def _cover(seen: str, piece: str, found: dict):
+    """Whether some occurrence of `piece` in `seen` holds every time phrase the engine found in `seen`."""
+    cuts = nt._spans(found)
+    start = seen.find(piece) if piece else -1
+    while start != -1:
+        end = start + len(piece)
+        if all(start <= a and b <= end for a, b in cuts):
+            return True
+        start = seen.find(piece, start + 1)
+    return False
+
+
+def _classify(span: str, line: str, now_local):
+    """(source, reading): who may decide the time of a span, and the reading code has of it (the model's `time_iso` is checked against it, never the other way). The decision
+    is made from the WHOLE LINE and never from the span the model chose, since the model picks the span: "code" only when the span holds every time phrase of the line and
+    the line has no doubt; "model" only when the line has no time phrase, no doubt and no word of a table (or code read an hour only and the line holds words no table has)."""
+    seen, piece = collapse(line), collapse(span)
+    found = nt.find(seen)
+    tables, hits = found["tables"], found["hits"]
+    flagged = nt.doubt(seen)
+    if not hits:
+        return ("ask", None) if flagged or _known(seen, tables) else ("model", None)
+    if flagged or not _cover(seen, piece, found) or nt.leftover_doubt(found, None, tables, unknown=False):
+        return "ask", None          # a time phrase outside the span, or a date word the engine did not read: asked, as the NR-1 guard shows and confirms
+    parsed, whole = nt.parse(piece, now_local), nt.parse(seen, now_local)
+    if parsed is None or "when" not in parsed or whole is None or "when" not in whole:
+        return "ask", None
+    reading = parsed["reading"]
+    if (parsed.get("vague") or whole.get("vague") or nt.doubt(piece) or reading.get("assumed_year") or whole["reading"]["when"] != reading["when"]
+            or not TIME_RE.fullmatch(f"{reading.get('date')}T{reading.get('time')}")):
+        return "ask", None
+    if not reading.get("dated") and nt.leftover_doubt(found, None, tables, unknown=True) and not _known_outside(found):
+        return "model", reading          # code read an hour only, the line holds words no table has and none that a table does (a language without tables): the model's date, the code's hour
+    return "code", reading
+
+
+def time_source(span, now, zone, line=None) -> str:
+    """"code", "ask" or "model" for a span of the line that fills a time slot (`line` is the whole line; the span alone when it is not given). Only code decides (D4), and
+    from the whole line, never from the span the model chose: "code" when `natural_time.parse` reads the span as one clear reading and the span holds every time phrase of the line;
+    "ask" when the line holds a time phrase or a word of a table that the span does not settle, or `natural_time.doubt` says it may be misread; "model" when the line holds
+    none. The model never says which language the line is in."""
+    return _classify(span, span if line is None else line, _local_now(now, zone))[0]
 
 
 def _instant_problem(naive: datetime.datetime, tz, now_local):
     """The `why` of a wall time that cannot be used as it is: time-gap (the clock skips it), time-fold (it happens twice), time-past, time-far; else None."""
-    first = naive.replace(tzinfo=tz, fold=0)
-    if first.astimezone(datetime.timezone.utc).astimezone(tz).replace(tzinfo=None) != naive:
-        return "time-gap"
-    if first.utcoffset() != naive.replace(tzinfo=tz, fold=1).utcoffset():
-        return "time-fold"
-    if first <= now_local:
+    if naive.year < now_local.year - 1:
         return "time-past"
-    if first - now_local > datetime.timedelta(days=FAR_DAYS):
+    if naive.year > now_local.year + 2:
+        return "time-far"
+    try:
+        first = naive.replace(tzinfo=tz, fold=0)
+        if first.astimezone(datetime.timezone.utc).astimezone(tz).replace(tzinfo=None) != naive:
+            return "time-gap"
+        if first.utcoffset() != naive.replace(tzinfo=tz, fold=1).utcoffset():
+            return "time-fold"
+        if first <= now_local:
+            return "time-past"
+        if first - now_local > datetime.timedelta(days=FAR_DAYS):
+            return "time-far"
+    except (OverflowError, ValueError):
         return "time-far"
     return None
 
 
-def _time(span, time_iso, weekday, now_local, zone):
+def _time(span, line, time_iso, weekday, now_local, zone):
     """(time | None, disagree, why | error): the time of a span, or why it is asked back. `time` is {"local", "source"}."""
-    source, reading = _classify(span, now_local)
+    source, reading = _classify(span, line, now_local)
     if source == "ask":
         return None, False, ("time-ask", None)
     disagree = False
@@ -576,7 +667,7 @@ def _check_slots(op: str, slots: dict, line: str):
                 return None, _slot_error(op, slot, value, line)
         return None, "E_SPAN"
     for slot, value in slots.items():
-        if natural.NATURAL[op]["slots"][slot][0] == "span" and not _span_in_line(value, line):
+        if natural.NATURAL[op]["slots"][slot][0] in ("span", "word") and not _span_in_line(value, line):          # a word is also as typed: a full-width or ligature form is not
             return None, "E_SPAN"
     return got["args"], None
 
@@ -589,9 +680,11 @@ def check(obj, line, frame, catalog, now, zone, allowed) -> dict:
     """The decision for a parsed object (the module's text says its shape). `allowed` is the set of operations the sender's policy lets them ask: an op outside it is
     `refuse_policy` (None allows nothing). Every part of the object is checked against the line, the frame and the clock here; the object is shaped again first, so a
     caller that did not `parse` it gets the same answer."""
-    error = _shape(obj)
+    error = _safe_shape(obj)
     if error:
         return _invalid(error)
+    if catalog_sha256(catalog) != SERVED_SHA256:
+        return _invalid("E_SHAPE")
     if not isinstance(line, str) or not line.strip():
         return _invalid("E_SHAPE")
     early = precheck(line)
@@ -616,14 +709,21 @@ def check(obj, line, frame, catalog, now, zone, allowed) -> dict:
             return _clarify("model", slot=obj["slot"])
         if not all(name in ops and ops[name]["class"] != "work" for name in obj["ops"]):
             return _invalid("E_OP_UNKNOWN")
-        return _clarify("model", ops=list(obj["ops"]))
+        asked = [name for name in obj["ops"] if allowed is not None and name in allowed]
+        if len(asked) < 2:
+            return {"kind": "refuse_policy", "error": None, "op": next((n for n in obj["ops"] if allowed is None or n not in allowed), obj["ops"][0])}
+        return _clarify("model", ops=asked)
     if kind == "answer":
-        return _check_answer(obj, line, frame, ops, now_local, zone)
+        return _check_answer(obj, line, frame, ops, now_local, zone, allowed)
     return _check_op(obj, line, frame, ops, refused, now_local, zone, allowed)
 
 
 def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
     name = obj["op"]
+    if natural.CLASSES.get(name) == "D":
+        return {"kind": "refuse", "error": None, "class": "D", "op": name}
+    if name in WIDENING:
+        return {"kind": "refuse", "error": None, "class": "G", "op": name}
     if name in refused:
         return {"kind": "refuse", "error": None, "class": refused[name]["class"], "op": name}
     if name not in ops or (ops[name]["class"] == "work" and name != "ask"):
@@ -646,7 +746,7 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
     if inherit:
         last = (frame or {}).get("last")
         for slot, span in inherit.items():
-            if slot in slots or (name, slot) in TIME_SLOTS or last is None or slot not in last["words"]:
+            if slot in slots or (name, slot) in TIME_SLOTS or last is None or last["op"] != name or slot not in last["words"]:
                 return _invalid("E_INHERIT")
             recorded = last["words"][slot]
             if not natural.normal(span) or natural.normal(span) not in natural.normal(recorded) or span not in recorded:
@@ -662,18 +762,20 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         span = slots[time_slots[0]]
         if not _span_in_line(span, line) or len(span) > SPAN_MAX:
             return _invalid("E_SPAN")
-        time, disagree, problem = _time(span, obj["time_iso"], obj["weekday"], now_local, zone)
+        time, disagree, problem = _time(span, line, obj["time_iso"], obj["weekday"], now_local, zone)
         if problem:
             return _clarify(problem[0], slot=time_slots[0], error=problem[1], op=name)
         spans[time_slots[0]] = span
     return {"kind": "op", "error": None, "op": name, "args": args, "spans": spans, "time": time, "inherited": inherited, "time_disagree": disagree}
 
 
-def _check_answer(obj, line, frame, ops, now_local, zone) -> dict:
+def _check_answer(obj, line, frame, ops, now_local, zone, allowed) -> dict:
     item = next((i for i in (frame or {"items": []})["items"] if i["id"] == obj["answers_item"]), None)
     if item is None:
         return _invalid("E_ITEM_UNKNOWN")
     need = item["need"]
+    if item.get("op") is not None and (allowed is None or item["op"] not in allowed):
+        return {"kind": "refuse_policy", "error": None, "op": item["op"]}
     given = set(obj) - {"v", "kind", "answers_item"}
     out = {"kind": "answer", "error": None, "item": item["id"], "need": need}
     if need == "text":
@@ -685,6 +787,9 @@ def _check_answer(obj, line, frame, ops, now_local, zone) -> dict:
     if need == "confirm":
         if "confirm" not in obj or given - {"confirm", "slot", "span", "time_iso", "weekday"}:
             return _invalid("E_SHAPE")
+        probe = line.replace(obj["span"], " ", 1) if "span" in obj else line          # the words that are left once the answer's own span is taken out
+        if natural.confirm_kind(probe) != obj["confirm"]:
+            return _clarify("model", item=item["id"])          # the line does not say what the model says: asked again, by code
         out["confirm"] = obj["confirm"]
     elif given - {"slot", "span", "time_iso", "weekday"} or "slot" not in obj:
         return _invalid("E_SHAPE")
@@ -700,7 +805,7 @@ def _check_answer(obj, line, frame, ops, now_local, zone) -> dict:
     if is_time:
         if not _span_in_line(obj["span"], line) or len(obj["span"]) > SPAN_MAX:
             return _invalid("E_SPAN")
-        time, disagree, problem = _time(obj["span"], obj["time_iso"], obj["weekday"], now_local, zone)
+        time, disagree, problem = _time(obj["span"], line, obj["time_iso"], obj["weekday"], now_local, zone)
         if problem:
             return _clarify(problem[0], slot=obj["slot"], error=problem[1], op=op, item=item["id"])
         return {**out, "args": {}, "time": time, "time_disagree": disagree}

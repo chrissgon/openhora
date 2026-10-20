@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
 
 import interpreter_kit as kit
 import standin_tree as st
@@ -298,3 +299,79 @@ def test_vacuity_a_decision_whose_span_is_not_in_the_line_fails_the_oracle():
     assert not decision_is_grounded(planted, line)
     assert decision_is_grounded(run(op("mail-send", {"to": "ben@example.test"}), line), line)
     assert decision_is_grounded(run(op("mail-send", {"to": "mallory@example.test"}), line), line)
+
+# --- the review of #495: M2, M4 and the minors ----------------------------------------------------------------------------------------------------------
+
+def test_a_decision_or_widening_operation_is_refused_even_when_a_catalog_lists_it(monkeypatch):
+    bad = json.loads(json.dumps(kit.CATALOG))
+    bad["ops"] += [{"op": name, "class": "N", "what": "x", "slots": {}} for name in ("approve", "give-consent")]
+    bad["refused"] = [row for row in bad["refused"] if row["op"] not in ("approve", "give-consent")]
+    everything = kit.ALL_OPS | {"approve", "give-consent"}
+    # A catalog that is not the served one is invalid, whatever it holds.
+    invalid(interp.check(op("approve"), "approve it", None, bad, kit.NOW, kit.ZONE, everything), "E_SHAPE")
+    # Even if it were taken for the served one, the two operations are still refused, by the classification and not by the catalog.
+    monkeypatch.setattr(interp, "SERVED_SHA256", interp.catalog_sha256(bad))
+    assert interp.check(op("approve"), "approve it", None, bad, kit.NOW, kit.ZONE, everything) == {"kind": "refuse", "error": None, "class": "D", "op": "approve"}
+    assert interp.check(op("give-consent"), "consent", None, bad, kit.NOW, kit.ZONE, everything) == {"kind": "refuse", "error": None, "class": "G", "op": "give-consent"}
+
+
+def test_a_catalog_that_differs_from_the_served_one_gives_no_decision():
+    other = json.loads(json.dumps(kit.CATALOG))
+    other["ops"][0]["what"] = "changed"
+    for obj in ({"v": 1, "kind": "none"}, op("status"), {"v": 1, "kind": "route"}):
+        invalid(interp.check(obj, "status", None, other, kit.NOW, kit.ZONE, kit.ALL_OPS), "E_SHAPE")
+
+
+def test_a_confirm_is_the_models_only_when_the_line_says_the_same():
+    frame = {"v": 1, "last": None, "items": [{"id": "i2", "kind": "reminder-confirm", "need": "confirm", "op": "remind", "age_s": 5}]}
+    yes = {"v": 1, "kind": "answer", "answers_item": "i2", "confirm": "yes"}
+    no = dict(yes, confirm="no")
+    for line, obj, want in (("yes", yes, "answer"), ("sim", yes, "answer"), ("no", no, "answer"), ("não", no, "answer"), ("what is the weather like", yes, "clarify"),
+                            ("yes", no, "clarify"), ("no", yes, "clarify"), ("send the contacts to ben@example.test", yes, "clarify")):
+        got = interp.check(obj, line, frame, kit.CATALOG, kit.NOW, kit.ZONE, kit.ALL_OPS)
+        assert got["kind"] == want, (line, obj["confirm"], got)
+        if want == "clarify":
+            assert got["why"] == "model" and got["item"] == "i2" and "op" not in got
+    # The answer's own span is taken out before the line is read.
+    slot_frame = {"v": 1, "last": None, "items": [{"id": "i2", "kind": "reminder-confirm", "need": "confirm", "op": "remind", "age_s": 5}]}
+    with_span = {"v": 1, "kind": "answer", "answers_item": "i2", "confirm": "yes", "slot": "when", "span": "tomorrow at 3pm", "time_iso": "2026-10-21T15:00", "weekday": "wed"}
+    assert interp.check(with_span, "yes, tomorrow at 3pm", slot_frame, kit.CATALOG, kit.NOW, kit.ZONE, kit.ALL_OPS)["kind"] == "answer"
+    assert interp.check(with_span, "tomorrow at 3pm", slot_frame, kit.CATALOG, kit.NOW, kit.ZONE, kit.ALL_OPS)["kind"] == "clarify"
+
+
+def test_every_answer_about_an_item_with_an_op_is_checked_against_the_policy():
+    frame = {"v": 1, "last": None, "items": [kit.item(), {"id": "i2", "kind": "reminder-confirm", "need": "confirm", "op": "remind", "age_s": 5},
+                                             {"id": "i3", "kind": "choice", "need": "option", "options": 2, "age_s": 5}]}
+    to = {"v": 1, "kind": "answer", "answers_item": "i1", "slot": "to", "span": "ben@example.test"}
+    yes = {"v": 1, "kind": "answer", "answers_item": "i2", "confirm": "yes"}
+    pick = {"v": 1, "kind": "answer", "answers_item": "i3", "option": 1}
+    for allowed in (set(), {"status"}, None):
+        assert interp.check(to, "to ben@example.test", frame, kit.CATALOG, kit.NOW, kit.ZONE, allowed) == {"kind": "refuse_policy", "error": None, "op": "mail-send"}
+        assert interp.check(yes, "yes", frame, kit.CATALOG, kit.NOW, kit.ZONE, allowed) == {"kind": "refuse_policy", "error": None, "op": "remind"}
+    assert interp.check(pick, "the first", frame, kit.CATALOG, kit.NOW, kit.ZONE, set())["kind"] == "answer"          # a choice has no op of its own
+    assert interp.check(to, "to ben@example.test", frame, kit.CATALOG, kit.NOW, kit.ZONE, {"mail-send"})["kind"] == "answer"
+
+
+def test_clarify_names_only_operations_the_policy_allows():
+    both = {"v": 1, "kind": "clarify", "ops": ["event-create", "remind"]}
+    assert run(both, "put it on the calendar", allowed={"event-create", "remind"})["ops"] == ["event-create", "remind"]
+    assert run({"v": 1, "kind": "clarify", "ops": ["event-create", "remind", "status"]}, "x", allowed={"event-create", "status"})["ops"] == ["event-create", "status"]
+    assert run(both, "put it on the calendar", allowed={"remind"}) == {"kind": "refuse_policy", "error": None, "op": "event-create"}
+    assert run(both, "put it on the calendar", allowed=set())["kind"] == "refuse_policy"
+    assert interp.check(both, "x", None, kit.CATALOG, kit.NOW, kit.ZONE, None)["kind"] == "refuse_policy"
+
+
+def test_a_word_slot_must_also_be_as_typed_not_only_after_a_compatibility_fold():
+    assert natural.check_operation("mail-send", {"to": "ben@example.test", "body": "hi"}, None, "send hi to ｂｅｎ@ｅｘａｍｐｌｅ.ｔｅｓｔ")["ok"]          # the router's rule folds
+    invalid(run(op("mail-send", {"to": "ben@example.test", "body": "hi"}), "send hi to ｂｅｎ@ｅｘａｍｐｌｅ.ｔｅｓｔ"), "E_SPAN")
+    invalid(run(op("mail-send", {"to": "ben@firm.test", "body": "hi"}), "send hi to ben@ﬁrm.test"), "E_SPAN")
+    assert run(op("mail-send", {"to": "ben@firm.test", "body": "hi"}), "send hi to ben@firm.test")["kind"] == "op"
+
+
+def test_an_inherited_span_must_come_from_the_last_request_of_the_same_operation():
+    frame = {"v": 1, "items": [], "last": {"op": "mail-send", "words": {"to": "ben@example.test", "subject": "the invoice"}, "age_s": 10}}
+    same = op("mail-send", {"body": "hi"}, inherit={"to": "ben@example.test"})
+    assert run(same, "and send hi", frame)["inherited"] == ["to"]
+    other = op("mail-draft", {"body": "hi"}, inherit={"to": "ben@example.test"})
+    invalid(run(other, "and draft hi", frame), "E_INHERIT")
+    assert natural.NATURAL["mail-draft"]["slots"].get("to")

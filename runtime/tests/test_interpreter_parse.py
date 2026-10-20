@@ -229,6 +229,9 @@ SEEDS = list(VALID.values()) + [
     '{"v":1,"kind":"op","op":"mail-send","slots":{"to":"ben@example.test","subject":"the invoice","body":"it is attached"}}',
     '{"v":1,"kind":"op","op":"approve","slots":{}}',
     '{"v":1,"kind":"op","op":"pending","slots":{"id":"12"}}',
+    '{"v":1,"kind":"op","op":"remind","slots":{"text":"call Dana","when":"Dana"},"time_iso":"2026-10-22T15:00","weekday":"thu"}',
+    '{"v":1,"kind":"op","op":"remind","slots":{"text":"call Dana","when":"at 3pm"},"time_iso":"2026-10-22T15:00","weekday":"thu"}',
+    '{"v":1,"kind":"answer","answers_item":"i2","confirm":"yes","slot":"when","span":"at 3pm","time_iso":"2026-10-22T15:00","weekday":"thu"}',
     '{"v":1,"kind":"answer","answers_item":"i1","slot":"when","span":"friday at 4pm","time_iso":"2026-10-23T16:00","weekday":"fri"}',
     "```json\n" + VALID["op"] + "\n```",
 ]
@@ -296,11 +299,24 @@ def mutate(rng: random.Random, text: str) -> str:
     return text
 
 
-def decision_violations(decision: dict, line: str, frame_words: dict, now: datetime.datetime) -> list:
+# The words of the line that mean a time, written out by this test (English and Portuguese, the languages of the tables): a time the model alone decided on such a line is a fault.
+TIME_WORDS = ("tomorrow", "today", "tonight", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "december", "next week", "noon", "midnight",
+              "amanha", "hoje", "segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo", "janeiro", "dezembro", "meio-dia", " 3pm", " 5pm", "pm", "am ", ":")
+
+
+def decision_violations(decision: dict, line: str, frame_words: dict, now: datetime.datetime, allowed=None, live_ids=None) -> list:
     """The oracle of a decision `check` made for the fixed line below, written from the protocol's rules and not from the code: what an op carries is a piece of the line as written
     (a number slot: digits that are written in the line), an inherited slot is a piece of the sender's earlier words, a time is in the future, within 366 days and of its weekday."""
     out = []
     kind = decision.get("kind")
+    if allowed is not None and kind == "op" and decision["op"] not in allowed:
+        out.append("an op outside the policy")
+    if allowed is not None and kind == "answer" and decision.get("item") not in (live_ids or ()):
+        out.append("an answer to an item that is not live")
+    if kind == "answer" and decision.get("span") is not None and decision["span"] not in line and decision["span"] not in " ".join(line.split()):
+        out.append("an answer span that is not in the line")
+    if kind == "clarify" and allowed is not None and any(name not in allowed for name in (decision.get("ops") or [])):
+        out.append("a clarify that names an op outside the policy")
     if kind in ("refuse",) and decision.get("op") not in kit.D_OPS + kit.WIDENING:
         out.append("refused an op that is neither a decision nor a widening")
     if kind == "op":
@@ -324,7 +340,12 @@ def decision_violations(decision: dict, line: str, frame_words: dict, now: datet
             out.append("a time outside the next 366 days")
         if when["source"] not in ("code", "model"):
             out.append("a time without a source")
+        if when["source"] == "model" and any(word in " " + line.lower() for word in TIME_WORDS):
+            out.append("the model's own time on a line that holds a time word")
     return out
+
+
+ALLOWED = kit.ALL_OPS - {"mail-archive", "event-change", "pending"}          # the sender's policy in the fuzz: not every op
 
 
 def run_fuzz(parse, check, count: int, seed: int):
@@ -348,9 +369,9 @@ def run_fuzz(parse, check, count: int, seed: int):
             wrong += 1
             wrong_cases.append((text[:80], bad))
             continue
-        decision = check(obj, LINE, frame, kit.CATALOG, kit.NOW, kit.ZONE, kit.ALL_OPS)
+        decision = check(obj, LINE, frame, kit.CATALOG, kit.NOW, kit.ZONE, ALLOWED)
         decided += decision["kind"] in ("op", "answer")
-        found = decision_violations(decision, LINE, frame["last"]["words"], kit.NOW)
+        found = decision_violations(decision, LINE, frame["last"]["words"], kit.NOW, ALLOWED, {"i1", "i2", "i3", "i4"})
         if found:
             wrong += 1
             wrong_cases.append((text[:80], found))
@@ -400,7 +421,56 @@ def test_vacuity_a_validator_that_skips_the_substring_rule_is_caught_by_the_deci
     assert wrong > 0
 
 
+def test_vacuity_the_decision_oracle_catches_a_model_time_on_a_time_line_a_policy_breach_and_a_dead_item():
+    base = {"kind": "op", "op": "remind", "spans": {}, "inherited": [], "time": {"local": "2026-10-22T15:00", "source": "model"}}
+    assert any("model's own time" in v for v in decision_violations(base, LINE, {}, kit.NOW))
+    assert not decision_violations(base, "call Dana", {}, kit.NOW)
+    assert any("policy" in v for v in decision_violations(dict(base, time=None, op="mail-archive"), LINE, {}, kit.NOW, ALLOWED))
+    assert any("not live" in v for v in decision_violations({"kind": "answer", "item": "i9"}, LINE, {}, kit.NOW, ALLOWED, {"i1"}))
+    assert any("names an op" in v for v in decision_violations({"kind": "clarify", "ops": ["mail-archive", "remind"]}, LINE, {}, kit.NOW, ALLOWED))
+
+
 def test_vacuity_a_time_in_the_past_is_caught_by_the_decision_oracle():
     decision = {"kind": "op", "op": "remind", "spans": {}, "inherited": [], "time": {"local": "2026-10-19T09:00", "source": "model"}}
     assert decision_violations(decision, LINE, {}, kit.NOW)
     assert decision_violations({**decision, "time": {"local": "2027-10-22T09:00", "source": "model"}}, LINE, {}, kit.NOW)
+
+# --- nesting (review of #495, B2) ------------------------------------------------------------------------------------------------------------------------
+
+def test_no_depth_of_nesting_raises_and_every_deep_output_is_refused():
+    for depth in list(range(5, 60)) + list(range(60, 1021, 7)) + [1020, 1021]:
+        for text in ("[" * depth + "]" * depth, '{"a":' * depth + "1" + "}" * depth, '{"v":1,"kind":"op","op":"status","slots":{"a":' + "[" * depth + "]" * depth + "}}",
+                     '{"v":1,"kind":"none","x":' + '{"a":' * depth + "1" + "}" * depth + "}"):
+            if len(text.encode("utf-8")) > MAX_BYTES:
+                continue
+            got = interp.parse(text)
+            assert got[0] is None and got[1] == "invalid" and got[2] in ("E_JSON", "E_SHAPE", "E_SIZE"), (depth, got)
+
+
+def test_the_700_byte_nested_output_of_the_review_is_refused():
+    text = '{"v":1,"kind":"op","op":"status","slots":{},"inherit":' + '{"a":' * 120 + '"x"' + "}" * 120 + "}"
+    assert 600 < len(text) < 800
+    assert interp.parse(text)[0] is None
+
+
+def test_the_nesting_the_protocol_needs_is_accepted_and_brackets_inside_strings_do_not_count():
+    for key in ("op", "answer-slot", "clarify-ops", "op-inherit"):
+        assert interp.parse(VALID[key])[1:] == ("ok", None)
+    text = '{"v":1,"kind":"op","op":"status","slots":{"since":"[[[[[[[[[[[[[[[[[[[[ {{{{{{{{{{{{{{{{ \\" [[[["}}'
+    assert interp.parse(text)[1:] == ("ok", None)
+    assert interp.parse('{"v":1,"kind":"clarify","ops":["a-b","c-d"]}')[1:] == ("ok", None)
+
+
+def test_a_failure_inside_the_shape_check_is_a_refusal_not_an_exception(monkeypatch):
+    def boom(_obj):
+        raise RecursionError("planted")
+    monkeypatch.setattr(interp, "_shape", boom)
+    assert interp.parse(VALID["none"]) == (None, "invalid", "E_JSON")
+    assert interp.check({"v": 1, "kind": "none"}, "hi", None, kit.CATALOG, kit.NOW, kit.ZONE, kit.ALL_OPS)["error"] == "E_JSON"
+
+
+def test_vacuity_a_validator_that_decides_the_time_from_the_span_alone_is_caught_by_the_fuzz(monkeypatch):
+    real = interp._classify
+    monkeypatch.setattr(interp, "_classify", lambda span, line, now_local: real(span, span, now_local))          # the fault of the review: the model chooses the span
+    accepted, refused, decided, wrong, cases = run_fuzz(interp.parse, interp.check, 6000, 20261020)
+    assert wrong > 0 and any("model's own time" in str(c) or "outside the next" in str(c) for c in cases), cases[:2]
