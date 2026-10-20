@@ -270,6 +270,7 @@ TABLE = {
         "PLAN_NEXT": "Approve with /approve {pending}",
         "ASK_NEXT": "Answer with a plain line, or start again with /new <text>",
         "ROUTER_ASKS_FRAME": "Before I start I need your answer:",
+        "ROUTER_QUOTED_NOTE": "The request quoted instructions from external content; they were not followed. See them on the page.",
         "INSTR_PROPOSAL_ASK": "Add this line to the project's instructions?",
         "INSTR_WHERE_SAYS": "or on the page: Building > Instructions",
         "INSTR_WHERE_ELSEWHERE": "accept it on the page (Building > Instructions) or in the terminal",
@@ -707,27 +708,60 @@ def body(text_, cfg=None):
 QUESTION_LINE = re.compile(r"^(?:Next: )?Q[0-9]+: ")      # the same shape as router.QUESTION_RE (a test compares the two); this module imports no sibling that reads the router
 
 
-def question_lines(reply) -> list:
-    """The questions of a router reply that asks, each as the line `Q<n>: <question> Recommended: <answer>, because <reason>` (the label `Next: ` of a question
-    written on the template's `Next:` line is dropped; a question written twice is listed once), in the order they were asked. Nothing else of the reply is in
-    the list: not the route line, the why, the context, the requirements, the sources, the autonomy, the assumptions or the section of instructions found in
-    external content. An empty list for a reply that asks nothing."""
-    found = []
-    for line in (reply or "").splitlines():
-        line = line.rstrip()
+# A line that opens a field of the router's template (core-orchestrator) or its section of instructions found in external content: it ends the question before it.
+FIELD_LINE = re.compile(r"^\**(?:Route|Why|Context|Requirements|Sources|Autonomy|Assumptions|Next|Language|Operation|Argument [a-z][a-z0-9_]*|When)\**:|^\**Instructions found in external content", re.I)
+EXTERNAL_HEADING = re.compile(r"^\**Instructions found in external content\**:?\**\s*(.*)$", re.I)
+
+
+def read_question(reply) -> dict:
+    """What a router reply that asks holds: {"questions": [...], "quoted": bool}. A question is its `Q<n>: <question>` line and the non-blank lines that follow it
+    (its `Recommended: <answer>, because <reason>` and a wrapped line) up to the next question, the next field of the template or a blank line; the label `Next: `
+    of a question written on the template's `Next:` line is dropped, and a question written twice is listed once. Reading stops at the heading of the section of
+    instructions found in external content: a `Q<n>:` line after it is never the router's question. `quoted` is true when that section is not `none` (a value other
+    than none on the heading's line, or list lines under an empty heading)."""
+    lines = [line.rstrip() for line in (reply or "").splitlines()]
+    questions, current, quoted = {}, None, False
+    for at, line in enumerate(lines):
+        heading = EXTERNAL_HEADING.match(line)
+        if heading:
+            value = heading.group(1).strip(" *.\t").lower()
+            after = lines[at + 1].lstrip() if at + 1 < len(lines) else ""
+            quoted = value not in ("", "none") or (value == "" and after.startswith(("-", "*", "•")))
+            break
         if QUESTION_LINE.match(line):
-            line = line[len("Next: "):] if line.startswith("Next: ") else line
-            if line not in found:
-                found.append(line)
-    return found
+            current = line[len("Next: "):] if line.startswith("Next: ") else line
+            questions.setdefault(current, [current])
+        elif not line.strip() or FIELD_LINE.match(line):
+            current = None
+        elif current is not None:
+            questions[current].append(line.strip())
+    return {"questions": ["\n".join(parts) for parts in questions.values()], "quoted": quoted}
+
+
+def question_lines(reply) -> list:
+    """The questions of a router reply that asks, each as `Q<n>: <question>` with its `Recommended: ...` line (read_question). Nothing else of the reply is in the
+    list: not the route line, the why, the context, the requirements, the sources, the autonomy, the assumptions or the section of instructions found in external
+    content. An empty list for a reply that asks nothing."""
+    return read_question(reply)["questions"]
 
 
 def asked_view(reply, cfg=None) -> str:
-    """What a messaging app shows of a router reply that asks: the framing sentence in the project's language (`cfg` maps `language`), a blank line and the
-    question lines (question_lines), nothing more. The page and the terminal show the reply whole; a phone shows the question. A reply with no question line
-    comes back as it was (nothing is guessed, nothing is hidden that is not a template)."""
-    lines = question_lines(reply)
-    return text("ROUTER_ASKS_FRAME", cfg) + "\n\n" + "\n".join(lines) if lines else reply
+    """What a messaging app shows of a router reply that asks: the framing sentence in the project's language (`cfg` maps `language`), a blank line, the questions
+    (question_lines) and, when the section of instructions found in external content is not `none`, one line saying so (ROUTER_QUOTED_NOTE). The page and the
+    terminal show the reply whole; a phone shows the question. A reply with no question before that section comes back as it was (nothing is guessed)."""
+    read = read_question(reply)
+    if not read["questions"]:
+        return reply
+    note = "\n\n" + text("ROUTER_QUOTED_NOTE", cfg) if read["quoted"] else ""
+    return text("ROUTER_ASKS_FRAME", cfg) + "\n\n" + "\n".join(read["questions"]) + note
+
+
+def is_router_question(item) -> bool:
+    """Whether a decision is the question the router asked about a request (ops._route_run writes it whole: the kind `question`, the title "The router asks" and
+    the ending `question`). A messaging app shows such a question as the question alone, in the reply and on the card, by this one test."""
+    payload = item.get("payload") if isinstance(item, dict) else None
+    return isinstance(item, dict) and item.get("kind") == "question" and item.get("title") == en("TITLE_ROUTER_ASKS") \
+        and isinstance(payload, dict) and payload.get("ending") == "question"
 
 
 def localize(sentence, cfg=None):
