@@ -93,6 +93,11 @@ def ask_spec(need: str, sentence_key: str, fields=None, options=None, slot=None,
     return {"ask": {"need": need, "slot": slot or need, "sentence_key": sentence_key, "fields": fields or {}, "options": options or [], "multi": multi, "engine": engine}}
 
 
+def cards_spec(ids: list, sentence_key: str) -> dict:
+    """The reply that is a sentence and the cards of held files, sent again by the messaging bridge (package ATT-3): a file to choose among several, or the place to save one."""
+    return {"cards": {"ids": list(ids), "sentence_key": sentence_key}}
+
+
 def say_spec(sentence_key: str, **fields) -> dict:
     return {"say": {"sentence_key": sentence_key, "fields": fields}}
 
@@ -288,6 +293,10 @@ def advance(project: str, ctx: dict, state: dict, channel, sender, extras: dict)
         drafts.drop(*slot)
         return _opened(project, ctx, state, out["args"], channel, sender, extras)
     extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
+    if "cards" in out:
+        drafts.drop(*slot)
+        extras["cards"] = out["cards"]["ids"]
+        return _t(ctx, out["cards"]["sentence_key"])
     if "say" in out:
         drafts.drop(*slot)
         return phrases.text(out["say"]["sentence_key"], ctx["cfg"], **out["say"]["fields"])
@@ -331,10 +340,14 @@ def _read(ctx: dict, said: str, seed, hint):
             if seed.get("text"):
                 slots["title"] = seed["text"]
             return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading}
-        got = nw.read(said, now, op=op)
-        if got is not None and op == "file-save" and seed.get("attachment") is not None:
+        if op == "file-save" and seed.get("attachment") is not None:          # a held file named by its number (the caption of a file, a button of its card): the text may add a folder
+            got = nw.read(said, now, op=op) if said.strip() else None
+            got = got or {"op": op, "family": "files", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
             got["slots"]["attachment"] = seed["attachment"]
-        return got
+            if seed.get("account"):
+                got["slots"]["account"] = seed["account"]
+            return got
+        return nw.read(said, now, op=op)
     return nw.read(said, now, op=hint)
 
 
@@ -520,7 +533,7 @@ def natural_write(project: str, line: str, *, channel: str = "messaging", sender
     bridge sends, "asked": true when a question was kept}. `reply` None: the line is no write form and answers nothing: the caller handles it as any plain line."""
     ops_actor.require(channel, sender)
     ctx = core.context(project)
-    said = core._text(line, "the line")
+    said = "" if seed and not str(line or "").strip() else core._text(line, "the line")          # a seed may come with no text (a button of a file's card)
     extras: dict = {}
     draft = live(channel, sender)
     reply = None
@@ -534,7 +547,8 @@ def natural_write(project: str, line: str, *, channel: str = "messaging", sender
         extras["discarded"] = True          # a question of a reminder (or of an `ask`) is replaced by this line's, and the reply says so
     if reply is None:
         reply = open_line(project, ctx, said, channel, sender, extras, seed=seed)
-    return {"reply": reply, **({"resend": extras["resend"]} if "resend" in extras else {}), "asked": bool(extras.get("asked"))}
+    return {"reply": reply, **({"resend": extras["resend"]} if "resend" in extras else {}), **({"cards": extras["cards"]} if "cards" in extras else {}),
+            "asked": bool(extras.get("asked"))}
 
 
 if __name__ == "__main__":

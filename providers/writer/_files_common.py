@@ -48,6 +48,8 @@ MEDIA_TYPES = {"md": "text/markdown", "txt": "text/plain", "csv": "text/csv", "p
                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+# The images a save writes (a file a sender sent; runtime/files_document.py IMAGE_TYPES holds the same table): a test compares.
+IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif", "heic": "image/heic", "heif": "image/heif"}
 MEDIA_TYPE = re.compile(r"[a-z]+/[a-z0-9.+-]{1,100}")
 
 
@@ -104,8 +106,8 @@ def check_count(value, flag: str) -> int:
 
 
 def check_media_type(value, flag: str = "--media-type") -> str:
-    if not isinstance(value, str) or not MEDIA_TYPE.fullmatch(value) or value not in MEDIA_TYPES.values():
-        raise WriterError(f"{flag} is one of: {', '.join(sorted(set(MEDIA_TYPES.values())))}", EXIT_USAGE)
+    if not isinstance(value, str) or not MEDIA_TYPE.fullmatch(value) or value not in MEDIA_TYPES.values() and value not in IMAGE_TYPES.values():
+        raise WriterError(f"{flag} is one of: {', '.join(sorted(set(MEDIA_TYPES.values()) | set(IMAGE_TYPES.values())))}", EXIT_USAGE)
     return value
 
 

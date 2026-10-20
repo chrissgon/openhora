@@ -162,7 +162,11 @@ def _save(line: "nw.Line", tables: list):
     if number:
         end = m.end()
     anchored = this is not None or number is not None or (noun is not None and line.norm[noun[0]:noun[1]] in ("anexo", "attachment"))
-    if not anchored or (kind_name is None and noun is None):
+    pronoun = this is not None and line.norm[this[0]:this[1]] in _list(tables, "pronouns")      # "save it": the object is the file just sent
+    named_service = nw.service(line, tables, end)
+    last = line.norm[:verb].split()[-1] if line.norm[:verb].split() else ""
+    bare = last in _list(tables, "bare_save") and noun is None and kind_name is None and this is None      # "salvar", "pode salvar": the verb alone, about the file just sent
+    if not ((anchored and (kind_name is not None or noun is not None)) or pronoun or named_service is not None or bare):
         return None
     slots = {}
     if number:
@@ -177,7 +181,7 @@ def _save(line: "nw.Line", tables: list):
             return None
         slots["folder"] = m.group(1)
         cuts.append((folder_spot[0], m.end()))
-    service = nw.service(line, tables, end)
+    service = named_service
     if service:
         slots["account"] = service[0]
         cuts.append((service[1], service[2]))
@@ -188,6 +192,37 @@ def _save(line: "nw.Line", tables: list):
     if [w for w in re.findall(r"[a-z0-9]+", left) if w not in polite and w not in nw.listed(tables, None, "articles")]:
         return None
     return {"op": "file-save", "slots": slots, "spans": {}, "ranges": {}, "need": [] if number else ["attachment"], "engine": None, "doubt": False}
+
+
+def caption(text, tables: list):
+    """What the text sent with a file asks, loosely (the caption preselects what the file's card offers; it never writes): {"mode": "save" | "card", "account": the one
+    service the text names or None, "kind": the kind of file it names or None, "read": whether the text said anything about saving or adding}. `save` when the text names exactly one service (with a save word or none), or has a save
+    word and does not ask to add the file to the project; `card` for anything else (it asks to add the file to the project, names both services, or says nothing about
+    saving). The words are the closed lists of `requests.writes.files` and `services`."""
+    line = nw.Line(text if isinstance(text, str) else "")
+    spans = [(start, end, account) for account in ("google", "microsoft") for start, end in line.find_all(nw.listed(tables, "services", account))]
+    # a service word inside a longer one of the other service ("drive" in "one drive") is the longer one's
+    found = {account for start, end, account in spans if not any(o[2] != account and o[0] <= start and end <= o[1] for o in spans)}
+    account = next(iter(found)) if len(found) == 1 else None
+    save = line.find(_list(tables, "save_verbs") + _list(tables, "bare_save")) is not None
+    add = line.find(_list(tables, "add_words")) is not None
+    kind_name = None
+    for table in tables:
+        for name, words in (nw.writes_of(table).get("files", {}).get("kinds") or {}).items():
+            if kind_name is None and line.find(words):
+                kind_name = name
+    mode = "card" if (add and not save) or not (account or save) else "save"
+    return {"mode": mode, "account": account, "kind": kind_name, "read": bool(account or save or add)}
+
+
+def whole(text, tables: list, key: str) -> bool:
+    """Whether the whole line (the polite words and the marks around it aside) is one of the phrases of `requests.writes.files.<key>`: a line about the file just sent."""
+    line = nw.Line(text if isinstance(text, str) else "")
+    end = line.lead(_list(tables, key), tables)
+    if end is None:
+        return False
+    polite = {w for p in nw.listed(tables, None, "polite") + [x for t in tables for x in t.get("polite", [])] for w in p.split()}
+    return all(w in polite for w in re.findall(r"[a-z0-9]+", line.norm[end:]))
 
 
 def read(line, tables, now=None, op=None):

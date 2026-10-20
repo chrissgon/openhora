@@ -57,6 +57,9 @@ FOLDER_NAME = re.compile(r"[a-z0-9-]{1,32}")           # runtime/project_config.
 TEXT_EXTENSIONS = ("md", "txt", "csv")
 HELD_KINDS = {"md": ("text",), "txt": ("text",), "csv": ("csv", "text"), "pdf": ("pdf",), "docx": ("docx", "ooxml"), "xlsx": ("xlsx", "ooxml"),
               "pptx": ("pptx", "ooxml")}      # what the bytes of a held file may be, by the extension of the name it is saved as (the sniffed subtype of the hold)
+HEIC_BRANDS = ("heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1")      # runtime/attachments.py HEIC_BRANDS: a test compares
+HELD_KINDS.update({"png": ("png",), "jpg": ("jpeg",), "jpeg": ("jpeg",), "webp": ("webp",), "gif": ("gif",),
+                   "heic": HEIC_BRANDS, "heif": HEIC_BRANDS})      # an image is saved only when its bytes are the image its name says (package ATT-3)
 STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
@@ -289,7 +292,7 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
             ext = fd.extension_of(name)
             if held.get("kind") not in HELD_KINDS[ext]:
                 raise steps.StepFailure("type_mismatch", "name", "", phrases.en("ACCT_FILE_TYPE").format(given=fd.clean_display(held.get("kind"), 20), wanted=ext))
-            content = {"kind": "held", "bytes": held["bytes"], "sha256": held["sha256"], "media_type": fd.MEDIA_TYPES[ext], "text": None, "path": None,
+            content = {"kind": "held", "bytes": held["bytes"], "sha256": held["sha256"], "media_type": fd.SAVE_TYPES[ext], "text": None, "path": None,
                        "attachment": held["id"], "gdoc": False}
         looked = _asked(reader.meta, account, ["--folder", folder, "--name", name], field="folder", provider=fd.IMPLEMENTATION[account],
                         next="the folder could not be read: check that the account is authorized and that the folder is still there, then start this task again")

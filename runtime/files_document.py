@@ -58,9 +58,12 @@ MEDIA_TYPES = {"md": "text/markdown", "txt": "text/plain", "csv": "text/csv", "p
                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+# The images a save writes (package ATT-3): only a held file, never a create or a replace (a text cannot be an image, and a file of the project is not saved as one).
+IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif", "heic": "image/heic", "heif": "image/heif"}
+SAVE_TYPES = {**MEDIA_TYPES, **IMAGE_TYPES}      # the media type of each extension a save may write
 TEXT_TYPES = ("text/markdown", "text/plain", "text/csv")
 CREATE_EXTENSIONS = ("md", "txt", "docx")      # plus the word `gdoc`, which makes a Google Doc from Markdown text
-SAVE_EXTENSIONS = tuple(MEDIA_TYPES)
+SAVE_EXTENSIONS = tuple(SAVE_TYPES)
 GDOC_WORD = "gdoc"
 TITLE_KEY = {"create": "TITLE_FILE_CREATE", "replace": "TITLE_FILE_REPLACE", "save": "TITLE_FILE_SAVE"}
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -241,7 +244,7 @@ def _shape(doc) -> None:
     problem = name_problem(doc["name"] + ".md", ("md",)) if gdoc else name_problem(doc["name"], CREATE_EXTENSIONS if operation == "create" else SAVE_EXTENSIONS)
     if problem:
         raise _usage(problem)
-    if not gdoc and MEDIA_TYPES[extension_of(doc["name"])] != doc["content"]["media_type"]:
+    if not gdoc and SAVE_TYPES[extension_of(doc["name"])] != doc["content"]["media_type"]:
         raise _usage("the media type of the content is the one the extension of the name says")
 
 
@@ -275,9 +278,11 @@ def _content(doc: dict, operation: str, account: str) -> None:
     if not isinstance(content, dict) or set(content) != keys or content["kind"] not in ("text", "file", "held"):
         raise _usage("content is text, a file of the project or a held file")
     if not _is_int(content["bytes"]) or not 1 <= content["bytes"] <= FILE_MAX or not isinstance(content["sha256"], str) \
-            or not SHA256.fullmatch(content["sha256"]) or content["media_type"] not in MEDIA_TYPES.values() or not isinstance(content["gdoc"], bool):
+            or not SHA256.fullmatch(content["sha256"]) or content["media_type"] not in SAVE_TYPES.values() or not isinstance(content["gdoc"], bool):
         raise _usage("the content states its size, its sha256 and its media type")
     kind = content["kind"]
+    if content["media_type"] in IMAGE_TYPES.values() and (kind != "held" or operation != "save"):
+        raise _usage("an image is only saved, from a file a sender sent")
     if kind == "text":
         text = content["text"]
         if not isinstance(text, str) or content["attachment"] is not None or content["media_type"] not in TEXT_TYPES:

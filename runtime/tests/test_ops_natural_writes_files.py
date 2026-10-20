@@ -93,10 +93,10 @@ def test_the_kind_the_line_names_picks_among_the_senders_files_several_are_liste
     assert "Contract.pdf" in body(world, only_pdf)
     nothing = phone(world, "salva essa planilha no drive")
     assert nothing["reply"] == phrases.text("NW_NO_HELD_KIND", None, kind="xlsx") and spy[-1][1]["attachment"] == 1
-    asked = phone(world, "salva esse arquivo no drive")
-    assert asked["asked"] and "1. Contract.pdf" in asked["reply"] and "2. Minutes.docx" in asked["reply"]
-    done = phone(world, "2")
-    assert "Minutes.docx" in body(world, done)
+    which = phone(world, "salva esse arquivo no drive")
+    assert which["reply"] == phrases.text("NW_WHICH_FILE", None) and which["cards"] == [1, 2] and not which["asked"] and "resend" not in which, \
+        "several files: their cards come back, with no numbered question and no draft"
+    assert drafts.count() == 0
 
 
 def test_a_file_someone_else_sent_is_never_named_nor_saved(world, clock, spy):

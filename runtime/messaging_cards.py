@@ -298,40 +298,47 @@ def split(text: str, limit: int) -> list:
 
 # --- the card of a file a sender sent (ATT-1) ----------------------------------------------------------------------------------------
 
-ATTACH_OPERATION = {"add": "attachment-add", "discard": "attachment-discard"}
-ATTACH_LABELS = {"add": phrases.en("LABEL_ADD"), "discard": phrases.en("LABEL_DISCARD")}
-ATTACH_ASK = phrases.en("ATTACH_ASK")
-ATTACH_ASK_VERSION = phrases.en("ATTACH_ASK_VERSION")
-ATTACH_COUNT = phrases.en("ATTACH_COUNT")
+ATTACH_OPERATION = {"add": "attachment-add", "discard": "attachment-discard", "save-google": "file-save", "save-microsoft": "file-save"}
+SAVE_WORDS = ("save-google", "save-microsoft")      # the buttons that open the save card (package ATT-3), one for each account the project lists with folders
+ATTACH_LABELS = {"add": phrases.en("LABEL_ADD"), "discard": phrases.en("LABEL_DISCARD"), "save-google": phrases.en("LABEL_SAVE_GOOGLE"),
+                 "save-microsoft": phrases.en("LABEL_SAVE_MICROSOFT")}
 
 
 def attachment_card(project_name: str, row: dict, next_version: int, caps: dict, policy, notices: str = "text", operations=None, sender: str | None = None,
-                    cfg=None) -> dict:
-    """The card of one held file (kind `attachment`), drawn for the sender who sent it: a question with **Add** and **Discard**, each only when the sender's profile
-    permits `attachment-add` / `attachment-discard`; a platform with no buttons gets the typed lines `Send /add 3` and `Send /discard 3`; what the policy refuses is
-    neither drawn nor offered (the card says to act on the page or in the terminal). With notices "count" the card carries nothing of the project or of the file.
-    `row` is the held file as `attachments` reads it (its name, kind and size are the sender's own words, already cleaned and cut). Returns {"message", "content_sha256"
-    (the one of attachments.card_sha256), "kind": "attachment", "attachment_id", "actionable"}; the bridge records it in the ledger with the file's number in place of a
-    decision's."""
+                    cfg=None, accounts=(), note: bool = False) -> dict:
+    """The one card of a file a sender sent (kind `attachment`), drawn for the sender who sent it: "I received <name> (<size>, <type>). What should I do?" with a button for
+    each thing THAT sender's profile permits: **Save to Google Drive** / **Save to OneDrive** (one for each account in `accounts`, when the profile permits `file-save`),
+    **Add to project** (only for a type that can become a source, when it permits `attachment-add`) and **Discard**. A platform with no buttons gets the typed lines
+    (`Send /add 3`, `Send /discard 3`, or the words that save); what the policy refuses is neither drawn nor offered (the card says to act on the page or in the terminal).
+    With notices "count" the card carries nothing of the project or of the file. `row` is the held file as `attachments` reads it (its name, kind and size are the sender's own
+    words, already cleaned and cut); `accounts` the accounts ("google", "microsoft") the project lists with folders; `note` adds the sentence that says the text sent with the
+    file was read only as a request to save it. Returns {"message", "content_sha256" (the one of attachments.card_sha256), "kind": "attachment", "attachment_id",
+    "actionable", "words"}; the bridge records it in the ledger with the file's number in place of a decision's."""
     import attachments as att
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
-    words = [w for w in ("add", "discard") if operations.permitted(ATTACH_OPERATION[w], CHANNEL, policy, None, sender)]
+    save_only = bool(row.get("save_only")) or att.is_save_only(row.get("kind"))
+    wanted = [f"save-{a}" for a in accounts if f"save-{a}" in SAVE_WORDS] + ([] if save_only else ["add"]) + ["discard"]
+    words = [w for w in wanted if operations.permitted(ATTACH_OPERATION[w], CHANNEL, policy, None, sender)]
     buttons_ok = bool(caps.get("buttons")) and caps.get("max_buttons", 0) > 0
     room = caps.get("max_buttons", 0) if buttons_ok else 0
     shown, typed_words = words[:room], words[room:]
-    footer = [t("SEND_LINE", line=f"/{w} {row['id']}") for w in typed_words]
-    if len(words) < 2:
+    footer = [t("SEND_LINE", line=f"/{w} {row['id']}") if w in ("add", "discard") else t("ATTACH_TYPED_" + w.upper().replace("-", "_")) for w in typed_words]
+    if not any(w in words for w in ("add", "discard")) or len(words) < len(wanted):
         footer.append(t("PAGE_LINE"))
     header = t("HEADER_FILE", project=project_name, id=row["id"])
     if notices == "count":
         body = t("ATTACH_COUNT")
     else:
-        body = t("ATTACH_ASK_VERSION" if row.get("label") == "refresh" else "ATTACH_ASK", platform=row.get("platform") or t("A_MESSAGING_APP"), name=row["name"],
-                 size=att.size_text(row["bytes"], cfg), kind=row.get("kind") or t("FILE_WORD"), project=project_name, id=row["target"], n=next_version)
+        kind = att.IMAGE_WORDS.get(row.get("kind"), row.get("kind") or t("FILE_WORD")) if save_only else (row.get("kind") or t("FILE_WORD"))
+        body = t("ATTACH_WHAT", name=row["name"], size=att.size_text(row["bytes"], cfg), kind=kind)
+        if "add" in words:
+            body += "\n" + (t("ATTACH_WHAT_VERSION", id=row["target"], n=next_version) if row.get("label") == "refresh" and next_version else t("ATTACH_WHAT_ADD", project=project_name, id=row["target"]))
+        if note:
+            body += "\n" + t("ATT_CAPTION_IGNORED")
     tail = "\n\n" + "\n".join(footer) if footer else ""
     text = _cut(header + "\n\n" + body, int(caps.get("max_text") or 4096) - len(tail), t("CUT")) + tail
-    message = {"text": text, "actions": [{"op": w, "label": t("LABEL_" + w.upper())} for w in shown], "link": None, "document": None}
+    message = {"text": text, "actions": [{"op": w, "label": t("LABEL_" + w.upper().replace("-", "_"))} for w in shown], "link": None, "document": None}
     if footer and caps.get("actions_need_reply"):
         message["footer"] = list(footer)
     return {"message": message, "content_sha256": att.card_sha256(row["sha256"], row["target"], row["label"]), "kind": "attachment", "attachment_id": row["id"],
-            "actionable": bool(words)}
+            "actionable": bool(words), "words": words}
