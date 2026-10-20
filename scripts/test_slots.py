@@ -16,7 +16,7 @@ lock file to clean up and no stale slot.
                 machine-wide only for processes that share this folder: set WB_TEST_SLOT_DIR to one path when the agents of a
                 machine run with different TMPDIR values.
 
-Exit codes: COMMAND's own; 2 for a bad option; 3 when no slot became free within the wait (nothing was run, and the message says
+Exit codes: COMMAND's own; 2 for a bad option; 75 when no slot became free within the wait (nothing was run, and the message says
 so: the tests are not skipped, they have not run); 127 when COMMAND cannot be started.
 Standard library only; Python 3.9 compatible.
 """
@@ -30,7 +30,7 @@ import time
 
 DEFAULT_SLOTS = 3
 DEFAULT_WAIT = 3600
-EXIT_NO_SLOT = 3
+EXIT_NO_SLOT = 75  # EX_TEMPFAIL; never 1-5, which are pytest's own (3 is its internal error)
 
 
 def default_dir():

@@ -41,7 +41,7 @@ fi
 
 # NUL-separated so names with spaces or non-ASCII characters are not quoted; no rename detection, so a file moved out of a folder
 # still counts for the folder it left; deleted files are included (a removed module breaks the tests that name it).
-staged() { git diff --cached --name-only -z --no-renames --diff-filter=ACMRD; }
+staged() { git diff --cached --name-only -z --no-renames --diff-filter=ACMRDT; }
 
 # A provider acts on the outside world, so it cannot lose its tests (providers/CONTRACT.md). A class removed entirely has no
 # folder left and is not checked.
@@ -72,7 +72,7 @@ if [[ ${#targets[@]} -gt 0 ]]; then
   status=0
   env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX \
     python3 scripts/test_slots.py -- uv run --quiet --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n auto "${targets[@]}" || status=$?
-  if [[ $status -eq 3 ]]; then
+  if [[ $status -eq 75 ]]; then
     fail "no test slot became free (scripts/test_slots.py, message above); the tests have not run. Wait for the other runs and commit again."
   elif [[ $status -ne 0 ]]; then
     fail "the selected tests failed (${#targets[@]} target(s), $((SECONDS - started)) s)."

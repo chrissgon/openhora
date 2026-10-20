@@ -21,10 +21,11 @@ permissions:
   contents: read
 
 # A label added to a pull request starts a run of its own (below, every job but those of the whole suite is skipped on it), and must
-# not cancel the run of the last push: so the two kinds of run are in two groups.
+# not cancel the run of the last push: so the two kinds of run are in two groups, and a label run is never cancelled by another label
+# (it may be a whole-suite run in progress).
 concurrency:
   group: checks-${{ github.ref }}-${{ github.event.action == 'labeled' && 'label' || 'code' }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event.action != 'labeled' }}
 
 jobs:
   validate:
@@ -82,6 +83,7 @@ jobs:
           && !contains(github.event.pull_request.labels.*.name, 'full-suite')
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash # bash -e -o pipefail: a failing selector fails the step, not only `tee`
         run: python3 scripts/select_tests.py --base "$BASE_SHA" --explain | tee "$RUNNER_TEMP/selected-tests.txt"
       - name: Selected scanner, provider, runtime and script tests
         if: >-
@@ -132,7 +134,7 @@ jobs:
           fi
           touched() { [ "$everything" = "true" ] || printf '%s\n' "$changed" | grep -Eq "$1"; }
           container=false; converter=false; go=false
-          touched '^(evals/|adapters/|shared/|scripts/stage_skills.py|runtime/workcopy.py|.github/workflows/checks.yml)' && container=true
+          touched '^(evals/|adapters/|shared/|skills/[^/]+/evals/|providers/secrets/|scripts/stage_skills.py|runtime/workcopy.py|.github/workflows/checks.yml)' && container=true
           touched '^(providers/converter/|providers/exporter/|runtime/workcopy.py|providers/[^/]*[.]py|.github/workflows/checks.yml)' && converter=true
           touched '^(providers/messenger/whatsapp/|.github/workflows/checks.yml)' && go=true
           echo "container=$container" >> "$GITHUB_OUTPUT"

@@ -375,6 +375,8 @@ def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of
         (["providers/messenger/whatsapp/bridge.go"], PR, {"container": "false", "converter": "false", "go": "true"}),
         (["providers/converter/Dockerfile"], PR, {"container": "false", "converter": "true", "go": "false"}),
         (["evals/container/Dockerfile"], PR, {"container": "true", "converter": "false", "go": "false"}),
+        (["skills/mkt-publish/evals/evals.json"], PR, {"container": "true", "converter": "false", "go": "false"}),  # the eval container stages skills
+        (["providers/secrets/resolver.py"], PR, {"container": "true", "converter": "false", "go": "false"}),
         (["docs/decisions.md"], PR, {"container": "false", "converter": "false", "go": "false"}),
         (["docs/decisions.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "go": "true"}),
         (["docs/decisions.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "go": "true"}),
@@ -392,6 +394,14 @@ def test_the_triggers_of_the_workflow_include_the_label_event_and_the_manual_run
     head = text[:text.index("\npermissions:")]
     assert "workflow_dispatch:" in head and "types: [opened, synchronize, reopened, labeled]" in head and "branches: [main]" in head
     assert "github.event.action == 'labeled' && 'label' || 'code'" in text  # a label does not cancel the run of the last push
+    # and a label run is never cancelled itself (it may be the whole suite, started by the label full-suite)
+    assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event.action != 'labeled' }}" in text
+
+
+def test_the_step_that_pipes_the_selector_into_tee_fails_when_the_selector_does():
+    text = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "tests")
+    step = text[text.index("- name: Choose the tests"):text.index("- name: Selected scanner")]
+    assert re.search(r"^        shell: bash\b", step, re.M) and "select_tests.py --base" in step and "| tee" in step  # bash -e -o pipefail
 
 
 def tree(tmp_path, cited):

@@ -17,14 +17,18 @@ Data goes to stdout (one target per line, sorted, repository-relative); diagnost
 prints the fixed guards (rule 6), so the output is never empty.
 
 THE RULES (conservative: when the selector is unsure it selects more)
- 1. A changed test file (test_*.py) selects itself (when it still exists).
+ 1. A changed test file (test_*.py) selects itself (when it still exists) and every test that imports it, and theirs: a test file that
+    other tests import (a helper, a fixture builder) changes what they run.
  2. A changed Python module selects every test file that references it: an `import x`, a `from x import y`, or a string that
     names it in a call that loads a module (`importlib.import_module("x")`, `st.load("x")`, `_load("x")`, `sys.modules["x"]`),
-    or a string that names its file (`"x.py"`); and every test file named `test_<module stem>.py` or starting with `test_<module stem>_`. The reach goes one
-    step to every module that references the changed one (its importers, kits included) and then on only through `from M import ...`
+    or a string that names its file (`"x.py"`); and every test file named `test_<module stem>.py` or starting with `test_<module stem>_`. The reach follows
+    references (any form, kits included) PLAIN_DEPTH = 3 steps from the changed module, and beyond that only through `from M import ...`
     at a module's top level, which is how a module re-exports another's names (ops.py re-exports the functions of its siblings).
-    A module that only calls the changed one through `import M` two steps away is NOT reached: that is the accepted slip (rule 8
-    of SPEC-TESTSEL), caught by the whole-suite run at the end of a delivery.
+    A module that reaches the changed one only through four or more plain `import`s is NOT reached: that is the accepted slip (rule 8
+    of SPEC-TESTSEL), caught by the whole-suite run at the end of a delivery. The depth is a measured trade (docs/decisions.md): the
+    whole closure selects about four fifths of the suite for a change to any module under ops.py. A module loaded by a name read from
+    data has no import: when a data file holds its name as a whole quoted string ("natural_lang_pt_br" in natural_languages.json), rule 4
+    runs for that file too; and UNLINKED_MODULES lists, by pattern, the data modules whose tests no edge finds.
  3. A script run by path (`scripts/x.py`, `providers/**/x.py`, `skills/*/scripts/x.py`, `runtime/x.py`) also selects every test file
     that names its file in a string (it runs it as a subprocess or loads it from a path): the `"x.py"` reference of rule 2.
  4. A changed data file (json, jsonl, txt, md, html, js, css, sh, ... under runtime/, providers/, evals/, scripts/, shared/, contracts/,
@@ -50,6 +54,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import fnmatch
 import importlib.util
 import json
 import os
@@ -79,6 +84,16 @@ GUARDS = (
     "scripts/tests/test_select_tests.py",
 )
 
+# Rule 2's table of modules that no import links to what they change: data modules (a column of sentences, a language table) read by a
+# name or far from the tests. Each pattern is a glob of file names; a test (scripts/tests/test_select_tests.py) fails when
+# a pattern matches no file, so a rename cannot empty a row. A change to a module of the left column also selects the tests of the right.
+UNLINKED_MODULES = (
+    # (folder, module name glob, test name globs): the module is <folder>/<glob>.py, a test is <folder>/tests/<glob>.py. Written in pieces so that
+    # the layer map (scripts/tests/test_layer_map.py) does not read a path of the runtime in this script.
+    ("runtime", "phrases_*", ("test_phrases*", "test_runtime_language*", "test_interface_*", "test_phone_*", "test_messaging_natural*")),
+    ("runtime", "natural_lang_*", ("test_natural_*", "test_messaging_natural*")),
+)
+
 # The two tests that read the manifest of generated copies (shared/scripts/copies.json).
 COPY_IDENTITY_TESTS = ("scripts/tests/test_script_copies.py", "scripts/tests/test_sync_copies.py")
 # The tests of the wiring that a change to the hook, the workflows or this selector can break (rule 5).
@@ -95,6 +110,10 @@ NAME_AREAS = ("runtime/", "providers/", "evals/", "scripts/", "shared/", "contra
 # For these the tests that name the folder (a glob over it) also count.
 FOLDER_MENTION = {"interface": "interface", "flows": "flows"}
 LOADERS = ("load", "import", "module", "script")
+# How many steps a reference is followed whatever its form (rule 2); beyond, only a top-level `from M import ...` is. Measured on the real
+# tree (docs/decisions.md): 3 selects a leaf such as natural_time.py's importers' importers' importers, not the whole runtime.
+PLAIN_DEPTH = 3
+DATA_SUFFIXES = (".json", ".jsonl", ".toml", ".yaml", ".yml", ".cfg", ".ini")
 PY_NAME = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_.-]*)\.py\b")
 
 
@@ -226,6 +245,7 @@ class Repo:
         self.test_folders = load_test_dirs(root)
         self.files = []  # every repository-relative .py path that is not fixture content of a skill
         self.name_count = {}  # how many files carry each name: a name that is not unique cannot be matched on its own
+        self.data_files = []  # small structured data files of the name-matched areas: they can name a module that is loaded by that name
         for base, dirs, names in os.walk(root):
             dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
             rel_base = posix(os.path.relpath(base, root))
@@ -234,6 +254,8 @@ class Repo:
                 if re.match(r"skills/[^/]+/evals/", rel):  # cases and fixtures of a skill: not modules, not tests of ours
                     continue
                 self.name_count[name] = self.name_count.get(name, 0) + 1
+                if name.endswith(DATA_SUFFIXES) and rel.startswith(NAME_AREAS):
+                    self.data_files.append(rel)
                 if name.endswith(".py"):
                     self.files.append(rel)
         self._info = {}
@@ -283,23 +305,39 @@ class Repo:
             self._reverse = (any_edge, from_edge)
         return self._reverse
 
-    def reach(self, changed):
-        """Rule 2: the changed modules, everything that references one of them, and on through re-exports."""
+    def reach(self, changed, depth=None):
+        """Rule 2: the changed modules, everything that references one of them up to `depth` steps (PLAIN_DEPTH: a module that only
+        `import`s another is two steps from the changed one's importer's importer), and beyond that only through re-exports."""
+        depth = PLAIN_DEPTH if depth is None else depth
         any_edge, from_edge = self.reverse()
         seen = set(changed)
-        frontier = []
-        for rel in changed:
-            for importer in any_edge.get(rel, ()):
-                if importer not in seen:
-                    seen.add(importer)
-                    frontier.append(importer)
+        frontier = list(changed)
+        level = 0
         while frontier:
-            rel = frontier.pop()
-            for importer in from_edge.get(rel, ()):
-                if importer not in seen:
-                    seen.add(importer)
-                    frontier.append(importer)
+            level += 1
+            edges = any_edge if level <= depth else from_edge
+            following = []
+            for rel in frontier:
+                for importer in edges.get(rel, ()):
+                    if importer not in seen:
+                        seen.add(importer)
+                        following.append(importer)
+            frontier = following
         return seen
+
+    def data_files_naming(self, stem):
+        """Data files that hold the module's name as a whole quoted string ("natural_lang_pt_br"): a module loaded by a name read
+        from data (runtime/natural_languages.json) has no import edge, and its data file is what links it."""
+        pattern = re.compile(r"[\"']" + re.escape(stem) + r"(?:\.py)?[\"']")
+        out = []
+        for rel in self.data_files:
+            try:
+                with open(os.path.join(self.root, rel), encoding="utf-8") as handle:
+                    if pattern.search(handle.read(400000)):
+                        out.append(rel)
+            except (OSError, UnicodeDecodeError):
+                continue
+        return out
 
     def modules_naming_stem(self, stem):
         return [m for m in self.modules if self.info(m) is not None and stem in self.info(m).tokens]
@@ -452,6 +490,16 @@ def handle_file(repo, sel, rel):
     if repo.is_test_file(rel):
         if os.path.isfile(full):
             sel.add(rel, "rule 1: a changed test")
+            # a test file that other tests import (a helper, a fixture builder) changes what they run: they follow, and theirs
+            chosen, frontier = {rel}, [rel]
+            while frontier:
+                stems = {os.path.basename(t)[:-3] for t in frontier}
+                frontier = []
+                for other in repo.tests_referencing(stems):
+                    if other not in chosen:
+                        chosen.add(other)
+                        frontier.append(other)
+                        sel.add(other, "rule 1: imports a changed test")
         return
 
     # Rule 5: configuration of the test run.
@@ -492,6 +540,18 @@ def handle_file(repo, sel, rel):
     handle_data(repo, sel, rel)
 
 
+def select_unlinked(repo, sel, rel):
+    """The row of UNLINKED_MODULES that lists `rel`: its tests."""
+    chosen = 0
+    for folder, module_glob, test_globs in UNLINKED_MODULES:
+        if fnmatch.fnmatchcase(rel, folder + "/" + module_glob + ".py"):
+            for test in repo.tests:
+                if any(fnmatch.fnmatchcase(test, folder + "/tests/" + g + ".py") for g in test_globs):
+                    sel.add(test, "rule 2: %s is listed in UNLINKED_MODULES" % rel)
+                    chosen += 1
+    return chosen
+
+
 def handle_module(repo, sel, rel):
     label = "rule 2/3: %s" % rel
     stem = os.path.basename(rel)[:-3]
@@ -507,6 +567,10 @@ def handle_module(repo, sel, rel):
     else:  # deleted: the modules that still name it are what it breaks
         changed = repo.modules_naming_stem(stem)
     chosen = select_module(repo, sel, changed, label, stems=[stem])
+    for data in repo.data_files_naming(stem):  # rule 4 for a data file that names the module: the module is loaded through it
+        handle_data(repo, sel, data, label="%s, named by %s" % (label, data))
+        chosen += 1
+    chosen += select_unlinked(repo, sel, rel)
     if chosen == 0 or (rel in repo.modules and repo.info(rel) is None):
         folder = repo.owner_folder(rel)
         if folder:
@@ -515,9 +579,9 @@ def handle_module(repo, sel, rel):
             sel.notes.append("%s: no test references it and no test folder owns it" % rel)
 
 
-def handle_data(repo, sel, rel):
+def handle_data(repo, sel, rel, label=None):
     parts = rel.split("/")
-    label = "rule 4: %s" % rel
+    label = label or "rule 4: %s" % rel
     is_doc = rel.endswith(".md")
     matches = repo.matcher(rel)
     chosen = 0

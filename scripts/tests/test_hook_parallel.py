@@ -37,6 +37,12 @@ def test_the_hook_runs_pytest_with_xdist_under_the_clean_git_environment():
     assert "python3 scripts/test_slots.py -- uv run" in line  # the run takes one of the machine's test slots first
 
 
+def test_the_hook_tells_a_missing_slot_from_pytests_own_exit_codes_and_reads_type_changes():
+    hook = (REPO / ".githooks" / "pre-commit").read_text()
+    assert "status -eq 75" in hook and "status -eq 3" not in hook  # 3 is pytest's internal error; the slot helper exits 75
+    assert "--diff-filter=ACMRDT" in hook
+
+
 def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_time_limit():
     for name, limit in (("tests", 45), ("python39", 25)):
         block = job_block(name)

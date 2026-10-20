@@ -80,6 +80,25 @@ FIXTURE = {
     "runtime/tests/test_readme_runtime.py": "N = ('runtime', 'README.md')\n",
     "runtime/tests/test_interface_page.py": "D = 'interface'\n",
     "runtime/tests/test_unrelated.py": "import os\n",
+    "runtime/c1.py": "def c():\n    return 1\n",
+    "runtime/c2.py": "import c1\n",
+    "runtime/c3.py": "import c2\n",
+    "runtime/c4.py": "import c3\n",
+    "runtime/c5.py": "import c4\n",
+    "runtime/c4x.py": "from c4 import c\n",
+    "runtime/tests/test_c4x.py": "import c4x\n",
+    "runtime/lang_a.py": "WORDS = {}\n",
+    "runtime/languages.json": '{"languages": ["lang_a"]}\n',
+    "runtime/loader.py": "NAME = 'languages.json'\n",
+    "runtime/tests/test_c1.py": "import c1\n",
+    "runtime/tests/test_c2.py": "import c2\n",
+    "runtime/tests/test_c3.py": "import c3\n",
+    "runtime/tests/test_c4.py": "import c4\n",
+    "runtime/tests/test_c5.py": "import c5\n",
+    "runtime/tests/test_loader.py": "import loader\n",
+    "runtime/tests/test_base.py": "VALUE = 1\n",
+    "runtime/tests/test_uses_base.py": "import test_base\n",
+    "runtime/tests/test_uses_uses.py": "import test_uses_base\n",
     "scripts/tool.py": "print('tool')\n",
     "scripts/other.py": "print('other')\n",
     "scripts/tests/test_runs_tool.py": "CMD = ['python3', 'scripts/tool.py']\n",
@@ -146,7 +165,7 @@ def test_a_changed_test_selects_itself_and_a_deleted_one_selects_nothing(tree):
 
 # ---- rule 2: a changed module -----------------------------------------------------------------------------------------------------------
 
-REACH_OF_GAMMA = ["runtime/tests/test_beta.py", "runtime/tests/test_gamma_core.py", "runtime/tests/test_hub.py", "runtime/tests/test_names.py"]
+REACH_OF_GAMMA = ["runtime/tests/test_alpha.py", "runtime/tests/test_beta.py", "runtime/tests/test_gamma_core.py", "runtime/tests/test_hub.py", "runtime/tests/test_names.py"]
 
 
 def via_command_line(root, *files):
@@ -158,8 +177,8 @@ def in_process(root, *files):
 
 
 def check_gamma(root, run=via_command_line):
-    """gamma.py changed. beta imports it (one step: test_beta); hub re-exports beta with `from beta import` (test_hub); test_names loads
-    "gamma" by name; test_gamma_core is named for it. alpha only `import beta`s, two steps away: test_alpha is the accepted slip."""
+    """gamma.py changed. beta imports it (one step: test_beta); alpha only `import beta`s, two steps away (test_alpha); hub re-exports beta with
+    `from beta import` (test_hub); test_names loads "gamma" by name; test_gamma_core is named for it."""
     assert run(root, "runtime/gamma.py") == expect(*REACH_OF_GAMMA)
 
 
@@ -169,29 +188,54 @@ def test_a_changed_module_selects_the_tests_that_reach_it_through_importers_and_
 
 
 def test_planted_selector_that_drops_the_re_export_step_is_caught_by_the_oracle(tree, monkeypatch):
-    def one_step_only(self, changed):
+    def plain_steps_only(self, changed, depth=None):
         any_edge, _ = self.reverse()
-        return set(changed) | {i for rel in changed for i in any_edge.get(rel, ())}
-
-    monkeypatch.setattr(sel.Repo, "reach", one_step_only)
-    with pytest.raises(AssertionError):
-        check_gamma(tree, in_process)  # the planted selector loses test_hub, and the literal set says so
-
-
-def test_planted_selector_that_follows_every_import_reaches_the_accepted_slip_and_is_caught_too(tree, monkeypatch):
-    def everything(self, changed):
-        any_edge, _ = self.reverse()
-        seen, todo = set(changed), list(changed)
-        while todo:
-            for importer in any_edge.get(todo.pop(), ()):
-                if importer not in seen:
-                    seen.add(importer)
-                    todo.append(importer)
+        seen, frontier = set(changed), list(changed)
+        for _ in range(sel.PLAIN_DEPTH):  # every reference up to the depth, and no re-export beyond it
+            frontier = [i for rel in frontier for i in any_edge.get(rel, ()) if i not in seen and not seen.add(i)]
         return seen
 
-    monkeypatch.setattr(sel.Repo, "reach", everything)
+    monkeypatch.setattr(sel.Repo, "reach", plain_steps_only)
     with pytest.raises(AssertionError):
-        check_gamma(tree, in_process)  # it adds test_alpha: the rule is a bound, not "all the importers"
+        check_chain(tree, in_process)  # loses test_c4x: c4x re-exports c4 (`from c4 import`), a fourth step that is followed
+
+
+CHAIN = ["runtime/tests/test_c1.py", "runtime/tests/test_c2.py", "runtime/tests/test_c3.py", "runtime/tests/test_c4.py", "runtime/tests/test_c4x.py"]
+
+
+def check_chain(root, run=via_command_line):
+    """c2..c5 each `import` the one before; c4x re-exports c4 with `from c4 import`. c1 changed: three plain steps (c2, c3, c4) are followed,
+    then only the re-export (c4x); the plain fourth step (c5) is the bound."""
+    assert run(root, "runtime/c1.py") == expect(*CHAIN)
+
+
+def test_plain_imports_are_followed_three_steps_deep_and_no_further(tree):
+    check_chain(tree)
+    check_chain(tree, in_process)
+
+
+def test_planted_selectors_that_follow_one_step_or_every_step_are_caught_by_the_oracle(tree, monkeypatch):
+    original = sel.Repo.reach
+    monkeypatch.setattr(sel.Repo, "reach", lambda self, changed, depth=None: original(self, changed, 1))
+    with pytest.raises(AssertionError):
+        check_chain(tree, in_process)  # loses test_c3 and test_c4
+    monkeypatch.setattr(sel.Repo, "reach", lambda self, changed, depth=None: original(self, changed, 99))
+    with pytest.raises(AssertionError):
+        check_chain(tree, in_process)  # adds test_c5: the bound is part of the rule
+
+
+def test_a_test_that_other_tests_import_selects_its_importers_and_theirs(tree, monkeypatch):
+    wanted = expect("runtime/tests/test_base.py", "runtime/tests/test_uses_base.py", "runtime/tests/test_uses_uses.py")
+    assert pick(tree, "runtime/tests/test_base.py")[0] == wanted
+    assert in_process(tree, "runtime/tests/test_base.py") == wanted
+    monkeypatch.setattr(sel.Repo, "tests_referencing", lambda self, stems: {})  # a selector without the test-to-test step
+    assert in_process(tree, "runtime/tests/test_base.py") != wanted
+
+
+def test_a_module_loaded_by_a_name_read_from_a_data_file_selects_the_tests_of_the_reader(tree, monkeypatch):
+    assert pick(tree, "runtime/lang_a.py")[0] == expect("runtime/tests/test_loader.py")  # not the whole runtime/tests, which a module nothing links gets
+    monkeypatch.setattr(sel.Repo, "data_files_naming", lambda self, stem: [])
+    assert in_process(tree, "runtime/lang_a.py") == expect("runtime/tests")  # the planted selector loses the link and falls back to the folder
 
 
 def test_a_module_with_no_importer_selects_only_its_named_tests_and_the_guards(tree):
@@ -364,7 +408,75 @@ def test_a_change_to_the_time_parser_selects_its_tests_and_the_natural_dialogue_
                    "runtime/tests/test_natural_writes_mail_dialogues.py"):
         assert wanted in got, wanted
     assert "runtime/tests" not in got  # the files, not the folder
-    assert len([t for t in got if t.startswith("runtime/tests/")]) < 150
+
+
+def test_a_language_table_selects_the_natural_dialogue_tests_through_the_data_file_that_names_it_and_through_the_listed_row(real):
+    got = real_pick(real, "runtime/natural_lang_pt_br.py")
+    assert "runtime/tests/test_natural_dialogues.py" in got and "runtime/tests/test_natural_writes_dialogues.py" in got
+    assert "runtime/natural_languages.json" in real.data_files_naming("natural_lang_pt_br")  # the link M2 follows, not only the table
+
+
+def test_the_column_of_portuguese_sentences_selects_the_tests_that_assert_them(real):
+    got = real_pick(real, "runtime/phrases_pt_br.py")
+    assert "runtime/tests/test_runtime_language_status.py" in got and "runtime/tests/test_phrases.py" in got
+
+
+def test_a_test_that_other_tests_import_selects_them_in_this_repository(real):
+    got = real_pick(real, "runtime/tests/test_service.py")
+    assert "runtime/tests/test_ask_service.py" in got and "runtime/tests/test_agent_spend_fields.py" in got  # both `import test_service`
+
+
+def real_import_oracle(root, start, depth):
+    """The tests that really `import` the file, or a module that imports it, up to `depth` steps: only the `import` statements of the
+    Python files, read here with the test's own parser (never the selector's graph), a name resolved by stem within the importer's area first."""
+    import ast
+    files = [str(p.relative_to(root)).replace(os.sep, "/") for p in Path(root).rglob("*.py")
+             if not any(part in (".git", "node_modules", "__pycache__") for part in p.parts)]
+    files = [f for f in files if not f.startswith("skills/") or "/scripts/" in f]
+    by_stem = {}
+    for f in files:
+        by_stem.setdefault(os.path.basename(f)[:-3], []).append(f)
+    importers = {}
+    for f in files:
+        try:
+            tree = ast.parse((Path(root) / f).read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(a.name.split(".")[-1] for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                names.update([node.module.split(".")[-1]] if node.module else [])
+                names.update(a.name for a in node.names)
+        for name in names:
+            candidates = by_stem.get(name, [])
+            area = f.split("/")[0]
+            for target in [c for c in candidates if c.split("/")[0] == area] or candidates:
+                if target != f:
+                    importers.setdefault(target, set()).add(f)
+    seen, frontier = {start}, [start]
+    for _ in range(depth):
+        frontier = [i for x in frontier for i in importers.get(x, ()) if i not in seen and not seen.add(i)]
+    return {f for f in seen if os.path.basename(f).startswith("test_") and "/tests/" in f}
+
+
+def test_every_test_that_really_imports_a_changed_file_within_three_steps_is_selected(real):
+    """The regression the review found: a selection that missed tests importing the changed module through another module."""
+    for changed in ("runtime/natural_time.py", "runtime/phrases_pt_br.py", "runtime/ops_core.py", "runtime/tests/test_service.py", "runtime/lease.py"):
+        got = set(real_pick(real, changed))
+        covered = lambda t: t in got or any(t.startswith(g + "/") for g in got)
+        missed = sorted(t for t in real_import_oracle(REPO, changed, 3) if not covered(t))
+        assert missed == [], (changed, missed[:5])
+
+
+def test_every_row_of_the_table_of_unlinked_modules_still_matches_files(real):
+    import fnmatch
+    assert sel.UNLINKED_MODULES
+    for folder, module_glob, test_globs in sel.UNLINKED_MODULES:
+        assert [f for f in real.modules if fnmatch.fnmatchcase(f, folder + "/" + module_glob + ".py")], module_glob
+        for glob in test_globs:
+            assert [t for t in real.tests if fnmatch.fnmatchcase(t, folder + "/tests/" + glob + ".py")], glob
 
 
 @pytest.mark.skipif(not (REPO / "runtime/interpreter_catalog.py").is_file(), reason="the interpreter catalog is not in this tree")
@@ -462,7 +574,7 @@ def test_the_deadline_fails_with_the_message_and_exit_3_and_runs_nothing(tmp_pat
     try:
         done = subprocess.run([sys.executable, str(REPO / "scripts/test_slots.py"), "--dir", str(tmp_path), "--slots", "1", "--wait", "1", "--",
                                sys.executable, "-c", "print('must not run')"], capture_output=True, text=True, timeout=60)
-        assert done.returncode == 3
+        assert done.returncode == 75
         assert "must not run" not in done.stdout
         assert "no test slot became free" in done.stderr and "NOT passed" in done.stderr
     finally:
@@ -496,6 +608,6 @@ def test_the_environment_sets_the_defaults(tmp_path):
     try:
         assert first.stdout.readline().strip() == "held"
         done = subprocess.run([sys.executable, str(REPO / "scripts/test_slots.py"), "--", "true"], env=env, capture_output=True, text=True, timeout=60)
-        assert done.returncode == 3 and "1 slots" in done.stderr
+        assert done.returncode == 75 and "1 slots" in done.stderr
     finally:
         stop(first)
