@@ -305,14 +305,14 @@ ATTACH_LABELS = {"add": phrases.en("LABEL_ADD"), "discard": phrases.en("LABEL_DI
 
 
 def attachment_card(project_name: str, row: dict, next_version: int, caps: dict, policy, notices: str = "text", operations=None, sender: str | None = None,
-                    cfg=None, accounts=(), note: bool = False) -> dict:
+                    cfg=None, accounts=(), extra=()) -> dict:
     """The one card of a file a sender sent (kind `attachment`), drawn for the sender who sent it: "I received <name> (<size>, <type>). What should I do?" with a button for
     each thing THAT sender's profile permits: **Save to Google Drive** / **Save to OneDrive** (one for each account in `accounts`, when the profile permits `file-save`),
     **Add to project** (only for a type that can become a source, when it permits `attachment-add`) and **Discard**. A platform with no buttons gets the typed lines
     (`Send /add 3`, `Send /discard 3`, or the words that save); what the policy refuses is neither drawn nor offered (the card says to act on the page or in the terminal).
     With notices "count" the card carries nothing of the project or of the file. `row` is the held file as `attachments` reads it (its name, kind and size are the sender's own
-    words, already cleaned and cut); `accounts` the accounts ("google", "microsoft") the project lists with folders; `note` adds the sentence that says the text sent with the
-    file was read only as a request to save it. Returns {"message", "content_sha256" (the one of attachments.card_sha256), "kind": "attachment", "attachment_id",
+    words, already cleaned and cut); `accounts` the accounts ("google", "microsoft") the project lists with folders; `extra` is lines (already said) added under the question: the note that
+    the text sent with the file is read only as a request to save it, or that the service the text named is not set up. Returns {"message", "content_sha256" (the one of attachments.card_sha256), "kind": "attachment", "attachment_id",
     "actionable", "words"}; the bridge records it in the ledger with the file's number in place of a decision's."""
     import attachments as att
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
@@ -333,8 +333,8 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
         body = t("ATTACH_WHAT", name=row["name"], size=att.size_text(row["bytes"], cfg), kind=kind)
         if "add" in words:
             body += "\n" + (t("ATTACH_WHAT_VERSION", id=row["target"], n=next_version) if row.get("label") == "refresh" and next_version else t("ATTACH_WHAT_ADD", project=project_name, id=row["target"]))
-        if note:
-            body += "\n" + t("ATT_CAPTION_IGNORED")
+        for line in extra:
+            body += "\n" + line
     tail = "\n\n" + "\n".join(footer) if footer else ""
     text = _cut(header + "\n\n" + body, int(caps.get("max_text") or 4096) - len(tail), t("CUT")) + tail
     message = {"text": text, "actions": [{"op": w, "label": t("LABEL_" + w.upper().replace("-", "_"))} for w in shown], "link": None, "document": None}

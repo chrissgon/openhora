@@ -293,6 +293,10 @@ def advance(project: str, ctx: dict, state: dict, channel, sender, extras: dict)
         drafts.drop(*slot)
         return _opened(project, ctx, state, out["args"], channel, sender, extras)
     extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
+    if out.get("silent"):          # nothing to ask and nothing to say: the caller has the file's card (a caption never opens a question)
+        drafts.drop(*slot)
+        extras["silent"] = True
+        return ""
     if "cards" in out:
         drafts.drop(*slot)
         extras["cards"] = out["cards"]["ids"]
@@ -346,6 +350,8 @@ def _read(ctx: dict, said: str, seed, hint):
             got["slots"]["attachment"] = seed["attachment"]
             if seed.get("account"):
                 got["slots"]["account"] = seed["account"]
+            if seed.get("folders"):
+                got["slots"]["_folders"] = seed["folders"]
             return got
         return nw.read(said, now, op=op)
     return nw.read(said, now, op=hint)
@@ -547,7 +553,7 @@ def natural_write(project: str, line: str, *, channel: str = "messaging", sender
         extras["discarded"] = True          # a question of a reminder (or of an `ask`) is replaced by this line's, and the reply says so
     if reply is None:
         reply = open_line(project, ctx, said, channel, sender, extras, seed=seed)
-    return {"reply": reply, **({"resend": extras["resend"]} if "resend" in extras else {}), **({"cards": extras["cards"]} if "cards" in extras else {}),
+    return {"reply": reply, **({"resend": extras["resend"]} if "resend" in extras else {}), **({"cards": extras["cards"]} if "cards" in extras else {}), **({"silent": True} if extras.get("silent") else {}),
             "asked": bool(extras.get("asked"))}
 
 

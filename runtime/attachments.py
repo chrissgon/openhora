@@ -68,7 +68,7 @@ MEDIA_KINDS = ("photo", "voice", "video", "audio", "sticker")    # what a provid
 PHOTO_WORD = "photo"                   # the word a provider uses for a picture it sends as a photo (always JPEG); taken as a save-only image
 HEIC_BRANDS = ("heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1")      # the HEIF brands of an iPhone's photo (the intake's HEIF_BRANDS without avif)
 IMAGE_SNIFFED = ("png", "jpeg", "webp", "gif") + HEIC_BRANDS      # what the bytes of a save-only image are (the intake's subtypes)
-IMAGE_TYPES = {"image/png": ("png",), "image/jpeg": ("jpeg",), "image/webp": ("webp",), "image/gif": ("gif",), "image/heic": HEIC_BRANDS,
+IMAGE_TYPES = {"image/png": ("png",), "image/jpeg": ("jpeg",), "image/jpg": ("jpeg",), "image/webp": ("webp",), "image/gif": ("gif",), "image/heic": HEIC_BRANDS,
                "image/heif": HEIC_BRANDS}      # the declared media types taken as save-only images, and what their bytes may be
 IMAGE_EXTENSION = {"png": "png", "jpeg": "jpg", "webp": "webp", "gif": "gif", "mif1": "heif", "msf1": "heif"}      # the extension of a sniffed subtype (a HEIC brand: heic)
 IMAGE_EXTENSIONS = ("png", "jpg", "jpeg", "webp", "gif", "heic", "heif")
@@ -168,8 +168,12 @@ def clean_name(raw, fallback: str = "file") -> str:
     text = text.replace("\\", "/").rsplit("/", 1)[-1]
     text = "".join(c if unicodedata.category(c) not in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp") else " " for c in text)
     text = " ".join(text.split())
-    if len(text) > NAME_MAX:
-        text = text[:NAME_MAX - 1].rstrip() + "…"
+    if len(text) > NAME_MAX:          # cut cleanly (no mark a file name refuses), keeping a short extension so that the kind of file still shows
+        stem_part, dot, extension = text.rpartition(".")
+        if dot and stem_part and 0 < len(extension) <= 10 and extension.isalnum():
+            text = stem_part[:NAME_MAX - len(extension) - 1].rstrip() + "." + extension
+        else:
+            text = text[:NAME_MAX].rstrip()
     if text.startswith(sources.DRIVE_PREFIX):      # a file source's origin never starts so (that marks a Drive source)
         text = "file-" + text
     return text or fallback
@@ -232,9 +236,11 @@ def is_media(declared) -> bool:
     return kind in MEDIA_KINDS or kind.split("/", 1)[0] in ("image", "audio", "video")
 
 
-def photo_name(now=None) -> str:
-    """The name of a photo that has none: `photo-<UTC date>-<time>.jpg` (the time keeps two photos of one day apart)."""
-    return "photo-" + (now or utcnow()).astimezone(datetime.timezone.utc).strftime("%Y-%m-%d-%H%M%S") + ".jpg"
+def photo_name(now=None, ref="") -> str:
+    """The name of a photo that has none: `photo-<UTC date>-<time>-<6 hex of the hash of its reference>.jpg`. The six characters keep the photos of an album apart (they
+    arrive in the same second), so that two of them are never saved under one name."""
+    mark = hashlib.sha256(str(ref).encode("utf-8")).hexdigest()[:6]
+    return "photo-" + (now or utcnow()).astimezone(datetime.timezone.utc).strftime("%Y-%m-%d-%H%M%S") + "-" + mark + ".jpg"
 
 
 def normalised(attachment: dict, now=None) -> dict:
@@ -242,7 +248,7 @@ def normalised(attachment: dict, now=None) -> dict:
     returned as it is."""
     if media_type(attachment.get("type")) != PHOTO_WORD:
         return attachment
-    return dict(attachment, type="image/jpeg", name=attachment.get("name") or photo_name(now))
+    return dict(attachment, type="image/jpeg", name=attachment.get("name") or photo_name(now, attachment.get("ref")))
 
 
 def image_name(name: str, sniffed: str) -> str:
@@ -250,11 +256,12 @@ def image_name(name: str, sniffed: str) -> str:
     .heif); an image extension that does not fit is replaced, and a name with none gets one."""
     right = IMAGE_EXTENSION.get(sniffed, "heic" if sniffed in HEIC_BRANDS else sniffed)
     fits = {"jpg": ("jpg", "jpeg"), "heic": ("heic", "heif"), "heif": ("heic", "heif")}.get(right, (right,))
-    base, _, extension = name.rpartition(".") if "." in name.strip(".") else (name, "", "")
-    if extension.lower() in fits:
-        return name
-    if extension.lower() in IMAGE_EXTENSIONS:
-        return (base or "image") + "." + right
+    name = name.rstrip(". ") or "image"          # no trailing dot ("a.png." is "a.png"), and a name of dots alone is "image"
+    base, dot, extension = name.rpartition(".")
+    if dot and extension.lower() in fits:
+        return name if base else "image." + extension
+    if dot and extension.lower() in IMAGE_EXTENSIONS:
+        return (base or "image") + "." + right          # ".png" is an extension with no name: "image.png", never ".png.png"
     return name + "." + right
 
 

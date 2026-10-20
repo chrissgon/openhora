@@ -105,9 +105,12 @@ def check_count(value, flag: str) -> int:
     return int(value)
 
 
-def check_media_type(value, flag: str = "--media-type") -> str:
-    if not isinstance(value, str) or not MEDIA_TYPE.fullmatch(value) or value not in MEDIA_TYPES.values() and value not in IMAGE_TYPES.values():
-        raise WriterError(f"{flag} is one of: {', '.join(sorted(set(MEDIA_TYPES.values()) | set(IMAGE_TYPES.values())))}", EXIT_USAGE)
+def check_media_type(value, flag: str = "--media-type", images: bool = False) -> str:
+    """The media type of the content. An image type is taken only with `images` (the verb that creates a file: a save of a file a sender sent); a verb that changes a file
+    already there (update, replace) never takes one."""
+    allowed = set(MEDIA_TYPES.values()) | (set(IMAGE_TYPES.values()) if images else set())
+    if not isinstance(value, str) or not MEDIA_TYPE.fullmatch(value) or value not in allowed:
+        raise WriterError(f"{flag} is one of: {', '.join(sorted(allowed))}", EXIT_USAGE)
     return value
 
 

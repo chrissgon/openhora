@@ -40,7 +40,7 @@ HEIC = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heicmif1" + b"\x00" * 16
 AVIF = b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00avifmif1" + b"\x00" * 16
 ACCOUNTS = {"google": {"address": "pat@example.com", "folders": {"default": "FolderId0001"}},
             "microsoft": {"address": "casey@mail.example", "folders": {"default": "/Documents/openhora"}}}
-PROFILES = {"owner": ["read", "add-sources", "files-write"], "saver": ["read", "files-write"], "staff": ["read", "add-sources"]}
+PROFILES = {"owner": ["read", "talk", "add-sources", "files-write"], "saver": ["read", "talk", "files-write"], "staff": ["read", "talk", "add-sources"]}
 SENDERS = [{"id": IDENT, "policy": "owner"}, {"id": OTHER, "policy": "staff"}]
 SAVED = {"request": 1, "task": 1, "pending": 9, "word": "files", "on_cards": True}
 
@@ -210,9 +210,17 @@ def test_the_writers_and_the_runtime_agree_on_the_images():
     spec.loader.exec_module(module)
     assert module.IMAGE_TYPES == files_document.IMAGE_TYPES
     for media in files_document.IMAGE_TYPES.values():
-        assert module.check_media_type(media) == media
+        assert module.check_media_type(media, images=True) == media
+        with pytest.raises(module.WriterError):
+            module.check_media_type(media)          # the verbs that change a file already there (update, replace) never take an image
     with pytest.raises(module.WriterError):
-        module.check_media_type("image/svg+xml")
+        module.check_media_type("image/svg+xml", images=True)
+    for verb in ("cmd_update", "cmd_replace"):
+        for name in ("gdrive", "onedrive"):
+            source = (st.REPO / "providers" / "writer" / f"{name}.py").read_text(encoding="utf-8")
+            if f"def {verb}(" in source:
+                body = source.split(f"def {verb}(", 1)[1].split("\ndef ", 1)[0]
+                assert "check_media_type(a.media_type)" in body and "images=True" not in body, (name, verb)
 
 
 # --- the loose caption and the closed lines ------------------------------------------------------------------------------------------------
@@ -228,8 +236,15 @@ def test_a_line_that_saves_the_file_just_sent_is_a_save_form_with_its_service(li
     assert natural_writes.candidate(line) == {"family": "files", "op": "file-save"}
 
 
-@pytest.mark.parametrize("line", ["Salvar", "pode salvar", "salva", "salva essa foto", "save", "salva isso", "save it"])
-def test_a_save_word_alone_is_a_save_form_that_names_no_service(line):
+@pytest.mark.parametrize("line", ["Salvar", "pode salvar", "salva", "salva isso", "save", "save it", "keep it", "drop it", "save this"])
+def test_a_save_word_alone_is_no_save_form_by_itself_and_is_a_line_about_the_last_file(line):
+    assert natural_writes.read(line) is None or natural_writes.read(line)["op"] != "file-save", line          # the pure reader never claims it
+    assert natural_writes.file_line(line) in ("save", None) and natural_writes.file_line(line) != "discard"
+    assert natural_writes.file_line(line) == ("save" if line != "drop it" else None), line
+
+
+@pytest.mark.parametrize("line", ["salva essa foto", "salva esse arquivo", "salva o anexo 1"])
+def test_a_save_that_names_the_file_by_a_noun_or_a_number_is_a_save_form(line):
     found = natural_writes.read(line)
     assert found is not None and found["op"] == "file-save" and "account" not in found["slots"], line
 
@@ -390,7 +405,7 @@ def test_a_sender_with_neither_group_gets_the_refusal_and_nothing_is_fetched(cas
     w = setup(case, monkeypatch, senders=senders, profiles=dict(PROFILES, reader=["read"]))
     w.put("p1", JPEG)
     w.send([w.file("p1", None, len(JPEG), "photo")], sender=OTHER)
-    assert w.fetches() == [] and "Arquivos não são aceitos" in w.texts()[0] or "não" in w.texts()[0]
+    assert w.fetches() == [] and w.texts() == [phrases.text("ATT_OFF", {"language": "pt-BR"})]
     teardown(w)
 
 
@@ -435,7 +450,7 @@ def test_a_tap_checks_the_senders_profile_again_and_the_file_as_it_is_now(case, 
     chosen, discard = action(w, "save-google"), action(w, "discard")
     accept(case.path, policies=dict(PROFILES, owner=["read", "add-sources"]))
     w.say(action=chosen)
-    assert w.seen == [] and "/file-save" in w.texts()[-1]
+    assert w.seen == [] and w.texts()[-1] == "Salvar arquivos no Drive ou no OneDrive não está ligado para você neste projeto."
     accept(case.path, policies=PROFILES)
     w.say(action=discard)
     assert case.rows()[0]["status"] == "discarded"
@@ -606,3 +621,242 @@ def test_the_hold_is_the_add_sources_groups_alone_and_the_runtime_and_the_hold_a
     assert "files-write" not in operations.DEFAULT_POLICY["messaging"]
     assert step_files.HELD_KINDS["png"] == ("png",) and step_files.HELD_KINDS["jpg"] == ("jpeg",) and step_files.HEIC_BRANDS == attachments.HEIC_BRANDS
     assert set(step_files.HELD_KINDS["heic"]) == set(attachments.IMAGE_TYPES["image/heic"])
+
+
+# --- the review of #489 ---------------------------------------------------------------------------------------------------------------------
+
+
+def later(monkeypatch, **delta):
+    """The clock of the hold moved on (a file held a while ago)."""
+    import datetime  # noqa: PLC0415
+    real = attachments.utcnow
+    monkeypatch.setattr(attachments, "utcnow", lambda: real() + datetime.timedelta(**delta))
+
+
+def routed(monkeypatch):
+    called = []
+    monkeypatch.setattr(ops, "say", lambda *a, **k: called.append(a) or {"reply": "routed", "request_id": None, "pending_id": None})
+    return called
+
+
+def test_the_photos_of_an_album_get_names_of_their_own(case, monkeypatch):  # noqa: F811
+    first = attachments.photo_name(None, "ref-one")
+    assert first != attachments.photo_name(None, "ref-two") and first.endswith(".jpg")
+    w = setup(case, monkeypatch)
+    w.put("p1", JPEG)
+    w.put("p2", JPEG + b"x")
+    w.send([w.file("p1", None, len(JPEG), "photo"), w.file("p2", None, len(JPEG) + 1, "photo")])
+    names = [r["name"] for r in case.rows()]
+    assert len(names) == 2 and len(set(names)) == 2
+    teardown(w)
+
+
+def test_a_taken_name_of_a_file_that_was_sent_gets_a_number_and_a_name_the_person_chose_is_never_changed(files_world):  # noqa: F811
+    from test_files_write import approve, effect_doc  # noqa: PLC0415
+    one = hold_row(files_world, data=JPEG, name="photo.jpg", kind="jpeg")
+    two = hold_row(files_world, data=JPEG + b"2", name="photo.jpg", kind="jpeg", sender="4243")
+    three = hold_row(files_world, data=JPEG + b"3", name="photo.jpg", kind="jpeg", sender="4244")
+    approve(files_world, ops.file_save(files_world["path"], "google", one))
+    second = ops.file_save(files_world["path"], "google", two)
+    assert effect_doc(files_world, second)["name"] == "photo (2).jpg"
+    approve(files_world, second)
+    assert effect_doc(files_world, ops.file_save(files_world["path"], "google", three))["name"] == "photo (3).jpg"
+    with pytest.raises(ops.OpsError, match="name_taken"):
+        ops.file_save(files_world["path"], "google", three, file_name="photo.jpg")
+
+
+def test_a_name_a_sender_gave_is_made_one_the_platform_writes_and_cut_cleanly(files_world):  # noqa: F811
+    from test_files_write import effect_doc  # noqa: PLC0415
+    for raw in ("Invoice #3, final@home.pdf", "x" * 300 + ".pdf", "..hidden.png", "-dash.png", "tab\tname.jpg"):
+        safe = files_document.safe_name(raw)
+        assert files_document.name_problem(safe, files_document.SAVE_EXTENSIONS) == "", (raw, safe)
+        assert safe.rsplit(".", 1)[-1] == raw.rsplit(".", 1)[-1] and len(safe) <= files_document.NAME_MAX
+    assert files_document.safe_name("Plan.pdf") == "Plan.pdf" and files_document.numbered("Plan.pdf", 2) == "Plan (2).pdf"
+    assert len(files_document.numbered("x" * 120 + ".pdf", 10)) <= files_document.NAME_MAX
+    number = hold_row(files_world, data=PNG, name="Passport scan #1, front.png", kind="png")
+    assert effect_doc(files_world, ops.file_save(files_world["path"], "google", number))["name"] == "Passport scan _1_ front.png"
+    assert attachments.clean_name("x" * 300 + ".pdf").endswith(".pdf") and "…" not in attachments.clean_name("e" * 300)
+
+
+@pytest.mark.parametrize("name, sniffed, expected", [(".png", "png", "image.png"), ("a.png.", "png", "a.png"), ("a.png", "jpeg", "a.jpg"), ("...", "gif", "image.gif"),
+                                                     ("pic", "webp", "pic.webp"), ("IMG.JPG", "jpeg", "IMG.JPG")])
+def test_an_image_name_never_gets_a_double_extension_or_a_trailing_dot(name, sniffed, expected):
+    assert attachments.image_name(name, sniffed) == expected
+
+
+def test_image_jpg_is_the_jpeg_it_means(case):  # noqa: F811
+    out = case.hold(JPEG, name="pic.jpg", declared="image/jpg")
+    assert out["attachment"]["kind"] == "jpeg" and attachments.is_save_only_type("image/jpg") and attachments.mismatch("image/jpg", "png") is True
+
+
+def test_a_save_caption_is_never_the_grant_that_adds_the_file_as_a_source(case, monkeypatch):  # noqa: F811
+    profiles = dict(PROFILES, desk=["read", "add-sources-direct", "files-write"])
+    w = setup(case, monkeypatch, senders=[{"id": IDENT, "policy": "desk"}], profiles=profiles)
+    w.put("r1", PDF)
+    w.send([w.file("r1", "Q3 plan.pdf", len(PDF))], text="salva no drive")
+    assert [s[1] for s in w.seen] == [{"account": "google", "attachment": 1}] and case.rows()[0]["status"] == "held"
+    assert sources.list_catalog(case.ctx, hashes=False) == []
+    w.put("r2", make_pdf("Second"))
+    w.send([w.file("r2", "Second.pdf")])
+    assert case.rows()[1]["status"] == "added", "a file that asked for no save is still added at once by the grant"
+    teardown(w)
+
+
+@pytest.mark.parametrize("line", ["não quero", "nao quero", "never mind", "delete it", "apaga isso"])
+def test_a_loose_line_never_discards_a_held_file(case, monkeypatch, line):  # noqa: F811
+    called = routed(monkeypatch)
+    w = setup(case, monkeypatch)
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")])
+    w.say(line)
+    assert case.rows()[0]["status"] == "held" and len(called) == 1, ("the line is an ordinary line", w.texts(), w.log)
+    teardown(w)
+
+
+def test_a_line_about_the_file_reaches_only_a_file_held_for_less_than_an_hour_whose_card_is_in_the_chat(case, monkeypatch):  # noqa: F811
+    called = routed(monkeypatch)
+    w = setup(case, monkeypatch)
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")])
+    later(monkeypatch, hours=2)
+    for line in ("descarta", "descarta o arquivo", "salvar", "adiciona ao projeto"):
+        w.say(line)
+    assert case.rows()[0]["status"] == "held" and len(called) == 4 and w.seen == [], "two hours later every one of them is an ordinary line"
+    teardown(w)
+
+
+def test_a_file_saved_by_its_caption_has_no_card_and_a_discard_line_leaves_it(case, monkeypatch):  # noqa: F811
+    called = routed(monkeypatch)
+    w = setup(case, monkeypatch)
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")], text="salva no drive")
+    w.say("descarta")
+    assert case.rows()[0]["status"] == "held" and len(called) == 1
+    teardown(w)
+
+
+def test_the_discard_line_works_within_the_hour(case, monkeypatch):  # noqa: F811
+    w = setup(case, monkeypatch)
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")])
+    later(monkeypatch, minutes=30)
+    w.say("descarta")
+    assert case.rows()[0]["status"] == "discarded"
+    teardown(w)
+
+
+def test_the_bare_forms_act_on_a_recent_file_and_are_ordinary_lines_without_one(case, monkeypatch):  # noqa: F811
+    called = routed(monkeypatch)
+    w = setup(case, monkeypatch, language="en")
+    for line in ("keep it", "drop it", "save it", "save"):
+        w.say(line)
+    assert len(called) == 4 and w.seen == []
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")])
+    w.say("drop it")
+    assert len(called) == 5 and w.seen == [], "drop it saves nothing"
+    w.say("save it")
+    assert w.seen == [] and w.texts()[-2] == phrases.text("NW_PICK_ON_CARD", {"language": "en"}) and "I received photo-" in w.texts()[-1], "both services: the card again"
+    teardown(w)
+
+
+def test_a_bare_save_line_with_one_account_opens_that_save(case, monkeypatch):  # noqa: F811
+    w = setup(case, monkeypatch, accounts={"google": ACCOUNTS["google"]})
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")])
+    w.say("salvar")
+    assert [s[1]["account"] for s in w.seen] == ["google"]
+    teardown(w)
+
+
+def test_a_sender_without_files_write_gets_a_plain_refusal_for_every_way_to_ask_a_save(case, monkeypatch):  # noqa: F811
+    w = setup(case, monkeypatch, senders=[{"id": IDENT, "policy": "staff"}])
+    w.put("r1", PDF)
+    w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
+    w.say("Salvar no drive")
+    refusal = phrases.text("ATT_SAVE_OFF", {"language": "pt-BR"})
+    assert w.texts()[-1] == refusal and w.seen == []
+    for text in w.texts():
+        assert "/file-save" not in text and "error:" not in text
+    teardown(w)
+
+
+@pytest.mark.parametrize("language, caption, account", [("pt-BR", "adiciona no drive", "google"), ("pt-BR", "adicionar no onedrive", "microsoft"),
+                                                        ("en", "add to drive", "google"), ("en", "add it to my onedrive", "microsoft")])
+def test_a_service_named_beats_the_word_add(case, monkeypatch, language, caption, account):  # noqa: F811
+    w = setup(case, monkeypatch, language=language)
+    w.put("r1", PDF)
+    w.send([w.file("r1", "Q3 plan.pdf", len(PDF))], text=caption)
+    assert len(w.seen) == 1 and w.seen[0][1]["account"] == account and case.rows()[0]["status"] == "held"
+    teardown(w)
+
+
+def test_a_caption_that_names_a_service_the_project_does_not_list_is_one_message_the_files_card_with_a_line(case, monkeypatch):  # noqa: F811
+    w = setup(case, monkeypatch, accounts={"google": ACCOUNTS["google"]})
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")], text="salva no onedrive")
+    assert len(w.sent()) == 1 and w.seen == []
+    text = w.texts()[0]
+    assert "Recebi photo-" in text and "O OneDrive não está configurado neste projeto." in text and "error" not in text and "/file" not in text
+    assert labels(w) == ["Salvar no Google Drive", "Descartar"]
+    teardown(w)
+
+
+def test_a_tap_on_a_save_for_an_account_removed_since_is_the_files_card_with_a_line(case, monkeypatch):  # noqa: F811
+    w = setup(case, monkeypatch)
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")])
+    chosen = action(w, "save-microsoft")
+    accept(case.path, accounts={"google": ACCOUNTS["google"]})
+    w.reset()
+    w.say(action=chosen)
+    assert w.seen == [] and len(w.sent()) == 1 and "O OneDrive não está configurado neste projeto." in w.texts()[0] and labels(w) == ["Salvar no Google Drive", "Descartar"]
+    teardown(w)
+
+
+def test_a_folder_list_with_no_default_never_opens_a_question_from_a_caption_and_a_button_takes_the_first_folder(case, monkeypatch):  # noqa: F811
+    accounts = {"google": {"address": "pat@example.com", "folders": {"fotos": "FolderId0001", "docs": "FolderId0002"}}}
+    w = setup(case, monkeypatch, accounts=accounts)
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")], text="salva no drive")
+    assert len(w.sent()) == 1 and w.seen == [] and "Recebi photo-" in w.texts()[0], "the file's card, one message, no question about the folder"
+    w.say(action=action(w, "save-google"))
+    assert [s[1] for s in w.seen] == [{"account": "google", "attachment": 1, "folder": "fotos"}], "the first folder the project lists; the card of the save names it"
+    teardown(w)
+
+
+def test_a_second_tap_on_save_sends_the_open_card_again_and_opens_nothing(case, monkeypatch):  # noqa: F811
+    w = setup(case, monkeypatch)
+    monkeypatch.setattr(ops, "pending", lambda path, pending_id=None, **k: {"status": "open", "id": pending_id})
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")])
+    chosen = action(w, "save-google")
+    w.say(action=chosen)
+    w.say(action=chosen)
+    assert len(w.seen) == 1 and w.save_cards == [9, 9], "the same card twice, one task"
+    teardown(w)
+
+
+def test_the_save_job_is_labelled_for_what_it_is(case, monkeypatch):  # noqa: F811
+    w = setup(case, monkeypatch)
+    labelled = []
+    real = w.bridge.start
+    monkeypatch.setattr(w.bridge, "start", lambda project, chat, op, call: (labelled.append(op), real(project, chat, op, call))[1])
+    w.put("p1", JPEG)
+    w.send([w.file("p1", None, len(JPEG), "photo")])
+    w.say(action=action(w, "save-google"))
+    assert "file-save" in labelled and "event-create" not in labelled
+    teardown(w)
+
+
+def test_a_card_sent_again_keeps_the_version_it_would_make(case, monkeypatch):  # noqa: F811
+    w = setup(case, monkeypatch)
+    w.put("r1", PDF)
+    w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
+    w.say(action=action(w, "add"))
+    w.put("r2", make_pdf("The Q3 plan, revised"))
+    w.send([w.file("r2", "Plan v2.pdf")], text="@q3-plan")
+    assert "versão 2" in w.texts()[-1]
+    w.say("pode salvar")
+    assert "versão 2 do documento `q3-plan`" in w.texts()[-1], w.texts()[-1]
+    teardown(w)

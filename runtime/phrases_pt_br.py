@@ -106,6 +106,8 @@ TABLE = {
     "ATT_OFF": "Arquivos não são recebidos por este aplicativo neste projeto. Adicione na página ou no terminal (source-import).",
     "ATT_NO_FILES": "A conexão deste aplicativo ainda não recebe arquivos.",
     "ATT_MEDIA": "Notas de voz, vídeos, áudios e figurinhas ainda não são aceitos, nem imagens que não sejam PNG, JPEG, WebP, GIF ou HEIC. Envie uma foto ou imagem desses tipos para salvar no Drive ou no OneDrive, ou um PDF, um documento Word, uma planilha, uma apresentação, uma página HTML ou um arquivo de texto para adicionar ao projeto.",
+    "ATT_SAVE_OFF": "Salvar arquivos no Drive ou no OneDrive não está ligado para você neste projeto.",
+    "ATT_ACCOUNT_MISSING": "O {service} não está configurado neste projeto.",
     "ATT_IMAGE_NOT_SOURCE": "Imagens não viram fonte; posso salvar no Drive ou no OneDrive.",
     "ATT_TOO_LARGE": "{name} tem {size}; um arquivo deste aplicativo pode ter no máximo {cap}.",
     "ATT_DAY": "Este projeto já recebeu {n} arquivos ({size}) de aplicativos de mensagens hoje, que é o limite. Envie de novo amanhã ou adicione na página.",

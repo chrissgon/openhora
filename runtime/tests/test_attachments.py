@@ -119,7 +119,7 @@ def test_a_size_is_said_in_binary_units_and_a_name_is_cleaned_and_cut():
     assert clean("a\x00b\x1b[31m\nc.pdf") == "a b [31m c.pdf" and clean("") == "file" and clean(None) == "file" and clean(" \x00 ") == "file"
     assert clean("plan\u202egpj.exe") == "plan gpj.exe", "a bidirectional override does not disguise an extension"
     long = clean("x" * 300 + ".pdf")
-    assert len(long) == attachments.NAME_MAX and long.endswith("…")
+    assert len(long) == attachments.NAME_MAX and long.endswith(".pdf") and "…" not in long, "cut cleanly, the extension kept, nothing a file name refuses"
     assert clean("drive:abc.pdf") == "file-drive:abc.pdf", "a file source's origin never starts with the Drive prefix"
     assert attachments.stem("Q3 plan.pdf") == "Q3 plan" and attachments.stem("README") == "README" and attachments.stem(".env") == ".env"
 

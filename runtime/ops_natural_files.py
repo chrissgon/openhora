@@ -107,6 +107,13 @@ def _save(ctx: dict, slots: dict, channel, sender):
         if account.get("ask", {}).get("need") == "account":          # both services could serve it and the line names none: the file's card offers each (package ATT-3)
             return w.cards_spec([slots["attachment"]], "NW_PICK_ON_CARD")
         return account
+    listed = list(((ctx["cfg"].get("accounts") or {}).get(account) or {}).get("folders") or {})
+    if slots.get("folder") is None and listed and "default" not in listed and slots.get("_folders"):
+        # a caption or a button of a file's card never opens a question: a folder list with no `default` leaves the file's card (a caption), or takes the first folder listed (a
+        # button; the card of the save names the folder, and the approval is of that card)
+        if slots["_folders"] == "silent":
+            return {"silent": True}
+        slots = dict(slots, folder=listed[0])
     state, folder = w.named_target(ctx, account, "folders", slots.get("folder"), "folder")
     if state == "spec":
         return folder

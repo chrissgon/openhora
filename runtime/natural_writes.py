@@ -86,7 +86,7 @@ SECTIONS = {
     "mail": ("send_verbs", "reply_verbs", "draft_verbs", "archive_verbs", "move_verbs", "mark_verbs", "trash_verbs", "nouns", "plural", "to", "subject", "body", "of",
              "folder", "read", "unread", "newest"),
     "files": ("create_verbs", "replace_verbs", "save_verbs", "nouns", "named", "content", "folder", "this", "held_nouns", "gdoc", "text_words", "of", "replace_with",
-              "bare_save", "pronouns", "add_words", "add_lines", "discard_lines"),
+              "add_words", "save_lines", "add_lines", "discard_lines"),
 }
 PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")      # a phrase: words of a-z and 0-9 separated by one space; no character a regular expression means anything by
 
@@ -566,12 +566,13 @@ def caption_files(text, languages=None) -> dict:
 
 
 def file_line(text, languages=None):
-    """"add" or "discard" when the whole line is one of the closed phrases that ask it of the file just sent (`requests.writes.files.add_lines` and `discard_lines`), else None."""
+    """"save", "add" or "discard" when the whole line is one of the closed phrases that ask it of the file just sent (`requests.writes.files.save_lines`, `add_lines`,
+    `discard_lines`), else None. The phrase says nothing of a file by itself: whether one is there to act on is the bridge's (a recent file with a card in the chat)."""
     if not isinstance(text, str) or not text.strip() or text.lstrip().startswith("/") or len(text.split()) > 12:
         return None
     tables = _tables(languages)
     files = family_module("files")
-    for word, key in (("add", "add_lines"), ("discard", "discard_lines")):
+    for word, key in (("save", "save_lines"), ("add", "add_lines"), ("discard", "discard_lines")):
         if files.whole(text, tables, key):
             return word
     return None

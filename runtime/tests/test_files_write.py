@@ -974,7 +974,7 @@ def test_a_refusal_made_when_the_card_is_prepared_does_not_echo_the_name_of_a_fi
     world["gd"].add_file("Taken_0001", "Private contract.pdf", b"x", mime="application/pdf")
     mine = hold(world, name="Private contract.pdf", sender="4242")
     with pytest.raises(ops.OpsError) as taken:
-        ops.file_save(world["path"], "google", mine)
+        ops.file_save(world["path"], "google", mine, file_name="Private contract.pdf")          # a name the person chose is never changed
     assert "name_taken" in str(taken.value) and "Private contract.pdf" not in str(taken.value)
     seed_drive(world, name="Divorce papers.md")
     world["gd"].files["File_ID_0001"]["owned"] = False

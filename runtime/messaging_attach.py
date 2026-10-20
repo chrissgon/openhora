@@ -30,6 +30,7 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 import os
 import re
@@ -47,7 +48,9 @@ import phrases  # noqa: E402
 CHANNEL = "messaging"
 CHANGED = phrases.en("CHANGED")
 WORDS = {"add": "attachment-add", "discard": "attachment-discard", "save-google": "file-save", "save-microsoft": "file-save"}      # what a tap or a line on a file's card asks -> the operation it needs
+SERVICE_NAMES = {"google": "Google Drive", "microsoft": "OneDrive"}      # the names of the two services, as the buttons say them (names of products, the same in every language)
 CARDS_MAX = 5      # the most cards of held files one line brings back
+FILE_LINE_SECONDS = 3600      # a line about "the file" (save it, add it, discard it) reaches a file held for less than this, and only one whose card is in the chat
 PATH = re.compile(r"(?<![\w:.-])(?:~|[A-Za-z]:)?/[\w.~-]+/|[A-Za-z]:\\|(?<!\w)~/")      # a folder of this machine in a sentence: `/a/b`, `~/b`, `C:\`
 
 
@@ -56,6 +59,7 @@ class Attachments:
 
     def __init__(self, bridge):
         self.bridge = bridge
+        self.open_saves = {}          # (project id, chat, attachment, account) -> the decision whose save card was sent: a second tap sends that card again
 
     def phone(self, error, project=None) -> str:
         """What a phone is told of an error of the operations layer: its message, unless the message is a problem of this machine (an operation's `phone`
@@ -119,7 +123,9 @@ class Attachments:
                 follow["preselect"], follow["said"], ignored = read, intent["text"], False
             elif read["read"]:
                 ignored = False          # it asked to add the file to the project: the card is what offers it
-        follow["note"] = ignored
+        follow["note"] = ignored and len(files) == 1          # a caption on several files is read for none of them, and says nothing
+        if follow["preselect"]:
+            direct = False          # a caption that asks to SAVE a file is not the grant that adds it as a source: the grant waits for a file that asked for no save
         cap = min(att.FILE_CAP, caps.get("max_attachment_bytes") or att.FILE_CAP)
         try:
             held = bridge.ops.attachments(project["path"])
@@ -261,14 +267,20 @@ class Attachments:
             bridge.reply(chat, self.said(result["added"]["reply"], project), project)
             return
         follow = follow or {}
-        if follow.get("preselect") and isinstance(result.get("attachment"), dict) and self.save_now(project, chat, result["attachment"]["id"], follow["preselect"].get("account"),
-                                                                                         follow.get("said")):
-            return          # the caption asked to save it and the card of the save is open: that is the one card of the file (never a write)
-        self.send_card(project, chat, result, note=bool(follow.get("note")))
+        missing = None
+        pre = follow.get("preselect")
+        if pre and isinstance(result.get("attachment"), dict):
+            named = pre.get("account")
+            if named is not None and named not in self.accounts(project):
+                missing = named          # the caption names a service the project does not list: the file's card, with one line that says so (one message)
+            elif self.save_now(project, chat, result["attachment"]["id"], named, follow.get("said")):
+                return          # the caption asked to save it and the card of the save is open: that is the one card of the file (never a write)
+        self.send_card(project, chat, result, note=bool(follow.get("note")), missing=missing)
 
     def save_now(self, project: dict, chat: str, number: int, account, said=None) -> bool:
         """Open the save card of a held file (the typed operation `file-save`, as a line would) when this sender's profile permits it and the account is named, or is the
-        only one the project lists; True when its card was sent. Anything else is False and the card of the file is what the person gets."""
+        only one the project lists; True when its card was sent. Anything else is False and the card of the file is what the person gets. A caption never opens a question
+        (a folder list with no `default` leaves the card, not a question): the seed says so."""
         bridge = self.bridge
         settings = bridge.settings(project)
         if settings is None or not bridge.ops.operations.permitted("file-save", CHANNEL, settings["policy"], None, bridge.key(chat)):
@@ -278,7 +290,7 @@ class Attachments:
             account = listed[0] if len(listed) == 1 else None
         if account is None:
             return False
-        return bool(bridge.write_now(project, chat, said or "", {"op": "file-save", "attachment": number, "account": account}))
+        return bool(bridge.write_now(project, chat, said or "", {"op": "file-save", "attachment": number, "account": account, "folders": "silent"}))
 
     def accounts(self, project: dict) -> list:
         """The accounts ("google", "microsoft") the project lists with folders: where a file can be saved to."""
@@ -291,14 +303,15 @@ class Attachments:
 
     # --- the card ----------------------------------------------------------------------------------------------------------------
 
-    def send_card(self, project: dict, chat: str, result: dict, note: bool = False) -> None:
+    def send_card(self, project: dict, chat: str, result: dict, note: bool = False, missing=None) -> None:
         bridge = self.bridge
         settings = bridge.settings(project)
         if settings is None:
             return
         row = dict(result["attachment"], target=result["target"], label=result["label"])
         card = cards.attachment_card(project["name"], row, result["next_version"], bridge.messenger.capabilities(), settings["policy"], settings["notices"],
-                                     operations=bridge.ops.operations, sender=bridge.key(chat), cfg=settings, accounts=self.accounts(project), note=note)
+                                     operations=bridge.ops.operations, sender=bridge.key(chat), cfg=settings, accounts=self.accounts(project),
+                                     extra=([bridge.t("ATT_CAPTION_IGNORED", cfg=settings)] if note else []) + ([bridge.t("ATT_ACCOUNT_MISSING", cfg=settings, service=SERVICE_NAMES[missing])] if missing else []))
         seq = bridge.ledger.next_seq()
         message = dict(card["message"])
         made = {f"{seq}:{a['op']}": a["op"] for a in message["actions"]}
@@ -337,7 +350,10 @@ class Attachments:
         try:
             bridge.allow(project, WORDS[word], None, chat)
             read = bridge.ops.attachments(project["path"])
-        except (bridge.Refused, bridge.ops.OpsError) as e:
+        except bridge.Refused as e:
+            bridge.reply(chat, bridge.t("ATT_SAVE_OFF", project=project) if WORDS[word] == "file-save" else self.phone(e, project), project)          # a plain sentence, never the name of an operation
+            return
+        except bridge.ops.OpsError as e:
             bridge.reply(chat, self.phone(e, project), project)
             return
         row = next((r for r in read["held"] if r["id"] == number), None)
@@ -349,8 +365,7 @@ class Attachments:
             bridge.reply(chat, bridge.t("CHANGED", project=project), project)
             return
         if word.startswith("save-"):
-            account = word[len("save-"):]
-            bridge.start(project, chat, "event-create", lambda: bridge.write_now(project, chat, "", {"op": "file-save", "attachment": number, "account": account}))
+            self.save_tapped(project, chat, row, word[len("save-"):])
             return
 
         def call():
@@ -364,12 +379,39 @@ class Attachments:
         else:
             call()
 
+    def save_tapped(self, project: dict, chat: str, row: dict, account: str) -> None:
+        """The save button (or the line) of a held file: the save card of that account opens, through the typed operation and its policy. An account the project no longer lists
+        is one line on the file's card (one message). A second tap while the card of that save is still open sends that same card again and opens nothing."""
+        bridge = self.bridge
+        number = row["id"]
+        if account not in self.accounts(project):
+            self.resend(project, chat, [number], missing=account)
+            return
+        key = (project["id"], chat, number, account)
+        open_card = self.open_saves.get(key)
+        if open_card is not None:
+            try:
+                still = bridge.ops.pending(project["path"], pending_id=open_card).get("status", "open") == "open"
+            except bridge.ops.OpsError:
+                still = False
+            if still and bridge.resend(project, chat, open_card):
+                return
+            self.open_saves.pop(key, None)
+
+        def call():
+            pending = bridge.write_now(project, chat, "", {"op": "file-save", "attachment": number, "account": account, "folders": "first"})
+            if pending:
+                self.open_saves[key] = pending
+        bridge.start(project, chat, "file-save", call)
+
     # --- a line about the file just sent (package ATT-3) --------------------------------------------------------------------------------
 
     def line(self, project: dict, chat: str, text: str) -> bool:
-        """A line that is, whole, one of the closed phrases that add or discard (`requests.writes.files.add_lines`, `discard_lines`): it acts on the most recent file THIS
-        sender has held, or, with several, brings back the card of each so that the person chooses by its buttons. True when the line was about a file; False (the line goes on as
-        any other) when it is not such a phrase or the sender holds no file. The saving lines are the natural writes' (`salvar no drive`): the resolver of the files family."""
+        """A line that is, whole, one of the closed phrases that save, add or discard the file just sent (`requests.writes.files.save_lines`, `add_lines`, `discard_lines`): it
+        acts on the files THIS sender has held for less than FILE_LINE_SECONDS and that have a card in this chat, and nothing older (a line about "it" a day later is an
+        ordinary line). With several such files the card of each comes back, so that the person chooses by its buttons. True when the line was about a file; False (the line goes
+        on as any other) when it is not such a phrase or no file is recent. The saving lines that name a service (`salvar no drive`) are the natural writes': the resolver of
+        the files family."""
         bridge = self.bridge
         word = natural_writes.file_line(text)
         if word is None:
@@ -378,26 +420,47 @@ class Attachments:
             held = bridge.run_op(project, "attachments", sender=chat)["held"]
         except (bridge.Refused, bridge.ops.OpsError):
             return False
+        cutoff = att.iso(att.utcnow() - datetime.timedelta(seconds=FILE_LINE_SECONDS))
+        held = [r for r in held if r["created_at"] >= cutoff and bridge.ledger.attachment_card(project["id"], r["id"], chat) is not None]
         if not held:
             return False
         if len(held) > 1:
             bridge.reply(chat, bridge.t("NW_WHICH_FILE", project=project), project)
             self.resend(project, chat, [r["id"] for r in held[-CARDS_MAX:]])
             return True
-        self.decide(project, chat, word, held[-1]["id"], None)
+        row = held[0]
+        if word == "save":
+            listed = self.accounts(project)
+            if len(listed) == 1:
+                self.decide(project, chat, "save-" + listed[0], row["id"], None)
+            elif listed:
+                bridge.reply(chat, bridge.t("NW_PICK_ON_CARD", project=project), project)
+                self.resend(project, chat, [row["id"]])
+            else:
+                bridge.reply(chat, bridge.t("NW_NO_ACCOUNT", project=project), project)
+            return True
+        self.decide(project, chat, word, row["id"], None)
         return True
 
-    def resend(self, project: dict, chat: str, ids: list) -> None:
-        """Send the card of each of these held files (of THIS sender: the read is the operation's own for a messaging sender) once more."""
+    def resend(self, project: dict, chat: str, ids: list, missing=None) -> None:
+        """Send the card of each of these held files (of THIS sender: the read is the operation's own for a messaging sender) once more; `missing` is an account the person
+        asked for that the project does not list (one line on the card)."""
         bridge = self.bridge
         try:
             held = {r["id"]: r for r in bridge.run_op(project, "attachments", sender=chat)["held"]}
         except (bridge.Refused, bridge.ops.OpsError):
             return
+        known = {}
+        catalog = getattr(bridge.ops, "sources_catalog", None)
+        try:
+            known = {r["id"]: r for r in catalog(project["path"])["sources"]} if catalog is not None else {}
+        except bridge.ops.OpsError:
+            pass
         for number in ids:
             if number in held:
                 row = held[number]
-                self.send_card(project, chat, {"attachment": row, "target": row["target"], "label": row["label"], "next_version": None})
+                version = (known.get(row["target"]) or {}).get("versions") if row.get("target") else None
+                self.send_card(project, chat, {"attachment": row, "target": row["target"], "label": row["label"], "next_version": (version or 0) + 1}, missing=missing)
 
     # --- /pending ----------------------------------------------------------------------------------------------------------------------
 

@@ -115,6 +115,27 @@ def name_problem(name, extensions) -> str:
     return ""
 
 
+def safe_name(name, fallback: str = "file") -> str:
+    """A name a person was sent, as a name this platform writes (name_problem accepts it, the extension kept): any character outside the letters, digits and ` ._-()` becomes
+    `_`, the NFC form, no `..`, no leading hyphen, no trailing dot or space, at most NAME_MAX characters. A name that is already one is returned unchanged."""
+    text = unicodedata.normalize("NFC", name if isinstance(name, str) else "").strip(" ")
+    stem, dot, extension = text.rpartition(".") if "." in text else (text, "", "")
+    clean = lambda part: "".join(c if c.isalnum() or c in NAME_EXTRA else "_" for c in part)      # noqa: E731
+    stem, extension = clean(stem).replace("..", "."), clean(extension).replace(" ", "")
+    stem = stem.strip(" .").lstrip("-")
+    if not any(c.isalnum() for c in stem):
+        stem = fallback
+    keep = NAME_MAX - len(dot) - len(extension)
+    return stem[:max(1, keep)].rstrip(" .") + dot + extension
+
+
+def numbered(name: str, n: int) -> str:
+    """`name (2).ext` for `name.ext` (the stem cut to keep the whole inside NAME_MAX)."""
+    stem, dot, extension = name.rpartition(".") if "." in name else (name, "", "")
+    tail = f" ({n})"
+    return stem[:max(1, NAME_MAX - len(dot) - len(extension) - len(tail))].rstrip() + tail + dot + extension
+
+
 def extension_of(name: str) -> str:
     return name.rsplit(".", 1)[-1].lower() if "." in name else ""
 

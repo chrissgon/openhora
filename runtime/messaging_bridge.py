@@ -1007,16 +1007,19 @@ class Bridge(shell_kit.Jobs):
     def write_now(self, project: dict, chat: str, text: str, seed=None) -> bool:
         """The body of `write`, for a caller that is already in a job (the caption of a file that was just held, a button of its card). True when the card of the write
         was sent to the chat."""
+        needed = None
         try:
             needed = seed["op"] if seed else self.needs(text, project, chat)
             if needed:
                 self.allow(project, needed, sender=chat)          # the operation's own group, never `talk`: the layer asks it again
             result = self.ops.natural_write(project["path"], text, channel=CHANNEL, sender=self.key(chat), seed=seed)
         except Refused as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, self.t("ATT_SAVE_OFF", project=project) if needed == "file-save" else str(e), project)          # a plain sentence for a save, never the name of an operation
             return False
         except self.ops.OpsError as e:
             self.reply(chat, f"error: {e}", project)
+            return False
+        if result.get("silent"):          # the line opens nothing and says nothing (a caption never asks a question): the caller sends the file's card
             return False
         said = result.get("reply")
         if said is None:          # no write and no answer: a plain line, as it always was
@@ -1031,7 +1034,7 @@ class Bridge(shell_kit.Jobs):
         self.reply(chat, said, project)
         if result.get("cards"):          # the files to choose among, or the file whose card says where to save it: their cards (ATT-3)
             self.attach.resend(project, chat, result["cards"])
-        return opened
+        return result["resend"] if opened else None
 
     def line(self, project: dict, chat: str, text: str, entry):
         """The call that runs one line through `say`. `entry` is the kept line this run answers (None: the line has just come); it leaves the waiting

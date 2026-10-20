@@ -152,6 +152,8 @@ TABLE = {
         "ATT_OFF": "Files are not taken from this app for this project. Add it on the page or in the terminal (source-import).",
         "ATT_NO_FILES": "This app's connection does not take files yet.",
         "ATT_MEDIA": "Voice notes, videos, audio and stickers are not taken yet, and neither are images other than PNG, JPEG, WebP, GIF or HEIC. Send a photo or an image of those types to save it to Drive or OneDrive, or a PDF, a Word document, a spreadsheet, a presentation, an HTML page or a text file to add it to the project.",
+        "ATT_SAVE_OFF": "Saving files to Drive or OneDrive is not turned on for you in this project.",
+        "ATT_ACCOUNT_MISSING": "{service} is not set up in this project.",
         "ATT_IMAGE_NOT_SOURCE": "Images are not added to the project; I can save them to Drive or OneDrive.",
         "ATT_TOO_LARGE": "{name} is {size}; a file from this app is at most {cap}.",
         "ATT_DAY": "This project took {n} files ({size}) from messaging apps today, its limit. Send it again tomorrow, or add it on the page.",

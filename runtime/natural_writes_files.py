@@ -162,12 +162,9 @@ def _save(line: "nw.Line", tables: list):
     if number:
         end = m.end()
     anchored = this is not None or number is not None or (noun is not None and line.norm[noun[0]:noun[1]] in ("anexo", "attachment"))
-    pronoun = this is not None and line.norm[this[0]:this[1]] in _list(tables, "pronouns")      # "save it": the object is the file just sent
     named_service = nw.service(line, tables, end)
-    last = line.norm[:verb].split()[-1] if line.norm[:verb].split() else ""
-    bare = last in _list(tables, "bare_save") and noun is None and kind_name is None and this is None      # "salvar", "pode salvar": the verb alone, about the file just sent
-    if not ((anchored and (kind_name is not None or noun is not None)) or pronoun or named_service is not None or bare):
-        return None
+    if not ((anchored and (kind_name is not None or noun is not None)) or named_service is not None):
+        return None          # "save it" or "salvar" alone say nothing by themselves: they are `save_lines`, acted on only when a recent file waits (messaging_attach)
     slots = {}
     if number:
         slots["attachment"] = number
@@ -204,14 +201,14 @@ def caption(text, tables: list):
     # a service word inside a longer one of the other service ("drive" in "one drive") is the longer one's
     found = {account for start, end, account in spans if not any(o[2] != account and o[0] <= start and end <= o[1] for o in spans)}
     account = next(iter(found)) if len(found) == 1 else None
-    save = line.find(_list(tables, "save_verbs") + _list(tables, "bare_save")) is not None
+    save = line.find(_list(tables, "save_verbs")) is not None
     add = line.find(_list(tables, "add_words")) is not None
     kind_name = None
     for table in tables:
         for name, words in (nw.writes_of(table).get("files", {}).get("kinds") or {}).items():
             if kind_name is None and line.find(words):
                 kind_name = name
-    mode = "card" if (add and not save) or not (account or save) else "save"
+    mode = "card" if (add and not save and not account) or not (account or save) else "save"          # a service named beats "add": "adiciona no drive" saves
     return {"mode": mode, "account": account, "kind": kind_name, "read": bool(account or save or add)}
 
 
