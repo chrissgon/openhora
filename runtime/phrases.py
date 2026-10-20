@@ -67,9 +67,9 @@ TABLE = {
         "CHANGED": "This decision changed since you saw it.",
         "STILL_WORKING": "Still working on the last message.",
         "RUN_BUSY": "The planning agent is answering another request. Send it again in a moment.",
-        "NOT_ACCEPTED": "This project's configuration is not accepted: run accept-config in the terminal.",
-        "EFFECT_REPLY": "An effect is approved on the page or in the terminal, with its hash:",
-        "TOO_LONG": "Too long to approve here: approve it on the page or in the terminal, with its hash:",
+        "NOT_ACCEPTED": "This project's configuration is not accepted yet. Accept it {where}",
+        "EFFECT_REPLY": "An effect is approved where its whole text is shown, {where}",
+        "TOO_LONG": "Too long to approve here. Approve it {where}",
         "WRONG_HASH": "The hash you typed is not the one of the card you saw. Send /pending.",
         "NOT_OPEN": "Pending decision {number} is {status}, not open.",
         "NOT_OFFERED": "That card did not offer an approval. Send /pending for the current one.",
@@ -121,12 +121,12 @@ TABLE = {
         "WHOLE": "(the whole text follows as a document)",
         "WHOLE_ABOVE": "(the whole text is in the file above)",
         "DOCUMENT_NOTE": "The whole text of this decision, as a file. The card with the buttons follows once this file has arrived.",
-        "DOCUMENT_LINE": "The file with the whole text did not arrive, so this card cannot be approved here: approve it on the page or in the terminal, or send /pending to try the file again.",
-        "PAGE_LINE": "Act on it on the page or in the terminal.",
+        "DOCUMENT_LINE": "The file with the whole text did not arrive, so this card cannot be approved here: approve it on the platform's page, or send /pending to try the file again.",
+        "PAGE_LINE": "Act on it on the platform's page.",
         "REPLY_LINE": "Reply to this message to answer.",
-        "EFFECT_LINE": "Approve it on the page or in the terminal:",
-        "TOO_LONG_LINE": "Too long to approve here: approve it on the page or in the terminal.",
-        "APPROVES_LINE": "Approving applies exactly the text above (sha256 {sha}).",
+        "EFFECT_LINE": "Approve it on the platform's page.",
+        "TOO_LONG_LINE": "Too long to approve here: approve it on the platform's page.",
+        "APPROVES_LINE": "Approving applies exactly the text above.",
         "MORE_LINE": "And {n} more waiting. Send /pending to list them.",
         "SEND_LINE": "Send {line}",
         "HEADER": "{project} · {kind} #{id}",
@@ -145,11 +145,11 @@ TABLE = {
         "KIND_PLAN": "plan",
         "KIND_QUESTION": "question",
         "KIND_REVIEW": "review",
-        "KIND_EFFECT": "effect",
+        "KIND_EFFECT": "request",
         "KIND_ACCEPTANCE": "acceptance",
         "KIND_YOUR_DOCUMENT": "your_document",
         # --- the files a sender sends (messaging_attach.py, attachments.py) ---
-        "ATT_OFF": "Files are not taken from this app for this project. Add it on the page or in the terminal (source-import).",
+        "ATT_OFF": "Files are not taken from this app for this project. Add it on the platform's page.",
         "ATT_NO_FILES": "This app's connection does not take files yet.",
         "ATT_MEDIA": "Voice notes, videos, audio and stickers are not taken yet, and neither are images other than PNG, JPEG, WebP, GIF or HEIC. Send a photo or an image of those types to save it to Drive or OneDrive, or a PDF, a Word document, a spreadsheet, a presentation, an HTML page or a text file to add it to the project.",
         "ATT_SAVE_OFF": "Saving files to Drive or OneDrive is not turned on for you in this project.",
@@ -176,7 +176,7 @@ TABLE = {
         "ATT_EXPIRED": "{name} waited more than {days} days and was deleted. Send it again.",
         "ATT_LOST": "The held file is gone from this machine. Send it again.",
         "ATT_KEPT_FAILED": "{name} could not be kept on this machine. Send it again in a while.",
-        "ATT_MACHINE": "This machine could not do that now. Try again later, or use the page or the terminal.",
+        "ATT_MACHINE": "This could not be done now. Try again later, or use the platform's page.",
         "ATT_NOTE": "Note: {note}",
         "ATT_WAITING_HEAD": "{project}: files waiting for your answer",
         "ATT_WAITING_LINE": "file #{id} {name}: /add {id} or /discard {id}",
@@ -265,7 +265,7 @@ TABLE = {
         "NT_RESTORED_COUNT": "Reminder #{old} is back as #{id}: {when}.",
         "NT_CONFIRM_TEXT": "I understood: {when}: {text}. Confirm? (yes / another time)",
         "NT_CONFIRM_COUNT": "I understood: {when}. Confirm? (yes / another time)",
-        "NT_RECURRING": "A reminder here happens once. Something that repeats is a routine: set it up in the terminal or on the page. For a single reminder, tell me when.",
+        "NT_RECURRING": "A reminder here happens once. Something that repeats is a routine: set it up on the platform's page. For a single reminder, tell me when.",
         "NT_CANCELLED": "Ok, no reminder was made.",
         "NT_KEPT": "Ok, nothing was cancelled.",
         "NT_BTN_YES": "Yes",
@@ -279,6 +279,8 @@ TABLE = {
         # --- the conversation (ops_say.py) ---
         "PLAN_NEXT": "Approve with /approve {pending}",
         "ASK_NEXT": "Answer with a plain line, or start again with /new <text>",
+        "ASK_NEXT_PHONE": "Answer with a plain line. If you want something else, just say it: a request I recognise is never taken as an answer.",
+        "ANSWER_TAKEN": "I took that as the answer to question #{id}.",
         "ROUTER_ASKS_FRAME": "Before I start I need your answer:",
         "ROUTER_QUOTED_NOTE": "The request quoted instructions from external content; they were not followed. See them on the page.",
         "INSTR_PROPOSAL_ASK": "Add this line to the project's instructions?",
@@ -287,6 +289,7 @@ TABLE = {
         "ANSWERED_AS": "(answered from the sources: request {request})",
         "BODY_NOT_NAMED": "The planning agent did not name a flow or a skill for request {request}",
         "NOT_NAMED_NEXT": "Cancel it with /cancel {request}, name a flow in the terminal with: {route}, or start again with /new <text>",
+        "NOT_NAMED_NEXT_PHONE": "Cancel it with /cancel {request}, name a flow {where}, or start again with /new <text>",
         "QUEUED_REQUEST": "Recorded as request {request}. The planning agent routes it when the run ends.",
         "PROPOSES": "The planning agent proposes: ",
         "PLANNING_NOT_STARTED": "The planning agent may not start now: {why}. Nothing was run.",
@@ -372,13 +375,72 @@ TABLE = {
         "NAT_NO_SOURCE": "No source of this project matches that. Searching your accounts is planned, not built yet.",
         "NAT_USED": "I used: {name}.",
         "NAT_ASK_REMIND_HINT": "That looks like a reminder: write it in words, for example 'remind me Friday at 5 pm to pick up the parcel at the front desk'.",
+        # --- a phone never reads a command or a path (messaging_guard.py, package LIVE-2): each sentence ends with {where}, which `phone` fills ---
+        "PHONE_WHERE": "on the platform's page",
+        "PHONE_WHERE_LINK": "on the platform's page: {url}",
+        "PHONE_ELSEWHERE": "That is not done from a message. Do it {where}",
+        "PHONE_STRIPPED": "The rest is done {where}",
+        "PHONE_SETTINGS": "Settings, accounts and permissions are changed {where}",
+        "PHONE_SOURCES": "Sources and files are added to the project {where}",
+        "PHONE_INSTRUCTIONS": "The project's standing instructions are changed {where}",
+        "PHONE_ROUTINES": "A routine is created, changed and approved {where}",
+        "PHONE_ACCOUNT_WRITE": "A change to your accounts is made {where}",
+        "PHONE_APPROVE_EFFECT": "This is approved where all of its text is shown, {where}",
+        "PHONE_EVENT_AGAIN": "I could not read that as a request for your calendar, so nothing was done. Say it again with the day and the time, for example: put the dentist on Thursday at 3 pm.",
+        "PHONE_WRITE_AGAIN": "I could not read that as a clear request to your accounts, so nothing was done. Say it again with the details: what, and when or to whom.",
+        "PHONE_RESTORE": "Bringing a reminder back, when I am not sure which one you mean, is done {where}",
+        # --- why a write to the person's accounts was not made, said to a phone in plain words (messaging_failure.py, package LIVE-2) ---
+        "FAIL_SERVICE_FILES_GOOGLE": "Google Drive", "FAIL_SERVICE_FILES_MICROSOFT": "OneDrive",
+        "FAIL_SERVICE_MAIL_GOOGLE": "Gmail", "FAIL_SERVICE_MAIL_MICROSOFT": "Outlook",
+        "FAIL_SERVICE_ANY": "Your account",
+        "FAIL_NOT_AUTHORIZED": "Your {service} account is not connected yet, so nothing was done. Ask again after you connect it {where}",
+        "FAIL_FOLDER": "I could not open the folder \"{folder}\" in your {service}. Check that it exists and that its name in the configuration is right.",
+        "FAIL_FOLDER_HINT": "On an account set to another language, the default folder usually has that language's name (for example Documents).",
+        "FAIL_FILE": "I could not open that file in your {service}. Check that it still exists and that you may write to it.",
+        "FAIL_NAME_TAKEN": "A file with that name is already in the folder, and a new file never replaces one. Choose another name.",
+        "FAIL_TOO_LARGE": "That is too large to be written there, so nothing was done.",
+        "FAIL_QUOTA": "{service} has no room left for it, so nothing was written. Free some space there and ask again.",
+        "FAIL_NETWORK": "{service} did not answer, so nothing was done. Try again in a moment.",
+        "FAIL_GONE": "That item is no longer there, so nothing was done.",
+        "FAIL_REFUSED": "{service} refused it, so nothing was done. Check the details and the permissions of the account.",
+        "FAIL_UNKNOWN": "The result is unknown: the service did not confirm whether it was done. Before asking again, look in {place}.",
+        "FAIL_LOOK_CALENDAR": "your calendar", "FAIL_LOOK_MAILBOX": "your mailbox", "FAIL_LOOK_FILES": "your drive", "FAIL_LOOK_SENT": "your sent mail",
+        "FAIL_LOOK_POST": "the profile", "FAIL_LOOK_ANY": "the service",
+        "FAIL_NOT_DONE": "It was not done, and nothing was written. Try again in a moment, or check it {where}",
+        # --- the outcome of an approved effect, said to the chat that approved it (messaging_outcome.py, package LIVE-2) ---
+        "PHONE_FILE_SAVE": "Saves the file you sent: {name}, {size}.",
+        "PHONE_LEDGER_FILE": "a file on this machine",
+        "OUT_DONE": "Approved #{id} and carried out.",
+        "OUT_REPLAYED": "It had already been done: nothing was repeated.",
+        "OUT_CAL_GOOGLE": "Google Calendar",
+        "OUT_CAL_MICROSOFT": "Outlook Calendar",
+        "OUT_ACCT_GOOGLE": "Google",
+        "OUT_ACCT_MICROSOFT": "Microsoft",
+        "OUT_CAL_CREATE": "Event created: {title}, {when} ({service}).",
+        "OUT_CAL_CREATE_BARE": "Event created ({service}).",
+        "OUT_CAL_CHANGE": "Event changed: {title}, {when} ({service}).",
+        "OUT_CAL_CHANGE_BARE": "Event changed ({service}).",
+        "OUT_CAL_CANCEL": "Event removed ({service}).",
+        "OUT_BOX_ARCHIVE": "Archived: {n} message(s).",
+        "OUT_BOX_MOVE": "Moved: {n} message(s).",
+        "OUT_BOX_READ": "Marked as read: {n} message(s).",
+        "OUT_BOX_UNREAD": "Marked as unread: {n} message(s).",
+        "OUT_BOX_TRASH": "Moved to the trash: {n} message(s).",
+        "OUT_BOX_DRAFT": "Draft saved in your mailbox. It was not sent.",
+        "OUT_FILE_CREATE": "File created ({service}).",
+        "OUT_FILE_REPLACE": "File updated ({service}).",
+        "OUT_FILE_SAVE": "File saved ({service}).",
+        "OUT_MAIL_SENT": "E-mail sent.",
+        "OUT_MAIL_REPLIED": "Reply sent.",
+        # --- the weekday words said on a phone (localize_dates) ---
+        "WD_MON": "Mon", "WD_TUE": "Tue", "WD_WED": "Wed", "WD_THU": "Thu", "WD_FRI": "Fri", "WD_SAT": "Sat", "WD_SUN": "Sun",
         "NW_PRIVATE_LINE": "(a request to your accounts)",
         "NW_PRIVATE_REPLY": "(request to your accounts)",
         "NW_CANCELLED": "Nothing was opened.",
         "NW_CHANGE_BY_NUMBER": "To change an event, name its number and the new time, for example: move event 2 to Friday at 3 pm. Ask for your calendar to see the numbers.",
         "NW_GIVE_UP": "I could not tell what you meant, so nothing was opened. Say the request again.",
-        "NW_NO_CARDS": "You do not receive cards here: ask in the terminal or on the page.",
-        "NW_CARD_NOT_SENT": "Card #{pending} was opened, but it could not be sent to this chat. Approve it in the terminal or on the page, or send /pending.",
+        "NW_NO_CARDS": "You do not receive cards here: ask on the platform's page.",
+        "NW_CARD_NOT_SENT": "Card #{pending} was opened, but it could not be sent to this chat. Approve it on the platform's page, or send /pending.",
         "NW_CHECK_DATE": "Check the date: I understood {when}.",
         "NW_APPROVE_WITH": "To approve it, with its hash: {command}",
         "NW_NO_ACCOUNT": "None of your accounts is set up for this: the key accounts of runtime.json lists them, with what each may write to.",
@@ -403,7 +465,7 @@ TABLE = {
         "NW_PICK_ON_CARD": "Choose where to save it on the file's card:",
         "NW_NO_HELD_KIND": "None of your waiting files is a {kind}. Send it, then ask again.",
         "NW_NO_CALENDAR_SOURCE": "No calendar of yours is a source of this project, so I cannot tell which event you mean.",
-        "NW_REF_NOT_READABLE": "Messages and events are numbered in a snapshot of your mailbox or calendar, and this channel may not read it: ask in the terminal or on the page, or have the project's configuration give you the group ask-mail.",
+        "NW_REF_NOT_READABLE": "Messages and events are numbered in a snapshot of your mailbox or calendar, and this channel may not read it: ask on the platform's page, or have the project's configuration give you the group ask-mail.",
         "NW_RECURRING_EVENT": "An event that repeats is not available yet. For a single event, tell me the day and the time.",
         "NW_ITEMS_HEAD": "{source} (read {read_at}):",
         "NW_ITEMS_MORE": "... and {n} more",
@@ -524,10 +586,10 @@ TABLE = {
         "CARD_CAL_DROP_TITLE": "Removing, title: {title}",
         "CARD_CAL_DROP_WHERE": "Removing, where: {location}",
         "CARD_CAL_DROP_NOTES": "Removing, notes: {notes}",
-        "CARD_HIDDEN_NOTE": "Some of the current text of the event or the message is not shown here: the page and the terminal show all of it.",
-        "CARD_HIDDEN_NOTE_FILE": "Some of the file's name is not shown here: the page and the terminal show all of it.",
-        "CARD_HIDDEN_NOTE_MAIL": "Some of the addresses, subjects and text of the e-mail are not shown here: the page and the terminal show all of it.",
-        "CARD_HIDDEN_NOTE_WHOLE": "The card of this change is not shown here: the page and the terminal show it.",
+        "CARD_HIDDEN_NOTE": "Some of the current text of the event or the message is not shown here: the platform's page shows all of it.",
+        "CARD_HIDDEN_NOTE_FILE": "Some of the file's name is not shown here: the platform's page shows all of it.",
+        "CARD_HIDDEN_NOTE_MAIL": "Some of the addresses, subjects and text of the e-mail are not shown here: the platform's page shows all of it.",
+        "CARD_HIDDEN_NOTE_WHOLE": "The card of this change is not shown here: the platform's page shows it.",
         "CARD_CAL_CALENDAR": "Calendar: {calendar}",
         "CARD_CAL_TITLE": "Title: {title}",
         "CARD_CAL_WHEN": "When: {when}",
@@ -693,6 +755,39 @@ def text(key: str, cfg=None, **fields) -> str:
     return sentence.format(**fields) if fields else sentence
 
 
+WEEKDAY_KEYS = ("WD_MON", "WD_TUE", "WD_WED", "WD_THU", "WD_FRI", "WD_SAT", "WD_SUN")
+_DATE_WEEKDAY = re.compile(r"\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?= \d{2}/\d{2}/\d{4}\b)")
+_DATE_RANGE = re.compile(r"(?<=\d{4} \d{2}:\d{2})-(?=\d{2}:\d{2}\b)")
+
+
+def localize_dates(said, cfg=None):
+    """The dates of a sentence rendered for a phone in the project's language: the English weekday abbreviation that the operations layer writes before a date
+    (`Wed 21/10/2026 13:00-14:00`) as the language's word (`qua`), and the hyphen of a time range after a date as an en dash. Only that exact shape is read, so a word of a
+    person's text that happens to be `Wed` elsewhere is not touched; English and a language with no table are unchanged. Rendering only: the stored card, its hash and the
+    approval are of the stored text."""
+    if not isinstance(said, str) or tag(cfg) not in TABLE or tag(cfg) == DEFAULT:
+        return said
+    words = dict(zip(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), (text(k, cfg) for k in WEEKDAY_KEYS)))
+    return _DATE_RANGE.sub("\u2013", _DATE_WEEKDAY.sub(lambda m: words[m.group(1)], said))
+
+
+def where_page(cfg=None) -> str:
+    """Where a phone is sent for what it cannot do: "on the platform's page: <link>" in the project's language when the project has a `messaging.page_url` (in `cfg` as
+    `page_url`, or under `messaging`), else "on the platform's page". No terminal and no path is ever named to a phone."""
+    url = None
+    if cfg:
+        url = cfg.get("page_url") or (cfg.get("messaging") or {}).get("page_url")
+    return text("PHONE_WHERE_LINK", cfg, url=url) if isinstance(url, str) and url else text("PHONE_WHERE", cfg)
+
+
+def phone(key: str, cfg=None, **fields) -> str:
+    """A sentence of the phone's family (PHONE_*, and the keys that end with {where}) with the place filled in (`where_page`); a full stop closes it unless the place is a
+    link (a stop after a link would be part of it). A sentence that does not end with the place is as it is."""
+    where = where_page(cfg)
+    said = text(key, cfg, where=where, **fields)
+    return said + "." if said.endswith(where) and "://" not in where else said
+
+
 def decimal(number, cfg=None):
     """A number as text written with a point (`3.5 KiB`), with the decimal mark of the language; unchanged for English and for a language with no table."""
     mark = DECIMAL.get(tag(cfg))
@@ -785,15 +880,27 @@ def _none_word(value: str) -> str:
     return "none" if one in ("none", "n/a") else one
 
 
+def _number(line: str) -> int:
+    """The n of a `Q<n>: ` line (the label `Next: ` allowed before it)."""
+    return int(re.match(r"^(?:Next: )?Q([0-9]+): ", line).group(1))
+
+
 def read_question(reply) -> dict:
     """What a router reply that asks holds: {"questions": [...], "quoted": bool}. A question is its `Q<n>: <question>` line and the non-blank lines that follow it
-    (a wrapped line) up to the next question, the next field of the template or a blank line; a `Recommended:` line always belongs to the last question; the
-    label `Next: ` of a question written on the template's `Next:` line is dropped, and a question written twice is listed once. The section of instructions found
-    in external content is skipped, and only it: its heading and the non-blank lines directly under it are never read, so a `Q<n>:` line there is never the router's
-    question, and reading resumes after the next blank line, where the template puts its closing questions. `quoted` is true when that section holds anything
-    other than a `none` word (text after the heading, lines directly under it, or, under an empty heading, content before the first question or field)."""
+    (a wrapped line) up to the next question, the next field of the template or a blank line; a `Recommended:` line belongs to the last question and to no question after a
+    field of the template (a field line ends the attachment); the label `Next: ` of a question written on the template's `Next:` line is dropped, and a question written twice
+    is listed once.
+
+    The section of instructions found in external content is skipped, and only it. Its heading and the non-blank lines directly under it are never read, so a `Q<n>:` line
+    there is never the router's question. The section lasts until the next field of the template; inside it a `Q<n>:` line is a question of the router only when ALL of
+    these hold (the template puts the router's closing questions after the section, `core-orchestrator`): the line follows a blank line or the question before it, and its number is
+    exactly one more than the last question read (Q1 when none was): an injected `Q9:` after a blank line inside the section, or a question that repeats a number, is skipped.
+    A question that passes is still the router's own to the extent code can tell: the section's note (`quoted`, ROUTER_QUOTED_NOTE) tells the person that the reply quoted
+    instructions. `quoted` is true when the section holds anything other than a `none` word (text after the heading, lines directly under it, or, under an empty heading,
+    content before the first question or field)."""
     lines = [line.rstrip() for line in (reply or "").splitlines()]
-    questions, current, last, quoted, at = {}, None, None, False, 0
+    questions, current, last, quoted, at, section, count = {}, None, None, False, 0, False, 0
+    blank = True
     while at < len(lines):
         line, at = lines[at], at + 1
         heading = EXTERNAL_HEADING.match(line)
@@ -808,16 +915,31 @@ def read_question(reply) -> dict:
                 after = next((x for x in lines[at:] if x.strip()), None)
                 quoted = quoted or (after is not None and not QUESTION_LINE.match(after) and not FIELD_LINE.match(after))
             current = last = None
+            section, blank = True, False
         elif QUESTION_LINE.match(line):
+            if section and not ((blank or current is not None) and _number(line) == count + 1):      # inside the section only the next question in order, after a blank line or a question
+                current = None
+                blank = False
+                continue
             current = last = line[len("Next: "):] if line.startswith("Next: ") else line
-            questions.setdefault(current, [current])
+            if current not in questions:
+                questions[current] = [current]
+            count = _number(line)
+            blank = False
         elif RECOMMENDED_LINE.match(line) and last is not None:
             questions[last].append(line.strip())
             current = last
+            blank = False
         elif not line.strip() or FIELD_LINE.match(line):
             current = None
-        elif current is not None:
-            questions[current].append(line.strip())
+            blank = not line.strip()
+            if FIELD_LINE.match(line):
+                last = None      # a `Recommended:` line after a field of the template is the field's, never the last question's
+                section = False
+        else:
+            blank = False
+            if current is not None:
+                questions[current].append(line.strip())
     return {"questions": ["\n".join(parts) for parts in questions.values()], "quoted": quoted}
 
 

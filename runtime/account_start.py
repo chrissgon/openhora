@@ -41,6 +41,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import item_refs  # noqa: E402
+import messaging_failure  # noqa: E402  (what a phone is told when a preparation fails)
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_cancel  # noqa: E402
@@ -184,7 +185,9 @@ def start(project: str, kind: str, args, *, key_words: str, title_key: str, acco
         _abandon(ctx, made["request"])
         exact = str(out.get("detail") or "") if item_refs.may_read(ctx, channel, sender) else ""      # a mailer's sentence can quote the person's words: to a caller who may read them, never stored
         failure = steps.StepFailure(str(out.get("code") or "failed"), str(out.get("field") or ""), "", exact or str(out.get("next") or ""))
-        raise core.OpsError(steps.note_of(str(out.get("failed") or "prepare"), failure), 1)
+        refused = core.OpsError(steps.note_of(str(out.get("failed") or "prepare"), failure), 1)
+        refused.phone = messaging_failure.from_step(kind, account, failure.code, failure.field, args.get("folder"), cfg, said=str(out.get("next") or ""))      # a phone is told what failed and what to check, in plain words
+        raise refused
     if not out.get("stopped") or not out.get("pending"):
         _abandon(ctx, made["request"])
         raise core.OpsError("the preparation ended without a card to approve; nothing was written", 1)

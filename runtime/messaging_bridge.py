@@ -40,7 +40,7 @@ policy grants the messaging channel that effect's word (`approve-effect-<word>`,
 the card the person saw carried the whole text (the ledger's `whole`), the decision says the whole effect fits on a card
 (`effect_on_cards`: not an e-mail with an attachment, not a post with an image), and the card's hash is the decision's own
 `payload_sha256` (a card made for an earlier content is `CHANGED`, nothing runs and a new card is sent). A line typed with a hash must carry the
-card's hash. Otherwise the reply is the command to run in the terminal (decision D8, the default). The approval runs in a job thread:
+card's hash. Otherwise the reply says to approve it on the platform's page (decision D8, the default; no command and no hash on a phone, limit L62). The approval runs in a job thread:
 an effect may take minutes.
 
 Who acted (POL-2). The update's sender is the one the PROVIDER authenticated (Telegram's user id, a snowflake, the signed phone digits), and a card is
@@ -101,6 +101,9 @@ import traceback
 
 import messaging_attach as attach
 import messaging_cards as cards
+import messaging_failure as failure
+import messaging_guard as guard
+import messaging_outcome as outcome
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
@@ -123,12 +126,12 @@ NO_CARD = phrases.en("NO_CARD")
 CHANGED = phrases.en("CHANGED")
 STILL_WORKING = phrases.en("STILL_WORKING")
 RUN_BUSY = phrases.en("RUN_BUSY")
-NOT_ACCEPTED = phrases.en("NOT_ACCEPTED")
+NOT_ACCEPTED = phrases.en("NOT_ACCEPTED").replace("{where}", "").rstrip()      # the sentence up to the place it points to ({where}: the page, with its link)
 NOT_ACCEPTED_WHY = "its configuration is not accepted (run accept-config in the terminal)"
 NO_SENDER_WHY = "runtime.json messaging.senders.{platform} lists no sender"
 UNREADABLE_WHY = "its configuration cannot be read"
-EFFECT_REPLY = phrases.en("EFFECT_REPLY")
-TOO_LONG = phrases.en("TOO_LONG")
+EFFECT_REPLY = phrases.en("EFFECT_REPLY").replace("{where}", "").rstrip()      # the sentence up to the place it points to ({where}: the page, with its link)
+TOO_LONG = phrases.en("TOO_LONG").replace("{where}", "").rstrip()      # the sentence up to the place it points to ({where}: the page, with its link)
 WRONG_HASH = phrases.en("WRONG_HASH")
 NOT_OPEN = phrases.en("NOT_OPEN")
 NOT_OFFERED = phrases.en("NOT_OFFERED")
@@ -186,6 +189,19 @@ def scrub_message(message: dict) -> dict:
     document = out.get("document")
     if isinstance(document, dict):
         out["document"] = {**document, "name": scrub(document.get("name")), "text": scrub(document.get("text"))}
+    return out
+
+
+def dated(message: dict, cfg) -> dict:
+    """The message with its dates said in the project's language (phrases.localize_dates): the text, the footer lines and the document's text, the same way, so that a footer
+    the text ends with is still the text's ending. Rendering only: the stored decision, its hash and the approval are of the stored text."""
+    out = dict(message)
+    out["text"] = phrases.localize_dates(out.get("text"), cfg)
+    if isinstance(out.get("footer"), list):
+        out["footer"] = [phrases.localize_dates(line, cfg) for line in out["footer"]]
+    document = out.get("document")
+    if isinstance(document, dict):
+        out["document"] = {**document, "text": phrases.localize_dates(document.get("text"), cfg)}
     return out
 
 
@@ -275,7 +291,9 @@ class Bridge(shell_kit.Jobs):
                 return {}
             if cache is not None and project["id"] in cache:
                 return cache[project["id"]]
-            found = {"language": self.ops.config(project["path"]).get("language")}
+            read = self.ops.config(project["path"])
+            page_url = (read.get("messaging") or {}).get("page_url")
+            found = {"language": read.get("language"), **({"page_url": page_url} if page_url else {})}
             if cache is not None:
                 cache[project["id"]] = found
             return found
@@ -312,7 +330,10 @@ class Bridge(shell_kit.Jobs):
     def t(self, key: str, project=None, chat=None, cfg=None, **fields) -> str:
         """The sentence `key` in the project's language (runtime/phrases.py). `cfg` is the language already read (a settings dict), else it is read from
         `project`, else from the first served project that lists `chat`."""
-        return phrases.text(key, cfg if cfg is not None else self.cfg(project, chat), **fields)
+        cfg = cfg if cfg is not None else self.cfg(project, chat)
+        if "{where}" in phrases.en(key):      # a sentence that points to the page (package LIVE-2): the place is the project's page link, else the words
+            return phrases.phone(key, cfg, **fields)
+        return phrases.text(key, cfg, **fields)
 
     def key(self, sender: str) -> str:
         """The key of a sender in the policy: `<platform>:<id>` (operations.sender_key)."""
@@ -394,18 +415,27 @@ class Bridge(shell_kit.Jobs):
 
     # --- sending ---------------------------------------------------------------------------------------------
 
-    def deliver(self, chat: str, message: dict):
-        """The one point where the bridge sends anything: every reply, card and file passes the filter that keeps the home folder off a phone."""
-        return self.messenger.send(chat, scrub_message(message))
+    def deliver(self, chat: str, message: dict, guard_text: bool = False):
+        """The one point where the bridge sends anything: every reply, card and file passes the filter that keeps the home folder off a phone and says its dates in the
+        project's language. With `guard_text` (the error text of the operations layer: platform text that is not built from a phrase key) it also passes the net that
+        keeps a command or a path of this machine off a phone (messaging_guard, limit L62). A card and a reply that quotes the person's data never do: what is quoted is
+        theirs, and a card shows what is approved exactly as it is."""
+        cfg = self.cfg(chat=chat)
+        message = dated(scrub_message(message), cfg)
+        return self.messenger.send(chat, guard.guard_message(message, cfg, self.guarded) if guard_text else message)
 
-    def reply(self, chat: str, text: str, project=None):
+    def guarded(self, kinds: list) -> None:
+        """What the net under the phone's sentences (messaging_guard) cut from a message: the kinds only, never the text."""
+        self.log(f"a message carried {' and '.join(kinds)} of this machine; it was cut before it was sent")
+
+    def reply(self, chat: str, text: str, project=None, guard=False):
         """Send a reply. True when every piece went out, False when a send failed (logged), None when the platform deferred it
         (it cannot take a message yet: not an error, not logged, and the caller may try again). `project` names the language of the line that says there is
         no reply."""
         caps = self.messenger.capabilities()
         for piece in cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"]):
             try:
-                sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None})
+                sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None}, guard)
                 self.last_message[chat] = str(sent) if sent else None
             except provider.MessengerError as e:
                 if e.kind == "deferred":
@@ -466,15 +496,11 @@ class Bridge(shell_kit.Jobs):
 
     def send_card(self, project: dict, settings: dict, item: dict, chat: str) -> bool:
         operations = self.ops.operations
-        command = None
-        if item["kind"] == "effect":
-            command = operations.command_line("approve", project["path"], checkout=ROOT, pending_id=item["id"],
-                                              sha256=item.get("payload_sha256"))
         caps = self.messenger.capabilities()
         sender = self.key(chat)
         item = self.for_reader(project, item, sender)
         card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"],
-                           settings["page_url"], operations=operations, effect_command=command, sender=sender, cfg=settings)
+                           settings["page_url"], operations=operations, sender=sender, cfg=settings)
         document = card["message"]["document"]
         if document and card["gated"] and card["approvable"]:
             # An approval needs the whole text DELIVERED: the file goes first, as a message of its own, and the card with the buttons only after
@@ -483,7 +509,7 @@ class Bridge(shell_kit.Jobs):
             if state is None:
                 return False
             card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"], settings["page_url"],
-                               operations=operations, effect_command=command, delivery=state, sender=sender, cfg=settings)
+                               operations=operations, delivery=state, sender=sender, cfg=settings)
         seq = self.ledger.next_seq()
         message = dict(card["message"])
         made = {f"{seq}:{a['op']}": a["op"] for a in message["actions"]}
@@ -797,7 +823,7 @@ class Bridge(shell_kit.Jobs):
         try:
             found = self.run_op(project, "pending", sender=chat)["pending"]
         except (Refused, self.ops.OpsError) as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, str(e), project, guard=True)
             return
         files = self.attach.waiting(project, chat)      # this sender's own files that wait for an answer and have a card in this chat (their profile permits `attachments`), else None
         if not found:
@@ -844,9 +870,9 @@ class Bridge(shell_kit.Jobs):
             else:
                 self.release(project, chat, pending_id)
         except Refused as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, str(e), project, guard=True)
         except self.ops.OpsError as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, str(e), project, guard=True)
             if op == "approve":
                 self.renew(project, chat, pending_id, card)
 
@@ -877,9 +903,7 @@ class Bridge(shell_kit.Jobs):
         if kind == "plan" and item.get("plan_networked") is True:       # a plan that reaches the network: its destinations must have been shown, whole
             self.allow(project, "approve", "plan:networked", chat)
             if card.get("whole") is not True or self.settings(project)["notices"] != "text":
-                command = self.ops.operations.command_line("approve", project["path"], checkout=ROOT, pending_id=number,
-                                                           sha256=card["content_sha256"])
-                self.reply(chat, f"{self.t('TOO_LONG', project=project)}\n{command}", project)
+                self.reply(chat, self.t("TOO_LONG", project=project), project)      # the page shows it whole: no command, no hash (limit L62)
                 return
             if card.get("approvable") is not True:       # only a gated card (an effect, a networked plan) must have offered the approval;
                 self.reply(chat, self.t("NOT_OFFERED", project=project), project)           # a plain plan or an acceptance is checked against the policy when the person acts
@@ -895,27 +919,25 @@ class Bridge(shell_kit.Jobs):
         self.reply(chat, self.t("APPROVED", project=project, id=number), project)
 
     def approve_effect(self, project: dict, chat: str, item: dict, card, typed_hash=None) -> None:
-        """An effect, from a tap or a typed line. By default (the policy does not grant the word) the reply is the command, as it always was.
+        """An effect, from a tap or a typed line. By default (the policy does not grant the word) the reply says to approve it on the page (no command: LIVE-2).
         Granted, every one of these must hold or nothing runs: a card (NO_CARD), a card that carried the whole text and a decision whose
         whole effect fits on a card (TOO_LONG), a typed hash that is the card's, a card whose hash is the decision's own payload hash
         (CHANGED, and a new card), a decision still open. The call is the operations layer's approve with the CARD's hash, in a job thread."""
         number = item["id"]
         word = item.get("effect_word")
         ask = "effect:" + word if isinstance(word, str) and word else "effect"
-        command = self.ops.operations.command_line("approve", project["path"], checkout=ROOT, pending_id=number,
-                                                   sha256=item.get("payload_sha256"))
         settings = self.settings(project)
         if settings is None:
             raise Refused(self.t("NOT_ACCEPTED", project=project))
         say = lambda key, **fields: self.reply(chat, self.t(key, cfg=settings, **fields), project)  # noqa: E731
         if not self.ops.operations.permitted("approve", CHANNEL, settings["policy"], ask, self.key(chat)) or settings["notices"] != "text":
-            self.reply(chat, f"{self.t('EFFECT_REPLY', cfg=settings)}\n{command}", project)     # not granted, or a card that carries none of the text: the command, as it always was
+            self.reply(chat, self.t("EFFECT_REPLY", cfg=settings), project)     # not granted, or a card that carries none of the text: it is approved on the page (no command on a phone, limit L62)
             return
         if card is None:
             say("NO_CARD")
             return
         if card.get("whole") is not True or item.get("effect_on_cards") is not True:
-            self.reply(chat, f"{self.t('TOO_LONG', cfg=settings)}\n{command}", project)
+            self.reply(chat, self.t("TOO_LONG", cfg=settings), project)
             return
         if typed_hash is not None and typed_hash != card["content_sha256"]:
             say("WRONG_HASH")
@@ -934,14 +956,29 @@ class Bridge(shell_kit.Jobs):
 
         def call():
             try:
-                self.run_op(project, "approve", kind=ask, sender=chat, pending_id=number, sha256=shown)
-                say("APPROVED", id=number)
+                done = self.run_op(project, "approve", kind=ask, sender=chat, pending_id=number, sha256=shown)
+                said = outcome.sentence(item, (done or {}).get("result") if isinstance(done, dict) else None, settings)
+                self.reply(chat, said or self.t("APPROVED", cfg=settings, id=number), project)      # what was done in plain words, else the plain approval
             except Refused as e:
-                self.reply(chat, str(e), project)
+                self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
-                self.reply(chat, str(e), project)
+                self.reply(chat, self.failed(e, item, settings), project)      # what failed and what to check, in plain words (messaging_failure); the full text is the terminal's
                 self.renew(project, chat, number, card)
         self.start(project, chat, "approve", call)
+
+    def without_card_line(self, said: str, pending, project) -> str:
+        """`said` without the line that tells a card of this decision waits for approval (ACCT_CARD_SENT): the card was just sent to this chat and says it itself. Called only
+        when the card went out; where no card was shown the line stays, and so does any other line (a doubt about the date, a rolled day)."""
+        if pending is None:
+            return said
+        card_line = self.t("ACCT_CARD_SENT", project=project, pending=pending)
+        return "\n".join(line for line in said.split("\n") if line != card_line).strip("\n")
+
+    def failed(self, error, item: dict, cfg) -> str:
+        """The sentence for an approval that did not write: the operations layer's `phone` sentence when it wrote one, else the plain words messaging_failure picks from its
+        code and words, with the effect's word. The error's own text (a step name, a hash, a command) stays in the terminal and the page."""
+        said = getattr(error, "phone", None)
+        return str(said) if said else failure.from_error(error, cfg, word=item.get("effect_word"), account=(item.get("payload") or {}).get("account"))
 
     def release(self, project: dict, chat: str, pending_id: int) -> None:
         def call():
@@ -949,9 +986,9 @@ class Bridge(shell_kit.Jobs):
                 self.run_op(project, "release", sender=chat, pending_id=pending_id)
                 self.reply(chat, self.t("RELEASED", project=project, id=pending_id), project)
             except Refused as e:
-                self.reply(chat, str(e), project)
+                self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
-                self.reply(chat, self.t("RUN_BUSY", project=project) if type(e).__name__ == "RunBusy" else str(e), project)
+                self.reply(chat, self.t("RUN_BUSY", project=project) if type(e).__name__ == "RunBusy" else str(e), project, guard=True)
         self.start(project, chat, "release", call)
 
     def say(self, project: dict, chat: str, text: str) -> None:
@@ -1014,10 +1051,10 @@ class Bridge(shell_kit.Jobs):
                 self.allow(project, needed, sender=chat)          # the operation's own group, never `talk`: the layer asks it again
             result = self.ops.natural_write(project["path"], text, channel=CHANNEL, sender=self.key(chat), seed=seed)
         except Refused as e:
-            self.reply(chat, self.t("ATT_SAVE_OFF", project=project) if needed == "file-save" else str(e), project)          # a plain sentence for a save, never the name of an operation
+            self.reply(chat, self.t("ATT_SAVE_OFF", project=project) if needed == "file-save" else str(e), project, guard=True)          # a plain sentence for a save, never the name of an operation
             return False
         except self.ops.OpsError as e:
-            self.reply(chat, f"error: {e}", project)
+            self.reply(chat, f"error: {e}", project, guard=True)
             return False
         if result.get("silent"):          # the line opens nothing and says nothing (a caption never asks a question): the caller sends the file's card
             return False
@@ -1031,7 +1068,9 @@ class Bridge(shell_kit.Jobs):
         if result.get("asked") and chat in self.remind.discarded:
             self.remind.discarded.discard(chat)
             said = self.t("NT_DISCARDED", project=project) + " " + said
-        self.reply(chat, said, project)
+        said = self.without_card_line(said, result.get("resend"), project)      # the card went out and says it waits: the line that says so again is not sent
+        if said.strip():
+            self.reply(chat, said, project)
         if result.get("cards"):          # the files to choose among, or the file whose card says where to save it: their cards (ATT-3)
             self.attach.resend(project, chat, result["cards"])
         return result["resend"] if opened else None
@@ -1056,13 +1095,17 @@ class Bridge(shell_kit.Jobs):
                 said = result.get("reply") or self.t("NO_REPLY", project=project)
                 if result.get("resend") is not None and not self.resend(project, chat, result["resend"]):      # a decision named in words (NR-2): its card goes out again
                     said = self.t("NAT_DECISION_NO_CARD", project=project)      # and the sentence says so only when a card is there
+                else:
+                    said = self.without_card_line(said, result.get("resend"), project) or ("" if result.get("resend") is not None else said)
+                if not said:
+                    return
                 if self.reply(chat, said, project) is True and result.get("pending_id") is not None:
                     self.note_asked(project, chat, result["pending_id"])      # the router's question reached this chat as the reply: its notice would be the same question twice
             except Refused as e:
-                self.reply(chat, str(e), project)
+                self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
                 if type(e).__name__ != "RunBusy":
-                    self.reply(chat, f"error: {e}", project)
+                    self.reply(chat, f"error: {e}", project, guard=True)
                 elif entry is not None:       # a kept line met the busy router again: it waits on, with its place and its time
                     if not self.keep(project, chat, text, entry=entry, retry=True):
                         self.reply(chat, self.t("QUEUE_STOPPED", project=project), project)       # the bridge is stopping
@@ -1139,7 +1182,7 @@ class Bridge(shell_kit.Jobs):
         try:
             self.allow(project, self.needs(text, project, chat) or "say", sender=chat)
         except Refused as e:
-            self.reply(chat, str(e), project)
+            self.reply(chat, str(e), project, guard=True)
             return
         except self.ops.OpsError:
             self.reply(chat, self.t(refusal, project=project), project)

@@ -484,3 +484,14 @@ Not listed: the degraded-mode cases proposed for `design-execute`, `design-syste
   - What: after the live check that Gmail removes a `Bcc` header before delivery, put the Bcc in the message headers of `gmail.py` and in `step_send_email.check`; use the upload endpoint (up to 35 MB) for larger files, and Graph upload sessions for Outlook (now 2.5 MiB).
   - Trigger: the maintainer's live checks of the two mailers pass and a real e-mail needs a hidden recipient or a larger file.
   - Done when: the document's `bcc` and larger `attachments` go through both mailers with the exact request list tested.
+
+- **A phone's net finds shell lines by their shape** (LIVE-2 review, #490).
+  - From: the review of #490, false negatives of `messaging_guard`.
+  - What: the finder reads `uv run`, scripts of this repository and this shell's flags; a command spelled another way, or a path with one part, is not found. Widen it only with a case from a real chat.
+  - Trigger: a command or a path reaches a phone through the error text of the operations layer.
+  - Done when: the case is a test of `test_phone_guard.py` and the finder reads it.
+- **Regressions the review of #488 listed** (LIVE-1, `phrases.read_question`).
+  - From: the review of #490, "the #488 regressions".
+  - What: the cases of that review that LIVE-2's section rule and `Recommended:` reset do not settle are to be listed and tested one by one.
+  - Trigger: the maintainer reads a router question on a phone that shows a line it should not, or loses one it should.
+  - Done when: each case is a test of `test_router_question_phone.py`.

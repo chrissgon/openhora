@@ -124,7 +124,7 @@ def test_the_frames_of_a_card_the_policy_closes_are_in_portuguese(world):
     world.items[2] = decision("question", 2)
     world.bridge.tick()
     plan, question = [s["message"] for s in world.sent()]
-    assert plan["actions"] == [] and PT["PAGE_LINE"] in plan["text"] and "Resolva isso na página ou no terminal." in plan["text"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert plan["actions"] == [] and PT["PAGE_LINE"] in plan["text"] and "Resolva isso na página da plataforma." in plan["text"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert plan["link"] == {"label": "Abrir a página", "url": "https://page.example/open"}
     assert "Responda a esta mensagem com a sua resposta." in question["text"]
 
@@ -162,11 +162,10 @@ def test_an_effect_card_says_where_to_approve_in_portuguese_and_the_command_is_n
     world.items[7] = decision("effect", 7, title="Pull request", payload_sha256="e" * 64)
     world.bridge.tick()
     message = world.sent()[0]["message"]
-    assert [a["label"] for a in message["actions"]] == ["Rejeitar"] and "Aprove na página ou no terminal:" in message["text"]
-    command = bridge.scrub(operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256="e" * 64))
-    assert message["text"].rstrip().splitlines()[-1] == f"`{command}`" and "northwind-shop · efeito #7" in message["text"]
+    assert [a["label"] for a in message["actions"]] == ["Rejeitar"] and "Aprove na página da plataforma." in message["text"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert "cli.py" not in message["text"] and "northwind-shop · pedido #7" in message["text"]      # no command on a phone, and the kind is a plain word (LIVE-2)
     world.say("/approve 7")
-    assert world.calls("approve") == [] and world.texts()[-1].startswith("Efeitos são aprovados na página ou no terminal, com o hash:\n") and command in world.texts()[-1]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert world.calls("approve") == [] and world.texts()[-1] == "Um efeito é aprovado onde o texto inteiro aparece, na página da plataforma: https://page.example/open"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
 
 
 def test_the_count_mode_names_the_kind_of_decision_in_the_language_and_carries_none_of_the_text(world):

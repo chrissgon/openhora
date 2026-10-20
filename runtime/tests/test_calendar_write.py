@@ -401,9 +401,9 @@ def test_the_card_is_said_line_by_line_in_the_projects_language_with_the_same_ha
     caps = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
     policy = {"messaging": ["read", "approve-effect-calendar"]}
     full = ops.pending(world["path"], started["pending"])
-    pt = cards.build("northwind", full, caps, policy, "text", None, operations=operations, effect_command="cmd", cfg={"language": "pt-BR"})
-    en = cards.build("northwind", full, caps, policy, "text", None, operations=operations, effect_command="cmd", cfg={})
-    assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] in pt["message"]["text"] and "T\u00edtulo: " + TITLE in pt["message"]["text"]
+    pt = cards.build("northwind", full, caps, policy, "text", None, operations=operations, cfg={"language": "pt-BR"})
+    en = cards.build("northwind", full, caps, policy, "text", None, operations=operations, cfg={})
+    assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] not in pt["message"]["text"] and pt["content_sha256"] == full["payload_sha256"] and "T\u00edtulo: " + TITLE in pt["message"]["text"]
     assert pt["approvable"] is True and pt["whole"] is True
 
 

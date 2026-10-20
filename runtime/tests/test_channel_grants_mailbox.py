@@ -231,10 +231,10 @@ def test_every_card_of_every_action_is_said_line_by_line_in_portuguese_with_the_
         for key, _ in item["payload"]["card"]:
             assert key in phrases.TABLE["pt-BR"] and key.startswith("CARD_")
         full = ops.pending(desk["path"], each["pending"])
-        pt = cards.build("northwind", full, CAPS, {"messaging": ["read", "ask-mail", "approve-effect-mailbox"]}, "text", None, operations=operations, effect_command="cmd",
+        pt = cards.build("northwind", full, CAPS, {"messaging": ["read", "ask-mail", "approve-effect-mailbox"]}, "text", None, operations=operations,
                          sender=SENDER, cfg={"language": "pt-BR"})
-        en = cards.build("northwind", full, CAPS, {"messaging": ["read", "ask-mail", "approve-effect-mailbox"]}, "text", None, operations=operations, effect_command="cmd", sender=SENDER, cfg={})
-        assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] in pt["message"]["text"] and pt["approvable"] is True and pt["whole"] is True
+        en = cards.build("northwind", full, CAPS, {"messaging": ["read", "ask-mail", "approve-effect-mailbox"]}, "text", None, operations=operations, sender=SENDER, cfg={})
+        assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] not in pt["message"]["text"] and pt["content_sha256"] == full["payload_sha256"] and pt["approvable"] is True and pt["whole"] is True
     portuguese = cards.effect_card_text(item_of(desk, made[0]), {"language": "pt-BR"})
     for needle in ("Conta: google (pat@example.com)", "Arquivar: 2 mensagem(ns)", "1. 2026-10-17 06:00 · de ana@clinic.example · Appointment confirmed for Monday", "Lidas na sua caixa de e-mail em"):
         assert needle in portuguese, needle
@@ -405,7 +405,7 @@ def test_a_reader_who_cannot_approve_is_not_shown_the_line_that_says_how(desk):
     accept(desk["path"], {"messaging": ["read", "mail-organize", "ask-mail", "approve-effect-mailbox"]})
     assert with_line in view("messaging", SENDER)["body"], "a reader who may approve reads it"
     assert with_line not in card_for(desk, started, ["read", "ask-mail"])["message"]["text"], "the messaging card of a reader without the grant leaves it out"
-    assert with_line in card_for(desk, started, ["read", "ask-mail", "approve-effect-mailbox"])["message"]["text"]
+    assert with_line not in card_for(desk, started, ["read", "ask-mail", "approve-effect-mailbox"])["message"]["text"], "a phone is never given the command, granted or not (limit L62)"
 
 
 def test_the_private_card_of_a_mailbox_change_a_holder_reads_is_not_kept_in_the_conversation_the_mcp_mode_reads(desk):

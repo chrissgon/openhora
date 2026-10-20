@@ -247,7 +247,7 @@ def test_a_gated_act_named_in_words_is_never_run_and_the_reply_names_the_place_a
     assert ops.config(world["path"])["sha256"] == before
     with_senders(world)
     phoned = phone(world, "owner", "muda o modelo do agente")["reply"]
-    assert phoned.startswith("error: /set-model is done in the terminal or on the page") and "python3" in phoned
+    assert phoned == "Settings, accounts and permissions are changed on the platform's page." and "python3" not in phoned and "--agent" not in phoned      # a phone has no terminal (LIVE-2)
 
 
 def test_an_effect_on_the_persons_accounts_named_in_words_runs_nothing_and_the_reply_is_the_operation_to_run_in_the_projects_language(world):

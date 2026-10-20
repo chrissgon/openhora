@@ -27,6 +27,8 @@ ops_core = st.load("ops_core")
 operations = st.load("operations")
 bridge = st.load("messaging_bridge")
 cards = st.load("messaging_cards")
+guard = st.load("messaging_guard")
+phrases = st.load("phrases")
 ledgers = st.load("messaging_ledger")
 providers = st.load("messaging_provider")
 shell_kit = st.load("shell_kit")
@@ -125,7 +127,7 @@ def test_each_sender_is_sent_a_card_drawn_for_their_own_profile_and_acts_only_as
     lab.bridge.tick()
     owner, staff = lab.card(OWNER), lab.card(STAFF)
     assert [a["label"] for a in owner["actions"]] == ["Approve", "Reject"], "the owner's profile approves plans and rejects"
-    assert staff["actions"] == [] and "Act on it on the page or in the terminal." in staff["text"], "the employee's lists neither"
+    assert staff["actions"] == [] and "Act on it on the platform's page." in staff["text"], "the employee's lists neither"
     # the employee types the approval: refused for THEIR profile, with the hash and everything else right; nothing happens
     lab.say(STAFF, f"/approve {lab.plan} {lab.digest}")
     assert NOT_ENABLED in lab.texts(STAFF)[-1] and lab.status(lab.plan) == "open"
@@ -267,7 +269,7 @@ def test_approving_an_effect_for_the_owner_alone_the_card_is_built_for_the_sende
     approval (POL-1), but the owner's card is drawn for the owner: the reject button follows their profile."""
     two(lab)
     lab.bridge.tick()
-    owners, staffs = lab.card(OWNER, "effect"), lab.card(STAFF, "effect")
+    owners, staffs = lab.card(OWNER, "request"), lab.card(STAFF, "request")
     assert [a["label"] for a in owners["actions"]] == ["Reject"] and staffs["actions"] == []
     lab.say(OWNER, f"/approve {lab.effect['id']} {lab.effect['payload_sha256']}")
     assert lab.status(lab.effect["id"]) == "open"
@@ -382,10 +384,9 @@ def test_no_message_the_bridge_sends_carries_the_home_folder_whatever_it_is_and_
         ops.OpsError(f"nothing was done in {lab.path}/docs: see {home}/x", 1)))        # an OpsError that carries a path
     lab.say(OWNER, f"/reject {lab.acceptance}")
     lab.bridge.reply(OWNER, json.dumps({"approve": {"command": operations.command_line("routine-approve", lab.path, checkout=str(lab.tmp / "checkout"),
-                                                                                       routine_id=1, sha256="a" * 64)}}))           # a draft routine's approve command
+                                                                                       routine_id=1, sha256="a" * 64)}}), guard=True)           # the operations layer's own text, a draft routine's approve command: the net cuts it
     real_say = ops.say
-    monkeypatch.setattr(ops, "say", lambda project, text, channel=None, sender=None: {"reply": "unclassified: " + operations.command_line(
-        "route", lab.path, checkout=str(lab.tmp / "checkout"), request_id=3)})
+    monkeypatch.setattr(ops, "say", lambda project, text, channel=None, sender=None: {"reply": "unclassified, name a flow"})
     lab.say(OWNER, "make a thing")                                                      # an unclassified route
     assert wait_for(lambda: "unclassified" in everything_sent(lab))
     lab.settle()
@@ -394,11 +395,14 @@ def test_no_message_the_bridge_sends_carries_the_home_folder_whatever_it_is_and_
     ops.approve(lab.path, lab.plan, lab.digest, channel="terminal")                     # the person approves the plan in the terminal: its tasks are ready, and held
     monkeypatch.setattr(ops, "say", real_say)
     lab.say(OWNER, "/status")                                                           # a held task: its command
-    assert wait_for(lambda: "dispatch off" in everything_sent(lab) and "run-next" in everything_sent(lab).split("dispatch off")[-1])
+    assert wait_for(lambda: "dispatch off" in everything_sent(lab))
     blob = everything_sent(lab)
     assert home not in blob and lab.path not in blob and str(lab.tmp / "checkout") not in blob, "no message carries the home folder"
-    assert blob.count("~/") >= 4, "the commands are still there, spelled from the home folder (an unquoted `~/x` is expanded by the shell)"
-    assert "runtime/cli.py" in blob and "approve --project ~/" in blob
+    # LIVE-2 (limit L62): a phone is told where, never the command. The two texts the test injects (a routine's approve command, a route command) are cut by the net under
+    # the sentences, which says so once and records an event; every sentence of the bridge's own carries none to cut.
+    assert "~/" not in blob and "cli.py" not in blob and "--project" not in blob and "--sha256" not in blob and "uv run" not in blob
+    assert [e["kinds"] for e in guard.EVENTS if "command" in e["kinds"]], "the net recorded what it cut"
+    assert phrases.text("PHONE_STRIPPED", None, where=phrases.where_page(None)) in blob
 
 
 def test_the_footer_a_card_hands_over_is_scrubbed_with_its_text_and_stays_an_exact_suffix_of_it(monkeypatch):

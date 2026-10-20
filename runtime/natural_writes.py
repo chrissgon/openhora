@@ -52,7 +52,9 @@ Standard library only. Runs on Python 3.9: python3 runtime/natural_writes.py --h
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
+import json
 import os
 import re
 import sys
@@ -644,13 +646,31 @@ def _variants(window: list, text: str, tables: list, prefixes: list) -> list:
 
 
 _FACTS: dict = {}
+_FACTS_MAX = 4000      # entries kept; past it the cache is dropped whole (an answer is recomputed, never wrong)
+_DIGESTS: dict = {}    # id(table) -> (table, digest): the table is held, so an id is never reused by another object while its entry lives
+
+
+def _digest(table) -> str:
+    held = _DIGESTS.get(id(table))
+    if held is None or held[0] is not table:
+        held = _DIGESTS[id(table)] = (table, hashlib.sha256(json.dumps(table, sort_keys=True, default=repr).encode("utf-8")).hexdigest())
+    return held[1]
+
+
+def clear_facts() -> None:
+    """Drop what `_facts` kept (a test, and a process that wants the memory back)."""
+    _FACTS.clear()
+    _DIGESTS.clear()
 
 
 def _facts(text: str, now, tables: list):
     """(the clocks written in `text`, the days it names alone, the (date, time) readings of the engine on it): what a window of the person's lines says about time. The
-    engine is the slow part of the checker and a window is asked about again and again, so the answer is kept for the moment `now` and the tables it was made with."""
-    key = (text, str(now), tuple(id(t) for t in tables))
+    engine is the slow part of the checker and a window is asked about again and again, so the answer is kept for the moment `now` and the CONTENT of the tables it was made
+    with (a digest of each table, never the identity of the object), at most `_FACTS_MAX` entries."""
+    key = (text, str(now), tuple(_digest(t) for t in tables))
     if key not in _FACTS:
+        if len(_FACTS) >= _FACTS_MAX:
+            _FACTS.clear()
         clocks, days, readings = set(), set(), []
         for hit in nt.find(text, tables)["hits"]:
             if hit["kind"] == "clock":

@@ -19,16 +19,16 @@ calls nothing.
            the accepted policy grants the messaging channel the effect's word (`approve-effect-<word>`), the notices carry
            text, the decision says the whole effect can be on a card (`effect_on_cards`: not an e-mail with an attachment, not a
            post with an image), and the card carried the whole text (the body uncut, or the whole text as the attached
-           document). Otherwise its card ends with the exact command, to be run on the page or in the terminal, and, when only the
+           document). Otherwise its card says to approve it on the platform's page (no command and no hash: a phone has no terminal, limit L62) and, when only the
            length stops it, the line "Too long to approve here". The result carries `whole`, which the bridge records in the
            ledger: an approval is taken only from a card that says it was whole. A question is answered by replying to its card (when
            the policy permits `answer` and the platform keeps reply context). What the platform cannot draw as a button (no buttons,
            or more actions than it shows) becomes a typed line, "Send /approve 12". What the policy refuses is neither drawn nor
-           offered as a line: the card says "Act on it on the page or in the terminal."
+           offered as a line: the card says "Act on it on the platform's page."
   sender   (POL-2) the card is drawn for one sender, and what it offers is what THAT sender's profile permits: the owner's card of a plan has
            Approve and Reject, an employee's card of the same plan, whose profile lists neither, has no button; the result says whether the card
            offers its sender anything to act on or answer (`actionable`), which a profile with `notices: actionable` is sent a card for
-  language (LR-1) the frames a card adds around the decision's text (the labels, the cut and whole notes, the "Send /approve 12" lines, "Act on it on the page or in the terminal.") and
+  language (LR-1) the frames a card adds around the decision's text (the labels, the cut and whole notes, the "Send /approve 12" lines, "Act on it on the platform's page.") and
            the kind of the decision as a word are the phrase table's (runtime/phrases.py) in the language of the `cfg` handed to `build`; the decision's own text, the
            commands and the ids are never changed
   card     (FND) an effect of a write to the person's own accounts stores, beside its English body, `payload["card"]`: its lines as [key, {field: text}] of
@@ -48,6 +48,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import phrases  # noqa: E402  (the same folder: the sentences of a card, in the project's language)
 
 CHANNEL = "messaging"
+LEDGER_LINE = re.compile(r"^(Ledger \(the publisher's record of the keys it published\)): /[^\n]+$", re.M)      # the platform's own frame line (publish_document): the publisher's ledger file by its path on this machine
+APPROVE_FRAME = re.compile(r"^Approve exactly this: python3 runtime/cli\.py approve --project <project> [^\n]*$\n?", re.M)      # the platform's own how-to line of a stored body (command_line("approve", "<project>", ...))
 WORD_OPERATION = {"approved": "approve", "accepted": "approve", "rejected": "reject", "released": "release"}
 # The English frames of a card, kept under their old names; the phrase table (runtime/phrases.py) is their source and `build` says them in the language of
 # the `cfg` it is given (the project's settings: anything that maps `language`), package LR-1.
@@ -110,17 +112,6 @@ def _cut(text: str, room: int, note: str) -> str:
     return text[:keep].rstrip() + "\n" + note
 
 
-def code_span(command: str) -> str:
-    """The command as a Markdown code span, which a messenger can offer as tap-to-copy. A command that holds a backtick
-    is wrapped in a longer run of backticks with a space inside each end (CommonMark); the renderer strips that one
-    space, so the visible command is the command byte for byte."""
-    longest = max((len(r) for r in re.findall(r"`+", command)), default=0)
-    if not longest and not (command.startswith(" ") or command.endswith(" ")):
-        return f"`{command}`"
-    fence = "`" * (longest + 1)
-    return f"{fence} {command} {fence}"
-
-
 def effect_kind(item: dict) -> str:
     """The kind of `approve` the policy is asked about for an effect decision: `effect:<word>`, or `effect` when the word is not known."""
     word = item.get("effect_word")
@@ -143,6 +134,10 @@ def reads_private(policy, sender, operations) -> bool:
     return bool(sender) and bool(groups) and phrases.CARD_PRIVATE_GROUP in groups
 
 
+PHONE_DROPPED = ("CARD_MAIL_HASH", "CARD_FILE_HASH")      # the hash line of a card: a command's argument, which a phone does not type (the button binds to the hash the ledger recorded)
+PHONE_LINE = {"CARD_FILE_SAVE": "PHONE_FILE_SAVE"}      # the save line without the file's short hash
+
+
 def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = False, approvable: bool = True):
     """The body of an `effect` decision said line by line in the project's language, or None. An effect of an account write (package FND) stores, beside
     its English body, its `card`: a list of [key, {field: text}] lines of the phrase table's family CARD_ (runtime/phrases.py card_valid). The lines are
@@ -157,17 +152,19 @@ def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = F
     if phrases.card_text(card).strip() != (item.get("body") or "").strip():
         return None
     shown = card if private else phrases.card_without_private(card, owner)
-    kept = shown if approvable else [line for line in shown if not line[0].endswith("_APPROVE")]      # a reader offered no approval is not told how to approve
+    # `approvable` False is the phone (LIVE-2): the lines that are the platform's own how-to for a terminal go (the approve command, the hash line the command needs), and the
+    # save line says no hash; every line of the person's data is as the card holds it. A reader offered no approval is not told how to approve either.
+    kept = shown if approvable else [[PHONE_LINE.get(line[0], line[0]), line[1]] for line in shown if not line[0].endswith("_APPROVE") and line[0] not in PHONE_DROPPED]
     text = phrases.card_text(kept, cfg)
     return text + "\n" + phrases.text(phrases.hidden_note_key(card, shown), cfg) if len(shown) < len(card) else text
 
 
 def build(project_name: str, item: dict, caps: dict, policy, notices: str = "text", page_url=None, operations=None,
-          effect_command: str | None = None, delivery: str | None = None, _blocked: str | None = None, sender: str | None = None, cfg=None) -> dict:
+          delivery: str | None = None, _blocked: str | None = None, sender: str | None = None, cfg=None) -> dict:
     """The card of one open decision. Returns {"message": the neutral message without action ids (each action is
     {"op", "label"}), "content_sha256", "kind", "pending_id", "whole", "approvable", "gated", "blocked"} ("approvable": the card offers an approval, as a
-    button or a typed line; "gated": its approval needs the whole text; "blocked": "document" when its file did not arrive). `operations` is the table module (operations.py);
-    `effect_command` is the exact command that approves an effect, spelled by the operations layer. `whole` is true when the
+    button or a typed line; "gated": its approval needs the whole text; "blocked": "document" when its file did not arrive). `operations` is the table module (operations.py).
+    A card never carries a command or a path of this machine (limit L62): the page is named instead. `whole` is true when the
     message carries the decision's whole text: the body uncut, or the whole text as a document that was DELIVERED. The document of a
     card the approval of which needs it is sent first, as a message of its own (messaging_bridge.send_card), and `delivery` says what
     happened: "sent" (the provider confirmed the document: the card cites it and is whole) or "failed" (it did not arrive: the card is not
@@ -188,6 +185,13 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     private = reads_private(policy, sender, operations)
     owner = bool(sender) and item.get("reader_sent_file") is True      # the sender who sent the held file a save card writes (W4a) sees its name there and approves it
     unreadable = kind == "effect" and not private and item.get("effect_word") in operations.ACCOUNT_APPROVAL_WORDS and not phrases.card_valid((item.get("payload") or {}).get("card"))
+    shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg) if unreadable else (effect_card_text(item, cfg, private, owner, False) if kind == "effect" else None)      # an effect that carries its card as lines (FND), said line by line in the language; the line that tells how to approve is a command, which a phone is never given (limit L62)
+    if shown_body is None and router_asks(item):
+        shown_body = phrases.asked_view(item.get("body"), cfg)      # the router's question reaches a phone as the question and its framing, not as the template around it; the hash is made of the stored body
+    full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg),
+                              body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
+    if shown_body is None and kind == "effect":      # a stored body (no card): only the platform's two frame lines are touched, every other line is the person's data and is shown as it is
+        full = APPROVE_FRAME.sub("", LEDGER_LINE.sub(lambda m: m.group(1) + ": " + phrases.text("PHONE_LEDGER_FILE", cfg), full)).rstrip("\n")
     cut_private = unreadable or (kind == "effect" and not private and effect_card_text(item, None, True) != effect_card_text(item, None, False, owner))      # a line of the current text is left out; so is a card of an account write that cannot be read as a card (fail closed)
     if needs_whole and not blocked and notices == "text" and not cut_private:
         if kind == "effect":
@@ -228,8 +232,6 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
         footer.append(t("APPROVES_LINE", sha=item.get("payload_sha256") or ""))
     elif kind == "effect":
         footer.append(t("EFFECT_LINE"))
-        if effect_command:
-            footer.append(code_span(effect_command))
     elif refused:
         footer.append(t("PAGE_LINE"))
     link = None
@@ -239,11 +241,6 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
         else:
             footer.append(page_url)
     header = header_of(project_name, item, cfg)
-    shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg) if unreadable else (effect_card_text(item, cfg, private, owner, approval_ok) if kind == "effect" else None)      # an effect that carries its card as lines (FND), said line by line in the language
-    if shown_body is None and router_asks(item):
-        shown_body = phrases.asked_view(item.get("body"), cfg)      # the router's question reaches a phone as the question and its framing, not as the template around it; the hash is made of the stored body
-    full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg),
-                              body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
     document = None
     whole = False
     if notices == "count":
@@ -266,7 +263,7 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     else:
         whole = notices != "count"
     if needs_whole and approval_ok and not whole:    # a cut card approves nothing: the same card again, with the command and the line
-        return build(project_name, item, caps, policy, notices, page_url, operations, effect_command, delivery, _blocked="long", sender=sender, cfg=cfg)
+        return build(project_name, item, caps, policy, notices, page_url, operations, delivery, _blocked="long", sender=sender, cfg=cfg)
     text = header + "\n\n" + body + tail if body else header + tail
     labels = {op: t("EFFECT_LABEL" if op == "approve" and kind == "effect" else "LABEL_" + op.upper()) for op in ORDER}
     message = {"text": text, "actions": [{"op": op, "label": labels[op]} for op in shown], "link": link, "document": document}
@@ -309,7 +306,7 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
     """The one card of a file a sender sent (kind `attachment`), drawn for the sender who sent it: "I received <name> (<size>, <type>). What should I do?" with a button for
     each thing THAT sender's profile permits: **Save to Google Drive** / **Save to OneDrive** (one for each account in `accounts`, when the profile permits `file-save`),
     **Add to project** (only for a type that can become a source, when it permits `attachment-add`) and **Discard**. A platform with no buttons gets the typed lines
-    (`Send /add 3`, `Send /discard 3`, or the words that save); what the policy refuses is neither drawn nor offered (the card says to act on the page or in the terminal).
+    (`Send /add 3`, `Send /discard 3`, or the words that save); what the policy refuses is neither drawn nor offered (the card says to act on the platform's page).
     With notices "count" the card carries nothing of the project or of the file. `row` is the held file as `attachments` reads it (its name, kind and size are the sender's own
     words, already cleaned and cut); `accounts` the accounts ("google", "microsoft") the project lists with folders; `extra` is lines (already said) added under the question: the note that
     the text sent with the file is read only as a request to save it, or that the service the text named is not set up. Returns {"message", "content_sha256" (the one of attachments.card_sha256), "kind": "attachment", "attachment_id",

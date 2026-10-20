@@ -96,7 +96,7 @@ def test_the_numbers_are_fixed_in_code():
 
 def test_the_sentences_are_the_ones_the_spec_names():
     a = attachments
-    assert a.OFF == "Files are not taken from this app for this project. Add it on the page or in the terminal (source-import)."
+    assert a.OFF == "Files are not taken from this app for this project. Add it on the platform's page."
     assert a.MEDIA == ("Voice notes, videos, audio and stickers are not taken yet, and neither are images other than PNG, JPEG, WebP, GIF or HEIC. Send a photo or an image of "
                        "those types to save it to Drive or OneDrive, or a PDF, a Word document, a spreadsheet, a presentation, an HTML page or a text file to add it to the project.")
     assert a.IMAGE_NOT_SOURCE == "Images are not added to the project; I can save them to Drive or OneDrive."

@@ -218,9 +218,9 @@ def test_the_footer_is_handed_over_by_the_cards_for_a_platform_that_replies_to_a
             "effect_word": "send", "effect_on_cards": True, "payload_sha256": "e" * 64}
     caps = {"max_text": 8000, "buttons": False, "max_buttons": 0, "documents": False, "reply_context": True, "url_buttons": False}
     policy = {"messaging": ["read", "approve-effect-send"]}
-    plain = cards.build("northwind", item, caps, policy, "text", None, operations=operations, effect_command="cmd")
+    plain = cards.build("northwind", item, caps, policy, "text", None, operations=operations)
     assert "footer" not in plain["message"]
-    asked = cards.build("northwind", item, {**caps, "actions_need_reply": True}, policy, "text", None, operations=operations, effect_command="cmd")
+    asked = cards.build("northwind", item, {**caps, "actions_need_reply": True}, policy, "text", None, operations=operations)
     message = asked["message"]
     assert message["footer"] and message["text"].endswith("\n\n" + "\n".join(message["footer"]))
     assert message["footer"][0] == "Send /approve 7" and message["text"].count("Send /approve 7") == 2      # the decision's own line and the footer's

@@ -118,7 +118,7 @@ def test_a_reminder_the_router_chose_to_forget_is_never_forgotten_at_once(world)
 
 @pytest.mark.parametrize("line, expected", [
     ("help", "HELP"), ("ajuda", "HELP"), ("what can you do", "HELP"),
-    ("what flows are there", "error: /flows is done in the terminal or on the page"),
+    ("what flows are there", "That is not done from a message. Do it on the platform's page."),
 ])
 def test_the_help_and_a_read_the_channel_does_not_have_get_a_true_sentence_through_the_bridge(rig, line, expected):
     rig.bridge.handle(rig.update(OWNER, line))

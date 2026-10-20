@@ -41,6 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import attachments as att  # noqa: E402
 import messaging_cards as cards  # noqa: E402
+import messaging_guard as guard  # noqa: E402  (what a phone never reads, limit L62)
 import messaging_provider as provider  # noqa: E402
 import natural_writes  # noqa: E402  (a caption that asks to save the file: package NR-5)
 import phrases  # noqa: E402
@@ -71,7 +72,7 @@ class Attachments:
             self.bridge.log(f"a machine problem was told to a phone ({error.__class__.__name__})")
             return phrases.localize(said, cfg)
         text = str(error)
-        if PATH.search(text) or getattr(error, "code", 1) == 3:
+        if PATH.search(text) or guard.find(text) or getattr(error, "code", 1) == 3:
             self.bridge.log(f"a machine problem was told to a phone ({error.__class__.__name__})")
             return phrases.text("ATT_MACHINE", cfg)
         return phrases.localize(text, cfg)
