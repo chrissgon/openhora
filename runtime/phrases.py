@@ -10,7 +10,7 @@ of its own data module, runtime/phrases_pt_br.py (the one file written in Portug
 this one), so that a reviewer reads the two columns side by side. English is the source: each key is the name of the constant it replaced (`STALE`, `QUEUED`,
 `ASK_HINT`...), and the module that had the constant keeps it as the English text (`phrases.en(key)`), so that a project with no `language`
 key, and every test written before the table, sees the sentences byte for byte as they were. A key that two modules had as a name of its own
-carries the area as a prefix (`ATT_` for a file a sender sent, `RM_` for a reminder, `ASK_` where the answer from sources shares a name with
+carries the area as a prefix (`ATT_` for a file a sender sent, `RM_` for a reminder, `NW_` for a write asked in words, `ASK_` where the answer from sources shares a name with
 another sentence).
 
 `text(key, cfg, **fields)` is the one function a module calls. `cfg` is anything that maps `language` to the project's setting (the
@@ -362,6 +362,40 @@ TABLE = {
         "NAT_NO_SOURCE": "No source of this project matches that. Searching your accounts is planned, not built yet.",
         "NAT_USED": "I used: {name}.",
         "NAT_ASK_REMIND_HINT": "That looks like a reminder: write it in words, for example 'remind me Friday at 5 pm to pick up the parcel at the front desk'.",
+        "NW_PRIVATE_LINE": "(a request to your accounts)",
+        "NW_PRIVATE_REPLY": "(request to your accounts)",
+        "NW_CANCELLED": "Nothing was opened.",
+        "NW_CHANGE_BY_NUMBER": "To change an event, name its number and the new time, for example: move event 2 to Friday at 3 pm. Ask for your calendar to see the numbers.",
+        "NW_GIVE_UP": "I could not tell what you meant, so nothing was opened. Say the request again.",
+        "NW_NO_CARDS": "You do not receive cards here: ask in the terminal or on the page.",
+        "NW_CARD_NOT_SENT": "Card #{pending} was opened, but it could not be sent to this chat. Approve it in the terminal or on the page, or send /pending.",
+        "NW_CHECK_DATE": "Check the date: I understood {when}.",
+        "NW_APPROVE_WITH": "To approve it, with its hash: {command}",
+        "NW_NO_ACCOUNT": "None of your accounts is set up for this: the key accounts of runtime.json lists them, with what each may write to.",
+        "NW_ASK_ACCOUNT": "Which account?",
+        "NW_ASK_CALENDAR": "I do not have the calendar '{name}'. The calendars set up: {names}. Which one?",
+        "NW_ASK_FOLDER": "I do not have the folder '{name}'. The folders set up: {names}. Which one?",
+        "NW_ASK_FOLDER_NONE": "Which folder? The folders set up: {names}.",
+        "NW_ASK_SOURCE": "From which calendar?",
+        "NW_ASK_TIME": "When is the event '{title}'? (or 'all day')",
+        "NW_ASK_TIME_PLAIN": "When is the event? (or 'all day')",
+        "NW_ASK_TITLE": "What is the title of the event on {when}?",
+        "NW_ASK_TITLE_PLAIN": "What is the title of the event?",
+        "NW_ASK_DAY": "Which day is the all-day event?",
+        "NW_ASK_DAY_INVALID": "That date does not exist. Which day is the event?",
+        "NW_ASK_END": "The end has to be after the start. At what time does it end?",
+        "NW_ASK_EVENT": "Which event? Say its number (ask 'list my events' to see them).",
+        "NW_ASK_FILE_NAME": "What is the file name? Give it with its extension (for example notes.md), or say 'google doc'.",
+        "NW_ASK_FILE": "Which file do you mean?",
+        "NW_ASK_ATTACHMENT": "Which file?",
+        "NW_NO_HELD": "I have no file of yours waiting. Send the file, then ask again.",
+        "NW_NO_HELD_KIND": "None of your waiting files is a {kind}. Send it, then ask again.",
+        "NW_NO_CALENDAR_SOURCE": "No calendar of yours is a source of this project, so I cannot tell which event you mean.",
+        "NW_REF_NOT_READABLE": "Messages and events are numbered in a snapshot of your mailbox or calendar, and this channel may not read it: ask in the terminal or on the page, or have the project's configuration give you the group ask-mail.",
+        "NW_RECURRING_EVENT": "An event that repeats is not available yet. For a single event, tell me the day and the time.",
+        "NW_ITEMS_HEAD": "{source} (read {read_at}):",
+        "NW_ITEMS_MORE": "... and {n} more",
+        "NW_ITEMS_NONE": "No numbered items yet: a mail or calendar source needs a snapshot first.",
         # --- an e-mail from the person's own account (package W2: runtime/send_document.py, runtime/mail_refs.py) ---
         "TITLE_MAIL_SEND": "Mail: send from your account",
         "TITLE_MAIL_REPLY": "Mail: reply from your account",

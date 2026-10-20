@@ -22,7 +22,8 @@ natural = st.load("natural")
 
 HERE = Path(__file__).resolve().parent
 ANSWERS = ["sim", "yes", "9", "20", "21", "8", "às 8", "amanhã", "sexta", "lembrete", "reminder", "outra hora", "ligar pro banco", "ligar amanhã", "dia 25",      # validate: allow english-only -- Portuguese answers, the cases of the tests
-           "sim, mas às 15h", "às 10h", "evento", "não", "ok", "2"]      # validate: allow english-only -- Portuguese answers, the cases of the tests
+           "sim, mas às 15h", "às 10h", "evento", "não", "ok", "2",      # validate: allow english-only -- Portuguese answers, the cases of the tests
+           "lembrete às 15h", "um lembrete às 9 da noite", "lembrete dia 12 às 14h", "evento às 15h", "reminder at 3pm", "an event at 3pm"]      # validate: allow english-only -- Portuguese answers, the cases of the tests
 
 
 def lines():
@@ -90,3 +91,13 @@ def test_a_pick_then_the_words_shows_the_whole_reading_and_waits_for_the_yes(lin
         got = natural.complete(got["ask"], answer, now)
         assert got is not None and "when" not in got, (line, answer, got)
     assert got["ask"]["need"] in ("confirm", "kind") and got["ask"]["text"], "the reading is shown whole: the day, the hour and the words"
+
+
+@pytest.mark.parametrize("answer", ["lembrete às 15h", "um lembrete às 9 da noite", "lembrete dia 12 às 14h", "reminder at 3pm"])      # validate: allow english-only -- Portuguese answers, the cases of the tests
+def test_a_kind_answer_that_carries_a_time_changes_the_reading_and_asks_again_it_never_makes_the_reminder(answer):
+    now = clock("2026-10-19 09:00")
+    first = natural.understand("dentista quinta às 10h", now, "bare")
+    assert first["ask"]["need"] == "kind"
+    got = natural.complete(first["ask"], answer, now)
+    assert got is not None and "when" not in got and got["ask"]["need"] in ("kind", "confirm"), got
+    assert got["ask"]["readings"][0]["when"] != first["ask"]["readings"][0]["when"] and got["ask"]["text"] == "dentista"

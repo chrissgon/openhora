@@ -19,7 +19,7 @@ phrases = st.load("phrases")
 nt = st.load("natural_time")
 
 R = {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-     "reminders", "flows", "flow-check", "connections", "commands"}
+     "reminders", "flows", "flow-check", "connections", "commands", "items"}      # NR-5 (Q6): items, the numbered messages and events
 N = {"remind", "reminder-forget", "reminder-restore"}
 W = {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"}
 D = {"approve", "reject", "release", "answer", "go-ahead"}
@@ -101,7 +101,7 @@ def test_a_row_has_slots_of_known_kinds_that_fill_real_parameters_and_forms_belo
     for name, row in natural.NATURAL.items():
         assert row["what"], name
         for slot, (kind, param) in row["slots"].items():
-            assert kind in ("int", "word", "span", "when"), (name, slot)
+            assert kind in ("int", "ints", "word", "span", "when"), (name, slot)
             assert param in {a["name"] for a in operations.by_name(name)["args"]}, (name, slot, param)
     assert set(forms()) <= set(natural.NATURAL)
     assert not set(forms()) & {"remind", "reminders", "reminder-forget", "reminder-restore"}, "the reminders are the intents of `candidate`, not forms"
@@ -117,7 +117,7 @@ def test_the_forms_are_language_data_closed_phrases_with_the_same_operations_in_
                 assert ".*" not in form and ".+" not in form, (table["tag"], op, form)
                 re.compile(form.replace("{n}", natural.NUMBER))
     assert set(tables[0]["requests"]["forms"]) == set(tables[1]["requests"]["forms"]), "a form of one language has its counterpart in the other"
-    with_n = {op for op in natural.NATURAL if any(v[0] == "int" for v in natural.NATURAL[op]["slots"].values())}
+    with_n = {op for op in natural.NATURAL if natural.CLASSES[op] != "E" and any(v[0] == "int" for v in natural.NATURAL[op]["slots"].values())}      # the E rows have slots for the write forms of NR-5, which are not tier-1 forms
     for op, given in tables[0]["requests"]["forms"].items():
         assert any("{n}" in f for f in given) == (op in with_n and op not in {"pending", "routines", "reminder-restore", "answer"}), op
     for open_ended in (r"approve .*", r"approve .+", r"show( \w+)*", r"show( \w+)+", r"show\S+", r"show\s", r"show *", r"show a+", r"show [a-z]+", r"show [a-z]", r"show{1,}",
@@ -147,6 +147,7 @@ SAMPLES = {
     "flows": ["quais fluxos existem", "list the flows"],
     "connections": ["quais as conexoes", "show the connections"],
     "commands": ["ajuda", "help", "o que voce sabe fazer", "what can you do"],
+    "items": ["meus e-mails", "lista os eventos", "quais e-mails chegaram", "my emails", "list my events", "show my appointments"],
     "task": ["tarefa 5", "como esta a tarefa 5", "show task 5"],
     "approve": ["aprova a entrega 21", "aprove 21", "accept delivery 21", "aceita o 21", "approve decision number 21"],
     "reject": ["rejeita o pedido 3", "reject 3"],

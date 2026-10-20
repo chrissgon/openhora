@@ -688,6 +688,12 @@ class Bridge(shell_kit.Jobs):
                     return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line
             elif chat in self.remind.expired and self.remind.late(project, chat, kind, update.get("text") or ""):
                 return          # a "yes" to a question that expired is told so (NR-1)
+            elif kind in ("text", "natural", "reply") and not (update.get("text") or "").lstrip().startswith("/") and self.write_open(project, chat):
+                if self.write_answers(project, chat, update.get("text") or ""):
+                    self.write(project, chat, update.get("text") or "")          # a question about a write to the person's accounts is open and this line answers it (NR-5)
+                    return
+                self.write_forget(project, chat)          # any other line drops it, and is handled as a new one; a question it asks says the previous one was discarded
+                self.remind.discarded.add(chat)
         if kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands":      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project)
             self.reply(chat, self.t("HELP", project=project), project)
         elif kind == "attachment":
@@ -697,7 +703,9 @@ class Bridge(shell_kit.Jobs):
         elif kind == "remind":
             self.remind.created(project, chat, intent)
         elif kind == "natural":
-            if not self.remind.natural(project, chat, intent):
+            if intent.get("op") == "write":
+                self.write(project, chat, intent["text"])
+            elif not self.remind.natural(project, chat, intent):
                 self.say(project, chat, intent["text"])
         elif kind == "reminders":
             self.remind.listing(project, chat)
@@ -966,6 +974,57 @@ class Bridge(shell_kit.Jobs):
         busy_elsewhere = bool(mine) and not held and all(e["after"] > now for e in mine)
         self.keep_or_refuse(project, chat, text, "RUN_BUSY" if busy_elsewhere else "STILL_WORKING")
         self.drain()      # the job that held the slot may have ended between the refusal and the keeping
+
+    def write_open(self, project: dict, chat: str) -> bool:
+        """Whether this chat has a live question about a write to the person's accounts (memory only, the one store of drafts)."""
+        found = getattr(self.ops, "natural_draft", None)          # an operations object without it (a test's) has no question open
+        if found is None:
+            return False
+        try:
+            return bool(found(project["path"], self.key(chat)))
+        except self.ops.OpsError:
+            return False
+
+    def write_answers(self, project: dict, chat: str, text: str) -> bool:
+        """Whether a plain line answers the chat's open question about a write (the operations layer decides: `natural_needs` names the draft's operation then)."""
+        try:
+            return self.ops.natural_needs(project["path"], text, sender=self.key(chat), channel=CHANNEL) is not None
+        except self.ops.OpsError:
+            return False
+
+    def write_forget(self, project: dict, chat: str) -> None:
+        found = getattr(self.ops, "natural_forget", None)
+        if found is not None:
+            found(project["path"], self.key(chat))
+
+    def write(self, project: dict, chat: str, text: str, seed=None) -> None:
+        """A line that asks for a write to the person's own accounts, or the answer to a question about one (package NR-5): handled by code in a job of its own, with no model,
+        no route lock and no place in the router's queue, and not stored in the conversation. The card of the exact content is what it opens."""
+        self.start(project, chat, "event-create", lambda: self.write_now(project, chat, text, seed))          # the job is labelled with a row that calls no model, so it takes no model slot
+
+    def write_now(self, project: dict, chat: str, text: str, seed=None) -> None:
+        """The body of `write`, for a caller that is already in a job (the caption of a file that was just held)."""
+        try:
+            needed = seed["op"] if seed else self.needs(text, project, chat)
+            if needed:
+                self.allow(project, needed, sender=chat)          # the operation's own group, never `talk`: the layer asks it again
+            result = self.ops.natural_write(project["path"], text, channel=CHANNEL, sender=self.key(chat), seed=seed)
+        except Refused as e:
+            self.reply(chat, str(e), project)
+            return
+        except self.ops.OpsError as e:
+            self.reply(chat, f"error: {e}", project)
+            return
+        said = result.get("reply")
+        if said is None:          # no write and no answer: a plain line, as it always was
+            self.line(project, chat, text, None)()
+            return
+        if result.get("resend") is not None and not self.resend(project, chat, result["resend"]):
+            said = self.t("NW_CARD_NOT_SENT", project=project, pending=result["resend"])
+        if result.get("asked") and chat in self.remind.discarded:
+            self.remind.discarded.discard(chat)
+            said = self.t("NT_DISCARDED", project=project) + " " + said
+        self.reply(chat, said, project)
 
     def line(self, project: dict, chat: str, text: str, entry):
         """The call that runs one line through `say`. `entry` is the kept line this run answers (None: the line has just come); it leaves the waiting

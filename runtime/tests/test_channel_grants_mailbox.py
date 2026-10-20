@@ -316,7 +316,7 @@ def test_a_mailbox_task_read_by_the_mcp_mode_or_a_messaging_reader_without_ask_m
     }
     accept(desk["path"], {"messaging": ["read"]})
     words = ("Appointment confirmed", "Your order", "ana@clinic.example", "bob@shop.example", "joe@shop.example", "amy@shop.example", "boss@shop.example", "Haircut on Monday",
-             "Hello Joe", "Yes, Monday works", "4242", "desk@clinic.example")
+             "Hello Joe", "Yes, Monday works", "telegram:4242", "desk@clinic.example")
     for name, one in started.items():
         whole = ops.task(desk["path"], one["task"])["task"]
         assert whole["step_kind"] == "mailbox-change" and steps.is_account_step(whole["step_kind"], whole["step_args"]), name

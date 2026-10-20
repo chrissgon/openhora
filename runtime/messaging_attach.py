@@ -38,6 +38,7 @@ sys.path.insert(0, HERE)
 import attachments as att  # noqa: E402
 import messaging_cards as cards  # noqa: E402
 import messaging_provider as provider  # noqa: E402
+import natural_writes  # noqa: E402  (a caption that asks to save the file: package NR-5)
 import phrases  # noqa: E402
 
 CHANNEL = "messaging"
@@ -72,6 +73,16 @@ class Attachments:
         cfg = self.bridge.cfg(project)
         return "\n".join(phrases.localize(line, cfg) for line in str(text).split("\n"))
 
+    KIND_EXTENSIONS = {"pdf": ("pdf",), "docx": ("docx", "doc"), "xlsx": ("xlsx", "xls", "csv"), "txt": ("txt",)}          # the kinds a save line names -> the extensions that are that kind
+
+    @classmethod
+    def kind_matches(cls, kind, name) -> bool:
+        """Whether the file's name is of the kind the caption names (no kind named: any file)."""
+        if not kind:
+            return True
+        extension = str(name or "").lower().rsplit(".", 1)[-1] if "." in str(name or "") else ""
+        return extension in cls.KIND_EXTENSIONS.get(kind, (kind,))
+
     # --- what arrives ------------------------------------------------------------------------------------------------------------
 
     def arrived(self, project: dict, chat: str, intent: dict) -> None:
@@ -94,6 +105,11 @@ class Attachments:
         direct = operations.granted("attachment-hold", CHANNEL, settings["policy"], "direct", key)
         files = intent["attachments"]
         target, ignored = att.caption_target(intent.get("text"), len(files))
+        save_line = None
+        if ignored and len(files) == 1:          # a caption that is a closed "save this file" form (package NR-5): the card of the save opens once the file is held
+            written = natural_writes.read(intent.get("text") or "")
+            if written and written["op"] == "file-save" and self.kind_matches(written["slots"].get("kind"), files[0].get("name")):
+                save_line, ignored = intent["text"], False          # a caption that names a kind the file is not ("pdf" on a photo) is no save line: it is ignored, with its sentence
         cap = min(att.FILE_CAP, caps.get("max_attachment_bytes") or att.FILE_CAP)
         try:
             held = bridge.ops.attachments(project["path"])
@@ -119,20 +135,20 @@ class Attachments:
         if lines:
             bridge.reply(chat, "\n".join(dict.fromkeys(lines)), project)
         if todo:
-            bridge.start(project, chat, "attachment-hold", lambda: self.fetch_all(project, chat, todo, target, direct, cap))
+            bridge.start(project, chat, "attachment-hold", lambda: self.fetch_all(project, chat, todo, target, direct, cap, save_line))
 
     # --- the fetches, in a job -------------------------------------------------------------------------------------------------------
 
-    def fetch_all(self, project: dict, chat: str, files: list, target, direct: bool, cap: int) -> None:
+    def fetch_all(self, project: dict, chat: str, files: list, target, direct: bool, cap: int, save_line=None) -> None:
         for file in files:
             try:
-                if self.fetch_one(project, chat, file, target, direct, cap) == "busy":
+                if self.fetch_one(project, chat, file, target, direct, cap, save_line) == "busy":
                     return       # another fetch holds the lock: the person was told once, and the rest of the message is not asked for
             except Exception as e:       # one file never takes the job down, and the class is all that is logged
                 self.bridge.log(f"a file could not be taken ({e.__class__.__name__})")
                 self.bridge.reply(chat, self.bridge.t("ATT_FETCH_FAILED", project=project), project)
 
-    def fetch_one(self, project: dict, chat: str, file: dict, target, direct: bool, cap: int):
+    def fetch_one(self, project: dict, chat: str, file: dict, target, direct: bool, cap: int, save_line=None):
         """One file of the message: fetched, checked and held. Returns "busy" when the lock was taken by another fetch (nothing was fetched)."""
         bridge = self.bridge
         data_dir = bridge.ops.config(project["path"])["data_dir"]
@@ -164,7 +180,7 @@ class Attachments:
                 lock.release()
             if got is None:
                 return
-            self.hold(project, chat, file, token, target, direct, budget)
+            self.hold(project, chat, file, token, target, direct, budget, save_line)
         finally:
             att.remove_incoming(data_dir, token)
 
@@ -225,7 +241,7 @@ class Attachments:
         finally:
             os.close(fd)
 
-    def hold(self, project: dict, chat: str, file: dict, token: str, target, direct: bool, budget: int) -> None:
+    def hold(self, project: dict, chat: str, file: dict, token: str, target, direct: bool, budget: int, save_line=None) -> None:
         bridge = self.bridge
         try:
             result = bridge.run_op(project, "attachment-hold", sender=chat, incoming=token, platform=bridge.platform, ref=file["ref"], name=file.get("name") or "",
@@ -237,6 +253,8 @@ class Attachments:
             bridge.reply(chat, self.said(result["added"]["reply"], project), project)
             return
         self.send_card(project, chat, result)
+        if save_line and isinstance(result.get("attachment"), dict):          # the caption asked to save it: the file is held, so the card of the save opens (never a write)
+            bridge.write_now(project, chat, save_line, {"op": "file-save", "attachment": result["attachment"]["id"]})
 
     # --- the card ----------------------------------------------------------------------------------------------------------------
 

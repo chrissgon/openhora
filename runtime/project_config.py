@@ -55,7 +55,8 @@ accepted with accept-config; it holds no secret (the password is the secret MAIL
 It also reads "accounts" (package FND; absent: the platform writes to no account of the person's): where the platform may write in the person's own
 Google and Microsoft accounts, an object {"google": {...}, "microsoft": {...}} whose entries are each {"address": "<plain address>" (required),
 "calendars": {"<name>": "<calendar id>"}, "folders": {"<name>": "<Drive folder id | OneDrive folder id or /path>"}, "mail_folders": {"<name>":
-"<label or folder id>"}, "move_removes_inbox": true | false (default true)}. A name is lowercase letters, digits and hyphens, at most 32; an id is
+"<label or folder id>"}, "move_removes_inbox": true | false (default true)}, and, beside the two accounts, "default": "google" | "microsoft" (an account the object lists: the
+account a line in words goes to when it names no service and both could serve it, package NR-5; `account_default`). A name is lowercase letters, digits and hyphens, at most 32; an id is
 checked by a full-match pattern of its provider (a Google id holds no slash; a OneDrive path is `/` and names, no `.` or `..`). The account's token
 may reach more than this (the platform's scope set, contracts/secrets.md); what the platform WRITES to is only what is named here, and every
 write kind refuses a target that is not (limit L55; `account_target`). Like every key, changed only in the terminal and accepted with
@@ -649,6 +650,7 @@ def _outbox(value, workbench: str):
 
 
 ACCOUNT_PROVIDERS = ("google", "microsoft")
+ACCOUNT_DEFAULT = "default"          # NR-5 (Q2): the key of `accounts` that names which account a line in words goes to when it names none and both could serve
 ACCOUNT_EFFECT_WORDS = ("calendar", "mailbox", "files")           # the effect words that arrived with the account writes, not with a skill (contracts/environment.md)
 ACCOUNT_KEYS = ("address", "calendars", "folders", "mail_folders", "move_removes_inbox")
 ACCOUNT_SECTIONS = ("calendars", "folders", "mail_folders")      # the three maps of names to ids: the targets the platform may write to
@@ -690,10 +692,14 @@ def _accounts(value):
     if value is None:
         return None
     where = "runtime.json accounts"
-    if not isinstance(value, dict) or set(value) - set(ACCOUNT_PROVIDERS):
-        raise ConfigError(f"{where} must be an object with the keys {', '.join(ACCOUNT_PROVIDERS)} (each optional)")
+    if not isinstance(value, dict) or set(value) - set(ACCOUNT_PROVIDERS) - {ACCOUNT_DEFAULT}:
+        raise ConfigError(f"{where} must be an object with the keys {', '.join(ACCOUNT_PROVIDERS)} (each optional) and default")
     out = {}
     for provider, entry in value.items():
+        if provider == ACCOUNT_DEFAULT:
+            if value[ACCOUNT_DEFAULT] not in ACCOUNT_PROVIDERS or value[ACCOUNT_DEFAULT] not in value:
+                raise ConfigError(f"{where}.default must be google or microsoft, an account this file lists")
+            continue
         here = f"{where}.{provider}"
         if not isinstance(entry, dict) or set(entry) - set(ACCOUNT_KEYS) or "address" not in entry:
             raise ConfigError(f"{here} must be an object with the keys {', '.join(ACCOUNT_KEYS)} (address is required)")
@@ -718,7 +724,15 @@ def _accounts(value):
             raise ConfigError(f"{here}.move_removes_inbox must be true or false")
         item["move_removes_inbox"] = inbox
         out[provider] = item
+    if ACCOUNT_DEFAULT in value:
+        out[ACCOUNT_DEFAULT] = value[ACCOUNT_DEFAULT]
     return out
+
+
+def account_default(cfg: dict):
+    """The account a line in words goes to when it names no service and both could serve it (`accounts.default`, package NR-5), or None."""
+    default = ((cfg or {}).get("accounts") or {}).get(ACCOUNT_DEFAULT)
+    return default if default in ACCOUNT_PROVIDERS and default in ((cfg or {}).get("accounts") or {}) else None
 
 
 def account_entry(cfg: dict, account):

@@ -2684,7 +2684,7 @@ OpsError = core.OpsError  # a shell catches ops.OpsError; the class has one home
 DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this name
 
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
-from ops_say import chat_memory, natural_needs, natural_reply, route_queued, say  # noqa: E402,F401
+from ops_say import chat_memory, natural_draft, natural_forget, natural_needs, natural_reply, natural_write, route_queued, say  # noqa: E402,F401
 from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEAD, MEMORY_TAIL, MEMORY_TURNS, PLAN_NEXT  # noqa: E402,F401
 # The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
@@ -2697,6 +2697,8 @@ from ops_attachments import attachment_add, attachment_discard, attachment_hold,
 from ops_reminders import remind, reminder_forget, reminder_restore, reminders_due, reminders_read, reminders_retry, reminders_sent  # noqa: E402,F401
 # The person's own calendar (runtime/ops_calendar.py, package W1): create, change and remove an event; each one prepares a card and writes nothing.
 from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,F401
+# The numbered items of the mail and calendar snapshots (runtime/ops_items.py, package NR-5a).
+from ops_items import items  # noqa: E402,F401
 # Files in the person's own Drive and OneDrive (runtime/ops_files.py, package W4a): prepare a new file, a new revision or the saving of a file a sender sent.
 from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.

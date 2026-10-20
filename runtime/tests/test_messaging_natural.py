@@ -38,6 +38,9 @@ def portuguese(day):  # noqa: F811
     accept(day.path, language="pt-BR")
 
 
+NO_GROUP = "/event-create is not enabled for this channel"          # the profile of these tests lists no calendar-write: a write line gets the typed refusal (NR-5)
+
+
 def no_model(planner):  # noqa: F811
     assert planner.texts() == [], "a line read by code never reaches the planning agent"
 
@@ -312,7 +315,8 @@ def test_a_line_with_a_time_and_neither_kind_of_word_asks_a_reminder_or_a_calend
     day.say(OWNER, pt.LINE_NOTE_TIME)
     assert day.texts(OWNER)[-1] == pt.ASK_KIND
     day.say(OWNER, "agenda")
-    assert day.texts(OWNER)[-1].startswith(pt.EVENT_START) and len(day.all()["open"]) == 1, "the calendar is not built: nothing is made in its place"
+    settle(day)          # a write line is read in a job of its own (NR-5)
+    assert NO_GROUP in day.texts(OWNER)[-1] and len(day.all()["open"]) == 1, "the profile has no calendar-write: the typed sentence, and nothing is made in its place (NR-5)"
     day.say(OWNER, pt.LINE_NOTE_TIME)
     day.say(OWNER, "sim")
     assert settle(day) and len(day.all()["open"]) == 2 and day.bridge.remind.drafts == {}
@@ -341,14 +345,17 @@ def test_anote_with_a_day_and_no_hour_asks_the_hour_then_which_kind_and_anota_wi
 # --- 3. the calendar, and the scheduling verb that is not a calendar word ------------------------------------------------------------------------------
 
 
-def test_the_calendar_is_not_built_and_a_line_that_asks_for_it_makes_no_reminder(day, planner):  # noqa: F811
+def test_a_line_that_asks_for_the_calendar_from_a_profile_without_calendar_write_gets_the_typed_sentence_and_makes_no_reminder(day, planner):  # noqa: F811
     portuguese(day)
     day.say(OWNER, pt.LINE_CALENDAR)
-    assert len(day.texts(OWNER)) == 1 and day.texts(OWNER)[0].startswith(pt.EVENT_START) and day.all()["open"] == [] and day.bridge.remind.drafts == {}
+    settle(day)
+    assert len(day.texts(OWNER)) == 1 and NO_GROUP in day.texts(OWNER)[0] and day.all()["open"] == [] and day.bridge.remind.drafts == {}
     day.say(OWNER, pt.LINE_MARCA)
-    assert day.texts(OWNER)[-1].startswith(pt.EVENT_START), "marca with a time is an event write: it ends in a card the person approves, so it is claimed"
+    settle(day)
+    assert NO_GROUP in day.texts(OWNER)[-1], "marca with a time is an event write: it ends in a card the person approves, so it is claimed (NR-5), and refused as the typed command is"
     day.say(OWNER, "put on my calendar the florist friday at 9")
-    assert day.texts(OWNER)[-1].startswith(pt.EVENT_START)
+    settle(day)
+    assert NO_GROUP in day.texts(OWNER)[-1]
     no_model(planner)
 
 
@@ -367,7 +374,8 @@ def test_a_scheduling_verb_with_no_calendar_word_asks_event_or_something_else_an
     assert settle(day) and planner.texts() == [pt.LINE_LOOSE], "the line goes on, whole, to the planning agent"
     day.say(OWNER, pt.LINE_LOOSE)
     day.say(OWNER, "agenda")
-    assert day.texts(OWNER)[-1].startswith(pt.EVENT_START) and planner.texts() == [pt.LINE_LOOSE]
+    settle(day)
+    assert NO_GROUP in day.texts(OWNER)[-1] and planner.texts() == [pt.LINE_LOOSE]
     day.say(OWNER, pt.LINE_LOOSE)
     say_yes(day, OWNER, "lembrete")
     assert day.all()["open"][0]["due"] == "2026-10-19 10:00", "a reminder was chosen: the line is kept, not lost"

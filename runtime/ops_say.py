@@ -168,7 +168,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
                     "message_id": stored["id"]}
         if channel not in QUEUING_CHANNELS and route_busy(ctx):
             raise core.RunBusy(RUN_BUSY, 1)
-    stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=ops_natural.stored_line(ctx, said))
+    stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=ops_natural.stored_line(ctx, said, _natural_channel(channel), sender))
     extras = {}
     reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"], sender, extras)
     core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
@@ -212,6 +212,23 @@ def natural_reply(project: str, name: str, channel: str = "messaging") -> str:
     """The sentence for an operation a line only names and the platform does not run from a line (an effect on the person's accounts, a gated act): the place
     and the exact command (ops_natural._gated). The messaging bridge says it for a calendar event. Not an operation of the table."""
     return ops_natural._gated(core.context(project), name, {}, channel)
+
+
+def natural_write(project: str, line: str, channel: str = "messaging", sender=None, seed=None) -> dict:
+    """A line that asks for a write to the person's own accounts, for the messaging bridge (package NR-5): the sender's live question is answered, or the line is read as a
+    write, or the seed (a reminder question answered "event", the loose verb's question, the caption of a file) is. It OPENS the card of the exact content and executes
+    nothing (limit L61). Returns {"reply", "resend", "asked"}; `reply` is None when the line is no write and answers no question. Not an operation of the table."""
+    return importlib.import_module("ops_natural_writes").natural_write(project, line, channel=channel, sender=sender, seed=seed)
+
+
+def natural_draft(project: str, sender, channel: str = "messaging") -> bool:
+    """Whether this sender has a live question about a write (the bridge asks it before it reads a line as new). Not an operation of the table."""
+    return importlib.import_module("ops_natural_writes").has_live(project, channel, sender)
+
+
+def natural_forget(project: str, sender, channel: str = "messaging") -> None:
+    """Drop the sender's open question about a write (a line that answers nothing drops it). Not an operation of the table."""
+    importlib.import_module("ops_natural_writes").forget(channel, sender)
 
 
 def natural_needs(project: str, text: str, sender=None, channel: str = "messaging"):

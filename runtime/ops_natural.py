@@ -61,6 +61,10 @@ def _ops():
     return importlib.import_module("ops")
 
 
+def natural_writes():
+    return importlib.import_module("natural_writes")
+
+
 def _say():
     return importlib.import_module("ops_say")
 
@@ -112,11 +116,20 @@ def _expired(draft: dict) -> bool:
     return draft.get("at") is not None and monotonic() - draft["at"] > DRAFT_TTL
 
 
+def _writes():
+    return importlib.import_module("ops_natural_writes")
+
+
+def _owner(draft: dict) -> str:
+    """Who keeps a draft: the choice of a file for an `ask` ("ops"), a write to the person's accounts ("write", package NR-5), or a question about a reminder ("remind")."""
+    return "ops" if draft.get("kind") == "which" else "write" if draft.get("kind") == "write" else "remind"
+
+
 def _live(slot: tuple):
     """This sender's draft, or None; a question about a reminder that waited more than ten minutes outside a messaging app (the page, the conversation: nothing else
     sweeps it) is dropped here. On a messaging app the bridge sweeps its own on its tick and tells the sender a late yes is late."""
     draft = drafts.get(*slot)
-    if draft is not None and slot[0] != "messaging" and draft.get("kind") != "which" and _expired(draft):
+    if draft is not None and slot[0] != "messaging" and _owner(draft) == "remind" and _expired(draft):
         drafts.drop(*slot)
         return None
     return draft
@@ -128,9 +141,13 @@ def peek(ctx: dict, said: str, channel, sender) -> bool:
         return True
     slot = _slot(channel, sender)
     draft = _live(slot)
+    if draft is not None and _owner(draft) == "write":
+        return channel != "mcp" and _writes().answers(ctx, draft, said)
+    if channel != "mcp" and natural_writes().candidate(said) is not None:      # a write form (package NR-5): code, no model, no route lock
+        return True
     if draft is None:
         return False
-    owner = "ops" if draft.get("kind") == "which" else "remind"
+    owner = _owner(draft)
     return drafts.get(*slot, owner) is not None and _answers(ctx, draft, said, owner) is not None
 
 
@@ -147,17 +164,29 @@ def needs(ctx: dict, said: str, channel, sender):
     answer to a question about a reminder. Never an operation whose row does not list the channel: its refusal would say that a configuration turns on what none can."""
     draft = _live(_slot(channel, sender))
     if draft is not None:
-        owner = "ops" if draft.get("kind") == "which" else "remind"
+        owner = _owner(draft)
+        if owner == "write":
+            return draft["op"] if _writes().answers(ctx, draft, said) else None
         if _answers(ctx, draft, said, owner) is not None:
             return "ask" if owner == "ops" else "remind"
+    written = natural_writes().candidate(said) if channel != "mcp" else None
+    if written is not None:      # a write form needs the group of its operation, never `talk` (package NR-5)
+        return written["op"] if channel in operations.by_name(written["op"])["channels"] else None
     group = natural.needs(said)
     if group is not None and channel in operations.by_name(group)["channels"]:
         return group
     return None
 
 
-def stored_line(ctx: dict, said: str) -> str:
-    """The text the conversation stores for the person's line: the line, but a neutral word for the words of a reminder (limit L51)."""
+def stored_line(ctx: dict, said: str, channel=None, sender=None) -> str:
+    """The text the conversation stores for the person's line: the line, but a neutral word for the words of a reminder (limit L51) and for a line that asks for a write to the
+    person's accounts or answers the question of one (limit L61)."""
+    if channel is not None or sender is not None:
+        draft = drafts.get(*_slot(channel, sender), "write")
+        if draft is not None:
+            return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
+    if natural_writes().candidate(said) is not None:
+        return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
     return phrases.text("NAT_PRIVATE_LINE", ctx["cfg"]) if natural.private(said) else said
 
 
@@ -171,15 +200,17 @@ def keeps_private(ctx: dict, name, channel, sender) -> bool:
 
 
 def private_ids(rows: list) -> set:
-    """The ids of the lines of the person that were followed, in the conversation, by the neutral reply of a reminder (the reply stored for a reminder asked in
-    words or a reminder to forget): a reminder in a language no table ships is recognised only after the router named it, so its line was stored as written, and
-    every reader but the person's own shell is shown the neutral word instead (limit L51)."""
+    """{id: the phrase key of the neutral word} for the lines of the person that were followed, in the conversation, by the neutral reply of a reminder (the reply stored for
+    a reminder asked in words or a reminder to forget) or of a write to the person's accounts (NR-5): a line in a language no table ships is recognised only after the
+    router named it, so its line was stored as written, and every reader but the person's own shell is shown the neutral word instead (limits L51 and L61)."""
     replies = set(phrases.every("NAT_PRIVATE_REPLY"))
-    return {a["id"] for a, b in zip(rows, rows[1:]) if a.get("id") is not None and a["role"] == "user" and b["role"] == "assistant" and b["text"] in replies}
+    writes = set(phrases.every("NW_PRIVATE_REPLY"))
+    return {a["id"]: ("NW_PRIVATE_LINE" if b["text"] in writes else "NAT_PRIVATE_LINE") for a, b in zip(rows, rows[1:])
+            if a.get("id") is not None and a["role"] == "user" and b["role"] == "assistant" and b["text"] in replies | writes}
 
 
 def is_placeholder(text) -> bool:
-    return isinstance(text, str) and text in phrases.every("NAT_PRIVATE_LINE") + phrases.every("NAT_PRIVATE_REPLY")
+    return isinstance(text, str) and text in phrases.every("NAT_PRIVATE_LINE") + phrases.every("NAT_PRIVATE_REPLY") + phrases.every("NW_PRIVATE_LINE") + phrases.every("NW_PRIVATE_REPLY")
 
 
 # --- the entry points --------------------------------------------------------------------------------------------------------------------------
@@ -192,11 +223,22 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     slot = _slot(channel, sender)
     draft = _live(slot)
     if draft is not None:
-        owner = "ops" if draft.get("kind") == "which" else "remind"
-        answer = _answers(ctx, draft, said, owner)
-        drafts.drop(*slot)
-        if answer is not None:
-            return _complete(project, ctx, draft, answer, said, channel, sender, extras)
+        owner = _owner(draft)
+        if owner == "write":      # a question about a write to the person's accounts (package NR-5): the answer, or the draft is dropped and the line is new
+            reply = _writes().answer(project, ctx, draft, said, channel, sender, extras) if channel != "mcp" else None
+            if reply is not None:
+                return reply
+            extras["discarded"] = True
+        else:
+            answer = _answers(ctx, draft, said, owner)
+            drafts.drop(*slot)
+            if answer is not None:
+                return _complete(project, ctx, draft, answer, said, channel, sender, extras)
+            extras["discarded"] = True          # a question this line asks (a write's, NR-5) says the previous one was discarded
+    if channel != "mcp":      # a write form opens the card of its exact content (limit L61), never a write
+        opened = _writes().open_line(project, ctx, said, channel, sender, extras)
+        if opened is not None:
+            return opened
     found = natural.match(said)
     if found is None:
         return None
@@ -230,7 +272,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     if cls == "R":
         if "mcp" not in row["channels"] or keeps_private(ctx, name, channel, sender):      # the MCP mode reads the conversation: what it could not read itself (reminders, files people sent, the private lines of a card drawn for a holder of ask-mail) is stored as a neutral word (limits L50, L51)
             extras["stored"] = t("NAT_READ_REPLY")
-        return _read(project, ctx, name, row, args, channel, sender)
+        return _read(project, ctx, name, row, dict(args, kind=natural_writes().items_kind(said)) if name == "items" else args, channel, sender)      # NR-5: the noun of the line says which items
     if cls == "N":
         return _notice(project, ctx, name, row, args, said, channel, sender, extras, when, routed)
     if cls == "W":
@@ -246,10 +288,15 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
 
 def run_routed(project: str, ctx: dict, operation: dict, said: str, channel, sender, extras: dict) -> str:
     """The reply for an operation the router named (router.read_route kind `operation`, already believed against the person's line): the dispatcher
-    believes it against the line AGAIN, with the line the request holds, and executes it. A router-normalised time makes the reply a question."""
+    believes it against the line AGAIN, with the line the request holds, and executes it. A router-normalised time makes the reply a question. A write is read again by
+    the family's own parse and the router's time is never used for it: a time the line's words do not give is asked."""
     checked = natural.check_operation(operation.get("name"), _slots_of(operation), operation.get("when"), said)
     if not checked["ok"]:
         return phrases.text("NAT_NOT_BELIEVED", ctx["cfg"])
+    if natural.class_of(checked["name"]) == "E" and channel != "mcp":      # the router named a write: the line is read again by the family's own parse, the name is only a hint (limit L61)
+        opened = _writes().open_line(project, ctx, said, channel, sender, extras, hint=checked["name"])
+        if opened is not None:
+            return opened
     return run(project, ctx, checked["name"], checked["args"], said, channel, sender, extras, when=checked["when"], routed=True)
 
 
@@ -351,6 +398,8 @@ def _render(name: str, out, cfg: dict, channel) -> str:
         return "\n".join(lines)
     if name == "reminders":
         return _reminders(out, cfg)
+    if name == "items":
+        return importlib.import_module("ops_items").render(out, cfg)
     if name == "artifacts":
         rows = out.get("artifacts") or []
         return "\n".join(f"- {r['path']}" for r in rows[:LIST_MAX * 3]) or t("NAT_NOTHING")

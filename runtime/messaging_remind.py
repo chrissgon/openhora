@@ -22,7 +22,7 @@ In the person's own words (package NR-1). A line that code matched to a reminder
 runtime/messaging_inbound.py; `/remind <rest>` that the strict grammar does not claim is one too) is handled by `natural`: no model, no route lock, no model
 slot. The operation `remind` reads the line with the clock (`said`) and never makes a reminder from free text at once: the reading comes back as a question (`ask`: the confirmation, with a one-tap Yes button where the platform has buttons, `Bridge.ask_yes`, and `tapped` for the tap), and so does whatever is unclear; the question is kept as a draft in `self.drafts` for that
 chat (memory only: DRAFT_SECONDS, one per chat, lost on a restart, never logged, never in the store), and the next update of the chat goes to `answer`, which finishes
-the draft or drops it so that the update is handled as a new one. The calendar is not built: its row answers so and makes no reminder.
+the draft or drops it so that the update is handled as a new one. A calendar event is a write to the person's own accounts: it opens its card through runtime/ops_natural_writes.py (package NR-5), with the reading the question showed.
 
 Delivery. Each tick (`deliver`, after the cards and before the line about unread messages), per served project: the operation `reminders_due` claims the
 reminders of this platform that are due, ends the ones later than the late window `missed` and the ones whose sender was removed or lost the group
@@ -126,7 +126,7 @@ class Reminders:
             if intent.get("how") == "ask":
                 self.ask_event(project, chat, intent["text"])
             else:
-                self.not_built(project, chat)
+                bridge.write(project, chat, intent["text"], {"op": "event-create"})
         else:
             if intent["how"] in ("bare", "note"):
                 try:
@@ -135,17 +135,6 @@ class Reminders:
                     return False
             self.said(project, chat, intent["text"], intent["how"], None)
         return True
-
-    def not_built(self, project: dict, chat: str) -> None:
-        """A calendar event is the operation `event-create`, which ends in a card for the person to approve: say where it is done, in the project's language, after the
-        policy of a plain line (a sender who may not talk is refused as for any line). Package NR-5 routes a line into it with its slots; this one sends nothing."""
-        bridge = self.bridge
-        try:
-            bridge.allow(project, "say", sender=chat)
-        except bridge.Refused as e:
-            bridge.reply(chat, str(e), project)
-            return
-        bridge.reply(chat, bridge.ops.natural_reply(project["path"], "event-create"), project)
 
     def ask_event(self, project: dict, chat: str, line: str, retries: int = 0) -> None:
         """A scheduling verb with a time and no calendar word: ask whether it is an event or something else, and keep the line (memory only) so that
@@ -231,11 +220,11 @@ class Reminders:
             return False
         if draft["need"] == "eventorother":
             chosen = natural.answer_kind(text)
-            if chosen is None and draft.get("retries", 0) < 1 and natural.short_answer(text):
+            if chosen is None and draft.get("retries", 0) < 1 and natural.short_answer(text, wide=True):
                 self.ask_event(project, chat, draft["line"], retries=1)          # a short reply that is neither: asked once more
                 return True
             if chosen == "event":
-                self.not_built(project, chat)
+                bridge.write(project, chat, draft["line"], {"op": "event-create"})          # the loose verb's question answered "event": the line is read as an event (NR-5)
             elif chosen == "other":
                 bridge.say(project, chat, draft["line"])
             elif chosen == "notice":
@@ -257,8 +246,11 @@ class Reminders:
             return False
         if done.get("cancel"):
             bridge.reply(chat, phrases.text("NT_KEPT" if done.get("kept") else "NT_CANCELLED", cfg), project)
-        elif done.get("event"):
-            self.not_built(project, chat)
+        elif done.get("event"):          # the kind question answered "event": the event is opened with the reading the question SHOWED and its words (NR-5)
+            seed = {"op": "event-create"}
+            if done.get("reading"):
+                seed.update(reading=done["reading"], text=done.get("text") or "")
+            bridge.write(project, chat, done.get("line") or text, seed)
         elif done.get("forget"):
             for number in done["forget"]:
                 self.forget(project, chat, number)
