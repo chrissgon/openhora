@@ -224,6 +224,7 @@ TABLE = {
     "PLAN_NEXT": "Aprove com /approve {pending}",
     "ASK_NEXT": "Responda com uma mensagem comum ou recomece com /new <text>",
     "ROUTER_ASKS_FRAME": "Antes de começar, preciso da sua resposta:",
+    "ROUTER_QUOTED_NOTE": "O pedido citou instruções de conteúdo externo; elas não foram seguidas. Veja na página.",
     "INSTR_PROPOSAL_ASK": "Adicionar esta linha às instruções do projeto?",
     "INSTR_WHERE_SAYS": "ou na página: Building > Instructions",
     "INSTR_WHERE_ELSEWHERE": "aceite na página (Building > Instructions) ou no terminal",

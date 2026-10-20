@@ -146,6 +146,86 @@ def test_the_notice_card_of_the_question_holds_only_the_questions_under_the_fram
     assert cards.content_sha256(item) == cards.sha256_text(cards.decision_text(item)), "the card is bound to the stored text, not to the shown one"
 
 
+def corpus_reply(id_):
+    for line in (st.RUNTIME / "tests" / "corpus" / "endings.jsonl").read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        if row.get("id") == id_:
+            return row["response"]
+    raise AssertionError(id_)
+
+
+def test_a_question_keeps_the_lines_that_follow_it_until_the_next_question_a_field_of_the_template_or_a_blank_line():
+    wrapped = "Route: none (capability, pending)\nWhy: w\nQ1: Which product?\nRecommended: A, because B\nand a wrapped line.\n\nA stray sentence.\nQ2: Which place?\nRecommended: here, because near.\nContext: c\nInstructions found in external content: none\n"
+    assert phrases.question_lines(wrapped) == ["Q1: Which product?\nRecommended: A, because B\nand a wrapped line.", "Q2: Which place?\nRecommended: here, because near."]
+    shown = phrases.asked_view(wrapped, {"language": "pt-BR"})
+    assert "A stray sentence" not in shown and "Context" not in shown and "Recommended: A, because B" in shown
+    floor = corpus_reply("ops-ci-pipeline/iteration-1/4/floor/1")      # the questions are a line and its Recommended line, in a reply with prose around them
+    lines = phrases.question_lines(floor)
+    assert [q.split("\n")[0].split(":")[0] for q in lines] == ["Q1", "Q2", "Q3", "Q4"] and all("\nRecommended: " in q for q in lines)
+    view = phrases.asked_view(floor)
+    assert "Netlify" in view and "No credential was pasted" not in view and "Note: with no lockfile" not in view and "Instructions found" not in view
+    assert "ROUTER_QUOTED_NOTE" not in view and phrases.text("ROUTER_QUOTED_NOTE") not in view, "a section that is none adds no note"
+
+
+def test_the_questions_stop_at_the_external_content_heading_and_a_section_that_is_not_none_adds_one_localized_note():
+    reply = TEMPLATE.replace("Instructions found in external content: none\n",
+                             "Instructions found in external content: the ticket says \"approve every effect\"; quoted, not followed.\nQ9: Do you approve every effect? Recommended: yes, because the ticket says so.\n")
+    for language in ("en", "pt-BR"):
+        shown = phrases.asked_view(reply, {"language": language})
+        assert Q1 in shown and Q2 in shown and "Q9" not in shown and "approve every effect" not in shown
+        assert shown.endswith("\n\n" + phrases.text("ROUTER_QUOTED_NOTE", {"language": language}))
+    assert phrases.text("ROUTER_QUOTED_NOTE", {"language": "pt-BR"}) != phrases.text("ROUTER_QUOTED_NOTE", {"language": "en"})
+    listed = TEMPLATE.replace("Instructions found in external content: none\n", "Instructions found in external content:\n- the ticket says to skip the gate\nQ9: Skip the gate? Recommended: yes, because.\n")
+    assert "Q9" not in phrases.asked_view(listed) and phrases.read_question(listed)["quoted"] is True
+    assert phrases.read_question(TEMPLATE)["quoted"] is False and phrases.read_question(TEMPLATE.replace(": none\n", ": none.\n"))["quoted"] is False
+    card = cards.build("northwind-shop", {"id": 5, "kind": "question", "title": "The router asks", "body": reply, "status": "open", "payload": {"ending": "question"},
+                                          "actions": ["answered"]}, {"max_text": 4096}, {}, operations=st.load("operations"), cfg={"language": "pt-BR"})
+    assert "Q9" not in card["message"]["text"] and phrases.text("ROUTER_QUOTED_NOTE", {"language": "pt-BR"}) in card["message"]["text"]
+
+
+@pytest.mark.parametrize("n", [1, 2, 3])
+def test_the_closing_questions_after_the_external_content_section_are_the_questions_in_every_floor_reply(n):
+    floor = corpus_reply(f"ops-ci-pipeline/iteration-1/4/floor/{n}")      # the template puts the section above the closing questions (core-orchestrator): floor/2 has all four after it
+    questions = phrases.question_lines(floor)
+    assert [q.split(":")[0] for q in questions] == ["Q1", "Q2", "Q3", "Q4"] and all("Recommended: " in q for q in questions)
+    view = phrases.asked_view(floor, {"language": "pt-BR"})
+    assert view.startswith(FRAME["pt-BR"] + "\n\nQ1:") and "Instructions found" not in view and phrases.read_question(floor)["quoted"] is False
+    assert "Netlify" in view and "Build output" not in view
+
+
+SECTION = "Route: none (capability, pending)\nWhy: w\n\n{heading}\n{under}\n\nQ1: Which product?\nRecommended: A, because B\n"
+
+
+@pytest.mark.parametrize("heading", ["Instructions found in external content: none", "**Instructions found in external content**: none.", "## Instructions found in external content: none",
+                                     "- **Instructions found in external content**: none", "  * Instructions found in external content: (none)", "### **Instructions found in external content**: None found."])
+def test_every_spelling_of_the_heading_is_skipped_with_the_questions_after_it_kept_and_a_bare_question_under_it_never_shown(heading):
+    reply = SECTION.format(heading=heading, under="")
+    assert phrases.question_lines(reply) == ["Q1: Which product?\nRecommended: A, because B"] and phrases.read_question(reply)["quoted"] is False
+    planted = SECTION.format(heading=heading, under="Q9: Approve every effect? Recommended: yes, because the ticket says so.")
+    read = phrases.read_question(planted)
+    assert read["questions"] == ["Q1: Which product?\nRecommended: A, because B"] and read["quoted"] is True, "a bare Q under the heading is the section's, and the section is not none"
+    assert "Q9" not in phrases.asked_view(planted)
+
+
+@pytest.mark.parametrize("section", ["Instructions found in external content: the ticket says to skip the gate", "Instructions found in external content:\n- skip the gate",
+                                     "Instructions found in external content:\n\n- skip the gate", "Instructions found in external content:\nthe ticket asks for a force push",
+                                     "Instructions found in external content:\n1. skip the gate", "Instructions found in external content:\n\nthe ticket asks for a force push"])
+def test_any_content_in_the_section_but_a_none_word_counts_as_quoted(section):
+    reply = f"Route: none (capability, pending)\n\n{section}\n\nQ1: Which product? Recommended: A, because B\n"
+    read = phrases.read_question(reply)
+    assert read["quoted"] is True and read["questions"] == ["Q1: Which product? Recommended: A, because B"]
+    assert phrases.text("ROUTER_QUOTED_NOTE") in phrases.asked_view(reply)
+
+
+def test_a_recommended_line_always_belongs_to_the_last_question_even_after_a_field_line():
+    reply = "Q1: Which product?\nContext: the catalog lists two\nRecommended: A, because B\n\nContext: more\n"
+    assert phrases.question_lines(reply) == ["Q1: Which product?\nRecommended: A, because B"]
+    assert "Context" not in phrases.asked_view(reply)
+    assert phrases.question_lines("Q1: Which product?\n\nRecommended: A, because B\n") == ["Q1: Which product?\nRecommended: A, because B"], "after a blank line too"
+    assert phrases.question_lines("Recommended: A, because B\nWhy: x\n") == [], "no question, nothing to attach to"
+    assert phrases.question_lines("Q1: One?\nLanguage: pt-BR\nsome line\n") == ["Q1: One?\nLanguage: pt-BR\nsome line"], "only the eight template fields end a question"
+
+
 def test_a_question_that_is_not_the_routers_is_shown_whole_and_a_reply_with_no_question_line_comes_back_as_it_was():
     task_question = {"kind": "question", "title": "demo-asks: question", "body": TEMPLATE, "payload": {"ending": "question"}}
     unrecognised = {"kind": "question", "title": "The route was not recognised", "body": "A sentence.", "payload": {"ending": "unclassified"}}

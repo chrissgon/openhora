@@ -270,6 +270,7 @@ TABLE = {
         "PLAN_NEXT": "Approve with /approve {pending}",
         "ASK_NEXT": "Answer with a plain line, or start again with /new <text>",
         "ROUTER_ASKS_FRAME": "Before I start I need your answer:",
+        "ROUTER_QUOTED_NOTE": "The request quoted instructions from external content; they were not followed. See them on the page.",
         "INSTR_PROPOSAL_ASK": "Add this line to the project's instructions?",
         "INSTR_WHERE_SAYS": "or on the page: Building > Instructions",
         "INSTR_WHERE_ELSEWHERE": "accept it on the page (Building > Instructions) or in the terminal",
@@ -707,27 +708,80 @@ def body(text_, cfg=None):
 QUESTION_LINE = re.compile(r"^(?:Next: )?Q[0-9]+: ")      # the same shape as router.QUESTION_RE (a test compares the two); this module imports no sibling that reads the router
 
 
+# A line that opens a field of the router's template (core-orchestrator): it ends the question before it. A `Recommended:` line is not one: it belongs to the last question.
+FIELD_LINE = re.compile(r"^\s*\**(?:Route|Why|Context|Requirements|Sources|Autonomy|Assumptions|Next)\**:", re.I)
+RECOMMENDED_LINE = re.compile(r"^\s*\**Recommended\**:", re.I)
+# The heading of the section of instructions found in external content, with an optional markdown heading mark or list marker before it.
+EXTERNAL_HEADING = re.compile(r"^\s*(?:#+\s*)?(?:[-*]\s+)?\**Instructions found in external content\**:?\**\s*(.*)$", re.I)
+
+
+def _none_word(value: str) -> str:
+    """The value on the section's heading line as one word: `none` for none, `(none)`, `None found.` and `n/a`; "" when empty; else the text."""
+    one = " ".join(re.sub(r"[*().]", " ", value).lower().split())
+    one = " ".join(w for w in one.split() if w != "found")
+    return "none" if one in ("none", "n/a") else one
+
+
+def read_question(reply) -> dict:
+    """What a router reply that asks holds: {"questions": [...], "quoted": bool}. A question is its `Q<n>: <question>` line and the non-blank lines that follow it
+    (a wrapped line) up to the next question, the next field of the template or a blank line; a `Recommended:` line always belongs to the last question; the
+    label `Next: ` of a question written on the template's `Next:` line is dropped, and a question written twice is listed once. The section of instructions found
+    in external content is skipped, and only it: its heading and the non-blank lines directly under it are never read, so a `Q<n>:` line there is never the router's
+    question, and reading resumes after the next blank line, where the template puts its closing questions. `quoted` is true when that section holds anything
+    other than a `none` word (text after the heading, lines directly under it, or, under an empty heading, content before the first question or field)."""
+    lines = [line.rstrip() for line in (reply or "").splitlines()]
+    questions, current, last, quoted, at = {}, None, None, False, 0
+    while at < len(lines):
+        line, at = lines[at], at + 1
+        heading = EXTERNAL_HEADING.match(line)
+        if heading:
+            value, block = _none_word(heading.group(1)), []
+            while at < len(lines) and lines[at].strip():
+                block.append(lines[at])
+                at += 1
+            if value not in ("", "none") or (block and (value == "" or any(QUESTION_LINE.match(b) for b in block))):
+                quoted = True
+            elif value == "" and not block:      # an empty heading: what follows a blank line is the section unless it is a question or a field
+                after = next((x for x in lines[at:] if x.strip()), None)
+                quoted = quoted or (after is not None and not QUESTION_LINE.match(after) and not FIELD_LINE.match(after))
+            current = last = None
+        elif QUESTION_LINE.match(line):
+            current = last = line[len("Next: "):] if line.startswith("Next: ") else line
+            questions.setdefault(current, [current])
+        elif RECOMMENDED_LINE.match(line) and last is not None:
+            questions[last].append(line.strip())
+            current = last
+        elif not line.strip() or FIELD_LINE.match(line):
+            current = None
+        elif current is not None:
+            questions[current].append(line.strip())
+    return {"questions": ["\n".join(parts) for parts in questions.values()], "quoted": quoted}
+
+
 def question_lines(reply) -> list:
-    """The questions of a router reply that asks, each as the line `Q<n>: <question> Recommended: <answer>, because <reason>` (the label `Next: ` of a question
-    written on the template's `Next:` line is dropped; a question written twice is listed once), in the order they were asked. Nothing else of the reply is in
-    the list: not the route line, the why, the context, the requirements, the sources, the autonomy, the assumptions or the section of instructions found in
-    external content. An empty list for a reply that asks nothing."""
-    found = []
-    for line in (reply or "").splitlines():
-        line = line.rstrip()
-        if QUESTION_LINE.match(line):
-            line = line[len("Next: "):] if line.startswith("Next: ") else line
-            if line not in found:
-                found.append(line)
-    return found
+    """The questions of a router reply that asks, each as `Q<n>: <question>` with its `Recommended: ...` line (read_question). Nothing else of the reply is in the
+    list: not the route line, the why, the context, the requirements, the sources, the autonomy, the assumptions or the section of instructions found in external
+    content. An empty list for a reply that asks nothing."""
+    return read_question(reply)["questions"]
 
 
 def asked_view(reply, cfg=None) -> str:
-    """What a messaging app shows of a router reply that asks: the framing sentence in the project's language (`cfg` maps `language`), a blank line and the
-    question lines (question_lines), nothing more. The page and the terminal show the reply whole; a phone shows the question. A reply with no question line
-    comes back as it was (nothing is guessed, nothing is hidden that is not a template)."""
-    lines = question_lines(reply)
-    return text("ROUTER_ASKS_FRAME", cfg) + "\n\n" + "\n".join(lines) if lines else reply
+    """What a messaging app shows of a router reply that asks: the framing sentence in the project's language (`cfg` maps `language`), a blank line, the questions
+    (question_lines) and, when the section of instructions found in external content is not `none`, one line saying so (ROUTER_QUOTED_NOTE). The page and the
+    terminal show the reply whole; a phone shows the question. A reply with no question before that section comes back as it was (nothing is guessed)."""
+    read = read_question(reply)
+    if not read["questions"]:
+        return reply
+    note = "\n\n" + text("ROUTER_QUOTED_NOTE", cfg) if read["quoted"] else ""
+    return text("ROUTER_ASKS_FRAME", cfg) + "\n\n" + "\n".join(read["questions"]) + note
+
+
+def is_router_question(item) -> bool:
+    """Whether a decision is the question the router asked about a request (ops._route_run writes it whole: the kind `question`, the title "The router asks" and
+    the ending `question`). A messaging app shows such a question as the question alone, in the reply and on the card, by this one test."""
+    payload = item.get("payload") if isinstance(item, dict) else None
+    return isinstance(item, dict) and item.get("kind") == "question" and item.get("title") == en("TITLE_ROUTER_ASKS") \
+        and isinstance(payload, dict) and payload.get("ending") == "question"
 
 
 def localize(sentence, cfg=None):
