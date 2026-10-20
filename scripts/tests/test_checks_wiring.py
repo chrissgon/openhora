@@ -255,7 +255,7 @@ def modes(job_if, whole_if, selected_if):
 WANTED_MODES = {
     "a push to main": "whole", "a pull request into main": "whole", "a manual run": "whole",
     "a pull request labelled full-suite, a new commit": "whole", "the label full-suite just added": "whole",
-    "a pull request into an integration branch": "selected", "another label just added": None, "another label added to a pull request into main": None,
+    "a pull request into an integration branch": "selected", "another label just added": "selected", "another label added to a pull request into main": "whole",
 }
 
 
@@ -272,26 +272,41 @@ def test_the_one_tests_job_runs_the_whole_list_on_the_four_events_of_the_end_of_
     assert not re.search(r"^  full-suite:\s*$", (REPO / ".github" / "workflows" / "checks.yml").read_text(), re.M)  # no second job to be the only gate
 
 
-def test_planted_workflows_that_skip_tests_on_a_pull_request_into_main_are_caught_by_the_oracle():
+def test_the_required_jobs_are_never_skipped_and_a_pull_request_into_main_never_runs_the_selection():
+    """`validate` and `tests` are the required checks of the main ruleset. A job skipped by its `if:` counts as passing on the same commit,
+    so a label added to a pull request must not be able to skip either; on a pull request into main every event runs the whole suite."""
+    assert job_condition("tests") is None and job_condition("validate") is None
+    selected = step_condition("tests", SELECTED)
+    for name, event in EVENTS.items():
+        if event.get("event_name") == "pull_request" and event.get("base_ref") == "main":
+            assert evaluate(selected, **event) is False, name
+    for action in ("opened", "synchronize", "reopened", "labeled"):
+        event = dict(event_name="pull_request", action=action, base_ref="main", labels=["docs"], label="docs" if action == "labeled" else None)
+        assert evaluate(step_condition("tests", WHOLE), **event) is True and evaluate(selected, **event) is False, action
+
+
+def test_planted_workflows_that_skip_tests_or_select_on_a_pull_request_into_main_are_caught_by_the_oracle():
     whole, selected = step_condition("tests", WHOLE), step_condition("tests", SELECTED)
-    # the first design of this package: the job `tests` is skipped for a pull request into main (a skipped required check passes)
+    # the design of the previous head: the job is skipped on a label other than full-suite (a skipped required check passes)
+    skips_on_a_label = "github.event.action != 'labeled' || github.event.label.name == 'full-suite'"
+    assert modes(skips_on_a_label, whole, selected) != WANTED_MODES
+    # the first design of this package: the job is skipped for a pull request into main
     skipped_into_main = "github.event.action != 'labeled' && github.base_ref != 'main'"
     assert modes(skipped_into_main, whole, selected) != WANTED_MODES
-    # a whole-suite step that forgets the base: a pull request into main would get the selection
+    # a whole-suite step that forgets the base: a pull request into main would run neither step, which the helper refuses
     forgets_base = "github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-suite')"
-    with pytest.raises(AssertionError):  # a pull request into main would run neither step: the helper refuses it
-        modes(job_condition("tests"), forgets_base, selected)
-    # both steps true at once is refused by the helper itself
     with pytest.raises(AssertionError):
-        modes(job_condition("tests"), "github.event_name == 'push' || github.event_name == 'pull_request'", "github.event_name == 'pull_request'")
+        modes(None, forgets_base, selected)
+    # a selected step that forgets the base: a pull request into main would run both
+    with pytest.raises(AssertionError):
+        modes(None, whole, "github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-suite')")
 
 
-def test_an_unrelated_label_starts_no_job_and_the_label_of_the_whole_suite_starts_the_checks_of_the_delivery():
+def test_an_unrelated_label_skips_the_optional_jobs_and_the_label_of_the_whole_suite_starts_them():
     other = EVENTS["another label just added"]
     full = EVENTS["the label full-suite just added"]
-    for name in ("validate", "python39", "changes", "tests"):
+    for name in ("python39", "changes"):
         assert evaluate(job_condition(name), **other) is False, name
-    for name in ("validate", "python39", "changes", "tests"):
         assert evaluate(job_condition(name), **full) is True, name
 
 
