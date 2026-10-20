@@ -25,7 +25,7 @@ hidden text and invisible characters removed; HTML is never rendered, a link nev
 a `-- ` signature line, or an attribution or forward marker of a closed list (English, Portuguese, Spanish), so only the sender's own words
 reach the bridge. When the first line is a command (`/approve 12`), that line alone is the text, so a signature a phone adds cannot turn it
 into a typed hash. At most 8,000 characters. `reply_to` is the In-Reply-To of the message, only when it is a Message-ID this provider sent to
-that chat. `action` and `action_ref` are null, `private` is true. A forward is never a request (FWD): a Subject that starts with a forward prefix (Fwd, Fw, Enc, Rv, Tr, Wg, I, Vs, after any `Re:`), a forward marker line in the body (English, Portuguese, Spanish, French, German, Italian) or an attached message (message/rfc822) makes the update carry `forwarded: true`; for a subject the body is not read (`text` null). The bridge answers it with one sentence. Hidden text is removed when the `hidden` attribute or an inline style hides it: `display:none`, `visibility:hidden`, `mso-hide:all`,
+that chat. `action` and `action_ref` are null, `private` is true. A forward is never a request (FWD): a Subject that starts with a forward prefix (Fwd, Fw, Enc, Rv, Tr, Wg, I, Vs, after any reply prefixes), a forward marker line in the body (English, Portuguese, Spanish, French, German, Italian) or an attached message (message/rfc822) makes the update carry `forwarded: true`; for a subject the body is not read (`text` null). The bridge answers it with one sentence. Hidden text is removed when the `hidden` attribute or an inline style hides it: `display:none`, `visibility:hidden`, `mso-hide:all`,
 `opacity:0`, a zero `width`, `height`, `max-width` or `max-height` together with `overflow:hidden` (all of what is in the element), or a
 `font-size` of zero (the text written in that element, unless an element inside it sets a size of its own: a size, the `font` shorthand,
 `calc(...)` or a `font` tag's `size`; template e-mails do). The open elements are kept as a browser keeps them where it matters: a stray end
@@ -122,9 +122,10 @@ EXTRA_INVISIBLE = re.compile("[\u180b-\u180d\u2800\ufe00-\ufe0f\U000e0000-\U000e
 AUTO_PRECEDENCE = ("bulk", "list", "junk", "auto_reply")
 COMMANDS_ALONE = ("/approve", "/reject", "/release", "/pending", "/project", "/help", "/start")      # a command that is its first line alone; /answer takes the rest
 # A forwarded message is never a request (FWD): the subject prefix alone counts, and so does a forward marker line of the body or an attached message.
+# The reply prefixes that may come first: Re, Aw (German), Res (Portuguese), Sv (Scandinavian), R and Rif (Italian).
 # The prefixes are the forward words of the clients in English (Fwd, Fw), Portuguese (Enc), Spanish (Rv), French (Tr), German (Wg), Italian (I) and
 # Danish/Swedish (Vs), after any number of "Re:", with an optional "[n]" counter; "Info:" is not one (a word must be the whole prefix).
-FORWARD_SUBJECT = re.compile(r"^\s*(?:re\s*:\s*)*(?:fwd?|enc|rv|tr|wg|i|vs)\s*(?:\[\d+\])?\s*:", re.I)
+FORWARD_SUBJECT = re.compile(r"^\s*(?:(?:re|aw|res|sv|r|rif)\s*(?:\[\d+\])?\s*:\s*)*(?:fwd?|enc|rv|tr|wg|i|vs)\s*(?:\[\d+\])?\s*:", re.I)
 FORWARD_MARKER = re.compile(
     r"^[-_=* \t]{0,40}(?:forwarded message|begin forwarded message|"                                            # English
     r"mensagem encaminhada|mensagem reenviada|in\u00edcio da mensagem (?:reenviada|encaminhada)|"                 # Portuguese  # validate: allow english-only -- forward markers of Portuguese mail clients
@@ -527,8 +528,12 @@ def message_text_and_forward(msg):
             raise TooSlow()
         text = _text.clean_block(html_text_here(page), keep_blank_lines=True) if html is not None else ""
     text = EXTRA_INVISIBLE.sub("", CONTROLS.sub("", text))
-    forward = bool(FORWARD_MARKER.search(text)) or any(part.get_content_type() == "message/rfc822" for part in msg.walk())
-    text = command_only(strip_quoted(text)).strip()
+    kept = strip_quoted(text)
+    # a forward marker counts only where the quoted history is cut, or above the cut: a marker deep in the history of a reply (after an attribution, in an older message) is not this message's
+    after = text[text.find(kept) + len(kept):].lstrip("\n") if kept and kept in text else text.lstrip("\n") if not kept else ""
+    cut_line = after.split("\n", 1)[0] if after else ""
+    forward = bool(FORWARD_MARKER.search(kept + "\n" + cut_line)) or any(part.get_content_type() == "message/rfc822" for part in msg.walk())
+    text = command_only(kept).strip()
     return (text[:MAX_TEXT].rstrip() + "\n" + CUT_LINE if len(text) > MAX_TEXT else text), forward
 
 

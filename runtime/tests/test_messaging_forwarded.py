@@ -245,6 +245,27 @@ def test_vacuity_a_bridge_that_does_not_see_the_mark_on_a_file_fails_the_grant_c
     assert grant_problems(files) != []
 
 
+def asked_of_the_question(w, monkeypatch, forwarded) -> list:
+    """The calls that reach `remind.answer` (the reader of an open question about a reminder) when a file arrives while one is open."""
+    calls = []
+    monkeypatch.setattr(w.bridge.remind, "answer", lambda *args, **kwargs: calls.append(args) or False)
+    w.bridge.remind.drafts[IDENT] = {"open": "question"}
+    w.put("r9", PDF + bytes([len(w.texts())]))
+    forward_file(w, "yes", mark=forwarded, name=f"Budget{len(w.texts())}.pdf", ref="r9")
+    return calls
+
+
+def test_a_forwarded_file_does_not_reach_the_open_question_about_a_reminder_and_a_file_of_his_own_does(files, monkeypatch):
+    assert asked_of_the_question(files, monkeypatch, True) == []
+    assert asked_of_the_question(files, monkeypatch, False) != [], "the oracle's other side: a file the person sent still reaches it as before"
+
+
+def test_vacuity_a_bridge_that_does_not_see_the_mark_on_a_file_reaches_the_open_question(files, monkeypatch):
+    original = bridge.inbound.parse
+    monkeypatch.setattr(bridge.inbound, "parse", lambda update: original({k: v for k, v in update.items() if k != "forwarded"}))
+    assert asked_of_the_question(files, monkeypatch, True) != []
+
+
 def test_a_forwarded_file_with_a_save_caption_preselects_nothing_and_asks_nothing(files, monkeypatch):
     def forbidden(*a, **k):
         raise AssertionError("the caption of a forwarded file is not read")

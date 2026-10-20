@@ -712,7 +712,7 @@ class Bridge(shell_kit.Jobs):
             intent = {"kind": "reply", "reply_to": replied, "text": update.get("text") or ""}
             kind = "reply"
         self.remind.discarded.discard(chat)
-        if kind != "action":
+        if kind != "action" and not intent.get("forwarded"):          # a forwarded file (FWD) answers no open question and drops none: it goes straight to its card
             if chat in self.remind.drafts:
                 if self.remind.answer(project, chat, kind, update.get("text") or "", replied):
                     return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line

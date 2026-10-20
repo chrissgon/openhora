@@ -36,9 +36,10 @@ E_ACUTE, I_ACUTE = "é", "í"
 
 SUBJECT_FORWARDS = ["Fwd: plan", "FWD: plan", "Fw: plan", "FW: plan", "fwd: plan", "Fwd[2]: plan", "Fwd [3] : plan", "Re: Fwd: plan", "RE: FW: plan",
                     "Re: re: Fwd: plan", "Enc: plan", "ENC: plan", "Rv: plan", "RV: plan", "Tr: plan", "TR: plan", "Wg: plan", "WG: plan", "I: plan",
-                    "Vs: plan", "VS: plan", "Fwd :plan"]
+                    "Vs: plan", "VS: plan", "Fwd :plan", "AW: WG: plan", "Aw: Fwd: plan", "RES: ENC: plan", "Res: Fw: plan", "SV: VS: plan", "R: I: plan", "RIF: I: plan",
+                    "Re[2]: Fwd: plan", "AW: Re: Fw: plan"]
 SUBJECT_NOT_FORWARDS = ["Re: card", "Info: plan", "Invoice: 12", "Tr ansfer: 1", "Fwdx: plan", "Wgrab: plan", "Italy: plan", "Vsco: plan",
-                        "Encode: plan", "Review: plan", "Forward the plan", "Transcript: plan", "plan", "Re: Info: plan", "Ivan: plan", "/approve 12"]
+                        "Encode: plan", "Review: plan", "Forward the plan", "Transcript: plan", "plan", "Re: Info: plan", "Ivan: plan", "/approve 12", "AW: plan", "R: plan", "RIF: Info: plan", "Res: Invoice: 1", "Resend: Fwd plan", "Rifle: I: plan"]
 MARKERS = {      # language -> marker lines a mail client writes above a forwarded message
     "en": ["---------- Forwarded message ---------", "Begin forwarded message:"],
     "pt": ["---------- Mensagem encaminhada ----------", "In" + I_ACUTE + "cio da mensagem reenviada:", "Mensagem reenviada"],
@@ -122,6 +123,16 @@ def test_a_forward_by_body_keeps_the_senders_own_words_but_is_flagged_and_a_forw
     assert why is None and update["forwarded"] is True and update["text"] is None
     update, why = admit(raw(""))
     assert update is None and why == "empty"
+
+
+def test_a_marker_deep_in_the_quoted_history_of_a_reply_is_not_this_messages_but_one_at_the_cut_or_above_it_is():
+    history = "On Mon, 12 Oct 2026, Bia <bia@elsewhere.example> wrote:\n---------- Forwarded message ---------\nFrom: Caio <caio@elsewhere.example>\n\nold text"
+    update, _ = admit(raw(f"{ASK}\n\n{history}"))
+    assert "forwarded" not in update and update["text"] == ASK
+    update, _ = admit(raw(f"{ASK}\n\nMessaggio inoltrato\nFrom: Caio <caio@elsewhere.example>"))
+    assert update["forwarded"] is True, "a marker that the history cut does not know, above any cut, is still a marker"
+    update, _ = admit(raw(f"{ASK}\n\n---------- Forwarded message ---------\nFrom: Caio"))
+    assert update["forwarded"] is True and update["text"] == ASK, "a marker AT the cut is the message's own"
 
 
 def test_an_html_forward_is_found_by_its_marker_and_a_quoted_marker_is_not_one():
