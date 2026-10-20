@@ -1102,25 +1102,28 @@ def test_a_table_cell_cannot_close_the_fence_it_sits_in():
     assert "\u200b" not in SCRIPT.read_text(encoding="utf-8")         # and none in the source either
 
 
+def code_span(command):
+    """A command as a Markdown code span (a longer fence when it holds a backtick): the form a platform renderer must keep byte for byte. The runtime's cards no longer carry
+    a command (LIVE-2), so the shape is built here, for the renderer's own tests."""
+    longest = max((len(r) for r in re.findall(r"`+", command)), default=0)
+    if not longest and not (command.startswith(" ") or command.endswith(" ")):
+        return f"`{command}`"
+    fence = "`" * (longest + 1)
+    return f"{fence} {command} {fence}"
+
+
 EFFECT_COMMANDS = ["python3 /w/ops.py approve --project /p/northwind-shop --id 7 --sha256 " + "e" * 64,
                    "run '/p/_a_/__init__/*' \"q\" 'a b' <@x> & y", "echo `hi`", "echo ``hi``", "`lead", "trail`", "a ` b `` c ``` d",
                    " spaced ", "echo '<@123>' '||' '[a](b)'"]
 
 
 @pytest.mark.parametrize("command", EFFECT_COMMANDS)
-def test_a_real_effect_card_keeps_its_command_byte_for_byte(command):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "runtime"))
-    import messaging_cards as cards  # noqa: E402
-    import operations  # noqa: E402
-    item = {"kind": "effect", "id": 7, "title": "Pull request in [the repo](https://x.example)", "text": "Open it",
-            "actions": ["approved", "rejected"], "payload_sha256": "e" * 64}
-    card = cards.build("northwind-shop", item, dict(discord.CAPABILITIES), {"messaging": {"approve": True}}, "text", None,
-                       operations=operations, effect_command=command)
-    text = card["message"]["text"]
+def test_a_command_in_a_code_span_on_the_last_line_stays_byte_for_byte(command):
+    text = "northwind-shop \u00b7 request #7\n\nPull request in [the repo](https://x.example)\n\nOpen it\n\n" + code_span(command)
     assert len(text) <= discord.CAPABILITIES["max_text"]
     out = render(text)
-    assert cards.code_span(command) in out.split("\n")
-    assert out.split("\n")[-1] == cards.code_span(command)
+    assert code_span(command) in out.split("\n")
+    assert out.split("\n")[-1] == code_span(command)
     assert "the repo (https://x.example)" in out
 
 
