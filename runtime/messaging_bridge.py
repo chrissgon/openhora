@@ -136,6 +136,7 @@ WRONG_HASH = phrases.en("WRONG_HASH")
 NOT_OPEN = phrases.en("NOT_OPEN")
 NOT_OFFERED = phrases.en("NOT_OFFERED")
 REPLY_TO_CARD = phrases.en("REPLY_TO_CARD")
+FWD_NOT_A_REQUEST = phrases.en("FWD_NOT_A_REQUEST")
 UNREAD_ONE = phrases.en("UNREAD_ONE")
 UNREAD_MANY = phrases.en("UNREAD_MANY")
 UNREAD_EVERY = 3600.0   # seconds between two such lines to one chat
@@ -702,13 +703,16 @@ class Bridge(shell_kit.Jobs):
         kind = intent["kind"]
         if kind == "ignore":
             return
+        if kind == "forwarded":
+            self.reply(chat, self.t("FWD_NOT_A_REQUEST", project=project), project)          # a forwarded message is never a request (FWD): one sentence, and nothing of it is read by a draft, a reminder, a write or a card
+            return
         replied = update.get("reply_to")
         shown = self.ledger.by_message(chat, replied) if kind == "natural" and replied else None
         if shown and shown.get("kind") != "reminder":          # a reply to a card answers THAT card, not a reminder (NR-1); the question about a reminder is answered by `remind.answer`
             intent = {"kind": "reply", "reply_to": replied, "text": update.get("text") or ""}
             kind = "reply"
         self.remind.discarded.discard(chat)
-        if kind != "action":
+        if kind != "action" and not intent.get("forwarded"):          # a forwarded file (FWD) answers no open question and drops none: it goes straight to its card
             if chat in self.remind.drafts:
                 if self.remind.answer(project, chat, kind, update.get("text") or "", replied):
                     return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line

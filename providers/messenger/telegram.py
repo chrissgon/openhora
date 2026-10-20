@@ -319,6 +319,17 @@ def attachments_of(message: dict) -> list:
     return out
 
 
+FORWARD_FIELDS = ("forward_origin", "forward_from", "forward_from_chat", "forward_sender_name", "forward_date")
+
+
+def forwarded(message: dict) -> bool:
+    """Whether Telegram marks the message as forwarded: `forward_origin` (Bot API 7.0 and later), the older `forward_from`, `forward_from_chat`,
+    `forward_sender_name` and `forward_date` (still sent by a server that predates it), or `is_automatic_forward` (a channel post copied into its
+    discussion group). A key present with any value but null counts: a forward whose origin the sender hid still carries `forward_sender_name`.
+    `quote` and `external_reply` alone never count: they mark a reply that quotes a message, which is the person's own text."""
+    return message.get("is_automatic_forward") is True or any(message.get(key) is not None for key in FORWARD_FIELDS)
+
+
 def mapped(update: dict) -> dict | None:
     """The neutral update of a Telegram Update: a text message, a message with a file (its caption is the text) or a tapped button; None for anything else."""
     if not isinstance(update, dict) or not isinstance(update.get("update_id"), int):
@@ -339,6 +350,8 @@ def mapped(update: dict) -> dict | None:
             out["reply_to"] = str(replied["message_id"])
         if out["text"] is None and not files:
             return None
+        if forwarded(message):
+            out["forwarded"] = True      # the key is there only for a forward (providers/messenger/README.md)
     elif isinstance(query, dict):
         sender = query.get("from")
         chat = (query.get("message") or {}).get("chat") if isinstance(query.get("message"), dict) else None

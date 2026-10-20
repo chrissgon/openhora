@@ -728,6 +728,8 @@ class Webhook(meta.HookBase):
                   "action_ref": None, "reply_to": reply_to}
         if attachments:
             update["attachments"] = attachments
+        if action is None and meta.forwarded_field(fields):
+            update["forwarded"] = True      # the key is there only for a forward (providers/messenger/README.md); a tap is never one
         self.emit(update, uid)
         self.store.mark_seen(sid)
 

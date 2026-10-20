@@ -212,7 +212,8 @@ def line_of(value: dict) -> bytes:
 
 def valid_update(raw):
     """The update the bridge handles, or None when `raw` is not one: a private chat, a non-empty sender and chat, and text,
-    action and reply_to each a string or null. `action_ref` is always null here: the provider has already acknowledged."""
+    action and reply_to each a string or null. `action_ref` is always null here: the provider has already acknowledged. `forwarded` is
+    always there, a boolean (`forwarded_of`)."""
     if not isinstance(raw, dict) or raw.get("private") is not True:
         return None
     for key in ("sender", "chat"):
@@ -222,7 +223,7 @@ def valid_update(raw):
         if raw.get(key) is not None and not isinstance(raw[key], str):
             return None
     out = {"sender": raw["sender"], "chat": raw["chat"], "private": True, "text": raw.get("text"), "action": raw.get("action"),
-           "action_ref": None, "reply_to": raw.get("reply_to")}
+           "action_ref": None, "reply_to": raw.get("reply_to"), "forwarded": forwarded_of(raw)}
     if raw.get("attachments") is not None:
         found = valid_attachments(raw["attachments"])
         if found is None:
@@ -230,6 +231,12 @@ def valid_update(raw):
         if found:
             out["attachments"] = found      # the key is there only when the update carries a file
     return out
+
+
+def forwarded_of(raw: dict) -> bool:
+    """Whether the provider marked the update as forwarded (FWD): `forwarded` absent or `false` is no; `true`, and any other value (a string, a number, `null`), is yes. An
+    unreadable mark fails closed: a forward is never a request, and a line wrongly taken for one costs the person one sentence."""
+    return "forwarded" in raw and raw["forwarded"] is not False
 
 
 def valid_attachments(raw):

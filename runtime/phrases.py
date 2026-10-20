@@ -74,6 +74,7 @@ TABLE = {
         "NOT_OPEN": "Pending decision {number} is {status}, not open.",
         "NOT_OFFERED": "That card did not offer an approval. Send /pending for the current one.",
         "REPLY_TO_CARD": "Reply to the card of this decision to act on it.",
+        "FWD_NOT_A_REQUEST": "I don't act on forwarded messages. To ask for something, write it in your own words.",
         "UNREAD_ONE": "A message sent to this channel could not be read and was set aside: nothing was done with it. If it was yours, send it again.",
         "UNREAD_MANY": "{n} messages sent to this channel could not be read and were set aside: nothing was done with them. If one was yours, send it again.",
         "QUEUED": "Got it: I will answer this after the current one.",

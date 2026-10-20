@@ -28,6 +28,7 @@ TABLE = {
     "NOT_OPEN": "A decisão pendente {number} tem o status {status}: não está aberta.",
     "NOT_OFFERED": "Esse card não ofereceu uma aprovação. Envie /pending para ver o atual.",
     "REPLY_TO_CARD": "Responda ao card desta decisão para agir sobre ela.",
+    "FWD_NOT_A_REQUEST": "Não atendo mensagens encaminhadas. Para pedir algo, escreva com suas palavras.",
     "UNREAD_ONE": "Uma mensagem enviada a este canal não pôde ser lida e foi deixada de lado: nada foi feito com ela. Se era sua, envie de novo.",
     "UNREAD_MANY": "{n} mensagens enviadas a este canal não puderam ser lidas e foram deixadas de lado: nada foi feito com elas. Se alguma era sua, envie de novo.",
     "QUEUED": "Anotado: respondo a esta mensagem depois da atual.",

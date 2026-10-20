@@ -549,6 +549,18 @@ def attachments_of(d: dict) -> list:
     return out
 
 
+HAS_SNAPSHOT = 1 << 14      # the message flag Discord sets on a message that holds a snapshot of another one
+
+
+def forwarded(d: dict) -> bool:
+    """Whether a MESSAGE_CREATE is a forward: its `message_reference` has `type` 1 (FORWARD), it holds `message_snapshots`, or it carries the HAS_SNAPSHOT flag.
+    A reply (`type` 0, or no type) is the person's own message and is not one."""
+    reference = d.get("message_reference")
+    flags = d.get("flags")
+    return (isinstance(reference, dict) and reference.get("type") == 1) or bool(d.get("message_snapshots")) \
+        or (type(flags) is int and flags & HAS_SNAPSHOT != 0)
+
+
 def message_update(d) -> dict | None:
     """The listen update of a MESSAGE_CREATE: a plain message or a reply, in a direct message, from a person, with text, files or both; else None."""
     if not isinstance(d, dict) or "guild_id" in d or d.get("webhook_id") or d.get("type") not in (0, 19):
@@ -558,7 +570,10 @@ def message_update(d) -> dict | None:
         return None
     content = d.get("content")
     files = attachments_of(d)
-    if not isinstance(content, str) or (not content.strip() and not files):
+    forward = forwarded(d)
+    if forward and not isinstance(content, str):
+        content = ""      # the words of a forward are in its snapshot, which is never read: the update says only that it was forwarded
+    if not isinstance(content, str) or (not content.strip() and not files and not forward):
         return None
     reply_to = None
     reference = d.get("message_reference")
@@ -568,6 +583,8 @@ def message_update(d) -> dict | None:
               "text": content if content.strip() else None, "action": None, "action_ref": None, "reply_to": reply_to}
     if files:
         update["attachments"] = files      # the content is then the caption
+    if forward:
+        update["forwarded"] = True      # the key is there only for a forward (providers/messenger/README.md)
     return update
 
 

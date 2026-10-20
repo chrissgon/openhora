@@ -946,6 +946,24 @@ def as_list(value) -> list:
     return value if isinstance(value, list) else []
 
 
+def forwarded_context(message: dict) -> bool:
+    """Whether a Cloud API webhook message is marked as forwarded: its `context` holds `forwarded` (forwarded five times or fewer) or `frequently_forwarded`
+    (more than five times). A key with a value but `null` or `false` counts (fail closed); a `context` that holds only `id` is a reply, which is the person's own."""
+    context = as_dict(message.get("context"))
+    return any(context.get(key) not in (None, False) for key in ("forwarded", "frequently_forwarded"))
+
+
+def forwarded_field(fields: dict) -> bool:
+    """Whether a Twilio inbound webhook is marked as forwarded: `Forwarded` ("true" if forwarded once) or `FrequentlyForwarded` (frequently forwarded, per
+    WhatsApp's forwarding limits), documented at https://www.twilio.com/docs/messaging/guides/webhook-request. Absent, empty or "false" is not a forward;
+    any other value counts (fail closed)."""
+    for key in ("Forwarded", "FrequentlyForwarded"):
+        value = fields.get(key)
+        if value is not None and str(value).strip().lower() not in ("", "false", "0"):
+            return True
+    return False
+
+
 def resolve_identity(store, digits, uid):
     """(chat, business-scoped id) of a sender: the phone digits when valid, else the digits remembered for the id, else the id
     itself; (None, None) when neither is valid. The pair is learned whenever both arrive together."""
