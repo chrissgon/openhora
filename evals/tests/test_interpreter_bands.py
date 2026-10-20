@@ -113,7 +113,7 @@ def test_the_p95_latency_failing_alone(tmp_path):
 
 
 def test_a_zero_count_is_reported_by_the_rule_of_three(tmp_path):
-    hs = fx.checkout(tmp_path)  # 20 items in each language: even no error cannot reach the 2% bound (3.84 / 123.84 = 3.1%)
+    hs = fx.checkout(tmp_path, per_lang=20)  # 20 items in each language: even no error cannot reach the 2% bound (3.84 / 123.84 = 3.1%)
     fx.write_file(tmp_path, fx.event(T1, hs, items=120), fx.lines_of(T1, fx.corpus(20)))
     cause = rows_of(tmp_path)["de"]["cause"]
     assert cause == "wrong_card Wilson upper bound is 0.0310, over 0.02 (0 of 120: < 3/120 by the rule of three)"
@@ -153,7 +153,7 @@ def test_fewer_items_than_the_event_states_needs_a_run(tmp_path):
 
 def test_no_sequential_event_needs_a_run(tmp_path):
     scenario(tmp_path, sequential=False)
-    assert {r["cause"] for r in rows_of(tmp_path).values()} == {"no sequential run (the latency is measured on one call at a time)"}
+    assert {r["cause"] for r in rows_of(tmp_path).values()} == {"no sequential run (the latency and the cost are measured on one call at a time)"}
     # a second event, sequential, completes the set: the runs of the first still count
     hs = fx.hashes(tmp_path)
     fx.write_file(tmp_path, fx.event(T2, hs, sequential=True), fx.lines_of(T2, fx.corpus(100)))
@@ -184,7 +184,7 @@ INVALIDATIONS = [
     ("taxonomy", lambda r: _edit_json(r, "evals/interpreter/taxonomy.json", lambda d: d.update(v=2)), "taxonomy_sha256"),
     ("thresholds", lambda r: _edit_json(r, "evals/interpreter/thresholds.json", lambda d: d.update(statements=["a new statement"])),
      "thresholds_sha256"),
-    ("test split", lambda r: (Path(r) / "evals/interpreter/test-split.json").write_text('{"v": 1, "items": ["changed"]}\n'), "corpus_sha256"),
+    ("test split", lambda r: _edit_json(r, "evals/interpreter/test-split.json", lambda d: d.update(frozen="2030-11-01")), "corpus_sha256"),
 ]
 
 
@@ -324,7 +324,7 @@ def test_go_is_no_when_the_reference_route_is_not_reliable_anywhere(tmp_path):
 def test_go_is_no_when_the_median_cost_is_over_the_limit(tmp_path):
     both_routes(tmp_path, cheap_cost=0.003, ref_cost=0.0025)
     got = go(tmp_path)
-    assert got["go"] is False and "fx-cheap: median cost 0.00300 over 0.002" in got["cause"] and "fx-ref" in got["cause"]
+    assert got["go"] is False and "fx-cheap: median cost 0.00300 over 0.002 in every language it is reliable in" in got["cause"] and "fx-ref" in got["cause"]
 
 
 def test_go_falls_to_the_next_route_when_the_cheapest_is_not_better_than_the_current_pipeline(tmp_path):
@@ -446,3 +446,157 @@ def test_the_interpreter_never_moves_a_skill_band(tmp_path, capsys):
     after = json.loads(capsys.readouterr().out)
     assert before["skills"] == after["skills"] and before["counts"] == after["counts"] and before["causes"] == after["causes"]
     assert before["interpreter"]["rows"] == [] and len(after["interpreter"]["rows"]) == 12
+
+
+# --- the review of #493: the cases of its probes ---------------------------------------------------------------------------
+
+def missed_from(per_lang, last_good, langs=fx.LANGS):
+    """Every cell correct up to `last_good` in each of `langs`, `missed` after it."""
+    return {(lang, n): "missed" for lang in langs for n in range(last_good + 1, per_lang + 1)}
+
+
+def test_p1_a_route_reliable_in_no_language_never_carries_go(tmp_path):
+    hs = fx.checkout(tmp_path)
+    fx.write_file(tmp_path, fx.event(T1, hs), fx.lines_of(T1, fx.corpus(100, missed_from(100, 70)), cost=0.001))  # correct_direct 0.70 everywhere
+    fx.write_file(tmp_path, fx.event(T2, hs, route="fx-ref", model="example/strong-1"), fx.lines_of(T2, fx.corpus(100), cost=0.009))
+    fx.write_file(tmp_path, fx.current_event(T3, hs), fx.lines_of(T3, fx.corpus(100, missed_from(100, 50)), cost=None))
+    assert set(bands(tmp_path).values()) == {"below the gate"}
+    got = go(tmp_path)
+    assert got["go"] is False and got["route"] is None
+    assert "fx-cheap: reliable in no language where the reference route is reliable" in got["cause"]
+    assert "fx-ref: median cost 0.00900 over 0.002 in every language it is reliable in" in got["cause"]
+
+
+def test_p1_a_route_reliable_only_where_the_reference_is_not_does_not_qualify(tmp_path):
+    hs = fx.checkout(tmp_path)
+    fx.write_file(tmp_path, fx.event(T1, hs), fx.lines_of(T1, fx.corpus(100, missed_from(100, 60, ("pt-BR", "en", "es", "fr"))), cost=0.001))
+    fx.write_file(tmp_path, fx.event(T2, hs, route="fx-ref", model="example/strong-1"),
+                  fx.lines_of(T2, fx.corpus(100, missed_from(100, 60, ("de", "it"))), cost=0.009))
+    fx.write_file(tmp_path, fx.current_event(T3, hs), fx.lines_of(T3, fx.corpus(100, missed_from(100, 50)), cost=None))
+    assert {l for l, b in bands(tmp_path).items() if b == "reliable"} == {"de", "it"}              # the cheap route, only here
+    assert {l for l, b in bands(tmp_path, "fx-ref").items() if b == "reliable"} == {"pt-BR", "en", "es", "fr"}
+    got = go(tmp_path)
+    assert got["go"] is False and got["languages"] == ["pt-BR", "en", "es", "fr"]
+    assert "fx-cheap: reliable in no language where the reference route is reliable" in got["cause"]
+
+
+def test_p1_the_cost_bound_is_checked_in_each_language_the_route_serves(tmp_path):
+    both_routes(tmp_path, cheap_cost=0.001, ref_cost=0.0015)
+    # the cheap route is dear in Italian only: it serves five languages, and Italian runs on the reference route
+    path = tmp_path / "evals/interpreter/evidence" / f"ix-{T1}.jsonl"
+    lines = [json.loads(l) for l in path.read_text().splitlines()]
+    for line in lines[1:]:
+        if line["lang"] == "it":
+            line["cost_usd"] = 0.01
+    path.write_text("".join(json.dumps(l, sort_keys=True) + "\n" for l in lines))
+    got = go(tmp_path)
+    assert got["go"] is True and got["route"] == "fx-cheap" and got["languages"] == fx.LANGS
+    assert got["route_languages"] == ["pt-BR", "en", "es", "fr", "de"]
+
+
+def test_p2_the_clarify_rate_leaves_out_the_items_whose_gold_is_clarify(tmp_path):
+    hs = fx.checkout(tmp_path)
+    cells, golds = {}, {}
+    for lang in fx.LANGS:  # 15 gold-clarify items answered by nothing (missed), 14 clarifications of an op, 71 correct
+        for n in range(1, 101):
+            cells[(lang, n)] = "missed" if n <= 15 else "clarify" if n <= 29 else "correct"
+            if n <= 15:
+                golds[(lang, n)] = "clarify"
+    fx.write_file(tmp_path, fx.event(T1, hs), fx.lines_of(T1, cells, golds=golds))
+    inputs = ist.load_inputs(str(tmp_path))
+    overall = ist.route_status(inputs["routes"][0], inputs, ist.read_events(str(tmp_path)))["overall"]
+    assert abs(overall["measures"]["clarify_rate"] - 84 / 510) < 1e-9  # 14 / 85 in each language: 0.1647, not 84 / 600 = 0.14
+    assert overall["band"] == "below the gate" and overall["cause"].startswith("clarify_rate is 0.1647")
+
+
+def test_the_correct_direct_denominator_leaves_out_the_clarify_gold(tmp_path):
+    hs = fx.checkout(tmp_path)
+    cells = {(l, n): "correct" for l in fx.LANGS for n in range(1, 101)}
+    golds = {(l, n): "clarify" for l in fx.LANGS for n in range(1, 21)}  # 20 correct clarifications per language
+    cells.update({("en", n): "missed" for n in range(21, 34)})            # 13 of the 80 direct items missed: 67 / 80 = 0.8375
+    fx.write_file(tmp_path, fx.event(T1, hs), fx.lines_of(T1, cells, golds=golds))
+    row = rows_of(tmp_path)["en"]
+    assert row["band"] == "below the gate" and row["cause"].startswith("en correct_direct is 0.8375")
+    assert rows_of(tmp_path)["fr"]["band"] == "reliable" and rows_of(tmp_path)["fr"]["correct_direct"] == 1.0
+
+
+def test_p3_a_current_pipeline_run_that_is_a_fragment_cannot_decide_go(tmp_path):
+    hs = both_routes(tmp_path, current=False)
+    fx.write_file(tmp_path, fx.current_event(T3, hs), fx.lines_of(T3, {(l, 1): "missed" for l in fx.LANGS}, runs=1, cost=None))
+    cause = go(tmp_path)["cause"]
+    assert cause == "needs a run of the current pipeline: 6 of 600 items have a run"
+    # a stated-and-held run with one run per item is not enough either (thresholds.runs is 2)
+    hs2 = fx.checkout(tmp_path / "b")
+    fx.write_file(tmp_path / "b", fx.event(T1, hs2), fx.lines_of(T1, fx.corpus(100), cost=0.001))
+    fx.write_file(tmp_path / "b", fx.event(T2, hs2, route="fx-ref", model="example/strong-1"), fx.lines_of(T2, fx.corpus(100), cost=0.001))
+    fx.write_file(tmp_path / "b", fx.current_event(T3, hs2), fx.lines_of(T3, fx.corpus(100), runs=1, cost=None))
+    assert go(tmp_path / "b")["cause"] == "needs a run of the current pipeline: item test-de-00001 has 1 run(s), fewer than 2"
+
+
+def test_p3_the_current_pipeline_must_carry_the_same_taxonomy_thresholds_and_catalog(tmp_path):
+    for field in ("taxonomy_sha256", "thresholds_sha256", "catalog_sha256"):
+        root = tmp_path / field
+        hs = both_routes(root, current=False)
+        fx.write_file(root, fx.current_event(T3, hs, **{field: fx.H["a"]}), fx.lines_of(T3, fx.corpus(100, missed_from(100, 50)), cost=None))
+        assert go(root)["cause"] == "no run of the current pipeline on this test split", field
+
+
+def test_p4_a_local_wrong_effect_demotes_the_overall_band_and_go_does_not_use_the_route(tmp_path):
+    hs = both_routes(tmp_path, ref_cost=0.0015)
+    _local(tmp_path, T4, "pt-BR", n=50, hs=hs, wrong_effect_unconfirmed=3, wrong_card=10)
+    inputs = ist.load_inputs(str(tmp_path))
+    events = ist.read_events(str(tmp_path))
+    cheap = ist.route_status(inputs["routes"][0], inputs, events)
+    assert cheap["overall"]["band"] == "below the gate" and cheap["overall"]["cause"] == "local lines"
+    assert {r["band"] for r in cheap["rows"]} == {"below the gate"}
+    got = go(tmp_path)
+    assert got["go"] is True and got["route"] == "fx-ref"  # the cheap route no longer qualifies; the reference does
+
+
+def test_p5_a_sampled_run_of_the_test_split_is_not_the_split(tmp_path):
+    hs = fx.checkout(tmp_path)  # the split has 600 items
+    fx.write_file(tmp_path, fx.event(T1, hs, items=300), fx.lines_of(T1, fx.corpus(50), cost=0.001))
+    row = rows_of(tmp_path)["en"]
+    assert row["band"] == "needs a run"
+    assert row["cause"] == f"event {T1} states 300 items and the test split has 600: a sample of the split is not the split"
+
+
+def test_a_run_that_states_the_split_but_holds_other_items_per_language_needs_a_run(tmp_path):
+    hs = fx.checkout(tmp_path)
+    cells = {k: v for k, v in fx.corpus(100).items() if k[0] != "it"}
+    cells.update({("en", n): "correct" for n in range(101, 201)})  # 600 items, but 200 in English and none in Italian
+    fx.write_file(tmp_path, fx.event(T1, hs), fx.lines_of(T1, cells))
+    assert rows_of(tmp_path)["it"]["cause"] == "200 items of language en have a run, and the test split has 100"
+
+
+def test_a_test_split_without_its_counts_gives_needs_a_run_naming_the_file(tmp_path):
+    scenario(tmp_path)
+    fx.put(tmp_path, "evals/interpreter/test-split.json", {"v": 1, "file": "x.jsonl"})
+    row = rows_of(tmp_path)["en"]
+    assert row["band"] == "needs a run" and row["cause"].startswith("evals/interpreter/test-split.json does not state its items")
+
+
+def test_the_rows_publish_the_per_language_wilson_bound_and_the_sequential_sample(tmp_path):
+    scenario(tmp_path)
+    row = rows_of(tmp_path)["en"]
+    assert round(row["wilson"]["wrong_card"], 4) == 0.037  # 0 of 100: 3.8416 / 103.8416
+    inputs = ist.load_inputs(str(tmp_path))
+    overall = ist.route_status(inputs["routes"][0], inputs, ist.read_events(str(tmp_path)))["overall"]
+    assert overall["sequential"] == {"calls": 1200, "items": 600, "of": 600}
+
+
+def test_vacuity_a_go_that_ignores_the_route_languages_is_caught(tmp_path, monkeypatch):
+    """With the per-route language check removed, the P1 setup says go: the test above asserts that it does not."""
+    real = ist.go_of
+    def blind(inputs, statuses, events):
+        for _, status in statuses:  # the planted fault: treat every row as reliable where the reference is
+            for row in status["rows"]:
+                row["band"] = "reliable"
+            status["overall"]["band"] = "reliable"
+        return real(inputs, statuses, events)
+    monkeypatch.setattr(ist, "go_of", blind)
+    hs = fx.checkout(tmp_path)
+    fx.write_file(tmp_path, fx.event(T1, hs), fx.lines_of(T1, fx.corpus(100, missed_from(100, 70)), cost=0.001))
+    fx.write_file(tmp_path, fx.event(T2, hs, route="fx-ref", model="example/strong-1"), fx.lines_of(T2, fx.corpus(100), cost=0.009))
+    fx.write_file(tmp_path, fx.current_event(T3, hs), fx.lines_of(T3, fx.corpus(100, missed_from(100, 50)), cost=None))
+    assert go(tmp_path)["go"] is True

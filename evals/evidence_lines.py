@@ -896,7 +896,7 @@ INTERPRETER_FILE_RE = re.compile(r"ix-(" + TEST_ID_RE.pattern + r")\.jsonl")
 IX_EVENT_KEYS = ("record", "kind", "test", "date", "arm", "split", "model", "route", "route_sha256", "protocol", "protocol_sha256",
                  "prompt_sha256", "catalog_sha256", "corpus_sha256", "taxonomy_sha256", "thresholds_sha256", "harness_sha256",
                  "runs", "items", "sequential", "billing")
-IX_ITEM_KEYS = ("record", "test", "item", "run", "lang", "hard", "category", "observed", "parse", "error", "time_source",
+IX_ITEM_KEYS = ("record", "test", "item", "run", "lang", "hard", "gold", "category", "observed", "parse", "error", "time_source",
                 "latency_ms", "usage", "cost_usd", "upstream")
 IX_AGGREGATE_KEYS = ("record", "test", "lang", "n", "counts", "parse_invalid")
 IX_ARMS, IX_SPLITS, IX_BILLING = ("bprime", "current"), ("dev", "test", "local"), ("metered", "none")
@@ -912,7 +912,12 @@ IX_LANG_CODES = {"pt-BR": "pt-br", "en": "en", "es": "es", "fr": "fr", "de": "de
 IX_ITEM_RE = re.compile(r"(dev|test)-(pt-br|en|es|fr|de|it|ja|mx)-[0-9]{5}")
 IX_ROUTE_RE = re.compile(r"[a-z0-9][a-z0-9.-]{0,63}")
 IX_UPSTREAM_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,39}")
-IX_ERROR_RE = re.compile(r"E_[A-Z]+(_[A-Z]+)*")
+# The outcome word of the item's gold (corpus form 1.7: the key "outcome" of its gold): the class of the right answer, never its content. The
+# status script needs it for the items whose gold is `clarify` (the denominators of correct_direct and of the clarify rate).
+IX_GOLDS = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded")
+# The codes the model call can fail with: providers/model/chat-http.py's stderr codes and the caller's E_UNKNOWN (runtime/interpreter_route.py).
+IX_ERRORS = ("E_USAGE", "E_KEY", "E_ROUTE", "E_TIMEOUT", "E_NETWORK", "E_RATE", "E_UPSTREAM", "E_HTTP", "E_PIN", "E_RESPONSE",
+             "E_INTERNAL", "E_UNKNOWN")
 IX_USAGE_KEYS = ("input", "output", "cache_read", "cache_write")
 IX_MAX_LINES = 200000
 
@@ -982,10 +987,11 @@ def interpreter_item_problems(line, event=None):
         ("run", _count(line["run"], 1), "must be a whole number from 1"),
         ("lang", line["lang"] in IX_LANGS, f"must be one of {', '.join(IX_LANGS)}"),
         ("hard", _flag(line["hard"]), "must be true or false"),
+        ("gold", line["gold"] in IX_GOLDS, f"must be one of {', '.join(IX_GOLDS)}"),
         ("category", line["category"] in IX_SEVERITY, "must be one of the categories of the taxonomy"),
         ("observed", line["observed"] in IX_OBSERVED, "must be one of the observed words of the taxonomy"),
         ("parse", line["parse"] in IX_PARSE, f"must be one of {', '.join(IX_PARSE)}"),
-        ("error", _nullable(lambda v: _is(IX_ERROR_RE, v), line["error"]), "must be an E_ code or null"),
+        ("error", line["error"] is None or line["error"] in IX_ERRORS, "must be one of the model call's E_ codes or null"),
         ("time_source", line["time_source"] is None or line["time_source"] in IX_TIME_SOURCES, "must be code, model or null"),
         ("latency_ms", _nullable(_count, line["latency_ms"]), "must be a whole number or null"),
         ("usage", usage_ok, "must be null or {input, output, cache_read, cache_write} of whole numbers or null"),
@@ -997,6 +1003,8 @@ def interpreter_item_problems(line, event=None):
         return out
     if line["item"].split("-", 1)[1].rsplit("-", 1)[0] != IX_LANG_CODES[line["lang"]]:
         out.append("item and lang disagree: the id carries the language's code")
+    if line["gold"] == "clarify" and line["category"] == "clarify":
+        out.append("category clarify is for a gold that is not clarify (a clarify gold met by a clarification is correct)")
     if event is None:
         return out
     if line["test"] != event.get("test"):
@@ -1072,6 +1080,10 @@ def interpreter_file_problems(path, strict=None):
                 problems.append(f"line {n}: {'aggregate' if record == 'aggregate' else 'item and run'} {'/'.join(map(str, key))} appears twice")
             seen.add(key)
     if not problems and event["split"] != "local":
+        golds = {}
+        for _, line in rest:
+            if golds.setdefault(line["item"], line["gold"]) != line["gold"]:
+                problems.append(f"item {line['item']} has two golds")
         held = {line["item"] for _, line in rest}
         if len(held) > event["items"]:
             problems.append(f"the file holds {len(held)} items, more than the event's items, {event['items']}")
@@ -1082,6 +1094,11 @@ def interpreter_file_problems(path, strict=None):
         routes = strict.get("routes")
         if routes is not None and event["arm"] == "bprime" and routes.get(event["route"]) != event["model"]:
             problems.append("line 1: route and model are not a row of runtime/interpreter_routes.json: a new file names a configured route")
+        pin = (strict.get("pins") or {}).get(event["route"])
+        if pin is not None and event["arm"] == "bprime":
+            wrong = sorted({line["upstream"] for _, line in rest if line.get("record") == "item" and line.get("upstream") not in (None, pin)})
+            if wrong:
+                problems.append(f"an item names the upstream {wrong[0]}, and the route pins {pin}: upstream is the pinned provider or null")
     return problems
 
 
@@ -1101,7 +1118,8 @@ def interpreter_strict(root=ROOT):
     routes = _json_file(root, os.path.join("runtime", "interpreter_routes.json"))
     runs = thresholds.get("runs") if thresholds and _count(thresholds.get("runs"), 1) else None
     rows = routes.get("routes") if routes and isinstance(routes.get("routes"), list) else None
-    return {"runs": runs, "routes": {r.get("id"): r.get("model") for r in rows if isinstance(r, dict)} if rows is not None else None}
+    return {"runs": runs, "routes": {r.get("id"): r.get("model") for r in rows if isinstance(r, dict)} if rows is not None else None,
+            "pins": {r.get("id"): r.get("pin") for r in rows if isinstance(r, dict)} if rows is not None else None}
 
 
 def interpreter_epochs_problems(data):
@@ -1156,6 +1174,12 @@ def interpreter_evidence_problems(root=ROOT, standing=None, strict=None):
             problems = interpreter_file_problems(os.path.join(folder, entry), (strict or interpreter_strict(root)) if state == "new" else None)
         if problems:
             found[rel] = problems
+    base = "/".join(INTERPRETER_EVIDENCE_REL.split(os.sep)) + "/"
+    for name in sorted(getattr(standing, "at_base", {}) or {}):  # the blobs of the base tree (eval_status.evidence_standing)
+        if name.startswith(base) and not name.endswith(".gitkeep") and not os.path.exists(os.path.join(root, name)):
+            found[name] = ["committed evidence is never deleted: this file is at the base of the change and is missing; "
+                           "restore it (git checkout <base> -- <path>)"]
+            checked += 1
     if os.path.exists(os.path.join(root, INTERPRETER_EPOCHS_REL)):
         checked += 1
         problems = interpreter_epochs_file_problems(root)

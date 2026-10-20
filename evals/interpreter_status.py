@@ -21,25 +21,33 @@ The band of one (model, route, language), by the rules below, in this order:
   - Current set: the events of arm bprime on split test whose model, route, route_sha256, protocol_sha256, prompt_sha256,
     taxonomy_sha256 and thresholds_sha256 equal this checkout's, whose catalog_sha256 is the served catalog of epochs.json
     ("served", and the served file's hash equals it) and whose corpus_sha256 is the sha256 of the bytes of test-split.json.
-    A change of any of them empties the set. Nothing in the set, an item with fewer runs than thresholds.runs, fewer items
-    than the event states, or no event run sequentially: `needs a run`, and the cause says which.
+    A change of any of them empties the set. The set must cover the held-out split (test-split.json states its `items` and its
+    `counts.lang`): every event states that number of items, the item ids held add up to it and to its count in each language,
+    and every item has at least thresholds.runs runs; a sample of the split is `needs a run`, as is a set with no event run
+    sequentially. The cause says which. The latency and the cost are read from the sequential events' calls, a sample whose size
+    ("sequential": calls, items, of) is published beside the band; a p95 of fewer than 20 calls is the maximum.
   - Each item takes the worst category of its runs (thresholds.per_item, the severity order of taxonomy.json). The counts of
     an item are over the route's items, the counts of a language over that language's items.
   - `reliable` iff every overall condition but the cost holds for the (model, route) and the language's per-language conditions
     hold: wrong_effect_unconfirmed at most its maximum; the Wilson upper bound (z = thresholds.wilson_z) of each of wrong_card,
     wrong_read, wrong_reminder_reading and wrong_item_binding at most its maximum; the clarify rate and the p95 latency (the
-    sequential events' calls) at most theirs; in the language, each of those four rates (a point rate) at most point_max and
-    correct_direct at least its minimum. Else `below the gate`, and the cause is the first condition that fails, in that order.
+    sequential events' calls) at most theirs; in the language, each of those four rates (a point rate; its Wilson upper bound
+    is published too) at most point_max and correct_direct at least its minimum. Else `below the gate`, and the cause is the
+    first condition that fails, in that order.
   - A local aggregate (split local) newer than the newest test event of the current set, with the same route, prompt,
-    protocol, taxonomy, thresholds and catalog, whose point rate of one of the four is over its point_max or that holds a
-    wrong_effect_unconfirmed, demotes `reliable` to `below the gate` (cause `local lines`). It never promotes.
-  - go: some route meets every overall condition, the cost included (the median cost of a call at most
-    median_cost_usd_max, from the lines that report one), and thresholds.versus_current against the newest event of arm
-    current on the same corpus_sha256 (correct_direct greater, wrong_card rate not greater); the cheapest such route is chosen.
-    The languages that run are those where the reference route (runtime/interpreter_routes.json) is `reliable` (D3').
+    protocol, taxonomy, thresholds and catalog, whose point rate of one of the four is over its point_max demotes that
+    language, and one that holds a wrong_effect_unconfirmed demotes every language and the overall band, from `reliable` to
+    `below the gate` (cause `local lines`). It never promotes.
+  - go: the languages that run are those where the reference route (runtime/interpreter_routes.json) is `reliable` (D3'); with
+    none, no. A route qualifies only if its overall band is `reliable` (after the local lines), it is `reliable` in at least one
+    of those languages (so its per-language conditions hold there), the median cost of a call (from the lines that report one)
+    is at most median_cost_usd_max in the language, and thresholds.versus_current holds against the current pipeline's run
+    (correct_direct greater, wrong_card rate not greater) on the same corpus, taxonomy, thresholds and served catalog, with the
+    same completeness as the B-prime set. The cheapest qualifying route is chosen and serves the languages in which it
+    qualifies ("route_languages"); the others of "languages" run on the reference route.
 
-The correct_direct and clarify_rate denominators leave out the items whose gold is `clarify`; a line does not state its gold,
-so those items are read as the ones whose category is `correct` and whose observed word is `clarify`. Standard library
+The correct_direct and clarify_rate denominators leave out the items whose gold is `clarify`; an item line states the outcome
+word of its gold ("gold"), and a line without it is not valid evidence, so no band or go is computed from one. Standard library
 only; runs on Python 3.9.
 """
 import hashlib
@@ -139,6 +147,20 @@ def taxonomy_problems(tax, severity):
         ["taxonomy.json severity is not the categories of the evidence lines"]
 
 
+def split_problems(split):
+    """Why a parsed test-split.json cannot give the completeness of a run; [] when it can: `items` (a whole number from 1) and
+    counts.lang ({language: whole number}) adding up to it."""
+    langs = _evidence_lines().IX_LANGS
+    try:
+        items, by_lang = split["items"], split["counts"]["lang"]
+        ok = (isinstance(items, int) and not isinstance(items, bool) and items >= 1 and isinstance(by_lang, dict)
+              and all(k in langs and isinstance(v, int) and not isinstance(v, bool) and v >= 1 for k, v in by_lang.items())
+              and sum(by_lang.values()) == items)
+    except (KeyError, TypeError):
+        ok = False
+    return [] if ok else ["test-split.json is not in the form the status script reads"]
+
+
 def load_inputs(root=ROOT):
     """{"routes", "thresholds", "taxonomy", "protocol_sha256", "prompt_sha256", "taxonomy_sha256", "thresholds_sha256",
     "corpus_sha256", "served", "catalog_ok", "missing"}: the checkout's own hashes. "missing" is the first required file that
@@ -169,6 +191,12 @@ def load_inputs(root=ROOT):
             out[key] = sha_file(os.path.join(root, rel))
         except OSError:
             need.append(rel)
+    split = _json(root, SPLIT_REL)
+    if isinstance(split, dict) and not split_problems(split):
+        out["split"] = {"items": split["items"], "lang": dict(split["counts"]["lang"])}
+    elif SPLIT_REL not in need and os.path.exists(os.path.join(root, SPLIT_REL)):
+        need.append(SPLIT_REL)
+        out["reason"] = f"{SPLIT_REL} does not state its items and its counts per language (items, counts.lang)"
     epochs = _json(root, EPOCHS_REL)
     problems = _evidence_lines().interpreter_epochs_problems(epochs) if isinstance(epochs, dict) else ["not an object"]
     if problems:
@@ -191,7 +219,7 @@ def load_inputs(root=ROOT):
     need = sorted(set(need), key=order.index)
     if need:
         out["missing"] = need[0]
-        if need[0] != CATALOG_REL:
+        if need[0] not in (CATALOG_REL, SPLIT_REL):
             out["reason"] = None
     return out
 
@@ -232,12 +260,13 @@ def measures(worst, z=1.96):
     for line in worst:
         counts[line["category"]] = counts.get(line["category"], 0) + 1
     n = len(worst)
-    gold_clarify = sum(1 for l in worst if l["category"] == "correct" and l["observed"] == "clarify")
+    gold_clarify = sum(1 for l in worst if l["gold"] == "clarify")  # the items that are not asked of the model to answer directly
     direct = n - gold_clarify
-    return {"n": n, "counts": counts,
+    correct_direct = sum(1 for l in worst if l["category"] == "correct" and l["gold"] != "clarify")
+    return {"n": n, "counts": counts, "direct": direct,
             "rate": {c: (counts.get(c, 0) / n if n else None) for c in WRONG},
             "wilson": {c: wilson_upper(counts.get(c, 0), n, z) for c in WRONG},
-            "correct_direct": ((counts.get("correct", 0) - gold_clarify) / direct if direct else None),
+            "correct_direct": (correct_direct / direct if direct else None),
             "clarify_rate": (counts.get("clarify", 0) / direct if direct else None)}
 
 
@@ -335,6 +364,34 @@ def _needs(route, lang, cause):
     return {"model": route.get("model"), "route": route["id"], "lang": lang, "band": "needs a run", "cause": cause}
 
 
+def coverage_cause(events, inputs):
+    """Why a set of events does not cover the held-out test split; None when it does. Every event states the split's number of
+    items (a sample is not the split), the item ids held add up to it and to its count in each language, and every item has at
+    least thresholds.runs distinct runs."""
+    split, th = inputs["split"], inputs["thresholds"]
+    for event, _, _ in events:
+        if event["items"] != split["items"]:
+            return (f"event {event['test']} states {event['items']} items and the test split has {split['items']}: "
+                    "a sample of the split is not the split")
+    runs_of, lang_of = {}, {}
+    for event, rows, _ in events:
+        for line in rows:
+            lang_of[line["item"]] = line["lang"]
+            runs_of.setdefault(line["item"], set()).add((event["test"], line["run"]))
+    if len(runs_of) != split["items"]:
+        return f"{len(runs_of)} of {split['items']} items have a run"
+    held = {}
+    for lang in lang_of.values():
+        held[lang] = held.get(lang, 0) + 1
+    if held != split["lang"]:
+        lang = sorted(l for l in set(held) | set(split["lang"]) if held.get(l, 0) != split["lang"].get(l, 0))[0]
+        return f"{held.get(lang, 0)} items of language {lang} have a run, and the test split has {split['lang'].get(lang, 0)}"
+    short = sorted(i for i, r in runs_of.items() if len(r) < th["runs"])
+    if short:
+        return f"item {short[0]} has {len(runs_of[short[0]])} run(s), fewer than {th['runs']}"
+    return None
+
+
 def route_status(route, inputs, events):
     """{"overall": {...}, "rows": [one row per language of thresholds.languages]} for one route. A row:
     {"model", "route", "lang", "band", "cause", ...figures}."""
@@ -344,28 +401,17 @@ def route_status(route, inputs, events):
     if not mine:
         why = stale_cause(route, inputs, events)
         return {"overall": {"band": "needs a run", "cause": why}, "rows": [_needs(route, l, why) for l in langs]}
-    items = [l for _, rows, _ in mine for l in rows]
-    expected = max(e["items"] for e, _, _ in mine)
-    runs_of = {}
-    for event, rows, _ in mine:
-        for line in rows:
-            runs_of.setdefault(line["item"], set()).add((event["test"], line["run"]))
-    short = sorted(i for i, r in runs_of.items() if len(r) < th["runs"])
-    cause = None
-    if len(runs_of) < expected:
-        cause = f"{len(runs_of)} of {expected} items have a run"
-    elif short:
-        cause = f"item {short[0]} has {len(runs_of[short[0]])} run(s), fewer than {th['runs']}"
-    elif not any(e["sequential"] for e, _, _ in mine):
-        cause = "no sequential run (the latency is measured on one call at a time)"
+    cause = coverage_cause(mine, inputs)
+    if cause is None and not any(e["sequential"] for e, _, _ in mine):
+        cause = "no sequential run (the latency and the cost are measured on one call at a time)"
     if cause:
         return {"overall": {"band": "needs a run", "cause": cause}, "rows": [_needs(route, l, cause) for l in langs]}
-    worst = worst_per_item(items, tax["severity"])
+    worst = worst_per_item([l for _, rows, _ in mine for l in rows], tax["severity"])
     m = measures(list(worst.values()), th["wilson_z"])
     seq = [l for e, rows, _ in mine if e["sequential"] for l in rows]
     p95_ms = p95([l["latency_ms"] for l in seq if l["latency_ms"] is not None])
-    costs = [l["cost_usd"] for l in seq if l["cost_usd"] is not None]
-    cost = median(costs)
+    cost = median([l["cost_usd"] for l in seq if l["cost_usd"] is not None])
+    sample = {"calls": len(seq), "items": len({l["item"] for l in seq}), "of": inputs["split"]["items"]}  # p95 of fewer than 20 calls is the maximum
     checks = overall_checks(m, p95_ms, th)
     overall_fail = _first_failure(checks)
     rows = []
@@ -376,23 +422,25 @@ def route_status(route, inputs, events):
             continue
         lm = measures(mine_lang, th["wilson_z"])
         fail = overall_fail or _first_failure(language_checks(lm, lang, th))
+        lang_cost = median([l["cost_usd"] for l in seq if l["lang"] == lang and l["cost_usd"] is not None])
         rows.append({"model": route.get("model"), "route": route["id"], "lang": lang, "band": "below the gate" if fail else "reliable",
                      "cause": fail or "every condition holds", "items": lm["n"], "correct_direct": lm["correct_direct"],
-                     "rate": lm["rate"]})
-    demote_by_local_lines(route, inputs, events, mine, rows)
-    return {"overall": {"band": "below the gate" if overall_fail else "reliable", "cause": overall_fail or "every overall condition holds",
-                        "measures": m, "p95_latency_ms": p95_ms, "median_cost_usd": cost, "checks": checks},
-            "rows": rows}
+                     "rate": lm["rate"], "wilson": lm["wilson"], "median_cost_usd": lang_cost})
+    overall = {"band": "below the gate" if overall_fail else "reliable", "cause": overall_fail or "every overall condition holds",
+               "measures": m, "p95_latency_ms": p95_ms, "median_cost_usd": cost, "sequential": sample, "checks": checks}
+    if demote_by_local_lines(route, inputs, events, mine, rows) and overall["band"] == "reliable":
+        overall["band"], overall["cause"] = "below the gate", "local lines"
+    return {"overall": overall, "rows": rows}
 
 
 def demote_by_local_lines(route, inputs, events, mine, rows):
-    """A local aggregate newer than the newest test event of the set, over a point rate or with a wrong_effect_unconfirmed, turns
-    a `reliable` row into `below the gate` (cause `local lines`). It never changes another band."""
+    """A local aggregate newer than the newest test event of the set, over a point rate in its language, turns a `reliable` row into
+    `below the gate` (cause `local lines`); one with a wrong_effect_unconfirmed turns every row, and the overall band, into it. It
+    never changes another band. Returns whether a wrong_effect_unconfirmed was found."""
     newest = max(e["test"] for e, _, _ in mine)
     pl = inputs["thresholds"]["per_language"]["point_max"]
-    fields = [(k, v) for k, v in _hash_fields(route, inputs)]
     local = [e for e in events if e[0]["split"] == "local" and e[0]["arm"] == "bprime" and e[0]["test"] > newest
-             and all(e[0].get(k) == v for k, v in fields)]
+             and all(e[0].get(k) == v for k, v in _hash_fields(route, inputs))]
     effect = any(a["counts"].get("wrong_effect_unconfirmed", 0) > 0 for _, _, aggs in local for a in aggs)
     for row in rows:
         if row["band"] != "reliable":
@@ -401,44 +449,55 @@ def demote_by_local_lines(route, inputs, events, mine, rows):
                 and any(a["counts"].get(c, 0) / a["n"] > pl[c] for c in WRONG)]
         if effect or over:
             row["band"], row["cause"] = "below the gate", "local lines"
+    return effect
 
 
-def current_arm(inputs, events):
-    """The newest event of arm current on split test with this checkout's corpus, with its items, else None."""
-    mine = [e for e in events if e[0]["arm"] == "current" and e[0]["split"] == "test" and e[0]["corpus_sha256"] == inputs["corpus_sha256"]]
-    return mine[-1] if mine else None
+def current_pipeline(inputs, events):
+    """(events of the current-pipeline arm, None), or (None, the cause) when it has not run on this test split: the same checks as
+    the B-prime set (the corpus, taxonomy, thresholds and served catalog hashes, the completeness, the runs)."""
+    mine = [e for e in events if e[0]["arm"] == "current" and e[0]["split"] == "test" and e[0]["corpus_sha256"] == inputs["corpus_sha256"]
+            and e[0]["taxonomy_sha256"] == inputs["taxonomy_sha256"] and e[0]["thresholds_sha256"] == inputs["thresholds_sha256"]
+            and e[0]["catalog_sha256"] == inputs["served"]]
+    if not mine:
+        return None, "no run of the current pipeline on this test split"
+    cause = coverage_cause(mine, inputs)
+    return (None, "needs a run of the current pipeline: " + cause) if cause else (mine, None)
 
 
 def go_of(inputs, statuses, events):
-    """The go computation (module docstring). {"go", "cause", "route", "model", "languages", "versus_current", ...}."""
+    """The go computation (module docstring). {"go", "cause", "route", "model", "languages", "route_languages", "versus_current", ...}.
+    `languages` are those where the reference route is reliable (D3'); `route_languages` those of them the chosen route serves."""
     th = inputs["thresholds"]
-    out = {"go": False, "cause": None, "route": None, "model": None, "languages": [], "versus_current": None}
+    out = {"go": False, "cause": None, "route": None, "model": None, "languages": [], "route_languages": [], "versus_current": None}
     ref = next((s for r, s in statuses if r["id"] == inputs["reference"]), None)
     langs = [row["lang"] for row in ref["rows"] if row["band"] == "reliable"] if ref else []
     if not langs:
         out["cause"] = "the reference route is not reliable in any language"
         return out
     out["languages"] = langs
-    current = current_arm(inputs, events)
+    current, why = current_pipeline(inputs, events)
     if current is None:
-        out["cause"] = "no run of the current pipeline on this test split"
+        out["cause"] = why
         return out
-    cur = measures(list(worst_per_item(current[1], inputs["taxonomy"]["severity"]).values()), th["wilson_z"])
-    passing = [(r, s) for r, s in statuses if s["overall"]["band"] == "reliable"]
-    if not passing:
-        out["cause"] = "no route meets the overall conditions"
-        return out
+    cur = measures(list(worst_per_item([l for _, rows, _ in current for l in rows], inputs["taxonomy"]["severity"]).values()), th["wilson_z"])
     limit, vs = th["overall"]["median_cost_usd_max"], th["versus_current"]
-    reasons = []
-    priced = sorted(((s["overall"]["median_cost_usd"], r["id"], r, s) for r, s in passing if s["overall"]["median_cost_usd"] is not None),
-                    key=lambda t: (t[0], t[1]))
-    if not priced:
-        out["cause"] = "no passing route reported a cost (an unmetered run has none)"
-        return out
-    for cost, rid, route, status in priced:
+    reasons, priced = [], []
+    for route, status in statuses:
+        ov = status["overall"]
+        served = [row for row in status["rows"] if row["band"] == "reliable" and row["lang"] in langs]
+        if ov["band"] != "reliable":
+            reasons.append(f"{route['id']}: {ov['cause']}")
+        elif not served:
+            reasons.append(f"{route['id']}: reliable in no language where the reference route is reliable")
+        elif ov["median_cost_usd"] is None:
+            reasons.append(f"{route['id']}: no call reported a cost (an unmetered run has none)")
+        else:
+            priced.append((ov["median_cost_usd"], route["id"], route, status, served))
+    for cost, rid, route, status, served in sorted(priced, key=lambda t: (t[0], t[1])):
         m = status["overall"]["measures"]
-        if cost > limit:
-            reasons.append(f"{rid}: median cost {cost:.5f} over {limit}")
+        cheap = [row["lang"] for row in served if row["median_cost_usd"] is not None and row["median_cost_usd"] <= limit]
+        if not cheap:
+            reasons.append(f"{rid}: median cost {cost:.5f} over {limit} in every language it is reliable in")
             continue
         better = (m["correct_direct"] is not None and cur["correct_direct"] is not None
                   and (m["correct_direct"] > cur["correct_direct"] if vs["correct_direct"] == "greater" else True))
@@ -446,13 +505,12 @@ def go_of(inputs, statuses, events):
             m["rate"]["wrong_card"] <= cur["rate"]["wrong_card"] if vs["wrong_card"] == "not_greater" else True)
         if better and not_worse:
             out.update(go=True, cause="every condition holds", route=rid, model=route.get("model"), median_cost_usd=cost,
-                       versus_current={"correct_direct": [m["correct_direct"], cur["correct_direct"]],
-                                       "wrong_card": [m["rate"]["wrong_card"], cur["rate"]["wrong_card"]]},
-                       chosen_reliable_languages=[row["lang"] for row in status["rows"] if row["band"] == "reliable"])
+                       route_languages=cheap, versus_current={"correct_direct": [m["correct_direct"], cur["correct_direct"]],
+                                                              "wrong_card": [m["rate"]["wrong_card"], cur["rate"]["wrong_card"]]})
             return out
         reasons.append(f"{rid}: " + ("correct_direct is not greater than the current pipeline's" if not better
                                      else "wrong_card rate is greater than the current pipeline's"))
-    out["cause"] = "; ".join(reasons)
+    out["cause"] = "; ".join(reasons) or "no route"
     return out
 
 

@@ -1072,6 +1072,7 @@ def evidence_standing(root=ROOT):
         if rel not in at_base:
             return "new"
         return "same" if blob_id(os.path.join(root, rel), root) in (at_base[rel], None) else "edited"
+    standing.at_base = at_base  # the base tree's files: a committed interpreter evidence file that is gone is refused too
     return standing, None, None
 
 

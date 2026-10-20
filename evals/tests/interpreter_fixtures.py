@@ -58,15 +58,17 @@ def put(root, rel, obj, raw=False):
     return path
 
 
-def checkout(root, routes=ROUTES, catalog=CATALOG):
-    """The data files of a checkout, as the status script reads them; returns the hashes an event states."""
+def checkout(root, routes=ROUTES, catalog=CATALOG, per_lang=100):
+    """The data files of a checkout, as the status script reads them; returns the hashes an event states. The test split has
+    per_lang items in each of the six languages."""
     put(root, "runtime/interpreter_routes.json", routes)
     put(root, "runtime/interpreter_protocol.json", PROTOCOL)
     put(root, "runtime/interpreter_prompt.txt", "Turn the line into one frame.\n", raw=True)
     put(root, "runtime/interpreter_catalog.json", catalog)
     put(root, "evals/interpreter/taxonomy.json", TAXONOMY)
     put(root, "evals/interpreter/thresholds.json", THRESHOLDS)
-    put(root, "evals/interpreter/test-split.json", {"v": 1, "items": ["held out"]})
+    put(root, "evals/interpreter/test-split.json", {"v": 1, "file": "ix-test-v1.jsonl", "items": per_lang * len(LANGS),
+                                                    "counts": {"lang": {lang: per_lang for lang in LANGS}}})
     put(root, "evals/interpreter/epochs.json", epochs(sha(catalog)))
     (Path(root) / "evals/interpreter/evidence").mkdir(parents=True, exist_ok=True)
     return hashes(root)
@@ -122,10 +124,12 @@ def item_id(split, lang, n):
     return f"{split}-{code}-{n:05d}"
 
 
-def item(test, i, lang, category, run=1, observed=None, latency=800, cost=0.001, split="test", **change):
+def item(test, i, lang, category, run=1, observed=None, latency=800, cost=0.001, split="test", gold="op", **change):
     observed = observed or {"correct": "read", "clarify": "clarify", "wrong_effect_unconfirmed": "executed", "wrong_card": "card"}.get(
         category, "none")
-    line = {"record": "item", "test": test, "item": item_id(split, lang, i), "run": run, "lang": lang, "hard": False,
+    if gold == "clarify" and category == "correct":
+        observed = "clarify"
+    line = {"record": "item", "test": test, "item": item_id(split, lang, i), "run": run, "lang": lang, "hard": False, "gold": gold,
             "category": category, "observed": observed, "parse": "ok", "error": None, "time_source": None, "latency_ms": latency,
             "usage": {"input": 900, "output": 40, "cache_read": 0, "cache_write": 0}, "cost_usd": cost, "upstream": "hostone"}
     line.update(change)
@@ -139,13 +143,14 @@ def corpus(per_lang=100, plan=None):
     return out
 
 
-def lines_of(test, cells, runs=2, split="test", later_runs=None, **change):
-    """Item lines for every cell and run. later_runs ({(lang, n): category}) gives the category of the second run of a cell."""
+def lines_of(test, cells, runs=2, split="test", later_runs=None, golds=None, **change):
+    """Item lines for every cell and run. later_runs ({(lang, n): category}) gives the category of the second run of a cell, golds
+    ({(lang, n): gold word}) the gold of a cell (default `op`)."""
     out = []
     for (lang, n), category in sorted(cells.items()):
         for run in range(1, runs + 1):
             cat = (later_runs or {}).get((lang, n), category) if run >= 2 else category
-            out.append(item(test, n, lang, cat, run=run, split=split, **change))
+            out.append(item(test, n, lang, cat, run=run, split=split, gold=(golds or {}).get((lang, n), "op"), **change))
     return out
 
 

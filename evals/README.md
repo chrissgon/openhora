@@ -200,7 +200,7 @@ The natural-language interpreter is measured apart from the skills. Its lines ar
 - **No free text.** An event line, an item line and an aggregate line have closed keys, and every value is a closed word, a pattern, a hash, an id, a number or a bool. The held-out test split appears by item id and hash, never by content.
 - **Bands per model, route and language** (`needs a run`, `below the gate`, `reliable`), by the Wilson upper bound at z = 1.96 and the numbers of `thresholds.json`; the worst category of an item's runs counts. A change of the route, protocol, prompt, taxonomy, thresholds, served catalog (`evals/interpreter/epochs.json`) or test split leaves no current evidence.
 - **Local counts** (split `local`, aggregates only) can demote a band and never promote one.
-- **`--go`** prints the go computation (exit 0 when go): a route that meets every overall condition and beats the current pipeline, and the languages where the reference route is reliable.
+- **`--go`** prints the go computation (exit 0 when go): the languages where the reference route is reliable, and the cheapest route that is reliable in at least one of them, is within the cost bound there and beats a complete run of the current pipeline. The runs must cover the whole held-out split (`evals/interpreter/test-split.json` states its items and its count per language), and an item line states the outcome word of its gold.
 - **It moves no skill's band.** The skills' evidence, gate, versions and fingerprint are untouched: the files above are not in the measurement fingerprint.
 
 ## What checks these rules
