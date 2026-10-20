@@ -141,6 +141,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/interpreter_catalog.py",
     # The interpreter's model calls (IX-2b): the provider of the class model:text (standard library only) and the caller that reads the routes file.
     "providers/model/chat-http.py", "runtime/interpreter_route.py",
+    # The interpreter's protocol and validator (IX-2a): pure; the runtime imports it with the system interpreter.
+    "runtime/interpreter.py",
 ]
 RUNTIME = ("scripts/runtime.py", "scripts/runtime_vote.py", "scripts/vote_job.py",
            "runtime/handlers/social.py", "runtime/handlers/social_vote_job.py")  # the scheduler starts these
