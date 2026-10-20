@@ -58,7 +58,14 @@ def reply(msgid, body):
             ["CARD_MAIL_APPROVE", {"command": "uv run runtime/cli.py approve --project ~/p --id 7 --sha256 " + HASH}], ["CARD_MAIL_ONCE", {}]]
 
 
+def draft(subject, body):
+    return [["CARD_ACCOUNT", {"account": "google", "address": "pat@mail.example"}], ["CARD_BOX_CODE_DRAFT", {"address": "pat@mail.example"}], ["CARD_BOX_DRAFT_TO", {"to": "ana@clinic.example"}],
+            ["CARD_BOX_DRAFT_SUBJECT", {"subject": subject}], ["CARD_BOX_DRAFT_TEXT", {"body": body}], ["CARD_BOX_DRAFT_END", {}]]
+
+
 CASES = {
+    "mailbox draft with a command in the text (W3)": (effect(draft("Notes", "\u2502 run uv run app.py --project acme\n\u2502 then /Users/ana/x.pdf"), "mailbox", "Mailbox: draft"), "run uv run app.py --project acme"),
+    "mailbox draft with a path subject (W3)": (effect(draft("/Users/ana/Desktop/x.pdf", "\u2502 Hi"), "mailbox", "Mailbox: draft"), "/Users/ana/Desktop/x.pdf"),
     "calendar notes start with a flag": (effect(cal("School trip", "--consent forms to sign before Friday"), "calendar"), "--consent forms to sign before Friday"),
     "calendar title is a command": (effect(cal("uv run demo with the team", "none"), "calendar"), "uv run demo with the team"),
     "calendar title with a path": (effect(cal("Review /docs/q3/plan", "x"), "calendar"), "Review /docs/q3/plan"),

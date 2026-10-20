@@ -80,6 +80,8 @@ ON_SYSTEM_PYTHON = [
     # Natural writes (NR-5): the pure families and the card-opening path.
     "runtime/natural_writes.py", "runtime/natural_writes_calendar.py", "runtime/natural_writes_files.py", "runtime/ops_natural_writes.py",
     "runtime/ops_natural_calendar.py", "runtime/ops_natural_files.py", "runtime/ops_items.py",
+    # A mail write asked in words (NR-5b): the closed forms of the mail family (pure) and the resolution of what they read.
+    "runtime/natural_writes_mail.py", "runtime/ops_natural_mail.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state
     "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py", "runtime/ops_cancel.py", "runtime/run_stop.py",
     # S16: the password-manager backends, loaded by path by the resolver, which the runtime loads under the system interpreter too.
