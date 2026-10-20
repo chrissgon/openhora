@@ -441,10 +441,38 @@ def _another_request(text: str, tables: list) -> bool:
         if verbs & set(tokens) or (tokens and tokens[0] in starters):
             return True
     if len(words) >= 2:
-        shaped = nw.Line(text)
-        return any(importlib.import_module(nw.FAMILIES[name]).HEADS(tables) and shaped.lead(importlib.import_module(nw.FAMILIES[name]).HEADS(tables), tables) is not None
-                   for name in nw.FAMILIES)
+        return _starts_with_head(text, tables)
     return False
+
+
+def _starts_with_head(text: str, tables: list) -> bool:
+    """Whether a line starts with a write head of any family. A family that knows its CLOSED head (`is_head`: the verb, the articles and the object, as the mail family does) says
+    it itself, so that a title that begins with a bare verb ("Passa no banco", "Send flowers", "Reply to Ana") is a title; a family without it is asked by its verbs."""
+    shaped = nw.Line(text)
+    for name in nw.FAMILIES:
+        module = importlib.import_module(nw.FAMILIES[name])
+        closed = getattr(module, "is_head", None)
+        if closed is not None:
+            if closed(text, tables):
+                return True
+        elif module.HEADS(tables) and _object_follows(shaped, module.HEADS(tables), name, tables):
+            return True
+    return False
+
+
+def _object_follows(shaped, heads: list, family: str, tables: list) -> bool:
+    """Whether a verb of the family is followed, after the articles, by an object noun of the family ("cria um documento", "salva esse pdf", "marca na agenda"): a bare verb followed
+    by anything else ("Envia proposta", "Send flowers", "Marca presenca") is the start of a title. A family without such nouns is asked by its verbs alone."""
+    end = shaped.lead(heads, tables)
+    if end is None:
+        return False
+    nouns = [p for key in ("nouns", "nouns_plural", "held_nouns", "in_calendar", "this") for p in nw.listed(tables, family, key)]
+    if not nouns:
+        return True
+    at = nw.skip_articles(shaped, end, tables)
+    here = re.compile(r"\s*").match(shaped.norm, at).end()
+    found = shaped.find(nouns, here, here + 40)
+    return bool(found and found[0] == here)
 
 
 def _retry(state: dict, said: str, tables: list):
