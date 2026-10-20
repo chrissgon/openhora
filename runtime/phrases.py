@@ -708,29 +708,49 @@ def body(text_, cfg=None):
 QUESTION_LINE = re.compile(r"^(?:Next: )?Q[0-9]+: ")      # the same shape as router.QUESTION_RE (a test compares the two); this module imports no sibling that reads the router
 
 
-# A line that opens a field of the router's template (core-orchestrator) or its section of instructions found in external content: it ends the question before it.
-FIELD_LINE = re.compile(r"^\**(?:Route|Why|Context|Requirements|Sources|Autonomy|Assumptions|Next|Language|Operation|Argument [a-z][a-z0-9_]*|When)\**:|^\**Instructions found in external content", re.I)
-EXTERNAL_HEADING = re.compile(r"^\**Instructions found in external content\**:?\**\s*(.*)$", re.I)
+# A line that opens a field of the router's template (core-orchestrator): it ends the question before it. A `Recommended:` line is not one: it belongs to the last question.
+FIELD_LINE = re.compile(r"^\s*\**(?:Route|Why|Context|Requirements|Sources|Autonomy|Assumptions|Next)\**:", re.I)
+RECOMMENDED_LINE = re.compile(r"^\s*\**Recommended\**:", re.I)
+# The heading of the section of instructions found in external content, with an optional markdown heading mark or list marker before it.
+EXTERNAL_HEADING = re.compile(r"^\s*(?:#+\s*)?(?:[-*]\s+)?\**Instructions found in external content\**:?\**\s*(.*)$", re.I)
+
+
+def _none_word(value: str) -> str:
+    """The value on the section's heading line as one word: `none` for none, `(none)`, `None found.` and `n/a`; "" when empty; else the text."""
+    one = " ".join(re.sub(r"[*().]", " ", value).lower().split())
+    one = " ".join(w for w in one.split() if w != "found")
+    return "none" if one in ("none", "n/a") else one
 
 
 def read_question(reply) -> dict:
     """What a router reply that asks holds: {"questions": [...], "quoted": bool}. A question is its `Q<n>: <question>` line and the non-blank lines that follow it
-    (its `Recommended: <answer>, because <reason>` and a wrapped line) up to the next question, the next field of the template or a blank line; the label `Next: `
-    of a question written on the template's `Next:` line is dropped, and a question written twice is listed once. Reading stops at the heading of the section of
-    instructions found in external content: a `Q<n>:` line after it is never the router's question. `quoted` is true when that section is not `none` (a value other
-    than none on the heading's line, or list lines under an empty heading)."""
+    (a wrapped line) up to the next question, the next field of the template or a blank line; a `Recommended:` line always belongs to the last question; the
+    label `Next: ` of a question written on the template's `Next:` line is dropped, and a question written twice is listed once. The section of instructions found
+    in external content is skipped, and only it: its heading and the non-blank lines directly under it are never read, so a `Q<n>:` line there is never the router's
+    question, and reading resumes after the next blank line, where the template puts its closing questions. `quoted` is true when that section holds anything
+    other than a `none` word (text after the heading, lines directly under it, or, under an empty heading, content before the first question or field)."""
     lines = [line.rstrip() for line in (reply or "").splitlines()]
-    questions, current, quoted = {}, None, False
-    for at, line in enumerate(lines):
+    questions, current, last, quoted, at = {}, None, None, False, 0
+    while at < len(lines):
+        line, at = lines[at], at + 1
         heading = EXTERNAL_HEADING.match(line)
         if heading:
-            value = heading.group(1).strip(" *.\t").lower()
-            after = lines[at + 1].lstrip() if at + 1 < len(lines) else ""
-            quoted = value not in ("", "none") or (value == "" and after.startswith(("-", "*", "•")))
-            break
-        if QUESTION_LINE.match(line):
-            current = line[len("Next: "):] if line.startswith("Next: ") else line
+            value, block = _none_word(heading.group(1)), []
+            while at < len(lines) and lines[at].strip():
+                block.append(lines[at])
+                at += 1
+            if value not in ("", "none") or (block and (value == "" or any(QUESTION_LINE.match(b) for b in block))):
+                quoted = True
+            elif value == "" and not block:      # an empty heading: what follows a blank line is the section unless it is a question or a field
+                after = next((x for x in lines[at:] if x.strip()), None)
+                quoted = quoted or (after is not None and not QUESTION_LINE.match(after) and not FIELD_LINE.match(after))
+            current = last = None
+        elif QUESTION_LINE.match(line):
+            current = last = line[len("Next: "):] if line.startswith("Next: ") else line
             questions.setdefault(current, [current])
+        elif RECOMMENDED_LINE.match(line) and last is not None:
+            questions[last].append(line.strip())
+            current = last
         elif not line.strip() or FIELD_LINE.match(line):
             current = None
         elif current is not None:
