@@ -19,12 +19,13 @@ format, and `scripts/interpreter_corpus_build.py`, the builders); the measuremen
 | `templates-dev-coverage.json` | dev-only templates, one per dev item still missing for a catalog op with fewer than 3 dev items (relabelled ones counted); generated once each with seed `20261023` | IX-1 author session | with `dev.jsonl` |
 | `adversarial.json` | the adversarial rules, their gold effects, the dev plan, the protected time words, and only the word-list entries the dev items used (the full lists are shared with the held-out test split and are committed after the measurement ran) | IX-1 author session | with `dev.jsonl` |
 | `test-split.json` | the summary of the held-out test split: file name, sha256, item count, counts by language, author, outcome, op and tag, frozen date | `freeze --split test` | once, when the test split is frozen |
+| `ix-test-v1.jsonl` | the test split itself, published on 2026-10-21 after the IX-3b measurement ran on it (spent: never tuned against again); its bytes hash to `test-split.json` | `freeze --split test` (held-out folder), copied byte for byte | once, with the IX-3b evidence |
 | `evidence/`, `epochs.json` | the interpreter's evidence lines and the catalog epochs | IX-E (format), IX-2c (lines) | lines are never edited once committed |
 
 **Held out, never committed before the measurement ran:** the test split `ix-test-v1.jsonl`, `templates-test.json`,
 `values-test.json` and the work folder of the procedure (author lines, intents, views, labels, decisions). They stay in
-the maintainer's held-out folder outside the repository; only `test-split.json`, with the file's sha256, is committed.
-A generated test line derives from its template, so the test templates are held out with the split.
+the maintainer's held-out folder outside the repository; only `test-split.json`, with the file's sha256, was committed before the measurement.
+The measurement ran on 2026-10-21 (IX-3b), so the split `ix-test-v1.jsonl` is spent and is published here, with the recorded answers of the full and sequential events under `replay/<route>/test-full/` and `test-seq/`; the templates, values and work folder stay held out, since a generated test line derives from its template and the next split is built the same way.
 
 ## The item
 
