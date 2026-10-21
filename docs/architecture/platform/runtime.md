@@ -86,6 +86,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/flow_files.py` | Flow files: one data file per flow, with its tasks and their dependencies written out. |
 | `runtime/instructions.py` | The person's standing instructions for a project: one Markdown file the person writes, read into the prompt of every model run of the project (limit L40). |
 | `runtime/intake.py` | The generic streaming intake: how a body of a declared length gets from a stream onto disk, safely. |
+| `runtime/interpreter.py` | The interpreter's protocol and its validator (package IX-2a): what a model may say about a person's line, and what code believes of it (plan `PLAN-NL-INTERPRETER-FINAL.md`, section 1). |
 | `runtime/interpreter_catalog.py` | The catalog the interpreter is served (package IX-C0): what a line of a person's own words may be turned into, as data. |
 | `runtime/interpreter_route.py` | The routes of the interpreter's model calls, and the one function that makes a call (package IX-2b). |
 | `runtime/isolated.py` | Skill code the runtime runs on the host, as an isolated subprocess with a scrubbed environment. |
