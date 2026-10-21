@@ -38,9 +38,19 @@ PROBE_ENV_NAMES = {"ANTHROPIC_BASE_URL", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY
 INTERPRETER_NAMES = {"__CF_USER_TEXT_ENCODING", "LC_CTYPE"}   # a Python stand-in may gain these from the system itself
 DECOYS = ("WB_RUNTIME_KEY_OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY")
 # The probe texts, written out here and not read from the runner: a change of the runner's texts must fail this file.
-PROBE_SYSTEM_TEXT = "probe system text alpha 7f3a\nsecond line: a\u00e7\u00e3o \u2014 \u00fcn\u00ef\u00e7ode\n  indented third line  \n"
-PROBE_USER_TEXT = ("\n  \r\n/x first line  \r\n!bang\n#hash\n@bia ana.lima@mail.example said \"hi\"\n"
-                   "cafe\u0301 a\u00e7\u00e3o \u65e5\u672c\u8a9e probe-user-7c1e\n\n  last line, trailing spaces   \n\n")
+# Each probe puts a fresh 16-hex-digit nonce where {nonce} stands.
+SYSTEM_TEMPLATE_T = "probe system text alpha {nonce}\nsecond line: a\u00e7\u00e3o \u2014 \u00fcn\u00ef\u00e7ode\n  indented third line  \n"
+USER_TEMPLATE_T = ("\n  \r\n/x first line  \r\n!bang\n#hash\n@bia ana.lima@mail.example said \"hi\"\n"
+                   "cafe\u0301 a\u00e7\u00e3o \u65e5\u672c\u8a9e probe-user-{nonce}\n\n  last line, trailing spaces   \n\n")
+NONCE_T = "0123456789abcdef"
+PROBE_SYSTEM_TEXT = SYSTEM_TEMPLATE_T.replace("{nonce}", NONCE_T)
+PROBE_USER_TEXT = USER_TEMPLATE_T.replace("{nonce}", NONCE_T)
+
+
+def nonce_of(user_text):
+    found = re.search(r"probe-user-([0-9a-f]{16})\n", user_text)
+    assert found, "no nonce in the user text"
+    return found.group(1)
 NEVER_IN_ARGV = ["--dangerously-skip-permissions", "--add-dir", "--append-system-prompt", "--resume", "--continue", "--bare"]
 FAKE = r"""#!%(python)s
 import json, os, stat, subprocess, sys, time, urllib.request
@@ -143,7 +153,7 @@ elif mode == "http":
     if conf.get("outside_escaped"):
         open(conf["outside_escaped"], "w").write(json.dumps({"text": stdin}))
     if conf.get("outside_unrelated"):
-        open(conf["outside_unrelated"], "w").write("another session's log")
+        open(conf["outside_unrelated"], "w").write(conf.get("outside_text", "another session's log"))
     if conf.get("slug_under"):
         import re
         slug_dir = os.path.join(conf["slug_under"], re.sub(r"[^A-Za-z0-9]", "-", os.getcwd()))
@@ -497,7 +507,7 @@ def test_what_the_cli_leaves_running_ends_when_it_returns(e):
 PROBE = ["--probe", "--model", "model-a", "--max-tokens", "2000", "--reasoning", "low"]
 PROBE_KEYS = {"runner_version", "runner_sha256", "envelope_sha256", "system_verbatim", "user_verbatim", "messages_requests", "paths",
               "extras", "sent", "stable", "overhead_ms", "replaced", "reply_ok", "credential_ok", "files_outside_root",
-              "outside_scan_complete", "outside_ok"}
+              "outside_scan_complete", "outside_ok", "outside_other_count"}
 
 
 def probe(e, *extra, **conf):
@@ -524,9 +534,11 @@ def test_the_probe_runs_against_the_loopback_stub_with_a_placeholder_and_reports
     for call in runs:
         assert call["token"] == "placeholder" and TOKEN not in json.dumps(call)
         assert set(call["env"]) - INTERPRETER_NAMES == ENV_NAMES | PROBE_ENV_NAMES
-        assert call["stdin"] == PROBE_USER_TEXT
-        assert call["argv"][call["argv"].index("--system-prompt") + 1] == PROBE_SYSTEM_TEXT
+        nonce = nonce_of(call["stdin"])
+        assert call["stdin"] == USER_TEMPLATE_T.replace("{nonce}", nonce)
+        assert call["argv"][call["argv"].index("--system-prompt") + 1] == SYSTEM_TEMPLATE_T.replace("{nonce}", nonce)
         assert argv_problems(call["argv"], "low") == []
+    assert len({nonce_of(c["stdin"]) for c in runs}) == 1                  # one nonce for the repeats of a probe
     assert "decoy" not in json.dumps(runs)
 
 
@@ -536,7 +548,7 @@ def test_the_probe_needs_no_credential_and_leaves_no_file(e):
     res = subprocess.run(["bash", str(SCRIPT), *PROBE], capture_output=True, text=True, env=env, timeout=120)
     assert res.returncode == 0, res.stderr
     roots = [e["tmp"] / "home", e["tmp"] / "tmp", base_of(e)]
-    assert find_text(roots, "probe-user-7c1e") == [] and find_text(roots, "probe system text alpha") == []
+    assert find_text(roots, "probe-user-") == [] and find_text(roots, "probe system text alpha") == []
 
 
 def test_extra_text_the_cli_adds_is_listed_by_place_and_size(e):
@@ -605,13 +617,14 @@ LITERAL_HASH = "e2f91c206b41e479dd2346440f0c82d5ad16a328c957af2cbc73c1210af09c8e
 
 def test_the_normaliser_gives_the_envelope_and_the_hash_of_a_literal_body():
     run_text = load_runner()
-    envelope = run_text.normalise(CAPTURED, HEADERS)
+    texts = (PROBE_SYSTEM_TEXT, PROBE_USER_TEXT, NONCE_T)
+    envelope = run_text.normalise(CAPTURED, HEADERS, texts)
     assert json.dumps(envelope, sort_keys=True, separators=(",", ":")) == EXPECTED_ENVELOPE
     assert hashlib.sha256(EXPECTED_ENVELOPE.encode("utf-8")).hexdigest() == LITERAL_HASH
     assert hashlib.sha256(run_text.canonical(envelope)).hexdigest() == LITERAL_HASH
     assert CAPTURED["metadata"] == {"user_id": "user_abc_session_1"}       # the captured body itself is not changed
     changed = dict(CAPTURED, max_tokens=2001)                               # vacuity: a planted difference gives another hash
-    assert hashlib.sha256(run_text.canonical(run_text.normalise(changed, HEADERS))).hexdigest() != LITERAL_HASH
+    assert hashlib.sha256(run_text.canonical(run_text.normalise(changed, HEADERS, texts))).hexdigest() != LITERAL_HASH
 
 
 def test_the_runner_hash_covers_the_listed_files_and_changes_with_their_bytes(e, tmp_path):
@@ -850,7 +863,9 @@ def test_the_probe_texts_are_the_adversarial_ones_and_arrive_whole(e):
     assert PROBE_SYSTEM_TEXT.count("\n") >= 3 and not PROBE_SYSTEM_TEXT.isascii()
     res, out = probe(e)
     assert out["system_verbatim"] is True and out["user_verbatim"] is True
-    assert load_runner().PROBE_USER == PROBE_USER_TEXT and load_runner().PROBE_SYSTEM == PROBE_SYSTEM_TEXT
+    assert load_runner().probe_texts(NONCE_T) == (PROBE_SYSTEM_TEXT, PROBE_USER_TEXT, NONCE_T)
+    fresh = [load_runner().probe_texts()[2] for _ in range(3)]
+    assert len(set(fresh)) == 3 and all(re.fullmatch(r"[0-9a-f]{16}", n) for n in fresh)   # a nonce of fixed length, new each time
 
 
 # --------------------------------------------------------------------------- values that vary from run to run, and files outside
@@ -881,8 +896,9 @@ def test_the_scrub_replaces_each_form_of_the_root_and_each_date_and_only_with_a_
     assert root in kept["system"] and counts["root"] == 0
     other = json.loads(json.dumps(body).replace("ab12cd34", "99ee88dd"))
     headers = {"anthropic-beta": "b"}
-    assert run_text.normalise(body, headers, root) == run_text.normalise(other, headers, root.replace("ab12cd34", "99ee88dd"))
-    assert run_text.normalise(body, headers) != run_text.normalise(other, headers)
+    texts = (PROBE_SYSTEM_TEXT, PROBE_USER_TEXT, NONCE_T)
+    assert run_text.normalise(body, headers, texts, root) == run_text.normalise(other, headers, texts, root.replace("ab12cd34", "99ee88dd"))
+    assert run_text.normalise(body, headers, texts) != run_text.normalise(other, headers, texts)
 
 
 def test_a_file_the_cli_writes_outside_its_root_is_listed_with_its_time_and_whether_it_holds_the_probe_text(e):
@@ -912,9 +928,10 @@ def test_the_outside_scan_says_when_it_was_not_whole(e, monkeypatch):
 
 def test_the_outside_rule_fails_a_planted_file_with_a_probe_text_and_one_under_the_probes_own_folder_and_passes_an_unrelated_one(e):
     outside = e["tmp"] / "outside"
-    # a new, unrelated file (another session's log) is listed and does not fail the rule
+    # a new, unrelated file (another session's log) is counted, not listed, and does not fail the rule
     res, out = probe(e, outside_unrelated=str(outside / "other-session.jsonl"))
-    assert [(Path(f["path"]).name, f["probe_text"], f["own_folder"]) for f in out["files_outside_root"]] == [("other-session.jsonl", False, False)]
+    assert out["files_outside_root"] == [] and out["outside_other_count"] == 1
+    assert "other-session" not in res.stdout and str(outside) not in res.stdout       # nothing of its name is published
     assert out["outside_scan_complete"] is True and out["outside_ok"] is True
     (outside / "other-session.jsonl").unlink()
     # a file that holds the line fails it
@@ -930,3 +947,21 @@ def test_the_outside_rule_fails_a_planted_file_with_a_probe_text_and_one_under_t
     flagged = [f for f in out["files_outside_root"] if f["own_folder"]]
     assert out["outside_ok"] is False and len(flagged) == 2 and all(f["probe_text"] is False for f in flagged)
     assert out["files_outside_root"][0]["own_folder"] is True      # the flagged are printed first
+
+
+def test_a_file_that_holds_the_runners_source_or_the_templates_is_not_a_probe_file_only_the_nonce_is(e):
+    """The log of a session that runs the probe quotes the runner's source: it holds the templates, never the nonce."""
+    outside = e["tmp"] / "outside"
+    quoted = (ADAPTER / "run_text.py").read_text(encoding="utf-8") + SYSTEM_TEMPLATE_T + USER_TEMPLATE_T + PROBE_USER_TEXT
+    res, out = probe(e, outside_unrelated=str(outside / "session-log.jsonl"), outside_text=quoted)
+    assert "{nonce}" in quoted and NONCE_T in quoted                                     # the planted file is a real source quote
+    assert out["outside_ok"] is True and out["files_outside_root"] == [] and out["outside_other_count"] == 1
+    (outside / "session-log.jsonl").unlink()
+    # a nonce of an earlier probe is nobody's now, and the next probe has a new one
+    first = nonce_of(calls(e)[-1]["stdin"])
+    res, out = probe(e, outside_unrelated=str(outside / "session-log.jsonl"), outside_text="x probe-user-" + first)
+    assert nonce_of(calls(e)[-1]["stdin"]) != first and out["outside_ok"] is True
+    (outside / "session-log.jsonl").unlink()
+    # vacuity: the nonce of this probe in the same kind of file fails the rule (the fake writes the line it received)
+    res, out = probe(e, outside_path=str(outside / "session-log.jsonl"))
+    assert out["outside_ok"] is False and len(out["files_outside_root"]) == 1

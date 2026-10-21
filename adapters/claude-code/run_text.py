@@ -31,6 +31,7 @@ import json
 import math
 import os
 import re
+import secrets
 import shutil
 import signal
 import stat
@@ -64,12 +65,19 @@ FIXED_ENV = {"DISABLE_AUTOUPDATER": "1", "DISABLE_TELEMETRY": "1", "DISABLE_ERRO
              "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "ENABLE_CLAUDEAI_MCP_SERVERS": "false"}
 # Texts that look like what a person writes and what a harness may trim, split or read as a command: leading and trailing spaces and
 # newlines, several lines, CRLF, non-ASCII with a combining mark, lines that start with /, !, # and @, an e-mail address, a quote.
-PROBE_SYSTEM = "probe system text alpha 7f3a\nsecond line: a\u00e7\u00e3o \u2014 \u00fcn\u00ef\u00e7ode\n  indented third line  \n"
-PROBE_USER = ("\n  \r\n/x first line  \r\n!bang\n#hash\n@bia ana.lima@mail.example said \"hi\"\n"
-              "cafe\u0301 a\u00e7\u00e3o \u65e5\u672c\u8a9e probe-user-7c1e\n\n  last line, trailing spaces   \n\n")
-# What a file that holds a probe text holds whatever its escaping (a log writes a text as a JSON string): a marker inside each text,
-# found as bytes, and the whole text in each of the usual spellings.
-PROBE_MARKERS = tuple(m.encode("utf-8") for m in ("probe-user-7c1e", "probe system text alpha 7f3a"))
+SYSTEM_TEMPLATE = "probe system text alpha {nonce}\nsecond line: a\u00e7\u00e3o \u2014 \u00fcn\u00ef\u00e7ode\n  indented third line  \n"
+USER_TEMPLATE = ("\n  \r\n/x first line  \r\n!bang\n#hash\n@bia ana.lima@mail.example said \"hi\"\n"
+                 "cafe\u0301 a\u00e7\u00e3o \u65e5\u672c\u8a9e probe-user-{nonce}\n\n  last line, trailing spaces   \n\n")
+NONCE_BYTES = 8   # token_hex(8): 16 characters, always the same length, so the envelope does not change with it
+
+
+def probe_texts(nonce=None):
+    """(system, user, nonce) of one probe. The nonce is fresh for each probe and is the only thing a file is searched for: this source,
+    and anything that quotes it (the log of a session that runs the probe), holds the templates and never a nonce."""
+    nonce = nonce or secrets.token_hex(NONCE_BYTES)
+    return SYSTEM_TEMPLATE.replace("{nonce}", nonce), USER_TEMPLATE.replace("{nonce}", nonce), nonce
+
+
 BASE_PREFIX = "/tmp/run-text-"   # + the user id: the fixed folder of the roots, never the caller's TMPDIR
 STALE_AFTER_S = MAX_DEADLINE_MS / 1000.0 + 60
 SCAN_LIMIT = 100000
@@ -409,14 +417,14 @@ def runner_sha256():
     return digest.hexdigest()
 
 
-def replace_probe(value):
+def replace_probe(value, texts):
     """The probe system text becomes <SYSTEM> and the probe user text <USER>, wherever they stand in a string."""
     if isinstance(value, str):
-        return value.replace(PROBE_SYSTEM, "<SYSTEM>").replace(PROBE_USER, "<USER>")
+        return value.replace(texts[0], "<SYSTEM>").replace(texts[1], "<USER>")
     if isinstance(value, list):
-        return [replace_probe(v) for v in value]
+        return [replace_probe(v, texts) for v in value]
     if isinstance(value, dict):
-        return {k: replace_probe(v) for k, v in value.items()}
+        return {k: replace_probe(v, texts) for k, v in value.items()}
     return value
 
 
@@ -461,16 +469,16 @@ def scrub_body(body, root=None):
     return walk(json.loads(json.dumps(body))), counts
 
 
-def envelope_of(scrubbed, headers):
+def envelope_of(scrubbed, headers, texts):
     """The envelope: the body with the probe texts replaced and metadata.user_id dropped, and the sorted beta values added."""
-    body = replace_probe(scrubbed)
+    body = replace_probe(scrubbed, texts)
     if isinstance(body.get("metadata"), dict):
         body["metadata"].pop("user_id", None)
     return {"beta": betas_of(headers), "body": body}
 
 
-def normalise(body, headers, root=None):
-    return envelope_of(scrub_body(body, root)[0], headers)
+def normalise(body, headers, texts, root=None):
+    return envelope_of(scrub_body(body, root)[0], headers, texts)
 
 
 def blocks(field, value):
@@ -525,36 +533,37 @@ def credential_ok(requests):
     return True
 
 
-def examine(requests, root=None):
+def examine(requests, probe_texts_, root=None):
     """What one CLI run sent: its messages requests, the exactness of the two texts, the extras and the values sent."""
+    probe_system, probe_user = probe_texts_[0], probe_texts_[1]
     messages = [r for r in requests if r["method"] == "POST" and r["path"] == "/v1/messages"]
     paths = {}
     for r in requests:
         paths[r["path"]] = paths.get(r["path"], 0) + 1
-    chosen = next((r for r in messages if occurrences(read_request_body(r), PROBE_USER)), None)
+    chosen = next((r for r in messages if occurrences(read_request_body(r), probe_user)), None)
     if chosen is None:
         chosen = messages[0] if messages else {"body": {}, "headers": {}}
     body, replaced = scrub_body(read_request_body(chosen), root)
     texts = texts_of(body)
-    system_hits = [w for w, t in texts if w.startswith("system") and t == PROBE_SYSTEM]
-    user_hits = [w for w, t in texts if w.startswith("messages") and t == PROBE_USER]
+    system_hits = [w for w, t in texts if w.startswith("system") and t == probe_system]
+    user_hits = [w for w, t in texts if w.startswith("messages") and t == probe_user]
     extras = []
     for where, text in texts:
-        if text in (PROBE_SYSTEM, PROBE_USER):
+        if text in (probe_system, probe_user):
             continue
-        chars = len(text) - (len(PROBE_SYSTEM) if PROBE_SYSTEM in text else len(PROBE_USER) if PROBE_USER in text else 0)
+        chars = len(text) - (len(probe_system) if probe_system in text else len(probe_user) if probe_user in text else 0)
         extras.append({"where": where, "chars": chars})   # counted after the replacement of <ROOT> and <DATE>
     if body.get("tools"):
         extras.append({"where": "tools", "chars": len(json.dumps(body["tools"], ensure_ascii=False))})
     config = body.get("output_config") if isinstance(body.get("output_config"), dict) else {}
     effort = config.get("effort", body.get("effort"))
     return {"messages_requests": len(messages), "paths": paths,
-            "system_verbatim": len(system_hits) == 1 and occurrences(body, PROBE_SYSTEM) == 1,
-            "user_verbatim": len(user_hits) == 1 and occurrences(body, PROBE_USER) == 1,
+            "system_verbatim": len(system_hits) == 1 and occurrences(body, probe_system) == 1,
+            "user_verbatim": len(user_hits) == 1 and occurrences(body, probe_user) == 1,
             "extras": extras, "replaced": replaced, "credential_ok": credential_ok(requests),
             "sent": {"max_tokens": body.get("max_tokens"), "temperature": body.get("temperature"),
                      "thinking": body.get("thinking"), "effort": effort},
-            "envelope_sha256": sha256(canonical(envelope_of(body, chosen.get("headers") or {})))}
+            "envelope_sha256": sha256(canonical(envelope_of(body, chosen.get("headers") or {}, probe_texts_)))}
 
 
 def percentile(values, fraction):
@@ -612,7 +621,7 @@ def own_names(root_names):
     return names
 
 
-def outside_report(found, root_names=()):
+def outside_report(found, root_names, nonce):
     names = own_names(root_names)
     report = []
     for key in sorted(found):
@@ -621,7 +630,7 @@ def outside_report(found, root_names=()):
         if stat.S_ISREG(info.st_mode) and info.st_size <= 1048576:
             try:
                 data = Path(path).read_bytes()
-                texts = any(marker in data for marker in PROBE_MARKERS)
+                texts = nonce.encode("utf-8") in data   # the nonce is ASCII: no escaping hides it
             except OSError:
                 pass
         report.append({"path": path, "mtime": round(info.st_mtime, 3), "probe_text": texts,
@@ -629,7 +638,7 @@ def outside_report(found, root_names=()):
     return report   # all of them; the caller decides on all and prints the flagged ones first
 
 
-def one_run(model, max_tokens, reasoning, server, version):
+def one_run(model, max_tokens, reasoning, server, version, texts):
     """One CLI run against the stub: (its examination, the CLI's wall time, whether the reply read as the stub's, the version)."""
     server.reset()
     base = root_base()
@@ -641,7 +650,7 @@ def one_run(model, max_tokens, reasoning, server, version):
                          "HTTPS_PROXY": dead, "ALL_PROXY": dead, "NO_PROXY": "127.0.0.1,localhost,::1"})
         deadline_at = time.monotonic() + PROBE_DEADLINE_MS / 1000.0
         version = version or cli_version(env, root, deadline_at)
-        rc, out, err, wall_ms = run_cli(build_argv(model, PROBE_SYSTEM, reasoning), env, os.path.join(root, "cwd"), PROBE_USER,
+        rc, out, err, wall_ms = run_cli(build_argv(model, texts[0], reasoning), env, os.path.join(root, "cwd"), texts[1],
                                         deadline_at - time.monotonic())
         code = classify(rc, out, err, result_object(out), limit_markers())
         if code:
@@ -653,7 +662,7 @@ def one_run(model, max_tokens, reasoning, server, version):
             if exc.code != "E_RESPONSE":
                 raise
             reply_ok = False
-        return examine(server.requests(), root), wall_ms, reply_ok, version, os.path.basename(root)
+        return examine(server.requests(), texts, root), wall_ms, reply_ok, version, os.path.basename(root)
     finally:
         remove_root(root)
 
@@ -663,12 +672,12 @@ def probe(model, max_tokens, reasoning, repeat):
         raise Fail("E_INTERNAL")
     base = root_base()
     sweep_stale(base)
-    locations, since = outside_locations(), time.time() - 0.05
+    locations, since, texts = outside_locations(), time.time() - 0.05, probe_texts()
     server = stub.start()
     runs, walls, replies, version, root_names = [], [], [], None, []
     try:
         for _ in range(repeat):
-            run_report, wall_ms, reply_ok, version, root_name = one_run(model, max_tokens, reasoning, server, version)
+            run_report, wall_ms, reply_ok, version, root_name = one_run(model, max_tokens, reasoning, server, version, texts)
             root_names.append(root_name)
             runs.append(run_report)
             walls.append(wall_ms)
@@ -678,19 +687,19 @@ def probe(model, max_tokens, reasoning, repeat):
         server.server_close()
     found, complete = scan_outside(locations, [base], since)
     first = runs[0]
-    files = outside_report(found, root_names)
+    files = outside_report(found, root_names, texts[2])
     flagged = [f for f in files if f["probe_text"] or f["own_folder"]]
-    # Others write under the same folders (other sessions of the harness): the list is published whole, and the rule that decides
-    # is narrower. A scan that stopped early, a file that holds a probe text and anything under the probe's own folder fail it.
+    # Others write under the same folders (other sessions of the harness, whose folders can carry a person's project names): only the
+    # flagged entries are printed, with a count of the others. A scan that stopped early, a file that holds the probe's nonce and
+    # anything under the probe's own folder fail the rule.
     outside_ok = complete and not flagged
-    files = (flagged + [f for f in files if f not in flagged])[:200]
     return {"runner_version": runner_version(version), "runner_sha256": runner_sha256(),
             "envelope_sha256": first["envelope_sha256"], "system_verbatim": all(r["system_verbatim"] for r in runs),
             "user_verbatim": all(r["user_verbatim"] for r in runs), "messages_requests": first["messages_requests"],
             "paths": first["paths"], "extras": first["extras"], "replaced": first["replaced"], "sent": first["sent"],
             "stable": all(r == first for r in runs), "reply_ok": all(replies),
-            "credential_ok": all(r["credential_ok"] for r in runs), "files_outside_root": files,
-            "outside_scan_complete": complete, "outside_ok": outside_ok,
+            "credential_ok": all(r["credential_ok"] for r in runs), "files_outside_root": flagged[:200],
+            "outside_other_count": len(files) - len(flagged), "outside_scan_complete": complete, "outside_ok": outside_ok,
             "overhead_ms": {"p50": percentile(walls, 0.5), "p95": percentile(walls, 0.95)}}
 
 
