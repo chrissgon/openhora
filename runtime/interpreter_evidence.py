@@ -38,8 +38,7 @@ ROOT = os.path.dirname(HERE)
 DATA = os.path.join(ROOT, "evals", "interpreter")
 EVIDENCE_DIR = os.path.join(DATA, "evidence")
 SPLIT_FILE = os.path.join(DATA, "test-split.json")
-HARNESS_FILES = ("runtime/interpreter_measure.py", "runtime/interpreter_pipeline.py", "runtime/interpreter_score.py", "runtime/interpreter_evidence.py",
-                 "evals/interpreter/taxonomy.json", "evals/interpreter/thresholds.json")
+HARNESS_FILES = tuple(f"runtime/interpreter_{name}.py" for name in ("measure", "pipeline", "score", "evidence")) + ("evals/interpreter/taxonomy.json", "evals/interpreter/thresholds.json")
 USAGE_KEYS = ("input", "output", "cache_read", "cache_write")
 LANGS = ("pt-BR", "en", "es", "fr", "de", "it", "ja", "mixed")          # evals/evidence_lines.py IX_LANGS
 

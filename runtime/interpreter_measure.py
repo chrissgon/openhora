@@ -344,7 +344,7 @@ def text_report(result: dict, head: dict) -> str:
 # --- the commands ----------------------------------------------------------------------------------------------------------------------------------------
 
 def arguments(argv):
-    p = argparse.ArgumentParser(prog="interpreter_measure.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(prog=os.path.basename(__file__), description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--corpus", required=True)
     p.add_argument("--route", required=True)
     p.add_argument("--runs", type=int)
