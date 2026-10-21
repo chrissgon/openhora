@@ -1,0 +1,17 @@
+{
+ "v": 1,
+ "entries": [
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-21",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "IX-3b go false (wrong_card Wilson upper: DeepSeek 5.59%, reference 2.29%, limit 2%); correct per item DeepSeek 84%, current pipeline 21%; actions without confirmation 0. The maintainer chose to proceed (DECISIONS 2026-10-21).",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate"
+  }
+ ]
+}

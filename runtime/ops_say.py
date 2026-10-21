@@ -139,7 +139,7 @@ def chat_memory(messages: list, settled: set) -> str:
 
 def say(project: str, text: str, channel: str | None = None, sender: str | None = None) -> dict:
     """One turn of the conversation with the planning agent (decision D12), one more shell of this layer. The person's
-    line is stored; a line that starts with "/" is one command of the table of operations (runtime/operations.py), which calls its operation once; a plain
+    line is stored (for a messaging sender whom the interpreter reads, AFTER the decision and as a neutral word unless it went to the planning agent: runtime/ops_interpret.py, limit L63); a line that starts with "/" is one command of the table of operations (runtime/operations.py), which calls its operation once; a plain
     line that asks about the state (STATE_QUESTIONS) is answered at once by code from the store's records (state_reply):
     no model, no request; any other plain line answers the router's open question on the conversation's last request,
     or else is a new request routed with the conversation's memory in front of it (one or more runs of the router: a
@@ -170,9 +170,17 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
                     "message_id": stored["id"]}
         if channel not in QUEUING_CHANNELS and route_busy(ctx):
             raise core.RunBusy(RUN_BUSY, 1)
-    stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=ops_natural.stored_line(ctx, said, _natural_channel(channel), sender))
-    extras = {}
-    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"], sender, extras)
+    kept = ops_natural.stored_line(ctx, said, _natural_channel(channel), sender)
+    # A plain line of a sender whom the interpreter reads (S1, limit L63) is stored AFTER the decision: as a neutral word unless the interpreter sent it to the planning agent
+    # (`extras["interpreted"]`), so that a line the model service read is never kept in the store. Every other line is stored first, as it always was.
+    deferred = not said.startswith("/") and importlib.import_module("ops_interpret").enabled(ctx, channel, sender)
+    stored = None if deferred else core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=kept)
+    extras = {"deferred": True} if deferred else {}
+    try:
+        reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"] if stored else None, sender, extras)
+    finally:
+        if deferred:
+            core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=phrases.text("IX_PRIVATE_LINE", ctx["cfg"]) if extras.get("interpreted") else kept)
     core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
                  text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=request_id, run_id=extras.get("run_id", run_id))
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
@@ -275,6 +283,10 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
             return natural_reply, None, None, False, extras.get("run_id"), None
     if not talks:      # admitted under another group, and no form of it took the line: it is not a model's, so it is refused as the typed `talk` is
         return f"error: {operations.refusal('say', channel, ctx['cfg']['channels'], sender=sender)}", None, None, False, None, None
+    if asked is None and extras.get("deferred"):      # S1 (limit L63): a plain line of a sender the interpreter reads, which no list of code took (the hybrid order of 2026-10-21)
+        read = importlib.import_module("ops_interpret").turn(project, ctx, said, sender, extras)
+        if read is not None:
+            return (*read, None)
     out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender, extras=extras)
     if asked is not None and channel == "messaging":      # the person is told what their line was taken for
         out = (phrases.text("ANSWER_TAKEN", ctx["cfg"], id=asked) + "\n\n" + out[0], *out[1:])
@@ -758,7 +770,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         request_id = core._stored(ctx, ctx["store"].pending_get, answer_to)["task_id"]
         _ops().answer(project, answer_to, said, actor=ops_actor.label(ctx["cfg"], channel, sender))
     else:
-        messages = [m for m in core._stored(ctx, ctx["store"].messages_list, CONVERSATION, limit=500) if m["id"] < line_id]
+        messages = [m for m in core._stored(ctx, ctx["store"].messages_list, CONVERSATION, limit=500) if line_id is None or m["id"] < line_id]      # None: the line is not stored yet (S1), so every message so far is before it
         settled = {t["id"] for t in core._stored(ctx, ctx["store"].tasks_list)
                    if t["parent_id"] is None and t["state"] in ("planned", "done", "cancelled")}
         remembered = chat_memory(messages, settled)
@@ -801,10 +813,11 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         lines.append(phrases.text("PLAN_NEXT", ctx["cfg"], pending=item["id"]))
         reply = "\n".join(lines)
     elif (item.get("payload") or {}).get("ending") == "unclassified":
-        if channel == "messaging":      # no terminal command on a phone (limit L62)
-            tail = phrases.phone("NOT_NAMED_NEXT_PHONE", ctx["cfg"], request=request_id)
-        else:
-            tail = phrases.text("NOT_NAMED_NEXT", ctx["cfg"], request=request_id, route=core._command("route", project, request_id=request_id, flow="<name>"))
+        if channel == "messaging":      # a phone gets one plain sentence and nothing is left open: no command, no request number, the request cancelled by code (S1, limits L62 and L63)
+            import ops_cancel      # at call time, like the other operations this sibling reaches
+            core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:unclassified-phone", context=ctx)
+            return phrases.text("PHONE_NOT_UNDERSTOOD", ctx["cfg"]), None, None, True, routed.get("run_id")
+        tail = phrases.text("NOT_NAMED_NEXT", ctx["cfg"], request=request_id, route=core._command("route", project, request_id=request_id, flow="<name>"))
         reply = phrases.body(item["body"], ctx["cfg"]).rstrip("\n") + "\n\n" + tail
     else:
         shown = phrases.asked_view(item["body"], ctx["cfg"]) if channel == "messaging" and phrases.is_router_question(item) else item["body"]      # a phone shows the question and its framing, never the template around it

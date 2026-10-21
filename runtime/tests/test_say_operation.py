@@ -120,9 +120,9 @@ def test_an_operation_the_line_does_not_bear_out_is_the_unrecognised_route_and_m
     with_senders(world)
     router_says(world, reply)
     out = phone(world, "owner", SPANISH)
-    assert out["request_id"] and out["pending_id"] and out["ran"] is True
-    item = ops.pending(world["path"], out["pending_id"])
-    assert item["payload"]["ending"] == "unclassified" and item["title"] == "The route was not recognised"
+    assert out["ran"] is True and out["pending_id"] is None      # on a phone (S1, limit L63): one plain sentence, and the request is cancelled by code
+    assert out["reply"] == "I did not understand the request and started nothing. Can you say it another way?"
+    assert ops.status(world["path"])["requests"][-1]["state"] == "cancelled" and ops.pending(world["path"])["pending"] == []
     assert reminders(world) == [] and drafts.count() == 0
 
 

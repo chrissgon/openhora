@@ -14,6 +14,9 @@ cause names the file):
   runtime/interpreter_routes.json, interpreter_protocol.json, interpreter_prompt.txt, interpreter_catalog.json
   evals/interpreter/taxonomy.json, thresholds.json, test-split.json, epochs.json, evidence/ix-<test id>.jsonl
 
+It also reads runtime/interpreter_enable.json (the maintainer's dated decision that turns the interpreter on, S1) and prints its `status_line` beside the route's band
+while its newest entry's hashes equal this checkout's (`enable_status`); it never moves a band.
+
 The evidence is the lines of evals/interpreter/evidence/ (evidence_lines.py holds their closed forms): an event line, then
 one item line per item and run (split dev or test) or one aggregate line per language (split local, the maintainer's counts).
 
@@ -59,6 +62,7 @@ The correct_direct and clarify_rate denominators leave out the items whose gold 
 word of its gold ("gold"), and a line without it is not valid evidence, so no band or go is computed from one. Standard library
 only; runs on Python 3.9.
 """
+import datetime
 import hashlib
 import importlib.util
 import json
@@ -552,6 +556,64 @@ def current_pipeline(inputs, events):
     return (None, "needs a run of the current pipeline: " + cause) if cause else (mine, None)
 
 
+ENABLE_REL = os.path.join("runtime", "interpreter_enable.json")
+ENABLE_KEYS = ("basis", "date", "route", "route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256", "languages", "reason", "status_line")
+
+
+ENABLE_LANGUAGES = ("pt-BR", "en", "es", "fr", "de", "it")
+ENABLE_HASHES = ("route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256")
+
+
+def entries_valid(entries):
+    """Whether the entries are in the form runtime/interpreter_enable.py accepts (re-implemented here: this script imports nothing of runtime/): closed keys, the basis
+    `maintainer-decision`, a real date in YYYY-MM-DD and dates in order, sha256 hashes, distinct listed languages, non-empty texts of at most 600 characters."""
+    if not isinstance(entries, list) or not entries:
+        return False
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != set(ENABLE_KEYS) or entry["basis"] != "maintainer-decision" or not isinstance(entry["route"], str) or not entry["route"]:
+            return False
+        date = entry["date"]
+        if not isinstance(date, str) or not date.isascii() or len(date) != 10 or not date.replace("-", "").isdigit() or date[4] != "-" or date[7] != "-":
+            return False
+        try:
+            datetime.date.fromisoformat(date)
+        except ValueError:
+            return False
+        if not all(isinstance(entry[k], str) and len(entry[k]) == 64 and set(entry[k]) <= set("0123456789abcdef") for k in ENABLE_HASHES):
+            return False
+        langs = entry["languages"]
+        if not isinstance(langs, list) or not langs or len(set(langs)) != len(langs) or not all(isinstance(l, str) and l in ENABLE_LANGUAGES for l in langs):
+            return False
+        if not all(isinstance(entry[k], str) and entry[k].strip() and len(entry[k]) <= 600 for k in ("reason", "status_line")):
+            return False
+    return [e["date"] for e in entries] == sorted(e["date"] for e in entries)
+
+
+def enable_status(root, inputs):
+    """What the status prints beside the route's band about the maintainer's enabling decision (runtime/interpreter_enable.json, read as data: the runtime reads the
+    same file with runtime/interpreter_enable.py, and a test compares the two readings). {"present", "in_force", "date", "route", "languages", "status_line", "cause"}:
+    `in_force` is true only when the NEWEST entry has the closed keys and every hash in it equals this checkout's (the route's object, the prompt, the served catalog, the
+    protocol) and the route is one of kind http. It never moves a band."""
+    out = {"present": False, "in_force": False, "date": None, "route": None, "languages": [], "status_line": None, "cause": f"{ENABLE_REL} is missing or not valid"}
+    doc = _json(root, ENABLE_REL)
+    entries = doc.get("entries") if isinstance(doc, dict) and set(doc) == {"v", "entries"} and doc.get("v") == 1 else None
+    entry = entries[-1] if isinstance(entries, list) and entries else None
+    if not entries_valid(entries):
+        return out
+    out.update(present=True, date=entry["date"], route=entry["route"], languages=list(entry["languages"]), status_line=entry["status_line"], cause=None)
+    row = next((r for r in inputs.get("routes") or [] if r["id"] == entry["route"] and not is_account(r)), None)
+    here = {"route_sha256": route_sha256(row) if row else None, "prompt_sha256": inputs.get("prompt_sha256"), "catalog_sha256": inputs.get("served"),
+            "protocol_sha256": inputs.get("protocol_sha256")}
+    differ = [key for key, value in here.items() if entry[key] != value]
+    if row is None:
+        out["cause"] = "the entry names no daily (http) route"
+    elif differ:
+        out["cause"] = "the entry no longer matches this checkout (" + ", ".join(differ) + "): the interpreter is off until a new dated entry"
+    else:
+        out["in_force"] = True
+    return out
+
+
 def go_of(inputs, statuses, events):
     """The go computation (module docstring). {"go", "cause", "route", "model", "languages", "route_languages", "off_languages",
     "versus_current", ...}. `languages` are those where the reference route is reliable (D3'); `route_languages` those of them the
@@ -613,7 +675,7 @@ def go_of(inputs, statuses, events):
 def status(root=ROOT):
     """{"reference", "rows": [one per route and language], "go", "epochs": {...}}: everything computed from the files, live."""
     inputs = load_inputs(root)
-    out = {"reference": inputs["reference"], "rows": [], "go": None, "missing": inputs["missing"]}
+    out = {"reference": inputs["reference"], "rows": [], "go": None, "missing": inputs["missing"], "enable": enable_status(root, inputs)}
     if not inputs["routes"]:
         out["note"] = inputs["missing"] and f"{inputs['missing']} is missing or has no route"
         return out
@@ -671,6 +733,11 @@ def table(result):
         lines.append(f"  {row['model']} | {row['route']}{star} | {row['lang']} | {row['band']} | {row['cause']}")
     for summary in result.get("accounts") or []:
         lines += account_lines(summary)
+    use = result.get("enable")
+    if use and use["present"]:      # the maintainer's dated decision, beside the bands and never moving one
+        lines.append(f"  {use['route']}: {use['status_line']}" if use["in_force"] else f"  {use['route']}: the enabling decision of {use['date']} is not in force ({use['cause']})")
+    elif use:
+        lines.append("  the interpreter is off: " + str(use["cause"]))
     go = result.get("go")
     if go:
         lines.append("  go: " + ("yes via " + str(go["route"]) + " for " + ", ".join(go["route_languages"])

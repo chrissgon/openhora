@@ -224,7 +224,7 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
     exists. ops_say.py imports neither sibling above it; ops_reads.py imports ops_say.py (the conversation's name)."""
     # ops_actor is a leaf (operations and ops_core only): it can close no cycle
     allowed = {"ops_say.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_natural.py": {"ops_core", "ops_actor"},
-               "ops_natural_writes.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_natural_calendar.py": {"ops_core", "ops_actor"}, "ops_natural_files.py": {"ops_core", "ops_actor"}, "ops_natural_mail.py": {"ops_core"},
+               "ops_natural_writes.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_interpret.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_natural_calendar.py": {"ops_core", "ops_actor"}, "ops_natural_files.py": {"ops_core", "ops_actor"}, "ops_natural_mail.py": {"ops_core"},
                "ops_items.py": {"ops_core", "ops_actor"}, "ops_reads.py": {"ops_core", "ops_say", "ops_models"},
                "ops_config.py": {"ops_core", "ops_models"}, "ops_contained.py": {"ops_core", "ops_instructions"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
     for name, may in allowed.items():
@@ -237,7 +237,7 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
                 at_top.add(node.module or "")
         assert {n for n in at_top if n == "ops" or n.startswith("ops_")} <= may, name
     assert set(allowed) == {"ops_say.py", "ops_natural.py", "ops_reads.py", "ops_config.py", "ops_contained.py", "ops_runs.py", "ops_models.py", "ops_natural_mail.py", "ops_natural_writes.py",
-                            "ops_natural_calendar.py", "ops_natural_files.py", "ops_items.py"}, "the guard covers each of its files"
+                            "ops_natural_calendar.py", "ops_natural_files.py", "ops_items.py", "ops_interpret.py"}, "the guard covers each of its files"
 
 
 # The size budget (CONS-1B). ops.py held 3,514 lines before the move; after it, 2,676. The budget is that count plus

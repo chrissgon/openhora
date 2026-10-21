@@ -625,6 +625,18 @@ TABLE = {
     "NW_MAIL_ASK_STATE": "Marcar como lido ou como não lido?",
     "NW_MAIL_STATE_READ": "lido",
     "NW_MAIL_STATE_UNREAD": "não lido",
+    # --- uma linha simples que o interpretador lê (pacote S1: runtime/ops_interpret.py): frases fixas, nenhuma palavra do modelo é mostrada ---
+    "IX_PRIVATE_LINE": "(uma mensagem)",
+    "IX_NONE": "Não vi um pedido nessa mensagem.",
+    "IX_ASK_TIME": "Não tenho certeza do dia e da hora. Diga de novo, com o dia e a hora.",
+    "IX_ASK_PAST": "Esse horário já passou. Diga um horário que ainda vem pela frente.",
+    "IX_ASK_FAR": "Isso está a mais de um ano. Diga um dia mais perto.",
+    "IX_LONG_LINE": "Essa mensagem é longa demais para eu ler aqui. Envie em partes menores.",
+    "IX_ASK_AGAIN": "Não tive certeza do que você quis dizer, então não fiz nada. Pode dizer de outro jeito?",
+    "IX_USE_CARD": "Uma decisão se toma no card dela: use os botões do card.",
+    "IX_WRITE_LANGUAGE": "Por enquanto, peça isso em português ou em inglês.",
+    "IX_OUTAGE": "Não consegui entender agora. Tente de novo em alguns minutos.",
+    "PHONE_NOT_UNDERSTOOD": "Não entendi o pedido e não comecei nada. Pode dizer de outro jeito?",
 }
 
 STATUS = {

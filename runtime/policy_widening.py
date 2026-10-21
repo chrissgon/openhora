@@ -73,7 +73,12 @@ def line_of(place: str, group: str) -> str:
 
 def means(channel: str, group: str) -> str:
     """What the person gives away by this group at a place of this channel: operations.GRANT_TEXT for a grant, else operations.GROUP_TEXT."""
-    return operations.GRANT_TEXT.get(line_of(channel, group)) or operations.GROUP_TEXT.get(group, group)
+    text = operations.GRANT_TEXT.get(line_of(channel, group)) or operations.GROUP_TEXT.get(group, group)
+    if group == "interpret":      # the person sees what the model service keeps of a line before they widen this group (S1): the daily route's own terms
+        import interpreter_enable      # at call time: this module stays pure for every other group
+        kept = interpreter_enable.retention()
+        text = text + (f" Retention of the daily route: {kept}" if kept else " Retention: the route's terms are not readable here.")
+    return text
 
 
 def digest_of(text: str, size: int, secret: str = "") -> str:
