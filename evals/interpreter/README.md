@@ -207,3 +207,42 @@ channel and line, and the served catalog.
 - **L9** Two requests in one line are `clarify`.
 - **L10** "and another at 4pm" after a last request is that op with the inherited slot (its value from
   `frame.last.words`).
+
+## Running the measurement
+
+The harness is `runtime/interpreter_measure.py` (package IX-2c; the arms, the mapping and what it cannot measure are in `docs/architecture/platform/runtime.md`, "The interpreter's
+measurement"). It makes the only model calls of the experiment, through `runtime/interpreter_route.py`; every command below that is not a replay or a test needs the maintainer's own
+go-ahead for the calls it makes. Run from a checkout of the integration branch, never the live one.
+
+```
+python3 runtime/interpreter_measure.py --corpus FILE --route ID [--runs N] [--jobs N] [--sample N --seed S] [--sequential]
+                                       [--record DIR | --resume DIR | --replay DIR] [--evidence-dir DIR | --no-evidence] [--json]
+python3 runtime/interpreter_measure.py --corpus FILE --route ID --local-aggregates [--evidence-dir DIR]
+```
+
+- `--route` is an id of `runtime/interpreter_routes.json`; `--runs` defaults to `runs` of `thresholds.json` (2); `--jobs` (default 4) is how many calls go out at once, one process
+  per route. `--sequential` runs one call at a time, writes `sequential: true` and draws its items (`--sample N --seed S`: the first N by `sha256("<S>:<id>")`, in id order) only
+  among those that reach the model, so that every line of a sequential event is a call: go reads the latency and the cost from those events and needs at least 100 such lines per
+  route (60 items twice is 120).
+- Evidence is written once, at the end, with an exclusive create, only when every item and run has a line; an interrupted run leaves nothing but its answers. The event states the
+  number of items of the corpus FILE (a sample event is not the split), the hashes of the route, protocol, prompt, catalog, taxonomy, thresholds and harness, and for the test split
+  and for local lines the hash of the bytes of `test-split.json`. Items of gold scope `time` (the relabelled reminder lines judged on the time alone) write no line; they are
+  printed as counts.
+- `--record DIR` keeps the model's raw answers in `DIR/<test>.answers.jsonl` as they arrive (a header of hashes, then one line per call; the prompt is never written). `--resume DIR`
+  re-reads the matching file, calls only the pairs it lacks (a recorded failure is kept, not paid for again) and writes the complete event under the file's test id.
+  `--replay DIR` reads one answers file whose header hashes equal this checkout's (else it names the field that differs), makes no call of any kind and writes no evidence. Dev answers
+  are fictional and may be committed (an exact-path `english-only` line in `.security-scan-allow` for each file); the test split's answers stay outside the repository until the
+  split is committed.
+- The test split: the corpus must hash to `test-split.json["sha256"]`, `--runs` must be the configured number, `--sample` needs `--sequential`, and `--record`, `--resume` or
+  `--replay` is required with a directory outside the checkout. Nothing about a held-out line is printed: counts, categories, ids of the dev and test splits and `E_` codes only.
+  An exception prints its class and the item's ordinal. A call that fails with `E_KEY`, `E_ROUTE` or `E_USAGE` stops the run at once (it would fail every call).
+- `--local-aggregates` is for the maintainer's own labelled lines (the form of the corpus, `split: "local"`, ids `local-NNNNN`, kept outside any repository): one run, counts per
+  language written and printed, no id and no line. It refuses `--record`, `--resume`, `--replay`, `--sample` and `--sequential`. It can demote a route, never promote one.
+- The current pipeline is measured by a test, not by this script: `WB_IX_CURRENT_CORPUS=<file> WB_IX_CURRENT_EVIDENCE=<dir> uv run --with pytest==9.1.1 pytest -q --tb=no -p
+  no:cacheprovider runtime/tests/test_interpreter_current_arm.py -k test_current_arm_full_run` writes one `arm: current` event for the file (for the test split, with pytest's
+  `--basetemp` inside the corpus file's folder: the stand-in messenger writes the replies to disk). It makes no call.
+- Residues, stated with every result: the arms cannot see resolution failures, the card's rendering, the per-sender policy or approval by word (see the architecture page); the
+  current arm seeds the open items of a frame as today's drafts and an item with no equivalent (a `choice`, a write confirm, a reminder confirm whose `when` has no single reading)
+  runs with no open item, counted as `unseeded` and stated beside the numbers (up to 5% of the split is accepted); a private line that asks for work is `route` in the corpus (L7)
+  and `clarify private-route` in code, scored as a clarification by the frozen rules, with its count printed beside the clarify rate; a model confirm counts only when code reads
+  the same yes or no, so a "sure thing" the model calls a yes is asked again.

@@ -1,0 +1,214 @@
+"""The echo model over the dev split (package IX-2c; runtime/interpreter_pipeline.py with runtime/interpreter_score.py): a stand-in `call` that answers each item with the
+protocol object its own gold implies, so that everything the harness does between the model's answer and the category is measured against a model that is right. Offline: no
+model, no network, no key; fictional corpus.
+
+Every item of a 60-item sample of evals/interpreter/dev.jsonl (seed 20261024) is `correct` except a literal allow-list of ids, each with the reason the pipeline, not the echo,
+decides it differently (the code reads a time and wins over the echo's `time_iso`; tier 1 decides before the model; a private line asking for work is asked back). With
+WB_FULL_FUZZ=1 the whole dev file, and the scope-full items of dev-relabelled.jsonl, run the same way. The echo is also the model of the replay and CLI tests.
+
+Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interpreter_echo.py
+"""
+from __future__ import annotations
+
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+import standin_tree as st
+
+pipeline = st.load("interpreter_pipeline")
+score = st.load("interpreter_score")
+interpreter = st.load("interpreter")
+
+ROOT = Path(__file__).resolve().parents[2]
+DEV = ROOT / "evals" / "interpreter" / "dev.jsonl"
+RELABELLED = ROOT / "evals" / "interpreter" / "dev-relabelled.jsonl"
+SEED = "20261024"
+SAMPLE = 60
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+TIME_SLOTS = {("remind", "when"), ("event-create", "time"), ("event-change", "time")}          # the test's own list (the protocol's time slots)
+D_OP, G_OP = "approve", "give-consent"          # the first refused operation of each class, written here
+
+
+def load(path):
+    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def sample(items, n=SAMPLE, seed=SEED):
+    ordered = sorted(items, key=lambda i: hashlib.sha256(f"{seed}:{i['id']}".encode("utf-8")).hexdigest())
+    return sorted(ordered[:n], key=lambda i: i["id"])
+
+
+def weekday_of(stamp):
+    return WEEKDAYS[datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M").weekday()]
+
+
+def echo_object(item):
+    """The protocol object (a dict) that the gold of `item` implies, or None for an item the echo cannot read (a gold of scope op or time)."""
+    gold, frame = item["gold"], item["frame"]
+    outcome = gold["outcome"]
+    if gold.get("scope", "full") != "full":
+        return None
+    if outcome == "op":
+        slots, inherit = {}, {}
+        last = (frame or {}).get("last")
+        for slot, accepted in (gold.get("slots") or {}).items():
+            span = accepted[0]
+            held = ((last or {}).get("words") or {}).get(slot)
+            if last and last["op"] == gold["op"] and held and not any(a in item["line"] for a in accepted):
+                inherit[slot] = held
+            else:
+                slots[slot] = span
+        obj = {"v": 1, "kind": "op", "op": gold["op"], "slots": slots}
+        if inherit:
+            obj["inherit"] = inherit
+        if any((gold["op"], slot) in TIME_SLOTS for slot in slots):
+            obj["time_iso"] = gold["time"][0]
+            obj["weekday"] = weekday_of(gold["time"][0])
+        return obj
+    if outcome == "answer":
+        obj = {"v": 1, "kind": "answer", "answers_item": gold["item"]}
+        for key in ("option", "confirm", "slot"):
+            if key in gold:
+                obj[key] = gold[key]
+        if "span" in gold:
+            obj["span"] = gold["span"][0]
+        if "time" in gold:
+            obj["time_iso"] = gold["time"][0]
+            obj["weekday"] = weekday_of(gold["time"][0])
+            obj.setdefault("span", item["line"].strip())
+        return obj
+    if outcome == "clarify":
+        return {"v": 1, "kind": "clarify", "slot": gold.get("slot") or "when"}
+    if outcome == "refuse":
+        return {"v": 1, "kind": "op", "op": D_OP if gold["class"] == "D" else G_OP, "slots": {}}
+    return {"v": 1, "kind": outcome}          # route, none (a forwarded item never reaches the model)
+
+
+class Echo:
+    """The stand-in `call` of one item: it answers with the gold's object, as the route's reply would arrive."""
+
+    def __init__(self, item, calls=None):
+        self.item, self.calls = item, calls
+
+    def __call__(self, system, user):
+        if self.calls is not None:
+            self.calls.append(self.item["id"])
+        obj = echo_object(self.item)
+        return {"ok": True, "text": json.dumps(obj), "finish": "stop", "usage": {"input": 100, "output": 20, "cache_read": None, "cache_write": None},
+                "latency_ms": 5, "upstream": "pinned"}
+
+
+def run(item):
+    """(category, observed) of the echo on one item."""
+    outcome = pipeline.run_item(item, 1, Echo(item))
+    return score.categorize(item["gold"], item["also"], item["gold"].get("scope", "full"), outcome["observed"], outcome["detail"]), outcome["observed"]
+
+
+def collapse(text):
+    return " ".join(text.split())
+
+
+def key_of_item(item):
+    frame = "null" if item["frame"] is None else interpreter.canonical(item["frame"]).decode("utf-8")
+    return collapse(item["line"]), item["clock"], frame
+
+
+def key_of_user(user):
+    """The same key from the five-line user message of a call: the line, the clock and the frame as the model is shown them."""
+    rows = user.split("\n")
+    assert len(rows) == 5 and rows[0].startswith("today: ") and rows[1].startswith("time: ") and rows[3].startswith("frame: ") and rows[4].startswith("line: ")
+    return rows[4][len("line: "):], rows[0][7:17] + "T" + rows[1][6:], rows[3][len("frame: "):]
+
+
+def unique_items(items):
+    """The items whose (line, clock, frame) is the only one of its kind: an echo that is told only the user message can find them."""
+    count = {}
+    for i in items:
+        count[key_of_item(i)] = count.get(key_of_item(i), 0) + 1
+    return [i for i in items if count[key_of_item(i)] == 1]
+
+
+class EchoRoute:
+    """A stand-in for `interpreter_route.complete`: it finds the item the user message was built from and answers with the gold's object, as a reply arrives. `calls` lists
+    the ids it was asked for, `fail` maps an id to a code to fail with (every call of that item), `texts` maps an id to a text to answer with instead."""
+
+    def __init__(self, items, fail=None, texts=None):
+        self.by_key = {key_of_item(i): i for i in items}
+        self.calls, self.fail, self.texts = [], dict(fail or {}), dict(texts or {})
+        self.accepted = []
+
+    def __call__(self, route_id, system, user, *, accepted, deadline_ms, run=None, root=None, temperature=0, max_tokens=300, reasoning="off"):
+        item = self.by_key[key_of_user(user)]
+        self.calls.append(item["id"])
+        self.accepted.append(list(accepted))
+        if item["id"] in self.fail:
+            return {"ok": False, "code": self.fail[item["id"]]}
+        text = self.texts.get(item["id"]) or json.dumps(echo_object(item))
+        return {"ok": True, "text": text, "finish": "stop", "usage": {"input": 3000, "output": 40, "cache_read": 2000, "cache_write": None}, "latency_ms": 9,
+                "upstream": "pinned"}
+
+
+def write_corpus(path, items):
+    from pathlib import Path as _Path
+    body = "".join(json.dumps(i, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n" for i in sorted(items, key=lambda i: i["id"]))
+    _Path(path).write_text(body, encoding="utf-8")
+    return body.encode("utf-8")
+
+
+# The ids of the dev file whose echo is not `correct`, each with why: the pipeline, not the echo, decides them (a literal list; the 60-item sample holds two of them).
+TIME_ASK = "the code half-reads or doubts the time phrase, so it asks instead of taking the echo's time_iso (clarify time-ask)"
+CODE_WINS = "the code reads the time itself and its reading wins over the echo's time_iso (time_disagree), and it is not the gold's"
+CONFIRM_RULE = "the confirm rule: the echo says yes or no, and code does not read the line as that yes or no, so it asks again (clarify)"
+ALLOWED = {
+    "dev-en-00013": TIME_ASK, "dev-en-00036": TIME_ASK, "dev-es-00036": TIME_ASK, "dev-es-00043": TIME_ASK, "dev-fr-00018": TIME_ASK, "dev-it-00020": TIME_ASK,
+    "dev-pt-br-00007": TIME_ASK,
+    "dev-es-00005": CODE_WINS, "dev-es-00012": CODE_WINS, "dev-es-00033": CODE_WINS,
+    "dev-es-00025": CONFIRM_RULE, "dev-fr-00019": CONFIRM_RULE, "dev-pt-br-00058": CONFIRM_RULE,
+}
+FULL = bool(os.environ.get("WB_FULL_FUZZ"))
+
+
+def off_the_mark(items):
+    return {i["id"]: run(i)[0] for i in items if i["gold"].get("scope", "full") == "full" and run(i)[0] != "correct"}
+
+
+def test_the_echo_model_is_correct_on_every_item_of_the_sample_but_the_listed_ones():
+    items = sample(load(DEV))
+    assert len(items) == SAMPLE
+    assert set(off_the_mark(items)) == {i["id"] for i in items if i["id"] in ALLOWED}, "an item is wrong that is not listed, or a listed item is no longer wrong"
+
+
+def test_the_sample_reaches_every_stage_and_the_classes_the_mapping_distinguishes():
+    items = sample(load(DEV))
+    stages, observed = set(), set()
+    for one in items:
+        out = pipeline.run_item(one, 1, Echo(one))
+        stages.add(out["stage"])
+        observed.add(out["observed"])
+    assert {"model", "forwarded"} <= stages and {"card", "read", "remind_confirm", "route", "clarify", "refuse_d", "refuse_g"} <= observed, (stages, observed)
+
+
+def test_a_mapping_that_shows_every_effect_as_a_confirm_makes_items_the_list_does_not_allow(monkeypatch):
+    items = sample(load(DEV))
+    monkeypatch.setitem(pipeline.OBSERVED_OF, "E", "confirm")
+    assert set(off_the_mark(items)) - set(ALLOWED), "the oracle sees a changed mapping"
+
+
+def test_every_listed_id_is_an_item_of_the_dev_file_with_a_reason():
+    ids = {i["id"] for i in load(DEV)}
+    assert set(ALLOWED) <= ids and all(len(reason) > 20 for reason in ALLOWED.values())
+
+
+@pytest.mark.skipif(not FULL, reason="the whole dev file runs with WB_FULL_FUZZ=1")
+def test_the_echo_model_over_the_whole_dev_file_is_wrong_only_where_listed():
+    assert set(off_the_mark(load(DEV))) == set(ALLOWED)
+
+
+@pytest.mark.skipif(not FULL, reason="the relabelled file runs with WB_FULL_FUZZ=1")
+def test_the_echo_model_over_the_scope_full_items_of_the_relabelled_file_is_always_correct():
+    assert off_the_mark(load(RELABELLED)) == {}
