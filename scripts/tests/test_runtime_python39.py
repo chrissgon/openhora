@@ -102,6 +102,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/routines.py", "runtime/ops_routines.py",
     # The person's standing instructions (package INSTRUCTIONS): the file and its checks, and the operations over it.
     "runtime/instructions.py", "runtime/ops_instructions.py", "runtime/ops_contained.py",
+    # The interpreter on a messaging line (S1): its sibling of the conversation and the file that turns it on.
+    "runtime/ops_interpret.py", "runtime/interpreter_enable.py",
     # The grants of the channel policy (POL-1): the effect's word and card, and the widening list with its hash; who acted (POL-2): the sender, its profile and the record.
     "runtime/ops_grants.py", "runtime/policy_grants.py", "runtime/policy_widening.py", "runtime/ops_actor.py",
     # The language the deliverables are written in (LANGUAGE): the rule, the order and the words; the operations that check a request's choice.

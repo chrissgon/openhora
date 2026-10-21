@@ -361,9 +361,10 @@ def test_the_current_pipeline_must_be_run_on_the_same_corpus(tmp_path):
 def test_the_table_has_a_line_for_each_route_and_language(tmp_path):
     both_routes(tmp_path)
     lines = ist.table(ist.status(str(tmp_path)))
-    assert lines[0].startswith("Interpreter") and len(lines) == 1 + 12 + 1
+    assert lines[0].startswith("Interpreter") and len(lines) == 1 + 12 + 1 + 1      # the line before the go line says the interpreter is off: this tree has no enabling file (S1)
     assert "  example/strong-1 | fx-ref (reference) | de | reliable | every condition holds" in lines
     assert lines[-1].startswith("  go: yes via fx-cheap for pt-BR, en, es, fr, de, it")
+    assert lines[-2] == "  the interpreter is off: runtime/interpreter_enable.json is missing or not valid"
 
 
 def test_the_command_line_prints_the_table_and_the_go_exit_code(tmp_path, capsys):
