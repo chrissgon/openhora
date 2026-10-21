@@ -40,19 +40,18 @@ def missing(routes_doc, table_doc):
 
 def test_every_route_of_the_interpreter_has_its_prices():
     routes = read("interpreter_routes.json")
-    assert len(routes["routes"]) >= 3
+    assert len(routes["routes"]) >= 1
     assert missing(routes, read("prices.json")) == []
 
 
-def test_the_anthropic_routes_ask_for_a_cache_and_price_both_cache_kinds():
+def test_the_shipped_route_asks_no_cache_breakpoint_and_prices_the_cache_it_reads():
+    """ACCT-B: the two routes that asked for a cache breakpoint (a Claude model through a metered key) are gone; the one left reads a cache (its
+    provider caches by itself) and writes none."""
     routes = read("interpreter_routes.json")["routes"]
     models = read("prices.json")["models"]
-    anthropic = [r for r in routes if r["model"].startswith("openrouter/anthropic/")]
-    assert {r["id"] for r in anthropic} == {"or-claude-haiku-4.5", "or-claude-sonnet-5.5"}
-    for route in anthropic:
-        assert route["cache_breakpoint"] is True
-        row = models[route["model"]]
-        assert row["cache_read_usd_per_mtok"] > 0 and row["cache_write_usd_per_mtok"] > 0, route["id"]
+    assert [r["id"] for r in routes] == ["or-deepseek-v4.1-flash"]
+    assert routes[0]["cache_breakpoint"] is False
+    assert models[routes[0]["model"]]["cache_read_usd_per_mtok"] > 0
 
 
 def test_a_call_with_cached_tokens_is_priced_on_every_route():
@@ -70,16 +69,20 @@ def test_a_call_with_cached_tokens_is_priced_on_every_route():
             assert prices.expected_cost(written, prices.price_of(table, [route["model"]])) is not None, route["id"]
 
 
-def test_vacuity_a_route_without_a_cache_price_is_found():
+def test_vacuity_a_route_without_a_price_is_found():
     routes = read("interpreter_routes.json")
     table = read("prices.json")
-    for kind in KINDS:
+    row = "openrouter/deepseek/deepseek-v4.1-flash"
+    for kind in ("input", "output", "cache_read"):
         broken = json.loads(json.dumps(table))
-        del broken["models"]["openrouter/anthropic/claude-haiku-4.5"][kind + "_usd_per_mtok"]
-        assert missing(routes, broken) == [("or-claude-haiku-4.5", kind)], kind
+        del broken["models"][row][kind + "_usd_per_mtok"]
+        assert missing(routes, broken) == [("or-deepseek-v4.1-flash", kind)], kind
     gone = json.loads(json.dumps(table))
-    del gone["models"]["openrouter/deepseek/deepseek-v4.1-flash"]
+    del gone["models"][row]
     assert missing(routes, gone) == [("or-deepseek-v4.1-flash", "row")]
     text = json.loads(json.dumps(table))
-    text["models"]["openrouter/anthropic/claude-sonnet-5.5"]["cache_read_usd_per_mtok"] = "0.1"
-    assert missing(routes, text) == [("or-claude-sonnet-5.5", "cache_read")]
+    text["models"][row]["cache_read_usd_per_mtok"] = "0.1"
+    assert missing(routes, text) == [("or-deepseek-v4.1-flash", "cache_read")]
+    # a route that asks for a cache breakpoint writes a cache, so it needs a cache_write price, which this row does not have
+    asking = {"routes": [dict(routes["routes"][0], cache_breakpoint=True)]}
+    assert missing(asking, table) == [("or-deepseek-v4.1-flash", "cache_write")]

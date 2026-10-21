@@ -20,9 +20,13 @@ The request (version 1), one JSON object:
    "route": {"id", "base_url", "model", "pin": str|null, "allow_fallbacks": false, "data_collection": "deny",
              "zdr": bool, "cache_breakpoint": bool},
    "accepted": [sha256 of a route, ...],
+   "key_prefix": str,
    "params": {"temperature": number, "max_tokens": int, "reasoning": "off"|"on"},
    "system": str, "user": str, "deadline_ms": int}
 The sha256 is over json.dumps(route, ensure_ascii=False, sort_keys=True, separators=(",", ":")) in UTF-8.
+`key_prefix` (4 to 32 printable characters) is the start every key of this service has: the caller sends it, this provider names
+no vendor. A MODEL_TEXT_KEY that does not start with it is refused before any connection (E_KEY, exit 3), so a credential of
+another service never reaches this one. It is not part of the route, of the route's hash or of the request body sent upstream.
 
 The reply on standard output (exit 0):
   {"v": 1, "text", "finish": "stop"|"length"|"other",
@@ -37,7 +41,7 @@ allow_fallbacks other than false; data_collection other than "deny". No redirect
 On failure the only output is one line on standard error, `chat-http: <CODE>`: no request, no reply body, no
 URL and no key is ever printed, not even inside an exception. Codes and exits:
   E_USAGE 2 | E_KEY 3, E_ROUTE 3 | E_TIMEOUT, E_NETWORK, E_RATE (429), E_UPSTREAM (5xx), E_HTTP (any other status),
-  E_PIN (the reply names another provider than the pin), E_RESPONSE (not JSON, over 65,536 bytes, no text), E_INTERNAL: 1.
+  E_PIN (the reply names another provider than the pin, or a `model` that does not start with the route's model), E_RESPONSE (not JSON, over 65,536 bytes, no text), E_INTERNAL: 1.
 
 Standard library only; runs on Python 3.9.
 """
@@ -64,7 +68,8 @@ MAX_RESPONSE_BYTES = 65536
 MAX_DEADLINE_MS = 600000
 MAX_TOKENS_LIMIT = 32768
 ROUTE_KEYS = ("id", "base_url", "model", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint")
-REQUEST_KEYS = ("v", "route", "accepted", "params", "system", "user", "deadline_ms")
+REQUEST_KEYS = ("v", "route", "accepted", "key_prefix", "params", "system", "user", "deadline_ms")
+KEY_PREFIX_LENGTH = (4, 32)
 EXITS = {"E_USAGE": 2, "E_KEY": 3, "E_ROUTE": 3}
 
 
@@ -109,6 +114,8 @@ def read_request() -> dict:
           and (route["pin"] is None or (isinstance(route["pin"], str) and route["pin"]))
           and all(isinstance(route[k], bool) for k in ("allow_fallbacks", "zdr", "cache_breakpoint")))
     ok = ok and isinstance(req["accepted"], list) and all(isinstance(x, str) for x in req["accepted"])
+    prefix = req["key_prefix"]
+    ok = ok and isinstance(prefix, str) and KEY_PREFIX_LENGTH[0] <= len(prefix) <= KEY_PREFIX_LENGTH[1] and prefix.isprintable()
     ok = ok and isinstance(params, dict) and set(params) == {"temperature", "max_tokens", "reasoning"}
     ok = ok and is_number(params["temperature"]) and 0 <= params["temperature"] <= 2
     ok = ok and is_int(params["max_tokens"]) and 1 <= params["max_tokens"] <= MAX_TOKENS_LIMIT
@@ -174,8 +181,8 @@ def count(obj, *path):
 
 def post(req: dict, loopback: bool, host: str, port, base: str) -> dict:
     key = os.environ.get(KEY_VARIABLE, "")
-    if not key or not key.isprintable() or any(c.isspace() for c in key):
-        raise Fail("E_KEY")
+    if not key or not key.isprintable() or any(c.isspace() for c in key) or not key.startswith(req["key_prefix"]):
+        raise Fail("E_KEY")        # before any connection: a key of another service is never sent here
     start = time.monotonic()
     deadline = start + req["deadline_ms"] / 1000.0
 
@@ -241,7 +248,7 @@ def post(req: dict, loopback: bool, host: str, port, base: str) -> dict:
     return {"raw": b"".join(chunks), "latency_ms": int((time.monotonic() - start) * 1000)}
 
 
-def parse_reply(raw: bytes, latency_ms: int, pin) -> dict:
+def parse_reply(raw: bytes, latency_ms: int, pin, model) -> dict:
     try:
         doc = json.loads(raw.decode("utf-8"))
         choice = doc["choices"][0]
@@ -254,6 +261,8 @@ def parse_reply(raw: bytes, latency_ms: int, pin) -> dict:
     upstream = upstream.lower() if isinstance(upstream, str) and upstream else None
     if pin and upstream is not None and upstream != pin.lower():
         raise Fail("E_PIN")
+    if "model" in doc and not (isinstance(doc["model"], str) and doc["model"].lower().startswith(model.lower())):
+        raise Fail("E_PIN")        # a service that answers with another model than the route names (an alias, a preset, a router) is refused
     usage = doc.get("usage")
     return {"v": 1, "text": text, "finish": finish_of(choice.get("finish_reason")),
             "usage": {"input": count(usage, "prompt_tokens"), "output": count(usage, "completion_tokens"),
@@ -270,7 +279,7 @@ def complete(dry_run: bool) -> dict:
         would = {"method": "POST", "url": url, "body": build_body(req)}
         return {"would": would, "would_sha256": sha256_of(would)}
     got = post(req, loopback, host, port, base)
-    return parse_reply(got["raw"], got["latency_ms"], req["route"]["pin"])
+    return parse_reply(got["raw"], got["latency_ms"], req["route"]["pin"], req["route"]["model"])
 
 
 def run(argv) -> int:

@@ -139,7 +139,7 @@ def route(stub=None, **over):
 
 
 def request(rt, accepted=None, **over):
-    req = {"v": 1, "route": rt, "accepted": [sha(rt)] if accepted is None else accepted,
+    req = {"v": 1, "route": rt, "accepted": [sha(rt)] if accepted is None else accepted, "key_prefix": "sk-test-",
            "params": {"temperature": 0, "max_tokens": 300, "reasoning": "off"}, "system": "You are a test system.", "user": "A test user line.",
            "deadline_ms": 5000}
     req.update(over)

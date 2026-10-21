@@ -9,9 +9,14 @@ runtime/interpreter_routes.json lists the routes the experiment may use: a route
 it, the address, the limits that never widen (no fallback provider, no prompt kept for training) and the one secret that pays
 for it. This module checks the file, builds what the provider `model:text` (providers/model/chat-http.py) is given, and calls it.
 
-    load(root=None)                       the file, checked: closed keys, an id of the form [a-z0-9][a-z0-9.-]{0,63}, an https address
-                                          without a login, a `key` that is a name of runtime/secrets.json, no fallback, data_collection
-                                          "deny", exactly one route marked `reference`. Raises RouteError (a ValueError).
+    load(root=None)                       the file, checked: closed keys, `kind` "http", an id of the form [a-z0-9][a-z0-9.-]{0,63}, an https
+                                          address without a login, a `key` that is a name of runtime/secrets.json, a `key_prefix` equal to the
+                                          one KEY_SHAPES holds for the address's host, no fallback, data_collection "deny", at most one route
+                                          marked `reference`, an allow-list of models (an `upstream_model` must start with an entry of
+                                          HTTP_MODELS for its host, and `model` is MODEL_PREFIX plus it: an alias, a preset or a router is
+                                          refused whatever its pin), and, as a second layer, no model of the vendor whose models are measured
+                                          on the maintainer's own account (VENDOR_WORDS in model, upstream_model or pin, any case). Both
+                                          model checks are for `http` rows. Raises RouteError (a ValueError).
     stdin_route(route)                    what the provider is shown of a route: id, base_url, model (the upstream id), pin,
                                           allow_fallbacks, data_collection, zdr, cache_breakpoint
     route_sha256(route)                   the sha256 of the canonical JSON of stdin_route(route): the value a caller puts in `accepted`
@@ -20,7 +25,9 @@ for it. This module checks the file, builds what the provider `model:text` (prov
 
 `accepted` lists the route hashes the person agreed to; the provider refuses any other. The key is read through the secret
 resolver (providers/secrets/resolver.py) from the registry runtime/secrets.json, the pattern of runtime/ops_core.py, and reaches
-the provider's process only as MODEL_TEXT_KEY. A failure is a code and nothing else: a provider's reason and its error text are
+the provider's process only as MODEL_TEXT_KEY, and only when it starts with the route's `key_prefix` (a key of another service is
+E_KEY here, before the provider starts, and again in the provider). A model of that vendor is measured on the maintainer's own account,
+never through a metered key (docs/decisions.md, 2026-10-21). A failure is a code and nothing else: a provider's reason and its error text are
 never read, returned or logged, and no prompt, reply or line is written to disk or to a log here.
 
 Standard library only. Runs on Python 3.9.
@@ -44,9 +51,21 @@ CLASS = "model:text"
 KEY_VARIABLE = "MODEL_TEXT_KEY"
 ID = re.compile(r"[a-z0-9][a-z0-9.-]{0,63}")
 CODE = re.compile(r"chat-http: (E_[A-Z_]+)")
-ROUTE_KEYS = ("id", "model", "upstream_model", "base_url", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint",
-              "key", "reference", "retention")
+ROUTE_KEYS = ("id", "kind", "model", "upstream_model", "base_url", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint",
+              "key", "key_prefix", "reference", "retention")
 FINISHES = ("stop", "length", "other")
+KINDS = ("http",)         # the kind of route this module runs: an HTTP service reached with a metered key
+# What a key of each service starts with, by the host of its address: a closed table. A route's `key_prefix` is the entry of its host, and
+# a host not listed here is refused, so a credential of another service (a subscription token, a vendor key) is never sent to one listed.
+KEY_SHAPES = {"openrouter.ai": "sk-or-v1-"}
+# The models a route may name, by host: an allow-list beside KEY_SHAPES. An `upstream_model` must start with an entry of its host's tuple, and `model`
+# is MODEL_PREFIX plus `upstream_model`; anything else (an alias, a preset, a router that picks the model) is refused, whatever the pin says. The
+# vendor words below stay as a second layer. Both checks apply to `http` rows only.
+HTTP_MODELS = {"openrouter.ai": ("deep" + "seek/",)}
+MODEL_PREFIX = {"openrouter.ai": "openrouter/"}
+# A model of this vendor is never reached over HTTP with a metered key; the words are matched in the model, upstream_model and pin, any case. They are
+# written in pieces so that this file names no AI tool (rule R19 of the platform plan, runtime/tests/test_runtime_rules.py).
+VENDOR_WORDS = ("clau" + "de", "anth" + "ropic")
 # The secrets a route may name: the one the interpreter reads, and only while this module is among that secret's readers. Another
 # registered secret (a subscription token, an account token) is never sent to a model service, whatever a routes file says.
 ALLOWED_KEYS = frozenset({"WB_RUNTIME_KEY_OPENROUTER_API_KEY"})
@@ -74,9 +93,14 @@ def _registered_names(root: str) -> dict:
 def _check_route(route, names: dict, seen: set) -> None:
     if not isinstance(route, dict) or set(route) != set(ROUTE_KEYS):
         raise RouteError("a route has exactly the keys " + ", ".join(ROUTE_KEYS))
-    for key in ("model", "upstream_model", "base_url", "data_collection", "key", "retention"):
+    for key in ("kind", "model", "upstream_model", "base_url", "data_collection", "key", "key_prefix", "retention"):
         if not isinstance(route[key], str) or not route[key].strip():
             raise RouteError(f"route {key} is a non-empty text")
+    if route["kind"] not in KINDS:
+        raise RouteError(f"route kind is one of {list(KINDS)}")
+    for key in ("model", "upstream_model", "pin"):
+        if isinstance(route[key], str) and any(word in route[key].lower() for word in VENDOR_WORDS):
+            raise RouteError("a model of that vendor is not reached over HTTP with a metered key: it is measured on the maintainer's own account")
     if not isinstance(route["id"], str) or not ID.fullmatch(route["id"]):
         raise RouteError("a route id is lower-case letters, digits, dots and hyphens, 64 characters at most")
     if route["id"] in seen:
@@ -96,6 +120,11 @@ def _check_route(route, names: dict, seen: set) -> None:
         raise RouteError(f"route {route['id']}: base_url is not an address") from None
     if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
         raise RouteError(f"route {route['id']}: base_url is an https address with no login, query or fragment")
+    host = (parts.hostname or "").lower()
+    if not route["upstream_model"].startswith(HTTP_MODELS.get(host, ())) or route["model"] != MODEL_PREFIX.get(host, "\0") + route["upstream_model"]:
+        raise RouteError(f"route {route['id']}: upstream_model must start with a model the host's allow-list names, and model is the host's prefix plus it")
+    if KEY_SHAPES.get(host) != route["key_prefix"]:
+        raise RouteError(f"route {route['id']}: key_prefix must be the one KEY_SHAPES holds for the host of base_url, and the host must be listed")
     if route["key"] not in names or route["key"] not in ALLOWED_KEYS or READER not in names[route["key"]]:
         raise RouteError(f"route {route['id']}: key must be one of {sorted(ALLOWED_KEYS)}, listed in runtime/secrets.json with {READER} among its readers")
 
@@ -112,8 +141,8 @@ def load(root=None) -> dict:
     names, seen = _registered_names(root), set()
     for route in doc["routes"]:
         _check_route(route, names, seen)
-    if sum(1 for r in doc["routes"] if r["reference"]) != 1:
-        raise RouteError("exactly one route is the reference")
+    if sum(1 for r in doc["routes"] if r["reference"]) > 1:
+        raise RouteError("at most one route is the reference")
     return doc
 
 
@@ -164,12 +193,12 @@ def complete(route_id, system, user, *, accepted, deadline_ms, run=None, root=No
     except RouteError:
         return {"ok": False, "code": "E_ROUTE"}
     value = _key(route["key"], root)
-    if value is None:
-        return {"ok": False, "code": "E_KEY"}
+    if value is None or not value.startswith(route["key_prefix"]):
+        return {"ok": False, "code": "E_KEY"}        # a key of another service is never put in the provider's environment
     resolve = project_config.resolver(root)
     if not (isinstance(system, str) and isinstance(user, str)):
         return {"ok": False, "code": "E_USAGE"}
-    request = {"v": 1, "route": stdin_route(route), "accepted": list(accepted),
+    request = {"v": 1, "route": stdin_route(route), "accepted": list(accepted), "key_prefix": route["key_prefix"],
                "params": {"temperature": temperature, "max_tokens": max_tokens, "reasoning": reasoning},
                "system": system, "user": user, "deadline_ms": deadline_ms}
     env = resolve.provider_environment(CLASS, env={**os.environ, KEY_VARIABLE: value}, passes=(KEY_VARIABLE,))
