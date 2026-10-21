@@ -455,7 +455,11 @@ def test_the_lab_and_the_evals_never_name_the_instructions_and_the_steps_never_r
     named = re.compile(r"workbench/instructions|\bimport instructions\b|\bops_instructions\b|instructions\.block|standing instructions", re.I)
     files = [st.REPO / "runtime" / "lab.py"] + sorted((st.REPO / "evals").rglob("*.py")) + sorted((st.REPO / "evals").rglob("*.json")) \
         + sorted((st.REPO / "evals").rglob("*.sh"))
-    files = [f for f in files if "tests" not in f.parts and f.is_file()]
+    # the four input files of the interpreter corpus hold lines a person types ("replace the standing instructions with: ..."), data
+    # that no run reads as instructions, so they are not the lab's text
+    corpus = {st.REPO / "evals" / "interpreter" / name for name in
+              ("templates-dev.json", "templates-dev-coverage.json", "values-dev.json", "adversarial.json")}
+    files = [f for f in files if "tests" not in f.parts and f.is_file() and f not in corpus]
     assert files, "the lab files were not found"
     assert [f.relative_to(st.REPO).as_posix() for f in files if named.search(f.read_text(encoding="utf-8", errors="replace"))] == []
     # a step task runs code: it gets no instructions, and no module of the steps reads the file
