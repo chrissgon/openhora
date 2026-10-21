@@ -531,7 +531,7 @@ def run_line(w, item) -> dict:
     reset(w)
     put_clock(w, item)
     seeded = seed(w, item)
-    if item["line"].strip().startswith("/") and not (item["forwarded"] is not False):
+    if item["line"].strip().startswith("/") and not (item["channel"] == "messaging" and item["forwarded"] is not False):
         return outcome("none", notes=["typed"], seeded=seeded, crashed=False)
     line_numbers = [int(n) for n in re.findall(r"[0-9]+", item["line"])[:1]]
     w.held = line_numbers or [1]
@@ -721,6 +721,30 @@ def test_a_forwarded_item_is_forwarded_and_changes_nothing(world):
     assert not drafts.count()
 
 
+def test_a_run_above_the_accepted_share_of_unseeded_items_writes_no_event(world, tmp_path):
+    choice = {"v": 1, "items": [{"id": "i1", "kind": "choice", "need": "option", "options": 2, "age_s": 5}], "last": None}
+    folder = tmp_path / "events"
+    folder.mkdir()
+    over = [line_item("the second one", id=f"dev-en-0000{n}", frame=choice) for n in range(3)] + [line_item("approve 4", id=f"dev-en-0001{n}") for n in range(27)]
+    with pytest.raises(AssertionError) as why:
+        run_whole(world, over, folder, "dev", "c" * 64)          # 3 of 30: 10%
+    assert "3 of 30 items are unseeded, over 5%" in str(why.value) and "no event was written" in str(why.value) and "second one" not in str(why.value)
+    assert list(folder.iterdir()) == []
+    under = over[2:]          # 1 of 28: 3.6%
+    path, result, counts = run_whole(world, under, folder, "dev", "c" * 64)
+    assert path.is_file() and counts["unseeded"] == 1 and len(list(folder.iterdir())) == 1
+
+
+def test_a_crash_in_a_run_writes_no_event_either(world, tmp_path, monkeypatch):
+    monkeypatch.setattr(ops, "say", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("secret words")))
+    folder = tmp_path / "events"
+    folder.mkdir()
+    page = [line_item("hello there", id=f"dev-en-0000{n}", channel="page") for n in range(3)]
+    with pytest.raises(AssertionError) as why:
+        run_whole(world, page, folder, "dev", "c" * 64)
+    assert "6 runs crashed" in str(why.value) and "secret words" not in str(why.value) and list(folder.iterdir()) == []
+
+
 def test_a_typed_command_is_none_in_this_arm_as_in_the_other(world):
     got = run_line(world, line_item("/approve 12"))
     assert (got["observed"], got["notes"]) == ("none", ["typed"]) and world.rec.events == []
@@ -748,14 +772,25 @@ def test_the_same_scorer_scores_this_arm(world):
     assert score.categorize({"outcome": "route"}, [], "full", got["observed"], got["detail"]) == "missed"
 
 
+UNSEEDED_MAX = 0.05          # the share of items without an equivalent state that the maintainer has accepted; above it the event is not written and he decides
+
+
+def check_counts(counts, items):
+    """Counts only in the messages: no crash, and at most UNSEEDED_MAX of the items unseeded."""
+    assert counts["crashed"] == 0, f"{counts['crashed']} runs crashed: no event was written"
+    assert counts["unseeded"] / max(1, len(items)) <= UNSEEDED_MAX, \
+        f"{counts['unseeded']} of {len(items)} items are unseeded, over {UNSEEDED_MAX:.0%}: no event was written; the maintainer decides"
+
+
 def run_whole(world, items, folder, split, corpus_sha):
     scored, rows, time_rows, counts = measure_current(world, items)
+    print(f"current arm: items {len(items)} unseeded {counts['unseeded']} ({counts['unseeded'] / max(1, len(items)):.1%} of the items) crashed {counts['crashed']}")
+    check_counts(counts, items)          # before the event: a run above the accepted share writes nothing
     path = write_event(folder, split, items, scored, corpus_sha)
     th = json.loads((REPO / "evals" / "interpreter" / "thresholds.json").read_text(encoding="utf-8"))
     result = score.summary(rows, th, time_rows=time_rows)
     m = result["measures"]
-    print(f"current arm: items {m['n']} correct_direct {m['correct_direct']} clarify_rate {m['clarify_rate']} unseeded {counts['unseeded']} "
-          f"({counts['unseeded'] / max(1, len(items)):.1%} of the items) crashed {counts['crashed']}")
+    print(f"current arm: correct_direct {m['correct_direct']} clarify_rate {m['clarify_rate']}")
     print("counts " + json.dumps({k: v for k, v in m["counts"].items() if v}))
     return path, result, counts
 
@@ -765,7 +800,6 @@ def test_the_whole_dev_file_runs_into_tmp_path(world, tmp_path):
     items = load(DEV)
     path, result, counts = run_whole(world, items, tmp_path, "dev", evidence.sha_file(str(DEV)))
     assert lines_module.interpreter_file_problems(str(path), {"runs": 2, "routes": {}, "pins": {}}) == []
-    assert counts["crashed"] == 0 and counts["unseeded"] / len(items) <= 0.05, dict(counts)
 
 
 @pytest.mark.skipif(not (os.environ.get("WB_IX_CURRENT_CORPUS") and os.environ.get("WB_IX_CURRENT_EVIDENCE")), reason="set WB_IX_CURRENT_CORPUS and WB_IX_CURRENT_EVIDENCE to run a corpus")
@@ -785,5 +819,4 @@ def test_current_arm_full_run(world, request):
         sha = evidence.sha_file(str(REPO / "evals" / "interpreter" / "test-split.json"))
     else:
         sha = evidence.sha_file(str(corpus))
-    path, result, counts = run_whole(world, items, folder, split, sha)
-    assert counts["crashed"] == 0
+    run_whole(world, items, folder, split, sha)

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import hashlib
 import json
 import os
@@ -53,6 +54,9 @@ SPLIT_FILE = evidence.SPLIT_FILE
 THRESHOLDS_FILE = score.THRESHOLDS_FILE
 DEFAULT_JOBS = 4
 CONFIG_FAULTS = ("E_KEY", "E_ROUTE", "E_USAGE")          # a call that fails like this fails every call: the run stops at once and spends nothing more
+FIRST_CALL_FAULTS = ("E_HTTP",)          # a 401, 402 or 403 (a revoked key, no credits, forbidden) comes back as E_HTTP: when it is the first call's answer it is a configuration fault too
+TRANSIENT = ("E_RATE", "E_TIMEOUT", "E_NETWORK", "E_UPSTREAM")          # a resume calls these again instead of serving them from the record
+OUTAGE_MAX = 0.01          # more failed calls than this share of the calls and no evidence is written: the run is resumed, not published
 ID_RE = re.compile(r"(dev|test)-(pt-br|en|es|fr|de|it|ja|mx)-[0-9]{5}")
 LOCAL_RE = re.compile(r"local-[0-9]{5}")
 ANSWERS_SUFFIX = ".answers.jsonl"
@@ -196,8 +200,10 @@ class Answers:
     """The answers of the calls of one run: the recorded ones are served first; a pair not recorded is called (live) or refused (replay), and what a call returned is
     appended to the file as it arrives."""
 
-    def __init__(self, mode: str, header: dict, found: dict, path):
+    def __init__(self, mode: str, header: dict, found: dict, path, retry: bool = False):
         self.mode, self.header, self.found, self.path = mode, header, dict(found), path
+        self.redo = {k for k, r in found.items() if retry and not r["ok"] and r.get("code") in TRANSIENT}          # the pairs a resume calls again
+        self.fault_code = None          # set by the first configuration fault: no thread calls after it
         self.lock, self.live_calls, self.handle = threading.Lock(), 0, None
         self.first, self.started = threading.Lock(), False          # the first call is made alone: the route's first use loads the secret resolver, which is not meant to be loaded twice at once
         if path is not None:
@@ -218,6 +224,7 @@ class Answers:
     def add(self, record: dict) -> None:
         with self.lock:
             self.found[(record["item"], record["run"])] = record
+            self.redo.discard((record["item"], record["run"]))
             if self.handle is not None:
                 self.handle.write(evidence.dumps(record) + "\n")
                 self.handle.flush()
@@ -242,20 +249,24 @@ def make_call(answers: Answers, route: dict, item_id: str, run: int):
 
     def call(system: str, user: str) -> dict:
         have = answers.get(item_id, run)
-        if have is not None:
+        if have is not None and (item_id, run) not in answers.redo:
             return _result_of(have)
         if answers.mode == "replay":
             raise Refused("the answers file lacks a call this run needs")
+        if answers.fault_code:
+            raise ConfigFault(answers.fault_code)
         started = time.monotonic()
-        if answers.started:
+        with (contextlib.nullcontext() if answers.started else answers.first):          # the first call alone, and checked again once the gate is ours
+            if answers.fault_code:
+                raise ConfigFault(answers.fault_code)
+            first = not answers.started
             got = _complete(route, accepted, params, system, user)
-        else:
-            with answers.first:
-                got = _complete(route, accepted, params, system, user)
-                answers.started = True
+            code = got.get("code")
+            if not got.get("ok") and (code in CONFIG_FAULTS or (first and code in FIRST_CALL_FAULTS)):
+                answers.fault_code = code
+                raise ConfigFault(code)
+            answers.started = True
         wall = int(round((time.monotonic() - started) * 1000))
-        if not got.get("ok") and got.get("code") in CONFIG_FAULTS:
-            raise ConfigFault(got["code"])
         with answers.lock:
             answers.live_calls += 1
         record = {"item": item_id, "run": run, "ok": bool(got.get("ok")), "text": got.get("text") if got.get("ok") else None,
@@ -431,7 +442,7 @@ def measure(args) -> int:
                     found = {}
             if path is None:
                 path = os.path.join(directory, test + ANSWERS_SUFFIX)
-    answers = Answers(mode, header_of(test, route, corpus, runs, args.sequential, sample), found, path)
+    answers = Answers(mode, header_of(test, route, corpus, runs, args.sequential, sample), found, path, retry=bool(args.resume))
     try:
         done = run_all(chosen, runs, jobs, answers, route)
     finally:
@@ -440,6 +451,12 @@ def measure(args) -> int:
     metered = mode != "replay"          # a replay is not metered: no cost, no evidence
     rows, time_rows, scored = score_runs(chosen, runs, done, route if metered else None, table)
     head = {"route": route["id"], "test": test, "split": split, "mode": mode, "sequential": "yes" if args.sequential else None}
+    if metered and (split == "local" or not args.no_evidence):
+        failed, called = sum(1 for _, _, o, _ in scored if o["observed"] == "outage"), sum(1 for _, _, o, _ in scored if o["call"] is not None)
+        if called and failed / called > OUTAGE_MAX:
+            codes = score._count(o["error"] for _, _, o, _ in scored if o["observed"] == "outage")
+            raise Refused(f"{failed} of {called} calls failed ({json.dumps(codes)}), over {OUTAGE_MAX:.0%}: no evidence was written; "
+                          + ("run the same command with --resume to call the failed ones again" if path else "keep the answers with --record to be able to resume"))
     if split == "local":
         return local_report(args, route, test, chosen, rows, items)
     result = score.summary(rows, th, sequential=args.sequential, time_rows=time_rows, extra={"live_calls": answers.live_calls, "route": route["id"], "test": test})
@@ -495,7 +512,7 @@ def main(argv=None) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     except ConfigFault as e:
-        print(f"error: the route cannot be called ({e.code}); no more calls were made", file=sys.stderr)
+        print(f"error: the route cannot be called ({e.code}); the run was stopped, and the answers already kept stay in the record", file=sys.stderr)
         return 1
     except ItemFault as e:
         print(f"error: {e.name} at item #{e.ordinal}", file=sys.stderr)

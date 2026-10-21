@@ -13,7 +13,7 @@ message never enters a builder. A file is written once, whole, with an exclusive
   hashes(route, root=ROOT)             the hash fields of an event (a route is a row of runtime/interpreter_routes.json, or None for the current pipeline)
   corpus_sha256(split, corpus_path)    for a test or a local corpus the sha256 of the BYTES of evals/interpreter/test-split.json (the status script's reading, and never a
                                        hash of private content); for dev the sha256 of the corpus file's bytes
-  harness_sha256(root)                 the sha256 of the canonical {path: sha256 of its bytes} of the four modules of the measurement and the two data files the scorer reads
+  harness_sha256(root)                 the sha256 of the canonical {path: sha256 of its bytes} of the four modules of the measurement, the current-arm test and the two data files the scorer reads
   new_test_id(), utc_date()            `YYYYMMDDTHHMMSSZ-<8 hex>` (secrets.token_hex(4)) and the UTC date
   event_line, item_line, aggregate_line, cost_usd, write_exclusive
 
@@ -38,9 +38,9 @@ ROOT = os.path.dirname(HERE)
 DATA = os.path.join(ROOT, "evals", "interpreter")
 EVIDENCE_DIR = os.path.join(DATA, "evidence")
 SPLIT_FILE = os.path.join(DATA, "test-split.json")
-HARNESS_FILES = tuple(f"runtime/interpreter_{name}.py" for name in ("measure", "pipeline", "score", "evidence")) + ("evals/interpreter/taxonomy.json", "evals/interpreter/thresholds.json")
+HARNESS_FILES = tuple(f"runtime/interpreter_{name}.py" for name in ("measure", "pipeline", "score", "evidence")) + (
+    "runtime/tests/test_interpreter_current_arm.py", "evals/interpreter/taxonomy.json", "evals/interpreter/thresholds.json")
 USAGE_KEYS = ("input", "output", "cache_read", "cache_write")
-LANGS = ("pt-BR", "en", "es", "fr", "de", "it", "ja", "mixed")          # evals/evidence_lines.py IX_LANGS
 
 
 def canonical(obj) -> bytes:

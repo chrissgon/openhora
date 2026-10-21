@@ -211,12 +211,32 @@ def test_the_hashes_of_an_event_are_recomputed_here_from_the_files(tmp_path):
     assert h["thresholds_sha256"] == sha(canon(read_json("evals/interpreter/thresholds.json")))
     assert (h["model"], h["route"]) == (ROUTE["model"], ROUTE["id"])
     parts = {rel: sha((ROOT / rel).read_bytes()) for rel in ("runtime/interpreter_measure.py", "runtime/interpreter_pipeline.py", "runtime/interpreter_score.py",
-                                                            "runtime/interpreter_evidence.py", "evals/interpreter/taxonomy.json", "evals/interpreter/thresholds.json")}
+                                                            "runtime/interpreter_evidence.py", "runtime/tests/test_interpreter_current_arm.py", "evals/interpreter/taxonomy.json",
+                                                            "evals/interpreter/thresholds.json")}
     assert h["harness_sha256"] == sha(canon(parts))
     none = evidence.hashes(None)
     assert [none[k] for k in ("model", "route", "route_sha256", "prompt_sha256")] == [None] * 4
     assert {k: none[k] for k in ("protocol_sha256", "catalog_sha256", "taxonomy_sha256", "thresholds_sha256")} == {k: h[k] for k in ("protocol_sha256", "catalog_sha256", "taxonomy_sha256",
                                                                                                                                     "thresholds_sha256")}
+
+
+def test_the_languages_and_their_id_codes_are_the_validators():
+    assert pipeline.LANG_CODES == lines_module.IX_LANG_CODES and tuple(pipeline.LANG_CODES) == lines_module.IX_LANGS
+
+
+def test_a_clarification_met_by_an_also_clarify_is_a_valid_line_of_category_correct(tmp_path):
+    """The rule stated in evals/interpreter/README.md: the alternatives of `also` are part of the matching of rule 8, so a clarification a gold op lists as acceptable is `correct`
+    (its gold stays `op`, so it is in the denominators of correct_direct); without that alternative the same clarification is `clarify`."""
+    one = next(i for i in SAMPLE if i["gold"]["outcome"] == "op" and pipeline.pre_model(i) is None)
+    clarify = {"ok": True, "text": json.dumps({"v": 1, "kind": "clarify", "slot": "when"}), "finish": "stop", "usage": None, "latency_ms": 5, "upstream": "pinned"}
+    outcome = pipeline.run_item(one, 1, lambda s, u: clarify)
+    assert outcome["observed"] == "clarify"
+    liked = {**one, "also": [{"outcome": "clarify"}]}
+    assert score.categorize(liked["gold"], liked["also"], "full", outcome["observed"], outcome["detail"]) == "correct"
+    assert score.categorize(one["gold"], [], "full", outcome["observed"], outcome["detail"]) == "clarify"
+    scored = [(liked, 1, outcome, "correct"), (liked, 2, outcome, "correct")]
+    path, _ = write_file(tmp_path, "bprime", "dev", scored, items=310)
+    assert problems(path) == [] and {l["gold"] for l in read(path)[1:]} == {"op"}
 
 
 def test_the_corpus_hash_is_the_split_files_bytes_for_test_and_local_and_the_corpus_bytes_for_dev(tmp_path):

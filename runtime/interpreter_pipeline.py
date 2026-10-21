@@ -8,7 +8,7 @@ forward check to the word `observed` the scorer reads. Measurement only: nothing
 `call`, so that a recorded answer, a stand-in or the real route are the same code).
 
 The stages, in order; the first that decides ends the item (`run_item`):
-  1. forward      the item is a forward (`forwarded` is anything but absent or false: the fail-closed reading of runtime/messaging_inbound.py)      -> forwarded
+  1. forward      a messaging item that is a forward (`forwarded` anything but absent or false: the fail-closed reading of runtime/messaging_inbound.py)  -> forwarded
   0. precheck     a line over `max_line_chars` is never sent (`interpreter.precheck`)                                                                -> route / clarify
   2. closed       with a frame, the newest open item and a line that code reads as the same yes or no (`natural.confirm_kind`), or one digit      -> answer
   3. tier 1       with no open item: a line that starts with `/` is a typed command (the same in both arms) -> none; else `natural.match`          -> the operation
@@ -51,11 +51,14 @@ CALL_ERRORS = ("E_USAGE", "E_KEY", "E_ROUTE", "E_TIMEOUT", "E_NETWORK", "E_RATE"
 OUTCOMES = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded")
 CHANNELS = ("messaging", "page", "terminal", "chat")
 ITEM_WORD = "item"
+LANG_CODES = {"pt-BR": "pt-br", "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it", "ja": "ja", "mixed": "mx"}          # a language and the code its ids carry (evals/evidence_lines.py IX_LANG_CODES)
 ITEM_KEYS = ("id", "split", "lang", "hard", "clock", "zone", "channel", "forwarded", "frame", "line", "gold", "also")
 
 
 def _is_forward(item: dict) -> bool:
-    return "forwarded" in item and item["forwarded"] is not False          # as messaging_provider.forwarded_of: fail closed
+    """Whether the item is a forward: on the messaging channel (the only one whose providers set the mark, as the current arm reads it) anything but absent or false, the fail-closed
+    reading of messaging_provider.forwarded_of."""
+    return item.get("channel") == "messaging" and "forwarded" in item and item["forwarded"] is not False
 
 
 def now_of(item: dict) -> datetime.datetime:
@@ -69,8 +72,12 @@ def item_problems(item) -> list:
     out = [key for key in ITEM_KEYS if key not in item]
     if out:
         return out
-    if not isinstance(item["id"], str) or not isinstance(item["lang"], str) or not isinstance(item["hard"], bool):
-        out.append("id/lang/hard")
+    if not isinstance(item["id"], str) or not isinstance(item["hard"], bool):
+        out.append("id/hard")
+    elif item["lang"] not in LANG_CODES:
+        out.append("lang")
+    elif not item["id"].startswith("local-") and item["id"].split("-", 1)[-1].rsplit("-", 1)[0] != LANG_CODES[item["lang"]]:
+        out.append("id/lang")          # the id carries the language's code (the validator refuses a line where they differ)
     if not isinstance(item["line"], str) or not item["line"].strip():
         out.append("line")
     if item["channel"] not in CHANNELS:

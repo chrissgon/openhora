@@ -229,18 +229,25 @@ python3 runtime/interpreter_measure.py --corpus FILE --route ID --local-aggregat
   and for local lines the hash of the bytes of `test-split.json`. Items of gold scope `time` (the relabelled reminder lines judged on the time alone) write no line; they are
   printed as counts.
 - `--record DIR` keeps the model's raw answers in `DIR/<test>.answers.jsonl` as they arrive (a header of hashes, then one line per call; the prompt is never written). `--resume DIR`
-  re-reads the matching file, calls only the pairs it lacks (a recorded failure is kept, not paid for again) and writes the complete event under the file's test id.
-  `--replay DIR` reads one answers file whose header hashes equal this checkout's (else it names the field that differs), makes no call of any kind and writes no evidence. Dev answers
+  re-reads the matching file, calls the pairs it lacks and the pairs whose recorded failure was transient (`E_RATE`, `E_TIMEOUT`, `E_NETWORK`, `E_UPSTREAM`), and writes the complete event under the file's test id; any other recorded
+  failure is kept.
+  `--replay DIR` reads one answers file whose header hashes equal this checkout's (else it names the field that differs), makes no call of any kind and writes no evidence;
+  a folder holds exactly one answers file, so a loop over routes or iterations records each route and each iteration into a folder of its own (`.../replay/<route>/<iteration>`). Dev answers
   are fictional and may be committed (an exact-path `english-only` line in `.security-scan-allow` for each file); the test split's answers stay outside the repository until the
   split is committed.
 - The test split: the corpus must hash to `test-split.json["sha256"]`, `--runs` must be the configured number, `--sample` needs `--sequential`, and `--record`, `--resume` or
   `--replay` is required with a directory outside the checkout. Nothing about a held-out line is printed: counts, categories, ids of the dev and test splits and `E_` codes only.
-  An exception prints its class and the item's ordinal. A call that fails with `E_KEY`, `E_ROUTE` or `E_USAGE` stops the run at once (it would fail every call).
+  An exception prints its class and the item's ordinal. A call that fails with `E_KEY`, `E_ROUTE` or `E_USAGE`, or whose first call of the process fails with `E_HTTP` (a revoked key, no credits,
+  forbidden), stops the run at once: no thread calls after the first such fault. When more than 1% of the calls of a run that would write evidence failed, no evidence is written: the counts
+  are printed, the exit is 1 and the run is continued with `--resume` (it needs `--record`). A forward is read on the messaging channel only, as the current arm reads it.
 - `--local-aggregates` is for the maintainer's own labelled lines (the form of the corpus, `split: "local"`, ids `local-NNNNN`, kept outside any repository): one run, counts per
   language written and printed, no id and no line. It refuses `--record`, `--resume`, `--replay`, `--sample` and `--sequential`. It can demote a route, never promote one.
 - The current pipeline is measured by a test, not by this script: `WB_IX_CURRENT_CORPUS=<file> WB_IX_CURRENT_EVIDENCE=<dir> uv run --with pytest==9.1.1 pytest -q --tb=no -p
   no:cacheprovider runtime/tests/test_interpreter_current_arm.py -k test_current_arm_full_run` writes one `arm: current` event for the file (for the test split, with pytest's
-  `--basetemp` inside the corpus file's folder: the stand-in messenger writes the replies to disk). It makes no call.
+  `--basetemp` inside the corpus file's folder: the stand-in messenger writes the replies to disk; add `-rP` so the counts are shown). It makes no call and writes the event only after
+  it checked that no run crashed and that at most 5% of the items are unseeded (above that it fails with the counts and writes nothing, so the maintainer decides).
+- A clarification that an item lists as acceptable (`also: [{"outcome": "clarify"}]`) is `correct`: the alternatives of `also` are part of the matching of rule 8, and rule 7 is for a
+  clarification no alternative lists. Such an item keeps its gold (`op`), so it stays in the denominators of `correct_direct` and is not counted in `clarify_rate`.
 - Residues, stated with every result: the arms cannot see resolution failures, the card's rendering, the per-sender policy or approval by word (see the architecture page); the
   current arm seeds the open items of a frame as today's drafts and an item with no equivalent (a `choice`, a write confirm, a reminder confirm whose `when` has no single reading)
   runs with no open item, counted as `unseeded` and stated beside the numbers (up to 5% of the split is accepted); a private line that asks for work is `route` in the corpus (L7)

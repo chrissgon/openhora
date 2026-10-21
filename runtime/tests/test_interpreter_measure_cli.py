@@ -125,7 +125,8 @@ def test_what_the_model_said_and_the_lines_are_never_printed(cli):
     assert MARKER not in cli.files()[0].read_text(encoding="utf-8")
 
 
-def test_a_failed_call_is_an_outage_line_and_the_run_goes_on(cli):
+def test_a_failed_call_is_an_outage_line_and_the_run_goes_on(cli, monkeypatch):
+    monkeypatch.setattr(measure, "OUTAGE_MAX", 0.2)          # the default share is tested below
     victim = next(i for i in ITEMS if pipeline.pre_model(i) is None)
     cli.echo.fail[victim["id"]] = "E_TIMEOUT"
     code, out, err = cli.run("--json")
@@ -139,6 +140,53 @@ def test_a_route_that_cannot_be_called_stops_the_run_at_once_and_writes_nothing(
     code, out, err = cli.run("--jobs", "1", "--record", str(cli.answers))
     assert code == 1 and "E_KEY" in err and cli.echo.calls == ["x"], "one call, then no more"
     assert cli.files() == [] and [l for f in cli.answers.glob("*.answers.jsonl") for l in f.read_text().splitlines()[1:]] == [], "a configuration fault is not kept as an answer"
+
+
+def test_a_route_that_cannot_be_called_makes_no_call_after_the_first_even_with_four_jobs(cli):
+    import threading
+    import time as _time
+    calls, gate = [], threading.Lock()
+
+    def refusing(*a, **k):
+        with gate:
+            calls.append(1)
+        _time.sleep(0.05)
+        return {"ok": False, "code": "E_KEY"}
+    cli.monkeypatch.setattr(route_module, "complete", refusing)
+    code, out, err = cli.run("--jobs", "4", "--record", str(cli.answers))
+    assert code == 1 and "E_KEY" in err and len(calls) == 1, "four threads started, one call was made"
+    assert "no more calls were made" not in err and cli.files() == []
+
+
+def test_a_first_call_refused_with_a_client_error_is_a_configuration_fault_and_a_later_one_is_an_outage(cli):
+    first = next(i for i in sorted(ITEMS, key=lambda i: i["id"]) if pipeline.pre_model(i) is None)
+    cli.echo.fail[first["id"]] = "E_HTTP"          # a revoked key, no credits, forbidden
+    code, out, err = cli.run("--jobs", "1", "--no-evidence")
+    assert code == 1 and "E_HTTP" in err and cli.echo.calls == [first["id"]]
+    cli.echo.calls.clear()
+    cli.echo.fail.clear()
+    later = [i for i in sorted(ITEMS, key=lambda i: i["id"]) if pipeline.pre_model(i) is None][5]
+    cli.echo.fail[later["id"]] = "E_HTTP"
+    code, out, err = cli.run("--jobs", "1", "--no-evidence", "--json")
+    assert code == 0 and json.loads(out)["errors"] == {"E_HTTP": 2}
+
+
+def test_outages_over_one_percent_of_the_calls_write_no_evidence_and_the_run_is_resumed(cli):
+    victims = [i for i in sorted(ITEMS, key=lambda i: i["id"]) if pipeline.pre_model(i) is None][:2]
+    for one in victims:
+        cli.echo.fail[one["id"]] = "E_RATE"
+    code, out, err = cli.run("--record", str(cli.answers))
+    assert code == 1 and "4 of " in err and "E_RATE" in err and "--resume" in err and cli.files() == [], err
+    assert not any(i["id"] in err for i in ITEMS)
+    cli.echo.fail.clear()
+    cli.echo.calls.clear()
+    code, out, err = cli.run("--resume", str(cli.answers), "--json")
+    assert code == 0, err
+    assert sorted(cli.echo.calls) == sorted(i["id"] for i in victims for _ in (1, 2)), "only the failed pairs were called again"
+    (path,) = cli.files()
+    assert cli.problems(path) == [] and not [l for l in cli.lines(path)[1:] if l["observed"] == "outage"]
+    code, out, err = cli.run("--no-evidence")          # without evidence the share is not checked: a pilot may look at its outages
+    assert code == 0
 
 
 def test_an_exception_inside_an_item_prints_its_class_and_ordinal_and_nothing_else(cli):

@@ -79,8 +79,8 @@ def _ints(text) -> list:
 def _same_value(kind: str, observed, accepted) -> bool:
     """Whether an observed slot value is an accepted one: numbers as numbers, the rest by `natural.normal`."""
     if kind in ("int", "ints"):
-        got = _ints(observed)
-        return bool(got) and got == _ints(accepted)
+        got = sorted(set(_ints(observed)))          # a list of numbers is a set: order and repeats do not matter
+        return bool(got) and got == sorted(set(_ints(accepted)))
     return natural.normal(observed) == natural.normal(accepted) and natural.normal(accepted) != ""
 
 

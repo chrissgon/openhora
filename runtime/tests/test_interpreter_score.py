@@ -98,7 +98,8 @@ CASES = [
     ("m-an-int-is-compared-as-a-number", TASK, [], "full", "read", {"op": "task", "slots": {"id": "04"}}, "correct"),
     ("m-an-int-that-is-not-a-number-is-not-equal", TASK, [], "full", "read", {"op": "task", "slots": {"id": "four"}}, "wrong_read"),
     ("m-ints-compared-as-lists", TRASH, [], "full", "card", {"op": "mail-trash", "slots": {"messages": "3,4"}}, "correct"),
-    ("m-ints-order-matters", TRASH, [], "full", "card", {"op": "mail-trash", "slots": {"messages": "4,3"}}, "wrong_card"),
+    ("m-ints-are-a-set-order-and-repeats-do-not-matter", TRASH, [], "full", "card", {"op": "mail-trash", "slots": {"messages": "4,3,3"}}, "correct"),
+    ("m-ints-another-set", TRASH, [], "full", "card", {"op": "mail-trash", "slots": {"messages": "3,5"}}, "wrong_card"),
     ("m-a-time-the-gold-does-not-list", REMIND, [], "full", "remind_confirm", remind_seen(time="2026-10-23T09:30"), "wrong_reminder_reading"),
     ("m-a-time-where-the-gold-has-none", {"outcome": "op", "op": "event-create", "slots": {"title": ["dentist"], "time": ["friday at 3pm"]}},
      [], "full", "card", {"op": "event-create", "slots": {"title": "dentist", "time": "friday at 3pm"}, "time": "2026-10-23T15:00"}, "wrong_card"),
@@ -107,6 +108,7 @@ CASES = [
     # also: alternative golds that also count
     ("a-an-also-op-counts", STATUS, [{"outcome": "op", "op": "progress", "slots": {}}], "full", "read", {"op": "progress", "slots": {}}, "correct"),
     ("a-an-also-clarify-counts", STATUS, [CLARIFY], "full", "clarify", {"slot": "id"}, "correct"),
+    ("a-a-clarify-met-by-an-also-clarify-is-correct-not-clarify", TASK, [CLARIFY], "full", "clarify", {"slot": "id"}, "correct"),
     ("a-an-also-does-not-excuse-another-op", STATUS, [{"outcome": "op", "op": "progress", "slots": {}}], "full", "read", {"op": "costs", "slots": {}}, "wrong_read"),
     ("a-an-also-route-counts", ROUTE, [CLARIFY], "full", "clarify", {}, "correct"),
     ("a-an-also-answer-counts", {"outcome": "answer", "item": "i1", "option": 1}, [{"outcome": "answer", "item": "i1", "option": 2}], "full", "answer", {"item": "i1", "option": 2}, "correct"),

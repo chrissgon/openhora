@@ -72,6 +72,8 @@ def test_a_forwarded_item_is_forwarded_and_calls_nothing():
         out = pipeline.run_item(item("marca dentista quinta às 10h", forwarded=mark), 1, never)
         assert (out["observed"], out["stage"], out["call"], out["parse"]) == ("forwarded", "forwarded", None, "none"), mark
     assert pipeline.pre_model(item(forwarded=False)) is None, "false is the only mark that is not a forward"
+    for channel in ("page", "terminal", "chat"):
+        assert pipeline.pre_model(item("approve 4", forwarded=True, channel=channel))["observed"] == "refuse_d", "only the messaging channel carries the mark, as in the current arm"
     absent = item()
     del absent["forwarded"]
     assert pipeline.pre_model(absent) is None
@@ -315,6 +317,9 @@ def test_a_valid_item_has_no_problem_and_a_broken_one_names_the_field_never_the_
         found = pipeline.item_problems(one)
         assert found, one
         assert marker not in " ".join(found)
+    for wrong in (item(lang="klingon"), item(lang="en", id="dev-pt-br-00001"), item(lang="pt-BR", id="dev-en-00001")):
+        assert pipeline.item_problems(wrong) in (["lang"], ["id/lang"])
+    assert pipeline.item_problems(item(lang="mixed", id="dev-mx-00001")) == [] and pipeline.item_problems(item(lang="pt-BR", id="local-00001")) == []
     lacking = item()
     del lacking["gold"], lacking["clock"]
     assert pipeline.item_problems(lacking) == ["clock", "gold"]

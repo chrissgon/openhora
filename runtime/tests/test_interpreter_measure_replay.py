@@ -192,14 +192,21 @@ def test_a_resume_of_a_finished_run_makes_no_call_and_never_overwrites_its_evide
     assert code == 1 and "never overwritten" in err and cli.echo.calls == [] and written.read_bytes() == before
 
 
-def test_a_recorded_failure_is_kept_by_a_resume_not_called_again(cli):
-    victim = MODEL_ITEMS[0]
-    cli.echo.fail[victim["id"]] = "E_UPSTREAM"
+def test_a_resume_calls_a_transient_failure_again_and_keeps_the_other_recorded_failures(cli):
+    transient, kept = MODEL_ITEMS[3], MODEL_ITEMS[8]
+    cli.echo.fail[transient["id"]] = "E_UPSTREAM"
+    cli.echo.fail[kept["id"]] = "E_HTTP"          # not the first call, so an outage; a client error is not transient
     cli.run("--record", str(cli.answers), "--no-evidence")
     cli.echo.fail.clear()
     cli.echo.calls.clear()
-    cli.run("--resume", str(cli.answers), "--no-evidence")
-    assert cli.echo.calls == [], "the recorded pairs include the failed ones: no pair is paid twice"
+    code, out, err = cli.run("--resume", str(cli.answers), "--no-evidence", "--json")
+    assert code == 0 and cli.echo.calls == [transient["id"]] * 2, "the transient pairs are paid again, once each, and no other pair"
+    assert json.loads(out)["errors"] == {"E_HTTP": 2}
+    body = [json.loads(l) for l in lines_of(answers_file(cli))[1:]]
+    assert sum(1 for a in body if a["item"] == transient["id"] and a["ok"]) == 2, "the new answers are appended; the file's last line for a pair is the one that counts"
+    cli.echo.calls.clear()
+    cli.run("--replay", str(cli.answers), "--no-evidence")
+    assert cli.echo.calls == []
 
 
 # --- the recorded text is parsed as the protocol says ---------------------------------------------------------------------------------------------------
