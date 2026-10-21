@@ -456,7 +456,8 @@ def measure(args) -> int:
         if called and failed / called > OUTAGE_MAX:
             codes = score._count(o["error"] for _, _, o, _ in scored if o["observed"] == "outage")
             raise Refused(f"{failed} of {called} calls failed ({json.dumps(codes)}), over {OUTAGE_MAX:.0%}: no evidence was written; "
-                          + ("run the same command with --resume to call the failed ones again" if path else "keep the answers with --record to be able to resume"))
+                          + (f"run the same command with --resume: it calls again the pairs recorded as {', '.join(TRANSIENT)}; any other recorded failure is kept and keeps blocking evidence"
+                             if path else "keep the answers with --record to be able to resume"))
     if split == "local":
         return local_report(args, route, test, chosen, rows, items)
     result = score.summary(rows, th, sequential=args.sequential, time_rows=time_rows, extra={"live_calls": answers.live_calls, "route": route["id"], "test": test})

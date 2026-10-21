@@ -177,6 +177,9 @@ def test_outages_over_one_percent_of_the_calls_write_no_evidence_and_the_run_is_
         cli.echo.fail[one["id"]] = "E_RATE"
     code, out, err = cli.run("--record", str(cli.answers))
     assert code == 1 and "4 of " in err and "E_RATE" in err and "--resume" in err and cli.files() == [], err
+    for transient in ("E_RATE", "E_TIMEOUT", "E_NETWORK", "E_UPSTREAM"):
+        assert transient in err.split("--resume")[1], "the message names every code a resume calls again"
+    assert "any other recorded failure is kept and keeps blocking evidence" in err
     assert not any(i["id"] in err for i in ITEMS)
     cli.echo.fail.clear()
     cli.echo.calls.clear()
