@@ -1366,14 +1366,14 @@ class Bridge(shell_kit.Jobs):
     def note_asked(self, project: dict, chat: str, pending_id: int) -> None:
         """The reply to a line was the router's question and it went out in `chat`: the ledger records that this decision, with this content, is in this chat
         already, so that the notice does not send the same question a second time (decision id, project and chat; another listed sender still gets it). The
-        record is a card of kind `question` with no message id and no action: a tap or a reply cannot be bound to it, and `/answer` from this chat finds the
-        sender's own question. Anything else the reply said (a plan, an unrecognised route) keeps its card."""
+        record is a card of kind `question` with the id of the message that was just sent to this chat (S4: decision 229 (1), "afterwards by reply-to") and no action: a reply
+        to that message answers the question at any age, a tap cannot, and `/answer` from this chat finds the sender's own question. Anything else the reply said (a plan, an unrecognised route) keeps its card."""
         try:
             item = self.ops.pending(project["path"], pending_id=pending_id)
             if item.get("status", "open") != "open" or not cards.router_asks(item):
                 return
             self.ledger.add({"project": project["id"], "pending_id": item["id"], "kind": "question", "content_sha256": cards.content_sha256(item),
-                             "chat": chat, "message_id": None, "actions": {}, "sent_at": self.clock(), "whole": True, "approvable": False,
+                             "chat": chat, "message_id": self.last_message.get(chat), "actions": {}, "sent_at": self.clock(), "whole": True, "approvable": False,
                              "blocked": None, "effect_word": None})
         except (self.ops.OpsError, OSError) as e:
             self.log(f"the question's reply could not be recorded ({e.__class__.__name__})")

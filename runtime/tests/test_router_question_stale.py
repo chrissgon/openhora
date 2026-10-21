@@ -24,6 +24,7 @@ import pytest
 import standin_tree as st
 from test_chat import FLOW, reply
 from test_router_question_phone import LINE, TEMPLATE, chat_tree, phone  # noqa: F401  (the bridge over the chat tree, with a stand-in router)
+from test_messaging_queue import settle
 from test_sender_profiles import OWNER, STAFF
 
 ops = st.load("ops")
@@ -152,6 +153,23 @@ def test_a_time_that_cannot_be_read_keeps_the_question_as_it_always_was(phone, w
     binding["state"]["asked_at"] = "not a time"
     wall.later(3600 * 10)
     assert ops_say._open_question(ctx, "messaging", sender) == question["id"]
+
+
+def test_a_reply_to_the_question_answers_it_two_hours_later_and_a_plain_line_does_not(phone, wall):
+    """Decision 229 (1), "afterwards by reply-to": the ledger records the message the question went out in, so a reply gesture to it answers it at any age (the existing reply
+    path), while a plain line after the hour is a new request and leaves it open."""
+    question = ask(phone)
+    sent = phone.bridge.last_message[OWNER]
+    record = phone.bridge.ledger.by_message(OWNER, sent)
+    assert record is not None and record["kind"] == "question" and record["pending_id"] == question["id"], "the ledger holds the message the question was sent in"
+    wall.later(7200)
+    reply(phone.tree, FLOW, "router-reply.md")
+    phone.say(OWNER, "a plain line much later")
+    assert [q["id"] for q in open_questions(phone)] == [question["id"]], "a plain line two hours later left the question open"
+    reply(phone.tree, FLOW, "router-reply-2.md")
+    phone.bridge.handle({"update_id": 2, "sender": OWNER, "chat": OWNER, "private": True, "text": ANSWER, "action": None, "action_ref": None, "reply_to": sent})
+    assert settle(phone)
+    assert open_questions(phone) == [] and ops.pending(phone.path, question["id"])["status"] != "open", "the reply to the question answered it"
 
 
 # --- 2. a request of its own is a new line -----------------------------------------------------------------------------------------
