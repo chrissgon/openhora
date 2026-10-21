@@ -15,7 +15,7 @@ code acts on. Nothing the model writes is ever shown to a person, and nothing it
                                 the decision (below). Operations go through `natural.check_operation`, UNCHANGED (the same checks as the router's outcome): a span is a
                                 piece of the line, an integer is written in the line, an address is a word the sender typed
   precheck(line)                the decision for a line that must not be sent (too long), else None
-  time_source(span, now, zone)  "code" | "ask" | "model": who may decide the time of a span. Code alone decides (a model never reports a language and so never
+  time_source(span, now, zone, line)  "code" | "ask" | "model": who may decide the time of a span. Code alone decides (a model never reports a language and so never
                                 unlocks its own time): "code" when `natural_time.parse` reads the span as one clear reading, "ask" when it holds a time the code
                                 half-reads or doubts, "model" when no table knows the words (or the code reads only an hour and the span holds words no table has)
   frame_problems(frame, catalog)  the problems of a typed frame (schema and rules R1-R7), as a list of sentences that never repeat a value
@@ -573,12 +573,12 @@ def _classify(span: str, line: str, now_local):
     return "code", reading
 
 
-def time_source(span, now, zone, line=None) -> str:
-    """"code", "ask" or "model" for a span of the line that fills a time slot (`line` is the whole line; the span alone when it is not given). Only code decides (D4), and
+def time_source(span, now, zone, line) -> str:
+    """"code", "ask" or "model" for a span of the line that fills a time slot (`line` is the whole line, required: the source is never read from the span alone). Only code decides (D4), and
     from the whole line, never from the span the model chose: "code" when `natural_time.parse` reads the span as one clear reading and the span holds every time phrase of the line;
     "ask" when the line holds a time phrase or a word of a table that the span does not settle, or `natural_time.doubt` says it may be misread; "model" when the line holds
     none. The model never says which language the line is in."""
-    return _classify(span, span if line is None else line, _local_now(now, zone))[0]
+    return _classify(span, line, _local_now(now, zone))[0]
 
 
 def _instant_problem(naive: datetime.datetime, tz, now_local):

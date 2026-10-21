@@ -10,6 +10,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interpreter_time.py
 """
 from __future__ import annotations
 
+import pytest
+
 import interpreter_kit as kit
 import standin_tree as st
 
@@ -46,18 +48,18 @@ def test_time_source_is_decided_by_code_from_the_span_alone():
         JA: "model", "mardi prochain": "model", "dimanche": "model", "morgen um 15 Uhr": "model", "domani alle 15": "model",
         "mañana a las 15:00": "model", "demain à 15h30": "model",
     }
-    wrong = {span: interp.time_source(span, kit.NOW, kit.ZONE) for span, want in expected.items() if interp.time_source(span, kit.NOW, kit.ZONE) != want}
+    wrong = {span: interp.time_source(span, kit.NOW, kit.ZONE, span) for span, want in expected.items() if interp.time_source(span, kit.NOW, kit.ZONE, span) != want}
     assert wrong == {}
 
 
 def test_a_naive_clock_is_read_in_the_project_zone():
     import datetime
     naive = datetime.datetime(2026, 10, 20, 9, 0)
-    assert interp.time_source("Thursday at 3pm", naive, kit.ZONE) == "code"
+    assert interp.time_source("Thursday at 3pm", naive, kit.ZONE, "Thursday at 3pm") == "code"
 
 
 def test_a_year_that_code_had_to_assume_is_asked_not_believed():
-    assert interp.time_source("march 29 at 2:30am", kit.NOW, kit.ZONE) == "ask"          # the date is in March; this is October, so the year is a guess
+    assert interp.time_source("march 29 at 2:30am", kit.NOW, kit.ZONE, "march 29 at 2:30am") == "ask"          # the date is in March; this is October, so the year is a guess
 
 
 # --- the model's own time ----------------------------------------------------------------------------------------------------------------------------
@@ -110,13 +112,13 @@ def test_a_wall_time_the_clock_skips_or_repeats_is_asked_back_in_the_project_zon
 def test_a_time_code_reads_in_english_is_checked_by_the_same_rules():
     berlin = kit.now_at("2026-03-01 09:00", "Europe/Berlin")
     span = "march 29 at 2:30am"
-    assert interp.time_source(span, berlin, "Europe/Berlin") == "code"
+    assert interp.time_source(span, berlin, "Europe/Berlin", span) == "code"
     assert_clarify(run(remind(span, "2026-03-29T02:30", "sun"), line_for(span), berlin, "Europe/Berlin"), "time-gap")
 
 
 def test_the_model_cannot_move_an_hour_that_code_read():
     span = "mañana a las 15:00"
-    assert interp.time_source(span, kit.NOW, kit.ZONE) == "model"
+    assert interp.time_source(span, kit.NOW, kit.ZONE, span) == "model"
     ok = run(remind(span, "2026-10-21T15:00", "wed"), line_for(span))
     assert ok["kind"] == "op" and ok["time"] == {"local": "2026-10-21T15:00", "source": "model"}
     for hour in ("2026-10-21T16:00", "2026-10-21T03:00", "2026-10-21T00:00"):
@@ -272,3 +274,10 @@ def test_a_year_far_from_now_is_asked_back_and_never_an_exception():
         for zone in (kit.ZONE, "Asia/Tokyo", "Europe/Berlin"):
             assert_clarify(run(remind(JA, stamp, weekday), line_for(JA), kit.now_at("2026-10-20 09:00", zone), zone), why)
     assert interp.parse('{"v":1,"kind":"op","op":"remind","slots":{"when":"x"},"time_iso":"9999-12-31T23:59","weekday":"fri"}')[1] == "ok"
+
+
+def test_the_line_is_required_by_time_source_so_a_span_alone_never_decides():
+    with pytest.raises(TypeError):
+        interp.time_source("tomorrow at 3pm", kit.NOW, kit.ZONE)          # type: ignore[call-arg]
+    assert interp.time_source("tomorrow at 3pm", kit.NOW, kit.ZONE, "tomorrow at 3pm") == "code"
+    assert interp.time_source("tomorrow at 3pm", kit.NOW, kit.ZONE, "tomorrow at 3pm or the day after at 5pm") == "ask"
