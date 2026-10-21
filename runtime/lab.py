@@ -231,6 +231,8 @@ def credential_missing(model: str | None = None) -> list:
 # --- the text contract: one system text and one user text to a model on the person's own account (package ACCT-C) ----------------------
 
 TEXT_MARGIN_S = 5            # beyond the row's deadline: the runner enforces the deadline itself and returns within 3 s of it
+TERM_GRACE_S = 3             # a runner past that time is sent TERM first (its own handler stops the harness and removes its temp root), then KILL after this
+DRAIN_S = 1                  # the last wait for the pipes of a killed runner before they are closed
 PROBE_LIMIT_S = 180          # the preflight's probe: one start of the harness against a loopback stub, no model call
 TEXT_CODE = re.compile(r"run-text: (E_[A-Z_]+)")
 TEXT_CODES = ("E_USAGE", "E_KEY", "E_ROUTE", "E_TIMEOUT", "E_RATE", "E_NETWORK", "E_UPSTREAM", "E_RESPONSE", "E_INTERNAL")
@@ -238,18 +240,47 @@ TEXT_FINISHES = ("stop", "length", "other")
 TEXT_USAGE = ("input", "output", "cache_read", "cache_write")
 TEXT_ENV = ("PATH", "LANG", "HOME", "TMPDIR")   # what the text runner is given of the caller's environment, beside its credential
 _TEXT_LOCK = threading.Lock()   # one preflight at a time, and the one lookup of the credential
-_TEXT_STATE = {"preflight": {}, "credentials": None}
+_TEXT_STATE = {"preflight": {}, "credentials": {}}   # credentials: {tuple of the pass_env names: {name: value}}
 
 
 def reset_account_text() -> None:
     """Forget the preflights and the credential this process holds (a test's; a new process starts clean)."""
     with _TEXT_LOCK:
         _TEXT_STATE["preflight"].clear()
-        _TEXT_STATE["credentials"] = None
+        _TEXT_STATE["credentials"] = {}
 
 
 def _start(argv, stdin, env, timeout):
-    return subprocess.run(argv, input=stdin, capture_output=True, text=True, env=env, timeout=timeout)
+    """subprocess.run with a graceful end: at `timeout` the runner is sent TERM, not KILL, so that its handler can stop the harness it started
+    (its process group) and remove the temporary folder the harness ran in; KILL follows only after TERM_GRACE_S. Raises TimeoutExpired
+    (without output: nothing a runner printed is kept) once it has ended the process; the pipes are read to their end or closed, so no
+    descendant that holds one can keep this call waiting."""
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    try:
+        try:
+            out, err = proc.communicate(stdin, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                proc.wait(timeout=TERM_GRACE_S)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            try:
+                proc.communicate(timeout=DRAIN_S)       # what is left in the pipes; a descendant that still holds one is not waited for
+            except subprocess.TimeoutExpired:
+                pass
+            raise subprocess.TimeoutExpired(argv, timeout) from None
+    finally:
+        if proc.poll() is None:      # also on an interrupt: nothing is left running
+            proc.kill()
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            try:
+                if pipe:
+                    pipe.close()
+            except (OSError, ValueError):
+                pass
+        proc.wait()
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
 
 
 def _text_runner(model: str) -> tuple:
@@ -297,8 +328,9 @@ def _text_credentials(names: list):
     """{name: value} of the model's credential, found by the lab's own lookup (resolve_pass_env of evals/execution.py: the environment, then
     the OS secret store), or None. The environment is put back as it was (the pattern of credential_missing): the values live in this
     process's memory and reach the runner's environment only. Called with _TEXT_LOCK held."""
-    if _TEXT_STATE["credentials"] is not None:
-        return _TEXT_STATE["credentials"]
+    cached = _TEXT_STATE["credentials"].get(tuple(names))
+    if cached is not None:
+        return cached
     before = {name: os.environ.get(name) for name in names}
     try:
         _lab_call(LAB.resolve_pass_env, names)
@@ -311,7 +343,7 @@ def _text_credentials(names: list):
                 os.environ[name] = value
     if not all(found.values()):
         return None
-    _TEXT_STATE["credentials"] = found
+    _TEXT_STATE["credentials"][tuple(names)] = found
     return found
 
 
@@ -332,7 +364,7 @@ def account_text(row: dict, system: str, user: str, *, run=None) -> dict:
     except LabError:
         return {"ok": False, "code": "E_ROUTE"}
     params = row["params"]
-    key = (row["id"], row["runner_version"], row["runner_sha256"], row["envelope_sha256"], row["upstream_model"], params["max_tokens"], params["reasoning"])
+    key = (row["id"], row["lab_model"], runner, row["runner_version"], row["runner_sha256"], row["envelope_sha256"], row["upstream_model"], params["max_tokens"], params["reasoning"])
     with _TEXT_LOCK:
         verdict = _TEXT_STATE["preflight"].get(key)
         if verdict is None:

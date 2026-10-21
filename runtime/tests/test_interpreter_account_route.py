@@ -161,7 +161,9 @@ def test_the_committed_file_loads_with_the_two_account_rows_and_one_reference():
 
 REFUSED = {
     "an extra key": {"extra": 1}, "a key (an account row has none)": {"key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY"}, "a missing retention": {"retention": "<drop>"},
-    "a missing lab_model": {"lab_model": "<drop>"}, "a blank lab_model": {"lab_model": " "}, "a missing params": {"params": "<drop>"},
+    "a missing lab_model": {"lab_model": "<drop>"}, "a blank lab_model": {"lab_model": " "},
+    "a lab_model of the floor model": {"lab_model": "openrouter/deepseek/deepseek-v4.1-flash"}, "a lab_model of another provider": {"lab_model": "deepseek/deepseek-v4.1-flash"},
+    "a lab_model with the prefix in the middle": {"lab_model": "x-claude-sonnet-5-5"}, "a lab_model with the prefix in capitals": {"lab_model": "Claude-sonnet-5-5"}, "a missing params": {"params": "<drop>"},
     "kind http with the account keys": {"kind": "http"}, "kind blank": {"kind": " "},
     "a model of another vendor": {"model": "deepseek/deepseek-v4.1-flash", "upstream_model": "deepseek/deepseek-v4.1-flash"},
     "an upstream_model of another vendor": {"upstream_model": "deepseek/deepseek-v4.1-flash"}, "a router model": {"model": "openrouter/auto", "upstream_model": "openrouter/auto"},
@@ -193,6 +195,15 @@ def test_vacuity_the_unchanged_rows_and_a_change_that_breaks_no_rule_load(tmp_pa
     assert ir.load(workbench(tmp_path, with_account()))["routes"][1]["id"] == SONNET_ID
     moved = ir.load(workbench(tmp_path / "moved", with_account(params={"max_tokens": 1500, "reasoning": "high", "temperature": None}, deadline_ms=30000)))
     assert moved["routes"][1]["params"]["reasoning"] == "high" and moved["routes"][1]["deadline_ms"] == 30000
+
+
+def test_vacuity_a_lab_model_of_the_vendor_loads_and_the_committed_rows_keep_their_literal_hashes(tmp_path):
+    for lab_model in ("claude-sonnet-5-5", "claude-haiku-4-5"):
+        assert ir.load(workbench(tmp_path / lab_model, with_account(lab_model=lab_model)))["routes"][1]["lab_model"] == lab_model
+    rows = {r["id"]: r for r in ir.load()["routes"]}
+    assert ir.route_sha256(rows[SONNET_ID]) == "23657eec67a80cb5f4e2ca075cace2acca74c128904addb27eaa3b2838b0aa1b"
+    assert ir.route_sha256(rows[HAIKU_ID]) == "7a7bcd7764488bbc0fd583b6c989f3dddf4ac543303f5e4d57ade85df8e06d02"
+    assert ir.route_sha256(rows[DEEPSEEK_ID]) == "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd"
 
 
 def test_the_references_are_exactly_one_across_the_two_kinds(tmp_path):
