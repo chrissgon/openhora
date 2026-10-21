@@ -53,10 +53,19 @@ import natural_time as nt  # noqa: E402  (the same folder: the time reader whose
 PROMPT_FILE = os.path.join(HERE, "interpreter_prompt.txt")
 PROTOCOL_FILE = os.path.join(HERE, "interpreter_protocol.json")
 SERVED_FILE = os.path.join(HERE, "interpreter_catalog.json")
+DAY_WORDS_FILE = os.path.join(HERE, "interpreter_day_words.json")
 GATED_FILE = os.path.join(HERE, "gated_ops.json")
 PLACEHOLDER = "{{CATALOG}}"
 with open(PROTOCOL_FILE, encoding="utf-8") as _handle:
     PROTOCOL = json.load(_handle)
+
+with open(DAY_WORDS_FILE, encoding="utf-8") as _handle:          # words that name a day, a month or a length of days in languages with no time table: used only to detect (`_unread_day`), never to read
+    _LANGUAGES = json.load(_handle)["languages"]
+DAY_PHRASES = [tuple(phrase.split()) for _lang in _LANGUAGES.values() for _kind in ("weekdays", "months", "relative") for phrase in _lang.get(_kind, [])]
+UNIT_PHRASES = [tuple(phrase.split()) for _lang in _LANGUAGES.values() for phrase in _lang.get("units", [])]
+_DOTTED = sorted({word for _lang in _LANGUAGES.values() for word in _lang.get("dotted", [])})
+DOTTED_RE = re.compile(r"(?<![a-z0-9])(?:" + "|".join(_DOTTED) + r")\.") if _DOTTED else None          # "Do." and "Fr." (German): only with the period, a bare "do" or "fr" is a word
+DATE_SHAPE_RE = re.compile(r"(?<![0-9])[0-9]{1,2}[./-][0-9]{1,2}(?![0-9])")          # "29/10", "29.10.", "29-10": a day written as numbers
 
 # The slots that hold a time: (operation, slot). The model gives them `time_iso` and `weekday`; code decides who is believed (`time_source`).
 TIME_SLOTS = frozenset({("remind", "when"), ("event-create", "time"), ("event-change", "time")})
@@ -549,6 +558,28 @@ def _cover(seen: str, piece: str, found: dict):
     return False
 
 
+def _hour_without_day_is_asked(hits: list) -> bool:
+    """Whether an hour-only reading of a line with words no table holds is asked about: true unless a time phrase code read holds a trigger word of a table before the hour ("at 3pm", "às 15h"),
+    which says the line is in that table's language, where a day word would have been read or caught as an unread date word."""
+    return not any(h.get("s0", h["s"]) > h["s"] for h in hits)
+
+
+def _unread_day(found: dict, dated: bool) -> bool:
+    """Whether the line holds, outside its time phrases, a word or a number that may name a day code did not read: a weekday, a month or a relative-day word of `interpreter_day_words.json`, a German
+    two-letter weekday with its period, or a day written as numbers ("29/10"); and, when code read an hour only (`dated` is False), also a length of days ("en dos dias", "dans 2 jours") or a whole
+    number from 1 to 31 ("the 29", "el 29"). A dated reading is asked only for what conflicts with the day it read: a bare number or a unit word ("2 apples", "this month") does not."""
+    norm = found["norm"]
+    covered = [(h["s"], h["e"]) for h in found["hits"]]
+    outside = "".join(" " if any(a <= i < b for a, b in covered) else c for i, c in enumerate(norm))
+    tokens = [m.group() for m in re.finditer(r"[a-z0-9]+", outside)]
+    phrases = DAY_PHRASES if dated else DAY_PHRASES + UNIT_PHRASES
+    if any(tokens[i:i + len(phrase)] == list(phrase) for phrase in phrases for i in range(len(tokens))):
+        return True
+    if (DOTTED_RE and DOTTED_RE.search(outside)) or DATE_SHAPE_RE.search(outside):
+        return True
+    return not dated and any(w.isdigit() and 1 <= int(w) <= 31 for w in tokens)
+
+
 def _classify(span: str, line: str, now_local):
     """(source, reading): who may decide the time of a span, and the reading code has of it (the model's `time_iso` is checked against it, never the other way). The decision
     is made from the WHOLE LINE and never from the span the model chose, since the model picks the span: "code" only when the span holds every time phrase of the line and
@@ -568,8 +599,13 @@ def _classify(span: str, line: str, now_local):
     if (parsed.get("vague") or whole.get("vague") or nt.doubt(piece) or reading.get("assumed_year") or whole["reading"]["when"] != reading["when"]
             or not TIME_RE.fullmatch(f"{reading.get('date')}T{reading.get('time')}")):
         return "ask", None
-    if not reading.get("dated") and nt.leftover_doubt(found, None, tables, unknown=True) and not _known_outside(found):
-        return "model", reading          # code read an hour only, the line holds words no table has and none that a table does (a language without tables): the model's date, the code's hour
+    if not reading.get("dated") and nt.leftover_doubt(found, None, tables, unknown=True):
+        if not _known_outside(found):
+            return "model", reading          # code read an hour only, the line holds words no table has and none that a table does (a language without tables): the model's date, the code's hour
+        if _hour_without_day_is_asked(hits):
+            return "ask", None          # an hour with no day, no trigger word of a table beside it and words no table has ("el jueves a las 15:00 en el calendario"): code never takes the clock's own day for a day the line may name
+    if _unread_day(found, bool(reading.get("dated"))):
+        return "ask", None          # a word or a number that may name a day stands outside the time code read ("jueves at 15:00", "the 29 at 3pm", "tomorrow at 3pm el jueves"): a trigger word does not make it one language
     return "code", reading
 
 

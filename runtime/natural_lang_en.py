@@ -25,9 +25,9 @@ TABLE = {
     "markers": ["remind", "reminder", "reminders", "tomorrow", "today", "tonight", "the", "to", "about", "next", "please", "my", "of", "and", "on", "at"],
     # how a date written x/y reads when both numbers are 12 or less: "ask" (month first or day first, the person is asked) or "day-first"
     "slash_dates": "ask",
-    "days": {"today": ["today"], "tomorrow": ["tomorrow", "tommorow", "tmrw", "tmr", "2morrow"], "day_after_tomorrow": ["the day after tomorrow", "day after tomorrow"]},
+    "days": {"today": ["today"], "tomorrow": ["tomorrow", "tommorow", "tmrw", "tmr", "2morrow", "2moro"], "day_after_tomorrow": ["the day after tomorrow", "day after tomorrow"]},
     # Monday first
-    "weekdays": [["monday", "mon"], ["tuesday", "tue", "tues"], ["wednesday", "wed"], ["thursday", "thu", "thur", "thurs"], ["friday", "fri"], ["saturday"],
+    "weekdays": [["monday", "mon"], ["tuesday", "tue", "tues"], ["wednesday", "wed", "weds"], ["thursday", "thu", "thur", "thurs"], ["friday", "fri"], ["saturday"],
                  ["sunday"]],
     "weekday_next": ["next"],
     "weekday_this": ["this"],
@@ -36,7 +36,7 @@ TABLE = {
     "months": [["january", "jan"], ["february", "feb"], ["march", "mar"], ["april", "apr"], ["may"], ["june", "jun"], ["july", "jul"], ["august", "aug"],
                ["september", "sep", "sept"], ["october", "oct"], ["november", "nov"], ["december", "dec"]],
     # words of this table that are also common words (an abbreviation, "may"): they count only when the line is in this language, and never as a capitalised name
-    "weak": ["mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec", "may"],
+    "weak": ["mon", "tue", "tues", "wed", "weds", "thu", "thur", "thurs", "fri", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec", "may"],
     # weak words that count only with a cue before them ("on may 5": "I may 2 people" is not a date)
     "cued": ["may"],
     "month_joiners": ["of"],
