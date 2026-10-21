@@ -245,7 +245,7 @@ def test_a_direct_reply_is_answered_by_code_cancels_its_request_and_opens_no_dec
     assert recorded["state"] == "cancelled"                                                  # cancelled by code, in the same call
     assert st.calls(tree["adapter"]) == ["core-orchestrator 1"]
     stored = [m for m in messages(tree) if m["role"] == "assistant"]
-    assert stored[0]["text"] == out["reply"] and stored[0]["task_id"] is None and stored[0]["run_id"]
+    assert stored[0]["text"] == out["reply"] and stored[0]["task_id"] == recorded["id"] and stored[0]["run_id"]      # stored under the request it closed (S4), so that the next line does not revive an older question
     # a direct reply to a form's route is left to the form: the request stays, the answer says what the planner proposes
     other = ops.request(path, "And the second?")["request"]
     routed = ops.route(path, other)

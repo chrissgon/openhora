@@ -468,6 +468,7 @@ class Bridge(shell_kit.Jobs):
             try:
                 sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None}, guard)
                 self.last_message[chat] = str(sent) if sent else None
+                self.scope.replied = str(sent) if sent else None      # this thread's own last piece, for `note_asked`: the shared dict above can be changed meanwhile by another thread's send
             except provider.MessengerError as e:
                 if e.kind == "deferred":
                     return None
@@ -1347,8 +1348,9 @@ class Bridge(shell_kit.Jobs):
                     said = self.without_card_line(said, result.get("resend"), project) or ("" if result.get("resend") is not None else said)
                 if not said:
                     return
+                self.scope.replied = None
                 if self.reply(chat, said, project, guard=converted) is True and result.get("pending_id") is not None:
-                    self.note_asked(project, chat, result["pending_id"])      # the router's question reached this chat as the reply: its notice would be the same question twice
+                    self.note_asked(project, chat, result["pending_id"], getattr(self.scope, "replied", None))      # the router's question reached this chat as the reply: its notice would be the same question twice
             except Refused as e:
                 self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
@@ -1363,17 +1365,17 @@ class Bridge(shell_kit.Jobs):
                     self.reply(chat, self.t("QUEUED", project=project), project)
         return call
 
-    def note_asked(self, project: dict, chat: str, pending_id: int) -> None:
+    def note_asked(self, project: dict, chat: str, pending_id: int, message_id=None) -> None:
         """The reply to a line was the router's question and it went out in `chat`: the ledger records that this decision, with this content, is in this chat
         already, so that the notice does not send the same question a second time (decision id, project and chat; another listed sender still gets it). The
-        record is a card of kind `question` with no message id and no action: a tap or a reply cannot be bound to it, and `/answer` from this chat finds the
-        sender's own question. Anything else the reply said (a plan, an unrecognised route) keeps its card."""
+        record is a card of kind `question` with `message_id`, the id of the last piece THIS reply sent (read by `reply` on the calling thread, never from the shared `last_message`; S4: decision 229 (1), "afterwards by reply-to") and no action: a reply
+        to that message answers the question at any age, a tap cannot, and `/answer` from this chat finds the sender's own question. Anything else the reply said (a plan, an unrecognised route) keeps its card."""
         try:
             item = self.ops.pending(project["path"], pending_id=pending_id)
             if item.get("status", "open") != "open" or not cards.router_asks(item):
                 return
             self.ledger.add({"project": project["id"], "pending_id": item["id"], "kind": "question", "content_sha256": cards.content_sha256(item),
-                             "chat": chat, "message_id": None, "actions": {}, "sent_at": self.clock(), "whole": True, "approvable": False,
+                             "chat": chat, "message_id": message_id, "actions": {}, "sent_at": self.clock(), "whole": True, "approvable": False,
                              "blocked": None, "effect_word": None})
         except (self.ops.OpsError, OSError) as e:
             self.log(f"the question's reply could not be recorded ({e.__class__.__name__})")

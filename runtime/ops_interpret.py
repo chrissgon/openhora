@@ -13,10 +13,17 @@ confirmed on 2026-10-21, so the interpreter reads only the rest.
   enabled(ctx, channel, sender)   messaging, the sender holds the group `interpret`, and the newest entry of runtime/interpreter_enable.json is in force for the project's language
   turn(project, ctx, said, sender, extras)
                                   the reply tuple of ops_say (reply, request_id, pending_id, ran, run_id), or None when the line is to be routed to the planning agent as today
-  decide(line, text, now, zone, allowed)   the decision for a model's text: `parse` then `check`, exactly as the measured pipeline does (pure; a test compares them)
+                                  or answers the sender's bound router question (`extras["frame"]`, below)
+  decide(line, text, now, zone, allowed, frame=None)   the decision for a model's text: `parse` then `check`, exactly as the measured pipeline does (pure; a test compares them)
 
-The steps of `turn`: `interpreter.precheck`; the limits below; `interpreter.build_messages` (the typed frame is none in this slice, and the user turn is five lines made
-of the date, the time, the zone and the person's own collapsed line: nothing of any third party); one call to the daily route; `parse`; `check` against the line;
+The typed frame (slice S4). When the sender has a router question bound to them (runtime/ops_say.py `_bound_question`, decision 229 (1)), ops_say puts its age in `extras["frame_age"]` and the
+frame is the one item `{"id": "i1", "kind": "router-question", "need": "text", "age_s": <seconds>}` built by `interpreter.typed_frame`: the id, the kind, the need and the age
+and nothing else, so that neither the question's words nor its number ever reach the model. A decision `answer` of `i1` sets `extras["frame"] = "answer"` and returns None (the
+line is the answer to the question); a decision `route` sets `extras["frame"] = "new"` and returns None (a new request). `check` refuses any other item id (E_ITEM_UNKNOWN), and
+the sentence is IX_ASK_AGAIN with the question still open. Without a bound question the frame is none, as in S1.
+
+The steps of `turn`: `interpreter.precheck`; the limits below; `interpreter.build_messages` (the user turn is five lines made
+of the date, the time, the zone, the frame and the person's own collapsed line: nothing of any third party); one call to the daily route; `parse`; `check` against the line;
 then the decision is carried out by the call that already exists for it (`ops_natural.run`, `ops_natural_writes.open_line`) or answered by a fixed sentence. Nothing
 the model wrote is ever shown, and nothing here approves, sends or writes: a card is opened by `open_line` and approved on its button by its hash.
 
@@ -148,12 +155,19 @@ def _daily_call(entry: dict, system: str, user: str) -> dict:
     return interpreter_route.complete(rows[0]["id"], system, user, accepted=[entry["route_sha256"]], deadline_ms=protocol["deadline_ms"], **protocol["params"])
 
 
-def decide(line: str, text, now, zone: str, allowed) -> dict:
-    """The decision for a model's text about a line (no frame): the measured pipeline's own two calls, `parse` and `check`."""
+def decide(line: str, text, now, zone: str, allowed, frame=None) -> dict:
+    """The decision for a model's text about a line: the measured pipeline's own two calls, `parse` and `check` (with the typed frame of the bound router question, or none)."""
     obj, _, error = interpreter.parse(text)
     if obj is None:
         return {"kind": "clarify", "error": error, "why": "invalid", "slot": None, "ops": None}
-    return interpreter.check(obj, line, None, interpreter.SERVED, now, zone, allowed)
+    return interpreter.check(obj, line, frame, interpreter.SERVED, now, zone, allowed)
+
+
+def router_frame(age_s):
+    """The typed frame for a router question bound to the sender: one item, the question's id (`i1`), kind, need and age, and none of its words (None: no question is bound)."""
+    if age_s is None:
+        return None
+    return interpreter.typed_frame([{"id": "i1", "kind": "router-question", "need": "text", "age_s": age_s}], None, {})
 
 
 def _allowed(ctx: dict, sender) -> set:
@@ -162,12 +176,12 @@ def _allowed(ctx: dict, sender) -> set:
     return {row["op"] for row in interpreter.SERVED["ops"] if operations.permitted(row["op"], CHANNEL, policy, None, sender)}
 
 
-def _ask_model(ctx: dict, entry: dict, said: str, sender):
+def _ask_model(ctx: dict, entry: dict, said: str, sender, frame=None):
     """The decision for the line, or None when no call could be made or it failed."""
     try:
         now = ops_natural._clock()
         zone = _zone(now)
-        system, user = interpreter.build_messages(interpreter.SERVED, now, zone, None, said)
+        system, user = interpreter.build_messages(interpreter.SERVED, now, zone, frame, said)
         got = _daily_call(entry, system, user)
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
         got = {"ok": False}
@@ -175,7 +189,7 @@ def _ask_model(ctx: dict, entry: dict, said: str, sender):
     if not got.get("ok"):
         return None
     try:
-        return decide(said, got.get("text"), now, zone, _allowed(ctx, sender))
+        return decide(said, got.get("text"), now, zone, _allowed(ctx, sender), frame)
     except Exception:      # noqa: BLE001
         return {"kind": "clarify", "error": "E_SHAPE", "why": "invalid", "slot": None, "ops": None}
 
@@ -227,18 +241,25 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
 
 def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     """The reply tuple of a plain line read by the interpreter, or None when the line goes to the planning agent as today. `extras["interpreted"]` says what the
-    conversation stores for the line: True (the default from here on) a neutral word, False the line itself (it was sent to the agent)."""
+    conversation stores for the line: True (the default from here on) a neutral word, False the line itself (it was sent to the agent). With `extras["frame_age"]` (the sender
+    has a bound router question) a None can also mean, by `extras["frame"]`, that the line answers it ("answer") or is a new request ("new"); with no `frame` the model said nothing."""
     extras["interpreted"] = True
+    age_s = extras.get("frame_age")
     cfg = ctx["cfg"]
     entry = interpreter_enable.active(_tag(cfg))
     decision = interpreter.precheck(said)
     if decision is None:
-        decision = _ask_model(ctx, entry["entry"], said, sender) if entry is not None and _admit(ctx, sender) else None
+        decision = _ask_model(ctx, entry["entry"], said, sender, router_frame(age_s)) if entry is not None and _admit(ctx, sender) else None
     if decision is None:
         return _no_decision(ctx, said, extras)
     kind = decision.get("kind")
     if kind == "route":
         extras["interpreted"] = False
+        extras["frame"] = "new"
+        return None
+    if kind == "answer":
+        extras["interpreted"] = False      # the line is sent to the planning agent as the answer to its question: the conversation keeps it
+        extras["frame"] = "answer"
         return None
     if kind == "op":
         return _carry_out(project, ctx, decision, said, sender, extras)

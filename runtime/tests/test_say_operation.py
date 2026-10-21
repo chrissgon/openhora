@@ -18,6 +18,7 @@ ops = st.load("ops")
 ops_cancel = st.load("ops_cancel")
 ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
+ops_say = st.load("ops_say")
 drafts = st.load("drafts")
 ops_ask = st.load("ops_ask")
 operations = st.load("operations")
@@ -56,7 +57,7 @@ def test_an_operation_the_router_named_is_executed_by_code_the_request_is_cancel
     [recorded] = ops.status(docs["path"])["requests"]
     assert recorded["state"] == "cancelled" and ops.pending(docs["path"])["pending"] == []
     reply = [m for m in stored(docs) if m["role"] == "assistant"][0]
-    assert reply["text"] == out["reply"] and reply["task_id"] is None and reply["run_id"]
+    assert reply["text"] == out["reply"] and reply["task_id"] == recorded["id"] and reply["run_id"], "stored under the request it closed (S4), so that the next line does not revive an older question"
     [run] = [r for r in ops_core.context(docs["path"])["store"].runs_since(docs["ctx"]["conn"], "2000-01-01T00:00:00Z")]
     assert run["status"] == "ok"
 
@@ -71,6 +72,32 @@ def test_the_operation_is_believed_against_the_line_alone_not_against_the_conver
     assert ops.pending(world["path"], second["pending_id"])["payload"]["ending"] == "unclassified", "...but not in this line, so it is not believed"
 
 
+@pytest.mark.parametrize("ending,reply", [("Route: none (direct)\nNext: nothing yet.\n", None), (OPERATION.format(name="sources"), "- lease-contract")])
+def test_a_reply_code_gave_and_closed_does_not_reset_the_routers_memory_nor_enter_it(docs, ending, reply):
+    """Review of #515: the reply to a line whose request code cancelled is stored under that request (S4), and the router's memory is what it was: the earlier line is still in it,
+    the reply is not, whether it is a direct turn or an operation's result."""
+    router_says(docs, ending)
+    say(docs, "I want to build a cafe app with a menu")
+    router_says(docs, "Route: flow-demo (flow, pending)\nWhy: a market question\nNext: the market task.\n")
+    say(docs, "start with the menu screen")
+    prompt = (docs["adapter"] / "last-router-prompt.md").read_text(encoding="utf-8")
+    assert "Earlier in this conversation" in prompt and "user: I want to build a cafe app with a menu" in prompt, prompt
+    assert "assistant:" not in prompt.split("The request now:")[0], "the reply code gave is not part of the memory"
+    if reply:
+        assert reply not in prompt
+
+
+def test_vacuity_a_reply_that_settles_the_exchange_drops_the_earlier_line_from_the_memory(docs, monkeypatch):
+    """The planted fault: the mark that says code closed the request is not read, so the reply is a settled mark again (the first version of S4)."""
+    monkeypatch.setattr(ops_say, "CODE_CLOSED", "conversation:not-read:{id}")
+    router_says(docs, "Route: none (direct)\nNext: nothing yet.\n")
+    say(docs, "I want to build a cafe app with a menu")
+    monkeypatch.setattr(ops_say, "CODE_CLOSED", "conversation:code-closed:{id}")
+    router_says(docs, "Route: flow-demo (flow, pending)\nWhy: a market question\nNext: the market task.\n")
+    say(docs, "start with the menu screen")
+    assert "cafe app" not in (docs["adapter"] / "last-router-prompt.md").read_text(encoding="utf-8")
+
+
 def test_ask_is_called_with_the_whole_line_and_the_sources_are_chosen_by_code_never_by_the_routers_sources_line(docs):
     with_senders(docs)
     line = "qual o prazo do contrato?"
@@ -78,7 +105,7 @@ def test_ask_is_called_with_the_whole_line_and_the_sources_are_chosen_by_code_ne
     out = phone(docs, "asker", line)
     assert out["ran"] is True and "Quote" not in out["reply"] or out["reply"]
     last = [m for m in stored(docs) if m["role"] == "assistant"][-1]
-    assert last["task_id"] is None and last["run_id"], "stored with the answer run and no request: only the asker reads it back"
+    assert last["run_id"] and last["task_id"] is not None, "stored with the answer run and under the request code closed: only the asker reads it back (limit L50: the display keys on the run)"
     result = {"run_id": last["run_id"]}
     assert run_prompt(docs, result).startswith(line), "the question is the person's whole line, not a rewrite"
     copied = sorted(f for f in run_files(docs, result) if f.endswith("converted.md"))
