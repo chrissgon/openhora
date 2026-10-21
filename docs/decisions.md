@@ -1760,6 +1760,53 @@ A line the person forwards was written by someone else; reading it as the person
 - **Residue, stated.** An e-mail forwarded with no prefix and no marker cannot be told from the person's own words and can open a card; the card of the exact content is the only guard.
 - **Cost.** 0 model calls, 0 lab runs, fingerprint unchanged. The Portuguese sentence is for the maintainer to review in the pull request.
 
+## 2026-10-20: the corpus tooling of the interpreter experiment (IX-1, tooling)
+
+The interpreter experiment (SPEC-IX-PHASE1, package IX-1) measures a typed-frame interpreter against frozen labels. This entry is the tooling's; the
+data (the dev split, the test split's summary, the frozen taxonomy and thresholds, their hashes) is a pull request of its own.
+
+- **One tool, data apart.** `scripts/interpreter_corpus.py` (verbs generate, adversarial, view, diff, resolve, freeze, relabel, similarity, sample,
+  hashes, check), split by job into `interpreter_corpus_format.py` (the item format, the frame's checkable rules, the catalog read as data) and
+  `interpreter_corpus_build.py` (the two builders), each under the 1,200-line budget. Standard library only; it reads
+  `runtime/interpreter_catalog.json` as data and imports nothing of `runtime/` (scripts never reach the runtime's code). `evals/interpreter/` holds
+  data only, and its README is the folder map, the formats, the procedure and the labelling guide L1-L10.
+- **Formats the specification left open (by recommendation; the maintainer may revise).** (1) An answer's `span` is a list of accepted values, like a
+  slot's, so agreement and the scorer read both the same way. (2) The labeller's opaque id is `w-` and the first 8 hex of sha256 of `<seed>:<id>`;
+  `diff` and `resolve` take the view's seed, so no mapping file exists for a labeller to see. (3) `generate` and `adversarial` take `--split` (from the
+  base for adversarial) and `--start`, so provisional ids of the three authorship buckets stay apart; `freeze` renumbers each language from 00000 in an
+  order by the hash of the provisional id (deterministic, and it does not group the items by author), keeps the relabelled ids, and maps every `base`.
+  (4) A weekday value means the next such date strictly after the clock's date; template and value files may come as one file of language sets, a value may carry its own gold text (the digits of an `ints` slot), and a pool may fill no slot (the author session's formats). (5) `check` also holds that a moment is after the clock and at
+  most 366 days on, that a forwarded line has the gold `forwarded` and the tag `forward`, and that a multi-turn item has a frame.
+- **The dev relabelling is code's output.** `relabel` maps each line of the three older corpora (575 + 414 + 355 = 1,344 items): a time-only line
+  becomes a multi-turn item answering a reminder confirmation (frame item `i1`, `age_s` 60), the others time-scoped items; the writes corpora become
+  op-scoped items or `route`. Two choices the specification did not state: the channel is `messaging`; and an expected moment outside (clock, clock
+  + 366 days] is no acceptable reading (the interpreter's `time-far`), so the one such line (a date 368 days ahead) is `clarify`, tagged
+  `far-future`. The schema test rebuilds the file and compares it byte for byte.
+- **The similarity check never prints a real line.** It prints `PASS` or `FAIL <count>` (with `--ids`, corpus ids only); a failure to read the file is
+  one generic sentence, and no traceback is ever printed. Its test plants a unique marker in a fixture file of real lines and asserts it never
+  reaches stdout or stderr.
+- **After the independent review of #494 (2026-10-20).** A weekday value on the clock's own weekday is refused (no gold can say which week);
+  `check` refuses a moment the zone skips or repeats (time-gap, time-fold); typo, slang and code-switch never touch the time words of
+  `adversarial.json`'s `protect` list and skip a base whose time may rest on one outside every span; an agreed item keeps the intent's `also`,
+  and `diff` prints `<id> also` when the label's alternatives differ; the view seed is fresh random hex of at least 32 characters (a date seed
+  let the opaque ids be walked back to the authorship buckets); `similarity` fails closed (threshold in (0, 1], at least `--min-real` real
+  lines, corpus files that pass `check`) and reads each Markdown table cell and a labelled line as candidate lines; a tempt phrase is the D or
+  widening-G request alone (a request joined to one is multi-intent, L9); relabelled time-only answers carry the reading and no span; `freeze`
+  keeps a base that is a relabelled id.
+- **Until IX-2a merges** the schema test skips the check that needs `runtime/interpreter.py` (`frame_problems`); this package merges after it, so
+  it runs at merge. Against the served catalog of C0 the relabelled file has 0 problems.
+
+## 2026-10-20: the interpreter's evidence kind and band (IX-E, decisions D3 and D3')
+
+The natural-language interpreter is a model whose output the code checks, and it is not a skill, so the skills' evidence, gate and bands do not describe it. The maintainer approved a new evidence kind (D3, D3') and this entry records how it is built; the rules are section 5 of the reliability model, "Interpreter bands", and `AGENTS.md` and `evals/README.md` say the same.
+
+- **One evidence kind, `evals/interpreter/evidence/ix-<test id>.jsonl`**, written only by the interpreter harness (a later package), append-only like every evidence file (a committed file that differs from the base is refused; a new one is read strictly), with **no free-text field**: event, item and aggregate lines have closed keys and every value is a closed word, a pattern, a hash, an id, a number or a bool. A test split's lines carry item ids and hashes, never the held-out text. Alternative rejected: reusing the lab's `lab-` form with an interpreter "skill" name; it would have put the interpreter in the skills' gate, bands and fingerprint, and its inputs (route, prompt, catalog) are not skill content.
+- **Bands per model, route and language** from the **Wilson upper bound** at z = 1.96, never the point rate: at 50 items a 3% bound cannot be met, and at fewer than 189 items not even a zero count reaches a 2% bound. The current set is emptied by a change of the route object, protocol, prompt, taxonomy, thresholds, served catalog or test split, so a stale run cannot carry a band. Per item the worst of its runs counts.
+- **Catalog epochs** (`evals/interpreter/epochs.json`): the test split's evidence counts for the served catalog only; a change of the operations is a `pending-rerun` epoch until the split has run on it. **The cost of the safety:** adding or changing an operation costs one run of the test split before the interpreter's band is `reliable` again; the saving is that no catalog drifts under a measured band.
+- **Local lines demote and never promote**; **`go` is computed** (a route that meets every overall condition, the cost included, and beats the current pipeline; the cheapest qualifying route; the languages where the reference route is `reliable`).
+- **After the independent review of #493 (2026-10-20).** An item line states the outcome word of its gold (`gold`: `op`, `answer`, `clarify`, `route`, `none`, `refuse`, `forwarded`; a class, never content), because the denominators of `correct_direct` and of the clarify rate leave out the clarify golds and an approximation from the observed word under-counted them (the clarify rate read 0.14 where it was 0.165); a line without it is not valid evidence. Go qualifies a route only if it is reliable, after local lines, in a language where the reference route is reliable, and checks the cost per language; a local `wrong_effect_unconfirmed` demotes the overall band too; the current-pipeline run passes the B-prime set's checks; a set covers the whole held-out split (`test-split.json`: `items`, `counts.lang`), so a sample is `needs a run`; a deleted committed evidence file is refused; `error` is a closed list and `upstream` the route's pin. **Not done:** provenance of an event whose hashes match cannot be checked. The latency and cost come from a sequential sample whose size is published, and go requires at least 100 sequential calls for a route (`SEQUENTIAL_MIN_CALLS` in `evals/interpreter_status.py`: this plan's choice, not measured, because `thresholds.json` is frozen with the corpus).
+- **Limits found, not changed:** the status script reads the routes, protocol, prompt, catalog, taxonomy, thresholds and test split as data and imports nothing of `runtime/`. The package changed no fingerprinted file and made no model call; every row is `needs a run` until the first test event.
+
 
 ## 2026-10-20: isolated tests during development, the whole suite at the end of a delivery (TESTSEL)
 
