@@ -899,7 +899,11 @@ IX_EVENT_KEYS = ("record", "kind", "test", "date", "arm", "split", "model", "rou
 IX_ITEM_KEYS = ("record", "test", "item", "run", "lang", "hard", "gold", "category", "observed", "parse", "error", "time_source",
                 "latency_ms", "usage", "cost_usd", "upstream")
 IX_AGGREGATE_KEYS = ("record", "test", "lang", "n", "counts", "parse_invalid")
-IX_ARMS, IX_SPLITS, IX_BILLING = ("bprime", "current"), ("dev", "test", "local"), ("metered", "none")
+IX_ARMS, IX_SPLITS, IX_BILLING = ("bprime", "current"), ("dev", "test", "local"), ("metered", "subscription", "none")
+# `metered` is a call paid per call (a key of an HTTP route), `subscription` a call on the maintainer's own account (an account route:
+# nothing is paid per call, so no line states a cost), `none` an arm that makes no model call (the current pipeline). The standing rule
+# (2026-10-21): a Claude model is measured on the account, never over a metered key, so a metered event cannot name one.
+IX_METERED_FORBIDDEN = ("claude", "anthropic")
 IX_PARSE, IX_TIME_SOURCES = ("ok", "fenced", "invalid", "none"), ("code", "model")
 IX_LANGS = ("pt-BR", "en", "es", "fr", "de", "it", "ja", "mixed")
 # What the pipeline did with a line, and the categories of an item, worst first (taxonomy.json "observed" and "severity",
@@ -968,6 +972,8 @@ def interpreter_event_problems(line):
         out.append("a current event has no model, route, route_sha256 or prompt_sha256 (null)")
     if line["split"] == "local" and line["arm"] != "bprime":
         out.append("a local event is the bprime arm")
+    if line["billing"] == "metered" and line["model"] is not None and any(w in line["model"].lower() for w in IX_METERED_FORBIDDEN):
+        out.append("a Claude model is measured on the account (billing subscription), never over a metered key")
     return out
 
 
@@ -1013,7 +1019,7 @@ def interpreter_item_problems(line, event=None):
         out.append("item is not of the event's split")
     if _count(event.get("runs"), 1) and line["run"] > event["runs"]:
         out.append("run is more than the event's runs")
-    if event.get("billing") == "none" and line["cost_usd"] is not None:
+    if event.get("billing") != "metered" and line["cost_usd"] is not None:
         out.append("cost_usd must be null in an event that is not metered")
     return out
 
