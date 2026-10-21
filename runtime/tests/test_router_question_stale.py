@@ -1,11 +1,12 @@
-"""A question the router left open does not swallow the next line on a messaging app (package LIVE-2; runtime/ops_say.py `_open_question`, `_turn`, runtime/ops_natural.py
-`recognises`, runtime/phrases.py ANSWER_TAKEN and ASK_NEXT_PHONE).
+"""A question the router left open does not swallow the next line on a messaging app (package LIVE-2, reworked by slice S4 and decision 229 (1) of 2026-10-20; runtime/ops_say.py
+`_open_question`, `_bound_question`, `_turn`, runtime/pending_items.py, runtime/ops_natural.py `recognises`, runtime/phrases.py ANSWER_TAKEN and ASK_NEXT_PHONE).
 
 The maintainer met it live: a question stayed open from the day before; a new, unrelated line ("Salvar no drive") was taken as its ANSWER and the router asked yesterday's
 question again. Three rules, tested here with the REAL operations layer on the chat tree, a stand-in router and a stand-in clock:
 
-  1. on a messaging app an open question of the router is answered by a plain line only within ROUTER_QUESTION_TTL (two hours, a constant); older, the next plain line is a new
-     request and the old request is cancelled by code, with no notice sent; the other channels keep the question until it is answered or cancelled;
+  1. on a messaging app an open question of the router is bound to the sender it was asked of and is answered by that sender's plain line only within
+     pending_items.ROUTER_WINDOW (one hour, a constant); older, the next plain line is a new request and the old request is NOT cancelled by code (S4, decision 229 (1)); the
+     other channels keep the question until it is answered or cancelled; the binding itself (another sender, a restart) is tested in test_router_binding.py;
   2. even within the window, a line that code recognises as a request of its own (a write to the person's accounts, a reminder, a cancel...) is a NEW line, never the answer;
      a read such as "progress" and a plain sentence may still be the answer;
   3. when a line is taken as the answer, the reply says so in the project's language ("I took that as the answer to question #2.") and the footer is a plain phrase, not "/new".
@@ -23,12 +24,13 @@ import pytest
 import standin_tree as st
 from test_chat import FLOW, reply
 from test_router_question_phone import LINE, TEMPLATE, chat_tree, phone  # noqa: F401  (the bridge over the chat tree, with a stand-in router)
-from test_sender_profiles import OWNER
+from test_sender_profiles import OWNER, STAFF
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_say = st.load("ops_say")
 ops_natural = st.load("ops_natural")
+pending_items = st.load("pending_items")
 natural = st.load("natural")
 phrases = st.load("phrases")
 
@@ -101,50 +103,55 @@ def test_the_footer_of_a_question_on_a_phone_is_a_plain_phrase_and_the_other_cha
 # --- 1. the window ----------------------------------------------------------------------------------------------------------------
 
 
-def test_within_two_hours_a_plain_line_answers_the_question(phone, wall):
+def test_within_one_hour_the_askers_plain_line_answers_the_question(phone, wall):
+    """Decision 229 (1): the window is one hour (3600 s, the test's own literal), bound to the asker."""
     question = ask(phone)
     reply(phone.tree, FLOW, "router-reply-2.md")
-    wall.later(ops_say.ROUTER_QUESTION_TTL - 1)
+    wall.later(3600 - 1)
     phone.say(OWNER, ANSWER)
     assert phone.texts(OWNER)[-1].startswith(phrases.text("ANSWER_TAKEN", None, id=question["id"])) and open_questions(phone) == []
 
 
-def test_after_the_window_the_next_plain_line_is_a_new_request_and_the_old_request_is_cancelled_by_code_with_no_notice(phone, wall):
+def test_after_the_window_the_next_plain_line_is_a_new_request_and_the_old_request_stays_open_with_no_notice(phone, wall):
+    """Decision 229 (1): nothing is cancelled by code when the hour runs out; the old request and its question stay as they were."""
     question = ask(phone)
     old = question["task_id"]
     texts_before = len(phone.texts(OWNER))
-    wall.later(ops_say.ROUTER_QUESTION_TTL + 1)
+    wall.later(3600 + 1)
     reply(phone.tree, FLOW, "router-reply.md")
     phone.say(OWNER, "a plain line about something else entirely")
     said = phone.texts(OWNER)[texts_before:]
     assert len(said) == 1 and phrases.text("ANSWER_TAKEN", None, id=question["id"]) not in said[0], "one reply, and it does not say the line answered anything"
-    assert states(phone)[old] == "cancelled", "the stale request is closed by code"
-    assert [q["id"] for q in open_questions(phone)] == [], "and its question with it"
-    again = ops.pending(phone.path, question["id"])
-    assert again["status"] != "open"
-    assert len(phone.texts(OWNER)) == texts_before + 1, "no notice about the cancellation"
+    assert states(phone)[old] == "requested", "the old request is not closed by code"
+    assert [q["id"] for q in open_questions(phone)] == [question["id"]], "and its question is still open"
+    assert ops.pending(phone.path, question["id"])["status"] == "open"
+    assert len(phone.texts(OWNER)) == texts_before + 1, "no notice about anything"
 
 
-def test_the_window_is_a_documented_constant_of_two_hours():
-    assert ops_say.ROUTER_QUESTION_TTL == 7200
+def test_the_window_is_a_documented_constant_of_one_hour():
+    """Decision 229 (1): one hour, in the store that binds the question."""
+    assert pending_items.ROUTER_WINDOW == 3600 and not hasattr(ops_say, "ROUTER_QUESTION_TTL")
 
 
 def test_the_page_and_the_terminal_keep_a_question_until_it_is_answered_or_cancelled(phone, wall):
+    """Decision 229 (1) leaves the other channels as they were: no window, the conversation's last request."""
     question = ask(phone)
     reply(phone.tree, FLOW, "router-reply-2.md")
-    wall.later(ops_say.ROUTER_QUESTION_TTL * 10)
+    wall.later(3600 * 10)
     out = ops.say(phone.path, ANSWER, channel="page")
     assert out["reply"] is not None and phrases.text("ANSWER_TAKEN", None, id=question["id"]) not in out["reply"], "no sentence of the phone is added on the page"
     assert open_questions(phone) == []
 
 
-def test_a_time_that_cannot_be_read_keeps_the_question_as_it_always_was(phone, wall, monkeypatch):
+def test_a_time_that_cannot_be_read_keeps_the_question_as_it_always_was(phone, wall):
+    """Decision 229 (1): a binding whose time cannot be read still answers (the asker has it), as the store's unreadable time always did."""
     question = ask(phone)
     ctx = ops_core.context(phone.path)
-    broken = dict(ctx["store"].pending_get(ctx["conn"], question["id"]), created_at="not a time")
-    monkeypatch.setattr(ctx["store"], "pending_get", lambda conn, pending_id: broken)
-    wall.later(ops_say.ROUTER_QUESTION_TTL * 10)
-    assert ops_say._open_question(ctx, "messaging", expire=True) == question["id"]
+    sender = f"telegram:{OWNER}"
+    [binding] = pending_items.items((ops_natural.project_key(phone.path), "messaging", sender))
+    binding["state"]["asked_at"] = "not a time"
+    wall.later(3600 * 10)
+    assert ops_say._open_question(ctx, "messaging", sender) == question["id"]
 
 
 # --- 2. a request of its own is a new line -----------------------------------------------------------------------------------------
@@ -171,16 +178,18 @@ def test_a_reminder_line_and_a_write_line_are_requests_and_a_plain_sentence_and_
 
 
 def test_the_stale_question_is_also_dropped_for_a_state_question_and_the_natural_peek(phone, wall):
+    """Decision 229 (1): once the hour is out, the asker's phone has no question open for the state and the natural peek; nothing is cancelled."""
     question = ask(phone)
-    wall.later(ops_say.ROUTER_QUESTION_TTL + 5)
+    wall.later(3600 + 5)
     ctx = ops_core.context(phone.path)
-    assert ops_say.asks_state(ctx, "status", "messaging") is True, "no question is open for a phone any more: the state is answered"
+    assert ops_say.asks_state(ctx, "status", "messaging", f"telegram:{OWNER}") is True, "no question is open for the phone any more: the state is answered"
     assert ops_say.asks_state(ctx, "status", "page") is False, "but it is for the page"
     assert ops_say.asks_natural(ctx, WRITE, "messaging", f"telegram:{OWNER}") is True
-    assert open_questions(phone)[0]["id"] == question["id"], "asking only reads: nothing is cancelled until a line is taken"
+    assert open_questions(phone)[0]["id"] == question["id"], "asking only reads: nothing is cancelled, even when a line is taken"
 
 
 def test_the_live_case_a_question_from_yesterday_is_not_the_answer_to_a_line_of_today(phone, wall):
+    """Decision 229 (1): the live case; a question from yesterday is never the answer, and it is left open, not cancelled."""
     question = ask(phone, "pt-BR")
     wall.later(24 * 3600)
     reply(phone.tree, FLOW, "router-reply.md")
@@ -190,13 +199,15 @@ def test_the_live_case_a_question_from_yesterday_is_not_the_answer_to_a_line_of_
     phone.say(OWNER, PLAIN)
     said = phone.texts(OWNER)[before:]
     assert said and phrases.text("ANSWER_TAKEN", {"language": "pt-BR"}, id=question["id"]) not in said[0] and question["title"] not in said[0]
-    assert states(phone)[question["task_id"]] == "cancelled" and ops.pending(phone.path, question["id"])["status"] != "open"
+    assert states(phone)[question["task_id"]] == "requested" and ops.pending(phone.path, question["id"])["status"] == "open", "left as it was"
 
 
 def test_a_read_with_a_question_open_is_not_handled_by_code_so_it_takes_the_route_lock_as_the_answer_it_may_be(phone, wall):
+    """Decision 229 (1): the asker's open question is the one that counts, within the hour."""
     ask(phone)
     ctx = ops_core.context(phone.path)
     assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{OWNER}") is False, "the one-word answer reaches the router, as it always did"
     assert ops_say.asks_natural(ctx, WRITE, "messaging", f"telegram:{OWNER}") is True, "a request of its own takes no route lock"
-    wall.later(ops_say.ROUTER_QUESTION_TTL + 1)
+    assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{STAFF}") is True, "another listed sender has no question: a read is a read"
+    wall.later(3600 + 1)
     assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{OWNER}") is True, "and once the question is stale a read is a read"

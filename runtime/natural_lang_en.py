@@ -247,8 +247,11 @@ TABLE = {
         "short_stop": ["to", "of", "in", "on", "at", "is", "it", "be", "an", "as", "me", "el", "la", "le", "un", "une", "der", "die", "das"],
         # the words of a confirmation: the table of `answers` holds this language's; these are the words of languages that no table ships (a router-chosen operation is
         # confirmed in the person's own language), in any script
-        "yes": ["si", "oui", "ja", "da", "hai", "はい", "да", "是", "네"],
-        "no": ["non", "nein", "нет", "いいえ", "否", "아니요"],
+        "yes": ["si", "oui", "ja", "da", "hai", "はい", "да", "是", "네",
+                # slice S4: whole-line confirmations of es, fr, de, it and pt that no shipped table of those languages holds (an interpreted reminder is confirmed in the person's own words)
+                "vale", "claro", "de acuerdo", "dale", "d accord", "bien sur", "volontiers", "genau", "klar", "gerne", "jawohl", "va bene", "certo", "volentieri"],
+        "no": ["non", "nein", "нет", "いいえ", "否", "아니요",
+               "nee", "nicht", "pas question", "no gracias", "non merci", "nein danke", "no grazie"],
         # package NR-5: the words of the natural writes (runtime/natural_writes.py): lists of PHRASES (words of a-z and 0-9 separated by one space, no accent, no character a
         # regular expression means anything by), never an expression. The family `mail` is filled by NR-5b.
         "writes": {

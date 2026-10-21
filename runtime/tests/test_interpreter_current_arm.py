@@ -243,7 +243,7 @@ def install(w, monkeypatch):
             rec.add("route")
         return phrases.text("NOT_NAMED_NEXT_PHONE", ctx["cfg"], request=0) if channel == "messaging" else "not named", None, None, False, None
     monkeypatch.setattr(ops_say, "_say_route", say_route)
-    monkeypatch.setattr(ops_say, "_open_question", lambda ctx, channel, expire=False: 7 if w.router_item else None)
+    monkeypatch.setattr(ops_say, "_open_question", lambda ctx, channel, sender=None: 7 if w.router_item else None)
 
     # the card: opening is recorded and nothing is made
     def opened(project, ctx, state, args, channel, sender, extras):

@@ -56,7 +56,7 @@ def test_an_operation_the_router_named_is_executed_by_code_the_request_is_cancel
     [recorded] = ops.status(docs["path"])["requests"]
     assert recorded["state"] == "cancelled" and ops.pending(docs["path"])["pending"] == []
     reply = [m for m in stored(docs) if m["role"] == "assistant"][0]
-    assert reply["text"] == out["reply"] and reply["task_id"] is None and reply["run_id"]
+    assert reply["text"] == out["reply"] and reply["task_id"] == recorded["id"] and reply["run_id"], "stored under the request it closed (S4), so that the next line does not revive an older question"
     [run] = [r for r in ops_core.context(docs["path"])["store"].runs_since(docs["ctx"]["conn"], "2000-01-01T00:00:00Z")]
     assert run["status"] == "ok"
 
@@ -65,6 +65,8 @@ def test_the_operation_is_believed_against_the_line_alone_not_against_the_conver
     router_says(world, OPERATION.format(name="reminder-forget") + "Argument id: 7\n")
     first = say(world, "forget the old reminder 7 please")
     assert first["reply"].startswith("error: ") and "7" in first["reply"], "believed (7 is written in the line): the operation was asked about reminder 7, which does not exist"
+    ctx = ops_core.context(world["path"])
+    ctx["store"].message_add(ctx["conn"], conversation=ops.CONVERSATION, role="user", text="the old reminder is reminder 7")      # the reply above settled the exchange (S4): a line of the person after it is the memory
     second = say(world, "forget that other old reminder please")
     assert "Earlier in this conversation" in (world["adapter"] / "last-router-prompt.md").read_text(encoding="utf-8")
     assert "reminder 7" in (world["adapter"] / "last-router-prompt.md").read_text(encoding="utf-8"), "7 is in the memory the router saw"
