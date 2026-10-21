@@ -22,6 +22,8 @@
 /scripts/stage_skills.py       @chrissgon
 /scripts/redact.py             @chrissgon
 /scripts/test_dirs.py          @chrissgon
+/scripts/select_tests.py       @chrissgon   # which tests run: a narrower selection weakens a check
+/scripts/test_slots.py         @chrissgon
 /scripts/evidence.py           @chrissgon
 /scripts/image_lock.py         @chrissgon
 # Community evidence (decision D19): the official reusable workflow that signs it, the check that verifies it, and the
