@@ -54,7 +54,11 @@ def row(**over):
 
 
 def loads(tmp_path, *rows):
-    return ir.load(workbench(tmp_path, list(rows)))
+    """The file with these rows, loaded. The loader wants exactly one reference: the first row is made the reference when none is."""
+    rows = list(rows)
+    if not any(r["reference"] for r in rows):
+        rows[0] = dict(rows[0], reference=True)
+    return ir.load(workbench(tmp_path, rows))
 
 
 @pytest.fixture
@@ -137,8 +141,10 @@ def test_the_committed_routes_file_holds_no_http_row_that_names_claude():
     http = [r for r in raw["routes"] if r["kind"] == "http"]
     assert http, "the oracle has rows to read"
     assert [r["id"] for r in http if any(w in json.dumps(r).lower() for w in CLAUDE_WORDS)] == []
-    assert [r["id"] for r in raw["routes"]] == ["or-deepseek-v4.1-flash"]
-    assert [r["kind"] for r in raw["routes"]] == ["http"] and [r["key_prefix"] for r in raw["routes"]] == ["sk-or-v1-"]
+    assert [r["id"] for r in raw["routes"]] == ["or-deepseek-v4.1-flash", "acct-claude-sonnet-5.5", "acct-claude-haiku-4.5"]
+    assert [r["id"] for r in raw["routes"] if r["kind"] == "account"] == ["acct-claude-sonnet-5.5", "acct-claude-haiku-4.5"]
+    assert [r["kind"] for r in raw["routes"]] == ["http", "account", "account"] and [r["key_prefix"] for r in http] == ["sk-or-v1-"]
+    assert all("key" not in r and "key_prefix" not in r for r in raw["routes"] if r["kind"] == "account"), "an account row has no key"
 
 
 def test_vacuity_the_raw_file_oracle_finds_a_claude_row_in_a_planted_file():
@@ -186,11 +192,13 @@ def test_vacuity_the_listed_host_with_its_prefix_loads_and_the_host_is_read_in_l
     assert loads(tmp_path / "up", row(base_url="https://OpenRouter.AI/api/v1"))["routes"][0]["id"] == ROW["id"]
 
 
-def test_the_references_are_at_most_one(tmp_path):
+def test_the_references_are_exactly_one(tmp_path):
     with pytest.raises(ir.RouteError):
         loads(tmp_path, row(reference=True), row(id="other-route", reference=True))
+    with pytest.raises(ir.RouteError):
+        ir.load(workbench(tmp_path / "none", [row(), row(id="other-route")]))
     assert [r["reference"] for r in loads(tmp_path / "a", row(reference=True), row(id="other-route"))["routes"]] == [True, False]
-    assert [r["reference"] for r in loads(tmp_path / "b", row(), row(id="other-route"))["routes"]] == [False, False]
+    assert [r["reference"] for r in loads(tmp_path / "b", row(), row(id="other-route"))["routes"]] == [True, False]
 
 
 # --- guard 2: KEY-SHAPE in the call --------------------------------------------------------------------------------------------------------

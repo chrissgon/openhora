@@ -228,6 +228,149 @@ def credential_missing(model: str | None = None) -> list:
                 os.environ[name] = value
 
 
+# --- the text contract: one system text and one user text to a model on the person's own account (package ACCT-C) ----------------------
+
+TEXT_MARGIN_S = 5            # beyond the row's deadline: the runner enforces the deadline itself and returns within 3 s of it
+PROBE_LIMIT_S = 180          # the preflight's probe: one start of the harness against a loopback stub, no model call
+TEXT_CODE = re.compile(r"run-text: (E_[A-Z_]+)")
+TEXT_CODES = ("E_USAGE", "E_KEY", "E_ROUTE", "E_TIMEOUT", "E_RATE", "E_NETWORK", "E_UPSTREAM", "E_RESPONSE", "E_INTERNAL")
+TEXT_FINISHES = ("stop", "length", "other")
+TEXT_USAGE = ("input", "output", "cache_read", "cache_write")
+TEXT_ENV = ("PATH", "LANG", "HOME", "TMPDIR")   # what the text runner is given of the caller's environment, beside its credential
+_TEXT_LOCK = threading.Lock()   # one preflight at a time, and the one lookup of the credential
+_TEXT_STATE = {"preflight": {}, "credentials": None}
+
+
+def reset_account_text() -> None:
+    """Forget the preflights and the credential this process holds (a test's; a new process starts clean)."""
+    with _TEXT_LOCK:
+        _TEXT_STATE["preflight"].clear()
+        _TEXT_STATE["credentials"] = None
+
+
+def _start(argv, stdin, env, timeout):
+    return subprocess.run(argv, input=stdin, capture_output=True, text=True, env=env, timeout=timeout)
+
+
+def _text_runner(model: str) -> tuple:
+    """(the runner's path, the names of the model's credential) for a model of the gate file whose adapter declares a `text_runner` in its
+    manifest; LabError("config") for any other."""
+    ref = reference(model)
+    folder = os.path.join(LAB.ROOT, "adapters", ref["adapter"])
+    try:
+        with open(os.path.join(folder, "adapter.json"), encoding="utf-8") as f:
+            name = json.load(f).get("text_runner")
+    except (OSError, ValueError, AttributeError):
+        name = None
+    path = os.path.join(folder, name) if isinstance(name, str) and name and os.sep not in name else None
+    if path is None or not os.path.isfile(path):
+        raise LabError("config", f"the adapter {ref['adapter']!r} declares no text runner (text_runner in its adapter.json)")
+    if not ref["pass_env"]:
+        raise LabError("config", f"evals/eval-gate.json names no credential variable for {ref['model']}")
+    return path, list(ref["pass_env"])
+
+
+def _text_environment(values=None) -> dict:
+    env = {name: os.environ[name] for name in TEXT_ENV if os.environ.get(name)}
+    env.update(values or {})
+    return env
+
+
+def _preflight(start, runner: str, row: dict) -> str:
+    """"ok", or the code of the first difference between the row and what the runner reports now (its version, its files, the request the
+    harness sends), measured by the runner's probe with no credential and no model call. Any difference is E_ROUTE: a harness that was
+    updated or a runner that was edited is never measured under the hash of an older route."""
+    params = row["params"]
+    argv = ["bash", runner, "--probe", "--model", row["upstream_model"], "--max-tokens", str(params["max_tokens"]), "--reasoning", params["reasoning"]]
+    try:
+        done = start(argv, "", _text_environment(), PROBE_LIMIT_S)
+        seen = json.loads(done.stdout) if done.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return "E_ROUTE"
+    if not isinstance(seen, dict):
+        return "E_ROUTE"
+    same = all(seen.get(key) == row[key] for key in ("runner_version", "runner_sha256", "envelope_sha256"))
+    return "ok" if same else "E_ROUTE"
+
+
+def _text_credentials(names: list):
+    """{name: value} of the model's credential, found by the lab's own lookup (resolve_pass_env of evals/execution.py: the environment, then
+    the OS secret store), or None. The environment is put back as it was (the pattern of credential_missing): the values live in this
+    process's memory and reach the runner's environment only. Called with _TEXT_LOCK held."""
+    if _TEXT_STATE["credentials"] is not None:
+        return _TEXT_STATE["credentials"]
+    before = {name: os.environ.get(name) for name in names}
+    try:
+        _lab_call(LAB.resolve_pass_env, names)
+        found = {name: os.environ.get(name) for name in names}
+    finally:
+        for name, value in before.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    if not all(found.values()):
+        return None
+    _TEXT_STATE["credentials"] = found
+    return found
+
+
+def account_text(row: dict, system: str, user: str, *, run=None) -> dict:
+    """One call of a model on the maintainer's own account: the system text and the user text through the adapter's text runner
+    (contracts/runtime.md, "The text contract"), on a route row of kind `account` (runtime/interpreter_route.py). Returns {"ok": True,
+    "text", "finish", "usage", "latency_ms"} or {"ok": False, "code": "E_..."} and nothing else: a runner's stderr is never read past its
+    last line, and no text of a request or a reply is written anywhere here.
+
+    The first call of a process runs the runner's probe once, under a lock, with no credential, and compares the runner's version, the
+    sha256 of its files and the sha256 of the request the harness sends with the row's: any difference is E_ROUTE, before the credential
+    is looked up. The credential is the one of the row's `lab_model` in the gate file, found by the lab's own lookup, and reaches the
+    runner's environment alone. The row's `params` and `deadline_ms` are what the call uses.
+    `run(argv, stdin, env, timeout)` is the process start (a test's stand-in); it returns an object with returncode, stdout and stderr."""
+    start = run or _start
+    try:
+        runner, names = _text_runner(row["lab_model"])
+    except LabError:
+        return {"ok": False, "code": "E_ROUTE"}
+    params = row["params"]
+    key = (row["id"], row["runner_version"], row["runner_sha256"], row["envelope_sha256"], row["upstream_model"], params["max_tokens"], params["reasoning"])
+    with _TEXT_LOCK:
+        verdict = _TEXT_STATE["preflight"].get(key)
+        if verdict is None:
+            verdict = _TEXT_STATE["preflight"][key] = _preflight(start, runner, row)
+        if verdict != "ok":
+            return {"ok": False, "code": verdict}
+        try:
+            values = _text_credentials(names)
+        except LabError:
+            values = None
+    if values is None:
+        return {"ok": False, "code": "E_KEY"}
+    request = {"v": 1, "system": system, "user": user, "max_tokens": params["max_tokens"], "reasoning": params["reasoning"],
+               "deadline_ms": row["deadline_ms"]}
+    try:
+        done = start(["bash", runner, "--model", row["upstream_model"]], json.dumps(request), _text_environment(values),
+                     row["deadline_ms"] / 1000.0 + TEXT_MARGIN_S)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "code": "E_TIMEOUT"}
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {"ok": False, "code": "E_INTERNAL"}
+    if done.returncode != 0:
+        lines = (done.stderr or "").strip().splitlines()
+        found = TEXT_CODE.fullmatch(lines[-1].strip()) if lines else None
+        return {"ok": False, "code": found.group(1) if found and found.group(1) in TEXT_CODES else "E_INTERNAL"}
+    try:
+        out = json.loads(done.stdout)
+    except ValueError:
+        return {"ok": False, "code": "E_RESPONSE"}
+    if not isinstance(out, dict) or out.get("v") != 1 or not isinstance(out.get("text"), str) or out.get("finish") not in TEXT_FINISHES \
+            or not isinstance(out.get("usage"), dict):
+        return {"ok": False, "code": "E_RESPONSE"}
+    if out.get("runner_version") != row["runner_version"]:
+        return {"ok": False, "code": "E_ROUTE"}          # the runner or the harness changed between the preflight and this call
+    return {"ok": True, "text": out["text"], "finish": out["finish"], "usage": {k: out["usage"].get(k) for k in TEXT_USAGE},
+            "latency_ms": out.get("latency_ms")}
+
+
 def container_tool(*args) -> tuple:
     """(return code, standard output) of one command of the container client, through the executor's own function (evals/executor.py
     docker, which names the client and bounds the time): what the upkeep sweeps orphan containers with (runtime/orphans.py). (127, "")

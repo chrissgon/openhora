@@ -25,6 +25,7 @@ RUN_TEXT_KEEP_TMP=1 keeps the temporary root so that a test can look for what mu
 """
 from __future__ import annotations
 
+import errno
 import glob
 import hashlib
 import json
@@ -602,17 +603,22 @@ def outside_locations():
 
 def scan_outside(locations, skip, since):
     """(entries created or changed since `since`, whether the scan was whole, how many changed folders the depth limit left unlisted,
-    how many entries could not be looked at). Names and times only; the content of a file is not read here. Links are not followed;
-    the folders in `skip` are not entered. Only an entry that has vanished is passed over: any other error (a folder that lists its
-    names but not their details, a folder that cannot be listed) is counted and leaves the scan incomplete. A changed folder the depth
-    limit stops at, and that no other location listed, leaves it incomplete; so does a spent limit of entries or of time."""
+    how many entries could not be looked at, how many folders the operating system keeps from this process). Names and times only; the
+    content of a file is not read here. Links are not followed; the folders in `skip` are not entered. Only an entry that has vanished
+    is passed over: any other error (a folder that lists its names but not their details, a folder that cannot be listed) is counted
+    and leaves the scan incomplete. One listing error is told apart: EPERM (errno 1), the operating system's privacy protection (on
+    macOS, `$TMPDIR/TemporaryItems` is one, on every run). A folder the system keeps from this process is kept from the CLI this
+    process starts too (the same user, the same privilege), so nothing the CLI writes there can be read here or by anyone else through
+    this user: it is counted in the last number, never named, and does not make the scan incomplete. EACCES (errno 13) and every other
+    error stay unreadable. A changed folder the depth limit stops at, and that no other location listed, leaves it incomplete; so does a
+    spent limit of entries or of time."""
     skip = {os.path.realpath(p) for p in skip}
     wanted = {}
     for top, depth in locations:   # a place named twice (a link to it, or two spellings) is walked once, to the deeper limit
         real = os.path.realpath(top)
         old = wanted.get(real, 0)
         wanted[real] = None if depth is None or old is None else max(old, depth)
-    found, listed, limited, visited, unreadable, complete = {}, set(), set(), 0, 0, True
+    found, listed, limited, visited, unreadable, protected, complete = {}, set(), set(), 0, 0, 0, True
     deadline = time.monotonic() + SCAN_SECONDS_BUDGET
     for top, depth in wanted.items():
         stack = [(top, 0)]
@@ -631,7 +637,7 @@ def scan_outside(locations, skip, since):
                 continue
             visited += 1
             if visited > SCAN_LIMIT or time.monotonic() > deadline:
-                return found, False, len(limited - listed), unreadable
+                return found, False, len(limited - listed), unreadable, protected
             born = getattr(info, "st_birthtime", 0) or 0
             changed = born >= since or info.st_mtime >= since
             if (level > 0 or not stat.S_ISDIR(info.st_mode)) and changed:
@@ -643,13 +649,16 @@ def scan_outside(locations, skip, since):
                         listed.add(real)
                     except FileNotFoundError:
                         pass
-                    except OSError:
-                        unreadable += 1
-                        complete = False
+                    except OSError as exc:
+                        if exc.errno == errno.EPERM:
+                            protected += 1      # kept from this process by the system: kept from the CLI it starts too (see the docstring)
+                        else:
+                            unreadable += 1
+                            complete = False
                 elif changed:
                     limited.add(real)
     unlisted = len(limited - listed)
-    return found, complete and unlisted == 0, unlisted, unreadable
+    return found, complete and unlisted == 0, unlisted, unreadable, protected
 
 
 def file_holds(path, needles, budget_bytes, deadline):
@@ -748,7 +757,7 @@ def probe(model, max_tokens, reasoning, repeat):
     finally:
         server.shutdown()
         server.server_close()
-    found, complete, depth_limited, scan_unreadable = scan_outside(locations, [base], since)
+    found, complete, depth_limited, scan_unreadable, scan_protected = scan_outside(locations, [base], since)
     first = runs[0]
     files, unread = outside_report(found, root_names, texts[2])
     unread += scan_unreadable
@@ -765,7 +774,8 @@ def probe(model, max_tokens, reasoning, repeat):
             "stable": all(r == first for r in runs), "reply_ok": all(replies),
             "credential_ok": all(r["credential_ok"] for r in runs), "files_outside_root": flagged[:200],
             "outside_other_count": len(files) - len(flagged), "outside_unread_count": unread,
-            "outside_depth_limited_count": depth_limited, "outside_scan_complete": complete, "outside_ok": outside_ok,
+            "outside_depth_limited_count": depth_limited, "outside_protected_count": scan_protected,
+            "outside_scan_complete": complete, "outside_ok": outside_ok,
             "overhead_ms": {"p50": percentile(walls, 0.5), "p95": percentile(walls, 0.95)}}
 
 

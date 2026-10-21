@@ -432,3 +432,28 @@ def test_an_http_route_publishes_no_account_figure(tmp_path):
     overall = overall_of(tmp_path, "fx-cheap")
     assert "list_price_equivalent" not in overall and "p95_latency_note" not in overall and overall["median_cost_usd"] == 0.001
     assert not any("account route" in line for line in ist.table(status))
+
+
+# --- the billing words other than `metered` (ACCT-C): a Claude model is valid under `subscription` alone ---------------------------------
+
+@pytest.mark.parametrize("model", METERED_CLAUDE)
+def test_a_claude_model_with_billing_none_is_refused_and_with_subscription_is_valid(model):
+    found = event_problems(model, "none")
+    assert len(found) == 1 and "account" in found[0] and "subscription" in found[0], found
+    assert event_problems(model, "subscription") == []      # vacuity: the one billing word that is accepted
+
+
+def test_a_model_that_is_not_claude_is_valid_under_none_and_the_word_list_is_what_refuses(monkeypatch):
+    assert event_problems("example/cheap-1", "none") == []
+    monkeypatch.setattr(el, "IX_METERED_FORBIDDEN", ())          # the planted fault: the guard's word list emptied
+    assert event_problems("claude-sonnet-5-5", "none") == []
+
+
+def test_the_go_of_an_input_that_is_missing_carries_the_two_language_lists_as_empty(tmp_path):
+    """The early return of status(): a checkout with no thresholds file still returns a go with `route_languages` and `off_languages`."""
+    root = tmp_path / "checkout"
+    (root / "runtime").mkdir(parents=True)
+    (root / "runtime" / "interpreter_routes.json").write_text(json.dumps(ROUTES))
+    out = ist.status(str(root))
+    assert out["missing"] and out["go"]["go"] is False
+    assert out["go"]["route_languages"] == [] and out["go"]["off_languages"] == [] and out["go"]["languages"] == []

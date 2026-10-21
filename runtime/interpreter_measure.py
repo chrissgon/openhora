@@ -237,6 +237,11 @@ def _result_of(record: dict) -> dict:
     return {"ok": False, "code": record.get("code"), "latency_ms": record.get("latency_ms")}
 
 
+def billing_of(route: dict) -> str:
+    """How a route's calls are billed, from its kind: "subscription" for an account route (the maintainer's own account), else "metered"."""
+    return "subscription" if route.get("kind") == "account" else "metered"
+
+
 def _complete(route: dict, accepted: list, params: dict, system: str, user: str) -> dict:
     return interpreter_route.complete(route["id"], system, user, accepted=accepted, deadline_ms=interpreter.PROTOCOL["deadline_ms"], temperature=params["temperature"],
                                       max_tokens=params["max_tokens"], reasoning=params["reasoning"])
@@ -466,7 +471,7 @@ def measure(args) -> int:
         folder = args.evidence_dir or evidence.EVIDENCE_DIR
         os.makedirs(folder, exist_ok=True)
         event = evidence.event_line(arm="bprime", split=split, test=test, date=evidence.utc_date(), route=route, runs=runs, items=len(items),
-                                    sequential=args.sequential, billing="metered", corpus=corpus)
+                                    sequential=args.sequential, billing=billing_of(route), corpus=corpus)
         lines = [event] + [evidence.item_line(test, item, run, outcome, category, route, table)
                            for item, run, outcome, category in sorted(scored, key=lambda t: (t[0]["id"], t[1]))]
         written = os.path.join(folder, f"ix-{test}.jsonl")
@@ -490,7 +495,7 @@ def local_report(args, route: dict, test: str, chosen: list, rows: list, items: 
     folder = args.evidence_dir or evidence.EVIDENCE_DIR
     os.makedirs(folder, exist_ok=True)
     event = evidence.event_line(arm="bprime", split="local", test=test, date=evidence.utc_date(), route=route, runs=1, items=len(items), sequential=False,
-                                billing="metered", corpus=evidence.corpus_sha256("local", args.corpus, SPLIT_FILE))
+                                billing=billing_of(route), corpus=evidence.corpus_sha256("local", args.corpus, SPLIT_FILE))
     lines = [event] + [evidence.aggregate_line(test, lang, [r["category"] for r in group], sum(1 for r in group if r["parse"] == "invalid"))
                        for lang, group in sorted(by_lang.items())]
     try:

@@ -621,7 +621,8 @@ def status(root=ROOT):
     if inputs["missing"]:
         cause = inputs["reason"] or f"{inputs['missing']} is missing or not valid"
         out["rows"] = [_needs(r, l, cause) for r in inputs["routes"] for l in langs or ["-"]]
-        out["go"] = {"go": False, "cause": cause, "route": None, "model": None, "languages": [], "versus_current": None}
+        out["go"] = {"go": False, "cause": cause, "route": None, "model": None, "languages": [], "route_languages": [], "off_languages": [],
+                     "versus_current": None}
         return out
     events = read_events(root)
     statuses = [(r, route_status(r, inputs, events, inputs.get("prices"))) for r in inputs["routes"]]

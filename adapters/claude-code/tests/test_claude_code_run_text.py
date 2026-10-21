@@ -9,6 +9,7 @@ Run: uv run --with pytest pytest adapters/claude-code/tests/test_claude_code_run
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import importlib.util
 import json
@@ -518,7 +519,7 @@ PROBE = ["--probe", "--model", "model-a", "--max-tokens", "2000", "--reasoning",
 PROBE_KEYS = {"runner_version", "runner_sha256", "envelope_sha256", "system_verbatim", "user_verbatim", "messages_requests", "paths",
               "extras", "sent", "stable", "overhead_ms", "replaced", "reply_ok", "credential_ok", "files_outside_root",
               "outside_scan_complete", "outside_ok", "outside_other_count", "outside_unread_count",
-              "outside_depth_limited_count"}
+              "outside_depth_limited_count", "outside_protected_count"}
 
 
 def probe(e, *extra, **conf):
@@ -929,12 +930,12 @@ def test_the_outside_scan_says_when_it_was_not_whole(e, monkeypatch):
     for i in range(10):
         (folder / ("f%d" % i)).write_text("x")
     monkeypatch.setattr(run_text, "SCAN_LIMIT", 4)
-    found, complete, limited, unreadable = run_text.scan_outside([(str(folder), 3)], [], 0)
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(folder), 3)], [], 0)
     assert complete is False and len(found) <= 4
     monkeypatch.setattr(run_text, "SCAN_LIMIT", 1000)
-    found, complete, limited, unreadable = run_text.scan_outside([(str(folder), 3)], [], 0)
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(folder), 3)], [], 0)
     assert complete is True and len(found) == 10 and limited == 0
-    assert run_text.scan_outside([(str(folder), 3)], [str(folder)], 0) == ({}, True, 0, 0)   # a skipped folder is not entered
+    assert run_text.scan_outside([(str(folder), 3)], [str(folder)], 0) == ({}, True, 0, 0, 0)   # a skipped folder is not entered
 
 
 def test_the_outside_rule_fails_a_planted_file_with_a_probe_text_and_one_under_the_probes_own_folder_and_passes_an_unrelated_one(e):
@@ -1054,13 +1055,13 @@ def test_a_changed_folder_the_depth_limit_stops_at_makes_the_scan_incomplete_unl
     root = e["tmp"] / "outside"
     (root / "a" / "b").mkdir(parents=True)
     (root / "a" / "b" / "c.txt").write_text("x")
-    found, complete, limited, unreadable = run_text.scan_outside([(str(root), 1)], [], 0)       # a is at the limit and holds more
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(root), 1)], [], 0)       # a is at the limit and holds more
     assert (complete, limited) == (False, 1)
-    found, complete, limited, unreadable = run_text.scan_outside([(str(root), 3)], [], 0)       # deep enough
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(root), 3)], [], 0)       # deep enough
     assert (complete, limited) == (True, 0)
-    found, complete, limited, unreadable = run_text.scan_outside([(str(root), 1), (str(root / "a"), 3)], [], 0)   # listed by another location
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(root), 1), (str(root / "a"), 3)], [], 0)   # listed by another location
     assert (complete, limited) == (True, 0)
-    found, complete, limited, unreadable = run_text.scan_outside([(str(root), 1)], [], time.time() + 3600)         # nothing changed: nothing to fear
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(root), 1)], [], time.time() + 3600)         # nothing changed: nothing to fear
     assert (complete, limited) == (True, 0)
 
 
@@ -1096,12 +1097,12 @@ def test_a_folder_that_lists_its_names_but_not_their_details_is_unread_and_the_s
     (folder / "late.log").write_text("x probe-user-" + NONCE_T)
     folder.chmod(0o400)                                  # names can be listed; nothing inside can be looked at
     try:
-        found, complete, limited, unreadable = run_text.scan_outside([(str(e["tmp"] / "outside"), 4)], [], 0)
+        found, complete, limited, unreadable, protected = run_text.scan_outside([(str(e["tmp"] / "outside"), 4)], [], 0)
         assert complete is False and unreadable >= 1 and not any(Path(path).name == "late.log" for path, _ in found.values())
     finally:
         folder.chmod(0o700)
     # vacuity: the same tree with 0700 is complete, and the file is found and flagged
-    found, complete, limited, unreadable = run_text.scan_outside([(str(e["tmp"] / "outside"), 4)], [], 0)
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(e["tmp"] / "outside"), 4)], [], 0)
     assert (complete, unreadable) == (True, 0)
     report, unread = run_text.outside_report(found, [], NONCE_T)
     assert unread == 0 and [(Path(r["path"]).name, r["probe_text"]) for r in report if Path(r["path"]).name == "late.log"] == [("late.log", True)]
@@ -1131,9 +1132,9 @@ def test_the_cli_places_are_walked_without_a_depth_limit_and_the_general_ones_ar
         for folder in [e["tmp"] / place / n for n in ("a", "a/b", "a/b/c", "a/b/c/d", "a/b/c/d/e")] + [e["tmp"] / place]:
             os.utime(folder, (old, old))                 # the folders existed before the probe; only the leaf folder and file are new
     since = time.time() - 600
-    found, complete, limited, unreadable = run_text.scan_outside([(str(e["tmp"] / "cli"), None)], [], since)
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(e["tmp"] / "cli"), None)], [], since)
     assert complete is True and [Path(p).name for p, _ in found.values() if Path(p).name == "new.txt"] == ["new.txt"]
-    found, complete, limited, unreadable = run_text.scan_outside([(str(e["tmp"] / "plain"), 2)], [], since)
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(e["tmp"] / "plain"), 2)], [], since)
     assert not any(Path(p).name == "new.txt" for p, _ in found.values())
     assert complete is True and limited == 0             # the documented limit: seen by nobody, said by nobody
 
@@ -1166,3 +1167,72 @@ def test_a_spent_limit_of_entries_or_of_time_leaves_the_walk_incomplete(e, monke
     assert run_text.scan_outside([(str(folder), None)], [], 0)[1] is False
     monkeypatch.setattr(run_text, "SCAN_LIMIT", 1000)
     assert run_text.scan_outside([(str(folder), None)], [], 0)[1] is True
+
+
+# ------------------------------------------------ a folder the operating system keeps from this process (EPERM) is not unreadable
+
+def raising_scandir(monkeypatch, run_text, folder, code):
+    """os.scandir fails on `folder` alone, with the OSError of errno `code`; every other folder lists as it does."""
+    real = os.scandir
+
+    def scandir(path="."):
+        if os.path.realpath(path) == os.path.realpath(str(folder)):
+            raise PermissionError(code, os.strerror(code))
+        return real(path)
+    monkeypatch.setattr(run_text.os, "scandir", scandir)
+
+
+def test_a_folder_the_system_protects_with_eperm_is_counted_not_unreadable_and_the_scan_stays_complete(e, monkeypatch):
+    run_text = load_runner()
+    protected_folder = e["tmp"] / "outside" / "TemporaryItems"
+    protected_folder.mkdir()
+    (e["tmp"] / "outside" / "other").mkdir()
+    raising_scandir(monkeypatch, run_text, protected_folder, errno.EPERM)
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(e["tmp"] / "outside"), 4)], [], 0)
+    assert (complete, unreadable, protected, limited) == (True, 0, 1, 0)
+    # vacuity: the very same failure with EACCES (errno 13) is unreadable, and the scan is incomplete
+    raising_scandir(monkeypatch, run_text, protected_folder, errno.EACCES)
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(e["tmp"] / "outside"), 4)], [], 0)
+    assert (complete, unreadable, protected) == (False, 1, 0)
+    # and any other error number stays unreadable too
+    raising_scandir(monkeypatch, run_text, protected_folder, errno.EIO)
+    found, complete, limited, unreadable, protected = run_text.scan_outside([(str(e["tmp"] / "outside"), 4)], [], 0)
+    assert (complete, unreadable, protected) == (False, 1, 0)
+
+
+DRIVER = """import errno, importlib.util, os, sys
+spec = importlib.util.spec_from_file_location('rt', sys.argv[1])
+rt = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rt)
+real = os.scandir
+def scandir(path='.'):
+    if isinstance(path, (str, bytes, os.PathLike)) and os.path.basename(os.fsdecode(path)) == 'TemporaryItems-3c9a':
+        raise PermissionError(int(os.environ['DRIVER_ERRNO']), 'refused')
+    return real(path)
+rt.os.scandir = scandir
+sys.exit(rt.main(sys.argv[2:]))
+"""
+
+
+def test_the_probe_reports_outside_protected_count_and_never_names_the_folder(e):
+    driver = e["tmp"] / "driver.py"
+    driver.write_text(DRIVER)
+    (e["tmp"] / "outside" / "TemporaryItems-3c9a").mkdir()
+    mode(e, "http", show=["CLAUDE_CODE_OAUTH_TOKEN"])
+    env = {k: v for k, v in e["env"].items() if k not in ("ANTHROPIC_BASE_URL", "HTTPS_PROXY")}
+
+    def run_driver(code):
+        return subprocess.run([sys.executable, str(driver), str(ADAPTER / "run_text.py"), *PROBE], capture_output=True, text=True,
+                              env={**env, "DRIVER_ERRNO": str(code)}, timeout=120)
+    res = run_driver(errno.EPERM)
+    assert res.returncode == 0 and res.stderr == "", res.stderr
+    out = json.loads(res.stdout)
+    assert out["outside_protected_count"] == 1 and out["outside_unread_count"] == 0
+    assert out["outside_scan_complete"] is True and out["outside_ok"] is True
+    assert "TemporaryItems-3c9a" not in res.stdout and "TemporaryItems-3c9a" not in res.stderr
+    # vacuity: the same driver with errno 13 says unread 1, incomplete and not ok, and still names nothing
+    res = run_driver(errno.EACCES)
+    out = json.loads(res.stdout)
+    assert out["outside_protected_count"] == 0 and out["outside_unread_count"] == 1
+    assert out["outside_scan_complete"] is False and out["outside_ok"] is False
+    assert "TemporaryItems-3c9a" not in res.stdout

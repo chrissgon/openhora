@@ -972,8 +972,8 @@ def interpreter_event_problems(line):
         out.append("a current event has no model, route, route_sha256 or prompt_sha256 (null)")
     if line["split"] == "local" and line["arm"] != "bprime":
         out.append("a local event is the bprime arm")
-    if line["billing"] == "metered" and line["model"] is not None and any(w in line["model"].lower() for w in IX_METERED_FORBIDDEN):
-        out.append("a Claude model is measured on the account (billing subscription), never over a metered key")
+    if line["billing"] != "subscription" and line["model"] is not None and any(w in line["model"].lower() for w in IX_METERED_FORBIDDEN):
+        out.append("a Claude model is measured on the account (billing subscription), never over a metered key and never with billing \"none\"")
     return out
 
 
