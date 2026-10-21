@@ -549,6 +549,12 @@ def _cover(seen: str, piece: str, found: dict):
     return False
 
 
+def _hour_without_day_is_asked(hits: list) -> bool:
+    """Whether an hour-only reading of a line with words no table holds is asked about: true unless a time phrase code read holds a trigger word of a table before the hour ("at 3pm", "às 15h"),
+    which says the line is in that table's language, where a day word would have been read or caught as an unread date word."""
+    return not any(h.get("s0", h["s"]) > h["s"] for h in hits)
+
+
 def _classify(span: str, line: str, now_local):
     """(source, reading): who may decide the time of a span, and the reading code has of it (the model's `time_iso` is checked against it, never the other way). The decision
     is made from the WHOLE LINE and never from the span the model chose, since the model picks the span: "code" only when the span holds every time phrase of the line and
@@ -568,8 +574,11 @@ def _classify(span: str, line: str, now_local):
     if (parsed.get("vague") or whole.get("vague") or nt.doubt(piece) or reading.get("assumed_year") or whole["reading"]["when"] != reading["when"]
             or not TIME_RE.fullmatch(f"{reading.get('date')}T{reading.get('time')}")):
         return "ask", None
-    if not reading.get("dated") and nt.leftover_doubt(found, None, tables, unknown=True) and not _known_outside(found):
-        return "model", reading          # code read an hour only, the line holds words no table has and none that a table does (a language without tables): the model's date, the code's hour
+    if not reading.get("dated") and nt.leftover_doubt(found, None, tables, unknown=True):
+        if not _known_outside(found):
+            return "model", reading          # code read an hour only, the line holds words no table has and none that a table does (a language without tables): the model's date, the code's hour
+        if _hour_without_day_is_asked(hits):
+            return "ask", None          # an hour with no day, no trigger word of a table beside it and words no table has ("el jueves a las 15:00 en el calendario"): code never takes the clock's own day for a day the line may name
     return "code", reading
 
 
