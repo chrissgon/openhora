@@ -143,6 +143,8 @@ ON_SYSTEM_PYTHON = [
     "providers/model/chat-http.py", "runtime/interpreter_route.py",
     # The interpreter's protocol and validator (IX-2a): pure; the runtime imports it with the system interpreter.
     "runtime/interpreter.py",
+    # The interpreter's measurement (IX-2c): the harness the maintainer starts, and the three modules it is built from (pipeline, scorer, evidence lines).
+    "runtime/interpreter_measure.py", "runtime/interpreter_pipeline.py", "runtime/interpreter_score.py", "runtime/interpreter_evidence.py",
 ]
 RUNTIME = ("scripts/runtime.py", "scripts/runtime_vote.py", "scripts/vote_job.py",
            "runtime/handlers/social.py", "runtime/handlers/social_vote_job.py")  # the scheduler starts these
