@@ -164,10 +164,12 @@ def write_corpus(path, items):
 TIME_ASK = "the code half-reads or doubts the time phrase, so it asks instead of taking the echo's time_iso (clarify time-ask)"
 CODE_WINS = "the code reads the time itself and its reading wins over the echo's time_iso (time_disagree), and it is not the gold's"
 CONFIRM_RULE = "the confirm rule: the echo says yes or no, and code does not read the line as that yes or no, so it asks again (clarify)"
+FORWARD_OFF_MESSAGING = "the gold is `forwarded` but the channel is not messaging: a forward is read on the messaging channel only (as the current arm reads it), so the item reaches the model, and the echo's `forwarded` object is not a protocol kind (invalid, so clarify)"
 ALLOWED = {
     "dev-en-00013": TIME_ASK, "dev-en-00036": TIME_ASK, "dev-es-00036": TIME_ASK, "dev-es-00043": TIME_ASK, "dev-fr-00018": TIME_ASK, "dev-it-00020": TIME_ASK,
     "dev-pt-br-00007": TIME_ASK,
     "dev-es-00005": CODE_WINS, "dev-es-00012": CODE_WINS, "dev-es-00033": CODE_WINS,
+    "dev-en-00040": FORWARD_OFF_MESSAGING,
     "dev-es-00025": CONFIRM_RULE, "dev-fr-00019": CONFIRM_RULE, "dev-pt-br-00058": CONFIRM_RULE,
 }
 FULL = bool(os.environ.get("WB_FULL_FUZZ"))
@@ -202,6 +204,18 @@ def test_a_mapping_that_shows_every_effect_as_a_confirm_makes_items_the_list_doe
 def test_every_listed_id_is_an_item_of_the_dev_file_with_a_reason():
     ids = {i["id"] for i in load(DEV)}
     assert set(ALLOWED) <= ids and all(len(reason) > 20 for reason in ALLOWED.values())
+
+
+def test_a_forward_is_off_the_mark_exactly_when_the_channel_is_not_messaging():
+    """An oracle over the raw items (the test's own literals): of the dev items whose gold is `forwarded`, those on the messaging channel are read as forwards and are correct,
+    the others reach the model and the echo cannot answer them (the one listed id of that kind). It runs on the whole file, 9 items, whatever WB_FULL_FUZZ says."""
+    forwards = [i for i in load(DEV) if i["gold"]["outcome"] == "forwarded"]
+    on_messaging = [i for i in forwards if i["channel"] == "messaging"]
+    elsewhere = [i for i in forwards if i["channel"] != "messaging"]
+    assert on_messaging and elsewhere and {i["id"] for i in elsewhere} == {k for k, why in ALLOWED.items() if why == FORWARD_OFF_MESSAGING}
+    assert set(off_the_mark(on_messaging)) == set() and set(off_the_mark(elsewhere)) == {i["id"] for i in elsewhere}
+    planted = dict(on_messaging[0], channel="page")          # vacuity: the same forward on another channel is off the mark
+    assert set(off_the_mark([planted])) == {planted["id"]}
 
 
 @pytest.mark.skipif(not FULL, reason="the whole dev file runs with WB_FULL_FUZZ=1")
