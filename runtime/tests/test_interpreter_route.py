@@ -22,7 +22,8 @@ FAKE = "sk-or-v1-not-a-real-key"
 BODY_MARKER = "zz-planted-body-marker-91"
 PROMPT = "zz-planted-prompt-marker-47"
 ROUTES = json.loads((REPO / "runtime" / "interpreter_routes.json").read_text(encoding="utf-8"))
-EXPECTED = {   # the specification's table, written out again here (ACCT-B: the two Claude rows are gone; the account route comes with ACCT-C)
+ACCOUNT_IDS = {"acct-claude-sonnet-5.5", "acct-claude-haiku-4.5"}      # the two rows of kind account (ACCT-C); their own tests are in test_interpreter_account_route.py
+EXPECTED = {   # the specification's table of the http rows, written out again here (ACCT-B: the two Claude rows of OpenRouter are gone)
     "or-deepseek-v4.1-flash": ("openrouter/deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4.1-flash", "deepinfra", False, False),
 }
 ROUTE_ID = "or-deepseek-v4.1-flash"
@@ -63,20 +64,21 @@ def workbench(tmp_path, doc):
 
 def test_the_shipped_routes_are_the_one_of_the_specification():
     doc = ir.load()
-    assert doc["v"] == 1 and {r["id"] for r in doc["routes"]} == set(EXPECTED)
-    for r in doc["routes"]:
+    assert doc["v"] == 1 and {r["id"] for r in doc["routes"]} == set(EXPECTED) | ACCOUNT_IDS
+    for r in [r for r in doc["routes"] if r["kind"] == "http"]:
         model, upstream, pin, breakpoint_on, reference = EXPECTED[r["id"]]
         assert (r["model"], r["upstream_model"], r["pin"], r["cache_breakpoint"], r["reference"]) == (model, upstream, pin, breakpoint_on, reference)
         assert r["base_url"] == "https://openrouter.ai/api/v1" and r["allow_fallbacks"] is False and r["data_collection"] == "deny"
         assert r["key"] == KEY_NAME and isinstance(r["zdr"], bool) and r["retention"].strip()
         assert r["kind"] == "http" and r["key_prefix"] == "sk-or-v1-"
-    assert [r["id"] for r in doc["routes"] if r["reference"]] == [], "no reference until the account route (ACCT-C)"
+    assert [r["id"] for r in doc["routes"] if r["reference"]] == ["acct-claude-sonnet-5.5"], "exactly one reference: the account route of the reference model"
+    assert {r["id"] for r in doc["routes"] if r["kind"] == "account"} == ACCOUNT_IDS
 
 
 def test_every_route_model_is_priced_and_the_key_is_registered_and_this_module_reads_it():
     prices = json.loads((REPO / "runtime" / "prices.json").read_text(encoding="utf-8"))["models"]
     secrets = {s["name"]: s for s in json.loads((REPO / "runtime" / "secrets.json").read_text(encoding="utf-8"))["secrets"]}
-    for r in ROUTES["routes"]:
+    for r in [r for r in ROUTES["routes"] if r["kind"] == "http"]:
         assert r["model"] in prices and r["key"] in secrets
     assert "runtime/interpreter_route.py" in secrets[KEY_NAME]["readers"] and "runtime/ops_core.py" in secrets[KEY_NAME]["readers"]
 
@@ -85,7 +87,7 @@ def test_an_id_a_zdr_claim_and_a_retention_sentence_are_consistent():
     """A route claims zero retention only with a retention sentence that says so (the sentence is what the widening card quotes)."""
     for r in ROUTES["routes"]:
         assert re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,63}", r["id"])
-        assert r["zdr"] is False or "zero" in r["retention"].lower()
+        assert r["retention"].strip() and (r.get("zdr") is False or "zero" in r["retention"].lower())
 
 
 def mutations():
@@ -146,10 +148,11 @@ def test_a_routes_file_naming_another_secret_sends_nothing(tmp_path, monkeypatch
 
 def test_vacuity_the_unchanged_file_loads_and_a_missing_or_broken_file_is_refused(tmp_path):
     assert ir.load(workbench(tmp_path, ROUTES))["routes"] == ROUTES["routes"]
-    assert ir.load(workbench(tmp_path / "ref", two_rows()))["routes"][1]["id"] == "other-route", "a second row that breaks no rule loads"
+    assert ir.load(workbench(tmp_path / "ref", two_rows()))["routes"][-1]["id"] == "other-route", "a further row that breaks no rule loads"
     one = two_rows()
-    one["routes"][1]["reference"] = True
-    assert [r["reference"] for r in ir.load(workbench(tmp_path / "one", one))["routes"]] == [False, True], "at most one reference: exactly one loads"
+    one["routes"][1]["reference"] = False
+    one["routes"][0]["reference"] = True
+    assert [r["reference"] for r in ir.load(workbench(tmp_path / "one", one))["routes"]] == [True, False, False, False], "exactly one reference loads"
     root = Path(workbench(tmp_path / "b", ROUTES))
     (root / "runtime" / "interpreter_routes.json").write_text("{not json", encoding="utf-8")
     with pytest.raises(ir.RouteError):

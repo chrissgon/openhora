@@ -107,8 +107,8 @@ def event_line(*, arm: str, split: str, test: str, date: str, route, runs: int, 
 
 def cost_usd(usage, route, table):
     """Dollars for one call at the route's model price (runtime/prices.json), or None: a run that is not metered, a call that reported no token count, or a kind of token that
-    has no price (an unpriced cache read is unknown, never zero)."""
-    if route is None or not isinstance(usage, dict) or (usage.get("input") is None and usage.get("output") is None):
+    has no price (an unpriced cache read is unknown, never zero). A call on an account route is paid by the subscription, not per call: always None."""
+    if route is None or route.get("kind") == "account" or not isinstance(usage, dict) or (usage.get("input") is None and usage.get("output") is None):
         return None
     return prices.expected_cost(usage, prices.price_of(table, [route["model"]]))
 
