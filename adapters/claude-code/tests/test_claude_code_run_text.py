@@ -140,6 +140,15 @@ elif mode == "http":
                      (os.getcwd(), random.randint(1, 12), random.randint(1, 28), random.randint(1, 28))})
     if conf.get("outside_path"):
         open(conf["outside_path"], "w").write(stdin)
+    if conf.get("outside_escaped"):
+        open(conf["outside_escaped"], "w").write(json.dumps({"text": stdin}))
+    if conf.get("outside_unrelated"):
+        open(conf["outside_unrelated"], "w").write("another session's log")
+    if conf.get("slug_under"):
+        import re
+        slug_dir = os.path.join(conf["slug_under"], re.sub(r"[^A-Za-z0-9]", "-", os.getcwd()))
+        os.makedirs(slug_dir)
+        open(slug_dir + "/session.jsonl", "w").write("{}")
     if conf.get("extra_user"):
         user.append({"type": "text", "text": "r" * conf["extra_user"]})
     if conf.get("merge_user"):
@@ -488,7 +497,7 @@ def test_what_the_cli_leaves_running_ends_when_it_returns(e):
 PROBE = ["--probe", "--model", "model-a", "--max-tokens", "2000", "--reasoning", "low"]
 PROBE_KEYS = {"runner_version", "runner_sha256", "envelope_sha256", "system_verbatim", "user_verbatim", "messages_requests", "paths",
               "extras", "sent", "stable", "overhead_ms", "replaced", "reply_ok", "credential_ok", "files_outside_root",
-              "outside_scan_complete"}
+              "outside_scan_complete", "outside_ok"}
 
 
 def probe(e, *extra, **conf):
@@ -505,7 +514,7 @@ def test_the_probe_runs_against_the_loopback_stub_with_a_placeholder_and_reports
     assert out["system_verbatim"] is True and out["user_verbatim"] is True and out["messages_requests"] == 1
     assert out["paths"] == {"/v1/messages": 1} and out["extras"] == [] and out["stable"] is True
     assert out["reply_ok"] is True and out["credential_ok"] is True and out["replaced"] == {"root": 0, "date": 0}
-    assert out["files_outside_root"] == [] and out["outside_scan_complete"] is True
+    assert out["files_outside_root"] == [] and out["outside_scan_complete"] is True and out["outside_ok"] is True
     assert out["sent"] == {"max_tokens": 2000, "temperature": None, "thinking": {"type": "enabled", "budget_tokens": 1024}, "effort": "low"}
     assert set(out["overhead_ms"]) == {"p50", "p95"} and 0 <= out["overhead_ms"]["p50"] <= out["overhead_ms"]["p95"]
     assert out["runner_version"] == "run-text/1 cli/2.1.283"
@@ -899,3 +908,25 @@ def test_the_outside_scan_says_when_it_was_not_whole(e, monkeypatch):
     found, complete = run_text.scan_outside([(str(folder), 3)], [], 0)
     assert complete is True and len(found) == 10
     assert run_text.scan_outside([(str(folder), 3)], [str(folder)], 0) == ({}, True)   # a skipped folder is not entered
+
+
+def test_the_outside_rule_fails_a_planted_file_with_a_probe_text_and_one_under_the_probes_own_folder_and_passes_an_unrelated_one(e):
+    outside = e["tmp"] / "outside"
+    # a new, unrelated file (another session's log) is listed and does not fail the rule
+    res, out = probe(e, outside_unrelated=str(outside / "other-session.jsonl"))
+    assert [(Path(f["path"]).name, f["probe_text"], f["own_folder"]) for f in out["files_outside_root"]] == [("other-session.jsonl", False, False)]
+    assert out["outside_scan_complete"] is True and out["outside_ok"] is True
+    (outside / "other-session.jsonl").unlink()
+    # a file that holds the line fails it
+    res, out = probe(e, outside_path=str(outside / "leak.txt"))
+    assert out["outside_ok"] is False and out["files_outside_root"][0]["probe_text"] is True
+    (outside / "leak.txt").unlink()
+    # so does one that holds it as a JSON string (a log's escaping): the marker inside the text is found
+    res, out = probe(e, outside_escaped=str(outside / "log.jsonl"))
+    assert out["outside_ok"] is False and out["files_outside_root"][0]["probe_text"] is True
+    (outside / "log.jsonl").unlink()
+    # a folder the harness derives from the working folder's path fails it, with no probe text in it
+    res, out = probe(e, slug_under=str(outside))
+    flagged = [f for f in out["files_outside_root"] if f["own_folder"]]
+    assert out["outside_ok"] is False and len(flagged) == 2 and all(f["probe_text"] is False for f in flagged)
+    assert out["files_outside_root"][0]["own_folder"] is True      # the flagged are printed first

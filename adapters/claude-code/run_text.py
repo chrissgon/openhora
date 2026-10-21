@@ -67,6 +67,9 @@ FIXED_ENV = {"DISABLE_AUTOUPDATER": "1", "DISABLE_TELEMETRY": "1", "DISABLE_ERRO
 PROBE_SYSTEM = "probe system text alpha 7f3a\nsecond line: a\u00e7\u00e3o \u2014 \u00fcn\u00ef\u00e7ode\n  indented third line  \n"
 PROBE_USER = ("\n  \r\n/x first line  \r\n!bang\n#hash\n@bia ana.lima@mail.example said \"hi\"\n"
               "cafe\u0301 a\u00e7\u00e3o \u65e5\u672c\u8a9e probe-user-7c1e\n\n  last line, trailing spaces   \n\n")
+# What a file that holds a probe text holds whatever its escaping (a log writes a text as a JSON string): a marker inside each text,
+# found as bytes, and the whole text in each of the usual spellings.
+PROBE_MARKERS = tuple(m.encode("utf-8") for m in ("probe-user-7c1e", "probe system text alpha 7f3a"))
 BASE_PREFIX = "/tmp/run-text-"   # + the user id: the fixed folder of the roots, never the caller's TMPDIR
 STALE_AFTER_S = MAX_DEADLINE_MS / 1000.0 + 60
 SCAN_LIMIT = 100000
@@ -600,19 +603,30 @@ def scan_outside(locations, skip, since):
     return found, complete
 
 
-def outside_report(found):
+def own_names(root_names):
+    """The names by which the harness may know a run's root in a path or in the name of a folder it derives from the working folder
+    (its path with every character but letters and digits turned into a dash): the root's random name, spelled both ways."""
+    names = set()
+    for name in root_names:
+        names |= {name, re.sub(r"[^A-Za-z0-9]", "-", name)}
+    return names
+
+
+def outside_report(found, root_names=()):
+    names = own_names(root_names)
     report = []
-    for key in sorted(found)[:200]:
+    for key in sorted(found):
         path, info = found[key]
         texts = False
         if stat.S_ISREG(info.st_mode) and info.st_size <= 1048576:
             try:
                 data = Path(path).read_bytes()
-                texts = PROBE_USER.encode("utf-8") in data or PROBE_SYSTEM.encode("utf-8") in data
+                texts = any(marker in data for marker in PROBE_MARKERS)
             except OSError:
                 pass
-        report.append({"path": path, "mtime": round(info.st_mtime, 3), "probe_text": texts})
-    return report
+        report.append({"path": path, "mtime": round(info.st_mtime, 3), "probe_text": texts,
+                       "own_folder": any(name in path for name in names)})
+    return report   # all of them; the caller decides on all and prints the flagged ones first
 
 
 def one_run(model, max_tokens, reasoning, server, version):
@@ -639,7 +653,7 @@ def one_run(model, max_tokens, reasoning, server, version):
             if exc.code != "E_RESPONSE":
                 raise
             reply_ok = False
-        return examine(server.requests(), root), wall_ms, reply_ok, version
+        return examine(server.requests(), root), wall_ms, reply_ok, version, os.path.basename(root)
     finally:
         remove_root(root)
 
@@ -651,10 +665,11 @@ def probe(model, max_tokens, reasoning, repeat):
     sweep_stale(base)
     locations, since = outside_locations(), time.time() - 0.05
     server = stub.start()
-    runs, walls, replies, version = [], [], [], None
+    runs, walls, replies, version, root_names = [], [], [], None, []
     try:
         for _ in range(repeat):
-            run_report, wall_ms, reply_ok, version = one_run(model, max_tokens, reasoning, server, version)
+            run_report, wall_ms, reply_ok, version, root_name = one_run(model, max_tokens, reasoning, server, version)
+            root_names.append(root_name)
             runs.append(run_report)
             walls.append(wall_ms)
             replies.append(reply_ok)
@@ -663,13 +678,19 @@ def probe(model, max_tokens, reasoning, repeat):
         server.server_close()
     found, complete = scan_outside(locations, [base], since)
     first = runs[0]
+    files = outside_report(found, root_names)
+    flagged = [f for f in files if f["probe_text"] or f["own_folder"]]
+    # Others write under the same folders (other sessions of the harness): the list is published whole, and the rule that decides
+    # is narrower. A scan that stopped early, a file that holds a probe text and anything under the probe's own folder fail it.
+    outside_ok = complete and not flagged
+    files = (flagged + [f for f in files if f not in flagged])[:200]
     return {"runner_version": runner_version(version), "runner_sha256": runner_sha256(),
             "envelope_sha256": first["envelope_sha256"], "system_verbatim": all(r["system_verbatim"] for r in runs),
             "user_verbatim": all(r["user_verbatim"] for r in runs), "messages_requests": first["messages_requests"],
             "paths": first["paths"], "extras": first["extras"], "replaced": first["replaced"], "sent": first["sent"],
             "stable": all(r == first for r in runs), "reply_ok": all(replies),
-            "credential_ok": all(r["credential_ok"] for r in runs), "files_outside_root": outside_report(found),
-            "outside_scan_complete": complete,
+            "credential_ok": all(r["credential_ok"] for r in runs), "files_outside_root": files,
+            "outside_scan_complete": complete, "outside_ok": outside_ok,
             "overhead_ms": {"p50": percentile(walls, 0.5), "p95": percentile(walls, 0.95)}}
 
 
