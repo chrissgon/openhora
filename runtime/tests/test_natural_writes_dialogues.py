@@ -8,7 +8,9 @@ slot. Offline, no model, no network, no writer.
 
 The default run walks a deterministic SAMPLE of the corpus (principle 13: the whole walk of nine cases took about eight minutes, and a CI job is limited to 25): every request for
 work, the first lines of each operation in each language, and every SAMPLE_EVERY-th line of the rest, the starting line rotating with the case so that the nine cases together
-cover the corpus. `WB_FULL_FUZZ=1` walks every line in every case (runtime/README.md, docs/decisions.md).
+cover the corpus. `WB_FULL_FUZZ=1` walks every line in every case (runtime/README.md, docs/decisions.md), each case in FULL_SHARDS tests of their own (one line in four, by its
+index) so that no test runs for minutes: one case took 47 to 87 s alone and up to 190 s on a loaded runner, past the 120 s a CI worker waits before it dumps its stacks, and a
+worker died in one of them in the whole-suite run of 2026-10-21 (the cause of the death was not found; the long test is the only thing that held, and the shards remove it).
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_writes_dialogues.py
      WB_FULL_FUZZ=1 uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_writes_dialogues.py
@@ -65,12 +67,20 @@ FILE_ROWS = [{"id": "lista-de-compras", "type": "drive", "origin": "x1", "descri
 
 SAMPLE_EVERY = 7          # the default run walks one line in seven of the corpus (every line with WB_FULL_FUZZ=1)
 NAMED_PER_GROUP = 2       # ... and the first lines of each operation in each language, which name the forms
+FULL = os.environ.get("WB_FULL_FUZZ") == "1"
+FULL_SHARDS = 4           # with WB_FULL_FUZZ=1 each case is this many tests; shard k walks the lines whose index is k modulo FULL_SHARDS
+SHARDS = FULL_SHARDS if FULL else 1
+
+
+def shard_of(indexes: list, shard: int, shards: int) -> list:
+    """The part of a case's walk that one shard takes: the indexes equal to `shard` modulo `shards`. The shards of a case are disjoint and together make the walk."""
+    return [index for index in indexes if index % shards == shard]
 
 
 def sampled(rows: list, case: int) -> list:
     """The indexes of the corpus rows one case walks: all of them with WB_FULL_FUZZ=1; else every request for work, the first NAMED_PER_GROUP lines of each (language, operation),
     and every SAMPLE_EVERY-th line starting at `case` modulo SAMPLE_EVERY (so nine cases together cover the whole corpus). Deterministic: no random choice."""
-    if os.environ.get("WB_FULL_FUZZ") == "1":
+    if FULL:
         return list(range(len(rows)))
     seen, chosen = {}, set()
     for index, row in enumerate(rows):
@@ -170,13 +180,25 @@ def moment(monkeypatch):
     return Clock(monkeypatch, wall="2026-10-19 09:00")
 
 
+@pytest.fixture
+def shard():
+    """The shard of the walk: the whole of it (shard 0 of 1) unless WB_FULL_FUZZ=1 parametrizes it below."""
+    return 0
+
+
+def sharded(test):
+    """With WB_FULL_FUZZ=1 the test runs once per shard; otherwise once, with the fixture's shard 0 of 1."""
+    return pytest.mark.parametrize("shard", range(FULL_SHARDS))(test) if FULL else test
+
+
+@sharded
 @pytest.mark.parametrize("config", sorted(CONFIGS))
 @pytest.mark.parametrize("state", sorted(STATES))
-def test_no_write_is_opened_with_a_guessed_slot(world, moment, monkeypatch, config, state):  # noqa: F811
+def test_no_write_is_opened_with_a_guessed_slot(world, moment, monkeypatch, config, state, shard):  # noqa: F811
     env = Env(world, monkeypatch, CONFIGS[config], state)
     rows = corpus()
     case = sorted(CONFIGS).index(config) * len(STATES) + sorted(STATES).index(state)
-    every = [(index, rows[index]["line"], rows[index]["op"] == "work") for index in sampled(rows, case)]
+    every = [(index, rows[index]["line"], rows[index]["op"] == "work") for index in shard_of(sampled(rows, case), shard, SHARDS)]
     for index, text, work in every:
         drafts.clear()
         env.calls.clear()
@@ -188,6 +210,16 @@ def test_no_write_is_opened_with_a_guessed_slot(world, moment, monkeypatch, conf
         env.explore([text], 0, 2 if index % 9 == 0 else 1)
     assert env.bad == [], "\n".join(map(str, env.bad[:12]))
     assert env.opened > 100 and env.asked > 100, (env.opened, env.asked)          # the walk reaches both ends: calls made and questions asked
+
+
+def test_the_shards_of_a_case_are_disjoint_and_together_the_whole_walk():
+    walk = list(range(769))
+    for shards in (1, 4):
+        parts = [shard_of(walk, k, shards) for k in range(shards)]
+        assert sorted(i for part in parts for i in part) == walk and sum(len(p) for p in parts) == len(walk), "every line in exactly one shard"
+    assert FULL_SHARDS > 1 and shard_of(walk, 0, 4) != shard_of(walk, 1, 4)
+    broken = [shard_of(walk, k, 4) for k in (0, 1, 2)]          # vacuity: a shard missing from the set loses lines, which the check above would see
+    assert sorted(i for part in broken for i in part) != walk
 
 
 def test_the_provenance_check_catches_a_slot_the_person_never_gave():

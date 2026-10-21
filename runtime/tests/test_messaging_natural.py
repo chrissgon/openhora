@@ -41,6 +41,13 @@ def portuguese(day):  # noqa: F811
 NO_GROUP = "/event-create is not enabled for this channel"          # the profile of these tests lists no calendar-write: a write line gets the typed refusal (NR-5)
 
 
+def say_plain(day, text, sender=OWNER):  # noqa: F811
+    """A line that goes to the planning agent, and the wait for its job to end before the next line is sent: the bridge keeps one waiting line per chat (QUEUE_PER_CHAT) and
+    refuses a second while the slot is held, so lines sent back to back reach the planner or not by the speed of the machine."""
+    day.say(sender, text)
+    assert settle(day), "the planning agent's job ended"
+
+
 def no_model(planner):  # noqa: F811
     assert planner.texts() == [], "a line read by code never reaches the planning agent"
 
@@ -287,13 +294,13 @@ def test_the_words_missing_are_asked_and_the_next_line_is_them_only_when_it_is_s
     assert day.all()["open"][0]["text"] == "water the plants" and day.all()["open"][0]["due"] == "2026-10-19 09:00"
     for answer in ("write the launch post for the shop", "please send the report to the whole team now"):
         day.say(OWNER, "remind me tomorrow at 9am")
-        day.say(OWNER, answer)
+        say_plain(day, answer)
         assert day.bridge.remind.drafts == {}, answer
     for answer in ("thanks", "yes"):
         day.say(OWNER, "remind me tomorrow at 9am")
         day.say(OWNER, answer)
         assert day.texts(OWNER)[-1] == "What should I remind you of? Reply with the words to send.", "a short reply that is no answer: the question once more"
-        day.say(OWNER, answer)
+        say_plain(day, answer)
         assert day.bridge.remind.drafts == {}, "and the second time the line is a plain one"
     assert settle(day) and planner.texts() == ["write the launch post for the shop", "please send the report to the whole team now", "thanks", "yes"]
     assert len(day.all()["open"]) == 1
@@ -361,8 +368,8 @@ def test_a_line_that_asks_for_the_calendar_from_a_profile_without_calendar_write
 
 def test_a_bare_calendar_word_is_a_read_and_goes_to_the_planning_agent(day, planner):  # noqa: F811
     portuguese(day)
-    day.say(OWNER, pt.LINE_AGENDA_READ)
-    day.say(OWNER, "calendar for tomorrow?")
+    say_plain(day, pt.LINE_AGENDA_READ)
+    say_plain(day, "calendar for tomorrow?")
     assert settle(day) and planner.texts() == [pt.LINE_AGENDA_READ, "calendar for tomorrow?"] and day.all()["open"] == [] and day.bridge.remind.drafts == {}
 
 
@@ -408,8 +415,8 @@ def test_a_profile_without_the_group_gets_the_typed_refusal_for_a_remind_word_an
     assert NOT_ENABLED in day.texts(STAFF)[-1]
     day.say(STAFF, "forget the reminder about the florist")
     assert NOT_ENABLED in day.texts(STAFF)[-1]
-    day.say(STAFF, "violin class tomorrow 1pm")
-    day.say(STAFF, "undo")
+    say_plain(day, "violin class tomorrow 1pm", STAFF)
+    say_plain(day, "undo", STAFF)
     assert settle(day) and planner.texts() == ["violin class tomorrow 1pm", "undo"], "a line that only looks like a request is a plain line for a sender who cannot remind"
     assert day.all()["open"] == [] and day.bridge.remind.drafts == {}
 
@@ -482,8 +489,8 @@ def test_a_number_inside_the_words_is_a_word_and_never_the_number_of_a_reminder_
     assert day.texts(OWNER)[-1] == pt.NO_MATCH and len(day.all()["open"]) == 2, '"das 1" is the word 1, not reminder #1'
     day.say(OWNER, pt.LINE_FORGET_BOLETOS)
     assert day.texts(OWNER)[-1].startswith("Lembrete #2 cancelado: amanhã, seg 19/10, às 15:00 (BRT): pagar 2 boletos.")      # validate: allow english-only -- the expected Portuguese sentence
-    day.say(OWNER, "delete reminder emails from inbox")
-    day.say(OWNER, "remove the reminder banner from the site")
+    say_plain(day, "delete reminder emails from inbox")
+    say_plain(day, "remove the reminder banner from the site")
     assert settle(day) and planner.texts() == ["delete reminder emails from inbox", "remove the reminder banner from the site"]
 
 
@@ -521,8 +528,8 @@ def test_undo_brings_back_only_the_senders_own_and_not_one_whose_time_is_too_clo
 def test_a_list_request_is_list_shaped_and_a_report_about_reminders_goes_to_the_planning_agent(day, planner):  # noqa: F811
     portuguese(day)
     for line in ("lembretes funcionam no whatsapp?", "meus lembretes não chegaram", "lembrete 3 não chegou"):      # validate: allow english-only -- Portuguese lines, the cases of the tests
-        day.say(OWNER, line)
-    day.say(OWNER, "reminders are broken")
+        say_plain(day, line)
+    say_plain(day, "reminders are broken")
     assert settle(day) and planner.texts() == ["lembretes funcionam no whatsapp?", "meus lembretes não chegaram", "lembrete 3 não chegou", "reminders are broken"]      # validate: allow english-only -- Portuguese lines, the cases of the tests
 
 
