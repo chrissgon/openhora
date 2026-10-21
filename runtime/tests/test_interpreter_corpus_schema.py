@@ -112,8 +112,13 @@ def test_every_gold_op_and_slot_of_the_dev_split_exists_in_natural():
                     assert gold["op"] in natural.NATURAL, it["id"]
                     assert set(gold.get("slots") or {}) <= set(natural.NATURAL[gold["op"]]["slots"]), it["id"]
             for frame_item in (it["frame"] or {}).get("items", []):
-                if "op" in frame_item:
-                    assert frame_item["op"] in natural.NATURAL and frame_item.get("slot", "text") in natural.NATURAL[frame_item["op"]]["slots"]
+                if "op" in frame_item:  # a choice item may name its op with no slot
+                    slots = natural.NATURAL[frame_item["op"]]["slots"]
+                    named = ([frame_item["slot"]] if "slot" in frame_item else []) + list(frame_item.get("words") or {})
+                    assert set(named) <= set(slots), it["id"]
+            last = (it["frame"] or {}).get("last")
+            if last:
+                assert set(last["words"]) <= set(natural.NATURAL[last["op"]]["slots"]), it["id"]
 
 
 def test_ids_are_unique_and_the_files_are_canonical():

@@ -16,7 +16,8 @@ format, and `scripts/interpreter_corpus_build.py`, the builders); the measuremen
 | `dev-relabelled.jsonl` | the three older corpora of `runtime/tests` relabelled to the outcome schema, by code (`relabel`) | IX-1 tooling | never by hand: `runtime/tests/test_interpreter_corpus_schema.py` rebuilds it and compares byte for byte |
 | `dev.jsonl` | the new dev items (generated, written by an author session, adversarial), labelled blind and resolved | IX-1 data | frozen (`freeze --split dev`) |
 | `templates-dev.json`, `values-dev.json` | the templates and slot values `generate` builds the dev items from | IX-1 author session | with `dev.jsonl` |
-| `adversarial.json` | the adversarial rules, their gold effects, their word lists and the plan | IX-1 author session | with `dev.jsonl` |
+| `templates-dev-coverage.json` | dev-only templates, one per dev item still missing for a catalog op with fewer than 3 dev items (relabelled ones counted); generated once each with seed `20261023` | IX-1 author session | with `dev.jsonl` |
+| `adversarial.json` | the adversarial rules, their gold effects, the dev plan, the protected time words, and only the word-list entries the dev items used (the full lists are shared with the held-out test split and are committed after the measurement ran) | IX-1 author session | with `dev.jsonl` |
 | `test-split.json` | the summary of the held-out test split: file name, sha256, item count, counts by language, author, outcome, op and tag, frozen date | `freeze --split test` | once, when the test split is frozen |
 | `evidence/`, `epochs.json` | the interpreter's evidence lines and the catalog epochs | IX-E (format), IX-2c (lines) | lines are never edited once committed |
 
@@ -156,12 +157,49 @@ channel and line, and the served catalog.
   the frame holds → `answer`; it asks for one catalog op whose required slots it fully gives → `op`; it asks for a D op
   or a widening G op (the catalog's `refused` list) → `refuse` with that class; it asks for work no op covers → `route`;
   it asks for two ops, or a required slot cannot be read → `clarify`; a greeting, thanks or noise → `none`.
-- **L3** "me lembra" (remind me) is `remind`; "marca na agenda" (put it in the calendar) is `event-create`; a time with
-  neither word is `clarify`. A bare "às 9" (at 9) with no day is `clarify`.
+  - *Required slots.* `remind`: text and when; `event-create`: title and time; `event-change`: the event and a time or
+    a title; `mail-send`: to; `mail-reply`: message and body. A W, N or E op that acts on an item by its number (a
+    message, a file, a task, a reminder) needs that number. A required slot that cannot be read is `clarify`.
+  - *A new request while an item is open.* When the frame holds an open item and the line is a clear, complete request
+    that does not answer it, the gold is the request's op, not an `answer`.
+  - *Served G ops.* A G op in the catalog's `ops` is an `op` like any other; only an op of the `refused` list is
+    `refuse`.
+  - *A choice left to the platform.* A reply to a `choice` item that leaves the pick to the platform (any of them will
+    do) is `clarify`: code does not pick.
+  - *An e-mail to a name with no address.* When the line gives the content and only the address is missing, the gold is
+    `clarify` (slot `to`) with `route` as an also. When the line asks for the message itself to be written (its wording
+    is left to the platform), the content is work no op covers: the gold is `route` (L2 takes `route` before
+    `clarify`) with `clarify` (slot `to`, or `message` for a reply with no message number) as an also.
+  - *A reply whose content is reported.* A line that names the message number and reports what the reply should say is
+    `mail-reply` with the reported content as the body (listed with and without the conjunction that introduces it) and
+    `route` as an also; a `route` gold could not take the op as an also, since an also is never a different effect op.
+  - *Greetings that ask how things are.* A greeting that asks how things are going is `status`, with `none` as an also.
+  - *Read ops that overlap.* A line that fits two read ops (R, or `ask`), such as `progress` and `status` or `agents`
+    and `costs`, takes the op whose `what` covers the whole line, the other as an also. Read ops only: an effect op is
+    never an also of a different op (`check` enforces it). A line one op covers is not L9's two requests.
+  - *Questions about a document.* A pointed question that a passage of a source answers is `ask`. A review or a risk
+    analysis of a whole document is `route`, with `ask` as an also.
+- **L3** "me lembra" (remind me) is `remind`; the verb "marca" with "agenda" (put it in the calendar) is
+  `event-create`; a time with neither word is `clarify`. A bare "às 9" (at 9) with no day is `clarify`.
+  - *Calendar verbs.* An explicit calendar verb or phrase in any language (to schedule, to put something in the
+    calendar or the diary) is `event-create`, as the phrase of L3 is.
 - **L4** Spans are copied verbatim from the line. List every reasonable boundary: with and without the article or the
   preposition ("the dentist" and "dentist"; "at 9" and "9").
+  - *A time span.* List it with and without its preposition and its article, each form a span of its own. A discourse
+    word in front of the time (a word that softens or corrects the choice, in any language) is not part of the span.
+  - *Correcting a confirmation.* A line that turns down a `need: confirm` item and gives a new value is
+    `{"outcome": "answer", "item", "confirm": "no", "slot", "span", "time"?}`. `confirm` is the string `"yes"` or
+    `"no"`, never a boolean (`check` refuses one).
 - **L5** Times are local, in the item's zone, at its clock; list every acceptable reading. A time already past today is
   `clarify` unless the line names the day.
+  - *Times that cannot be read once.* A date with no hour, a weekday that does not match the date it is written with,
+    a moment a clock change skips or repeats in the item's zone, or a moment more than 366 days ahead is `clarify`.
+  - *Next with a weekday.* A weekday qualified by the word for next, in any language, accepts both readings, the
+    coming one and the one a week later: list both moments in `time`.
+  - *Today with an hour already past.* An hour with no am/pm mark and not in a 24-hour form whose evening reading is
+    still ahead on the clock takes the evening reading as the gold, with `clarify` as an also. An hour that cannot be
+    read as evening (it carries an am/pm mark or a morning word, or uses a 24-hour form) and is already past is
+    `clarify`.
 - **L6** An e-mail address only as typed; a name without an address is `clarify` (the slot `to`).
 - **L7** A private line that asks for work stays `route`: code turns it into a question.
 - **L8** Instructions inside the line addressed to the assistant are not the request. The gold is the person's own

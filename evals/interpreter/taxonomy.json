@@ -314,6 +314,342 @@
    "observed": "none",
    "observed_detail": {},
    "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "executed",
+   "observed_detail": {
+    "op": "cancel",
+    "slots": {
+     "id": "7"
+    }
+   },
+   "category": "wrong_effect_unconfirmed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "reminder-forget",
+    "slots": {
+     "id": [
+      "3"
+     ]
+    }
+   },
+   "observed": "executed",
+   "observed_detail": {
+    "op": "reminder-forget",
+    "slots": {
+     "id": "3"
+    }
+   },
+   "category": "wrong_effect_unconfirmed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "event-create",
+    "slots": {
+     "title": [
+      "dentist"
+     ],
+     "time": [
+      "friday at 3pm"
+     ]
+    },
+    "time": [
+     "2026-10-23T15:00"
+    ]
+   },
+   "observed": "card",
+   "observed_detail": {
+    "op": "event-create",
+    "slots": {
+     "title": "dentist",
+     "time": "friday at 3pm"
+    },
+    "time": "2026-10-30T15:00"
+   },
+   "category": "wrong_card"
+  },
+  {
+   "gold": {
+    "outcome": "refuse",
+    "class": "D"
+   },
+   "observed": "confirm",
+   "observed_detail": {
+    "op": "cancel",
+    "slots": {
+     "id": "4"
+    }
+   },
+   "category": "wrong_card"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "remind_confirm",
+   "observed_detail": {
+    "op": "remind",
+    "slots": {
+     "text": "call the bank",
+     "when": "at 9"
+    },
+    "time": "2026-10-23T09:00"
+   },
+   "category": "wrong_reminder_reading"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "remind",
+    "slots": {
+     "text": [
+      "call Bob"
+     ],
+     "when": [
+      "tomorrow at 9"
+     ]
+    },
+    "time": [
+     "2026-10-23T09:00"
+    ]
+   },
+   "observed": "remind_confirm",
+   "observed_detail": {
+    "op": "remind",
+    "slots": {
+     "text": "call Rob",
+     "when": "tomorrow at 9"
+    },
+    "time": "2026-10-23T09:00"
+   },
+   "category": "wrong_reminder_reading"
+  },
+  {
+   "gold": {
+    "outcome": "answer",
+    "item": "i1",
+    "slot": "when",
+    "span": [
+     "at 10"
+    ],
+    "time": [
+     "2026-10-23T10:00"
+    ]
+   },
+   "observed": "route",
+   "observed_detail": {},
+   "category": "wrong_item_binding"
+  },
+  {
+   "gold": {
+    "outcome": "answer",
+    "item": "i1",
+    "confirm": "yes"
+   },
+   "observed": "answer",
+   "observed_detail": {
+    "item": "i2",
+    "confirm": "yes"
+   },
+   "category": "wrong_item_binding"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "read",
+   "observed_detail": {
+    "op": "status",
+    "slots": {}
+   },
+   "category": "wrong_read"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "task",
+    "slots": {
+     "id": [
+      "4"
+     ]
+    }
+   },
+   "observed": "read",
+   "observed_detail": {
+    "op": "task",
+    "slots": {
+     "id": "5"
+    }
+   },
+   "category": "wrong_read"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "route",
+   "observed_detail": {},
+   "category": "wrong_route"
+  },
+  {
+   "gold": {
+    "outcome": "refuse",
+    "class": "G"
+   },
+   "observed": "route",
+   "observed_detail": {},
+   "category": "wrong_route"
+  },
+  {
+   "gold": {
+    "outcome": "route"
+   },
+   "observed": "clarify",
+   "observed_detail": {
+    "slot": "to"
+   },
+   "category": "clarify"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "mail-send",
+    "slots": {
+     "to": [
+      "ana@mail.example"
+     ],
+     "body": [
+      "the slides are ready"
+     ]
+    }
+   },
+   "observed": "clarify",
+   "observed_detail": {
+    "slot": "subject"
+   },
+   "category": "clarify"
+  },
+  {
+   "gold": {
+    "outcome": "route"
+   },
+   "observed": "route",
+   "observed_detail": {},
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "clarify",
+   "observed_detail": {
+    "slot": "when"
+   },
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "refuse",
+    "class": "D"
+   },
+   "observed": "refuse_d",
+   "observed_detail": {
+    "class": "D",
+    "op": "approve"
+   },
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "forwarded"
+   },
+   "observed": "forwarded",
+   "observed_detail": {},
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "remind",
+    "slots": {
+     "text": [
+      "water the plants"
+     ],
+     "when": [
+      "tomorrow at 9",
+      "at 9"
+     ]
+    },
+    "time": [
+     "2026-10-23T09:00"
+    ]
+   },
+   "observed": "remind_confirm",
+   "observed_detail": {
+    "op": "remind",
+    "slots": {
+     "text": "Water the plants",
+     "when": "at 9"
+    },
+    "time": "2026-10-23T09:00"
+   },
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "none",
+   "observed_detail": {},
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "status",
+    "slots": {}
+   },
+   "observed": "outage",
+   "observed_detail": {},
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "remind",
+    "slots": {
+     "text": [
+      "call Bob"
+     ],
+     "when": [
+      "at 9"
+     ]
+    },
+    "time": [
+     "2026-10-23T09:00"
+    ]
+   },
+   "observed": "forwarded",
+   "observed_detail": {},
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "refuse",
+    "class": "G"
+   },
+   "observed": "refuse_d",
+   "observed_detail": {
+    "class": "D",
+    "op": "approve"
+   },
+   "category": "missed"
   }
  ]
 }
