@@ -327,6 +327,151 @@ def test_nothing_of_a_request_or_a_reply_is_written_or_printed_here(store, tmp_p
     assert any(name == "planted.txt" for _root, _d, files in os.walk(tmp_path) for name in files if b"USER-CANARY" in (Path(_root) / name).read_bytes())
 
 
+# --- the credential cache and the preflight are keyed by what they depend on (ACCT-E, m1) ---------------------------------------------------
+
+class NamedStore:
+    """A lookup that records the names it is asked for and puts each in the environment with a value of its own, as the store does."""
+
+    def __init__(self, monkeypatch):
+        self.asked = []
+        real = lab._lab_call
+
+        def lookup(function, *args, **kwargs):
+            if getattr(function, "__name__", "") == "resolve_pass_env":
+                self.asked.append(list(args[0]))
+                for name in args[0]:
+                    os.environ.setdefault(name, "value-of-" + name)
+                return []
+            return real(function, *args, **kwargs)
+        monkeypatch.setattr(lab, "_lab_call", lookup)
+
+
+def two_models(monkeypatch):
+    """Two lab models whose adapters have a runner and a credential variable each of their own (the gate file lists one claude model today)."""
+    runners = {"model-a": ("/adapters/a/run-text.sh", ["TOKEN_A"]), "model-b": ("/adapters/b/run-text.sh", ["TOKEN_B"])}
+    monkeypatch.setattr(lab, "_text_runner", lambda model: (runners[model][0], list(runners[model][1])))
+    for name in ("TOKEN_A", "TOKEN_B"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_rows_whose_lab_models_have_other_credential_names_each_get_their_own_lookup_and_their_own_preflight(monkeypatch):
+    two_models(monkeypatch)
+    store = NamedStore(monkeypatch)
+    row_a, row_b = dict(copy.deepcopy(SONNET), lab_model="model-a"), dict(copy.deepcopy(SONNET), lab_model="model-b")   # all else equal, even the id
+    runner = Runner()
+    assert call(runner, row=row_a)["ok"] and call(runner, row=row_b)["ok"]
+    assert store.asked == [["TOKEN_A"], ["TOKEN_B"]]
+    first, second = runner.calls()
+    assert first["env"]["TOKEN_A"] == "value-of-TOKEN_A" and "TOKEN_B" not in first["env"]
+    assert second["env"]["TOKEN_B"] == "value-of-TOKEN_B" and "TOKEN_A" not in second["env"]
+    assert [p["argv"][1] for p in runner.probes()] == ["/adapters/a/run-text.sh", "/adapters/b/run-text.sh"]
+
+
+def test_the_preflight_is_its_own_for_a_lab_model_even_when_the_runner_path_is_the_same(monkeypatch):
+    monkeypatch.setattr(lab, "_text_runner", lambda model: ("/adapters/shared/run-text.sh", ["TOKEN_A"]))
+    NamedStore(monkeypatch)
+    runner = Runner()
+    call(runner, row=dict(copy.deepcopy(SONNET), lab_model="model-a"))
+    call(runner, row=dict(copy.deepcopy(SONNET), lab_model="model-b"))
+    assert len(runner.probes()) == 2
+
+
+def test_vacuity_the_same_row_twice_looks_the_credential_up_once_and_probes_once(monkeypatch):
+    two_models(monkeypatch)
+    store = NamedStore(monkeypatch)
+    row_a = dict(copy.deepcopy(SONNET), lab_model="model-a")
+    runner = Runner()
+    assert call(runner, row=row_a)["ok"] and call(runner, row=row_a)["ok"]
+    assert store.asked == [["TOKEN_A"]] and len(runner.probes()) == 1 and len(runner.calls()) == 2
+
+
+# --- a runner past its time is stopped by TERM first, then KILL (ACCT-E, m2) -----------------------------------------------------------------
+
+def stand_in(tmp_path, ignores_term):
+    """A python stand-in of the runner that sleeps past any deadline. On TERM it writes a marker file (and the token it holds, to its stderr) and exits,
+    unless it ignores TERM. Returns (the argv of the stand-in, the marker's path)."""
+    marker = tmp_path / "term-marker"
+    script = tmp_path / "hang.py"
+    script.write_text("import os, signal, sys, time\n"
+                      "def on_term(*_):\n"
+                      "    open(sys.argv[1], 'w').write('term')\n"
+                      "    sys.stderr.write(os.environ.get('CLAUDE_CODE_OAUTH_TOKEN', '') + '\\n')\n"
+                      "    sys.exit(0)\n"
+                      "signal.signal(signal.SIGTERM, " + ("signal.SIG_IGN" if ignores_term else "on_term") + ")\n"
+                      "sys.stdout.write('started\\n'); sys.stdout.flush()\n"
+                      "time.sleep(60)\n", encoding="utf-8")
+    return [sys.executable, str(script), str(marker)], marker
+
+
+def test_a_runner_past_its_time_is_sent_term_first_and_the_call_ends_within_the_grace(tmp_path):
+    argv, marker = stand_in(tmp_path, ignores_term=False)
+    began = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired) as raised:
+        lab._start(argv, "{}", {"PATH": os.environ.get("PATH", ""), TOKEN_NAME: TOKEN}, 1.0)
+    took = time.monotonic() - began
+    assert marker.read_text() == "term"                      # TERM was delivered, and before any KILL (a killed process writes nothing)
+    assert 1.0 <= took < 1.0 + 3 + 1
+    assert TOKEN not in str(raised.value) and TOKEN not in repr(raised.value.cmd) and raised.value.output is None and raised.value.stderr is None
+
+
+def test_vacuity_a_runner_that_ignores_term_is_killed_after_the_grace_period(tmp_path):
+    argv, marker = stand_in(tmp_path, ignores_term=True)
+    began = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        lab._start(argv, "{}", {"PATH": os.environ.get("PATH", "")}, 1.0)
+    took = time.monotonic() - began
+    assert not marker.exists()                               # TERM was ignored, so only KILL ended it
+    assert 1.0 + lab.TERM_GRACE_S <= took < 1.0 + lab.TERM_GRACE_S + 1 + 1
+
+
+def test_a_descendant_that_keeps_the_pipes_open_does_not_keep_the_call_waiting(tmp_path):
+    pid_file = tmp_path / "sleeper.pid"
+    script = tmp_path / "parent.py"
+    script.write_text("import subprocess, sys, time\n"
+                      "sleeper = subprocess.Popen(['sleep', '60'])\n"            # inherits stdout and stderr
+                      "open(sys.argv[1], 'w').write(str(sleeper.pid))\n"
+                      "time.sleep(60)\n", encoding="utf-8")
+    began = time.monotonic()
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            lab._start([sys.executable, str(script), str(pid_file)], "", {"PATH": os.environ.get("PATH", "")}, 1.0)
+        assert time.monotonic() - began < 1.0 + lab.TERM_GRACE_S + 1 + 1
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text()), 9)
+            except (OSError, ValueError):
+                pass
+
+
+def test_a_runner_that_ends_in_time_is_returned_whole(tmp_path):
+    script = tmp_path / "ok.py"
+    script.write_text("import sys\nsys.stdout.write(sys.stdin.read().upper())\nsys.stderr.write('note')\nsys.exit(3)\n", encoding="utf-8")
+    done = lab._start([sys.executable, str(script)], "abc ünï", {"PATH": os.environ.get("PATH", "")}, 20)
+    assert (done.returncode, done.stdout, done.stderr) == (3, "ABC ÜNÏ", "note")
+
+
+def test_account_text_returns_e_timeout_after_term_and_no_token_appears_in_the_result_or_the_output(store, tmp_path, monkeypatch, capsys):
+    folder = tmp_path / "runner"
+    folder.mkdir()
+    argv, marker = stand_in(tmp_path, ignores_term=False)
+    (folder / "probe.json").write_text(json.dumps(probe_reply()), encoding="utf-8")
+    (folder / "run-text.sh").write_text('if [ "$1" = "--probe" ]; then cat "$(dirname "$0")/probe.json"; exit 0; fi\n'
+                                        'exec "%s" "%s" "%s"\n' % (argv[0], argv[1], argv[2]), encoding="utf-8")
+    monkeypatch.setattr(lab, "_text_runner", lambda model: (str(folder / "run-text.sh"), [TOKEN_NAME]))
+    monkeypatch.setattr(lab, "TEXT_MARGIN_S", 0.5)
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    row = dict(copy.deepcopy(SONNET), deadline_ms=500)
+    began = time.monotonic()
+    result = lab.account_text(row, SYSTEM_CANARY, USER_CANARY)         # the real process start, bash and all
+    took = time.monotonic() - began
+    assert result == {"ok": False, "code": "E_TIMEOUT"}
+    assert marker.read_text() == "term" and took < 0.5 + 0.5 + 3 + 1 + 5   # the probe's start counts too
+    seen = capsys.readouterr()
+    assert TOKEN not in json.dumps(result) and TOKEN not in seen.out and TOKEN not in seen.err
+    assert SYSTEM_CANARY not in seen.out + seen.err and USER_CANARY not in seen.out + seen.err
+
+
 # --- the manifest -------------------------------------------------------------------------------------------------------------------
 
 def test_the_lab_is_a_reader_of_the_account_token_in_the_manifest():

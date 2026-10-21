@@ -18,7 +18,7 @@ for it. This module checks the file, builds what the provider `model:text` (prov
                                           models are measured on the maintainer's own account (VENDOR_WORDS in model, upstream_model or pin, any
                                           case). An `account` row (a model of that vendor, measured on the maintainer's own subscription through the
                                           adapter's text runner, for tests only): closed keys (ACCOUNT_KEYS, no `key`), a model of that vendor, the
-                                          vendor as `pin`, closed `params`, a deadline, the runner's version and two sha256 (the runner's files and
+                                          vendor as `pin`, a `lab_model` that is a model of that vendor too, closed `params`, a deadline, the runner's version and two sha256 (the runner's files and
                                           the request the vendor's tool sends). Raises RouteError (a ValueError).
     daily_routes(root=None)               the rows of kind `http` only: the routes that may run for a person every day. An account route is for tests,
                                           never the daily route (the go reads this list, never `load`)
@@ -165,6 +165,8 @@ def _check_account(route, seen: set) -> None:
         raise RouteError(f"route {route['id']}: kind is account")
     if not route["model"].startswith(ACCOUNT_MODEL_PREFIX) or not route["upstream_model"].startswith(ACCOUNT_MODEL_PREFIX) or route["pin"] != VENDOR_WORDS[1]:
         raise RouteError(f"route {route['id']}: an account route names a model of the vendor whose models are measured on the account, and that vendor as its pin")
+    if not route["lab_model"].startswith(ACCOUNT_MODEL_PREFIX):
+        raise RouteError(f"route {route['id']}: lab_model is a model of that same vendor (the gate file's model whose credential is the account's), never another provider's")
     for key in ("runner_sha256", "envelope_sha256"):
         if not isinstance(route[key], str) or not HEX64.fullmatch(route[key]):
             raise RouteError(f"route {route['id']}: {key} is a sha256 (64 lower-case hexadecimal digits)")
