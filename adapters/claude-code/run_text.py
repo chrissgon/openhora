@@ -81,6 +81,9 @@ def probe_texts(nonce=None):
 BASE_PREFIX = "/tmp/run-text-"   # + the user id: the fixed folder of the roots, never the caller's TMPDIR
 STALE_AFTER_S = MAX_DEADLINE_MS / 1000.0 + 60
 SCAN_LIMIT = 100000
+READ_CHUNK = 1048576                  # a file is read in chunks of this size, whatever its size
+READ_BYTES_BUDGET = 1 << 30           # all files together; reaching it, or the time below, leaves the scan incomplete, never clean
+READ_SECONDS_BUDGET = 120.0
 PROBE_TOKEN = "placeholder"
 PROBE_DEADLINE_MS = 60000
 STOP_REASONS = {"end_turn": "stop", "stop_sequence": "stop", "max_tokens": "length"}
@@ -469,9 +472,20 @@ def scrub_body(body, root=None):
     return walk(json.loads(json.dumps(body))), counts
 
 
+def strip_nonce(value, nonce):
+    """The nonce that stands alone (not inside a whole probe text) becomes <NONCE>: a CLI that echoes part of the line leaves a named cause."""
+    if isinstance(value, str):
+        return value.replace(nonce, "<NONCE>")
+    if isinstance(value, list):
+        return [strip_nonce(v, nonce) for v in value]
+    if isinstance(value, dict):
+        return {k: strip_nonce(v, nonce) for k, v in value.items()}
+    return value
+
+
 def envelope_of(scrubbed, headers, texts):
-    """The envelope: the body with the probe texts replaced and metadata.user_id dropped, and the sorted beta values added."""
-    body = replace_probe(scrubbed, texts)
+    """The envelope: the body with the probe texts replaced, any other nonce replaced, metadata.user_id dropped, and the sorted beta values added."""
+    body = strip_nonce(replace_probe(scrubbed, texts), texts[2])
     if isinstance(body.get("metadata"), dict):
         body["metadata"].pop("user_id", None)
     return {"beta": betas_of(headers), "body": body}
@@ -560,7 +574,7 @@ def examine(requests, probe_texts_, root=None):
     return {"messages_requests": len(messages), "paths": paths,
             "system_verbatim": len(system_hits) == 1 and occurrences(body, probe_system) == 1,
             "user_verbatim": len(user_hits) == 1 and occurrences(body, probe_user) == 1,
-            "extras": extras, "replaced": replaced, "credential_ok": credential_ok(requests),
+            "extras": extras, "replaced": dict(replaced, nonce=occurrences(replace_probe(body, probe_texts_), probe_texts_[2])), "credential_ok": credential_ok(requests),
             "sent": {"max_tokens": body.get("max_tokens"), "temperature": body.get("temperature"),
                      "thinking": body.get("thinking"), "effort": effort},
             "envelope_sha256": sha256(canonical(envelope_of(body, chosen.get("headers") or {}, probe_texts_)))}
@@ -583,10 +597,11 @@ def outside_locations():
 
 
 def scan_outside(locations, skip, since):
-    """Entries created or changed since `since` (names and times; the content of a file is read only to look for the probe texts),
-    and whether the scan was whole. Links are not followed; the folders in `skip` are not entered."""
+    """(entries created or changed since `since`, whether the scan was whole, how many changed folders the depth limit left unlisted).
+    Names and times only; the content of a file is not read here. Links are not followed; the folders in `skip` are not entered.
+    A folder changed during the probe that the depth limit stopped at, and that no other location listed, makes the scan incomplete."""
     skip = {os.path.realpath(p) for p in skip}
-    found, visited, complete = {}, 0, True
+    found, listed, limited, visited, complete = {}, set(), set(), 0, True
     for top, depth in locations:
         stack = [(top, 0)]
         while stack:
@@ -595,21 +610,46 @@ def scan_outside(locations, skip, since):
                 info = os.lstat(path)
             except OSError:
                 continue
-            if os.path.realpath(path) in skip:
+            real = os.path.realpath(path)
+            if real in skip:
                 continue
             visited += 1
             if visited > SCAN_LIMIT:
-                return found, False
+                return found, False, len(limited - listed)
             born = getattr(info, "st_birthtime", 0) or 0
-            if level > 0 or not stat.S_ISDIR(info.st_mode):
-                if born >= since or info.st_mtime >= since:
-                    found[os.path.realpath(path)] = (path, info)
-            if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode) and level < depth:
-                try:
-                    stack += [(entry.path, level + 1) for entry in os.scandir(path)]
-                except OSError:
-                    complete = False
-    return found, complete
+            changed = born >= since or info.st_mtime >= since
+            if (level > 0 or not stat.S_ISDIR(info.st_mode)) and changed:
+                found[real] = (path, info)
+            if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+                if level < depth:
+                    try:
+                        stack += [(entry.path, level + 1) for entry in os.scandir(path)]
+                        listed.add(real)
+                    except OSError:
+                        complete = False
+                elif changed:
+                    limited.add(real)
+    unlisted = len(limited - listed)
+    return found, complete and unlisted == 0, unlisted
+
+
+def file_holds(path, needles, budget_bytes, deadline):
+    """(found, fully read, bytes read). The file is read in chunks, with an overlap of the longest needle less one byte, so a needle
+    across the edge of two chunks is found. A budget of bytes or of time that runs out ends the read: not fully read."""
+    overlap = max(len(n) for n in needles) - 1
+    tail, total = b"", 0
+    with open(path, "rb") as handle:
+        while True:
+            if total >= budget_bytes or time.monotonic() > deadline:
+                return False, False, total
+            chunk = handle.read(READ_CHUNK)
+            if not chunk:
+                return False, True, total
+            total += len(chunk)
+            window = tail + chunk
+            if any(n in window for n in needles):
+                return True, True, total
+            tail = window[-overlap:] if overlap else b""
 
 
 def own_names(root_names):
@@ -622,20 +662,24 @@ def own_names(root_names):
 
 
 def outside_report(found, root_names, nonce):
+    """(an entry for each file found, how many files could not be read whole). The nonce is searched for as ASCII and as UTF-16 in
+    both byte orders; a copy that is encoded in another way (base64, compressed) is not found."""
     names = own_names(root_names)
-    report = []
+    needles = [nonce.encode("ascii"), nonce.encode("utf-16-le"), nonce.encode("utf-16-be")]
+    budget, deadline, unread, report = READ_BYTES_BUDGET, time.monotonic() + READ_SECONDS_BUDGET, 0, []
     for key in sorted(found):
         path, info = found[key]
         texts = False
-        if stat.S_ISREG(info.st_mode) and info.st_size <= 1048576:
+        if stat.S_ISREG(info.st_mode):
             try:
-                data = Path(path).read_bytes()
-                texts = nonce.encode("utf-8") in data   # the nonce is ASCII: no escaping hides it
+                texts, whole, used = file_holds(path, needles, budget, deadline)
+                budget -= used
+                unread += 0 if whole else 1
             except OSError:
-                pass
+                unread += 1   # a file that cannot be read whole is never taken as clean; it is counted, and not named
         report.append({"path": path, "mtime": round(info.st_mtime, 3), "probe_text": texts,
                        "own_folder": any(name in path for name in names)})
-    return report   # all of them; the caller decides on all and prints the flagged ones first
+    return report, unread   # all of them; the caller decides on all and prints the flagged ones first
 
 
 def one_run(model, max_tokens, reasoning, server, version, texts):
@@ -685,9 +729,10 @@ def probe(model, max_tokens, reasoning, repeat):
     finally:
         server.shutdown()
         server.server_close()
-    found, complete = scan_outside(locations, [base], since)
+    found, complete, depth_limited = scan_outside(locations, [base], since)
     first = runs[0]
-    files = outside_report(found, root_names, texts[2])
+    files, unread = outside_report(found, root_names, texts[2])
+    complete = complete and unread == 0
     flagged = [f for f in files if f["probe_text"] or f["own_folder"]]
     # Others write under the same folders (other sessions of the harness, whose folders can carry a person's project names): only the
     # flagged entries are printed, with a count of the others. A scan that stopped early, a file that holds the probe's nonce and
@@ -699,7 +744,8 @@ def probe(model, max_tokens, reasoning, repeat):
             "paths": first["paths"], "extras": first["extras"], "replaced": first["replaced"], "sent": first["sent"],
             "stable": all(r == first for r in runs), "reply_ok": all(replies),
             "credential_ok": all(r["credential_ok"] for r in runs), "files_outside_root": flagged[:200],
-            "outside_other_count": len(files) - len(flagged), "outside_scan_complete": complete, "outside_ok": outside_ok,
+            "outside_other_count": len(files) - len(flagged), "outside_unread_count": unread,
+            "outside_depth_limited_count": depth_limited, "outside_scan_complete": complete, "outside_ok": outside_ok,
             "overhead_ms": {"p50": percentile(walls, 0.5), "p95": percentile(walls, 0.95)}}
 
 

@@ -154,6 +154,16 @@ elif mode == "http":
         open(conf["outside_escaped"], "w").write(json.dumps({"text": stdin}))
     if conf.get("outside_unrelated"):
         open(conf["outside_unrelated"], "w").write(conf.get("outside_text", "another session's log"))
+    if conf.get("outside_unreadable"):
+        open(conf["outside_unreadable"], "w").write("something")
+        os.chmod(conf["outside_unreadable"], 0)
+    if conf.get("deep_under"):
+        deep = os.path.join(conf["deep_under"], "l1", "l2", "l3", "l4", "l5")
+        os.makedirs(deep)
+        open(os.path.join(deep, "leaf.txt"), "w").write("x")
+    if conf.get("echo"):
+        import re as _re
+        user.append({"type": "text", "text": "you said " + _re.search(r"probe-user-[0-9a-f]{16}", stdin).group(0) + " and more"})
     if conf.get("slug_under"):
         import re
         slug_dir = os.path.join(conf["slug_under"], re.sub(r"[^A-Za-z0-9]", "-", os.getcwd()))
@@ -507,7 +517,8 @@ def test_what_the_cli_leaves_running_ends_when_it_returns(e):
 PROBE = ["--probe", "--model", "model-a", "--max-tokens", "2000", "--reasoning", "low"]
 PROBE_KEYS = {"runner_version", "runner_sha256", "envelope_sha256", "system_verbatim", "user_verbatim", "messages_requests", "paths",
               "extras", "sent", "stable", "overhead_ms", "replaced", "reply_ok", "credential_ok", "files_outside_root",
-              "outside_scan_complete", "outside_ok", "outside_other_count"}
+              "outside_scan_complete", "outside_ok", "outside_other_count", "outside_unread_count",
+              "outside_depth_limited_count"}
 
 
 def probe(e, *extra, **conf):
@@ -523,7 +534,7 @@ def test_the_probe_runs_against_the_loopback_stub_with_a_placeholder_and_reports
     assert set(out) == PROBE_KEYS
     assert out["system_verbatim"] is True and out["user_verbatim"] is True and out["messages_requests"] == 1
     assert out["paths"] == {"/v1/messages": 1} and out["extras"] == [] and out["stable"] is True
-    assert out["reply_ok"] is True and out["credential_ok"] is True and out["replaced"] == {"root": 0, "date": 0}
+    assert out["reply_ok"] is True and out["credential_ok"] is True and out["replaced"] == {"root": 0, "date": 0, "nonce": 0}
     assert out["files_outside_root"] == [] and out["outside_scan_complete"] is True and out["outside_ok"] is True
     assert out["sent"] == {"max_tokens": 2000, "temperature": None, "thinking": {"type": "enabled", "budget_tokens": 1024}, "effort": "low"}
     assert set(out["overhead_ms"]) == {"p50", "p95"} and 0 <= out["overhead_ms"]["p50"] <= out["overhead_ms"]["p95"]
@@ -876,7 +887,7 @@ INJECTED = "cwd: <ROOT>/cwd Today's date is <DATE>. at <DATE>"
 def test_the_root_and_the_dates_are_replaced_before_the_hash_and_listed(e):
     res, out = probe(e, "--repeat", "3", inject=True)
     assert out["stable"] is True                                            # a different root and date in every run
-    assert out["replaced"] == {"root": 1, "date": 2}
+    assert out["replaced"] == {"root": 1, "date": 2, "nonce": 0}
     assert out["extras"] == [{"where": "messages[0].content[1]", "chars": len(INJECTED)}]   # counted after the replacement
     paths = {c["cwd"] for c in calls(e)}
     assert len(paths) == 3                                                  # vacuity: the runs really differed
@@ -918,12 +929,12 @@ def test_the_outside_scan_says_when_it_was_not_whole(e, monkeypatch):
     for i in range(10):
         (folder / ("f%d" % i)).write_text("x")
     monkeypatch.setattr(run_text, "SCAN_LIMIT", 4)
-    found, complete = run_text.scan_outside([(str(folder), 3)], [], 0)
+    found, complete, limited = run_text.scan_outside([(str(folder), 3)], [], 0)
     assert complete is False and len(found) <= 4
     monkeypatch.setattr(run_text, "SCAN_LIMIT", 1000)
-    found, complete = run_text.scan_outside([(str(folder), 3)], [], 0)
-    assert complete is True and len(found) == 10
-    assert run_text.scan_outside([(str(folder), 3)], [str(folder)], 0) == ({}, True)   # a skipped folder is not entered
+    found, complete, limited = run_text.scan_outside([(str(folder), 3)], [], 0)
+    assert complete is True and len(found) == 10 and limited == 0
+    assert run_text.scan_outside([(str(folder), 3)], [str(folder)], 0) == ({}, True, 0)   # a skipped folder is not entered
 
 
 def test_the_outside_rule_fails_a_planted_file_with_a_probe_text_and_one_under_the_probes_own_folder_and_passes_an_unrelated_one(e):
@@ -965,3 +976,112 @@ def test_a_file_that_holds_the_runners_source_or_the_templates_is_not_a_probe_fi
     # vacuity: the nonce of this probe in the same kind of file fails the rule (the fake writes the line it received)
     res, out = probe(e, outside_path=str(outside / "session-log.jsonl"))
     assert out["outside_ok"] is False and len(out["files_outside_root"]) == 1
+
+
+# ------------------------------------------------------------------------------ the outside scan reads every file, whole
+
+def report_of(run_text, path, nonce=NONCE_T):
+    info = os.lstat(path)
+    report, unread = run_text.outside_report({str(path): (str(path), info)}, [], nonce)
+    return report[0]["probe_text"], unread
+
+
+def test_a_nonce_past_one_megabyte_is_found_and_a_file_without_it_is_read_whole_and_clean(e):
+    run_text = load_runner()
+    big = e["tmp"] / "outside" / "big.log"
+    big.write_bytes(b"x" * (1536 * 1024) + NONCE_T.encode() + b"tail")
+    assert report_of(run_text, big) == (True, 0)
+    big.write_bytes(b"x" * (1536 * 1024) + b"0123456789abcdee" + b"tail")        # vacuity: a near miss is not found
+    assert report_of(run_text, big) == (False, 0)
+
+
+@pytest.mark.parametrize("offset", [0, 55, 60, 63, 64, 100, 127])
+def test_a_nonce_across_the_edge_of_two_chunks_is_found(e, monkeypatch, offset):
+    run_text = load_runner()
+    monkeypatch.setattr(run_text, "READ_CHUNK", 64)
+    path = e["tmp"] / "outside" / "edge.bin"
+    for name, data in (("ascii", NONCE_T.encode()), ("utf-16-le", NONCE_T.encode("utf-16-le")), ("utf-16-be", NONCE_T.encode("utf-16-be"))):
+        path.write_bytes(b"." * offset + data + b"." * 40)
+        assert report_of(run_text, path) == (True, 0), (name, offset)
+    path.write_bytes(b"." * offset + NONCE_T[:-1].encode() + b"#" + b"." * 40)    # vacuity: one byte wrong
+    assert report_of(run_text, path) == (False, 0)
+
+
+def test_the_nonce_is_found_as_utf_16_in_both_orders_and_a_transformed_copy_is_not(e):
+    import base64
+    import zlib
+    run_text = load_runner()
+    path = e["tmp"] / "outside" / "enc.bin"
+    for data in (NONCE_T.encode("utf-16-le"), NONCE_T.encode("utf-16-be"), b"\\xff\\xfe" + NONCE_T.encode("utf-16-le")):
+        path.write_bytes(b"head" + data + b"tail")
+        assert report_of(run_text, path) == (True, 0)
+    for data in (base64.b64encode(NONCE_T.encode()), zlib.compress(NONCE_T.encode() * 3)):   # documented: not detected
+        path.write_bytes(data)
+        assert report_of(run_text, path) == (False, 0)
+
+
+def test_a_file_that_cannot_be_read_makes_the_scan_incomplete_and_is_counted_not_named(e):
+    outside = e["tmp"] / "outside"
+    res, out = probe(e, outside_unreadable=str(outside / "locked-6f2a.log"))
+    try:
+        assert out["outside_unread_count"] == 1 and out["outside_scan_complete"] is False and out["outside_ok"] is False
+        assert out["files_outside_root"] == [] and out["outside_other_count"] == 1
+        assert "locked-6f2a" not in res.stdout                                        # an unflagged file is never named
+    finally:
+        (outside / "locked-6f2a.log").chmod(0o600)
+    # vacuity: the same probe without an unreadable file is complete
+    (outside / "locked-6f2a.log").unlink()
+    res, out = probe(e)
+    assert out["outside_unread_count"] == 0 and out["outside_scan_complete"] is True and out["outside_ok"] is True
+
+
+def test_a_budget_that_runs_out_leaves_a_file_unread_never_clean(e, monkeypatch):
+    run_text = load_runner()
+    path = e["tmp"] / "outside" / "budget.bin"
+    path.write_bytes(b"y" * 300)
+    monkeypatch.setattr(run_text, "READ_CHUNK", 100)
+    monkeypatch.setattr(run_text, "READ_BYTES_BUDGET", 150)
+    assert report_of(run_text, path) == (False, 1)
+    monkeypatch.setattr(run_text, "READ_BYTES_BUDGET", 10000)
+    monkeypatch.setattr(run_text, "READ_SECONDS_BUDGET", -1.0)                     # time already out
+    assert report_of(run_text, path) == (False, 1)
+    monkeypatch.setattr(run_text, "READ_SECONDS_BUDGET", 120.0)
+    assert report_of(run_text, path) == (False, 0)                                 # vacuity: enough of both, and it is clean
+
+
+def test_a_changed_folder_the_depth_limit_stops_at_makes_the_scan_incomplete_unless_another_location_listed_it(e):
+    run_text = load_runner()
+    root = e["tmp"] / "outside"
+    (root / "a" / "b").mkdir(parents=True)
+    (root / "a" / "b" / "c.txt").write_text("x")
+    found, complete, limited = run_text.scan_outside([(str(root), 1)], [], 0)       # a is at the limit and holds more
+    assert (complete, limited) == (False, 1)
+    found, complete, limited = run_text.scan_outside([(str(root), 3)], [], 0)       # deep enough
+    assert (complete, limited) == (True, 0)
+    found, complete, limited = run_text.scan_outside([(str(root), 1), (str(root / "a"), 3)], [], 0)   # listed by another location
+    assert (complete, limited) == (True, 0)
+    found, complete, limited = run_text.scan_outside([(str(root), 1)], [], time.time() + 3600)         # nothing changed: nothing to fear
+    assert (complete, limited) == (True, 0)
+
+
+def test_the_probe_reports_a_folder_too_deep_to_look_in(e):
+    res, out = probe(e, deep_under=str(e["tmp"] / "outside"))
+    assert out["outside_depth_limited_count"] >= 1 and out["outside_scan_complete"] is False and out["outside_ok"] is False
+    assert "l1" not in res.stdout                                                   # counted, not named
+
+
+def test_a_nonce_that_stands_alone_is_replaced_and_counted_so_an_echo_has_a_named_cause(e):
+    res, out = probe(e, "--repeat", "2", echo=True)
+    assert out["replaced"]["nonce"] == 1 and out["stable"] is True
+    assert out["system_verbatim"] is True and out["user_verbatim"] is True
+    assert out["extras"] == [{"where": "messages[0].content[1]", "chars": len("you said probe-user-" + "0" * 16 + " and more")}]   # the nonce has a fixed length
+    again = probe(e, echo=True)[1]
+    assert again["envelope_sha256"] == out["envelope_sha256"]                       # another nonce, the same envelope
+    run_text = load_runner()
+    body = {"messages": [{"role": "user", "content": "echo probe-user-%s end"}]}
+    one, two = ("1111111111111111", "2222222222222222")
+    texts_one = (SYSTEM_TEMPLATE_T.replace("{nonce}", one), USER_TEMPLATE_T.replace("{nonce}", one), one)
+    texts_two = (SYSTEM_TEMPLATE_T.replace("{nonce}", two), USER_TEMPLATE_T.replace("{nonce}", two), two)
+    env_one = run_text.normalise({"messages": [{"role": "user", "content": body["messages"][0]["content"] % one}]}, {}, texts_one)
+    env_two = run_text.normalise({"messages": [{"role": "user", "content": body["messages"][0]["content"] % two}]}, {}, texts_two)
+    assert env_one == env_two and "<NONCE>" in json.dumps(env_one) and one not in json.dumps(env_one)
