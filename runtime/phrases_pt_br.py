@@ -625,6 +625,19 @@ TABLE = {
     "NW_MAIL_ASK_STATE": "Marcar como lido ou como não lido?",
     "NW_MAIL_STATE_READ": "lido",
     "NW_MAIL_STATE_UNREAD": "não lido",
+    # --- a decision card decided by a word (package S2, runtime/card_words.py, limit L64), and a typed table command said as a sentence ---
+    "REPLY_WORDS_LINE": "Responda sim para aprovar ou não para recusar.",
+    "WORD_LIST_HEAD": "Mais de uma decisão espera. Diga qual pelo número, por exemplo \"aprovo o 2\":",
+    "WORD_ONE_AT_A_TIME": "Aprovo uma decisão de cada vez. Diga qual, por exemplo \"aprovo o 2\".",
+    "CMD_CANCELLED": "Pedido {n} cancelado.",
+    "CMD_CANCEL_ALREADY": "O pedido {n} já estava cancelado.",
+    "CMD_TASK_STOPPED": "Tarefa {n} parada.",
+    "CMD_TASK_NOT_RUNNING": "A tarefa {n} não estava em execução.",
+    "CMD_TASK_RETRY": "A tarefa {n} está pronta para rodar de novo.",
+    "CMD_STATUS": "Pedidos abertos: {open}. Esperando você: {waiting}.",
+    "CMD_STATUS_HELD": "A tarefa {n} está retida: {reason}.",
+    "CMD_ATTACHMENTS": "Arquivos esperando sua resposta: {n}.",
+    "CMD_DONE": "Pronto.",
 }
 
 STATUS = {

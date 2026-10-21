@@ -182,13 +182,15 @@ def test_the_closed_default_policy_draws_no_action_and_says_where_to_act(world):
     assert "Act on it on the page" not in question["text"] and question["link"] is None
 
 
-def test_without_buttons_the_actions_are_typed_lines_and_with_one_button_the_second_is_a_line(world):
+def test_without_buttons_the_card_ends_with_the_words_that_decide_it_and_with_one_button_the_second_is_a_line(world):
+    """S2 (limit L64): a card with no buttons ends with the words that decide it, not with a command to send (decision 233)."""
     world.caps(buttons=False)
     world.items[1] = decision("plan", 1)
     world.bridge.tick()
     [first] = world.sent()
     assert first["message"]["actions"] == []
-    assert "Send /approve 1" in first["message"]["text"] and "Send /reject 1" in first["message"]["text"]
+    assert first["message"]["text"].endswith("Reply yes to approve or no to decline.")
+    assert "/approve" not in first["message"]["text"] and "/reject" not in first["message"]["text"]
     world.caps(buttons=True, max_buttons=1)
     world.items[2] = decision("plan", 2, plan_sha256="r" * 64)
     world.bridge.tick()
