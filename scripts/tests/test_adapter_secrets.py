@@ -75,8 +75,9 @@ BEFORE = {
     # The key proxy of the eval network became a reader of the floor key on 2026-10-03: it holds the value of an eval run.
     "OPENROUTER_API_KEY": ((), "openrouter", ("evals/eval_run.py --pass-env", "adapters/agents-dir/run-prompt.sh",
                                               "evals/container/keyproxy/keyproxy.py", "adapters/api/run_agent.py")),
+    # ACCT-A: the lab facade (runtime/lab.py) hands the token to the adapter's text runner for a test on the person's own account.
     "CLAUDE_CODE_OAUTH_TOKEN": ((), "claude-code-oauth", ("evals/eval_run.py models[<id>].pass_env",
-                                                          "adapters/claude-code/run-prompt.sh")),
+                                                          "adapters/claude-code/run-prompt.sh", "runtime/lab.py")),
     "DEEPSEEK_API_KEY": ((), "deepseek", ("evals/eval_run.py --pass-env", "adapters/agents-dir/run-prompt.sh")),
     "ANTHROPIC_API_KEY": ((), "anthropic", ("adapters/api/run_agent.py",)),
     # Added since: the low-limit key of the eval cases that use the open network.

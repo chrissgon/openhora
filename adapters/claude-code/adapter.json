@@ -16,6 +16,12 @@
   ],
   "eval_runner": "run-prompt.sh",
   "runtime_runner": "run-agent.sh",
+  "text_runner": "run-text.sh",
+  "text_files": [
+    "run-text.sh",
+    "run_text.py",
+    "text_probe_stub.py"
+  ],
   "login_billing": "subscription",
   "secrets": [
     {
@@ -25,7 +31,8 @@
       "billing": "subscription",
       "readers": [
         "evals/eval_run.py models[<id>].pass_env",
-        "adapters/claude-code/run-prompt.sh"
+        "adapters/claude-code/run-prompt.sh",
+        "runtime/lab.py"
       ],
       "store_username": "claude-code-oauth",
       "note": "in an eval run the value never enters the run container: the model's key proxy (evals/container/keyproxy/) holds it and adds it to each call, and the run gets a placeholder and the proxy's address in ANTHROPIC_BASE_URL"
