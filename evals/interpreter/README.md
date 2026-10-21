@@ -242,9 +242,9 @@ python3 runtime/interpreter_measure.py --corpus FILE --route ID --local-aggregat
   are printed, the exit is 1 and the run is continued with `--resume` (it needs `--record`). A forward is read on the messaging channel only, as the current arm reads it.
 - `--local-aggregates` is for the maintainer's own labelled lines (the form of the corpus, `split: "local"`, ids `local-NNNNN`, kept outside any repository): one run, counts per
   language written and printed, no id and no line. It refuses `--record`, `--resume`, `--replay`, `--sample` and `--sequential`. It can demote a route, never promote one.
-- The current pipeline is measured by a test, not by this script: `WB_IX_CURRENT_CORPUS=<file> WB_IX_CURRENT_EVIDENCE=<dir> uv run --with pytest==9.1.1 pytest -q --tb=no -p
-  no:cacheprovider runtime/tests/test_interpreter_current_arm.py -k test_current_arm_full_run` writes one `arm: current` event for the file (for the test split, with pytest's
-  `--basetemp` inside the corpus file's folder: the stand-in messenger writes the replies to disk; add `-rP` so the counts are shown). It makes no call and writes the event only after
+- The current pipeline is measured by a test, not by this script: `WB_IX_CURRENT_CORPUS=<file> WB_IX_CURRENT_EVIDENCE=<dir> uv run --with pytest==9.1.1 pytest -q --tb=line -rP
+  -p no:cacheprovider runtime/tests/test_interpreter_current_arm.py -k test_current_arm_full_run` writes one `arm: current` event for the file (for the test split, with pytest's
+  `--basetemp` inside the corpus file's folder: the stand-in messenger writes the replies to disk; `-rP` shows the counts, which pytest hides under `--tb=no`). It makes no call and writes the event only after
   it checked that no run crashed and that at most 5% of the items are unseeded (above that it fails with the counts and writes nothing, so the maintainer decides).
 - A clarification that an item lists as acceptable (`also: [{"outcome": "clarify"}]`) is `correct`: the alternatives of `also` are part of the matching of rule 8, and rule 7 is for a
   clarification no alternative lists. Such an item keeps its gold (`op`), so it stays in the denominators of `correct_direct` and is not counted in `clarify_rate`.
