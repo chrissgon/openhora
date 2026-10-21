@@ -275,7 +275,9 @@ def test_the_test_split_runs_whole_and_its_evidence_is_valid_and_states_the_spli
 
 # --- the sequential sample ---------------------------------------------------------------------------------------------------------------------------
 
-def test_a_sequential_sample_draws_only_items_that_reach_the_model(cli):
+def test_a_sequential_sample_draws_only_items_that_reach_the_model(cli, monkeypatch):
+    monkeypatch.setattr(measure.prices, "load", lambda: {"models": {route_module.find(ROUTE)["model"]: {"input_usd_per_mtok": 1.0, "output_usd_per_mtok": 5.0,
+                                                                                                           "cache_read_usd_per_mtok": 0.1}}})
     cli.run("--no-evidence")
     reach = set(cli.echo.calls)
     assert reach and len(reach) < len(ITEMS), "the fixture has items decided before the model"
@@ -288,7 +290,15 @@ def test_a_sequential_sample_draws_only_items_that_reach_the_model(cli):
     assert len(ids) == 8 and ids <= reach and body[0]["sequential"] is True and body[0]["items"] == len(ITEMS)
     assert all(l["latency_ms"] is not None for l in body[1:]), "every line of a sequential event is a call"
     assert len(cli.echo.calls) == 16 and cli.problems(path) == []
-    assert json.loads(out)["p95_latency_ms"] is not None and json.loads(out)["median_cost_usd"] is None, "no price is configured for cache reads of the fixture's route"
+    assert json.loads(out)["p95_latency_ms"] is not None
+    assert [l["cost_usd"] for l in body[1:]] == [pytest.approx(3000 * 1.0 / 1e6 + 40 * 5.0 / 1e6 + 2000 * 0.1 / 1e6)] * 16 and json.loads(out)["median_cost_usd"] == pytest.approx(0.0034)
+
+
+def test_a_kind_of_token_with_no_price_leaves_the_cost_unknown_and_the_median_null(cli, monkeypatch):
+    monkeypatch.setattr(measure.prices, "load", lambda: {"models": {route_module.find(ROUTE)["model"]: {"input_usd_per_mtok": 1.0, "output_usd_per_mtok": 5.0}}})
+    code, out, err = cli.run("--sequential", "--sample", "4", "--seed", "1", "--json")
+    (path,) = cli.files()
+    assert code == 0 and all(l["cost_usd"] is None for l in cli.lines(path)[1:]) and json.loads(out)["median_cost_usd"] is None
 
 
 def test_a_sequential_sample_is_the_same_for_the_same_seed_and_other_for_another(cli):
