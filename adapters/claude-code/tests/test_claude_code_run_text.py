@@ -37,27 +37,32 @@ ENV_NAMES = {"PATH", "HOME", "LANG", "TMPDIR", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE
 PROBE_ENV_NAMES = {"ANTHROPIC_BASE_URL", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"}
 INTERPRETER_NAMES = {"__CF_USER_TEXT_ENCODING", "LC_CTYPE"}   # a Python stand-in may gain these from the system itself
 DECOYS = ("WB_RUNTIME_KEY_OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY")
+# The probe texts, written out here and not read from the runner: a change of the runner's texts must fail this file.
+PROBE_SYSTEM_TEXT = "probe system text alpha 7f3a\nsecond line: a\u00e7\u00e3o \u2014 \u00fcn\u00ef\u00e7ode\n  indented third line  \n"
+PROBE_USER_TEXT = ("\n  \r\n/x first line  \r\n!bang\n#hash\n@bia ana.lima@mail.example said \"hi\"\n"
+                   "cafe\u0301 a\u00e7\u00e3o \u65e5\u672c\u8a9e probe-user-7c1e\n\n  last line, trailing spaces   \n\n")
 NEVER_IN_ARGV = ["--dangerously-skip-permissions", "--add-dir", "--append-system-prompt", "--resume", "--continue", "--bare"]
 FAKE = r"""#!%(python)s
 import json, os, stat, subprocess, sys, time, urllib.request
 D = %(dir)r
 args = sys.argv[1:]
-if args == ["--version"]:
-    print("2.1.283 (Claude Code)")
-    sys.exit(0)
 conf = json.load(open(D + "/mode.json")) if os.path.exists(D + "/mode.json") else {}
 mode = conf.get("mode", "answer")
+if args == ["--version"]:
+    time.sleep(conf.get("version_sleep", 0))
+    print("2.1.283 (Claude Code)")
+    sys.exit(0)
 stdin = sys.stdin.read()
 cfg = os.environ.get("CLAUDE_CONFIG_DIR", "")
 with open(D + "/calls.jsonl", "a") as f:
-    f.write(json.dumps({"argv": args, "env": sorted(os.environ), "token": os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"),
+    f.write(json.dumps({"pid": os.getpid(), "argv": args, "env": sorted(os.environ), "token": os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"),
                         "values": {k: v for k, v in os.environ.items() if k in conf.get("show", [])}, "stdin": stdin,
                         "cwd": os.getcwd(), "cfg": cfg, "cfg_mode": stat.S_IMODE(os.stat(cfg).st_mode) if cfg else None,
                         "cwd_mode": stat.S_IMODE(os.stat(".").st_mode), "cwd_listing": sorted(os.listdir(".")),
                         "cfg_listing": sorted(os.listdir(cfg)) if cfg else None}) + "\n")
 
-def reply(text="the reply", stop="end_turn", out=7, error=False, extra=None):
-    usage = {"input_tokens": 11, "output_tokens": out, "cache_read_input_tokens": 3, "cache_creation_input_tokens": 5}
+def reply(text="the reply", stop="end_turn", out=7, error=False, extra=None, usage=None):
+    usage = usage or {"input_tokens": 11, "output_tokens": out, "cache_read_input_tokens": 3, "cache_creation_input_tokens": 5}
     obj = {"type": "result", "subtype": "success", "is_error": error, "result": text, "usage": usage}
     if stop is not None:
         obj["stop_reason"] = stop
@@ -106,6 +111,10 @@ elif mode == "hang":
     child = subprocess.Popen(["sleep", "60"])
     open(D + "/child.pid", "w").write(str(child.pid))
     time.sleep(60)
+elif mode == "escaper":
+    code = "import os,time; open(%%r,'w').write(str(os.getpid())); os.setsid(); time.sleep(40)" %% (D + "/escaper.pid")
+    subprocess.Popen([sys.executable, "-c", code])   # leaves the group and keeps this process's stdout and stderr
+    time.sleep(120)
 elif mode == "leave":
     child = subprocess.Popen(["sleep", "60"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     open(D + "/child.pid", "w").write(str(child.pid))
@@ -117,7 +126,20 @@ elif mode == "http":
     blocks = [{"type": "text", "text": system}]
     if conf.get("extra_system"):
         blocks.insert(0, {"type": "text", "text": "x" * conf["extra_system"]})
+    if conf.get("trim_user"):
+        stdin = stdin.strip()
+    if conf.get("crlf_user"):
+        stdin = stdin.replace("\r\n", "\n")
+    if conf.get("nfc_user"):
+        import unicodedata
+        stdin = unicodedata.normalize("NFC", stdin)
     user = [{"type": "text", "text": stdin}]
+    if conf.get("inject"):
+        import random
+        user.append({"type": "text", "text": "cwd: %%s Today's date is 2026-%%02d-%%02d. at 2026-05-%%02dT07:08:09Z" %%
+                     (os.getcwd(), random.randint(1, 12), random.randint(1, 28), random.randint(1, 28))})
+    if conf.get("outside_path"):
+        open(conf["outside_path"], "w").write(stdin)
     if conf.get("extra_user"):
         user.append({"type": "text", "text": "r" * conf["extra_user"]})
     if conf.get("merge_user"):
@@ -132,11 +154,15 @@ elif mode == "http":
     for _ in range(conf.get("requests", 1)):
         req = urllib.request.Request(base + "/v1/messages?beta=true", data=json.dumps(body).encode(), method="POST",
                                      headers={"content-type": "application/json", "anthropic-beta": "beta-b, beta-a",
-                                              "authorization": "Bearer " + os.environ["CLAUDE_CODE_OAUTH_TOKEN"]})
+                                              "authorization": "Bearer " + conf.get("credential", os.environ["CLAUDE_CODE_OAUTH_TOKEN"])})
         urllib.request.urlopen(req, timeout=20).read()
     if conf.get("other_path"):
         urllib.request.urlopen(base + "/api/hello", timeout=20).read()
-    reply("probe-ok")
+    stub_usage = {"input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+    if conf.get("noresult"):
+        print(json.dumps({"type": "result", "is_error": False, "answer": "probe-ok", "usage": stub_usage}))
+    else:
+        reply(conf.get("text", "probe-ok"), "end_turn", usage=conf.get("usage", stub_usage))
 else:
     sys.exit(9)
 """
@@ -152,13 +178,20 @@ def e(tmp_path):
     tools = os.pathsep.join(dict.fromkeys(str(Path(shutil.which(t)).parent) for t in ("python3", "bash", "sleep")))
     if shutil.which("claude", path=tools):
         pytest.skip("a real claude CLI sits next to python3; this test must not be able to reach it")
+    for d in ("base", "outside"):
+        (tmp_path / d).mkdir()
     env = {"PATH": f"{bin_dir}{os.pathsep}{tools}{os.pathsep}/usr/bin{os.pathsep}/bin", "HOME": str(tmp_path / "home"),
            "TMPDIR": str(tmp_path / "tmp"), "LANG": "en_US.UTF-8", "CLAUDE_CODE_OAUTH_TOKEN": TOKEN,
-           "ANTHROPIC_BASE_URL": "http://decoy.example:1", "HTTPS_PROXY": "http://decoy.example:2", "RUN_TEXT_TEST": "1"}
+           "ANTHROPIC_BASE_URL": "http://decoy.example:1", "HTTPS_PROXY": "http://decoy.example:2", "RUN_TEXT_TEST": "1",
+           "RUN_TEXT_BASE": str(tmp_path / "base"), "RUN_TEXT_OUTSIDE": str(tmp_path / "outside")}
     for name in DECOYS:   # variables of the caller's, none of which may reach the CLI
         env[name] = "decoy-value-of-" + name.lower()
     assert shutil.which("claude", path=env["PATH"]) == str(bin_dir / "claude")
     return {"tmp": tmp_path, "fake": fake_dir, "env": env}
+
+
+def base_of(e):
+    return e["tmp"] / "base"
 
 
 def mode(e, name="answer", **more):
@@ -266,8 +299,9 @@ def test_the_cli_runs_in_a_fresh_working_folder_and_configuration_folder(e):
     assert call["cwd_listing"] == [] and call["cfg_listing"] == []
     assert call["cfg_mode"] == 0o700 and call["cwd_mode"] == 0o700
     assert Path(call["cfg"]).parent == Path(call["cwd"]).parent
+    assert Path(call["cfg"]).parent.parent.resolve() == base_of(e).resolve()   # the fixed base, not the caller's TMPDIR
     assert not Path(call["cfg"]).exists() and not Path(call["cwd"]).exists()
-    assert [p for p in (e["tmp"] / "tmp").iterdir()] == []
+    assert list(base_of(e).iterdir()) == [] and list((e["tmp"] / "tmp").iterdir()) == []
 
 
 # -------------------------------------------------------------------------------------------------------- the disk canary
@@ -281,9 +315,9 @@ def test_nothing_of_the_system_the_line_or_the_reply_is_written_and_the_line_is_
     assert USER_CANARY.encode("utf-8") not in " ".join(call["argv"]).encode("utf-8")
     assert "CANARY-7d3be855" not in " ".join(call["argv"])
     assert SYSTEM_CANARY in call["argv"]                                  # the system text is in argv, by design
-    kept = [p for p in (e["tmp"] / "tmp").iterdir() if p.name.startswith("run-text-")]
+    kept = [p for p in base_of(e).iterdir() if p.name.startswith("run-text-")]
     assert len(kept) == 1 and stat.S_IMODE(kept[0].stat().st_mode) == 0o700   # the kept root exists, so the scan below is not empty
-    roots = [e["tmp"] / "home", e["tmp"] / "tmp"]
+    roots = [e["tmp"] / "home", e["tmp"] / "tmp", kept[0]]
     assert find_text(roots, "CANARY-7d3be855") == [] and find_text(roots, "CANARY-41f0c2a9") == []
     assert json.loads(res.stdout)["text"].startswith("reply with USER-CANARY")
     assert res.stderr == ""
@@ -292,19 +326,23 @@ def test_nothing_of_the_system_the_line_or_the_reply_is_written_and_the_line_is_
 def test_the_disk_oracle_catches_a_planted_leak(e):
     mode(e, "leak")
     run(e, request(user=USER_CANARY), env={"RUN_TEXT_KEEP_TMP": "1"})
-    hits = find_text([e["tmp"] / "home", e["tmp"] / "tmp"], "CANARY-7d3be855")   # the CLI's home is a folder of the kept root
-    assert len(hits) == 1 and hits[0].startswith(str(e["tmp"] / "tmp" / "run-text-")) and hits[0].endswith("/home/leak.txt")
+    hits = find_text([e["tmp"] / "home", e["tmp"] / "tmp", base_of(e)], "CANARY-7d3be855")   # the CLI's home is a folder of the kept root
+    assert len(hits) == 1 and hits[0].startswith(str(base_of(e) / "run-text-")) and hits[0].endswith("/home/leak.txt")
 
 
-def test_without_the_keep_flag_nothing_stays_and_the_flag_is_ignored_outside_a_test(e):
+def test_without_the_keep_flag_nothing_stays_and_the_flag_is_ignored_outside_a_test(e, monkeypatch):
     run(e, env={"RUN_TEXT_KEEP_TMP": "1"})
-    assert len(list((e["tmp"] / "tmp").iterdir())) == 1
-    shutil.rmtree(e["tmp"] / "tmp")
-    (e["tmp"] / "tmp").mkdir()
-    env = {k: v for k, v in e["env"].items() if k != "RUN_TEXT_TEST"}
-    res = subprocess.run(["bash", str(SCRIPT), "--model", "m"], input=json.dumps(request()), capture_output=True, text=True,
-                         env={**env, "RUN_TEXT_KEEP_TMP": "1"}, timeout=60)
-    assert res.returncode == 0 and list((e["tmp"] / "tmp").iterdir()) == []
+    assert len(list(base_of(e).iterdir())) == 1
+    shutil.rmtree(base_of(e))
+    base_of(e).mkdir()
+    assert run(e).returncode == 0 and list(base_of(e).iterdir()) == []
+    runner = load_runner()                                                  # outside a test the keep flag does nothing
+    folder = e["tmp"] / "would-be-kept"
+    folder.mkdir()
+    monkeypatch.delenv("RUN_TEXT_TEST", raising=False)
+    monkeypatch.setenv("RUN_TEXT_KEEP_TMP", "1")
+    runner.remove_root(str(folder))
+    assert not folder.exists()
 
 
 def test_the_clis_stderr_is_never_forwarded(e):
@@ -346,7 +384,7 @@ def test_a_list_of_events_is_read_by_its_result_event(e):
 
 @pytest.mark.parametrize("name,code,exit_code", [
     ("limit", "E_RATE", 1), ("limit_text", "E_RATE", 1), ("auth", "E_KEY", 3), ("network", "E_NETWORK", 1),
-    ("upstream", "E_UPSTREAM", 1), ("badjson", "E_INTERNAL", 1), ("noresult", "E_RESPONSE", 1), ("empty", "E_RESPONSE", 1),
+    ("upstream", "E_UPSTREAM", 1), ("badjson", "E_RESPONSE", 1), ("noresult", "E_RESPONSE", 1), ("empty", "E_RESPONSE", 1),
     ("nousage", "E_RESPONSE", 1), ("crash", "E_INTERNAL", 1),
 ])
 def test_a_failure_is_one_code_on_stderr_and_nothing_else(e, name, code, exit_code):
@@ -427,7 +465,7 @@ def test_a_cli_that_sleeps_gives_e_timeout_and_its_child_is_gone(e):
     else:
         os.kill(pid, 9)
         pytest.fail("the child of the CLI outlived the call")
-    assert [p for p in (e["tmp"] / "tmp").iterdir()] == []
+    assert list(base_of(e).iterdir()) == []
 
 
 def test_what_the_cli_leaves_running_ends_when_it_returns(e):
@@ -449,7 +487,8 @@ def test_what_the_cli_leaves_running_ends_when_it_returns(e):
 
 PROBE = ["--probe", "--model", "model-a", "--max-tokens", "2000", "--reasoning", "low"]
 PROBE_KEYS = {"runner_version", "runner_sha256", "envelope_sha256", "system_verbatim", "user_verbatim", "messages_requests", "paths",
-              "extras", "sent", "stable", "overhead_ms"}
+              "extras", "sent", "stable", "overhead_ms", "replaced", "reply_ok", "credential_ok", "files_outside_root",
+              "outside_scan_complete"}
 
 
 def probe(e, *extra, **conf):
@@ -465,6 +504,8 @@ def test_the_probe_runs_against_the_loopback_stub_with_a_placeholder_and_reports
     assert set(out) == PROBE_KEYS
     assert out["system_verbatim"] is True and out["user_verbatim"] is True and out["messages_requests"] == 1
     assert out["paths"] == {"/v1/messages": 1} and out["extras"] == [] and out["stable"] is True
+    assert out["reply_ok"] is True and out["credential_ok"] is True and out["replaced"] == {"root": 0, "date": 0}
+    assert out["files_outside_root"] == [] and out["outside_scan_complete"] is True
     assert out["sent"] == {"max_tokens": 2000, "temperature": None, "thinking": {"type": "enabled", "budget_tokens": 1024}, "effort": "low"}
     assert set(out["overhead_ms"]) == {"p50", "p95"} and 0 <= out["overhead_ms"]["p50"] <= out["overhead_ms"]["p95"]
     assert out["runner_version"] == "run-text/1 cli/2.1.283"
@@ -474,7 +515,8 @@ def test_the_probe_runs_against_the_loopback_stub_with_a_placeholder_and_reports
     for call in runs:
         assert call["token"] == "placeholder" and TOKEN not in json.dumps(call)
         assert set(call["env"]) - INTERPRETER_NAMES == ENV_NAMES | PROBE_ENV_NAMES
-        assert call["stdin"] == "probe user text beta 91c2"
+        assert call["stdin"] == PROBE_USER_TEXT
+        assert call["argv"][call["argv"].index("--system-prompt") + 1] == PROBE_SYSTEM_TEXT
         assert argv_problems(call["argv"], "low") == []
     assert "decoy" not in json.dumps(runs)
 
@@ -484,8 +526,8 @@ def test_the_probe_needs_no_credential_and_leaves_no_file(e):
     mode(e, "http")
     res = subprocess.run(["bash", str(SCRIPT), *PROBE], capture_output=True, text=True, env=env, timeout=120)
     assert res.returncode == 0, res.stderr
-    roots = [e["tmp"] / "home", e["tmp"] / "tmp"]
-    assert find_text(roots, "probe user text beta") == [] and find_text(roots, "probe system text alpha") == []
+    roots = [e["tmp"] / "home", e["tmp"] / "tmp", base_of(e)]
+    assert find_text(roots, "probe-user-7c1e") == [] and find_text(roots, "probe system text alpha") == []
 
 
 def test_extra_text_the_cli_adds_is_listed_by_place_and_size(e):
@@ -541,8 +583,8 @@ def load_runner():
 
 CAPTURED = {"model": "model-a", "max_tokens": 2000, "stream": True,
             "metadata": {"user_id": "user_abc_session_1"},
-            "system": [{"type": "text", "text": "identity line"}, {"type": "text", "text": "probe system text alpha 7f3a"}],
-            "messages": [{"role": "user", "content": [{"type": "text", "text": "probe user text beta 91c2"}]}],
+            "system": [{"type": "text", "text": "identity line"}, {"type": "text", "text": PROBE_SYSTEM_TEXT}],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": PROBE_USER_TEXT}]}],
             "thinking": {"type": "enabled", "budget_tokens": 1024}}
 HEADERS = {"Anthropic-Beta": "zeta-1, alpha-2", "Content-Type": "application/json"}
 # The normalised envelope, written out by hand: the probe texts replaced, metadata.user_id dropped, the sorted beta values added.
@@ -633,3 +675,227 @@ def test_the_real_cli_probe_reports_a_single_verbatim_request():
     assert res.returncode == 0, res.stderr
     out = json.loads(res.stdout)
     assert out["system_verbatim"] is True and out["user_verbatim"] is True and out["messages_requests"] == 1 and out["stable"] is True
+
+
+# ------------------------------------------------------------------------------- the deadline, the signals, the stale roots
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def wait_gone(pid, seconds=10):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not alive(pid):
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def start_runner(e, req=None):
+    """The runner started and left running (a hanging CLI): the Popen and the CLI's pid once it has started."""
+    proc = subprocess.Popen(["bash", str(SCRIPT), "--model", "model-a"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, env=e["env"])
+    proc.stdin.write(json.dumps(req or request(deadline_ms=60000)))
+    proc.stdin.close()
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and not calls(e):
+        time.sleep(0.05)
+    assert calls(e), "the stand-in CLI never started"
+    return proc, calls(e)[0]["pid"]
+
+
+def test_a_slow_version_check_is_inside_the_deadline_and_is_e_timeout(e):
+    mode(e, version_sleep=6)
+    started = time.monotonic()
+    res = run(e, request(deadline_ms=1500))
+    assert (res.returncode, res.stdout, res.stderr) == (1, "", "run-text: E_TIMEOUT\n")
+    assert time.monotonic() - started < 1.5 + 3 and calls(e) == []         # the call itself never started
+    assert list(base_of(e).iterdir()) == []
+
+
+def test_the_version_check_and_the_call_share_one_deadline(e):
+    mode(e, "hang", version_sleep=1.5)
+    started = time.monotonic()
+    res = run(e, request(deadline_ms=2000))
+    elapsed = time.monotonic() - started
+    assert (res.returncode, res.stderr) == (1, "run-text: E_TIMEOUT\n")
+    assert elapsed < 3.0          # a deadline of its own for each would give 1.5 + 2.0 and more
+    pid = int((e["fake"] / "child.pid").read_text())
+    assert wait_gone(pid)
+
+
+def test_a_grandchild_in_another_session_that_holds_the_pipes_cannot_hold_the_runner(e):
+    mode(e, "escaper")
+    started = time.monotonic()
+    try:
+        res = run(e, request(deadline_ms=800))
+        elapsed = time.monotonic() - started
+        assert (res.returncode, res.stdout, res.stderr) == (1, "", "run-text: E_TIMEOUT\n")
+        assert elapsed < 0.8 + 3.0          # the documented bound: deadline_ms + 3 s
+        assert list(base_of(e).iterdir()) == []
+    finally:
+        escapee = e["fake"] / "escaper.pid"
+        if escapee.exists():
+            try:
+                os.kill(int(escapee.read_text()), 9)   # it left the group on purpose: the one process the runner cannot end
+            except ProcessLookupError:
+                pass
+
+
+def test_term_ends_the_cli_and_removes_the_root(e):
+    mode(e, "hang")
+    proc, cli_pid = start_runner(e)
+    assert len(list(base_of(e).iterdir())) == 1
+    proc.send_signal(15)
+    try:
+        proc.wait(timeout=10)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 143 and wait_gone(cli_pid)
+    assert list(base_of(e).iterdir()) == []
+
+
+def test_kill_9_leaves_the_root_and_the_cli_and_the_next_call_sweeps_the_old_root(e):
+    mode(e, "hang")
+    proc, cli_pid = start_runner(e)
+    roots = list(base_of(e).iterdir())
+    assert len(roots) == 1
+    proc.kill()
+    proc.wait(timeout=10)
+    try:
+        # what SIGKILL cannot clean, as the contract says: the root stays and the CLI, in a session of its own, runs on
+        assert roots[0].exists() and alive(cli_pid)
+        fresh = base_of(e) / "run-text-fresh0"
+        fresh.mkdir()
+        other = base_of(e) / "keep-me"
+        other.mkdir()
+        outside = e["tmp"] / "outside" / "target"
+        outside.mkdir()
+        (outside / "file").write_text("x")
+        (base_of(e) / "run-text-link0").symlink_to(outside)
+        old = time.time() - 700 - 60
+        for path in (roots[0], other):
+            os.utime(path, (old, old))
+        mode(e)
+        assert run(e).returncode == 0
+        assert not roots[0].exists()                                        # older than the longest deadline plus a minute
+        assert fresh.exists() and other.exists()                           # a recent root and a folder of another name stay
+        assert (outside / "file").exists() and (base_of(e) / "run-text-link0").is_symlink()   # a link is never followed
+    finally:
+        try:
+            os.kill(cli_pid, 9)
+        except ProcessLookupError:
+            pass
+
+
+def test_the_base_is_the_fixed_tmp_folder_and_a_link_or_a_stranger_is_refused(e, monkeypatch, tmp_path):
+    monkeypatch.setenv("RUN_TEXT_TEST", "1")
+    runner = load_runner()
+    link = tmp_path / "linked-base"
+    link.symlink_to(tmp_path / "outside")
+    monkeypatch.setenv("RUN_TEXT_BASE", str(link))
+    with pytest.raises(runner.Fail) as caught:
+        runner.root_base()
+    assert caught.value.code == "E_INTERNAL"
+    monkeypatch.delenv("RUN_TEXT_TEST")                                     # outside a test the override is ignored
+    seen = []
+    monkeypatch.setattr(runner.os, "makedirs", lambda path, *a, **k: seen.append(path) or (_ for _ in ()).throw(OSError("stop")))
+    with pytest.raises(runner.Fail):
+        runner.root_base()
+    assert seen == ["/tmp/run-text-%d" % os.getuid()]
+
+
+# ----------------------------------------------------------------------------------- what the probe proves about the reply
+
+def test_the_probe_checks_that_the_reply_reads_as_the_stubs(e):
+    assert probe(e)[1]["reply_ok"] is True
+    for conf in ({"noresult": True}, {"text": "something else"}, {"usage": {"input_tokens": 2, "output_tokens": 1,
+                 "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}}):
+        res, out = probe(e, **conf)
+        assert res.returncode == 0 and out["reply_ok"] is False, conf
+
+
+def test_the_probe_reports_a_credential_the_stub_should_not_have_seen(e):
+    assert probe(e)[1]["credential_ok"] is True
+    assert probe(e, credential="some-other-token")[1]["credential_ok"] is False
+
+
+@pytest.mark.parametrize("conf,why", [({"trim_user": True}, "trimmed"), ({"crlf_user": True}, "CRLF turned into LF"),
+                                       ({"nfc_user": True}, "combining mark composed")])
+def test_a_harness_that_changes_the_line_in_any_of_these_ways_is_not_verbatim(e, conf, why):
+    res, out = probe(e, **conf)
+    assert out["user_verbatim"] is False, why
+    assert out["system_verbatim"] is True
+
+
+def test_the_probe_texts_are_the_adversarial_ones_and_arrive_whole(e):
+    assert "\r\n" in PROBE_USER_TEXT and PROBE_USER_TEXT.startswith("\n  ") and PROBE_USER_TEXT.endswith("  \n\n")
+    assert "cafe\u0301" in PROBE_USER_TEXT and "\n/x " in PROBE_USER_TEXT.replace("\r\n", "\n") and "\n!bang" in PROBE_USER_TEXT
+    assert "\n#hash" in PROBE_USER_TEXT and "\n@bia " in PROBE_USER_TEXT and "ana.lima@mail.example" in PROBE_USER_TEXT
+    assert PROBE_SYSTEM_TEXT.count("\n") >= 3 and not PROBE_SYSTEM_TEXT.isascii()
+    res, out = probe(e)
+    assert out["system_verbatim"] is True and out["user_verbatim"] is True
+    assert load_runner().PROBE_USER == PROBE_USER_TEXT and load_runner().PROBE_SYSTEM == PROBE_SYSTEM_TEXT
+
+
+# --------------------------------------------------------------------------- values that vary from run to run, and files outside
+
+INJECTED = "cwd: <ROOT>/cwd Today's date is <DATE>. at <DATE>"
+
+
+def test_the_root_and_the_dates_are_replaced_before_the_hash_and_listed(e):
+    res, out = probe(e, "--repeat", "3", inject=True)
+    assert out["stable"] is True                                            # a different root and date in every run
+    assert out["replaced"] == {"root": 1, "date": 2}
+    assert out["extras"] == [{"where": "messages[0].content[1]", "chars": len(INJECTED)}]   # counted after the replacement
+    paths = {c["cwd"] for c in calls(e)}
+    assert len(paths) == 3                                                  # vacuity: the runs really differed
+
+
+def test_the_scrub_replaces_each_form_of_the_root_and_each_date_and_only_with_a_root_given():
+    run_text = load_runner()
+    root = "/private/var/x/base/run-text-ab12cd34"
+    body = {"system": "path " + root + "/cwd and slug -private-var-x-base-run-text-ab12cd34-cwd",
+            "messages": [{"content": [{"type": "text", "text": "Today's date is October 21, 2026. noon 2026-10-21T10:11:12.123Z on 2026-10-21"}]}]}
+    scrubbed, counts = run_text.scrub_body(body, root)
+    assert scrubbed == {"system": "path <ROOT>/cwd and slug -private-var-x-base-<ROOT>-cwd",
+                        "messages": [{"content": [{"type": "text", "text": "Today's date is <DATE>. noon <DATE> on <DATE>"}]}]}
+    assert counts == {"root": 2, "date": 3}
+    assert body["system"].startswith("path /private")                      # the captured body is not changed
+    kept, counts = run_text.scrub_body(body, None)                         # vacuity: without a root the root stays
+    assert root in kept["system"] and counts["root"] == 0
+    other = json.loads(json.dumps(body).replace("ab12cd34", "99ee88dd"))
+    headers = {"anthropic-beta": "b"}
+    assert run_text.normalise(body, headers, root) == run_text.normalise(other, headers, root.replace("ab12cd34", "99ee88dd"))
+    assert run_text.normalise(body, headers) != run_text.normalise(other, headers)
+
+
+def test_a_file_the_cli_writes_outside_its_root_is_listed_with_its_time_and_whether_it_holds_the_probe_text(e):
+    outside = e["tmp"] / "outside"
+    old = outside / "old.txt"
+    old.write_text("written before the probe")
+    os.utime(old, (time.time() - 3600, time.time() - 3600))
+    res, out = probe(e, outside_path=str(outside / "leak.txt"))
+    assert out["outside_scan_complete"] is True
+    assert [(Path(f["path"]).name, f["probe_text"]) for f in out["files_outside_root"]] == [("leak.txt", True)]
+    assert abs(out["files_outside_root"][0]["mtime"] - time.time()) < 120
+
+
+def test_the_outside_scan_says_when_it_was_not_whole(e, monkeypatch):
+    run_text = load_runner()
+    folder = e["tmp"] / "outside"
+    for i in range(10):
+        (folder / ("f%d" % i)).write_text("x")
+    monkeypatch.setattr(run_text, "SCAN_LIMIT", 4)
+    found, complete = run_text.scan_outside([(str(folder), 3)], [], 0)
+    assert complete is False and len(found) <= 4
+    monkeypatch.setattr(run_text, "SCAN_LIMIT", 1000)
+    found, complete = run_text.scan_outside([(str(folder), 3)], [], 0)
+    assert complete is True and len(found) == 10
+    assert run_text.scan_outside([(str(folder), 3)], [str(folder)], 0) == ({}, True)   # a skipped folder is not entered

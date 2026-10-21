@@ -10,6 +10,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ANSWER = "probe-ok"
+# The token counts the stub reports, in the runner's own keys: what a reply read from the stub must show (the probe's reply_ok).
+USAGE = {"input": 1, "output": 1, "cache_read": 0, "cache_write": 0}
 MAX_BODY = 8 * 1024 * 1024
 
 

@@ -12,16 +12,20 @@ Reply (stdout, one line): {"v": 1, "text", "finish": "stop"|"length"|"other", "u
 "cache_write"}, "latency_ms", "runner_version"}.
 A failure prints one line on stderr, `run-text: E_<CODE>`, and nothing else: E_USAGE (exit 2); E_KEY, E_ROUTE (exit 3);
 E_TIMEOUT, E_RATE, E_NETWORK, E_UPSTREAM, E_RESPONSE, E_INTERNAL (exit 1). The CLI's stdout and stderr are read in memory
-and never forwarded or written; the system text, the user text and the reply are written nowhere (the CLI keeps no session,
-and the working folder and the configuration folder it uses are removed when the call ends, however it ends).
+and never forwarded; this runner writes the system text, the user text and the reply nowhere (the CLI is told to keep no session;
+what it writes anyway is what `--probe` lists as files_outside_root).
 
-The call runs the CLI in a fresh working folder and a fresh configuration folder (one temporary root, mode 700), in its own
-process group, with an environment of a closed list of names. The credential is CLAUDE_CODE_OAUTH_TOKEN, read from this
+The call runs the CLI in a fresh working folder and a fresh configuration folder (one temporary root, mode 700, under the fixed
+folder /tmp/run-text-<uid>), in its own process group, with an environment of a closed list of names. One monotonic deadline
+starts when the request is read and covers `claude --version` and the call; the runner returns within deadline_ms + 3 s. Stop it
+with TERM (it then ends the CLI's group and removes its root); after KILL the root stays until the next call of the same user,
+which removes roots older than the longest deadline plus a minute, and the CLI, in a session of its own, runs on until it ends. The credential is CLAUDE_CODE_OAUTH_TOKEN, read from this
 process's environment (the caller puts it there; nothing here reads the OS secret store). Tests only: RUN_TEXT_TEST=1 with
 RUN_TEXT_KEEP_TMP=1 keeps the temporary root so that a test can look for what must not be there.
 """
 from __future__ import annotations
 
+import glob
 import hashlib
 import json
 import math
@@ -29,6 +33,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -50,13 +55,21 @@ MAX_STDIN = 4 * 1024 * 1024
 MAX_SYSTEM_BYTES = 100000      # the system text travels in argv; one argument is 128 KiB at most on Linux
 MAX_TOKENS_LIMIT = 64000
 MAX_DEADLINE_MS = 600000
-KILL_GRACE_S = 2.0
+KILL_GRACE_S = 1.5
+DRAIN_S = 1.0                  # after the KILL: how long to wait for the pipes before closing them
+VERSION_LIMIT_S = 10.0
 TOKEN_NAME = "CLAUDE_CODE_OAUTH_TOKEN"
 PASS_THROUGH = ("PATH", "LANG")   # HOME is the temporary root's own
 FIXED_ENV = {"DISABLE_AUTOUPDATER": "1", "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1",
              "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "ENABLE_CLAUDEAI_MCP_SERVERS": "false"}
-PROBE_SYSTEM = "probe system text alpha 7f3a"
-PROBE_USER = "probe user text beta 91c2"
+# Texts that look like what a person writes and what a harness may trim, split or read as a command: leading and trailing spaces and
+# newlines, several lines, CRLF, non-ASCII with a combining mark, lines that start with /, !, # and @, an e-mail address, a quote.
+PROBE_SYSTEM = "probe system text alpha 7f3a\nsecond line: a\u00e7\u00e3o \u2014 \u00fcn\u00ef\u00e7ode\n  indented third line  \n"
+PROBE_USER = ("\n  \r\n/x first line  \r\n!bang\n#hash\n@bia ana.lima@mail.example said \"hi\"\n"
+              "cafe\u0301 a\u00e7\u00e3o \u65e5\u672c\u8a9e probe-user-7c1e\n\n  last line, trailing spaces   \n\n")
+BASE_PREFIX = "/tmp/run-text-"   # + the user id: the fixed folder of the roots, never the caller's TMPDIR
+STALE_AFTER_S = MAX_DEADLINE_MS / 1000.0 + 60
+SCAN_LIMIT = 100000
 PROBE_TOKEN = "placeholder"
 PROBE_DEADLINE_MS = 60000
 STOP_REASONS = {"end_turn": "stop", "stop_sequence": "stop", "max_tokens": "length"}
@@ -146,9 +159,39 @@ def build_env(root, token, max_tokens, reasoning, extra=None):
     return env
 
 
-def make_root():
-    """One temporary root (mode 700) with the working folder, the configuration folder and a temp folder of the CLI."""
-    root = tempfile.mkdtemp(prefix="run-text-")
+def test_mode():
+    return os.environ.get("RUN_TEXT_TEST") == "1"
+
+
+def root_base():
+    """The fixed folder of the roots, /tmp/run-text-<uid> (tests only: RUN_TEXT_BASE), mode 700, ours, not a link."""
+    base = os.environ.get("RUN_TEXT_BASE") if test_mode() and os.environ.get("RUN_TEXT_BASE") else BASE_PREFIX + str(os.getuid())
+    try:
+        os.makedirs(base, 0o700, exist_ok=True)
+        info = os.lstat(base)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            raise Fail("E_INTERNAL")
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            os.chmod(base, 0o700)
+    except OSError:
+        raise Fail("E_INTERNAL")
+    return base
+
+
+def sweep_stale(base):
+    """Roots a killed runner left: folders of the base older than the longest deadline plus a minute. Links are left alone."""
+    try:
+        for entry in os.scandir(base):
+            if entry.name.startswith("run-text-") and entry.is_dir(follow_symlinks=False) \
+                    and time.time() - entry.stat(follow_symlinks=False).st_mtime > STALE_AFTER_S:
+                shutil.rmtree(entry.path, ignore_errors=True)
+    except OSError:
+        pass
+
+
+def make_root(base):
+    """One temporary root (mode 700) with the working folder, the configuration folder, a temp folder and a home folder."""
+    root = tempfile.mkdtemp(prefix="run-text-", dir=base)
     os.chmod(root, 0o700)
     for name in ("cwd", "config", "tmp", "home"):
         os.mkdir(os.path.join(root, name), 0o700)
@@ -156,7 +199,7 @@ def make_root():
 
 
 def remove_root(root):
-    if os.environ.get("RUN_TEXT_TEST") == "1" and os.environ.get("RUN_TEXT_KEEP_TMP") == "1":
+    if test_mode() and os.environ.get("RUN_TEXT_KEEP_TMP") == "1":
         return
     shutil.rmtree(root, ignore_errors=True)
 
@@ -170,6 +213,7 @@ def end_group(proc):
             return
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline:
+            proc.poll()   # reaps the leader, so that a dead group is seen as gone
             try:
                 os.killpg(proc.pid, 0)
             except (ProcessLookupError, PermissionError):
@@ -177,8 +221,30 @@ def end_group(proc):
             time.sleep(0.05)
 
 
-def run_cli(argv, env, cwd, stdin_text, deadline_s):
-    """(returncode, stdout, stderr, wall_ms). The output is read in memory; nothing is forwarded or written."""
+def drain(proc):
+    """After the group is ended: take what the pipes hold for DRAIN_S, then close them, so that a process that left the group
+    (its own session) and still holds a pipe cannot hold this runner."""
+    try:
+        proc.communicate(timeout=DRAIN_S)
+    except subprocess.TimeoutExpired:
+        pass
+    except (OSError, ValueError):
+        pass
+    for pipe in (proc.stdin, proc.stdout, proc.stderr):
+        try:
+            if pipe:
+                pipe.close()
+        except (OSError, ValueError):
+            pass
+    try:
+        proc.wait(timeout=0.5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def run_cli(argv, env, cwd, stdin_text, limit_s):
+    """(returncode, stdout, stderr, wall_ms). The output is read in memory; nothing is forwarded or written. At limit_s the
+    CLI's group is ended and the call is E_TIMEOUT."""
     try:
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
                                 cwd=cwd, start_new_session=True)
@@ -186,28 +252,29 @@ def run_cli(argv, env, cwd, stdin_text, deadline_s):
         raise Fail("E_INTERNAL")
     started = time.monotonic()
     try:
-        out, err = proc.communicate(stdin_text.encode("utf-8"), timeout=deadline_s)
+        out, err = proc.communicate(stdin_text.encode("utf-8"), timeout=max(limit_s, 0.001))
     except subprocess.TimeoutExpired:
         end_group(proc)
-        proc.communicate()
+        drain(proc)
         raise Fail("E_TIMEOUT")
     except BaseException:
         end_group(proc)
+        drain(proc)
         raise
     wall_ms = int((time.monotonic() - started) * 1000)
     end_group(proc)   # the CLI returned: anything it left running in its group ends now
     return proc.returncode, out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace"), wall_ms
 
 
-def cli_version(env):
-    """The CLI's own version, from `claude --version` (no network, no model). Part of runner_version."""
-    try:
-        res = subprocess.run(["claude", "--version"], stdin=subprocess.DEVNULL, capture_output=True, env=env, timeout=30,
-                             cwd=env["TMPDIR"])
-    except (OSError, subprocess.TimeoutExpired):
-        raise Fail("E_INTERNAL")
-    found = re.search(r"\d+\.\d+\.\d+", res.stdout.decode("utf-8", errors="replace"))
-    if res.returncode != 0 or not found:
+def cli_version(env, root, deadline_at):
+    """The CLI's own version, from `claude --version` (no network, no model). Part of runner_version. It runs inside the
+    call's deadline, with a limit of its own of VERSION_LIMIT_S at most."""
+    remaining = deadline_at - time.monotonic()
+    if remaining <= 0:
+        raise Fail("E_TIMEOUT")
+    rc, out, _err, _ms = run_cli(["claude", "--version"], env, os.path.join(root, "cwd"), "", min(VERSION_LIMIT_S, remaining))
+    found = re.search(r"\d+\.\d+\.\d+", out)
+    if rc != 0 or not found:
         raise Fail("E_INTERNAL")
     return found.group(0)
 
@@ -283,8 +350,10 @@ def classify(rc, out, err, obj, markers):
         return "E_KEY"
     if any(m in haystack for m in NETWORK_MARKERS):
         return "E_NETWORK"
-    if any(m in haystack for m in UPSTREAM_MARKERS) or (obj is not None and rc == 0):
+    if any(m in haystack for m in UPSTREAM_MARKERS):
         return "E_UPSTREAM"
+    if rc == 0:
+        return "E_RESPONSE" if obj is None else "E_UPSTREAM"
     return "E_INTERNAL"
 
 
@@ -309,12 +378,15 @@ def call(model, req):
         raise Fail("E_KEY")
     if not shutil.which("claude", path=os.environ.get("PATH", "")):
         raise Fail("E_INTERNAL")
-    root = make_root()
+    deadline_at = time.monotonic() + req["deadline_ms"] / 1000.0   # one deadline for the version and the call
+    base = root_base()
+    sweep_stale(base)
+    root = make_root(base)
     try:
         env = build_env(root, token, req["max_tokens"], req["reasoning"])
-        version = cli_version(env)
+        version = cli_version(env, root, deadline_at)
         rc, out, err, wall_ms = run_cli(build_argv(model, req["system"], req["reasoning"]), env, os.path.join(root, "cwd"),
-                                        req["user"], req["deadline_ms"] / 1000.0)
+                                        req["user"], deadline_at - time.monotonic())
         return answer(rc, out, err, wall_ms, req["max_tokens"], version)
     finally:
         remove_root(root)
@@ -353,12 +425,49 @@ def betas_of(headers):
     return sorted(set(values))
 
 
-def normalise(body, headers):
-    """The envelope: the request body with the probe texts replaced, metadata.user_id dropped and the sorted beta values added."""
-    body = replace_probe(json.loads(json.dumps(body)))
+DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?")
+TODAY_RE = re.compile(r"(Today's date is )[A-Za-z0-9 ,:/\-]+")
+
+
+def scrub_body(body, root=None):
+    """(a copy of the body with the values that vary from run to run replaced, how many of each). The root of the run, in every
+    form the CLI may write it (its path, its real path, its random name), becomes <ROOT>; a date, a time and the sentence
+    "Today's date is ..." become <DATE>. Keys are never changed."""
+    counts = {"root": 0, "date": 0}
+    forms = sorted({os.path.realpath(root), root, os.path.basename(root)}, key=len, reverse=True) if root else []
+
+    def text(value):
+        for form in forms:
+            counts["root"] += value.count(form)
+            value = value.replace(form, "<ROOT>")
+        value, n = TODAY_RE.subn(r"\1<DATE>", value)
+        counts["date"] += n
+        value, n = DATE_RE.subn("<DATE>", value)
+        counts["date"] += n
+        return value
+
+    def walk(value):
+        if isinstance(value, str):
+            return text(value)
+        if isinstance(value, list):
+            return [walk(v) for v in value]
+        if isinstance(value, dict):
+            return {k: walk(v) for k, v in value.items()}
+        return value
+
+    return walk(json.loads(json.dumps(body))), counts
+
+
+def envelope_of(scrubbed, headers):
+    """The envelope: the body with the probe texts replaced and metadata.user_id dropped, and the sorted beta values added."""
+    body = replace_probe(scrubbed)
     if isinstance(body.get("metadata"), dict):
         body["metadata"].pop("user_id", None)
     return {"beta": betas_of(headers), "body": body}
+
+
+def normalise(body, headers, root=None):
+    return envelope_of(scrub_body(body, root)[0], headers)
 
 
 def blocks(field, value):
@@ -389,17 +498,40 @@ def read_request_body(request):
     return request["body"] if isinstance(request.get("body"), dict) else {}
 
 
-def examine(requests):
+def occurrences(value, needle):
+    """How many times the needle stands in the strings of a request body (keys are not searched)."""
+    if isinstance(value, str):
+        return value.count(needle)
+    if isinstance(value, list):
+        return sum(occurrences(v, needle) for v in value)
+    if isinstance(value, dict):
+        return sum(occurrences(v, needle) for v in value.values())
+    return 0
+
+
+CREDENTIAL_HEADERS = ("authorization", "proxy-authorization", "x-api-key")
+
+
+def credential_ok(requests):
+    """True when the stub saw no credential but the placeholder, in any request."""
+    for request in requests:
+        for name in CREDENTIAL_HEADERS:
+            value = (request.get("headers") or {}).get(name)
+            if value is not None and value not in (PROBE_TOKEN, "Bearer " + PROBE_TOKEN):
+                return False
+    return True
+
+
+def examine(requests, root=None):
     """What one CLI run sent: its messages requests, the exactness of the two texts, the extras and the values sent."""
     messages = [r for r in requests if r["method"] == "POST" and r["path"] == "/v1/messages"]
     paths = {}
     for r in requests:
         paths[r["path"]] = paths.get(r["path"], 0) + 1
-    chosen = next((r for r in messages if PROBE_USER in json.dumps(read_request_body(r), ensure_ascii=False)), None)
+    chosen = next((r for r in messages if occurrences(read_request_body(r), PROBE_USER)), None)
     if chosen is None:
         chosen = messages[0] if messages else {"body": {}, "headers": {}}
-    body = read_request_body(chosen)
-    whole = json.dumps(body, ensure_ascii=False)
+    body, replaced = scrub_body(read_request_body(chosen), root)
     texts = texts_of(body)
     system_hits = [w for w, t in texts if w.startswith("system") and t == PROBE_SYSTEM]
     user_hits = [w for w, t in texts if w.startswith("messages") and t == PROBE_USER]
@@ -408,18 +540,18 @@ def examine(requests):
         if text in (PROBE_SYSTEM, PROBE_USER):
             continue
         chars = len(text) - (len(PROBE_SYSTEM) if PROBE_SYSTEM in text else len(PROBE_USER) if PROBE_USER in text else 0)
-        extras.append({"where": where, "chars": chars})
+        extras.append({"where": where, "chars": chars})   # counted after the replacement of <ROOT> and <DATE>
     if body.get("tools"):
         extras.append({"where": "tools", "chars": len(json.dumps(body["tools"], ensure_ascii=False))})
     config = body.get("output_config") if isinstance(body.get("output_config"), dict) else {}
     effort = config.get("effort", body.get("effort"))
     return {"messages_requests": len(messages), "paths": paths,
-            "system_verbatim": len(system_hits) == 1 and whole.count(json.dumps(PROBE_SYSTEM)[1:-1]) == 1,
-            "user_verbatim": len(user_hits) == 1 and whole.count(json.dumps(PROBE_USER)[1:-1]) == 1,
-            "extras": extras,
+            "system_verbatim": len(system_hits) == 1 and occurrences(body, PROBE_SYSTEM) == 1,
+            "user_verbatim": len(user_hits) == 1 and occurrences(body, PROBE_USER) == 1,
+            "extras": extras, "replaced": replaced, "credential_ok": credential_ok(requests),
             "sent": {"max_tokens": body.get("max_tokens"), "temperature": body.get("temperature"),
                      "thinking": body.get("thinking"), "effort": effort},
-            "envelope_sha256": sha256(canonical(normalise(body, chosen.get("headers") or {})))}
+            "envelope_sha256": sha256(canonical(envelope_of(body, chosen.get("headers") or {})))}
 
 
 def percentile(values, fraction):
@@ -427,40 +559,117 @@ def percentile(values, fraction):
     return ordered[min(len(ordered) - 1, max(0, int(math.ceil(fraction * len(ordered))) - 1))]
 
 
+def outside_locations():
+    """(folder or file, depth) the probe looks in for what the CLI wrote outside its root. Tests only: RUN_TEXT_OUTSIDE."""
+    if test_mode() and os.environ.get("RUN_TEXT_OUTSIDE"):
+        return [(p, 4) for p in os.environ["RUN_TEXT_OUTSIDE"].split(os.pathsep) if p]
+    home = os.path.expanduser("~")
+    found = [("/tmp/claude-%d" % os.getuid(), 8), ("/tmp", 2), ("/private/tmp", 2)]
+    if os.environ.get("TMPDIR"):
+        found.append((os.environ["TMPDIR"], 2))
+    return found + [(path, 4) for path in sorted(glob.glob(os.path.join(home, ".claude*")))]
+
+
+def scan_outside(locations, skip, since):
+    """Entries created or changed since `since` (names and times; the content of a file is read only to look for the probe texts),
+    and whether the scan was whole. Links are not followed; the folders in `skip` are not entered."""
+    skip = {os.path.realpath(p) for p in skip}
+    found, visited, complete = {}, 0, True
+    for top, depth in locations:
+        stack = [(top, 0)]
+        while stack:
+            path, level = stack.pop()
+            try:
+                info = os.lstat(path)
+            except OSError:
+                continue
+            if os.path.realpath(path) in skip:
+                continue
+            visited += 1
+            if visited > SCAN_LIMIT:
+                return found, False
+            born = getattr(info, "st_birthtime", 0) or 0
+            if level > 0 or not stat.S_ISDIR(info.st_mode):
+                if born >= since or info.st_mtime >= since:
+                    found[os.path.realpath(path)] = (path, info)
+            if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode) and level < depth:
+                try:
+                    stack += [(entry.path, level + 1) for entry in os.scandir(path)]
+                except OSError:
+                    complete = False
+    return found, complete
+
+
+def outside_report(found):
+    report = []
+    for key in sorted(found)[:200]:
+        path, info = found[key]
+        texts = False
+        if stat.S_ISREG(info.st_mode) and info.st_size <= 1048576:
+            try:
+                data = Path(path).read_bytes()
+                texts = PROBE_USER.encode("utf-8") in data or PROBE_SYSTEM.encode("utf-8") in data
+            except OSError:
+                pass
+        report.append({"path": path, "mtime": round(info.st_mtime, 3), "probe_text": texts})
+    return report
+
+
+def one_run(model, max_tokens, reasoning, server, version):
+    """One CLI run against the stub: (its examination, the CLI's wall time, whether the reply read as the stub's, the version)."""
+    server.reset()
+    base = root_base()
+    root = make_root(base)
+    try:
+        dead = "http://127.0.0.1:9"   # a closed port: any other host the CLI tries through a proxy fails closed
+        env = build_env(root, PROBE_TOKEN, max_tokens, reasoning,
+                        {"ANTHROPIC_BASE_URL": "http://127.0.0.1:%d" % server.server_address[1], "HTTP_PROXY": dead,
+                         "HTTPS_PROXY": dead, "ALL_PROXY": dead, "NO_PROXY": "127.0.0.1,localhost,::1"})
+        deadline_at = time.monotonic() + PROBE_DEADLINE_MS / 1000.0
+        version = version or cli_version(env, root, deadline_at)
+        rc, out, err, wall_ms = run_cli(build_argv(model, PROBE_SYSTEM, reasoning), env, os.path.join(root, "cwd"), PROBE_USER,
+                                        deadline_at - time.monotonic())
+        code = classify(rc, out, err, result_object(out), limit_markers())
+        if code:
+            raise Fail(code)
+        try:
+            reply = answer(rc, out, err, wall_ms, max_tokens, version)
+            reply_ok = reply["text"] == stub.ANSWER and reply["finish"] == "stop" and reply["usage"] == stub.USAGE
+        except Fail as exc:
+            if exc.code != "E_RESPONSE":
+                raise
+            reply_ok = False
+        return examine(server.requests(), root), wall_ms, reply_ok, version
+    finally:
+        remove_root(root)
+
+
 def probe(model, max_tokens, reasoning, repeat):
     if not shutil.which("claude", path=os.environ.get("PATH", "")):
         raise Fail("E_INTERNAL")
+    base = root_base()
+    sweep_stale(base)
+    locations, since = outside_locations(), time.time() - 0.05
     server = stub.start()
-    runs, walls, version = [], [], None
+    runs, walls, replies, version = [], [], [], None
     try:
-        port = server.server_address[1]
         for _ in range(repeat):
-            server.reset()
-            root = make_root()
-            try:
-                dead = "http://127.0.0.1:9"   # a closed port: any other host the CLI tries through a proxy fails closed
-                env = build_env(root, PROBE_TOKEN, max_tokens, reasoning,
-                                {"ANTHROPIC_BASE_URL": "http://127.0.0.1:%d" % port, "HTTP_PROXY": dead, "HTTPS_PROXY": dead,
-                                 "ALL_PROXY": dead, "NO_PROXY": "127.0.0.1,localhost,::1"})
-                version = version or cli_version(env)
-                rc, out, err, wall_ms = run_cli(build_argv(model, PROBE_SYSTEM, reasoning), env, os.path.join(root, "cwd"),
-                                                PROBE_USER, PROBE_DEADLINE_MS / 1000.0)
-                code = classify(rc, out, err, result_object(out), limit_markers())
-                if code:
-                    raise Fail(code)
-                walls.append(wall_ms)
-                runs.append(examine(server.requests()))
-            finally:
-                remove_root(root)
+            run_report, wall_ms, reply_ok, version = one_run(model, max_tokens, reasoning, server, version)
+            runs.append(run_report)
+            walls.append(wall_ms)
+            replies.append(reply_ok)
     finally:
         server.shutdown()
         server.server_close()
+    found, complete = scan_outside(locations, [base], since)
     first = runs[0]
-    stable = all(r == first for r in runs)
     return {"runner_version": runner_version(version), "runner_sha256": runner_sha256(),
             "envelope_sha256": first["envelope_sha256"], "system_verbatim": all(r["system_verbatim"] for r in runs),
             "user_verbatim": all(r["user_verbatim"] for r in runs), "messages_requests": first["messages_requests"],
-            "paths": first["paths"], "extras": first["extras"], "sent": first["sent"], "stable": stable,
+            "paths": first["paths"], "extras": first["extras"], "replaced": first["replaced"], "sent": first["sent"],
+            "stable": all(r == first for r in runs), "reply_ok": all(replies),
+            "credential_ok": all(r["credential_ok"] for r in runs), "files_outside_root": outside_report(found),
+            "outside_scan_complete": complete,
             "overhead_ms": {"p50": percentile(walls, 0.5), "p95": percentile(walls, 0.95)}}
 
 
