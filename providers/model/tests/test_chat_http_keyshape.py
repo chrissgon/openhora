@@ -119,3 +119,25 @@ def test_the_check_flag_is_unchanged_by_the_prefix():
     assert run(["--check"], key=RIGHT).returncode == 0
     done = run(["--check"], key=None)
     assert done.returncode == 3 and done.stderr == "chat-http: E_KEY\n"
+
+
+# --- the reply names the model it was served by (defence in depth) -----------------------------------------------------------------------
+
+@pytest.mark.parametrize("model", ["vendor-x/model-a", "vendor-x/model-a-20261001", "VENDOR-X/Model-A"])
+def test_a_reply_whose_model_starts_with_the_routes_model_is_accepted(stub, model):
+    stub.ok(model=model)
+    done = run(["complete"], req(stub), key=RIGHT)
+    assert done.returncode == 0 and json.loads(done.stdout)["text"] == "hello"
+
+
+@pytest.mark.parametrize("model", ["other-vendor/model-b", "vendor-x/model-b", "auto", "", None, 7, ["vendor-x/model-a"], "x vendor-x/model-a"])
+def test_a_reply_whose_model_is_not_the_routes_model_is_refused_as_a_pin_error(stub, model):
+    stub.ok(model=model)
+    done = run(["complete"], req(stub), key=RIGHT)
+    assert done.returncode == 1 and done.stderr == "chat-http: E_PIN\n" and done.stdout == ""
+    assert len(stub.requests) == 1, "the call was made; only its answer is refused"
+
+
+def test_a_reply_without_a_model_field_is_unchanged(stub):
+    done = run(["complete"], req(stub), key=RIGHT)        # the stand-in's default reply has no `model`
+    assert done.returncode == 0

@@ -41,7 +41,7 @@ allow_fallbacks other than false; data_collection other than "deny". No redirect
 On failure the only output is one line on standard error, `chat-http: <CODE>`: no request, no reply body, no
 URL and no key is ever printed, not even inside an exception. Codes and exits:
   E_USAGE 2 | E_KEY 3, E_ROUTE 3 | E_TIMEOUT, E_NETWORK, E_RATE (429), E_UPSTREAM (5xx), E_HTTP (any other status),
-  E_PIN (the reply names another provider than the pin), E_RESPONSE (not JSON, over 65,536 bytes, no text), E_INTERNAL: 1.
+  E_PIN (the reply names another provider than the pin, or a `model` that does not start with the route's model), E_RESPONSE (not JSON, over 65,536 bytes, no text), E_INTERNAL: 1.
 
 Standard library only; runs on Python 3.9.
 """
@@ -248,7 +248,7 @@ def post(req: dict, loopback: bool, host: str, port, base: str) -> dict:
     return {"raw": b"".join(chunks), "latency_ms": int((time.monotonic() - start) * 1000)}
 
 
-def parse_reply(raw: bytes, latency_ms: int, pin) -> dict:
+def parse_reply(raw: bytes, latency_ms: int, pin, model) -> dict:
     try:
         doc = json.loads(raw.decode("utf-8"))
         choice = doc["choices"][0]
@@ -261,6 +261,8 @@ def parse_reply(raw: bytes, latency_ms: int, pin) -> dict:
     upstream = upstream.lower() if isinstance(upstream, str) and upstream else None
     if pin and upstream is not None and upstream != pin.lower():
         raise Fail("E_PIN")
+    if "model" in doc and not (isinstance(doc["model"], str) and doc["model"].lower().startswith(model.lower())):
+        raise Fail("E_PIN")        # a service that answers with another model than the route names (an alias, a preset, a router) is refused
     usage = doc.get("usage")
     return {"v": 1, "text": text, "finish": finish_of(choice.get("finish_reason")),
             "usage": {"input": count(usage, "prompt_tokens"), "output": count(usage, "completion_tokens"),
@@ -277,7 +279,7 @@ def complete(dry_run: bool) -> dict:
         would = {"method": "POST", "url": url, "body": build_body(req)}
         return {"would": would, "would_sha256": sha256_of(would)}
     got = post(req, loopback, host, port, base)
-    return parse_reply(got["raw"], got["latency_ms"], req["route"]["pin"])
+    return parse_reply(got["raw"], got["latency_ms"], req["route"]["pin"], req["route"]["model"])
 
 
 def run(argv) -> int:

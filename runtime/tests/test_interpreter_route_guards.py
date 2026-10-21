@@ -66,24 +66,62 @@ def no_key(monkeypatch, tmp_path):
 
 # --- guard 1: no Claude model on an HTTP route ----------------------------------------------------------------------------------------------
 
-# (what is changed, the Claude value, the same field with a clean value): the clean twin proves the refusal is the guard's and nothing else's
-CASES = [("upstream_model", "anthropic/claude-haiku-4.5", "vendor/model-mini"),
-         ("model", "openrouter/anthropic/claude-sonnet-5.5", "openrouter/vendor/model-big"),
+# (what is changed, the Claude value, the same field with a clean value): the clean twin proves the refusal is the guard's and nothing else's. The
+# clean value is one the allow-list admits (a model of the allowed vendor under the route's own prefix), so the twin loads. Only the vendor-word
+# layer is tested here; the allow-list has its own test below.
+def twin(field, value):
+    """The row with `field` set to `value`; an upstream model is set with its matching `model`."""
+    if field == "upstream_model":
+        return row(upstream_model=value, model="openrouter/" + value)
+    return row(**{field: value})
+
+
+CASES = [("upstream_model", "anthropic/claude-haiku-4.5", "deepseek/model-mini"),
+         ("model", "openrouter/anthropic/claude-sonnet-5.5", "openrouter/deepseek/deepseek-v4.1-flash"),
          ("pin", "anthropic", "provider-a"),
-         ("upstream_model", "x/Claude-mini", "x/model-mini"),
-         ("model", "openrouter/x/CLAUDE-big", "openrouter/x/model-big"),
+         ("upstream_model", "x/Claude-mini", "deepseek/model-mini"),
+         ("model", "openrouter/x/CLAUDE-big", "openrouter/deepseek/deepseek-v4.1-flash"),
          ("pin", "Anthropic", "provider-b"),
-         ("upstream_model", "claude", "vendor/model-mini")]
+         ("upstream_model", "claude", "deepseek/model-mini")]
 
 
 @pytest.mark.parametrize("field,claude,clean", CASES, ids=[f"{c[0]}={c[1]}" for c in CASES])
 def test_a_route_that_names_a_claude_model_refuses_the_whole_file(tmp_path, field, claude, clean):
     other = row(id="other-route")
     with pytest.raises(ir.RouteError):
-        loads(tmp_path, other, row(**{field: claude}))
+        loads(tmp_path, other, twin(field, claude))
     with pytest.raises(ir.RouteError):
-        loads(tmp_path, row(**{field: claude}), other)          # in either order: no route of the file runs
-    assert [r["id"] for r in loads(tmp_path, other, row(**{field: clean}))["routes"]] == ["other-route", ROW["id"]]     # vacuity: the clean twin loads
+        loads(tmp_path, twin(field, claude), other)          # in either order: no route of the file runs
+    assert [r["id"] for r in loads(tmp_path, other, twin(field, clean))["routes"]] == ["other-route", ROW["id"]]     # vacuity: the clean twin loads
+
+
+# --- the allow-list: a model of a vendor that is not named never loads, whatever its pin ----------------------------------------------------
+
+ALLOWED = [("openrouter/auto", "amazon-bedrock"), ("@preset/fast", "google-vertex"), ("@preset/x", "deepinfra"), ("mistralai/x", "deepinfra"),
+           ("openai/gpt-x", "azure"), ("~anthropic/claude-latest", "amazon-bedrock"), ("deepseek", "deepinfra"), ("DeepSeek/x", "deepinfra"),
+           (" deepseek/x", "deepinfra"), ("x/deepseek/y", "deepinfra"), ("", "deepinfra")]
+
+
+@pytest.mark.parametrize("upstream,pin", ALLOWED, ids=[f"{u or 'empty'}@{p}" for u, p in ALLOWED])
+def test_an_upstream_model_outside_the_allow_list_is_refused_whatever_its_pin(tmp_path, upstream, pin):
+    """The test's own literal: the only allowed start is the vendor of the shipped row, lower case, followed by a slash."""
+    with pytest.raises(ir.RouteError):
+        loads(tmp_path, row(upstream_model=upstream, model="openrouter/" + upstream, pin=pin))
+    with pytest.raises(ir.RouteError):
+        loads(tmp_path / "b", row(), row(id="other-route", upstream_model=upstream, model="openrouter/" + upstream, pin=pin))
+
+
+@pytest.mark.parametrize("model", ["deepseek/deepseek-v4.1-flash", "openrouter/deepseek/other", "openrouter/auto", "other/deepseek/deepseek-v4.1-flash",
+                                   "openrouter/ deepseek/deepseek-v4.1-flash"])
+def test_a_model_that_is_not_the_prefix_plus_the_upstream_model_is_refused(tmp_path, model):
+    with pytest.raises(ir.RouteError):
+        loads(tmp_path, row(model=model))
+
+
+def test_vacuity_a_model_of_the_allowed_vendor_under_the_prefix_loads_and_the_allow_list_is_the_literal_one(tmp_path):
+    assert [r["upstream_model"] for r in loads(tmp_path, row(upstream_model="deepseek/another-model", model="openrouter/deepseek/another-model"))["routes"]] == ["deepseek/another-model"]
+    assert loads(tmp_path / "b", row())["routes"][0]["upstream_model"] == "deepseek/deepseek-v4.1-flash"
+    assert ir.HTTP_MODELS == {"openrouter.ai": ("deep" + "seek/",)} and ir.MODEL_PREFIX == {"openrouter.ai": "openrouter/"}
 
 
 def test_a_route_that_is_asked_for_in_a_file_with_a_claude_row_is_a_route_error(tmp_path, no_key, monkeypatch):
