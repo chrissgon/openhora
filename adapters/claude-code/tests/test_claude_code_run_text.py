@@ -929,12 +929,12 @@ def test_the_outside_scan_says_when_it_was_not_whole(e, monkeypatch):
     for i in range(10):
         (folder / ("f%d" % i)).write_text("x")
     monkeypatch.setattr(run_text, "SCAN_LIMIT", 4)
-    found, complete, limited = run_text.scan_outside([(str(folder), 3)], [], 0)
+    found, complete, limited, unreadable = run_text.scan_outside([(str(folder), 3)], [], 0)
     assert complete is False and len(found) <= 4
     monkeypatch.setattr(run_text, "SCAN_LIMIT", 1000)
-    found, complete, limited = run_text.scan_outside([(str(folder), 3)], [], 0)
+    found, complete, limited, unreadable = run_text.scan_outside([(str(folder), 3)], [], 0)
     assert complete is True and len(found) == 10 and limited == 0
-    assert run_text.scan_outside([(str(folder), 3)], [str(folder)], 0) == ({}, True, 0)   # a skipped folder is not entered
+    assert run_text.scan_outside([(str(folder), 3)], [str(folder)], 0) == ({}, True, 0, 0)   # a skipped folder is not entered
 
 
 def test_the_outside_rule_fails_a_planted_file_with_a_probe_text_and_one_under_the_probes_own_folder_and_passes_an_unrelated_one(e):
@@ -1054,13 +1054,13 @@ def test_a_changed_folder_the_depth_limit_stops_at_makes_the_scan_incomplete_unl
     root = e["tmp"] / "outside"
     (root / "a" / "b").mkdir(parents=True)
     (root / "a" / "b" / "c.txt").write_text("x")
-    found, complete, limited = run_text.scan_outside([(str(root), 1)], [], 0)       # a is at the limit and holds more
+    found, complete, limited, unreadable = run_text.scan_outside([(str(root), 1)], [], 0)       # a is at the limit and holds more
     assert (complete, limited) == (False, 1)
-    found, complete, limited = run_text.scan_outside([(str(root), 3)], [], 0)       # deep enough
+    found, complete, limited, unreadable = run_text.scan_outside([(str(root), 3)], [], 0)       # deep enough
     assert (complete, limited) == (True, 0)
-    found, complete, limited = run_text.scan_outside([(str(root), 1), (str(root / "a"), 3)], [], 0)   # listed by another location
+    found, complete, limited, unreadable = run_text.scan_outside([(str(root), 1), (str(root / "a"), 3)], [], 0)   # listed by another location
     assert (complete, limited) == (True, 0)
-    found, complete, limited = run_text.scan_outside([(str(root), 1)], [], time.time() + 3600)         # nothing changed: nothing to fear
+    found, complete, limited, unreadable = run_text.scan_outside([(str(root), 1)], [], time.time() + 3600)         # nothing changed: nothing to fear
     assert (complete, limited) == (True, 0)
 
 
@@ -1085,3 +1085,84 @@ def test_a_nonce_that_stands_alone_is_replaced_and_counted_so_an_echo_has_a_name
     env_one = run_text.normalise({"messages": [{"role": "user", "content": body["messages"][0]["content"] % one}]}, {}, texts_one)
     env_two = run_text.normalise({"messages": [{"role": "user", "content": body["messages"][0]["content"] % two}]}, {}, texts_two)
     assert env_one == env_two and "<NONCE>" in json.dumps(env_one) and one not in json.dumps(env_one)
+
+
+# ------------------------------------------------------ a folder that cannot be looked into, and the CLI's own places
+
+def test_a_folder_that_lists_its_names_but_not_their_details_is_unread_and_the_scan_is_incomplete(e):
+    run_text = load_runner()
+    folder = e["tmp"] / "outside" / "closed"
+    folder.mkdir()
+    (folder / "late.log").write_text("x probe-user-" + NONCE_T)
+    folder.chmod(0o400)                                  # names can be listed; nothing inside can be looked at
+    try:
+        found, complete, limited, unreadable = run_text.scan_outside([(str(e["tmp"] / "outside"), 4)], [], 0)
+        assert complete is False and unreadable >= 1 and not any(Path(path).name == "late.log" for path, _ in found.values())
+    finally:
+        folder.chmod(0o700)
+    # vacuity: the same tree with 0700 is complete, and the file is found and flagged
+    found, complete, limited, unreadable = run_text.scan_outside([(str(e["tmp"] / "outside"), 4)], [], 0)
+    assert (complete, unreadable) == (True, 0)
+    report, unread = run_text.outside_report(found, [], NONCE_T)
+    assert unread == 0 and [(Path(r["path"]).name, r["probe_text"]) for r in report if Path(r["path"]).name == "late.log"] == [("late.log", True)]
+
+
+def test_the_probe_counts_a_closed_folder_as_unread_never_named_and_outside_ok_is_false(e):
+    outside = e["tmp"] / "outside"
+    closed = outside / "closed-77e1"
+    closed.mkdir()
+    (closed / "late.log").write_text("x")
+    closed.chmod(0o400)
+    try:
+        res, out = probe(e)
+        assert out["outside_unread_count"] >= 1 and out["outside_scan_complete"] is False and out["outside_ok"] is False
+        assert "closed-77e1" not in res.stdout
+    finally:
+        closed.chmod(0o700)
+
+
+def test_the_cli_places_are_walked_without_a_depth_limit_and_the_general_ones_are_not(e):
+    run_text = load_runner()
+    old = time.time() - 7200
+    for place in ("cli", "plain"):
+        deep = e["tmp"] / place / "a" / "b" / "c" / "d" / "e" / "f"
+        deep.mkdir(parents=True)
+        (deep / "new.txt").write_text("probe-user-" + NONCE_T)
+        for folder in [e["tmp"] / place / n for n in ("a", "a/b", "a/b/c", "a/b/c/d", "a/b/c/d/e")] + [e["tmp"] / place]:
+            os.utime(folder, (old, old))                 # the folders existed before the probe; only the leaf folder and file are new
+    since = time.time() - 600
+    found, complete, limited, unreadable = run_text.scan_outside([(str(e["tmp"] / "cli"), None)], [], since)
+    assert complete is True and [Path(p).name for p, _ in found.values() if Path(p).name == "new.txt"] == ["new.txt"]
+    found, complete, limited, unreadable = run_text.scan_outside([(str(e["tmp"] / "plain"), 2)], [], since)
+    assert not any(Path(p).name == "new.txt" for p, _ in found.values())
+    assert complete is True and limited == 0             # the documented limit: seen by nobody, said by nobody
+
+
+def test_the_default_places_are_the_cli_ones_without_a_limit_and_the_general_ones_to_depth_two(e, monkeypatch, tmp_path):
+    run_text = load_runner()
+    home = tmp_path / "fakehome"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude.json").write_text("{}")
+    (home / ".other").mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    monkeypatch.delenv("RUN_TEXT_TEST", raising=False)
+    places = dict((path, depth) for path, depth in run_text.outside_locations())
+    uid = os.getuid()
+    assert places["/tmp/claude-%d" % uid] is None and places["/private/tmp/claude-%d" % uid] is None
+    assert places[str(home / ".claude")] is None and places[str(home / ".claude.json")] is None and str(home / ".other") not in places
+    assert places["/tmp"] == 2 and places["/private/tmp"] == 2 and places[str(tmp_path / "tmp")] == 2
+
+
+def test_a_spent_limit_of_entries_or_of_time_leaves_the_walk_incomplete(e, monkeypatch):
+    run_text = load_runner()
+    folder = e["tmp"] / "outside"
+    for i in range(6):
+        (folder / ("g%d" % i)).write_text("x")
+    monkeypatch.setattr(run_text, "SCAN_SECONDS_BUDGET", -1.0)
+    assert run_text.scan_outside([(str(folder), None)], [], 0)[1] is False
+    monkeypatch.setattr(run_text, "SCAN_SECONDS_BUDGET", 120.0)
+    monkeypatch.setattr(run_text, "SCAN_LIMIT", 3)
+    assert run_text.scan_outside([(str(folder), None)], [], 0)[1] is False
+    monkeypatch.setattr(run_text, "SCAN_LIMIT", 1000)
+    assert run_text.scan_outside([(str(folder), None)], [], 0)[1] is True

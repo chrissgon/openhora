@@ -80,7 +80,8 @@ def probe_texts(nonce=None):
 
 BASE_PREFIX = "/tmp/run-text-"   # + the user id: the fixed folder of the roots, never the caller's TMPDIR
 STALE_AFTER_S = MAX_DEADLINE_MS / 1000.0 + 60
-SCAN_LIMIT = 100000
+SCAN_LIMIT = 500000
+SCAN_SECONDS_BUDGET = 120.0           # the walk of the places outside the root: running out of either leaves the scan incomplete
 READ_CHUNK = 1048576                  # a file is read in chunks of this size, whatever its size
 READ_BYTES_BUDGET = 1 << 30           # all files together; reaching it, or the time below, leaves the scan incomplete, never clean
 READ_SECONDS_BUDGET = 120.0
@@ -586,51 +587,69 @@ def percentile(values, fraction):
 
 
 def outside_locations():
-    """(folder or file, depth) the probe looks in for what the CLI wrote outside its root. Tests only: RUN_TEXT_OUTSIDE."""
-    if test_mode() and os.environ.get("RUN_TEXT_OUTSIDE"):
-        return [(p, 4) for p in os.environ["RUN_TEXT_OUTSIDE"].split(os.pathsep) if p]
+    """(folder or file, depth) the probe looks in for what the CLI wrote outside its root; a depth of None is no limit. The CLI's own
+    places (its folder of the user under the system temporary folder, and the person's own entries that belong to it) are walked
+    whole; the general temporary folders to a depth of two. Tests only: RUN_TEXT_OUTSIDE (depth 4), RUN_TEXT_OUTSIDE_DEEP (no limit)."""
+    if test_mode() and (os.environ.get("RUN_TEXT_OUTSIDE") or os.environ.get("RUN_TEXT_OUTSIDE_DEEP")):
+        return ([(p, 4) for p in os.environ.get("RUN_TEXT_OUTSIDE", "").split(os.pathsep) if p]
+                + [(p, None) for p in os.environ.get("RUN_TEXT_OUTSIDE_DEEP", "").split(os.pathsep) if p])
     home = os.path.expanduser("~")
-    found = [("/tmp/claude-%d" % os.getuid(), 8), ("/tmp", 2), ("/private/tmp", 2)]
+    found = [("/tmp/claude-%d" % os.getuid(), None), ("/private/tmp/claude-%d" % os.getuid(), None), ("/tmp", 2), ("/private/tmp", 2)]
     if os.environ.get("TMPDIR"):
         found.append((os.environ["TMPDIR"], 2))
-    return found + [(path, 4) for path in sorted(glob.glob(os.path.join(home, ".claude*")))]
+    return found + [(path, None) for path in sorted(glob.glob(os.path.join(home, ".claude*")))]
 
 
 def scan_outside(locations, skip, since):
-    """(entries created or changed since `since`, whether the scan was whole, how many changed folders the depth limit left unlisted).
-    Names and times only; the content of a file is not read here. Links are not followed; the folders in `skip` are not entered.
-    A folder changed during the probe that the depth limit stopped at, and that no other location listed, makes the scan incomplete."""
+    """(entries created or changed since `since`, whether the scan was whole, how many changed folders the depth limit left unlisted,
+    how many entries could not be looked at). Names and times only; the content of a file is not read here. Links are not followed;
+    the folders in `skip` are not entered. Only an entry that has vanished is passed over: any other error (a folder that lists its
+    names but not their details, a folder that cannot be listed) is counted and leaves the scan incomplete. A changed folder the depth
+    limit stops at, and that no other location listed, leaves it incomplete; so does a spent limit of entries or of time."""
     skip = {os.path.realpath(p) for p in skip}
-    found, listed, limited, visited, complete = {}, set(), set(), 0, True
-    for top, depth in locations:
+    wanted = {}
+    for top, depth in locations:   # a place named twice (a link to it, or two spellings) is walked once, to the deeper limit
+        real = os.path.realpath(top)
+        old = wanted.get(real, 0)
+        wanted[real] = None if depth is None or old is None else max(old, depth)
+    found, listed, limited, visited, unreadable, complete = {}, set(), set(), 0, 0, True
+    deadline = time.monotonic() + SCAN_SECONDS_BUDGET
+    for top, depth in wanted.items():
         stack = [(top, 0)]
         while stack:
             path, level = stack.pop()
             try:
                 info = os.lstat(path)
+            except FileNotFoundError:
+                continue
             except OSError:
+                unreadable += 1
+                complete = False
                 continue
             real = os.path.realpath(path)
             if real in skip:
                 continue
             visited += 1
-            if visited > SCAN_LIMIT:
-                return found, False, len(limited - listed)
+            if visited > SCAN_LIMIT or time.monotonic() > deadline:
+                return found, False, len(limited - listed), unreadable
             born = getattr(info, "st_birthtime", 0) or 0
             changed = born >= since or info.st_mtime >= since
             if (level > 0 or not stat.S_ISDIR(info.st_mode)) and changed:
                 found[real] = (path, info)
             if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode):
-                if level < depth:
+                if depth is None or level < depth:
                     try:
                         stack += [(entry.path, level + 1) for entry in os.scandir(path)]
                         listed.add(real)
+                    except FileNotFoundError:
+                        pass
                     except OSError:
+                        unreadable += 1
                         complete = False
                 elif changed:
                     limited.add(real)
     unlisted = len(limited - listed)
-    return found, complete and unlisted == 0, unlisted
+    return found, complete and unlisted == 0, unlisted, unreadable
 
 
 def file_holds(path, needles, budget_bytes, deadline):
@@ -729,9 +748,10 @@ def probe(model, max_tokens, reasoning, repeat):
     finally:
         server.shutdown()
         server.server_close()
-    found, complete, depth_limited = scan_outside(locations, [base], since)
+    found, complete, depth_limited, scan_unreadable = scan_outside(locations, [base], since)
     first = runs[0]
     files, unread = outside_report(found, root_names, texts[2])
+    unread += scan_unreadable
     complete = complete and unread == 0
     flagged = [f for f in files if f["probe_text"] or f["own_folder"]]
     # Others write under the same folders (other sessions of the harness, whose folders can carry a person's project names): only the
