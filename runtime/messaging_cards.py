@@ -160,7 +160,7 @@ def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = F
 
 
 def build(project_name: str, item: dict, caps: dict, policy, notices: str = "text", page_url=None, operations=None,
-          delivery: str | None = None, _blocked: str | None = None, sender: str | None = None, cfg=None) -> dict:
+          delivery: str | None = None, _blocked: str | None = None, sender: str | None = None, cfg=None, _typed: bool = False) -> dict:
     """The card of one open decision. Returns {"message": the neutral message without action ids (each action is
     {"op", "label"}), "content_sha256", "kind", "pending_id", "whole", "approvable", "offers", "gated", "blocked"} ("approvable": the card offers an approval, as a
     button, a typed line or, on a platform with no buttons, the word that approves; "offers": every act it offers, a list of operation names; "gated": its approval needs the whole text; "blocked": "document" when its file did not arrive). `operations` is the table module (operations.py).
@@ -220,7 +220,7 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
         refused = True
     buttons_ok = bool(caps.get("buttons")) and caps.get("max_buttons", 0) > 0
     room = caps.get("max_buttons", 0) if buttons_ok else 0
-    words_decide = not buttons_ok and "approve" in allowed and "reject" in allowed      # a platform with no buttons: the card says what a word does (package S2, limit L64), not a command to send
+    words_decide = not buttons_ok and not _typed and "approve" in allowed and "reject" in allowed      # a platform with no buttons: a WHOLE card says what a word does (package S2, limit L64), not a command to send; a card that is not whole (`_typed`, second pass) keeps the typed lines, as a word decides only a whole card
     shown, lines = allowed[:room], [typed(op, pending_id) for op in allowed[room:] if not (words_decide and op in ("approve", "reject"))]
     footer = []
     if lines:
@@ -265,6 +265,8 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
             whole = True      # the whole text follows as a document
     else:
         whole = notices != "count"
+    if words_decide and not whole:      # a word decides only a whole card: this one keeps the typed approve and reject lines
+        return build(project_name, item, caps, policy, notices, page_url, operations, delivery, _blocked=_blocked, sender=sender, cfg=cfg, _typed=True)
     if needs_whole and approval_ok and not whole:    # a cut card approves nothing: the same card again, with the command and the line
         return build(project_name, item, caps, policy, notices, page_url, operations, delivery, _blocked="long", sender=sender, cfg=cfg)
     text = header + "\n\n" + body + tail if body else header + tail

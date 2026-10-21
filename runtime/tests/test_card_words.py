@@ -27,8 +27,11 @@ ORACLE_APPROVE = [("sim",), ("ok",), ("aprovo",), ("aprova",), ("aprovar",), ("a
                   ("yes",), ("approve",), ("approved",), ("go", "ahead")]
 ORACLE_REJECT = [("nao",), ("rejeito",), ("rejeita",), ("cancela",), ("deixa",), ("no",), ("reject",), ("cancel",)]
 ORACLE_ALL = {"todos", "todas", "all"}
-ORACLE_ARTICLES = {"o", "a", "the", "number", "n", "numero"}
-ORACLE_ORDINALS = {"primeiro": 1, "primeira": 1, "segundo": 2, "segunda": 2, "terceiro": 3, "terceira": 3, "quarto": 4, "quarta": 4, "quinto": 5, "quinta": 5, "sexto": 6, "sexta": 6,
+ORACLE_ARTICLES = {"o", "the", "number", "n", "numero"}
+ORACLE_ORDINAL_ARTICLES = {"a"}      # "a primeira": before an ordinal word only; "a 1" (the accented a of a time) is never a position
+NO_POSITION = {("pode",), ("pode", "marcar"), ("pode", "mandar"), ("pode", "salvar")}      # whole-line approvals: never followed by a position
+ORACLE_ORDINALS = {"primeiro": 1, "primeira": 1, "segundo": 2, "terceiro": 3, "terceira": 3, "quarto": 4, "quinto": 5, "sexto": 6,      # no "segunda", "quarta", "quinta", "sexta": the days of the week
+                  
                    "setimo": 7, "setima": 7, "oitavo": 8, "oitava": 8, "nono": 9, "nona": 9, "decimo": 10, "decima": 10,
                    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10}
 ORACLE_POLITE = [("por", "favor"), ("pf",), ("please",), ("pls",), ("pode",), ("poderia",), ("consegue",), ("oi",), ("ola",), ("ei",), ("can", "you"), ("could", "you"), ("would", "you"),
@@ -56,7 +59,7 @@ def position(tokens: list):
     """(True, n) for an optional article and a number or an ordinal, (True, None) for nothing, (False, None) for anything else."""
     if not tokens:
         return True, None
-    if tokens[0] in ORACLE_ARTICLES and len(tokens) > 1:
+    if len(tokens) > 1 and (tokens[0] in ORACLE_ARTICLES or (tokens[0] in ORACLE_ORDINAL_ARTICLES and tokens[1] in ORACLE_ORDINALS)):
         tokens = tokens[1:]
     if len(tokens) == 1:
         word = tokens[0]
@@ -83,6 +86,8 @@ def oracle(line: str):
                     size = len(form)
                     if tuple(core[:size]) == form:
                         ok, n = position(core[size:])
+                        if form in NO_POSITION and core[size:]:
+                            ok = False
                         if ok:
                             found.add((op, n, False))
                         if len(core) == size + 1 and core[size] in ORACLE_ALL:
@@ -110,12 +115,14 @@ GOOD = [
     ("rejeita", ("reject", None, False)), ("cancela", ("reject", None, False)), ("deixa", ("reject", None, False)), ("no", ("reject", None, False)),
     ("reject", ("reject", None, False)), ("cancel", ("reject", None, False)), ("no, please", ("reject", None, False)),
     ("aprovo o 2", ("approve", 2, False)), ("aprovo #3", ("approve", 3, False)), ("aprova o 12", ("approve", 12, False)), ("aprova o primeiro", ("approve", 1, False)),
-    ("aprova a segunda", ("approve", 2, False)), ("aprova o d\u00e9cimo", ("approve", 10, False)), ("rejeito o 1", ("reject", 1, False)), ("rejeita o terceiro", ("reject", 3, False)),
+    ("aprova a primeira", ("approve", 1, False)), ("aprova o segundo", ("approve", 2, False)), ("sim 3", ("approve", 3, False)), ("aprova o d\u00e9cimo", ("approve", 10, False)), ("rejeito o 1", ("reject", 1, False)), ("rejeita o terceiro", ("reject", 3, False)),
     ("approve the second", ("approve", 2, False)), ("reject number 4", ("reject", 4, False)), ("approve 2", ("approve", 2, False)), ("por favor aprovo o 2", ("approve", 2, False)),
     ("aprova todos", ("approve", None, True)), ("aprova todas", ("approve", None, True)), ("approve all", ("approve", None, True)), ("todos n\u00e3o", ("reject", None, True)),
     ("todas nao", ("reject", None, True)), ("reject all", ("reject", None, True)), ("rejeito todos", ("reject", None, True)),
 ]
 BAD = [
+    "pode marcar segunda", "pode marcar \u00e0 1", "pode marcar a quarta", "pode mandar quinta", "sim, segunda", "ok segunda", "pode marcar 3", "pode salvar 2", "pode 3", "pode marcar o 2",
+    "aprovo a quinta", "aprova a segunda", "ok sexta", "aprova a 1", "sim a 3", "pode marcar sexta", "pode mandar \u00e0 3",
     "pode marcar o dentista", "pode marcar amanh\u00e3 \u00e0s 3", "pode marcar amanh\u00e3 \u00e0s 10h", "sim mas s\u00f3 amanh\u00e3", "sim e n\u00e3o", "ok vou ver", "aprovo o 0", "aprovo o 100",
     "aprova todos o 2", "aprova rejeita", "o segundo sim", "cancela o lembrete 3", "cancela o pedido 4", "aprova o plano 3", "pode ser", "quero cancelar", "yes send it tomorrow",
     "approve the plan", "no way", "go on", "sim sim", "todos", "o primeiro", "2", "#2", "o", "", "   ", "/approve 3", "/sim", "aprovo o primeiro e o segundo", "aprovo o 2 e o 3",
@@ -148,6 +155,27 @@ def test_a_line_that_is_both_an_approve_and_a_reject_form_is_none():
     assert card_words.card_word("aprova rejeita") is None and card_words.card_word("sim n\u00e3o") is None and card_words.card_word("yes no") is None
 
 
+def test_a_day_of_the_week_or_an_hour_after_an_approval_is_never_a_position():
+    """The review's cases: "segunda", "quarta", "quinta" and "sexta" are days, "\u00e0 1" is a time, and "pode marcar" is a whole-line approval."""
+    for line in ("pode marcar segunda", "pode marcar \u00e0 1", "pode marcar a quarta", "pode mandar quinta", "sim, segunda", "ok segunda", "pode marcar 3"):
+        assert card_words.card_word(line) is None, line
+    assert as_tuple(card_words.card_word("pode marcar")) == ("approve", None, False) and as_tuple(card_words.card_word("aprovo o segundo")) == ("approve", 2, False)
+
+
+def test_a_line_wrongly_read_with_a_weekday_as_a_position_is_caught_by_the_walk():
+    """Vacuity: a planted `card_word` that takes a feminine weekday after a form as the position makes the walk report violations."""
+    real = card_words.card_word
+    days = {"segunda": 2, "quarta": 4, "quinta": 5, "sexta": 6}
+
+    def reads_the_weekday(line):
+        got = real(line)
+        words = line.lower().replace(",", " ").split() if isinstance(line, str) else []
+        if got is None and len(words) >= 2 and words[-1] in days and real(" ".join(words[:-1])) is not None:
+            return dict(real(" ".join(words[:-1])), n=days[words[-1]])
+        return got
+    assert violations(reads_the_weekday) != []
+
+
 def test_a_slash_line_a_blank_line_and_a_non_text_are_none():
     for line in ("/aprovo", "  ", "", None, 3, ["sim"], {"text": "sim"}):
         assert card_words.card_word(line) is None, line
@@ -168,7 +196,7 @@ def test_the_oracle_agrees_with_every_hand_written_line():
 # --- the walk: generated lines, the oracle decides what each one is ------------------------------------------------------------------------------------------------------
 
 BANK = ["sim", "ok", "aprovo", "aprova", "pode", "marcar", "mandar", "salvar", "manda", "ver", "yes", "approve", "go", "ahead", "nao", "rejeito", "cancela", "deixa", "no", "reject",
-        "cancel", "todos", "todas", "all", "hey", "can", "you", "o", "a", "the", "number", "2", "10", "0", "primeiro", "segunda", "third", "por", "favor", "please", "dentista", "lembrete",
+        "cancel", "todos", "todas", "all", "hey", "can", "you", "o", "a", "the", "number", "2", "10", "0", "primeiro", "segunda", "quarta", "quinta", "sexta", "segundo", "third", "por", "favor", "please", "dentista", "lembrete",
         "3", "e", "mas", "amanha", "hoje", "arquivo", "agenda", "aprovar", "pf"]
 
 

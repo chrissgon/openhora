@@ -5,7 +5,7 @@
 """The words that decide a decision card (package S2, limit L64): a pure reading of one line.
 
 `card_word(line)` answers {"op": "approve" | "reject", "n": position | None, "all": bool} when the WHOLE line is one closed form of the lists below, and None for
-everything else. A line is a form when it is: polite words, one approve or reject phrase, then either nothing, or an optional article ("o", "a", "the", "number") with a
+everything else. A line is a form when it is: polite words, one approve or reject phrase, then either nothing, or an optional article ("o", "the", "number") with a
 number or an ordinal ("aprovo o 2", "approve the second"), or the word for all ("aprova todos", "todos nao"), then polite words. Accents, case and punctuation do not
 matter. There is never an open tail: "pode marcar o dentista" and "pode marcar amanha as 3" are not forms, they are requests. A line that is both an approve and a reject form
 is None; a slash line, an empty line and a line of more than `LINE_WORDS_MAX` words are None.
@@ -28,6 +28,7 @@ import unicodedata
 
 LINE_WORDS_MAX = 8      # a longer line is a sentence, never a form
 ORDINALS_MAX = 10
+ORDINAL_ARTICLES = ["a"]      # an article that may stand before an ordinal word ("a primeira") and never before a number ("\u00e0 1" is a time)
 
 WORDS = {
     "en": {
@@ -42,9 +43,10 @@ WORDS = {
         "approve": ["sim", "ok", "aprovo", "aprova", "aprovar", "aprovado", "pode", "pode marcar", "pode mandar", "pode salvar", "manda ver"],
         "reject": ["nao", "rejeito", "rejeita", "cancela", "deixa"],
         "all": ["todos", "todas"],
-        "articles": ["o", "a", "numero", "n"],
+        "articles": ["o", "numero", "n"],
         "polite": ["por favor", "pf", "pode", "poderia", "consegue", "oi", "ola", "ei"],
-        "ordinals": [["primeiro", "primeira"], ["segundo", "segunda"], ["terceiro", "terceira"], ["quarto", "quarta"], ["quinto", "quinta"], ["sexto", "sexta"],
+        # no "segunda", "quarta", "quinta" or "sexta": they are the days of the week ("pode marcar segunda" is a request, not the second card)
+        "ordinals": [["primeiro", "primeira"], ["segundo"], ["terceiro", "terceira"], ["quarto"], ["quinto"], ["sexto"],
                      ["setimo", "setima"], ["oitavo", "oitava"], ["nono", "nona"], ["decimo", "decima"]],
     },
 }
@@ -109,13 +111,19 @@ def _forms() -> dict:
         tail = f"(?:\\s+(?:{_alternation(polite)}))*" if polite else ""
         ordinal_at = {w: at + 1 for at, words in enumerate(given["ordinals"]) for w in words}
         articles = f"(?:(?:{_alternation(given['articles'])})\\s+)?"
-        place = "(?P<n>[0-9]{1,2})" + (f"|(?P<o>{_alternation(list(ordinal_at))})" if ordinal_at else "")
-        position = f"(?:\\s+{articles}(?:{place}))"
+        for_ordinal = f"(?:(?:{_alternation(given['articles'] + ORDINAL_ARTICLES)})\\s+)?"      # "a primeira": the feminine article, before an ordinal word only
+        place = f"{articles}(?P<n>[0-9]{{1,2}})" + (f"|{for_ordinal}(?P<o>{_alternation(list(ordinal_at))})" if ordinal_at else "")
+        position = f"(?:\\s+(?:{place}))"
         every = f"(?P<a>{_alternation(given['all'])})"
         shapes = {}
         for op in ("approve", "reject"):
             form = f"(?:{_alternation(given[op])})"
-            shapes[op] = [re.compile(f"{lead}{form}(?:{position})?{tail}"),
+            whole_only = [w for w in given[op] if w == "pode" or w.startswith("pode ")]      # "pode marcar", "pode mandar", "pode salvar": a whole-line approval, never followed by a position ("pode marcar 3")
+            with_position = [w for w in given[op] if w not in whole_only]
+            first = f"(?:{_alternation(whole_only)})" if whole_only else None
+            second = f"(?:{_alternation(with_position)})(?:{position})?" if with_position else None
+            core = "|".join(x for x in (first, second) if x)
+            shapes[op] = [re.compile(f"{lead}(?:{core}){tail}"),
                           re.compile(f"{lead}{form}\\s+{every}{tail}"),
                           re.compile(f"{lead}{every}\\s+{form}{tail}")]
         _COMPILED.update(shapes=shapes, ordinal_at=ordinal_at)

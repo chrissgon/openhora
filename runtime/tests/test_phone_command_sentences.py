@@ -51,6 +51,8 @@ def ask(world, line, result, language=None):
     before = len(world.texts())
     world.say(line)
     assert wait_for(lambda: len(world.texts()) > before)
+    for thread in list(world.bridge.threads):      # the job that sent the reply has ended: the next line meets a free slot
+        thread.join(10)
     return world.texts()[before:]
 
 
@@ -90,3 +92,33 @@ def test_the_checker_sees_the_json_when_the_conversion_is_taken_away(world, monk
     monkeypatch.setattr(bridge.Bridge, "command_sentence", lambda self, project, text, said: said)
     sent = ask(world, "/cancel 8", CANCEL)
     assert leaks_json(sent[0]) and '"request": 8' in sent[0]
+
+
+def test_a_held_tasks_reason_that_carries_a_command_or_a_path_is_cut_by_the_net_and_never_reaches_the_phone(world):
+    held = {"task_id": 5, "reason": "waiting: run python3 runtime/cli.py dispatch --project /Users/zed/proj --sha256 abc", "next": "uv run python3 runtime/cli.py dispatch"}
+    sent = ask(world, "/status", {"requests": [], "pending": [], "held": [held]})
+    text = " ".join(sent)
+    assert "cli.py" not in text and "--project" not in text and "/Users/zed" not in text and "uv run" not in text and "Task 5 is held" in text
+
+
+@pytest.mark.parametrize("result, expected", [
+    ({"request": ["a", "list"], "cancelled": [8], "already": False}, "Request 8 cancelled."),      # a result field that is not a whole number: the number the person typed
+    ({"request": {"x": 1}, "already": False}, "Request 8 cancelled."),
+    ({"request": True, "already": False}, "Request 8 cancelled."),
+    ({"request": "8; rm -rf /", "already": False}, "Request 8 cancelled."),
+])
+def test_the_number_in_a_sentence_is_a_whole_number_of_the_result_or_the_one_typed_and_never_anything_else(world, result, expected):
+    sent = ask(world, "/cancel 8", result)
+    assert sent == [expected]
+
+
+def test_a_held_task_without_a_whole_number_is_not_listed(world):
+    sent = ask(world, "/status", {"requests": [], "pending": [], "held": [{"task_id": ["x"], "reason": {"a": 1}}]})
+    assert sent == ["Open requests: 0. Waiting for you: 0."]
+
+
+def test_a_result_of_the_wrong_shape_is_still_a_sentence_and_never_an_error(world):
+    sent = ask(world, "/status", {"requests": [1, "x", None], "pending": 5, "held": "x"})
+    assert sent == ["Open requests: 0. Waiting for you: 0."]
+    sent = ask(world, "/attachments", {"held": 7})
+    assert sent == ["Files waiting for your answer: 0."]

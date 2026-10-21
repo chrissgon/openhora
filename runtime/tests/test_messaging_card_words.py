@@ -371,6 +371,31 @@ def test_a_platform_with_no_buttons_ends_the_card_with_the_words_and_the_word_ap
     assert approvals(world) == [(1, "a" * 64)]
 
 
+def test_a_card_that_is_not_whole_on_a_platform_with_no_buttons_keeps_the_typed_lines_because_a_word_decides_only_a_whole_card(world):
+    world.caps(buttons=False)
+    world.config["messaging"]["notices"] = "count"      # the card carries none of the text
+    world.items[1] = plan(1)
+    world.bridge.tick()
+    text = world.sent()[0]["message"]["text"]
+    assert "Send /approve 1" in text and "Send /reject 1" in text and END_LINE not in text
+    assert world.bridge.ledger.data["cards"][0]["whole"] is False
+    world.say("sim")
+    assert nothing_decided(world)
+
+
+def test_a_cut_card_on_a_platform_with_no_buttons_keeps_the_typed_lines_and_a_whole_one_ends_with_the_words(world):
+    world.caps(buttons=False, max_text=300, documents=False)
+    world.items[1] = decision("plan", 1, body="x" * 2000, plan_sha256="a" * 64)
+    world.bridge.tick()
+    cut = world.sent()[0]["message"]["text"]
+    assert len(cut) <= 300 and "Send /approve 1" in cut and "Send /reject 1" in cut and END_LINE not in cut
+    assert world.bridge.ledger.data["cards"][0]["whole"] is False
+    world.items[2] = decision("plan", 2, body="short", plan_sha256="b" * 64)
+    world.bridge.tick()
+    whole = world.sent()[1]["message"]["text"]
+    assert whole.endswith(END_LINE) and "/approve" not in whole and world.bridge.ledger.data["cards"][1]["whole"] is True
+
+
 def test_a_platform_with_buttons_does_not_end_the_card_with_the_words(world):
     world.items[1] = plan(1)
     world.bridge.tick()
