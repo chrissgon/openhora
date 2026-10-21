@@ -221,7 +221,7 @@ def private_ids(rows: list) -> set:
 
 
 def is_placeholder(text) -> bool:
-    return isinstance(text, str) and text in phrases.every("NAT_PRIVATE_LINE") + phrases.every("NAT_PRIVATE_REPLY") + phrases.every("NW_PRIVATE_LINE") + phrases.every("NW_PRIVATE_REPLY")
+    return isinstance(text, str) and text in phrases.every("NAT_PRIVATE_LINE") + phrases.every("NAT_PRIVATE_REPLY") + phrases.every("NW_PRIVATE_LINE") + phrases.every("NW_PRIVATE_REPLY") + phrases.every("IX_PRIVATE_LINE")
 
 
 # --- the entry points --------------------------------------------------------------------------------------------------------------------------

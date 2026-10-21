@@ -684,6 +684,18 @@ TABLE = {
         "CMD_STATUS_HELD": "Task {n} is held: {reason}.",
         "CMD_ATTACHMENTS": "Files waiting for your answer: {n}.",
         "CMD_DONE": "Done.",
+        # --- a plain line the interpreter reads (package S1: runtime/ops_interpret.py): fixed sentences, no word of the model is ever shown ---
+        "IX_PRIVATE_LINE": "(a message)",
+        "IX_NONE": "I did not see a request in that message.",
+        "IX_ASK_TIME": "I am not sure of the day and the time. Say them again, with the day and the hour.",
+        "IX_ASK_PAST": "That time has already passed. Say a time that is still ahead.",
+        "IX_ASK_FAR": "That is more than a year away. Say a nearer day.",
+        "IX_LONG_LINE": "That message is too long for me to read here. Send it in shorter parts.",
+        "IX_ASK_AGAIN": "I was not sure what you meant, so I did nothing. Can you say it another way?",
+        "IX_USE_CARD": "A decision is made on its card: use the buttons of the card.",
+        "IX_WRITE_LANGUAGE": "For now, ask for that in Portuguese or in English.",
+        "IX_OUTAGE": "I could not understand that right now. Try again in a few minutes.",
+        "PHONE_NOT_UNDERSTOOD": "I did not understand the request and started nothing. Can you say it another way?",
     },
     "pt-BR": phrases_pt_br.TABLE,
 }
