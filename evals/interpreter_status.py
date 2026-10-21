@@ -38,14 +38,22 @@ The band of one (model, route, language), by the rules below, in this order:
     protocol, taxonomy, thresholds and catalog, whose point rate of one of the four is over its point_max demotes that
     language, and one that holds a wrong_effect_unconfirmed demotes every language and the overall band, from `reliable` to
     `below the gate` (cause `local lines`). It never promotes.
+  - An account route (kind "account": a Claude model measured on the maintainer's own account through the vendor's command-line
+    tool, never over a metered key) is judged on accuracy only (D3'-a, decided 2026-10-21): its overall conditions are those above
+    but the p95 latency, a sequential event is not required of it, and it has no per-call price. The p95 of a sequential event, when
+    one exists, is still computed and published, labelled "not a condition on an account route"; so is the median list-price
+    equivalent of a call (from the lines' usage and runtime/prices.json), labelled "proxy, not paid, not a go input". An account
+    route is for tests only: it is never priced, never chosen as the daily route, and its latency and cost are required of the
+    route that runs daily.
   - go: the languages that run are those where the reference route (runtime/interpreter_routes.json) is `reliable` (D3'); with
     none, no. A route qualifies only if its overall band is `reliable` (after the local lines), it is `reliable` in at least one
     of those languages (so its per-language conditions hold there), the median cost of a call (from the lines that report one)
     is at most median_cost_usd_max in the language, and thresholds.versus_current holds against the current pipeline's run
     (correct_direct greater, wrong_card rate not greater) on the same corpus, taxonomy, thresholds and served catalog, with the
     same completeness as the B-prime set, and its sequential events hold at least SEQUENTIAL_MIN_CALLS calls (100: this plan's
-    choice, not measured; fewer is "needs a sequential sample of at least 100 calls"). The cheapest qualifying route is chosen and serves the languages in which it
-    qualifies ("route_languages"); the others of "languages" run on the reference route.
+    choice, not measured; fewer is "needs a sequential sample of at least 100 calls"). The cheapest qualifying route of kind http is chosen (an account route is never the daily route) and serves the languages
+    in which it qualifies ("route_languages"); the others of "languages" get tier 1, clarify-by-code and route, with the interpreter
+    off ("off_languages", decision Q2): the reference model is never the daily model.
 
 The correct_direct and clarify_rate denominators leave out the items whose gold is `clarify`; an item line states the outcome
 word of its gold ("gold"), and a line without it is not valid evidence, so no band or go is computed from one. Standard library
@@ -74,6 +82,10 @@ WRONG = ("wrong_card", "wrong_read", "wrong_reminder_reading", "wrong_item_bindi
 # fewer than 20 calls is the maximum, and 100 calls give a p95 that five slow calls can move.
 SEQUENTIAL_MIN_CALLS = 100
 ROUTE_KEYS = ("id", "base_url", "upstream_model", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint")
+PRICES_REL = os.path.join("runtime", "prices.json")
+# The words the status prints beside an account route's figures (principle 10: a figure says what it is).
+LATENCY_NOTE = "not a condition on an account route"
+PRICE_NOTE = "proxy, not paid, not a go input"
 
 
 # --- hashes (the canonical form of the reliability model) ---------------------------------------------------------
@@ -91,9 +103,16 @@ def sha_file(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
+def is_account(route):
+    return route.get("kind") == "account"
+
+
 def route_sha256(route):
-    """The hash of the object the provider receives for a route: {id, base_url, model: upstream_model, pin, allow_fallbacks,
-    data_collection, zdr, cache_breakpoint}."""
+    """The hash of the route's object. An http route (a row without `kind` is one): the object the provider receives, {id, base_url,
+    model: upstream_model, pin, allow_fallbacks, data_collection, zdr, cache_breakpoint}. An account route: the canonical JSON of
+    every key of the row but `retention` and `reference` (runtime/interpreter_route.py computes it the same way)."""
+    if is_account(route):
+        return sha_obj({k: v for k, v in route.items() if k not in ("retention", "reference")})
     sent = {k: route.get(k) for k in ROUTE_KEYS}
     sent["model"] = sent.pop("upstream_model")
     return sha_obj(sent)
@@ -169,7 +188,8 @@ def load_inputs(root=ROOT):
     """{"routes", "thresholds", "taxonomy", "protocol_sha256", "prompt_sha256", "taxonomy_sha256", "thresholds_sha256",
     "corpus_sha256", "served", "catalog_ok", "missing"}: the checkout's own hashes. "missing" is the first required file that
     is absent or not a well-formed object (its relative path), else None; the other keys are filled as far as files allow."""
-    out = {"missing": None, "reason": None, "routes": [], "reference": None, "served": None, "epochs": None}
+    out = {"missing": None, "reason": None, "routes": [], "reference": None, "served": None, "epochs": None,
+           "prices": _json(root, PRICES_REL)}  # the price table is optional: without it an account route's list-price equivalent is unknown
     need = []
     routes = _json(root, ROUTES_REL)
     if not (isinstance(routes, dict) and isinstance(routes.get("routes"), list)):
@@ -296,8 +316,9 @@ def _show(value):
     return "n/a" if value is None else (f"{value:.4g}" if isinstance(value, float) else str(value))
 
 
-def overall_checks(m, p95_ms, thresholds):
-    """The overall conditions but the cost, in the order the cause reads them: [{"name", "ok", "text"}]."""
+def overall_checks(m, p95_ms, thresholds, latency=True):
+    """The overall conditions but the cost, in the order the cause reads them: [{"name", "ok", "text"}]. `latency` False leaves out the
+    p95 latency (an account route: LATENCY_NOTE)."""
     o = thresholds["overall"]
     out = [_check("wrong_effect_unconfirmed", m["counts"].get("wrong_effect_unconfirmed", 0), o["wrong_effect_unconfirmed_max"],
                   m["counts"].get("wrong_effect_unconfirmed", 0) <= o["wrong_effect_unconfirmed_max"])]
@@ -310,9 +331,10 @@ def overall_checks(m, p95_ms, thresholds):
                           f"{cat} Wilson upper bound is {bound:.4f}, over {limit}{zero}"))
     rate = m["clarify_rate"]
     out.append(_check("clarify_rate", rate, o["clarify_rate_max"], rate is not None and rate <= o["clarify_rate_max"]))
-    out.append(_check("p95_latency_ms", p95_ms, o["p95_latency_ms_max"], p95_ms is not None and p95_ms <= o["p95_latency_ms_max"],
-                      "p95_latency_ms is unknown (no sequential call reported a latency)" if p95_ms is None
-                      else f"p95_latency_ms is {p95_ms}, over {o['p95_latency_ms_max']}"))
+    if latency:
+        out.append(_check("p95_latency_ms", p95_ms, o["p95_latency_ms_max"], p95_ms is not None and p95_ms <= o["p95_latency_ms_max"],
+                          "p95_latency_ms is unknown (no sequential call reported a latency)" if p95_ms is None
+                          else f"p95_latency_ms is {p95_ms}, over {o['p95_latency_ms_max']}"))
     return out
 
 
@@ -396,9 +418,66 @@ def coverage_cause(events, inputs):
     return None
 
 
-def route_status(route, inputs, events):
+def price_entry(prices, route):
+    """(the table's key, its entry) of the list price of an account route's model, or (None, None): looked up by the route's pin and
+    model (`anthropic/claude-sonnet-5-5`), then by the model alone, then by an alias."""
+    models = prices.get("models") if isinstance(prices, dict) else None
+    if not isinstance(models, dict):
+        return None, None
+    model = route.get("model")
+    for key in (f"{route.get('pin')}/{model}", model):
+        if isinstance(models.get(key), dict):
+            return key, models[key]
+    for key, entry in sorted(models.items()):
+        if isinstance(entry, dict) and model in (entry.get("aliases") or []):
+            return key, entry
+    return None, None
+
+
+PRICE_KINDS = (("input", "input_usd_per_mtok"), ("output", "output_usd_per_mtok"), ("cache_read", "cache_read_usd_per_mtok"),
+               ("cache_write", "cache_write_usd_per_mtok"))
+
+
+def list_price_equivalent(route, lines, prices):
+    """What an account route's calls would cost at the vendor's list price, a proxy of the usage and never a payment (PRICE_NOTE):
+    {"median_usd", "calls", "model", "source", "accessed"} with median_usd None when no call can be priced. A call is priced from its
+    usage and the entry of runtime/prices.json; a call without usage, or one that uses a kind of token the entry leaves out, is left
+    out."""
+    key, entry = price_entry(prices, route)
+    out = {"median_usd": None, "calls": 0, "model": key, "source": entry.get("source") if entry else None,
+           "accessed": entry.get("accessed") if entry else None, "note": PRICE_NOTE}
+    if entry is None:
+        return out
+    costs = []
+    for line in lines:
+        usage = line.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        total = 0.0
+        for kind, price_key in PRICE_KINDS:
+            tokens = usage.get(kind) or 0
+            if tokens and not _is_number(entry.get(price_key)):
+                total = None
+                break
+            total += tokens * (entry.get(price_key) or 0) / 1_000_000
+        if total is not None:
+            costs.append(total)
+    out["median_usd"], out["calls"] = median(costs), len(costs)
+    return out
+
+
+def account_deviations(route):
+    """The settings an account route measures with that differ from the protocol's (reasoning off, temperature 0), as the status
+    prints them beside the band."""
+    params = route.get("params") if isinstance(route.get("params"), dict) else {}
+    temperature = "as the CLI sends it" if params.get("temperature") is None else str(params["temperature"])
+    return f"reasoning {params.get('reasoning')}, temperature {temperature}"
+
+
+def route_status(route, inputs, events, prices=None):
     """{"overall": {...}, "rows": [one row per language of thresholds.languages]} for one route. A row:
-    {"model", "route", "lang", "band", "cause", ...figures}."""
+    {"model", "route", "lang", "band", "cause", ...figures}. An account route (module docstring) is judged on accuracy only."""
+    account = is_account(route)
     th, tax = inputs["thresholds"], inputs["taxonomy"]
     langs = th["languages"]
     mine = current_set(route, inputs, events)
@@ -406,7 +485,7 @@ def route_status(route, inputs, events):
         why = stale_cause(route, inputs, events)
         return {"overall": {"band": "needs a run", "cause": why}, "rows": [_needs(route, l, why) for l in langs]}
     cause = coverage_cause(mine, inputs)
-    if cause is None and not any(e["sequential"] for e, _, _ in mine):
+    if cause is None and not account and not any(e["sequential"] for e, _, _ in mine):
         cause = "no sequential run (the latency and the cost are measured on one call at a time)"
     if cause:
         return {"overall": {"band": "needs a run", "cause": cause}, "rows": [_needs(route, l, cause) for l in langs]}
@@ -416,7 +495,7 @@ def route_status(route, inputs, events):
     p95_ms = p95([l["latency_ms"] for l in seq if l["latency_ms"] is not None])
     cost = median([l["cost_usd"] for l in seq if l["cost_usd"] is not None])
     sample = {"calls": len(seq), "items": len({l["item"] for l in seq}), "of": inputs["split"]["items"]}  # p95 of fewer than 20 calls is the maximum
-    checks = overall_checks(m, p95_ms, th)
+    checks = overall_checks(m, p95_ms, th, not account)
     overall_fail = _first_failure(checks)
     rows = []
     for lang in langs:
@@ -432,6 +511,11 @@ def route_status(route, inputs, events):
                      "rate": lm["rate"], "wilson": lm["wilson"], "median_cost_usd": lang_cost})
     overall = {"band": "below the gate" if overall_fail else "reliable", "cause": overall_fail or "every overall condition holds",
                "measures": m, "p95_latency_ms": p95_ms, "median_cost_usd": cost, "sequential": sample, "checks": checks}
+    if account:  # nothing is paid per call, so there is no cost; the figures below are published, never conditions
+        overall["median_cost_usd"] = None
+        overall["p95_latency_note"] = LATENCY_NOTE
+        overall["list_price_equivalent"] = list_price_equivalent(route, [l for _, rows, _ in mine for l in rows], prices)
+        overall["deviations"] = account_deviations(route)
     if demote_by_local_lines(route, inputs, events, mine, rows) and overall["band"] == "reliable":
         overall["band"], overall["cause"] = "below the gate", "local lines"
     return {"overall": overall, "rows": rows}
@@ -469,10 +553,13 @@ def current_pipeline(inputs, events):
 
 
 def go_of(inputs, statuses, events):
-    """The go computation (module docstring). {"go", "cause", "route", "model", "languages", "route_languages", "versus_current", ...}.
-    `languages` are those where the reference route is reliable (D3'); `route_languages` those of them the chosen route serves."""
+    """The go computation (module docstring). {"go", "cause", "route", "model", "languages", "route_languages", "off_languages",
+    "versus_current", ...}. `languages` are those where the reference route is reliable (D3'); `route_languages` those of them the
+    chosen daily route serves; `off_languages` the others (tier 1, clarify-by-code and route, the interpreter off). An account route
+    is never the daily route."""
     th = inputs["thresholds"]
-    out = {"go": False, "cause": None, "route": None, "model": None, "languages": [], "route_languages": [], "versus_current": None}
+    out = {"go": False, "cause": None, "route": None, "model": None, "languages": [], "route_languages": [], "off_languages": [],
+           "versus_current": None}
     ref = next((s for r, s in statuses if r["id"] == inputs["reference"]), None)
     langs = [row["lang"] for row in ref["rows"] if row["band"] == "reliable"] if ref else []
     if not langs:
@@ -487,6 +574,8 @@ def go_of(inputs, statuses, events):
     limit, vs = th["overall"]["median_cost_usd_max"], th["versus_current"]
     reasons, priced = [], []
     for route, status in statuses:
+        if is_account(route):  # for tests only: never priced, never the daily route (its latency and cost are the daily route's to meet)
+            continue
         ov = status["overall"]
         served = [row for row in status["rows"] if row["band"] == "reliable" and row["lang"] in langs]
         if ov["band"] != "reliable":
@@ -512,7 +601,7 @@ def go_of(inputs, statuses, events):
             m["rate"]["wrong_card"] <= cur["rate"]["wrong_card"] if vs["wrong_card"] == "not_greater" else True)
         if better and not_worse:
             out.update(go=True, cause="every condition holds", route=rid, model=route.get("model"), median_cost_usd=cost,
-                       route_languages=cheap, versus_current={"correct_direct": [m["correct_direct"], cur["correct_direct"]],
+                       route_languages=cheap, off_languages=[l for l in langs if l not in cheap], versus_current={"correct_direct": [m["correct_direct"], cur["correct_direct"]],
                                                               "wrong_card": [m["rate"]["wrong_card"], cur["rate"]["wrong_card"]]})
             return out
         reasons.append(f"{rid}: " + ("correct_direct is not greater than the current pipeline's" if not better
@@ -535,11 +624,40 @@ def status(root=ROOT):
         out["go"] = {"go": False, "cause": cause, "route": None, "model": None, "languages": [], "versus_current": None}
         return out
     events = read_events(root)
-    statuses = [(r, route_status(r, inputs, events)) for r in inputs["routes"]]
+    statuses = [(r, route_status(r, inputs, events, inputs.get("prices"))) for r in inputs["routes"]]
     out["rows"] = [row for _, s in statuses for row in s["rows"]]
+    out["accounts"] = [account_summary(r, s) for r, s in statuses if is_account(r)]
     out["go"] = go_of(inputs, statuses, events)
     out["epochs"] = {"served": inputs["served"], "states": [e["state"] for e in inputs["epochs"]["epochs"]]}
     return out
+
+
+def account_summary(route, status):
+    """What the status publishes beside the band of an account route (module docstring): the overall band, the p95 of a sequential
+    event (when one ran) with its label, the list-price equivalent with its source and its label, and the settings it measured with."""
+    ov = status["overall"]
+    out = {"route": route["id"], "model": route.get("model"), "band": ov["band"], "cause": ov["cause"]}
+    if "list_price_equivalent" in ov:
+        out.update(p95_latency_ms=ov["p95_latency_ms"], p95_latency_note=ov["p95_latency_note"], sequential=ov["sequential"],
+                   list_price_equivalent=ov["list_price_equivalent"], deviations=ov["deviations"])
+    return out
+
+
+def _money(value):
+    return "unknown" if value is None else f"{value:.5f}"
+
+
+def account_lines(summary):
+    """The text lines of one account route's figures (empty when it has no current set)."""
+    if "list_price_equivalent" not in summary:
+        return []
+    price, p95_ms = summary["list_price_equivalent"], summary["p95_latency_ms"]
+    where = f"; {price['model']}, {price['source']}, accessed {price['accessed']}" if price["model"] else ""
+    return [f"  {summary['route']}: account route, judged on accuracy only; {summary['deviations']}",
+            f"  {summary['route']}: p95 latency {'unknown' if p95_ms is None else str(p95_ms) + ' ms'} of {summary['sequential']['calls']} "
+            f"sequential calls ({summary['p95_latency_note']})",
+            f"  {summary['route']}: list-price equivalent, median per call, {_money(price['median_usd'])} USD of {price['calls']} calls "
+            f"({price['note']}{where})"]
 
 
 def table(result):
@@ -550,9 +668,13 @@ def table(result):
     for row in result["rows"]:
         star = " (reference)" if row["route"] == result["reference"] else ""
         lines.append(f"  {row['model']} | {row['route']}{star} | {row['lang']} | {row['band']} | {row['cause']}")
+    for summary in result.get("accounts") or []:
+        lines += account_lines(summary)
     go = result.get("go")
     if go:
-        lines.append("  go: " + ("yes via " + str(go["route"]) + " for " + ", ".join(go["languages"]) if go["go"] else "no (" + str(go["cause"]) + ")"))
+        lines.append("  go: " + ("yes via " + str(go["route"]) + " for " + ", ".join(go["route_languages"])
+                                 + (" (off: " + ", ".join(go["off_languages"]) + ")" if go.get("off_languages") else "")
+                                 if go["go"] else "no (" + str(go["cause"]) + ")"))
     return lines
 
 
