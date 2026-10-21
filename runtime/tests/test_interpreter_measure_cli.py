@@ -24,7 +24,7 @@ pipeline = st.load("interpreter_pipeline")
 route_module = st.load("interpreter_route")
 
 ROOT = Path(__file__).resolve().parents[2]
-ROUTE = "or-claude-haiku-4.5"
+ROUTE = "or-deepseek-v4.1-flash"
 MARKER = "SECRET-MARKER-5527-ZETA"
 
 

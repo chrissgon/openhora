@@ -42,7 +42,7 @@ def by_path(rel, name):
 lines_module = by_path("evals/evidence_lines.py", "workbench_evidence_lines_for_ix2c")
 status_module = by_path("evals/interpreter_status.py", "workbench_interpreter_status_for_ix2c")
 
-ROUTE = next(r for r in route_module.load()["routes"] if r["id"] == "or-claude-haiku-4.5")
+ROUTE = next(r for r in route_module.load()["routes"] if r["id"] == "or-deepseek-v4.1-flash")
 PRICES = {"models": {ROUTE["model"]: {"input_usd_per_mtok": 1.0, "output_usd_per_mtok": 5.0, "cache_read_usd_per_mtok": 0.1}}}
 
 
