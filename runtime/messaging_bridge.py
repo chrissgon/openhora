@@ -87,18 +87,31 @@ Language (LR-1). Every sentence the bridge says is the phrase table's (runtime/p
 no `language` gets the English constants below, byte for byte; a tag with no table gets English. The decision's own text, the project's name, the commands, ids and the
 text of an `OpsError` are not translated (contracts/runtime.md, "The language of a deliverable").
 
+Words that decide a card (S2, limit L64; the words are runtime/card_words.py). A plain line that is, whole, only an approve or a reject form ("Aprovo", "sim", "pode marcar", "nao",
+"aprovo o 2") decides a decision card exactly as that card's own button would (`word_line` -> `Bridge.act`, which asks the policy for the sender, binds the act to the card's hash and
+runs the same operation), and only when ALL of these hold: the update is a private line of a listed sender in the chat the card was sent to and is not a forwarded message; the card is
+the LAST message the platform sent to that chat (`last_sent`, memory only: every message, a reply or a delivered reminder included, so any later message ends it and a restart forgets it);
+it is the only decision card of that sender in that chat that a word could decide (sent whole, offering the act); the decision is open and its content hash is the card's (`CHANGED` and a
+new card otherwise). Several such cards: one numbered list is sent (kind and title, no id) and nothing is decided; for `LIST_SECONDS`, while the list is the last message, a position
+("aprovo o 2") decides that card; "approve all" is never done (`WORD_ONE_AT_A_TIME`); "todos nao" rejects every card of the list, each through its own card. A line that is a reply
+(the reply gesture) to a decision card decides THAT card, whether or not it is the last message. A platform that declares `actions_need_reply` (e-mail) is decided only by a reply to
+the card. Anything else is not touched: the line goes on as it always did. A card on a platform with no buttons ends with `REPLY_WORDS_LINE` in place of "Send /approve 12".
+A table command typed on a phone (`/cancel 8`) is answered with a sentence in the project's language (`command_sentence`), never the operation's JSON.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
 import contextlib
 import inspect
+import json
 import os
 import re
 import threading
 import time
 import traceback
 
+import card_words
 import messaging_attach as attach
 import messaging_cards as cards
 import messaging_failure as failure
@@ -149,6 +162,9 @@ QUEUE_PER_PROJECT = 5
 QUEUE_RETRY = 1.0     # seconds before a line that met `RunBusy` is started again
 QUEUE_POLL = 2        # seconds a polling loop waits for the messenger while a line waits out a `RunBusy` pause (a held slot is looked at when its job ends)
 QUEUE_STOP_WAIT = 10.0   # seconds, in all, the stop messages may take (they go out together); the runs end after that
+LIST_SECONDS = 600.0   # seconds the numbered list of cards waits for a position: the conversation spec's choice (3.5, LIST_TTL), not measured
+LIST_MAX = 10          # cards the numbered list names (the newest)
+NOT_DECISION = ("reminder", "question", "attachment")   # the kinds of ledger record that are not a decision card a word could decide
 RESEND_EVERY = 60.0   # seconds: a decision named in words has its card sent again at most this often to one chat
 QUEUE_COMMANDS = ("new", "ask")   # the slash commands that may wait: the ones that run the planning agent or the answer run; the others are not lines but acts
 
@@ -258,6 +274,10 @@ class Bridge(shell_kit.Jobs):
         self.unread_told = {}                 # chat -> time.monotonic() of the last line about skipped messages
         self.monotonic = time.monotonic       # the clock of the waiting lines (a test moves it)
         self.resent = {}                      # (project id, chat, decision) -> when its card was last sent again to that chat (NR-2: at most once in RESEND_EVERY seconds)
+        self.last_sent = {}                   # chat -> the id of the last message of any kind sent to it (memory only; S2, limit L64): a word decides a card only while the card is it
+        self.send_seq = {}                    # chat -> how many sends to it have started (memory only): `last_sent` is stored only by the send that started last
+        self.send_lock = threading.Lock()     # guards `send_seq` and `last_sent`: the update thread and the job threads all send
+        self.card_lists = {}                  # chat -> the numbered list of cards last sent: {"message_id", "at" (monotonic), "cards": [(project id, pending id, content hash)]} (memory only)
         self.last_message = {}                # chat -> the id of the last message sent to it (memory only): the question a draft asked is answered by a reply to it
         self.waiting = []                     # the lines kept for a busy project, oldest first (memory only): {"n", "project", "chat", "text", "since", "after"}
         self.ticket = 0
@@ -423,7 +443,17 @@ class Bridge(shell_kit.Jobs):
         theirs, and a card shows what is approved exactly as it is."""
         cfg = self.cfg(chat=chat)
         message = dated(scrub_message(message), cfg)
-        return self.messenger.send(chat, guard.guard_message(message, cfg, self.guarded) if guard_text else message)
+        with self.send_lock:
+            seq = self.send_seq[chat] = self.send_seq.get(chat, 0) + 1
+            self.last_sent[chat] = None      # while a message is on its way no card is the last one (S2: a word that comes in that moment decides nothing)
+            mine = getattr(self.scope, "seqs", None)
+            if mine is not None:
+                mine.append(seq)
+        sent = self.messenger.send(chat, guard.guard_message(message, cfg, self.guarded) if guard_text else message)
+        with self.send_lock:
+            if self.send_seq.get(chat) == seq:      # a send that started later decides what the last message is, whichever of the two the platform finished first
+                self.last_sent[chat] = str(sent) if sent else None
+        return sent
 
     def guarded(self, kinds: list) -> None:
         """What the net under the phone's sentences (messaging_guard) cut from a message: the kinds only, never the text."""
@@ -532,7 +562,7 @@ class Bridge(shell_kit.Jobs):
             self.ledger.add({"project": project["id"], "pending_id": item["id"], "kind": item["kind"],
                              "content_sha256": card["content_sha256"], "chat": chat, "message_id": message_id,
                              "actions": made, "sent_at": self.clock(), "whole": bool(card.get("whole")) and confirmed,
-                             "approvable": bool(card.get("approvable")), "blocked": card.get("blocked"),
+                             "approvable": bool(card.get("approvable")), "offers": list(card.get("offers") or []), "blocked": card.get("blocked"),
                              "effect_word": item.get("effect_word")})
         except OSError as e:  # the card went out and the process keeps the record in memory; it is not sent again
             self.log(f"the ledger could not be written ({e.__class__.__name__})")
@@ -724,7 +754,9 @@ class Bridge(shell_kit.Jobs):
                     return
                 self.write_forget(project, chat)          # any other line drops it, and is handled as a new one; a question it asks says the previous one was discarded
                 self.remind.discarded.add(chat)
-        if kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands":      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project)
+        if kind in ("text", "natural", "reply") and self.word_line(update, intent, project, listed, sender, chat):
+            pass          # an approve or a reject word decided a decision card, or listed the cards to choose from (S2, limit L64)
+        elif kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands":      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project)
             self.reply(chat, self.t("HELP", project=project), project)
         elif kind in ("text", "natural") and self.attach.line(project, chat, intent.get("text") or ""):
             pass          # "descarta", "adiciona ao projeto": a line about the file just sent (ATT-3)
@@ -778,6 +810,213 @@ class Bridge(shell_kit.Jobs):
                 self.say(project, chat, intent["text"])
         else:
             self.say(project, chat, intent["text"])
+
+    # --- words that decide a card (S2, limit L64) ---------------------------------------------------------------------------
+
+    @staticmethod
+    def offers(card: dict) -> set:
+        """The acts a ledger record says its card offered, among approve and reject: `approve` when it was `approvable`, and the acts listed in `offers` (a card made since S2) or
+        behind a button (`actions`)."""
+        acts = set(card.get("offers") or []) | set((card.get("actions") or {}).values())
+        if card.get("approvable") is True:
+            acts.add("approve")
+        return acts & {"approve", "reject"}
+
+    def word_cards(self, listed: list, chat: str) -> list:
+        """[(project, record, decision)], oldest first, of the decision cards of this chat that a word could decide: the newest ledger record of each decision that is open now,
+        sent whole, offering approve or reject, in a project that lists the sender. A question, a reminder and a file are not decision cards."""
+        with self.ledger.lock:
+            records = [dict(c) for c in self.ledger.data["cards"] if self.ledger._mine(c) and c.get("chat") == chat]
+        newest = {}
+        for rec in records:
+            if rec.get("kind") in NOT_DECISION or rec.get("pending_id") is None or not rec.get("message_id"):
+                continue
+            key = (rec["project"], rec["pending_id"])
+            newest.pop(key, None)
+            newest[key] = rec
+        found = []
+        for rec in newest.values():
+            project = next((p for p in listed if p["id"] == rec["project"]), None)
+            if project is None or rec.get("whole") is not True or not self.offers(rec):
+                continue
+            try:
+                item = self.ops.pending(project["path"], pending_id=rec["pending_id"])
+            except self.ops.OpsError:
+                continue
+            if item.get("status", "open") == "open":
+                found.append((project, rec, item))
+        return found
+
+    def word_line(self, update: dict, intent: dict, project: dict, listed: list, sender: str, chat: str) -> bool:
+        """A line that is, whole, only an approve or reject form (card_words): True when it was taken (it decided a card, or sent the list of cards, or said it approves one at a
+        time), False when the line is not for the cards and goes on as it always did. Every condition of L64 that this method checks is checked again by `word_act` against the
+        ledger and the decision as they are now."""
+        word = card_words.card_word(intent.get("text"))
+        if word is None or ("forwarded" in update and update["forwarded"] is not False):
+            return False
+        if update.get("reply_to"):
+            return self.word_reply(listed, chat, word, update["reply_to"])
+        if self.messenger.capabilities().get("actions_need_reply"):
+            return False      # e-mail: a typed act is a reply to the card (rule 50)
+        last = self.last_sent.get(chat)
+        if not last:
+            return False      # a restart forgets the last message: a word then decides nothing
+        found = self.word_cards(listed, chat)
+        shown = self.card_lists.get(chat)
+        if shown and shown["message_id"] == last and self.monotonic() - shown["at"] < LIST_SECONDS:
+            return self.word_on_list(chat, word, found, shown)
+        newest = next((c for c in found if str(c[1]["message_id"]) == last), None)
+        if newest is None:
+            return False      # the last message is not a card a word could decide
+        if word["all"] and word["op"] == "approve":
+            self.keep_cards(chat, self.t("WORD_ONE_AT_A_TIME", project=newest[0]), newest[0])
+        elif len(found) > 1:
+            self.send_list(chat, found)
+        elif word["n"] is not None:
+            return False      # a position chooses from the list only
+        else:
+            return self.word_act(newest[0], chat, newest[1], word["op"]) or False
+        return True
+
+    def word_reply(self, listed: list, chat: str, word: dict, replied) -> bool:
+        """A word sent as a reply to a message: it decides THAT card when the message is a decision card of this chat (it need not be the last message: the reply names it)."""
+        card = self.ledger.by_message(chat, replied) if isinstance(replied, str) else None
+        project = next((p for p in listed if card and p["id"] == card["project"]), None)
+        if card is None or project is None or card.get("kind") in NOT_DECISION or card.get("pending_id") is None:
+            return False
+        if word["all"] and word["op"] == "approve":
+            self.keep_cards(chat, self.t("WORD_ONE_AT_A_TIME", project=project), project)
+            return True
+        if word["all"] or word["n"] is not None:
+            return False
+        return self.word_act(project, chat, card, word["op"])
+
+    def word_on_list(self, chat: str, word: dict, found: list, shown: dict) -> bool:
+        """The line came while the numbered list is the last message: a position decides that card; "all" is rejected for each card of the list and never approved; anything
+        else, or a list that is no longer true (a card closed or changed), sends the list again (one card left: that card again)."""
+        by_key = {(p["id"], r["pending_id"]): (p, r, i) for p, r, i in found}
+        named = [by_key.get((pid, number)) for pid, number, _ in shown["cards"]]
+        if any(n is None or n[1]["content_sha256"] != sha for n, (_, _, sha) in zip(named, shown["cards"])):
+            if len(found) > 1:
+                self.send_list(chat, found)
+            elif found:
+                self.resend(found[0][0], chat, found[0][1]["pending_id"])
+            else:
+                return False
+            return True
+        if word["all"] and word["op"] == "approve":
+            self.keep_cards(chat, self.t("WORD_ONE_AT_A_TIME", project=named[0][0]), named[0][0])
+        elif word["all"]:
+            for project, card, _ in named:
+                self.word_act(project, chat, card, "reject")
+        elif word["n"] is not None and 1 <= word["n"] <= len(named):
+            project, card, _ = named[word["n"] - 1]
+            if not self.word_act(project, chat, card, word["op"]):
+                self.send_list(chat, found)
+        else:
+            self.send_list(chat, found)
+        return True
+
+    def reply_alone(self, chat: str, text: str, project: dict, restore: bool = False):
+        """Say `text` and return the id of the chat's last message after it when this reply was the whole of what was sent to the chat since the last message was read, else None.
+        All under `send_lock` and the per-chat send sequence, so that a job thread that delivers at the same moment makes the answer None. With `restore` the last message is put
+        back to what it was before the reply (a compare and set, in the same lock hold as the check) and that earlier id is returned."""
+        with self.send_lock:
+            before, start = self.last_sent.get(chat), self.send_seq.get(chat, 0)
+        self.scope.seqs = mine = []
+        try:
+            said = self.reply(chat, text, project)
+        finally:
+            self.scope.seqs = None
+        with self.send_lock:
+            alone = said is True and mine == list(range(start + 1, start + 1 + len(mine))) and self.send_seq.get(chat) == start + len(mine)
+            if not alone:
+                return None
+            if restore and before:
+                self.last_sent[chat] = before
+            return self.last_sent.get(chat)
+
+    def keep_cards(self, chat: str, text: str, project: dict) -> None:
+        """Say `text` about the cards a word was about and leave the last message as it was: the sentence is the answer to that word and shows no other subject, so the card (or
+        the list) it was about is still the last thing the person was shown, and the next word may decide it. A compare and set: the last message is put back only when this reply
+        was the only thing sent to the chat since it was read; a message another thread sent meanwhile stays the last one."""
+        self.reply_alone(chat, text, project, restore=True)
+
+    def send_list(self, chat: str, found: list) -> None:
+        """The numbered list of the cards a word could decide (the newest LIST_MAX): the position, the kind and the title as /pending shows them, no id. It is remembered with
+        the hash of each card, so that a position decides only the card it named; it is the last message only if nothing else was sent after it."""
+        found = found[-LIST_MAX:]
+        lines = []
+        for number, (project, _, item) in enumerate(found, 1):
+            cfg = self.cfg(project)
+            lines.append(f"{number}. {phrases.kind_word(item['kind'], cfg)}: {phrases.heading(' '.join(str(item.get('title') or '').split())[:80], cfg)}")
+        project = found[-1][0]
+        listed = self.reply_alone(chat, self.t("WORD_LIST_HEAD", project=project) + "\n" + "\n".join(lines), project)
+        if listed:
+            self.card_lists[chat] = {"message_id": listed, "at": self.monotonic(), "cards": [(p["id"], r["pending_id"], r["content_sha256"]) for p, r, _ in found]}
+
+    def word_act(self, project: dict, chat: str, card: dict, op: str) -> bool:
+        """Decide `card` with `op` as its button would: the same call (`act`: the policy for the sender, the hash of the card, the operation). False, with nothing said and
+        nothing done, when the card was not sent whole to this chat or did not offer the act; a decision no longer open or changed since the card is said so (NOT_OPEN,
+        CHANGED and a new card) and nothing is decided."""
+        if card.get("chat") != chat or card.get("whole") is not True or op not in self.offers(card):
+            return False
+        try:
+            item = self.ops.pending(project["path"], pending_id=card["pending_id"])
+        except self.ops.OpsError:
+            return False
+        if item.get("status", "open") != "open":
+            self.reply(chat, self.t("NOT_OPEN", project=project, number=item["id"], status=phrases.status(item.get("status"), self.cfg(project))), project)
+        elif cards.content_sha256(item) != card["content_sha256"]:
+            self.reply(chat, self.t("CHANGED", project=project), project)
+            self.renew(project, chat, item["id"], card)
+        else:
+            self.act(project, chat, op, card["pending_id"], card=card)
+        return True
+
+    @staticmethod
+    def reason_of_hold(held: dict) -> str:
+        """Why a task is held, as the dispatcher wrote it: a text of one line cut at 120 characters, nothing else (the reply that carries it also passes the net of `messaging_guard`)."""
+        reason = held.get("reason")
+        return " ".join(reason.split())[:120] if isinstance(reason, str) else ""
+
+    def command_sentence(self, project: dict, text: str, said: str) -> str:
+        """A table command typed on a phone (`/cancel 8`) is answered with a sentence in the project's language, never the operation's result as JSON: `said` is the reply of `say`
+        and is returned as it is unless the line is a command of the table and the reply is the JSON of its result. The numbers are the ones the person typed."""
+        if not (isinstance(text, str) and text.startswith("/") and isinstance(said, str) and said.lstrip().startswith(("{", "["))):
+            return said
+        try:
+            out, parsed = json.loads(said), self.ops.operations.parse_chat(text)
+        except ValueError:
+            return said
+        if not isinstance(out, (dict, list)) or parsed is None or not isinstance(parsed[1], dict):
+            return said
+        name, args = parsed
+        if not isinstance(out, dict):
+            return self.t("CMD_DONE", project=project)
+        def number(*keys):      # a whole number, from the result or else from the line the person typed; never a list, a text or anything else of the result
+            for source in (out, args):
+                for key in keys:
+                    value = source.get(key)
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        return value
+            return ""
+        listed = lambda key: out[key] if isinstance(out.get(key), list) else []  # noqa: E731
+        if name == "cancel":
+            return self.t("CMD_CANCEL_ALREADY" if out.get("already") else "CMD_CANCELLED", project=project, n=number("request", "request_id"))
+        if name == "stop-task":
+            return self.t("CMD_TASK_NOT_RUNNING" if out.get("already") else "CMD_TASK_STOPPED", project=project, n=number("task", "task_id"))
+        if name == "retry":
+            return self.t("CMD_TASK_RETRY", project=project, n=number("task_id"))
+        if name == "status":
+            shut = ("done", "failed", "cancelled")
+            lines = [self.t("CMD_STATUS", project=project, open=sum(1 for r in listed("requests") if isinstance(r, dict) and r.get("state") not in shut), waiting=len(listed("pending")))]
+            lines += [self.t("CMD_STATUS_HELD", project=project, n=h["task_id"], reason=self.reason_of_hold(h)) for h in listed("held")[:3]
+                      if isinstance(h, dict) and isinstance(h.get("task_id"), int) and not isinstance(h.get("task_id"), bool)]      # a held task says why, never the command that gets past it
+            return "\n".join(lines)
+        if name == "attachments":
+            return self.t("CMD_ATTACHMENTS", project=project, n=len(listed("held")))
+        return self.t("CMD_DONE", project=project)
 
     def replied_card(self, sender: str, chat: str, reply_to, pending_id: int):
         """(project, card) when `reply_to` names the ledger's card of decision `pending_id` in this chat and the card's project lists the
@@ -1074,7 +1313,10 @@ class Bridge(shell_kit.Jobs):
             said = self.t("NT_DISCARDED", project=project) + " " + said
         said = self.without_card_line(said, result.get("resend"), project)      # the card went out and says it waits: the line that says so again is not sent
         if said.strip():
-            self.reply(chat, said, project)
+            if opened:
+                self.keep_cards(chat, said, project)      # a doubt or a rolled day said with the card, in the same turn, is about that card: the card stays the last message (S2)
+            else:
+                self.reply(chat, said, project)
         if result.get("cards"):          # the files to choose among, or the file whose card says where to save it: their cards (ATT-3)
             self.attach.resend(project, chat, result["cards"])
         return result["resend"] if opened else None
@@ -1096,14 +1338,16 @@ class Bridge(shell_kit.Jobs):
                         self.log(DROPPED)
                         return
                 result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text)
-                said = result.get("reply") or self.t("NO_REPLY", project=project)
+                raw = result.get("reply") or self.t("NO_REPLY", project=project)
+                said = self.command_sentence(project, text, raw)
+                converted = said is not raw      # a sentence made from a command's result carries a text of the operations layer (a held task's reason): it passes the net of `messaging_guard`
                 if result.get("resend") is not None and not self.resend(project, chat, result["resend"]):      # a decision named in words (NR-2): its card goes out again
                     said = self.t("NAT_DECISION_NO_CARD", project=project)      # and the sentence says so only when a card is there
                 else:
                     said = self.without_card_line(said, result.get("resend"), project) or ("" if result.get("resend") is not None else said)
                 if not said:
                     return
-                if self.reply(chat, said, project) is True and result.get("pending_id") is not None:
+                if self.reply(chat, said, project, guard=converted) is True and result.get("pending_id") is not None:
                     self.note_asked(project, chat, result["pending_id"])      # the router's question reached this chat as the reply: its notice would be the same question twice
             except Refused as e:
                 self.reply(chat, str(e), project, guard=True)

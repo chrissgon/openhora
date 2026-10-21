@@ -129,13 +129,13 @@ def test_the_frames_of_a_card_the_policy_closes_are_in_portuguese(world):
     assert "Responda a esta mensagem com a sua resposta." in question["text"]
 
 
-def test_a_card_with_no_buttons_offers_typed_lines_with_the_same_commands(world):
+def test_a_card_with_no_buttons_ends_with_the_words_that_decide_it_and_a_second_act_is_a_typed_line(world):
     speak(world, "pt-BR")
     world.caps(buttons=False)
     world.items[1] = decision("plan", 1)
     world.bridge.tick()
     text = world.sent()[0]["message"]["text"]
-    assert "Envie /approve 1" in text and "Envie /reject 1" in text and "Send /" not in text
+    assert text.endswith("Responda sim para aprovar ou não para recusar.") and "/approve" not in text and "Send " not in text  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     world.caps(buttons=True, max_buttons=1)
     world.items[2] = decision("plan", 2, plan_sha256="r" * 64)
     world.bridge.tick()
