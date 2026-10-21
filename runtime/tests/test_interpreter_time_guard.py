@@ -11,8 +11,10 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interpreter_time_guar
 """
 from __future__ import annotations
 
+import datetime
 import json
 import pathlib
+from zoneinfo import ZoneInfo
 
 import interpreter_kit as kit
 import standin_tree as st
@@ -170,14 +172,24 @@ def test_the_day_words_file_is_data_folded_and_covers_es_fr_de_it():
     data = json.loads((pathlib.Path(__file__).resolve().parents[1] / "interpreter_day_words.json").read_text(encoding="utf-8"))
     assert {"es", "fr", "de", "it"} <= set(data["languages"])
     for tag, kinds in data["languages"].items():
-        assert set(kinds) == {"weekdays", "months", "relative"}, tag
+        assert set(kinds) <= {"weekdays", "months", "relative", "units", "dotted"} and {"weekdays", "months", "relative", "units"} <= set(kinds), tag
         for phrases in kinds.values():
             for phrase in phrases:
                 assert phrase == phrase.lower() and all(ch.isascii() and (ch.isalnum() or ch == " ") for ch in phrase), (tag, phrase)          # folded: no accent, no punctuation
-        assert len(kinds["weekdays"]) >= 7 and len(kinds["months"]) >= 12 and len(kinds["relative"]) >= 3, tag
+        assert len(kinds["weekdays"]) >= 7 and len(kinds["months"]) >= 12 and len(kinds["relative"]) >= 3 and len(kinds["units"]) >= 5, tag
     expected = {"es": ("jueves", "septiembre", "manana"), "fr": ("jeudi", "decembre", "demain"), "de": ("donnerstag", "dezember", "heute"), "it": ("giovedi", "settembre", "oggi")}
     for tag, (day, month, rel) in expected.items():
         assert day in data["languages"][tag]["weekdays"] and month in data["languages"][tag]["months"] and rel in data["languages"][tag]["relative"], tag
+
+
+def test_the_day_words_file_holds_every_weekday_abbreviation_of_es_fr_it_and_the_dotted_german_ones():
+    data = json.loads((pathlib.Path(__file__).resolve().parents[1] / "interpreter_day_words.json").read_text(encoding="utf-8"))["languages"]
+    assert {"lun", "mar", "mie", "jue", "vie", "sab", "dom"} <= set(data["es"]["weekdays"])
+    assert {"lun", "mar", "mer", "jeu", "ven", "sam", "dim"} <= set(data["fr"]["weekdays"])
+    assert {"lun", "mar", "mer", "gio", "ven", "sab", "dom"} <= set(data["it"]["weekdays"])
+    assert data["de"]["dotted"] == ["mo", "di", "mi", "do", "fr", "sa", "so"]          # two letters: only with the period, never as bare words
+    assert {"dias", "semana", "semanas", "mes", "meses"} <= set(data["es"]["units"]) and {"jours", "semaine", "mois"} <= set(data["fr"]["units"])
+    assert {"tagen", "woche", "wochen", "monat", "monate"} <= set(data["de"]["units"]) and {"giorni", "settimana", "settimane", "mese", "mesi"} <= set(data["it"]["units"])
 
 
 def test_vacuity_with_the_day_words_emptied_the_mixed_lines_are_code_and_fail_the_oracle(monkeypatch):
@@ -188,3 +200,78 @@ def test_vacuity_with_the_day_words_emptied_the_mixed_lines_are_code_and_fail_th
     broken = wrong()
     assert set(broken) == {"remind me jueves at 15:00", "remind Dana jueves at 15:00 about the report", "remind me to call Dana donnerstag at 15:00", "remind me to call Dana on lunedi at 9:30",
                            "remind me to call Dana domani at 3pm", "lembra de ligar para Dana mañana às 15h"}          # the lines with a trigger word: only the day words asked them (the others are asked by the earlier rule or by their own doubt)
+
+
+# --- review of #505: abbreviations, lengths of days, a day written as a number, a conflicting day word beside a dated reading ------------------------------
+
+ABBREVIATIONS_ASK = [(f"remind me {word} at 3pm to call Dana", "at 3pm") for word in ("mié", "mie", "mer.", "jeu", "sam.", "Do.", "gio", "dom", "lun", "mar", "dim", "ven", "Sa.", "so.")]
+COUNTS_ASK = [(f"remind me {phrase} at 3pm", "at 3pm") for phrase in ("dans 2 jours", "en dos días", "in zwei Tagen", "tra tre giorni", "fra 3 giorni", "en dos semanas", "dans une semaine",
+                                                                      "in drei Wochen", "tra due settimane", "en un mes", "dans deux mois", "in zwei Monaten", "tra un mese")]
+NUMBERS_ASK = [("remind me el 29 at 3pm", "at 3pm"), ("remind me le 29 at 3pm", "at 3pm"), ("remind me am 29. at 3pm", "at 3pm"), ("remind me il 29 at 3pm", "at 3pm"), ("remind me 29 at 3pm", "at 3pm"),
+               ("remind me 29.10. at 3pm", "at 3pm"), ("remind me 29-10 at 3pm", "at 3pm"), ("remind me le 29/10 at 3pm", "at 3pm"), ("remind me on the 29 at 3pm", "on the 29 at 3pm"),
+               ("remind me the 29 at 3pm", "the 29 at 3pm"), ("lembra 29 às 15h", "29 às 15h"), ("lembra no 29 às 15h", "no 29 às 15h"), ("remind me at 3pm on the 29", "at 3pm on the 29"),
+               ("remind me at 3pm to call Dana on the 29", "at 3pm"), ("recuérdame el 29 a las 15:00 en el calendario Casa", "el 29 a las 15:00"),
+               ("remind me about the 12/45 report at 3pm", "at 3pm")]
+CONFLICT_ASK = [("remind me tomorrow at 3pm el jueves", "tomorrow at 3pm"), ("remind me today at 3pm, sorry, jueves", "today at 3pm"), ("lembra de ligar para Dana amanhã às 15h, no, jueves", "amanhã às 15h"),          # validate: allow english-only -- Portuguese lines are the input under test
+                ("remind me tomorrow at 3pm 29/10", "tomorrow at 3pm"), ("remind me tomorrow at 3pm, mardi plutôt", "tomorrow at 3pm")]
+EN_FORMS_CODE = [("remind me weds at 3pm", "weds at 3pm"), ("remind me 2moro at 3pm", "2moro at 3pm")]
+DATED_NO_CONFLICT_CODE = [("remind me tomorrow at 3pm to buy 2 apples", "tomorrow at 3pm"), ("me lembra amanhã às 15h de pagar o mês", "amanhã às 15h"),          # validate: allow english-only -- Portuguese lines are the input under test
+                          ("remind me tomorrow at 3pm about the 2 reports", "tomorrow at 3pm"), ("remind me in 2 days at 3pm", "in 2 days at 3pm"), ("lembra em 2 dias às 15h", "em 2 dias às 15h"),
+                          ("remind me on Wed at 3pm", "on Wed at 3pm")]
+NAMES_AND_WORDS_CODE = [("remind Dana at 15:00", "at 15:00"), ("remind me to call Marta at 3pm", "at 3pm"), ("do it at 3pm", "at 3pm"), ("remind me Fr at 3pm to call Dana", "at 3pm"),
+                        ("remind me at 3pm to call Javier about the report", "at 3pm")]
+ACCEPTED_FALSE_ASKS = [("remind Jan at 3pm", "at 3pm"), ("remind Julio at 3pm", "at 3pm"), ("call Dana at 3pm about the vie project", "at 3pm"), ("remind me at 5pm about the mail Dana sent 2 days ago", "at 5pm"),
+                       ("remind me about task 12 at 3pm", "at 3pm"), ("remind Sam at 3pm", "at 3pm")]
+
+
+def sources(rows):
+    return {line: interp.time_source(span, NOW_MADRID, MADRID, line) for line, span in rows}
+
+
+def test_every_abbreviation_length_of_days_and_number_beside_an_hour_is_asked():
+    for rows in (ABBREVIATIONS_ASK, COUNTS_ASK, NUMBERS_ASK, CONFLICT_ASK):
+        assert {line: got for line, got in sources(rows).items() if got != "ask"} == {}
+
+
+def test_a_dated_reading_with_a_conflicting_day_word_is_asked_by_check():
+    obj = {"v": 1, "kind": "op", "op": "remind", "slots": {"text": "Dana", "when": "tomorrow at 3pm"}, "time_iso": "2026-10-28T15:00", "weekday": "wed"}
+    got = interp.check(obj, "remind Dana tomorrow at 3pm el jueves", None, kit.CATALOG, NOW_MADRID, MADRID, kit.ALL_OPS)
+    assert got["kind"] == "clarify" and got["why"] == "time-ask", got
+    got = interp.check(obj, "remind Dana tomorrow at 3pm", None, kit.CATALOG, NOW_MADRID, MADRID, kit.ALL_OPS)
+    assert got["time"] == {"local": "2026-10-28T15:00", "source": "code"}, got
+
+
+def test_the_english_table_reads_weds_and_2moro_and_a_dated_line_without_a_conflict_stays_code():
+    assert {line: got for line, got in sources(EN_FORMS_CODE).items() if got != "code"} == {}
+    assert interp._classify("weds at 3pm", "remind me weds at 3pm", NOW_MADRID)[1]["date"] == "2026-10-28"
+    assert interp._classify("2moro at 3pm", "remind me 2moro at 3pm", NOW_MADRID)[1]["date"] == "2026-10-28"
+    for rows in (DATED_NO_CONFLICT_CODE, NAMES_AND_WORDS_CODE):
+        assert {line: got for line, got in sources(rows).items() if got != "code"} == {}
+
+
+def test_the_accepted_false_asks_are_written_down():
+    assert {line: got for line, got in sources(ACCEPTED_FALSE_ASKS).items() if got != "ask"} == {}          # a question where a name or a common word looks like a day: accepted (decisions.md)
+
+
+def test_the_dev_item_moved_into_a_question_by_the_guard_and_the_pt_en_dev_lines_are_untouched():
+    item = dev_item("dev-es-00016")
+    assert interp.time_source("el jueves a las 15:00", NOW_MADRID, MADRID, item["line"]) == "ask"
+    for row in DEV.read_text(encoding="utf-8").splitlines():
+        row = json.loads(row)
+        if row["lang"] not in ("pt-BR", "pt", "en") or row["author"] != "gen":
+            continue
+        now = datetime.datetime.strptime(row["clock"], "%Y-%m-%dT%H:%M").replace(tzinfo=ZoneInfo(row["zone"]))
+        for span in (row["gold"].get("slots") or {}).get("time", []):
+            if row["gold"].get("time") and interp._classify(span, row["line"], now)[0] == "ask":
+                raise AssertionError((row["id"], row["line"]))          # a gold time of a pt/en dev line is never newly asked
+
+
+def test_vacuity_the_day_and_number_check_removed_fails_the_new_oracles(monkeypatch):
+    monkeypatch.setattr(interp, "_unread_day", lambda found, dated: False)
+    for rows in (ABBREVIATIONS_ASK, COUNTS_ASK, NUMBERS_ASK, CONFLICT_ASK):
+        assert [line for line, got in sources(rows).items() if got != "ask"], rows
+    monkeypatch.undo()
+    monkeypatch.setattr(interp, "UNIT_PHRASES", [])
+    assert [line for line, got in sources(COUNTS_ASK).items() if got != "ask"]
+    monkeypatch.setattr(interp, "DOTTED_RE", None)
+    assert any(got != "ask" for got in (interp.time_source("at 3pm", NOW_MADRID, MADRID, "remind me Do. at 3pm to call Dana"),))
