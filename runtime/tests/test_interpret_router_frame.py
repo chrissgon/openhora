@@ -31,6 +31,7 @@ interpreter = st.load("interpreter")
 interpreter_route = st.load("interpreter_route")
 ops_core = st.load("ops_core")
 ops_interpret = st.load("ops_interpret")
+drafts = st.load("drafts")
 ops_natural = st.load("ops_natural")
 ops_say = st.load("ops_say")
 pending_items = st.load("pending_items")
@@ -208,6 +209,37 @@ def test_with_no_decision_today_s_rule_applies_a_plain_line_answers_and_a_reques
     rig.spy.clear()
     say(rig, "owner", "cancel request 3")
     assert all(row["answer_to"] is None for row in rig.spy) and pending_id in [i["id"] for i in ops.pending(rig.world["path"])["pending"]]
+
+
+def test_a_line_code_recognises_is_never_the_answer_for_a_sender_the_interpreter_reads(rig):
+    """Review of #515: the LIVE-2 rule holds before the frame. A request of code ("cancel request N", a draft's answer) is decided by code: the model is not called, and the line is
+    not told to be the answer, even when the model would say `answer`."""
+    pending_id, old = ask(rig)
+    spy_routes(rig)
+    other = ops.request(rig.world["path"], "another request of the project")["request"]
+    rig.says["text"] = text("answer", answers_item="i1")
+    out = say(rig, "owner", f"cancel request {other}")
+    assert rig.calls == [] and rig.spy == [], "code took the line: no model call, no route"
+    assert out["reply"] == f"This changes something, so it is done by its command, not by a line of words. Send: /cancel {other}", "code's own sentence for a gated act"
+    states = {r["id"]: r["state"] for r in ops.status(rig.world["path"])["requests"]}
+    assert states[old] == "requested" and bound(rig) == pending_id and ops.pending(rig.world["path"], pending_id)["status"] == "open", "the question was not answered"
+    drafts.put("messaging", OWNER_KEY, {"need": "forget", "how": "command", "ids": [1]}, "remind")      # the sender has a draft (a reminder to forget, waiting for its yes): a line that answers it is code's too
+    ctx = ops_core.context(rig.world["path"])
+    assert ops_natural.recognises(ctx, "yes", "messaging", OWNER_KEY) is True
+    say(rig, "owner", "yes")
+    assert rig.calls == [] and rig.spy == [] and bound(rig) == pending_id
+    drafts.clear()
+
+
+def test_vacuity_without_the_rule_before_the_frame_the_model_is_asked_and_the_line_is_the_answer(rig):
+    """The planted fault: code's list is not consulted (the first version of S4). The same line is then sent to the model and taken as the answer."""
+    pending_id, _ = ask(rig)
+    spy_routes(rig)
+    other = ops.request(rig.world["path"], "another request of the project")["request"]
+    rig.monkeypatch.setattr(ops_natural, "recognises", lambda *a, **k: False)
+    rig.says["text"] = text("answer", answers_item="i1")
+    out = say(rig, "owner", f"cancel request {other}")
+    assert len(rig.calls) == 1 and out["reply"].startswith(TAKEN.format(id=pending_id))
 
 
 def test_the_line_of_a_framed_turn_is_kept_nowhere_but_where_s1_allows(rig, caplog):

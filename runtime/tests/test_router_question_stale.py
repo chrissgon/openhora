@@ -172,6 +172,33 @@ def test_a_reply_to_the_question_answers_it_two_hours_later_and_a_plain_line_doe
     assert open_questions(phone) == [] and ops.pending(phone.path, question["id"])["status"] != "open", "the reply to the question answered it"
 
 
+def race_in_the_window(phone, monkeypatch, plant=False):
+    """The window between the reply and `note_asked`: another thread's send (a due reminder, a notice) changes the shared `last_message` of the chat to "999". With `plant`
+    `note_asked` ignores the id it is given and reads the shared dict, as the first version of S4 did. Returns the pending id the question got."""
+    real = phone.bridge.note_asked
+
+    def noted(project, chat, pending_id, message_id=None):
+        phone.bridge.last_message[chat] = "999"
+        return real(project, chat, pending_id, phone.bridge.last_message[chat] if plant else message_id)
+
+    monkeypatch.setattr(phone.bridge, "note_asked", noted)
+    return ask(phone)["id"]
+
+
+def test_the_question_binds_to_the_message_this_reply_sent_and_not_to_one_another_thread_sent_meanwhile(phone, monkeypatch):
+    """Review of #515: the stand-in messenger numbers its messages 101, 102...; the question went out as 101. A reply to 999 (another thread's message) answers nothing."""
+    pending_id = race_in_the_window(phone, monkeypatch)
+    ledger = phone.bridge.ledger
+    assert ledger.by_message(OWNER, "999") is None, "the other thread's message is no question"
+    mine = ledger.by_message(OWNER, "101")
+    assert mine is not None and mine["kind"] == "question" and mine["pending_id"] == pending_id
+
+
+def test_vacuity_a_note_that_reads_the_shared_message_binds_to_the_wrong_one(phone, monkeypatch):
+    pending_id = race_in_the_window(phone, monkeypatch, plant=True)
+    assert phone.bridge.ledger.by_message(OWNER, "999") is not None and phone.bridge.ledger.by_message(OWNER, "101") is None
+
+
 # --- 2. a request of its own is a new line -----------------------------------------------------------------------------------------
 
 

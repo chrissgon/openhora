@@ -79,6 +79,7 @@ RUN_BUSY = "the planning agent is answering another request of this project"
 # The queue: lines of the person and requests that wait for the planning agent while the router holds the project's
 # route lock. One cursor of the store holds it (JSON, oldest first), changed under a file lock of the data folder so that
 # the service's threads and the terminal never overwrite one another.
+CODE_CLOSED = "conversation:code-closed:{id}"      # a mark per request that code answered and cancelled (`_close_by_code`); no value but "1", so that no thread rewrites another's
 QUEUE = "conversation:queue"
 QUEUE_LOCK_NAME = "queue.lock"
 QUEUE_LOCK_WAIT = 5.0       # seconds a change of the queue waits for another to finish
@@ -114,13 +115,14 @@ LISTED = 5                  # titles named in a sentence of a state answer
 TITLE_CUT = 80
 
 
-def chat_memory(messages: list, settled: set) -> str:
+def chat_memory(messages: list, settled: set, quiet=frozenset()) -> str:
     """The conversation's memory for the router (the router's measured form; T23 workaround 2, kept on 2026-10-16: the adapter
     takes the request as one argument, and reading it on standard input is not proven, so the memory travels inside it, bounded): the plain lines and the router's replies after the newest
     reply whose request reached `planned`, `done` or `cancelled` (settled: those request ids); commands and their
     replies and the questions about the state (answered by code) are left out. The newest MEMORY_TURNS, oldest first, each `<role>: <text>` on one line cut to MEMORY_CUT
     characters, the whole cut to MEMORY_CHARS by dropping the oldest. Empty when there is none: the first line of an
-    exchange reaches the router plain."""
+    exchange reaches the router plain. `quiet`: the requests that code closed (`_close_by_code`) after it answered the line itself: their replies are neither a settled mark nor
+    part of the memory, as they were when they were stored with no request (S4)."""
     # the conversation's memory as a bounded text in the request (T23, workaround 2, kept)
     start = 0
     for n, m in enumerate(messages):
@@ -130,7 +132,7 @@ def chat_memory(messages: list, settled: set) -> str:
     kept = [m for m in messages[start:] if (m["role"] == "user" and m.get("id") not in private and not m["text"].startswith("/") and not state_question(m["text"])
                                             and natural.match(m["text"]) is None and natural.candidate(m["text"]) is None
                                             and not ops_natural.is_placeholder(m["text"])) or
-            (m["role"] == "assistant" and m.get("task_id") is not None)][-MEMORY_TURNS:]
+            (m["role"] == "assistant" and m.get("task_id") is not None and m.get("task_id") not in quiet)][-MEMORY_TURNS:]
     lines = [f"{m['role']}: {' '.join(m['text'].split())[:MEMORY_CUT]}" for m in kept]
     while lines and len("\n".join([MEMORY_HEAD, *lines])) > MEMORY_CHARS:
         lines.pop(0)
@@ -213,14 +215,12 @@ def may_talk(ctx: dict, channel: str, sender=None) -> bool:
 def asks_natural(ctx: dict, said: str, channel: str, sender=None) -> bool:
     """Whether a plain line is handled by code as a natural request (a tier-1 form, or the answer to the sender's draft): it runs no model, so it takes
     no route lock and is never queued. As with the state, an open question of the router means the line is its answer, unless the sender may not talk
-    (a sender who may not talk never answers it) or the line is a request code recognises (LIVE-2: a new line, never the answer). On a phone only the
-    question bound to THIS sender counts (S4), and for a sender the interpreter reads it is the interpreter that tells an answer from a new line, so code does not handle the line."""
+    (a sender who may not talk never answers it) or the line is a request code recognises (LIVE-2: a new line, never the answer, for every sender, the interpreter's
+    included). On a phone only the question bound to THIS sender counts (S4)."""
     natural_channel = _natural_channel(channel)
     if not ops_natural.peek(ctx, said, natural_channel, sender):
         return False
-    if not may_talk(ctx, channel, sender) or _open_question(ctx, channel, sender) is None:
-        return True
-    return False if importlib.import_module("ops_interpret").enabled(ctx, channel, sender) else ops_natural.recognises(ctx, said, natural_channel, sender)
+    return not may_talk(ctx, channel, sender) or _open_question(ctx, channel, sender) is None or ops_natural.recognises(ctx, said, natural_channel, sender)
 
 
 def natural_reply(project: str, name: str, channel: str = "messaging") -> str:
@@ -274,9 +274,9 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
     talks = may_talk(ctx, channel, sender)
     extras = extras if extras is not None else {}
     asked = _open_question(ctx, channel, sender) if talks else None      # a sender who may not talk never answers the router's question; on a phone it is the question bound to this sender (S4)
-    framed = asked is not None and bool(extras.get("deferred"))      # S4: the interpreter tells the answer from a new line, by a typed frame, so code's list does not (decision 229 (1))
-    if asked is not None and not framed and ops_natural.recognises(ctx, said, _natural_channel(channel), sender):      # a request code recognises is a new line, never the answer (LIVE-2)
+    if asked is not None and ops_natural.recognises(ctx, said, _natural_channel(channel), sender):      # a request code recognises is a new line, never the answer (LIVE-2), for the interpreter's senders too
         asked = None
+    framed = asked is not None and bool(extras.get("deferred"))      # S4: of the lines no list of code claims, the interpreter tells the answer from a new line, by a typed frame (decision 229 (1))
     if asked is None and state_question(said):
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
             return f"error: {operations.not_enabled('status', channel)}", None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
@@ -293,11 +293,8 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
         read = importlib.import_module("ops_interpret").turn(project, ctx, said, sender, extras)
         if read is not None:
             return (*read, None)
-        if framed and extras.get("frame") != "answer" and (extras.get("frame") == "new" or ops_natural.recognises(ctx, said, _natural_channel(channel), sender)):
-            asked = None      # S4: the model said `route` (a new request), or it said nothing and code recognises the line: a new line, which code gets to claim first as it does without a question
-            natural_reply = ops_natural.take(project, ctx, said, _natural_channel(channel), sender, extras)
-            if natural_reply is not None:
-                return natural_reply, None, None, False, extras.get("run_id"), None
+        if framed and extras.get("frame") == "new":
+            asked = None      # S4: the model said `route`: a new request
     out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender, extras=extras)
     if asked is not None and channel == "messaging":      # the person is told what their line was taken for
         out = (phrases.text("ANSWER_TAKEN", ctx["cfg"], id=asked) + "\n\n" + out[0], *out[1:])
@@ -620,15 +617,21 @@ def _drain_line(project: str, ctx: dict, message_id: int) -> dict:
 def _drain_route(project: str, ctx: dict, request_id: int) -> dict:
     done = _ops()._route_request(ctx, request_id)
     if done.get("kind") == "operation":      # the router named an operation of the table (NR-2): not dropped, and not left on "Route it": it is answered as a line would be
-        import ops_cancel
         line = person_line(core._stored(ctx, ctx["store"].task_get, request_id)["text"])
-        core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:operation", context=ctx)
+        _close_by_code(ctx, request_id, "code:operation")
         extras = {}
         reply = ops_natural.run_routed(project, ctx, done["operation"], line, _natural_channel(DRAIN), None, extras)
         core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant",
                      text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=request_id, run_id=extras.get("run_id", done.get("run_id")))
         return {"routed": "route", "request_id": request_id, "pending_id": None, "ran": True, "operation": done["operation"]["name"]}
     return {"routed": "route", "request_id": request_id, "pending_id": done.get("pending_id"), "ran": True}
+
+
+def _close_by_code(ctx: dict, request_id: int, by: str) -> None:
+    """Cancel a request that code answered itself (`by` starts with `code:`) and mark it, so that the router's memory does not read it as a settled exchange (S4)."""
+    import ops_cancel      # at call time, like the other operations this sibling reaches
+    core._stored(ctx, ops_cancel.request_cancel, request_id, by=by, context=ctx)
+    core._stored(ctx, ctx["store"].cursor_set, CODE_CLOSED.format(id=request_id), "1")
 
 
 def _last_request(ctx: dict):
@@ -806,9 +809,11 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         _ops().answer(project, answer_to, said, actor=ops_actor.label(ctx["cfg"], channel, sender))
     else:
         messages = [m for m in core._stored(ctx, ctx["store"].messages_list, CONVERSATION, limit=500) if line_id is None or m["id"] < line_id]      # None: the line is not stored yet (S1), so every message so far is before it
+        closed = {t["id"] for t in core._stored(ctx, ctx["store"].tasks_list) if t["parent_id"] is None and t["state"] == "cancelled"
+                  and core._stored(ctx, ctx["store"].cursor_peek, CODE_CLOSED.format(id=t["id"])) is not None}      # cancelled by code after code answered: not a settled exchange
         settled = {t["id"] for t in core._stored(ctx, ctx["store"].tasks_list)
-                   if t["parent_id"] is None and t["state"] in ("planned", "done", "cancelled")}
-        remembered = chat_memory(messages, settled)
+                   if t["parent_id"] is None and t["state"] in ("planned", "done", "cancelled") and t["id"] not in closed}
+        remembered = chat_memory(messages, settled, closed)
         text = f"{remembered}\n\n{MEMORY_TAIL}\n{said}" if remembered else said
         request_id = _ops().request(project, text, title=plan.title_of(said), after=after)["request"]
     already = any(e["kind"] == "route" and e["id"] == request_id for e in _queue_read(ctx, peek=True))
@@ -818,20 +823,17 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
             _retag(ctx, "route", request_id, "talk")  # a line made this request: the drain checks `talk`, not `request`
         return phrases.text("QUEUED_REQUEST", ctx["cfg"], request=request_id), request_id, None, False, None
     if routed.get("kind") == "direct":
-        import ops_cancel      # at call time, like the other operations this sibling reaches (it imports no sibling above it at the top)
-        core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:direct", context=ctx)
+        _close_by_code(ctx, request_id, "code:direct")
         extras["task_id"] = request_id      # the reply is stored under the request it closed, so that the next line is not taken for the answer to an older question (S4)
         return (state_reply(project, routed.get("next"), ctx["cfg"]) + importlib.import_module("ops_ask").hint(ctx, channel, sender),
                 None, None, True, routed.get("run_id"))
     if routed.get("kind") == "operation":
         # An operation of the table of natural requests (NR-2): the router only named it. The request the line recorded is cancelled by code, and the
         # dispatcher believes the operation against the line the request holds, checks the policy as the typed command is, and executes it.
-        import ops_cancel
         line = person_line(core._stored(ctx, ctx["store"].task_get, request_id)["text"])
-        core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:operation", context=ctx)
+        _close_by_code(ctx, request_id, "code:operation")
         reply = ops_natural.run_routed(project, ctx, routed["operation"], line, _natural_channel(channel), sender, extras)
-        if "run_id" not in extras:      # an answer run's reply (/ask) keeps no request: it never enters the router's memory (limit L50)
-            extras["task_id"] = request_id
+        extras["task_id"] = request_id      # an `ask` reply too: it is shown by its run (limit L50) and, the request being closed by code, it is no part of the router's memory
         return reply, None, None, True, extras.get("run_id", routed.get("run_id"))
     item = core._stored(ctx, ctx["store"].pending_get, routed["pending_id"]) if routed.get("pending_id") else None
     if item is None:
@@ -851,8 +853,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         reply = "\n".join(lines)
     elif (item.get("payload") or {}).get("ending") == "unclassified":
         if channel == "messaging":      # a phone gets one plain sentence and nothing is left open: no command, no request number, the request cancelled by code (S1, limits L62 and L63)
-            import ops_cancel      # at call time, like the other operations this sibling reaches
-            core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:unclassified-phone", context=ctx)
+            _close_by_code(ctx, request_id, "code:unclassified-phone")
             extras["task_id"] = request_id
             return phrases.text("PHONE_NOT_UNDERSTOOD", ctx["cfg"]), None, None, True, routed.get("run_id")
         tail = phrases.text("NOT_NAMED_NEXT", ctx["cfg"], request=request_id, route=core._command("route", project, request_id=request_id, flow="<name>"))
