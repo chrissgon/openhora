@@ -109,8 +109,82 @@ def test_the_conservative_clarify_of_the_injection_item_is_kept():
 
 def test_vacuity_the_old_branch_fails_the_oracle_and_the_new_one_passes_it(monkeypatch):
     assert wrong_asks(interp._classify) == []
-    monkeypatch.setattr(interp, "_hour_without_day_is_asked", lambda hits: False)          # the branch as it was before the guard: any table word outside the time let the hour through
+    monkeypatch.setattr(interp, "_hour_without_day_is_asked", lambda hits: False)
+    monkeypatch.setattr(interp, "DAY_PHRASES", [])          # the branch as it was before the guard: any table word outside the time let the hour through
     broken = wrong_asks(interp._classify)
     assert broken and set(broken) == {line for line, _span in ASK}          # the old branch reads every ASK line as code
     item = dev_item("dev-es-00005")
     assert source_of(interp._classify, "el jueves a las 15:00", item["line"]) == "code"
+
+
+# --- code-switched lines: a trigger word of a table beside the hour does not hide a day word of a language with no table ---------------------------------
+
+MIXED_ASK = [
+    ("remind me jueves at 15:00", "at 15:00"),
+    ("remind Dana jueves at 15:00 about the report", "at 15:00"),
+    ("lembra de ligar para Dana mardi à 15h", "à 15h"),
+    ("remind me to call Dana donnerstag at 15:00", "at 15:00"),
+    ("remind Dana donnerstag um 15 Uhr", "um 15 Uhr"),
+    ("lembra de ligar para Dana giovedì alle 15", "alle 15"),
+    ("remind me to call Dana on lunedi at 9:30", "at 9:30"),
+    ("remind me to call Dana domani at 3pm", "at 3pm"),
+    ("remind me to call Dana el 5 de marzo at 3pm", "at 3pm"),
+    ("lembra de ligar para Dana mañana às 15h", "às 15h"),
+    ("remind me to call Dana en octobre at 3pm", "at 3pm"),
+]
+MIXED_CODE = [          # names and other words no table holds are not days: the hour is code's, today's date
+    ("remind Dana at 15:00", "at 15:00"),
+    ("remind me to call Javier at 15:00 about the report", "at 15:00"),
+    ("lembra de ligar para Javier às 15h", "às 15h"),
+    ("remind me to call Marta at 3pm", "at 3pm"),
+]
+NO_TABLE_MODEL = [          # no word of any table: the model's date is used and shown, as before
+    ("mañana a las 15:00", "recuérdame mañana a las 15:00 llamar a Dana"),
+    ("jueves a las 15:00", "recuérdame jueves a las 15:00 llamar a Dana"),
+]
+
+
+def test_a_day_word_of_a_language_with_no_table_beside_a_trigger_word_is_asked():
+    for line, span in MIXED_ASK:
+        assert interp.time_source(span, NOW_MADRID, MADRID, line) == "ask", line
+    for line, span in MIXED_CODE:
+        assert interp.time_source(span, NOW_MADRID, MADRID, line) == "code", line
+
+
+def test_the_mixed_lines_are_asked_by_check_and_never_a_card_on_the_clocks_day():
+    for line, span in MIXED_ASK[1:4]:
+        obj = {"v": 1, "kind": "op", "op": "remind", "slots": {"text": "Dana", "when": span}, "time_iso": "2026-10-27T15:00", "weekday": "tue"}
+        got = interp.check(obj, line, None, kit.CATALOG, NOW_MADRID, MADRID, kit.ALL_OPS)
+        assert got["kind"] == "clarify" and got["why"] == "time-ask", (line, got)
+    got = interp.check({"v": 1, "kind": "op", "op": "remind", "slots": {"text": "call Javier", "when": "at 15:00"}, "time_iso": "2026-10-27T15:00", "weekday": "tue"},
+                       "remind me to call Javier at 15:00", None, kit.CATALOG, NOW_MADRID, MADRID, kit.ALL_OPS)
+    assert got["time"] == {"local": "2026-10-27T15:00", "source": "code"}, got
+
+
+def test_a_line_with_no_word_of_a_table_stays_the_models_even_with_a_day_word():
+    for span, line in NO_TABLE_MODEL:
+        assert interp.time_source(span, NOW_MADRID, MADRID, line) == "model", line
+
+
+def test_the_day_words_file_is_data_folded_and_covers_es_fr_de_it():
+    data = json.loads((pathlib.Path(__file__).resolve().parents[1] / "interpreter_day_words.json").read_text(encoding="utf-8"))
+    assert {"es", "fr", "de", "it"} <= set(data["languages"])
+    for tag, kinds in data["languages"].items():
+        assert set(kinds) == {"weekdays", "months", "relative"}, tag
+        for phrases in kinds.values():
+            for phrase in phrases:
+                assert phrase == phrase.lower() and all(ch.isascii() and (ch.isalnum() or ch == " ") for ch in phrase), (tag, phrase)          # folded: no accent, no punctuation
+        assert len(kinds["weekdays"]) >= 7 and len(kinds["months"]) >= 12 and len(kinds["relative"]) >= 3, tag
+    expected = {"es": ("jueves", "septiembre", "manana"), "fr": ("jeudi", "decembre", "demain"), "de": ("donnerstag", "dezember", "heute"), "it": ("giovedi", "settembre", "oggi")}
+    for tag, (day, month, rel) in expected.items():
+        assert day in data["languages"][tag]["weekdays"] and month in data["languages"][tag]["months"] and rel in data["languages"][tag]["relative"], tag
+
+
+def test_vacuity_with_the_day_words_emptied_the_mixed_lines_are_code_and_fail_the_oracle(monkeypatch):
+    def wrong():
+        return [line for line, span in MIXED_ASK if interp.time_source(span, NOW_MADRID, MADRID, line) != "ask"]
+    assert wrong() == []
+    monkeypatch.setattr(interp, "DAY_PHRASES", [])
+    broken = wrong()
+    assert set(broken) == {"remind me jueves at 15:00", "remind Dana jueves at 15:00 about the report", "remind me to call Dana donnerstag at 15:00", "remind me to call Dana on lunedi at 9:30",
+                           "remind me to call Dana domani at 3pm", "lembra de ligar para Dana mañana às 15h"}          # the lines with a trigger word: only the day words asked them (the others are asked by the earlier rule or by their own doubt)

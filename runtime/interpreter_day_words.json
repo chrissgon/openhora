@@ -1,0 +1,26 @@
+{
+  "v": 1,
+  "what": "Words that name a day or a month in languages that have no time table (es, fr, de, it), accent-folded and lower case, written as phrases of words. Used ONLY to detect: a line whose time code read as an hour only (no day) and that holds one of these words outside the time phrase is asked about (time-ask) and never read as the clock's own day. Nothing here is ever read as a date. A word of a shipped time table is not needed here (the engine reads it, or flags it as an unread date word). Add a language by adding a key.",
+  "languages": {
+    "es": {
+      "weekdays": ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo", "lun", "jue", "vie", "sab"],
+      "months": ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "setiembre", "octubre", "noviembre", "diciembre", "ene", "abr", "ago", "sept", "oct", "nov", "dic"],
+      "relative": ["hoy", "manana", "pasado manana", "proxima semana", "semana proxima", "semana que viene", "proximo mes", "fin de semana"]
+    },
+    "fr": {
+      "weekdays": ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche", "lun", "ven"],
+      "months": ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre", "janv", "fevr", "avr", "juil", "sept", "oct", "nov", "dec"],
+      "relative": ["aujourd hui", "demain", "apres demain", "semaine prochaine", "prochaine semaine", "mois prochain", "week end"]
+    },
+    "de": {
+      "weekdays": ["montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonnabend", "sonntag", "montags", "dienstags", "mittwochs", "donnerstags", "freitags", "samstags", "sonntags"],
+      "months": ["januar", "janner", "jaenner", "februar", "marz", "maerz", "april", "mai", "juni", "juli", "august", "september", "oktober", "november", "dezember", "jan", "feb", "mrz", "okt", "dez"],
+      "relative": ["heute", "morgen", "ubermorgen", "uebermorgen", "nachste woche", "naechste woche", "kommende woche", "nachsten monat", "wochenende"]
+    },
+    "it": {
+      "weekdays": ["lunedi", "martedi", "mercoledi", "giovedi", "venerdi", "sabato", "domenica", "lun", "ven", "sab"],
+      "months": ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre", "mag", "giu", "lug", "ago", "ott", "dic"],
+      "relative": ["oggi", "domani", "dopodomani", "settimana prossima", "prossima settimana", "mese prossimo", "fine settimana"]
+    }
+  }
+}

@@ -53,10 +53,14 @@ import natural_time as nt  # noqa: E402  (the same folder: the time reader whose
 PROMPT_FILE = os.path.join(HERE, "interpreter_prompt.txt")
 PROTOCOL_FILE = os.path.join(HERE, "interpreter_protocol.json")
 SERVED_FILE = os.path.join(HERE, "interpreter_catalog.json")
+DAY_WORDS_FILE = os.path.join(HERE, "interpreter_day_words.json")
 GATED_FILE = os.path.join(HERE, "gated_ops.json")
 PLACEHOLDER = "{{CATALOG}}"
 with open(PROTOCOL_FILE, encoding="utf-8") as _handle:
     PROTOCOL = json.load(_handle)
+
+with open(DAY_WORDS_FILE, encoding="utf-8") as _handle:          # words that name a day or a month in languages with no time table: used only to detect (`_day_word_outside`), never to read
+    DAY_PHRASES = [tuple(phrase.split()) for _lang in json.load(_handle)["languages"].values() for _kind in _lang.values() for phrase in _kind]
 
 # The slots that hold a time: (operation, slot). The model gives them `time_iso` and `weekday`; code decides who is believed (`time_source`).
 TIME_SLOTS = frozenset({("remind", "when"), ("event-create", "time"), ("event-change", "time")})
@@ -555,6 +559,13 @@ def _hour_without_day_is_asked(hits: list) -> bool:
     return not any(h.get("s0", h["s"]) > h["s"] for h in hits)
 
 
+def _day_word_outside(found: dict) -> bool:
+    """Whether the line holds, outside its time phrases, a word of `interpreter_day_words.json` (a weekday, a month or a relative-day word of a language with no time table) that code did not read."""
+    covered = [(h["s"], h["e"]) for h in found["hits"]]
+    words = [w for w, a, b in nt._tokens(found["norm"]) if not any(x <= a and b <= y for x, y in covered)]
+    return any(words[i:i + len(phrase)] == list(phrase) for phrase in DAY_PHRASES for i in range(len(words)))
+
+
 def _classify(span: str, line: str, now_local):
     """(source, reading): who may decide the time of a span, and the reading code has of it (the model's `time_iso` is checked against it, never the other way). The decision
     is made from the WHOLE LINE and never from the span the model chose, since the model picks the span: "code" only when the span holds every time phrase of the line and
@@ -579,6 +590,8 @@ def _classify(span: str, line: str, now_local):
             return "model", reading          # code read an hour only, the line holds words no table has and none that a table does (a language without tables): the model's date, the code's hour
         if _hour_without_day_is_asked(hits):
             return "ask", None          # an hour with no day, no trigger word of a table beside it and words no table has ("el jueves a las 15:00 en el calendario"): code never takes the clock's own day for a day the line may name
+    if not reading.get("dated") and _day_word_outside(found):
+        return "ask", None          # an hour only, and a word that names a day or a month of a language with no table stands beside it ("jueves at 15:00"): a trigger word does not make it one language
     return "code", reading
 
 
