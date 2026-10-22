@@ -791,6 +791,7 @@ TABLE = {
     "PHONE_NOT_PLANNED": "Não planejado {n}: {item}.",
     "NOT_OPEN_DONE": "O pedido #{number} já foi {status}.",
     "PHONE_NO_FILE_DELETE": "Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive.",
+    "FAIL_OUTLOOK_REMOVE": "Ainda não consigo apagar eventos da agenda do Outlook por aqui. Você pode apagar pelo próprio Outlook.",
     "PEND_CARD_TITLE": "Pergunta do assistente",
     "PEND_NOT_UNDERSTOOD_TITLE": "Pedido não entendido",
 }
