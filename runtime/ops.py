@@ -2701,6 +2701,8 @@ from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,
 from ops_items import items  # noqa: E402,F401
 # Files in the person's own Drive and OneDrive (runtime/ops_files.py, package W4a): prepare a new file, a new revision or the saving of a file a sender sent.
 from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
+# The text of a file found by its name in the folders the project lists for the person's accounts (runtime/ops_file_read.py, slice S8).
+from ops_file_read import file_read  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.
 from ops_mail_send import mail_reply, mail_send  # noqa: E402,F401
 # The person's own mailbox (runtime/ops_mailbox.py, package W3): a draft, archive, a move, read state, the trash; each one prepares a card and writes nothing.

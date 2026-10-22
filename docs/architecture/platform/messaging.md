@@ -287,6 +287,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `mail-organize` | `mail-draft`, `mail-archive`, `mail-move`, `mail-mark`, `mail-trash` | - | `page`, `messaging` | - | prepares changes to your mailbox (a draft, archive, a move to a folder, read state, the trash); each one waits for approval of its card, and nothing is sent or deleted for good |
 | `approve-effect-mailbox` | `approve` | `effect:mailbox` | `page`, `messaging` | - | approves a change to the person's own mailbox (a draft, archive, a move to a folder, read state, the trash), with its hash |
 | `interpret` | `say` | `interpret` | `messaging` | - | sends the plain lines no list takes to the interpreter's model service, which reads them in any language; retention: the route's terms (adds to talk, never grants it) |
+| `read-files` | `file-read` | - | `page`, `messaging` | - | shows the text of the files in your configured Drive and OneDrive folders in the chat, found by their names; a messaging app's servers see it as they see any message, and no model reads it |
 
 A grant (`GRANTS`) widens a channel and counts only when the project's own entry for the channel lists it, never through the default policy; accepting a file that gives a channel or a sender any group the accepted file did not effectively give them, a grant or not, asks for the hash of the widening list (`accept-config --widen`).
 

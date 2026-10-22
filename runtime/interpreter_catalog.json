@@ -129,6 +129,15 @@
    "what": "the numbered messages and events of the mail and calendar snapshots"
   },
   {
+   "class": "R",
+   "op": "file-read",
+   "slots": {
+    "file": "span",
+    "service": "word"
+   },
+   "what": "show the text of a file of the person's own Drive or OneDrive, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive)"
+  },
+  {
    "class": "N",
    "op": "remind",
    "slots": {
