@@ -83,7 +83,7 @@ def test_the_lines_in_words_list_the_mail_or_the_events_and_the_conversation_sto
     mail = ops.say(world["path"], "lista os e-mails", channel="messaging", sender=READER)["reply"]
     assert "inbox" in mail and "bia@clinic.example · Appointment confirmed" in mail and "Dentist" not in mail
     events = ops.say(world["path"], "meus eventos", channel="messaging", sender=READER)["reply"]
-    assert "agenda" in events and "Dentist" in events and "bia@clinic" not in events
+    assert "Google calendar" in events and "agenda" not in events and "Dentist" in events and "bia@clinic" not in events
     english = ops.say(world["path"], "my emails", channel="messaging", sender=READER)["reply"]
     assert "Appointment confirmed" in english
     ctx = ops_core.context(world["path"])
