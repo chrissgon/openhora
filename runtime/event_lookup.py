@@ -13,6 +13,7 @@ here but the operation and the two spans the check already verified against the 
   open_event(project, ctx, decision, said, sender, extras, writes, now)   the reply: a card notice, a numbered list of the events that fit, or one plain sentence
   take(project, ctx, said, sender, extras, writes, now)   a number after a list (below): the reply, or None when the line is not one
   account_named(said, title, hint)   "google" | "microsoft" | None: the account a line names
+  verb_op(said)   "event-cancel" | "event-change" | None: the operation a line's leading verb names (a model that asked only for "the event" gets it from here)
 
 How the calendar is read (the reading the numbered form reads, with its rights): the sender must pass `item_refs.may_read` (the group `ask-mail`; the same sentence as the family
 when not); the calendar sources are the registered ones (`ops_natural_calendar.calendar_sources`); for each, `item_refs.read_index` checks the newest snapshot (younger than 26
@@ -39,6 +40,14 @@ beside a word that introduces it or a calendar word (LEADS, CAL_WORDS), outside 
 when it is one of those brands and stands in the line (`account_named`). Exactly one account is the account; both, or none, leave the question to the family. An account named but
 with no calendar configured is one plain sentence (EV_ACCOUNT_NONE), never another account's card. For an event to change or cancel the account narrows the search to its sources.
 
+Events the platform created (slice S16). When no calendar source holds an event the line names, or the project has no calendar source at all, the search goes on over the events this
+platform created itself and has not removed since (runtime/event_created.py: the approved cards of this project's ledger and their documents), by the same rules: the window or the
+named day, the title as whole words of the line, the account a line names. Exactly one: the card opens through the family path with the reference `created:<card>`, the reference the
+calendar operations already take for an event the runtime made; the preparation of that card reads the event from the provider and pins its version, so an event deleted there is
+refused. Before it is named, each event that fits is read back once from the provider (`event_created.live`) and dropped when it is gone or no longer at the time the ledger says (a read
+of the event the platform wrote, covered by the right to read the calendar, contracts/runtime.md L52). Several: the same numbered list; a number said after it (`take`) opens the card
+of that entry. None, with no calendar source: one plain sentence (EV_NONE_NO_SOURCE) that only events created here can be found until a calendar is added.
+
 Privacy (limit L63): the line, the titles and the lines of the snapshot are never logged, printed or kept here; the reply holds titles of the person's own calendar, so the
 conversation stores a neutral word for it (`extras["stored"]`). Standard library only. Runs on Python 3.9: python3 runtime/event_lookup.py --help
 """
@@ -51,6 +60,7 @@ import re
 import sys
 import threading
 
+import event_created
 import item_refs
 import natural
 import natural_time as nt
@@ -209,7 +219,7 @@ def _of_account(ctx: dict, rows: list, account) -> list:
     if not account:
         return rows
     ids = _sources_of(ctx, account)
-    return [r for r in rows if r["source"] in ids]
+    return [r for r in rows if r.get("account") == account or r["source"] in ids]          # an event the platform created carries its account; a snapshot's event, its source's
 
 
 def seed_service(ctx: dict, decision: dict, said: str, extras: dict, seed: dict):
@@ -362,14 +372,23 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
     if not matches:
         return None, False
     extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
-    if len(matches) > 1 or not _fresh(ctx, sender, *matches[0]):
+    if len(matches) > 1:
         return _text(ctx, "EV_LIST_AGAIN"), False
     source, op = matches[0][0], {"cancel": "event-cancel", "change": "event-change"}.get(form["verb"]) or record["op"]
+    if source == event_created.SOURCE:          # an entry of the list of events the platform created: its card number is what the list recorded; it must still be in the ledger
+        own = event_created.by_pending(ctx, int(matches[0][1])) if matches[0][1].isdigit() else None
+        if own is None:
+            return _text(ctx, "EV_LIST_AGAIN"), False
+        bind = {"created": own["pending"], "account": own["account"]}
+    elif not _fresh(ctx, sender, *matches[0]):
+        return _text(ctx, "EV_LIST_AGAIN"), False
+    else:
+        bind = {"source": source}
     if form["verb"] is not None:
-        return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "line": form["canonical"], "bind": {"source": source}}), False
+        return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "line": form["canonical"], "bind": bind}), False
     if op is None:
         return _text(ctx, "EV_LIST_WHAT", n=form["n"]), True
-    slots = {"event": form["n"], "source": source}
+    slots = dict(bind) if "created" in bind else {"event": form["n"], "source": source}
     if op == "event-change":
         if not record["start"]:
             return _text(ctx, "EV_CHANGE_WHAT"), True
@@ -508,7 +527,33 @@ def _list(ctx: dict, op: str, found: list) -> str:
     return _text(ctx, key) + "\n" + "\n".join(lines) + "\n" + _text(ctx, key + "_HOW", n=found[0]["n"])
 
 
-PROBLEM = {"not-readable": "NW_REF_NOT_READABLE", "no-source": "NW_NO_CALENDAR_SOURCE"}
+PROBLEM = {"not-readable": "NW_REF_NOT_READABLE"}          # the sender may not read a snapshot: nothing of the calendar is named. "no-source" has no sentence of its own: the events created here are searched
+
+
+def verb_op(said: str):
+    """`event-cancel`, `event-change` or None: the operation the line's leading verb names, by the closed verbs of the language tables (what the numbered form reads). Used when the
+    model could only say that it needs the event: the event is then found from the words of the line, whichever way the model asked."""
+    tables = natural._tables(None)
+    line = nw.Line(said)
+    if line.lead(nw.listed(tables, "calendar", "cancel_verbs"), tables) is not None:
+        return "event-cancel"
+    return "event-change" if line.lead(nw.listed(tables, "calendar", "change_verbs"), tables) is not None else None
+
+
+def _own(ctx: dict, text: str, kind: str, value, today: datetime.date, said: str, account) -> tuple:
+    """(the events the platform created that fit, the account that narrowed them): `_narrowed` over the ledger rows, each one read back from the provider before it is named
+    (event_created.live), so an event deleted or moved there is dropped. The rows are numbered 1, 2, ... in the order of their start: the number of the list `_list` shows."""
+    fits, account = _narrowed(ctx, event_created.created(ctx), text, kind, value, today, said, account)
+    return [dict(r, n=i + 1, read_at=str(r["pending"])) for i, r in enumerate(r for r in fits if event_created.live(ctx, r))], account
+
+
+def _none(ctx: dict, kind: str, problem, account) -> str:
+    """The sentence when nothing fits. Without any calendar source the person is told what is searched; an account named with no calendar of it set up has its own sentence."""
+    if problem == "no-source":
+        return _text(ctx, "EV_NONE_NO_SOURCE")
+    if account and not _sources_of(ctx, account):
+        return _text(ctx, "EV_ACCOUNT_NONE", service=SERVICE_NAME[account])
+    return _text(ctx, "EV_NONE_DAY" if kind == "day" else "EV_NONE", days=WINDOW_DAYS)
 
 
 def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict, writes, now):
@@ -530,24 +575,27 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
     kind, value = _day_named(text, now)
     if kind == "unread":
         return _text(ctx, "EV_ASK_DAY")
-    account = account_named(said, spans.get("title"))          # S11: "no outlook" narrows the search to that account's calendars
+    named = account_named(said, spans.get("title"))          # S11: "no outlook" narrows the search to that account's calendars
+    account = named
     rows, problem = events(ctx, sender)
-    found, account = ([], account) if problem else _narrowed(ctx, rows, text, kind, value, now.date(), said, account)
     if problem in PROBLEM:
-        return _text(ctx, PROBLEM[problem])          # the sender may not read a snapshot, or there is no calendar source: nothing is refreshed
-    if account and not _sources_of(ctx, account):
-        return _text(ctx, "EV_ACCOUNT_NONE", service=SERVICE_NAME[account])
-    if not found:          # a miss (nothing fits, or every snapshot is older than its limit): the calendar is read again ONCE for this line, then searched again
-        refresh(project, ctx)
+        return _text(ctx, PROBLEM[problem])          # the sender may not read a snapshot: nothing is refreshed and nothing is searched
+    found, account = ([], account) if problem else _narrowed(ctx, rows, text, kind, value, now.date(), said, account)
+    if not found and problem != "no-source" and not (account and not _sources_of(ctx, account)):
+        refresh(project, ctx)          # a miss (nothing fits, or every snapshot is older than its limit): the calendar is read again ONCE for this line, then searched again
         rows, problem = events(ctx, sender)
         found, account = ([], account) if problem else _narrowed(ctx, rows, text, kind, value, now.date(), said, account)
+    if not found:          # S16: no source holds it (or there is none): the events this platform created are searched, the same way
+        found, account = _own(ctx, text, kind, value, now.date(), said, named)
     if not found:
-        return _text(ctx, "EV_NONE_DAY" if kind == "day" else "EV_NONE", days=WINDOW_DAYS)
+        return _none(ctx, kind, problem, account)
     if len(found) > 1:
         remember_list(ctx, sender, op, found, time_["local"] if op == "event-change" and time_ else None)
         return _list(ctx, op, found)
     slots = {"event": found[0]["n"], "source": found[0]["source"]}
-    if account:
+    if found[0]["source"] == event_created.SOURCE:          # a card number, not a place in a snapshot: the reference `created:<card>` (runtime/ops_natural_calendar.py)
+        slots = {"created": found[0]["pending"], "account": found[0]["account"]}
+    elif account:
         slots["account"] = account
     if op == "event-change":
         title = spans.get("title")

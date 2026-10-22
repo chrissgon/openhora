@@ -4,9 +4,9 @@
 # dependencies = []
 # ///
 """The calendar family of the natural writes, with the project (package NR-5a): what the pure reading of runtime/natural_writes_calendar.py leaves to the configuration and
-the registered sources, in the fixed order of the questions (SPEC-NATURAL-WRITES 4): the account, the calendar, the event (and the calendar source it is numbered in), the
+the registered sources, in the fixed order of the questions (SPEC-NATURAL-WRITES 4): the account, the calendar, the event (and the calendar source it is numbered in, or the card that created it: `created`), the
 time, the title. Each step is code: an account is a service word of the line, the account of the reference, the one account that lists calendars, `accounts.default` or the
-person's choice; a calendar is a name the account lists, folded, or the operation's default; an event is `<source>#<n>` with the number written in the line, resolved by the
+person's choice; a calendar is a name the account lists, folded, or the operation's default; an event is `<source>#<n>` with the number written in the line (or `created:<card>` for an event the platform created, slice S16: the slot `created`), resolved by the
 operation with the caller's rights (a caller who may not read a snapshot is told so here and nothing of the calendar is named); a time is the time engine's single reading.
 
 resolve(ctx, op, slots, channel, sender, said) -> {"args"} | {"ask"} | {"say"} (the interface of runtime/natural_writes.py).
@@ -47,10 +47,12 @@ def _reference(ctx: dict, slots: dict, channel, sender):
     """("ok", "<source>#<n>", the source's account) or ("spec", the question or sentence). The right to read comes first: a caller who may not read a snapshot learns
     nothing of the calendar's sources."""
     w = _w()
-    if "event" not in slots:
+    if "event" not in slots and slots.get("created") is None:
         return "spec", w.ask_spec("event", "NW_ASK_EVENT"), None
     if not item_refs.may_read(ctx, w.carrier(channel), sender):
         return "spec", w.say_spec("NW_REF_NOT_READABLE"), None
+    if slots.get("created") is not None:          # an event the platform itself created (runtime/event_lookup.py, slice S16): the reference is the card that created it
+        return "ok", f"created:{int(slots['created'])}", slots.get("account")
     found = [s for s in calendar_sources(ctx) if not slots.get("account") or s["account"] == slots["account"]]
     chosen = slots.get("source")
     if chosen:

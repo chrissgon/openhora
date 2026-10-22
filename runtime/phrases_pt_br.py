@@ -701,6 +701,7 @@ TABLE = {
     "EV_LIST_AGAIN": "Essa lista ficou desatualizada, ou o número não está mais claro. Diga o evento pelo nome e pelo dia.",
     "EV_LIST_WHAT": "O que você quer fazer com o evento {n}? Diga, por exemplo: cancela o evento {n}, ou remarca o evento {n} para sexta às 15h.",
     "EV_ACCOUNT_NONE": "Não há agenda configurada para {service} aqui, então não fiz nada. Diga outra conta, ou deixe a conta de fora.",
+    "EV_NONE_NO_SOURCE": "Não encontrei esse evento. Nenhuma agenda sua foi adicionada a este projeto ainda, então só consigo achar os eventos que eu mesmo criei aqui. Adicione a sua agenda para achar os outros.",
     "PHONE_NOT_UNDERSTOOD": "Não entendi o pedido e não comecei nada. Pode dizer de outro jeito?",
     "FR_GOOGLE": "Google Drive",
     "FR_MICROSOFT": "OneDrive",

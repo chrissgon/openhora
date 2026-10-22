@@ -748,6 +748,7 @@ TABLE = {
         "EV_LIST_AGAIN": "That list is out of date, or the number is not clear any more. Tell me the event by its name and day.",
         "EV_LIST_WHAT": "What do you want to do with event {n}? Say, for example: cancel event {n}, or move event {n} to Friday at 3 pm.",
         "EV_ACCOUNT_NONE": "No {service} calendar is set up here, so I did nothing. Name another account, or leave the account out.",
+        "EV_NONE_NO_SOURCE": "I did not find that event. No calendar of yours is added to this project yet, so I can only find events that I created here. Add your calendar to find the others.",
         "PHONE_NOT_UNDERSTOOD": "I did not understand the request and started nothing. Can you say it another way?",
         "FR_GOOGLE": "Google Drive",
         "FR_MICROSOFT": "OneDrive",
