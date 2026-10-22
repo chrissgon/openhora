@@ -30,6 +30,7 @@ import sources
 
 LINE_MAX = 120          # characters of one line
 ITEMS_MAX = 100         # items of one snapshot (the sources keep at most this many)
+SHOWN_MAX = 20          # items of one source the reply prints (`render`); runtime/event_lookup.py ITEMS_SHOWN is the same number
 EVENT_LINE = re.compile(r"([0-9]{1,4})\. (.+)")
 KINDS = ("mail", "calendar")
 SNAPSHOT_CLOCK = None          # the clock the age of a snapshot is read against (None: the real one); a test replaces it
@@ -82,7 +83,7 @@ def items(project: str, kind: str | None = None, source: str | None = None, chan
     return {"sources": found, "refused": refused}
 
 
-def render(out: dict, cfg: dict, limit: int = 20) -> str:
+def render(out: dict, cfg: dict, limit: int = SHOWN_MAX) -> str:
     """The reply for a phone or a terminal: one heading for each source, then `n. line` for the first items."""
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     lines = []

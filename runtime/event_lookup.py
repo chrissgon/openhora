@@ -11,6 +11,8 @@ family path (`ops_natural_writes.open_line` with a seed of the source and the nu
 here but the operation and the two spans the check already verified against the line; the event is found from the PERSON'S OWN line.
 
   open_event(project, ctx, decision, said, sender, extras, writes, now)   the reply: a card notice, a numbered list of the events that fit, or one plain sentence
+  take(project, ctx, said, sender, extras, writes, now)   a number after a list (below): the reply, or None when the line is not one
+  account_named(said, title, hint)   "google" | "microsoft" | None: the account a line names
 
 How the calendar is read (the reading the numbered form reads, with its rights): the sender must pass `item_refs.may_read` (the group `ask-mail`; the same sentence as the family
 when not); the calendar sources are the registered ones (`ops_natural_calendar.calendar_sources`); for each, `item_refs.read_index` checks the newest snapshot (younger than 26
@@ -25,6 +27,18 @@ in the line (for a change, the line without the spans that hold the new time and
 Several: a short numbered list and the question which. None: the calendar sources are read again once (`refresh`: only a sender who may read a snapshot gets here, no new
 group; a snapshot older than its limit counts as a miss too; a failure is dropped), the search is made again, and still none is one plain sentence; never a second refresh for a line. The numbers listed are the snapshot's own, so "cancela o evento 7" is then the numbered form.
 
+A number after a list (slice S11). Right after the numbered list above (or the items list of the calendar, `remember_items`), "cancela o 2", "o 2", "2", "the 2nd" and "muda o 2 para as
+15h" from the SAME sender in the same chat, within LIST_WINDOW_S seconds, mean the entry with that number of the snapshot the list was made from, exactly as "cancela o evento 2" does (the
+same family path and card, never approved here). `take` is called by the interpreter's `turn` before any model call. What is kept for it is a small record in memory for each (project,
+channel, sender): the time, the operation the list asked about, the new time a change list was asked with, and (source, number, read_at) for each entry shown; no line, title or text. Before a
+number is carried out the newest snapshot of that source is read again and its `read_at` must be the recorded one: a refreshed snapshot, or a number that two sources listed, is asked again
+(EV_LIST_AGAIN) and never guessed; a number the list did not show is no form of this list and the line goes on as before; a sender with no live list is not touched.
+
+The account a line names (slice S11). "no outlook", "na agenda do outlook", "on google calendar", "in my gmail": a closed list of brand words (the language tables' `brands_google` and `brands_microsoft`) that counts as an account word only
+beside a word that introduces it or a calendar word (LEADS, CAL_WORDS), outside the title the model read, so "lunch with Google" names none; the model's own `service` word counts only
+when it is one of those brands and stands in the line (`account_named`). Exactly one account is the account; both, or none, leave the question to the family. An account named but
+with no calendar configured is one plain sentence (EV_ACCOUNT_NONE), never another account's card. For an event to change or cancel the account narrows the search to its sources.
+
 Privacy (limit L63): the line, the titles and the lines of the snapshot are never logged, printed or kept here; the reply holds titles of the person's own calendar, so the
 conversation stores a neutral word for it (`extras["stored"]`). Standard library only. Runs on Python 3.9: python3 runtime/event_lookup.py --help
 """
@@ -35,6 +49,7 @@ import hashlib
 import importlib
 import re
 import sys
+import threading
 
 import item_refs
 import natural
@@ -47,6 +62,8 @@ import sources
 CHANNEL = "messaging"
 OPS = ("event-change", "event-cancel")
 WINDOW_DAYS = 30
+LIST_WINDOW_S = 600             # seconds after a list in which a number from the same sender means one of its entries (the lifetime of a write draft, ops_natural.DRAFT_TTL)
+ITEMS_SHOWN = 20                # entries of one source the items list prints (ops_items.render)
 LIST_MAX = 8                    # events listed when several fit
 TITLE_MIN = 3                   # letters a title needs before its words can name an event
 HEADING = re.compile(r"## ([0-9]{4}-[0-9]{2}-[0-9]{2}) \([A-Za-z]+\)")
@@ -54,6 +71,23 @@ SLASH = re.compile(r"(?<![0-9/])([0-9]{1,2})/([0-9]{1,2})(?:/([0-9]{2,4}))?(?![0
 EVENT_LINE = re.compile(r"([0-9]{1,4})\. (.+)")
 DAY_HITS = ("date", "slash")    # the hits of the time engine that name a day (a clock alone names none)
 ENGLISH_WEEKDAY = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")      # the shape phrases.localize_dates turns into the language's word on a phone
+
+
+# The closed words of the account a line names, folded; a brand (language data, `requests.writes.calendar.brands_<account>`) counts beside a LEAD or before a CAL_WORD, never alone.
+SERVICE_NAME = {"google": "Google", "microsoft": "Microsoft"}
+CAL_WORDS = {"agenda", "agendas", "calendar", "calendars", "calendario", "calendarios", "calendrier", "calendriers", "kalender", "calendari"}
+LEADS = CAL_WORDS | {"no", "na", "nos", "nas", "pelo", "pela", "via", "usando", "pro", "pra", "em", "de", "do", "da", "meu", "minha",     # pt  validate: allow english-only -- the closed words of the languages a line may be written in
+                     "on", "in", "to", "from", "using", "of", "my", "at",                                                                      # en
+                     "en", "del", "por", "mi", "mis", "con",                                                                                   # es
+                     "sur", "dans", "avec", "mon", "ma", "chez",                                                                               # fr
+                     "im", "auf", "bei", "mit", "uber", "mein", "meine", "unter",                                                              # de
+                     "su", "sul", "sulla", "nel", "nella", "tramite", "mio", "mia", "di"}                                                      # it
+
+
+def _brands() -> dict:
+    """{account: [brand as a tuple of folded words]} from the language tables."""
+    tables = natural._tables(None)
+    return {account: [tuple(_words(p)) for p in nw.listed(tables, "calendar", "brands_" + account)] for account in SERVICE_NAME}
 
 
 def _text(ctx: dict, key: str, **fields) -> str:
@@ -99,7 +133,7 @@ def _rows(ctx: dict, source_id: str, version) -> list:
 
 
 def events(ctx: dict, sender) -> tuple:
-    """(events, problem): the events of every registered calendar source whose newest snapshot can be read, as {"source", "n", "day", "time", "title"}; `problem` says why there is
+    """(events, problem): the events of every registered calendar source whose newest snapshot can be read, as {"source", "n", "day", "time", "title", "read_at"}; `problem` says why there is
     none: "not-readable" (the sender may not read a snapshot), "no-source", "stale" (every snapshot was refused)."""
     if not item_refs.may_read(ctx, CHANNEL, sender):
         return [], "not-readable"
@@ -117,7 +151,7 @@ def events(ctx: dict, sender) -> tuple:
         known = {e["n"] for e in snapshot["entries"]}
         for n, day, fields in _rows(ctx, source["id"], snapshot["version"]):
             if n in known and "cancelled" not in fields[2:]:
-                out.append({"source": source["id"], "n": n, "day": day, "time": fields[0], "title": fields[1]})
+                out.append({"source": source["id"], "n": n, "day": day, "time": fields[0], "title": fields[1], "read_at": snapshot["read_at"]})
     return (out, None) if refused < len(listed) else ([], "stale")
 
 
@@ -131,6 +165,173 @@ def refresh(project: str, ctx: dict) -> None:
             refresh_one(project, source["id"])
         except Exception:      # noqa: BLE001 - the fault can hold a provider's words; the reply is the not-found sentence
             continue
+
+
+# --- the account a line names ----------------------------------------------------------------------------------------------------------------------
+
+
+def account_named(said, title=None, hint=None):
+    """`google`, `microsoft` or None: the account the line names, by the closed brand words of the language tables. A brand counts when the word before it is a LEAD or the word after it is a
+    calendar word, and not when it stands in `title` (the title the model read: "lunch at Google" is a title). `hint`, the model's own `service` word, counts only when it is
+    one of the brands and stands in the line as a whole word. Two accounts, or none, are None: the family asks."""
+    words = _words(said)
+    inside = set()
+    piece = _words(title) if title else []
+    at = next((i for i in range(len(words) - len(piece) + 1) if words[i:i + len(piece)] == piece), None) if piece else None
+    if at is not None:
+        inside.update(range(at, at + len(piece)))
+    found = set()
+    brands_of = _brands()
+    for account, brands in brands_of.items():
+        for brand in brands:
+            n = len(brand)
+            for i in range(len(words) - n + 1):
+                if tuple(words[i:i + n]) == brand and not inside.intersection(range(i, i + n)):
+                    before, after = words[i - 1] if i else "", words[i + n] if i + n < len(words) else ""
+                    if before in LEADS or after in CAL_WORDS:
+                        found.add(account)
+    said_hint = tuple(_words(hint)) if isinstance(hint, str) else ()
+    for account, brands in brands_of.items():
+        if said_hint in brands and _contains(words, list(said_hint)):
+            found.add(account)
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def _sources_of(ctx: dict, account: str) -> set:
+    return {s["id"] for s in importlib.import_module("ops_natural_calendar").calendar_sources(ctx) if s["account"] == account}
+
+
+def _of_account(ctx: dict, rows: list, account) -> list:
+    if not account:
+        return rows
+    ids = _sources_of(ctx, account)
+    return [r for r in rows if r["source"] in ids]
+
+
+def seed_service(ctx: dict, decision: dict, said: str, extras: dict, seed: dict):
+    """Put the account the line names in the seed of a new event (the family then does not ask which), and return None; or return the sentence when it names one whose
+    calendar the project has not set up (a card for another account would be the wrong one). A line that names none leaves the seed as it is."""
+    named = account_named(said, (decision.get("spans") or {}).get("title"), (decision.get("args") or {}).get("account"))      # the slot `service` is the parameter `account`
+    if named is None:
+        return None
+    if named not in importlib.import_module("ops_natural_writes").accounts_with(ctx, "calendars"):
+        extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
+        return _text(ctx, "EV_ACCOUNT_NONE", service=SERVICE_NAME[named])
+    seed["account"] = named
+    return None
+
+
+# --- a number after a list ----------------------------------------------------------------------------------------------------------------------
+
+_LISTS = {}          # (project key, channel, sender) -> {"at", "op", "start", "items": [(source, n, read_at)]}: in memory only, no line and no title
+_lock = threading.Lock()
+
+
+def forget_lists() -> None:
+    """Drop every record (a test, and a process that stops)."""
+    with _lock:
+        _LISTS.clear()
+
+
+def _natural():
+    return importlib.import_module("ops_natural")
+
+
+def _slot(ctx: dict, channel, sender) -> tuple:
+    return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
+
+
+def _remember(ctx: dict, channel, sender, op, start, items: list) -> None:
+    now = _natural()._clock()
+    with _lock:
+        for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
+            del _LISTS[old]
+        if items:
+            _LISTS[_slot(ctx, channel, sender)] = {"at": now, "op": op, "start": start, "items": list(items)}
+        else:
+            _LISTS.pop(_slot(ctx, channel, sender), None)
+
+
+def remember_list(ctx: dict, sender, op: str, found: list, start) -> None:
+    """The list of events `_list` shows: what the sender may now point to by number (`start` is the new time a change was asked with, or None)."""
+    _remember(ctx, CHANNEL, sender, op, start, [(r["source"], r["n"], r["read_at"]) for r in found[:LIST_MAX]])
+
+
+def remember_items(ctx: dict, channel, sender, out: dict) -> None:
+    """The items list of the calendar sources (ops_items.items, as ops_natural prints it): the entries it shows, up to ITEMS_SHOWN for each source. A list of another kind
+    clears the record. Only a messaging sender has one."""
+    if channel != CHANNEL:
+        return
+    shown = [(e["source"], i["n"], e["read_at"]) for e in out.get("sources") or [] if e.get("type") == "calendar" for i in e["items"][:ITEMS_SHOWN]]
+    _remember(ctx, channel, sender, None, None, shown)
+
+
+def _live(ctx: dict, sender, now):
+    with _lock:
+        found = _LISTS.get(_slot(ctx, CHANNEL, sender))
+        if found is not None and (now - found["at"]).total_seconds() > LIST_WINDOW_S:
+            del _LISTS[_slot(ctx, CHANNEL, sender)]
+            return None
+        return found
+
+
+def _number_form(said: str):
+    """{"n", "verb": "cancel" | "change" | None, "canonical": the numbered line, with the event noun} for a line that is a number and nothing else but the closed words, or a
+    cancel or change verb and a number (and what the numbered form reads after it), else None. "cancela o 2", "o 2", "2", "#2", "the 2nd", "muda o 2 para as 15h"."""
+    tables = natural._tables(None)
+    line = nw.Line(said)
+    norm = line.norm
+    nouns = nw.listed(tables, "calendar", "nouns")
+    verb_end, kind = line.lead(nw.listed(tables, "calendar", "cancel_verbs"), tables), "cancel"
+    if verb_end is None:
+        verb_end, kind = line.lead(nw.listed(tables, "calendar", "change_verbs"), tables), "change"
+    at = nw.skip_articles(line, verb_end or 0, tables)
+    found = re.compile(r"\s*(?:" + nt._alt(nouns) + r"\s+)?#?\s*([0-9]{1,4})(?:st|nd|rd|th|o|a)?(?![a-z0-9])").match(norm, at)
+    if not found or int(found.group(1)) < 1 or found.group(1) != str(int(found.group(1))):
+        return None
+    n, rest = int(found.group(1)), norm[found.end():]
+    if verb_end is None:
+        fillers = set(nw.listed(tables, None, "articles")) | {w for p in nouns for w in p.split()} | {"numero", "number", "item", "n", "num"}
+        before = re.findall(r"[a-z0-9]+", norm[:found.start()])
+        if all(w in fillers for w in before) and not re.search(r"[a-z0-9]", rest):
+            return {"n": n, "verb": None, "canonical": None}
+        return None
+    return {"n": n, "verb": kind, "canonical": f"{norm[:verb_end].rstrip()} {nouns[0]} {n}{rest}"}
+
+
+def _fresh(ctx: dict, sender, source: str, read_at: str) -> bool:
+    """Whether the newest snapshot of `source` is the one the list was made from."""
+    try:
+        snapshot = item_refs.read_index(ctx, source, channel=CHANNEL, sender=sender, kinds=("calendar",), clock=importlib.import_module("ops_items").SNAPSHOT_CLOCK)
+    except item_refs.ItemRefError:
+        return False
+    return snapshot["read_at"] == read_at
+
+
+def take(project: str, ctx: dict, said: str, sender, extras: dict, writes, now):
+    """The reply to a number after a list (see the module's text), or None when the line is not one: no live list for this sender, a line that is no number form, a number the list
+    did not show, or a numbered line the family does not read."""
+    record = _live(ctx, sender, now)
+    form = _number_form(said) if record is not None else None
+    if form is None or not item_refs.may_read(ctx, CHANNEL, sender):
+        return None
+    matches = [(source, read_at) for source, n, read_at in record["items"] if n == form["n"]]
+    if not matches:
+        return None
+    extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
+    if len(matches) > 1 or not _fresh(ctx, sender, *matches[0]):
+        return _text(ctx, "EV_LIST_AGAIN")
+    source, op = matches[0][0], {"cancel": "event-cancel", "change": "event-change"}.get(form["verb"]) or record["op"]
+    if form["verb"] is not None:
+        return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "line": form["canonical"], "bind": {"source": source}})
+    if op is None:
+        return _text(ctx, "EV_LIST_WHAT", n=form["n"])
+    slots = {"event": form["n"], "source": source}
+    if op == "event-change":
+        if not record["start"]:
+            return _text(ctx, "EV_CHANGE_WHAT")
+        slots["start"] = record["start"]
+    return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "slots": slots})
 
 
 # --- the line ------------------------------------------------------------------------------------------------------------------------------------
@@ -277,19 +478,25 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
     kind, value = _day_named(text, now)
     if kind == "unread":
         return _text(ctx, "EV_ASK_DAY")
+    account = account_named(said, spans.get("title"))          # S11: "no outlook" narrows the search to that account's calendars
     rows, problem = events(ctx, sender)
-    found = [] if problem else candidates(rows, text, kind, value, now.date())
+    found = [] if problem else candidates(_of_account(ctx, rows, account), text, kind, value, now.date())
     if problem in PROBLEM:
         return _text(ctx, PROBLEM[problem])          # the sender may not read a snapshot, or there is no calendar source: nothing is refreshed
+    if account and not _sources_of(ctx, account):
+        return _text(ctx, "EV_ACCOUNT_NONE", service=SERVICE_NAME[account])
     if not found:          # a miss (nothing fits, or every snapshot is older than its limit): the calendar is read again ONCE for this line, then searched again
         refresh(project, ctx)
         rows, problem = events(ctx, sender)
-        found = [] if problem else candidates(rows, text, kind, value, now.date())
+        found = [] if problem else candidates(_of_account(ctx, rows, account), text, kind, value, now.date())
     if not found:
         return _text(ctx, "EV_NONE_DAY" if kind == "day" else "EV_NONE", days=WINDOW_DAYS)
     if len(found) > 1:
+        remember_list(ctx, sender, op, found, time_["local"] if op == "event-change" and time_ else None)
         return _list(ctx, op, found)
     slots = {"event": found[0]["n"], "source": found[0]["source"]}
+    if account:
+        slots["account"] = account
     if op == "event-change":
         title = spans.get("title")
         if time_:

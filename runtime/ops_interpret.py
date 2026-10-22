@@ -245,6 +245,9 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
         if op == "event-create" and time_:
             local = time_["local"]
             seed = {"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or ""}
+            sentence = event_lookup.seed_service(ctx, decision, said, extras, seed)          # S11: "no outlook" chooses the service; one that is not set up is one sentence
+            if sentence:
+                return _said(sentence, extras)
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed)
         elif (mail := mail_compose.seed(op, decision, said)) is not None:          # a new e-mail: the card is opened from the verified spans, never from the closed forms (slice S7)
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)

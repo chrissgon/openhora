@@ -152,9 +152,15 @@ class FakeDrive:
             def _list(self, query):
                 """The files list of one folder: `'<id>' in parents and trashed = false`, by name, with a next-page token when more than pageSize."""
                 match = re.fullmatch(r"'([A-Za-z0-9_-]+)' in parents and trashed = false", query.get("q", ""))
-                if match is None:
+                named = re.fullmatch(r"'([A-Za-z0-9_-]+)' in parents and name = '((?:[^'\\]|\\.)*)' and mimeType = '" + re.escape(FOLDER) + r"' and trashed = false", query.get("q", ""))
+                if match is None and named is None:
                     return self._error(400, "invalidQuery", "Invalid Value")
-                found = sorted(((i, f) for i, f in owner.files.items() if f.get("parent") == match.group(1) and not f["trashed"]), key=lambda pair: pair[1]["name"])
+                if named is not None:          # the folder-by-name query of `resolve-path`: the escapes of the query undone, the folders of that name under that parent
+                    wanted = re.sub(r"\\(.)", r"\1", named.group(2))
+                    found = sorted(((i, f) for i, f in owner.files.items() if f.get("parent") == named.group(1) and not f["trashed"] and f["mimeType"] == FOLDER and f["name"] == wanted),
+                                   key=lambda pair: pair[1]["name"])
+                else:
+                    found = sorted(((i, f) for i, f in owner.files.items() if f.get("parent") == match.group(1) and not f["trashed"]), key=lambda pair: pair[1]["name"])
                 size = int(query.get("pageSize", "100"))
                 files = []
                 for ident, f in found[:size]:

@@ -1608,7 +1608,7 @@ def status(project: str) -> dict:
 
 def config(project: str) -> dict:
     """What a shell may know of a project's configuration, and the one read that never refuses an unaccepted one:
-    {"path", "sha256", "accepted", "data_dir", "messaging", "channels", "policies", "channel_profiles", "language", "grants", "widening", "widening_sha256", "warnings"}. "accepted" says
+    {"path", "sha256", "accepted", "data_dir", "messaging", "channels", "policies", "channel_profiles", "language", "grants", "widening", "widening_sha256", "warnings", and "google_folders" {name: {"path", "id" (None until accepted)}} when the file gives a Google folder as a path}. "accepted" says
     whether the file's hash is the one the person accepted last; "policies" are the profiles of the file; "language" is the key of that name (None when it is not set), which the messaging bridge reads to say its sentences in the project's language (runtime/phrases.py); "grants" are the widenings of operations.GRANTS
     the file lists ([{"channel", "group", "means"}], a sender's also "sender"); "widening" is every group a channel or a listed sender has in this file
     and did not effectively have in the one accepted before ([{"place", "channel", "group", "means"}], POL-1 and POL-2: a place is a channel or
@@ -1620,7 +1620,7 @@ def config(project: str) -> dict:
     got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)
     return {"path": cfg["path"], "sha256": cfg["sha256"], "accepted": accepted == cfg["sha256"],
             "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"], "policies": cfg["policies"],
-            "channel_profiles": cfg["channel_profiles"], "language": cfg.get("language"),
+            "channel_profiles": cfg["channel_profiles"], "language": cfg.get("language"), **({"google_folders": cfg["google_folders"]} if cfg.get("google_folders") else {}),
             **policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None, got(policy_widening.ACCOUNTS),
                                      got(policy_widening.KEY) or policy_widening.PENDING_SECRET)}   # POL-1/POL-2: grants, widening, its hash, warnings
 
