@@ -162,12 +162,13 @@ def write_corpus(path, items):
 
 # The ids of the dev file whose echo is not `correct`, each with why: the pipeline, not the echo, decides them (a literal list; the 60-item sample holds two of them).
 TIME_ASK = "the code half-reads or doubts the time phrase, so it asks instead of taking the echo's time_iso (clarify time-ask)"
+TIME_ASK_GUARD = "TIME-GUARD (#505, decisions.md 2026-10-21): an hour-only reading beside a weekday word of a language with no table (`el jueves a las 15:00`) is asked, never read on the clock's own day (time-ask)"
 CODE_WINS = "the code reads the time itself and its reading wins over the echo's time_iso (time_disagree), and it is not the gold's"
 CONFIRM_RULE = "the confirm rule: the echo says yes or no, and code does not read the line as that yes or no, so it asks again (clarify)"
 FORWARD_OFF_MESSAGING = "the gold is `forwarded` but the channel is not messaging: a forward is read on the messaging channel only (as the current arm reads it), so the item reaches the model, and the echo's `forwarded` object is not a protocol kind (invalid, so clarify)"
 ALLOWED = {
     "dev-en-00013": TIME_ASK, "dev-en-00036": TIME_ASK, "dev-es-00036": TIME_ASK, "dev-es-00043": TIME_ASK, "dev-fr-00018": TIME_ASK, "dev-it-00020": TIME_ASK,
-    "dev-pt-br-00007": TIME_ASK,
+    "dev-pt-br-00007": TIME_ASK, "dev-es-00016": TIME_ASK_GUARD,
     "dev-es-00005": CODE_WINS, "dev-es-00012": CODE_WINS, "dev-es-00033": CODE_WINS,
     "dev-en-00040": FORWARD_OFF_MESSAGING,
     "dev-es-00025": CONFIRM_RULE, "dev-fr-00019": CONFIRM_RULE, "dev-pt-br-00058": CONFIRM_RULE,
@@ -223,6 +224,23 @@ def test_the_echo_model_over_the_whole_dev_file_is_wrong_only_where_listed():
     assert set(off_the_mark(load(DEV))) == set(ALLOWED)
 
 
+# The scope-full items of the relabelled file whose echo is not `correct` (a literal list, as ALLOWED is). It is empty: an answer to a reminder question with a bare whole hour
+# ("remind me at 12 to eat", "as 12", "ao meio-dia e meia", "a meia-noite") is read as code, the connector being part of the hour's phrase (R1).
+RELABELLED_ALLOWED = {}
+
+
 @pytest.mark.skipif(not FULL, reason="the relabelled file runs with WB_FULL_FUZZ=1")
-def test_the_echo_model_over_the_scope_full_items_of_the_relabelled_file_is_always_correct():
-    assert off_the_mark(load(RELABELLED)) == {}
+def test_the_echo_model_over_the_scope_full_items_of_the_relabelled_file_is_wrong_only_where_listed():
+    items = load(RELABELLED)
+    assert set(RELABELLED_ALLOWED) <= {i["id"] for i in items} and all(len(reason) > 20 for reason in RELABELLED_ALLOWED.values())
+    assert off_the_mark(items) == {k: "clarify" for k in RELABELLED_ALLOWED}
+
+
+def test_a_bare_hour_answer_with_its_connector_is_correct_and_without_one_it_is_asked():
+    """Vacuity of the check above: the four answers that were asked back are correct, and the same answer with the connector taken away (`remind me 12 to eat` has none, and
+    `remind Dana 3pm to eat` neither) is off the mark, so the oracle does see a time-ask and an empty list is not an oracle that sees nothing."""
+    by_id = {i["id"]: i for i in load(RELABELLED)}
+    four = [by_id[k] for k in ("dev-en-10259", "dev-pt-br-10207", "dev-pt-br-10209", "dev-pt-br-10223")]
+    assert off_the_mark(four) == {}
+    planted = dict(by_id["dev-en-10259"], line="remind Dana 3pm to eat", gold=dict(by_id["dev-en-10259"]["gold"], time=["2026-10-15T15:00"]))
+    assert set(off_the_mark([planted])) == {planted["id"]}
