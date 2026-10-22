@@ -109,12 +109,15 @@ def test_vacuity_without_the_plain_titles_the_internal_words_come_back_and_the_o
 # --- C. a file is not deleted from a message -------------------------------------------------------------------------------------------------------------
 
 
-DELETE_LINES = ["Remova o arquivo openhora-mark do drive", "remova o arquivo da pasta /openhora", "Apaga a foto de ontem", "por favor exclua o documento antigo", "apague as imagens do drive",
-                "Delete the file report.pdf", "please remove the photo", "can you erase the document", "Borra el archivo viejo", "Elimina la imagen",  # validate: allow english-only -- the lines under test
-                "Supprime le fichier du dossier", "Efface la photo", "Lösche die Datei bitte", "Entferne das Dokument", "Cancella il file", "Elimina l'immagine"]
-NOT_DELETE_LINES = ["não apague o arquivo", "do not delete the file", "como apagar um arquivo?", "salva o arquivo no drive", "apague o evento de amanhã", "apague o lembrete",  # validate: allow english-only -- the lines under test
-                    "o arquivo foi apagado", "/delete arquivo", "Delete", "arquivo apague", "quero ver o arquivo e depois apagar o rascunho com calma quando eu voltar hoje à noite sim",  # validate: allow english-only -- the lines under test
-                    "send the file to Maria", "remova a cláusula do contrato"]  # validate: allow english-only -- the lines under test
+DELETE_LINES = ["Remova o arquivo openhora-mark do drive", "Remova o arquivo openhora-mark.png do drive", "Remova o arquivo openhora-mark do drive em /openhora", "remova o arquivo da pasta /openhora",  # validate: allow english-only -- the lines under test
+                "Remova openhora-mark.png do onedrive", "apague o logo.png da pasta Marca", "Apaga a foto de ontem", "por favor exclua o documento antigo do google drive", "jogue o arquivo na lixeira",  # validate: allow english-only -- the lines under test
+                "mova o arquivo logo para a lixeira", "tire o arquivo openhora-mark do drive", "exclui as imagens da pasta fotos",  # validate: allow english-only -- the lines under test
+                "Delete the file report.pdf", "please remove the photo from my drive", "can you erase the document", "move the file to the trash", "Borra el archivo viejo del drive", "Elimina la imagen",  # validate: allow english-only -- the lines under test
+                "Supprime le fichier du dossier", "Efface la photo", "Lösche die Datei bitte aus dem Ordner", "Entferne das Dokument", "Cancella il file dal drive", "Elimina l'immagine"]  # validate: allow english-only -- the lines under test
+NOT_DELETE_LINES = ["remova o evento de amanhã", "Remova o corte de cabelo de amanhã da agenda", "remova o corte de cabelo da agenda", "apague o evento de sexta", "apague o email com o documento anexo",  # validate: allow english-only -- the lines under test
+                    "apague o e-mail do João", "mova o email para a lixeira", "tire o evento da agenda", "delete the meeting from the calendar", "apague o lembrete",  # validate: allow english-only -- the lines under test
+                    "não apague o arquivo", "do not delete the file", "como apagar um arquivo?", "salva o arquivo no drive", "o arquivo foi apagado", "/delete arquivo", "Delete",  # validate: allow english-only -- the lines under test
+                    "send the file to Maria", "remova a cláusula do contrato", "mostre o arquivo openhora-mark do drive", "descarta o arquivo", "discard the file"]      # the last two are the words of a held file's card (messaging_attach.line)  # validate: allow english-only -- the lines under test
 
 
 @pytest.mark.parametrize("line", DELETE_LINES)
@@ -138,5 +141,8 @@ def test_on_a_phone_a_request_to_delete_a_file_gets_the_plain_sentence_and_opens
     assert ops.status(world["path"])["requests"] == [] and ops.pending(world["path"])["pending"] == []
 
 
-def test_vacuity_the_oracle_notices_a_line_that_slips_through():
+def test_vacuity_the_oracle_notices_a_line_that_slips_through_and_a_line_that_is_caught_by_mistake():
     assert phone_delete.asks("Remova o arquivo openhora-mark do drive") and not phone_delete.asks("Mostre o arquivo openhora-mark do drive")
+    assert len(DELETE_LINES) >= 20 and len(NOT_DELETE_LINES) >= 8 and not set(DELETE_LINES) & set(NOT_DELETE_LINES)
+    assert [line for line in NOT_DELETE_LINES if phone_delete.asks(line)] == [], "the event and mail lines are not caught"
+    assert [line for line in DELETE_LINES if not phone_delete.asks(line)] == [], "no file line slips through"
