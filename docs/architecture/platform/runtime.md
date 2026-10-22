@@ -119,6 +119,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/messaging_inbound.py` | What a person sent to the messaging bridge, as an intent (runtime/messaging.py). |
 | `runtime/messaging_ledger.py` | The messaging bridge's ledger: what it sent, so that a restart sends nothing twice and a tapped button or a reply is bound to the card the person saw (runtime/messaging.py). |
 | `runtime/messaging_outcome.py` | What a messaging app is told when an effect it approved has run (package LIVE-2): the outcome in plain words, not only "Approved #3." The approval of an effect from a card runs the effect inside the approving call (ops_step_effects.approve): when the call returns, the write has landed, so the bridge says what was done in the same job and the same chat. |
+| `runtime/messaging_pending.py` | The line a question gets in `/pending` on a messaging app (slice S14, limit L62): what is asked, in plain words, never the router's internals. |
 | `runtime/messaging_provider.py` | The messaging bridge's access to a messenger provider (class messenger:&lt;platform&gt;, providers/messenger/README.md): the four verbs as methods, started through providers/resolve.py, the one function that resolves a class and runs a provider's verb. |
 | `runtime/messaging_remind.py` | The messaging bridge's part of reminders (package RM-1): `/remind`, `/reminders` and `/forget` from a listed sender, and the delivery of the reminders that are due. |
 | `runtime/messaging_typing.py` | The "typing..." indicator while a reply is prepared (slice S10): a small helper of the messaging bridge, never a gate. |
@@ -157,6 +158,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_natural_files.py` | The files family of the natural writes, with the project (package NR-5a): a new file, a new revision of a file that is a source, the saving of a file the sender sent. |
 | `runtime/ops_natural_mail.py` | The resolution of a mail write asked in words (package NR-5b, SPEC-NATURAL-WRITES 3.3 and 3.4): what runtime/natural_writes_mail.py read from the line, turned into the arguments of the operation's own function, or into the one question that is still open. |
 | `runtime/ops_natural_writes.py` | The card-opening path of the natural writes (package NR-5): the ONE place that opens a write to the person's own accounts for a line (limit L61, contracts/runtime.md). |
+| `runtime/ops_question.py` | Reject a question: the person turns it down, and it closes (slice S14). |
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_reminders.py` | The operations over reminders (package RM-1): make one, list them, forget one, and what the messaging bridge asks of the store to send them. |
 | `runtime/ops_routines.py` | The operations over routines (package P6b; decisions D23, D24, D31 to D35, findings S3, S10, I5, F4, F12) and the tick that fires them. |
@@ -172,6 +174,8 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/parallel.py` | The rules of tasks that run at once, decided by pure functions: whether a ready task may start beside the ones that run (a slot of its agent, a slot of the project, no code task of its request, no artifact in use), and what a skill's footprint is. |
 | `runtime/path_rule.py` | The path rule: how one path of what a run left goes back to the project. |
 | `runtime/pending_items.py` | The store of the questions a conversation leaves open for one asker (slice S4, decision 229 (1) of 2026-10-20): the bindings of the conversation layer, in memory only. |
+| `runtime/phone_delete.py` | A line that asks to delete a file (slice S14, limit L62): code knows it, and the platform cannot do it from a message yet. |
+| `runtime/phone_errors.py` | What a phone is told when the operations layer fails in a project that does not speak English (slice S14, limit L62): the project's language, never the layer's English. |
 | `runtime/phone_questions.py` | The router's questions as a phone shows them (slice S9, limit L62): a pure renderer, no model, no store, no network. |
 | `runtime/phone_refusal.py` | What a phone is told when it is refused (slice S10, limit L62): one plain sentence, never a slash command, "error:" or the name of an operation. |
 | `runtime/phrases.py` | The phrase table (package LR-1): the sentences the runtime says to a person in the project's language, and the one function that picks them. |
