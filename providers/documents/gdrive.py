@@ -566,7 +566,7 @@ def cmd_resolve_path(args: dict) -> int:
     for name in names:
         seen += "/" + name
         quoted = name.replace("\\", "\\\\").replace("'", "\\'")
-        query = {"q": f"'{parent}' in parents and name = '{quoted}' and mimeType = '{FOLDER}' and trashed = false", "fields": "files(id,name,mimeType)", "pageSize": "10",
+        query = {"q": f"'{parent}' in parents and name = '{quoted}' and mimeType = '{FOLDER}' and trashed = false", "fields": "nextPageToken,incompleteSearch,files(id,name,mimeType)", "pageSize": "10",
                  "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
         status, body = drive.get("/drive/v3/files", query, LIST_LIMIT_BYTES)
         if status != 200:
@@ -578,6 +578,8 @@ def cmd_resolve_path(args: dict) -> int:
         entries = data.get("files") if isinstance(data, dict) else None
         if not isinstance(entries, list):
             raise ProviderError("Drive answered a list this provider does not understand")
+        if data.get("nextPageToken") or data.get("incompleteSearch"):
+            raise ProviderError(f"Drive did not give the whole list of folders named {one_line(seen, 200)}, so the path cannot be told apart from another: give the folder's id")
         found = [e for e in entries if isinstance(e, dict) and e.get("name") == name and e.get("mimeType") == FOLDER and isinstance(e.get("id"), str) and FILE_ID.fullmatch(e["id"])]
         if not found:
             raise ProviderError(f"no folder {one_line(seen, 200)} in My Drive")

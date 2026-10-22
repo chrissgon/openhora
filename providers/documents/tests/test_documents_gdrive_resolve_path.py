@@ -94,6 +94,16 @@ def test_two_folders_with_the_name_are_refused_and_none_is_picked(drive):
     assert "2 folders in My Drive are named /Gêmeas" in said and DOUBLE_A not in said and DOUBLE_B not in said      # validate: allow english-only -- the Portuguese line or sentence under test
 
 
+@pytest.mark.parametrize("flag", ["force_token", "force_incomplete"])
+def test_a_page_that_is_not_the_whole_list_is_refused_even_with_one_folder_on_it(drive, flag):
+    setattr(drive, flag, True)
+    code, out, said = gdrive(drive, "resolve-path", "--path", "/Documentos")
+    assert code == 1 and out is None and "did not give the whole list of folders named /Documentos" in said and DOCS not in said, said
+    assert "nextPageToken,incompleteSearch" in listings(drive)[0][2]["fields"]
+    setattr(drive, flag, False)
+    assert gdrive(drive, "resolve-path", "--path", "/Documentos")[1] == {"id": DOCS, "path": "/Documentos", "levels": 1}, "control: the whole list is believed"
+
+
 def test_a_missing_middle_name_stops_the_walk(drive):
     code, _, said = gdrive(drive, "resolve-path", "--path", "/Nada/2026")
     assert code == 1 and "no folder /Nada in My Drive" in said

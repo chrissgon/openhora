@@ -352,7 +352,7 @@ def _read(ctx: dict, said: str, seed, hint):
             slots = {"start": f"{reading['date']}T{reading['time']}"}
             if seed.get("text"):
                 slots["title"] = seed["text"]
-            if seed.get("account"):          # the account the line names (runtime/event_lookup.py `create_account`): the family does not ask which
+            if seed.get("account"):          # the account the line names (runtime/event_lookup.py `seed_service`): the family does not ask which
                 slots["account"] = seed["account"]
             return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading}
         if op in ("mail-send", "mail-draft") and seed.get("slots") is not None:          # a new e-mail the interpreter decided (runtime/mail_compose.py `seed`): its slots, never the closed forms

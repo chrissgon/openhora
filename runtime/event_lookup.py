@@ -90,6 +90,9 @@ def _brands() -> dict:
     return {account: [tuple(_words(p)) for p in nw.listed(tables, "calendar", "brands_" + account)] for account in SERVICE_NAME}
 
 
+PLURAL = {"os", "as", "uns", "umas", "aos", "los", "las", "les", "die", "gli", "le", "ambos", "ambas", "todos", "todas", "both", "all"}          # a plural article or a word for "both": a number after it is a group      # validate: allow english-only -- the closed words of the languages a line may be written in
+
+
 def _text(ctx: dict, key: str, **fields) -> str:
     return phrases.text(key, ctx["cfg"], **fields)
 
@@ -191,9 +194,10 @@ def account_named(said, title=None, hint=None):
                     if before in LEADS or after in CAL_WORDS:
                         found.add(account)
     said_hint = tuple(_words(hint)) if isinstance(hint, str) else ()
+    n = len(said_hint)
     for account, brands in brands_of.items():
-        if said_hint in brands and _contains(words, list(said_hint)):
-            found.add(account)
+        if said_hint in brands and any(tuple(words[i:i + n]) == said_hint and not inside.intersection(range(i, i + n)) for i in range(len(words) - n + 1)):
+            found.add(account)          # the model's word, at a place of the line that is not the title
     return next(iter(found)) if len(found) == 1 else None
 
 
@@ -237,6 +241,14 @@ def _natural():
     return importlib.import_module("ops_natural")
 
 
+def _last_pending(ctx: dict) -> int:
+    """The number of the newest pending decision (0 when there is none): a card that appears after a list was shown ends the list."""
+    try:
+        return max([p["id"] for p in ctx["store"].pending_list(ctx["conn"], "all")] or [0])
+    except Exception:      # noqa: BLE001 - the store's refusal is no reason to keep a list alive: 0 only ends it earlier
+        return 0
+
+
 def _slot(ctx: dict, channel, sender) -> tuple:
     return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
 
@@ -247,7 +259,7 @@ def _remember(ctx: dict, channel, sender, op, start, items: list) -> None:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
         if items:
-            _LISTS[_slot(ctx, channel, sender)] = {"at": now, "op": op, "start": start, "items": list(items)}
+            _LISTS[_slot(ctx, channel, sender)] = {"at": now, "op": op, "start": start, "items": list(items), "seen": 0, "pending": _last_pending(ctx)}
         else:
             _LISTS.pop(_slot(ctx, channel, sender), None)
 
@@ -266,13 +278,29 @@ def remember_items(ctx: dict, channel, sender, out: dict) -> None:
     _remember(ctx, channel, sender, None, None, shown)
 
 
+def begin_turn(ctx: dict, channel, sender) -> None:
+    """Called by `ops_say.say` at the start of every line of a messaging sender: a list is valid only for the line that comes right after it (the bot's next message is the
+    answer to that line, and a list is then no longer the last thing it said)."""
+    if channel == CHANNEL:
+        with _lock:
+            found = _LISTS.get(_slot(ctx, channel, sender))
+            if found is not None:
+                found["seen"] += 1
+
+
+def _drop(ctx: dict, sender) -> None:
+    with _lock:
+        _LISTS.pop(_slot(ctx, CHANNEL, sender), None)
+
+
 def _live(ctx: dict, sender, now):
+    """The sender's record while it is the last thing said to them: not older than the window, no line since the one that is being read, no decision card made since."""
     with _lock:
         found = _LISTS.get(_slot(ctx, CHANNEL, sender))
-        if found is not None and (now - found["at"]).total_seconds() > LIST_WINDOW_S:
-            del _LISTS[_slot(ctx, CHANNEL, sender)]
-            return None
-        return found
+    if found is not None and ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 1 or _last_pending(ctx) > found["pending"]):
+        _drop(ctx, sender)
+        return None
+    return found
 
 
 def _number_form(said: str):
@@ -290,6 +318,8 @@ def _number_form(said: str):
     if not found or int(found.group(1)) < 1 or found.group(1) != str(int(found.group(1))):
         return None
     n, rest = int(found.group(1)), norm[found.end():]
+    if PLURAL.intersection(re.findall(r"[a-z0-9]+", norm[verb_end or 0:found.start()])):
+        return None          # "cancela os 2", "apaga as 2", "os 2": both of them, not the second
     if verb_end is None:
         fillers = set(nw.listed(tables, None, "articles")) | {w for p in nouns for w in p.split()} | {"numero", "number", "item", "n", "num"}
         before = re.findall(r"[a-z0-9]+", norm[:found.start()])
@@ -310,28 +340,41 @@ def _fresh(ctx: dict, sender, source: str, read_at: str) -> bool:
 
 def take(project: str, ctx: dict, said: str, sender, extras: dict, writes, now):
     """The reply to a number after a list (see the module's text), or None when the line is not one: no live list for this sender, a line that is no number form, a number the list
-    did not show, or a numbered line the family does not read."""
+    did not show, or a numbered line the family does not read. A line that is not taken ends the sender's list: it is valid for the line right after it and no other."""
     record = _live(ctx, sender, now)
-    form = _number_form(said) if record is not None else None
-    if form is None or not item_refs.may_read(ctx, CHANNEL, sender):
+    if record is None:
         return None
+    reply, keep = _taken(project, ctx, said, sender, extras, writes, record)
+    if keep:          # a question about the list's entry (what to do with it): the list is still the last thing said
+        with _lock:
+            record["seen"], record["at"] = 0, now
+    else:
+        _drop(ctx, sender)
+    return reply
+
+
+def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, record: dict) -> tuple:
+    """(reply or None, keep the list): the list is kept only by a reply that asks what to do with an entry."""
+    form = _number_form(said)
+    if form is None or not item_refs.may_read(ctx, CHANNEL, sender):
+        return None, False
     matches = [(source, read_at) for source, n, read_at in record["items"] if n == form["n"]]
     if not matches:
-        return None
+        return None, False
     extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
     if len(matches) > 1 or not _fresh(ctx, sender, *matches[0]):
-        return _text(ctx, "EV_LIST_AGAIN")
+        return _text(ctx, "EV_LIST_AGAIN"), False
     source, op = matches[0][0], {"cancel": "event-cancel", "change": "event-change"}.get(form["verb"]) or record["op"]
     if form["verb"] is not None:
-        return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "line": form["canonical"], "bind": {"source": source}})
+        return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "line": form["canonical"], "bind": {"source": source}}), False
     if op is None:
-        return _text(ctx, "EV_LIST_WHAT", n=form["n"])
+        return _text(ctx, "EV_LIST_WHAT", n=form["n"]), True
     slots = {"event": form["n"], "source": source}
     if op == "event-change":
         if not record["start"]:
-            return _text(ctx, "EV_CHANGE_WHAT")
+            return _text(ctx, "EV_CHANGE_WHAT"), True
         slots["start"] = record["start"]
-    return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "slots": slots})
+    return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "slots": slots}), False
 
 
 # --- the line ------------------------------------------------------------------------------------------------------------------------------------
@@ -437,6 +480,15 @@ def candidates(rows: list, said: str, kind: str, value, today: datetime.date) ->
     return [row for row, words in fits if not any(other != words and _contains(other, words) for _, other in fits)]
 
 
+def _narrowed(ctx: dict, rows: list, text: str, kind: str, value, today: datetime.date, said: str, account):
+    """(the events that fit, the account that narrowed them): an account word narrows the search to that account's calendars, except when the word stands in the title of an
+    event that fits the line ("cancela a reuniao do google"): then it is part of the name, no account is named, and every fitting event is listed."""
+    fits = candidates(rows, text, kind, value, today)
+    if account and any(account_named(said, fit["title"]) != account for fit in fits):
+        account = None
+    return (candidates(_of_account(ctx, rows, account), text, kind, value, today) if account else fits), account
+
+
 # --- the reply -----------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -480,7 +532,7 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
         return _text(ctx, "EV_ASK_DAY")
     account = account_named(said, spans.get("title"))          # S11: "no outlook" narrows the search to that account's calendars
     rows, problem = events(ctx, sender)
-    found = [] if problem else candidates(_of_account(ctx, rows, account), text, kind, value, now.date())
+    found, account = ([], account) if problem else _narrowed(ctx, rows, text, kind, value, now.date(), said, account)
     if problem in PROBLEM:
         return _text(ctx, PROBLEM[problem])          # the sender may not read a snapshot, or there is no calendar source: nothing is refreshed
     if account and not _sources_of(ctx, account):
@@ -488,7 +540,7 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
     if not found:          # a miss (nothing fits, or every snapshot is older than its limit): the calendar is read again ONCE for this line, then searched again
         refresh(project, ctx)
         rows, problem = events(ctx, sender)
-        found = [] if problem else candidates(_of_account(ctx, rows, account), text, kind, value, now.date())
+        found, account = ([], account) if problem else _narrowed(ctx, rows, text, kind, value, now.date(), said, account)
     if not found:
         return _text(ctx, "EV_NONE_DAY" if kind == "day" else "EV_NONE", days=WINDOW_DAYS)
     if len(found) > 1:

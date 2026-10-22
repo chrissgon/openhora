@@ -49,6 +49,8 @@ class FakeDrive:
         self.token_error = {"error": "invalid_grant", "error_description": "Token has been expired or revoked."}
         self.code = CODE
         self.redirect_next = False
+        self.force_token = False            # a folder-by-name list answers a next-page token with a short page
+        self.force_incomplete = False       # a folder-by-name list says the search was incomplete
         self.lock = threading.Lock()
         owner = self
 
@@ -168,7 +170,8 @@ class FakeDrive:
                     if f["content"] is not None:
                         meta["size"] = str(len(f["content"]))
                     files.append(meta)
-                self._json(200, {"files": files, **({"nextPageToken": "fake-next"} if len(found) > size else {})})
+                self._json(200, {"files": files, **({"nextPageToken": "fake-next"} if len(found) > size or (named is not None and owner.force_token) else {}),
+                                 **({"incompleteSearch": True} if named is not None and owner.force_incomplete else {})})
 
             def _export(self, f, query):
                 if not f["mimeType"].startswith(GOOGLE) or f["mimeType"] == FOLDER:

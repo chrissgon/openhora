@@ -23,6 +23,7 @@ from test_ops_natural_writes import forget  # noqa: F401
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
+ops_natural = st.load("ops_natural")
 ops_interpret = st.load("ops_interpret")
 event_lookup = st.load("event_lookup")
 interpreter_route = st.load("interpreter_route")
@@ -83,7 +84,7 @@ def test_cancela_o_2_after_the_list_opens_the_card_of_item_2_exactly_as_cancela_
     item = ops.pending(world["path"], 1)
     assert reply == CARD_SENT and item["status"] == "open" and model.calls == 0
     assert card_problems(item, *HAIR_2) == [] and "Event: evhair22" in item["body"].splitlines()
-    assert item["body"] == numbered_card_body(world, "cancela o evento 2"), "the same card, line for line, as the numbered form"
+    assert item["body"].splitlines()[1:] == numbered_card_body(world, "cancela o evento 2").splitlines()[1:], "the same card, line for line (the first line holds the read's clock), as the numbered form"
     assert reads_only(world) == [], "nothing is approved or written by this path"
     assert card_problems(item, *HAIR_4) != [], "vacuity: the card of item 4 reads differently"
 
@@ -113,7 +114,7 @@ def test_a_change_form_with_the_number_reads_the_time_as_the_numbered_form_does(
     numbered = say_numbered(world, "muda o evento 2 para as 15h")
     assert got == "15:00 de hoje já passou: amanhã, qui 22/10, às 15:00\nO card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test
     assert numbered == got.replace("#1", "#2"), "the same sentences as the numbered form"
-    assert ops.pending(world["path"], 1)["body"] == ops.pending(world["path"], 2)["body"], "the same card, line for line"
+    assert ops.pending(world["path"], 1)["body"].splitlines()[1:] == ops.pending(world["path"], 2)["body"].splitlines()[1:], "the same card, line for line (but the first line's clock second)"
     lines = ops.pending(world["path"], 1)["body"].splitlines()
     assert "Named as agenda#2, from the snapshot read at 2026-10-21T17:00:00Z." in lines and "After: When: Thu 22/10/2026 15:00-16:00 (America/Sao_Paulo)" in lines, lines
 
@@ -189,6 +190,64 @@ def test_the_answer_to_an_open_question_of_the_family_is_taken_before_a_number_o
     assert say(world, "2") == CARD_SENT
     assert account_line(ops.pending(world["path"], 1)) == [f"Account: microsoft ({fgc.ADDRESS})"], "the 2 answered the question (option 2 is Microsoft), it did not cancel item 2"
     assert "Removing" not in ops.pending(world["path"], 1)["body"]
+
+
+# --- a list is valid for the line right after it ------------------------------------------------------------------------------------------------------
+
+
+def test_a_list_does_not_survive_an_unrelated_reply(world, monkeypatch):
+    build(world, monkeypatch)
+    model = Model(monkeypatch, '{"v":1,"kind":"none"}', '{"v":1,"kind":"none"}')
+    listed(world)
+    say(world, "lista os pendentes")
+    before = model.calls
+    say(world, "o 2")
+    assert rows(world) == ([], []) and model.calls == before + 1, "the pending list was said after the events: the 2 is no longer an event of that list"
+
+
+def test_a_list_does_not_survive_a_line_that_is_not_a_number(world, monkeypatch):
+    build(world, monkeypatch)
+    model = Model(monkeypatch, '{"v":1,"kind":"none"}', '{"v":1,"kind":"none"}')
+    listed(world)
+    say(world, "obrigado")
+    say(world, "cancela o 2")
+    assert rows(world) == ([], []) and model.calls == 2
+
+
+def test_a_list_does_not_survive_a_greeting_the_natural_path_never_saw(world, monkeypatch):
+    build(world, monkeypatch)
+    model = Model(monkeypatch, '{"v":1,"kind":"none"}')
+    listed(world)
+    say(world, "oi")
+    say(world, "cancela o 2")
+    assert rows(world) == ([], []) and model.calls == 1
+
+
+def test_a_card_made_after_the_list_ends_it_so_a_number_for_that_card_opens_no_event_card(world, monkeypatch):
+    build(world, monkeypatch)
+    model = Model(monkeypatch, '{"v":1,"kind":"none"}')
+    listed(world)
+    ops.event_create(world["path"], "google", "Haircut with Joe", "2026-10-23T13:00")          # a decision card exists now (the bridge sends it, and may list it)
+    say(world, "cancela o 2")
+    assert model.calls == 1 and [i["title"] for i in rows(world)[1]] == ["Calendar: new event"], "no event cancel card was opened"
+
+
+def test_a_question_about_the_entry_keeps_the_list_for_the_answer(world, monkeypatch):
+    build(world, monkeypatch)
+    Model(monkeypatch)
+    say(world, "lista os eventos")
+    assert say(world, "2") == WHAT
+    assert say(world, "cancela o 2") == CARD_SENT
+
+
+@pytest.mark.parametrize("line", ["cancela os 2", "apaga as 2", "os 2", "as 2", "cancelar los 2", "annule les 2", "ambos 2"])
+def test_a_plural_article_before_the_number_is_a_group_and_not_the_second(world, monkeypatch, line):
+    build(world, monkeypatch)
+    model = Model(monkeypatch, '{"v":1,"kind":"none"}')
+    listed(world)
+    say(world, line)
+    assert rows(world) == ([], []) and model.calls == 1, line
+    assert event_lookup._number_form("cancela o 2") is not None, "control: the singular is a form"
 
 
 # --- the snapshot the number means -------------------------------------------------------------------------------------------------------------------
@@ -349,6 +408,54 @@ def test_an_account_with_no_calendar_source_is_one_plain_sentence_for_a_lookup(w
     build(world, monkeypatch)
     reply, extras = carry(world, "Cancela o corte de cabelo no outlook", CANCEL)
     assert reply == NO_MICROSOFT and "resend" not in extras and rows(world) == ([], [])
+
+
+class Writes:
+    """Stands in for the card-opening family: the numbered attempt finds nothing, the seed it is handed is recorded."""
+
+    def __init__(self):
+        self.seeds = []
+
+    def open_line(self, project, ctx, said, channel, sender, extras, hint=None, seed=None):
+        if seed is not None:
+            self.seeds.append(seed)
+        return "opened" if seed is not None else None
+
+
+def two_titles(world, monkeypatch, google_title, outlook_title):
+    build(world, monkeypatch, events=[("22", "10:00", "11:00", google_title, "evg")])
+    world["snaps"].calendar("outlook", "outlook", "default", [tsm.event(1, "2026-10-22T13:00:00-03:00", "2026-10-22T14:00:00-03:00", outlook_title, id="AAMkO=")])
+
+
+def open_event(world, line, op="event-cancel"):
+    writes, ctx = Writes(), ops_core.context(world["path"])
+    decision = {"op": op, "spans": {}, "args": {}, "time": None}
+    reply = event_lookup.open_event(world["path"], ctx, decision, line, OWNER, {}, writes, ops_natural._clock())
+    return reply, writes.seeds
+
+
+def test_an_account_word_inside_the_title_of_an_event_that_fits_is_not_an_account(world, monkeypatch):
+    two_titles(world, monkeypatch, "Reuniao", "Reuniao do Google")
+    reply, seeds = open_event(world, "Cancela a reuniao do google amanha")
+    assert reply == "opened" and [s["slots"]["source"] for s in seeds] == ["outlook"], "the event named Reuniao do Google, in Outlook, is the one the line names"
+    assert "account" not in seeds[0]["slots"]
+    reply, seeds = open_event(world, "Cancela a reuniao amanha no google")
+    assert reply == "opened" and [(s["slots"]["source"], s["slots"]["account"]) for s in seeds] == [("agenda", "google")], "control: a word outside every title narrows"
+
+
+def test_an_account_word_in_the_titles_of_both_accounts_lists_both_and_asks(world, monkeypatch):
+    two_titles(world, monkeypatch, "Reuniao do Google", "Reuniao do Google")
+    reply, seeds = open_event(world, "Cancela a reuniao do google amanha")
+    assert seeds == [] and reply.startswith("Mais de um evento combina.") and "(agenda)" in reply and "(outlook)" in reply, reply      # validate: allow english-only -- the Portuguese line or sentence under test
+
+
+def test_the_model_word_that_is_only_in_the_title_names_no_account_and_the_create_asks(world, monkeypatch):
+    assert event_lookup.account_named("agende almoco no google amanha", "almoco no google", "google") is None
+    assert event_lookup.account_named("agende almoco no google amanha", "almoco", "google") == "google", "control: outside the title it is the account"
+    build(world, monkeypatch)
+    text = op_text("event-create", {"time": "amanha as 14h", "title": "almoco no google", "service": "google"}, time_iso="2026-10-22T14:00", weekday="thu")
+    reply, extras = carry(world, "Agende almoco no google amanha as 14h", text)
+    assert reply.startswith("Em qual conta?") and "resend" not in extras, reply      # validate: allow english-only -- the Portuguese line or sentence under test
 
 
 # --- the pure rule: which account a line names ------------------------------------------------------------------------------------------------------
