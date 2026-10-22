@@ -44,6 +44,7 @@ NONE_SUB = ("Não encontrei um arquivo com esse nome. Procurei só nas pastas co
 CUT = " Parei de procurar antes do fim (as pastas são mais fundas ou maiores do que procuro de uma vez), então o arquivo pode estar mais adiante."  # validate: allow english-only -- the Portuguese sentence or name under test
 NO_FOLDER = ("Não encontrei essa pasta dentro das pastas configuradas para as suas contas, e não procuro fora delas: "  # validate: allow english-only -- the Portuguese sentence or name under test
              "default (Google Drive), contratos (Google Drive), default (OneDrive).")
+INCOMPLETE = "Não olhei tudo (as pastas são mais fundas ou maiores do que procuro de uma vez, ou alguma não respondeu), então outro arquivo pode combinar também."  # validate: allow english-only -- the Portuguese sentence or name under test
 LIST_HEAD = 'Encontrei 2 arquivos que combinam. Qual deles? Diga o número, por exemplo "o 2".'  # validate: allow english-only -- the Portuguese sentence or name under test
 LIST_TWO = (LIST_HEAD + "\n1. First sin activities list.txt - pasta default › Igreja, OneDrive"
             f"\n2. {WANTED} - pasta default › openhora, Google Drive")
@@ -96,7 +97,6 @@ def test_without_an_account_both_are_searched_and_the_exact_name_is_found_in_the
 
 @pytest.mark.parametrize("tail, slot, text, called", [
     ("do google drive", "google drive", GOOGLE_TEXT, {"google"}),
-    ("do drive", "drive", GOOGLE_TEXT, {"google"}),
     ("do onedrive", "onedrive", ONEDRIVE_TEXT, {"microsoft"}),
     ("no onedrive", None, ONEDRIVE_TEXT, {"microsoft"}),            # the model gave no service word: the line names the account
     ("do google drive", None, GOOGLE_TEXT, {"google"})])
@@ -104,6 +104,39 @@ def test_the_account_words_narrow_the_account_whether_the_model_wrote_them_or_no
     says(tree, "first sin activities", slot)
     assert phone(tree, f"Me traga o arquivo first sin activities {tail}") == text
     assert services_called(tree) == called
+
+
+@pytest.mark.parametrize("slot", ["drive", None])
+def test_the_bare_word_drive_names_no_account_and_both_accounts_are_searched(tree, slot):
+    says(tree, "first sin activities", slot)
+    assert phone(tree, "Me traga o arquivo first sin activities do meu drive") == LIST_TWO
+    assert services_called(tree) == {"google", "microsoft"}
+
+
+def test_vacuity_a_drive_that_named_google_would_search_one_account_and_be_seen(tree, monkeypatch):
+    """The planted fault: "drive" is read as Google's. The oracle above (both accounts are called) then fails, so it can fail."""
+    monkeypatch.setattr(ops_file_read, "GENERIC", set())
+    says(tree, "first sin activities", "drive")
+    phone(tree, "Me traga o arquivo first sin activities do meu drive")
+    assert services_called(tree) == {"google"}
+
+
+def test_a_line_that_names_both_accounts_searches_both_or_asks_again_and_the_model_never_picks_one(tree):
+    line = "Me traga o arquivo first sin activities do google drive ou do onedrive"
+    says(tree, "first sin activities")
+    assert phone(tree, line) == LIST_TWO
+    assert services_called(tree) == {"google", "microsoft"}
+    tree["drives"].calls.clear()
+    says(tree, "first sin activities", "google drive")
+    assert phone(tree, line) == AGAIN
+    assert tree["drives"].calls == []
+
+
+def test_vacuity_a_reading_that_kept_one_of_two_named_accounts_would_let_the_model_pick_and_be_seen(tree, monkeypatch):
+    """The planted fault: only Google is read out of a line that names both. The oracle above then fails (the model's word is believed)."""
+    monkeypatch.setattr(ops_file_read, "_accounts_of_line", lambda said, wanted: {"google"})
+    says(tree, "first sin activities", "google drive")
+    assert phone(tree, "Me traga o arquivo first sin activities do google drive ou do onedrive") == GOOGLE_TEXT
 
 
 def test_a_model_word_that_contradicts_the_account_the_line_names_asks_again_and_calls_no_provider(tree):
@@ -114,7 +147,7 @@ def test_a_model_word_that_contradicts_the_account_the_line_names_asks_again_and
 
 def test_vacuity_a_reading_of_the_line_that_names_no_account_would_search_both_and_be_seen(tree, monkeypatch):
     """The planted fault: the line's account words are not read. The oracle of the first test (only Google is called) then fails, so it can fail."""
-    monkeypatch.setattr(ops_file_read, "_account_of_line", lambda said, wanted: None)
+    monkeypatch.setattr(ops_file_read, "_accounts_of_line", lambda said, wanted: set())
     says(tree, WANTED)
     phone(tree, f"Me traga o conteudo do arquivo {WANTED} do google drive")
     assert services_called(tree) == {"google", "microsoft"}
@@ -311,7 +344,7 @@ def chain(world, depth, file_at):
 def test_a_file_five_levels_below_a_granted_folder_is_found_and_one_six_levels_below_is_not_and_the_reply_says_it_was_cut(tree):
     says(tree, "TARGET")
     chain(tree, 7, 5)
-    assert phone(tree, "Me traga o arquivo TARGET") == "TARGET.txt (Google Drive, pasta default › n1 › n2 › n3 › n4 › n5):\n\nfound at the bottom"
+    assert phone(tree, "Me traga o arquivo TARGET") == "TARGET.txt (Google Drive, pasta default › n1 › n2 › n3 › n4 › n5):\n\nfound at the bottom\n\n" + INCOMPLETE      # n6 was found and not listed: a second file may be there
     chain(tree, 7, 6)
     assert phone(tree, "Me traga o arquivo TARGET") == NONE_SUB + CUT
     assert ("google", "gn7") not in tree["drives"].listed() and ("google", "gn6") not in tree["drives"].listed()
@@ -371,3 +404,132 @@ def test_nothing_of_the_file_the_subfolder_or_the_list_is_kept_beyond_the_reply(
     assert ops_file_read._LISTS == {}
     staging = Path(ops_core.context(tree["path"])["cfg"]["data_dir"]) / "sources-staging"
     assert not staging.exists() or list(staging.iterdir()) == []
+
+
+# --- review round: the grant at the pick, the cut said on a found file, the bounds ---------------------------------------------------------------
+
+
+REVOKED = {"google": {"address": "ana@mail.example", "folders": {"contratos": "GDRIVEFOLDER0002"}}, "microsoft": ACCOUNTS["microsoft"]}
+NO_FOLDER_NOW = ("Não encontrei essa pasta dentro das pastas configuradas para as suas contas, e não procuro fora delas: "  # validate: allow english-only -- the Portuguese sentence or name under test
+                 "contratos (Google Drive), default (OneDrive).")
+
+
+def revoke(world):
+    accept(world["path"], policies=FILE_PROFILES, messaging={"senders": FILE_SENDERS}, accounts=REVOKED, language="pt-BR")
+
+
+def test_o_2_after_the_configured_folder_was_removed_reads_nothing_and_says_the_folder_is_not_one_of_yours(tree):
+    says(tree, "first sin activities")
+    assert phone(tree, "Me traga o arquivo first sin activities") == LIST_TWO
+    revoke(tree)          # Google's folder "default" is no longer configured: the file #2 was found under it
+    assert phone(tree, "o 2") == NO_FOLDER_NOW
+    assert tree["drives"].reads() == []
+    assert ops_file_read._LISTS == {}
+
+
+def test_o_1_still_reads_when_the_folder_of_that_file_is_still_configured(tree):
+    says(tree, "first sin activities")
+    phone(tree, "Me traga o arquivo first sin activities")
+    revoke(tree)
+    assert phone(tree, "o 1") == ONEDRIVE_TEXT
+    assert tree["drives"].reads() == [("microsoft", "drv1/it!3")]
+
+
+def test_vacuity_a_pick_that_trusted_the_held_list_would_read_the_removed_folders_file(tree, monkeypatch):
+    """The planted fault: the grant is read from the configuration as it was when the list was made. The oracle above (nothing is read) then fails, so it can fail."""
+    stale = ops_core.context(tree["path"])["cfg"]
+    says(tree, "first sin activities")
+    phone(tree, "Me traga o arquivo first sin activities")
+    revoke(tree)
+    monkeypatch.setattr(ops_file_read.project_config, "account_entry", lambda cfg, service: stale["accounts"].get(service))
+    assert phone(tree, "o 2") == GOOGLE_TEXT
+    assert tree["drives"].reads() == [("google", "gdoc0000000001")]
+
+
+def test_a_list_made_while_a_folder_failed_says_so_and_the_pick_carries_the_same_note(tree, monkeypatch):
+    real = tree["drives"].__call__
+
+    def failing(cls, verb, args, **kw):
+        if "gdir_2026" in args:
+            raise RuntimeError("Drive said: token abc-SECRET-123 refused")
+        return real(cls, verb, args, **kw)
+    monkeypatch.setattr(ops_file_read, "provider_call", failing)
+    says(tree, "first sin activities")
+    assert phone(tree, "Me traga o arquivo first sin activities") == LIST_TWO + "\n" + INCOMPLETE
+    assert phone(tree, "o 2") == GOOGLE_TEXT + "\n\n" + INCOMPLETE
+
+
+def test_a_single_match_found_while_a_listing_was_in_part_says_another_file_may_fit(tree):
+    tree["drives"].folders[("google", "gdir_openhora")] = [item("gdoc0000000001", WANTED), item("gdir_2026", "2026", kind="folder")]
+    real = tree["drives"].__call__
+
+    def partial(cls, verb, args, **kw):
+        out = real(cls, verb, args, **kw)
+        return dict(out, truncated=True) if verb == "children" and "GDRIVEFOLDER0002" in args else out
+    ops_file_read.provider_call = partial
+    says(tree, WANTED, "google drive")
+    assert phone(tree, f"Me traga o arquivo {WANTED} do google drive") == GOOGLE_TEXT + "\n\n" + INCOMPLETE
+
+
+def test_a_search_that_listed_every_folder_whole_adds_no_note(tree):
+    says(tree, WANTED, "google drive")
+    assert INCOMPLETE not in phone(tree, f"Me traga o arquivo {WANTED} do google drive")
+
+
+def test_the_items_cap_is_counted_item_by_item_inside_a_listing(tree, monkeypatch):
+    tree["drives"].folders[("google", "GDRIVEFOLDER0001")] = [item(f"g{n:03d}", f"Arquivo {n:03d}.txt") for n in range(200)]
+    tree["drives"].folders[("google", "GDRIVEFOLDER0002")] = [item(f"h{n:03d}", f"Outro {n:03d}.txt") for n in range(200)]
+    monkeypatch.setattr(ops_file_read, "MAX_ITEMS", 250)
+    found = ops_file_read._walk(ops_core.context(tree["path"])["cfg"])
+    assert len(found["files"]) == 250 and found["cut"] == "items"
+    assert [f["name"] for f in found["files"]][-1] == "Outro 049.txt"
+
+
+def test_each_listing_is_asked_with_at_most_the_time_left(tree, monkeypatch):
+    seconds = iter([0, 6, 12])          # started, the check before the first batch (4 s left), the check before the next (spent)
+    monkeypatch.setattr(ops_file_read, "clock", lambda: next(seconds))
+    asked = []
+    real = tree["drives"].__call__
+    monkeypatch.setattr(ops_file_read, "provider_call", lambda cls, verb, args, **kw: asked.append(kw["timeout"]) or real(cls, verb, args, **kw))
+    says(tree, "relatorio anual")
+    assert phone(tree, "Mostre o arquivo relatorio anual") == NONE_SUB + CUT
+    assert asked == [4, 4, 4] or asked == [4.0, 4.0, 4.0], asked
+
+
+def test_a_provider_that_does_not_answer_is_given_up_when_the_ten_seconds_are_spent(tree, monkeypatch):
+    import threading
+    import time
+    release = threading.Event()
+    real = tree["drives"].__call__
+    silent = {"only": "GDRIVEFOLDER0001"}          # one folder never answers; with None every folder is silent
+
+    def provider(cls, verb, args, **kw):
+        if silent["only"] is None or silent["only"] in args:
+            release.wait(10)
+        return real(cls, verb, args, **kw)
+    monkeypatch.setattr(ops_file_read, "provider_call", provider)
+    monkeypatch.setattr(ops_file_read, "MAX_SECONDS", 0.3)
+    says(tree, "relatorio anual")
+    try:
+        started = time.monotonic()
+        reply = phone(tree, "Mostre o arquivo relatorio anual")
+        elapsed = time.monotonic() - started
+        silent["only"] = None
+        started = time.monotonic()
+        nothing = phone(tree, "Mostre o arquivo relatorio anual")
+        elapsed_all = time.monotonic() - started
+    finally:
+        release.set()
+    assert reply.startswith(NONE_SUB) and reply.endswith(CUT) and "não responderam" in reply  # validate: allow english-only -- the Portuguese sentence or name under test
+    assert nothing == "Não consegui olhar as suas pastas agora. Tente de novo em alguns minutos."  # validate: allow english-only -- the Portuguese sentence or name under test
+    assert elapsed < 3 and elapsed_all < 3, "the answer does not wait for a provider that is silent"
+
+
+def test_outside_a_messaging_app_a_list_asks_for_the_full_name_and_keeps_no_list_to_pick_from(tree):
+    ctx = ops_core.context(tree["path"])
+    extras = {}
+    reply = ops_file_read.reply(tree["path"], ctx, {"file": "first sin activities"}, "Me traga o arquivo first sin activities", "page", None, extras)
+    assert reply == ("Encontrei 2 arquivos que combinam. Qual deles? Escreva o nome completo, ou diga a pasta ou a conta em que ele está."  # validate: allow english-only -- the Portuguese sentence or name under test
+                     "\n1. First sin activities list.txt - pasta default › Igreja, OneDrive"
+                     f"\n2. {WANTED} - pasta default › openhora, Google Drive")
+    assert "número" not in reply and "o 2" not in reply and ops_file_read._LISTS == {}  # validate: allow english-only -- the Portuguese sentence or name under test

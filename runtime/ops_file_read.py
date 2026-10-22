@@ -68,6 +68,7 @@ LABEL_MAX = 120          # characters of a folder's or file's name that are kept
 LIST_WINDOW_S = 600      # seconds after a list of files in which a bare number picks one
 PATH_JOIN = " › "        # between the names of the folders of a path, as the reply shows it
 REST_MAX = 12            # words after a word for "folder" that may name it
+GENERIC = {"drive"}      # a word for a cloud folder that names no service
 FOLDER_WORDS = {"pasta", "folder", "directory", "carpeta", "dossier", "repertoire", "ordner", "verzeichnis", "cartella"}      # the closed words for "folder" a line may be written with  # validate: allow english-only -- the closed words of the languages a line may be written in
 TEXT_MAX = 3500          # characters of a file's text shown in one reply (this slice's choice: a messaging app's message holds 4,096)
 LIST_MAX = 8             # matches listed when several files carry the name
@@ -145,15 +146,16 @@ def _label(text) -> str:
 
 
 def _walk(cfg: dict, account=None) -> dict:
-    """The tree under the configured folders, breadth first: {"roots": [(service, folder name)], "files": [{"service", "path", "id", "name", "supported"}], "dirs": [(service,
+    """The tree under the configured folders, breadth first: {"roots": [(service, folder name)], "files": [{"service", "path", "root", "id", "name", "supported"}], "dirs": [(service,
     path)], "failed": folders that could not be listed, "truncated": folders listed in part, "cut": the first limit that stopped the walk or None ("depth", "items", "time")}. `path`
-    is the tuple of folder names from the configured folder's own name down. A folder is listed only when it is a configured one or an item of kind folder found in a folder
-    that was listed; the limits are MAX_DEPTH, MAX_ITEMS and MAX_SECONDS (read from the module at call time)."""
+    is the tuple of folder names from the configured folder's own name down and `root` the configured folder's id. A folder is listed only when it is a configured one or an item of
+    kind folder found in a folder that was listed. The limits are MAX_DEPTH, MAX_ITEMS (counted item by item, so the walk stops at the item that reaches it, inside a listing too) and
+    MAX_SECONDS (read from the module at call time): each listing is asked with a timeout of at most the time left, and a listing that is not back when the time is spent is given up."""
     services = [account] if account in SERVICES else list(SERVICES)
     jobs = [(service, name, ident) for service in services for name, ident in ((project_config.account_entry(cfg, service) or {}).get("folders") or {}).items()]
     out = {"roots": [(service, name) for service, name, _ in jobs], "files": [], "dirs": [], "failed": 0, "truncated": 0, "cut": None}
     started = clock()
-    frontier = [(service, ident, (name,), 0) for service, name, ident in jobs]
+    frontier = [(service, ident, (name,), 0, ident) for service, name, ident in jobs]
     reached = {(service, ident) for service, _, ident in jobs}
     walked = 0
 
@@ -162,35 +164,53 @@ def _walk(cfg: dict, account=None) -> dict:
             return _children(cfg, node[0], node[1], timeout)
         except Exception:      # noqa: BLE001 - a provider's failure is another service's text: it is counted, never kept
             return None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        while frontier:
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS)
+    try:
+        stop = False
+        while frontier and not stop:
             level, frontier = frontier, []
             for at in range(0, len(level), WORKERS):
                 left = MAX_SECONDS - (clock() - started)
                 if left <= 0 or walked >= MAX_ITEMS:
                     out["cut"] = out["cut"] or ("time" if left <= 0 else "items")
+                    stop = True
                     break
                 chunk = level[at:at + WORKERS]
-                for node, got in zip(chunk, list(pool.map(lambda n: one(n, max(1, int(left) + 1)), chunk))):
-                    service, _, path, depth = node
+                futures = [pool.submit(one, node, left) for node in chunk]
+                done, _ = concurrent.futures.wait(futures, timeout=left)
+                for node, future in zip(chunk, futures):
+                    got = future.result() if future in done else None
+                    if future not in done:
+                        out["cut"] = out["cut"] or "time"
+                    service, _, path, depth, root = node
                     out["dirs"].append((service, path))
                     if got is None:
                         out["failed"] += 1
                         continue
                     out["truncated"] += 1 if got["truncated"] else 0
-                    walked += len(got["items"])
                     for item in got["items"]:
+                        if walked >= MAX_ITEMS:
+                            out["cut"] = out["cut"] or "items"
+                            stop = True
+                            break
+                        walked += 1
                         ident, label = item.get("id"), item.get("name")
                         if not isinstance(ident, str) or not isinstance(label, str):
                             continue
                         if item.get("kind") == "file":
-                            out["files"].append({"service": service, "path": path, "id": ident, "name": _label(label), "supported": item.get("supported") is True})
+                            out["files"].append({"service": service, "path": path, "root": root, "id": ident, "name": _label(label), "supported": item.get("supported") is True})
                         elif item.get("kind") == "folder" and (service, ident) not in reached:
                             reached.add((service, ident))
                             if depth + 1 > MAX_DEPTH:
                                 out["cut"] = out["cut"] or "depth"
                             else:
-                                frontier.append((service, ident, path + (_label(label),), depth + 1))
+                                frontier.append((service, ident, path + (_label(label),), depth + 1, root))
+                    if stop:
+                        break
+                if stop:
+                    break
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     return out
 
 
@@ -209,20 +229,23 @@ def _pieces(said: str, wanted: str) -> list:
     return [words] if at is None else [words[:at], words[at + len(asked):]]
 
 
-def _account_of_line(said: str, wanted: str):
-    """`google`, `microsoft` or None: the account the line names outside the name span, by the closed lists of the language tables (`services`): a phrase of two words or more names
-    an account alone ("google drive"), one word needs a word that introduces it ("no onedrive", "do drive"). Both accounts, or neither, are None (both are searched)."""
+def _accounts_of_line(said: str, wanted: str) -> set:
+    """The accounts (`google`, `microsoft`) the line names outside the name span, by the closed lists of the language tables (`services`): a phrase of two words or more names an
+    account alone ("google drive"), one word needs a word that introduces it ("no onedrive"). The bare word "drive" (GENERIC) names none: it is what a person calls their cloud
+    folder, not a service ("do meu drive" is searched in both accounts)."""
     from event_lookup import LEADS      # the words that introduce an account, as the calendar's reading uses them (S11)
     tables = natural._tables(None)
     found = set()
     for account in SERVICES:
         for phrase in _phrases(tables, account):
             n = len(phrase)
+            if n == 1 and phrase[0] in GENERIC:
+                continue
             for words in _pieces(said, wanted):
                 for i in range(len(words) - n + 1):
                     if tuple(words[i:i + n]) == phrase and (n >= 2 or (i and words[i - 1] in LEADS)):
                         found.add(account)
-    return next(iter(found)) if len(found) == 1 else None
+    return found
 
 
 def _folder_of_line(said: str, wanted: str):
@@ -291,7 +314,8 @@ def _search(cfg: dict, wanted: str, account=None, said=None) -> dict:
     "no_folder"}. `account` google or microsoft narrows the search to one account; `said` is the line the folder named in it comes from (None: no folder). Only files under the folders
     the configuration lists are returned."""
     tree = _walk(cfg, account)
-    out = {"folders": tree["roots"], "matches": [], "failed": tree["failed"], "truncated": tree["truncated"], "cut": tree["cut"], "no_folder": False, "all_failed": False}
+    out = {"folders": tree["roots"], "matches": [], "failed": tree["failed"], "truncated": tree["truncated"], "cut": tree["cut"], "no_folder": False, "all_failed": False,
+           "incomplete": bool(tree["cut"] or tree["truncated"] or tree["failed"])}          # a file that fits may be in a part of the folders that was not seen
     if not tree["roots"]:
         return out
     out["all_failed"] = not tree["files"] and tree["failed"] >= len(tree["roots"])
@@ -303,7 +327,7 @@ def _search(cfg: dict, wanted: str, account=None, said=None) -> dict:
     for name, folder in tries:
         got = _find(tree, name, folder)
         if got["matches"]:
-            out["matches"] = [{"service": f["service"], "folder": PATH_JOIN.join(f["path"]), "id": f["id"], "name": f["name"], "supported": f["supported"]} for f in got["matches"]]
+            out["matches"] = [{"service": f["service"], "folder": PATH_JOIN.join(f["path"]), "root": f["root"], "id": f["id"], "name": f["name"], "supported": f["supported"]} for f in got["matches"]]
             return out
         refused.append(got["no_folder"])
     out["no_folder"] = all(refused)          # a folder is refused only when every reading of the line names one that is not under a configured folder
@@ -424,8 +448,9 @@ def _find_and_read(cfg: dict, wanted: str, account=None, said=None) -> dict:
         return {"status": "none", "folders": found["folders"], "failed": found["failed"], "truncated": found["truncated"], "cut": found["cut"]}
     if len(matches) > 1:
         shown = matches[:LIST_MAX]
-        return {"status": "several", "matches": [{k: m[k] for k in ("name", "folder", "service")} for m in shown], "count": len(matches), "refs": shown, "cut": found["cut"]}
-    return _read_match(cfg, matches[0])
+        return {"status": "several", "matches": [{k: m[k] for k in ("name", "folder", "service")} for m in shown], "count": len(matches), "refs": shown,
+                **({"incomplete": True} if found["incomplete"] else {})}
+    return dict(_read_match(cfg, matches[0]), **({"incomplete": True} if found["incomplete"] else {}))
 
 
 def file_read(project: str, file: str, account: str | None = None, channel: str | None = None, sender: str | None = None) -> dict:
@@ -460,12 +485,12 @@ def _slot(ctx: dict, channel, sender) -> tuple:
     return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
 
 
-def _remember(ctx: dict, channel, sender, items: list) -> None:
+def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False) -> None:
     now = _natural()._clock()
     with _lock:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
-        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "seen": 0, "pending": importlib.import_module("event_lookup")._last_pending(ctx)}
+        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "seen": 0, "pending": importlib.import_module("event_lookup")._last_pending(ctx)}
 
 
 def _drop(ctx: dict, channel, sender) -> None:
@@ -494,7 +519,8 @@ def _live(ctx: dict, channel, sender):
 
 def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     """The reply to a number said right after a list of files ("o 2", "2", "the 2nd"), or None when the line is not one (no live list for this sender, a line that is no bare
-    number, a number the list did not show). Any line ends the list, so a pick is used once. The sender's right to read files is asked again; the file is read as `reply` reads it."""
+    number, a number the list did not show). Any line ends the list, so a pick is used once. The sender's right to read files is asked again, and so is the grant: the configured
+    folder the file was found under must still be one of the configuration in force, else the plain no-folder sentence and nothing is read. The file is read as `reply` reads it."""
     if channel != "messaging":
         return None
     record = _live(ctx, channel, sender)
@@ -508,8 +534,13 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     refused = operations.refusal("file-read", "messaging", cfg["channels"], sender=sender)
     if refused:
         return phone_refusal.said(refused, channel, cfg)
+    match = record["items"][form["n"] - 1]
+    folders = [(service, name) for service in SERVICES for name in ((project_config.account_entry(cfg, service) or {}).get("folders") or {})]
+    granted = {(service, ident) for service in SERVICES for ident in ((project_config.account_entry(cfg, service) or {}).get("folders") or {}).values()}
     extras["stored"] = phrases.text("NAT_READ_REPLY", cfg)
-    return _render(cfg, _read_match(cfg, record["items"][form["n"] - 1]))
+    if (match["service"], match["root"]) not in granted:          # the folder the file was found under is not configured any more: it is not read
+        return _render(cfg, {"status": "no-folder", "folders": folders, "cut": None} if folders else {"status": "no-folders"})
+    return _render(cfg, dict(_read_match(cfg, match), **({"incomplete": True} if record["incomplete"] else {})))
 
 
 # --- the reply to a line in words ---------------------------------------------------------------------------------------------------------------
@@ -529,24 +560,26 @@ def _label_of(cfg: dict, service: str) -> str:
     return phrases.text(SERVICE_PHRASE[service], cfg)
 
 
-def _render(cfg: dict, got: dict) -> str:
-    """The sentence a chat is told for an outcome of find_and_read, in the project's language."""
+def _render(cfg: dict, got: dict, pick: bool = True) -> str:
+    """The sentence a chat is told for an outcome of find_and_read, in the project's language. `pick` says the reader can answer a list with a number (a messaging app); the page and the
+    terminal are told to use the full name. A found file or a list is followed by FR_INCOMPLETE when the search was cut, listed a folder in part or could not list one."""
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     status = got["status"]
     if status == "text":
         head = t("FR_HEAD", name=got["name"], account=_label_of(cfg, got["account"]), folder=got["folder"])
         more = "\n\n" + t("FR_MORE", remaining=got["remaining"]) if got["remaining"] else ""
-        return f"{head}\n\n{got['text']}{more}"
+        return f"{head}\n\n{got['text']}{more}" + ("\n\n" + t("FR_INCOMPLETE") if got.get("incomplete") else "")
     if status == "several":
         rows = [t("FR_ITEM", n=n, name=m["name"], folder=m["folder"], account=_label_of(cfg, m["service"])) for n, m in enumerate(got["matches"], 1)]
-        return "\n".join([t("FR_SEVERAL_PICK", count=got["count"])] + rows + ([t("FR_CUT")] if got.get("cut") else []))
+        return "\n".join([t("FR_SEVERAL_PICK" if pick else "FR_SEVERAL_NAME", count=got["count"])] + rows + ([t("FR_INCOMPLETE")] if got.get("incomplete") else []))
     if status in ("none", "no-folder"):
         folders = ", ".join(t("FR_FOLDER", folder=folder, account=_label_of(cfg, service)) for service, folder in got["folders"])
         partial = " " + t("FR_PARTIAL") if status == "none" and (got["truncated"] or got["failed"]) else ""
         cut = " " + t("FR_CUT") if got.get("cut") else ""
         return t("FR_NONE_SUB" if status == "none" else "FR_NO_SUCH_FOLDER", folders=folders) + partial + cut
     if status == "unreadable":
-        return t({"secret": "FR_WITHHELD", "size": "FR_TOO_BIG", "empty": "FR_EMPTY"}.get(got["why"], "FR_UNREADABLE"), name=got["name"], account=_label_of(cfg, got["account"]))
+        return t({"secret": "FR_WITHHELD", "size": "FR_TOO_BIG", "empty": "FR_EMPTY"}.get(got["why"], "FR_UNREADABLE"), name=got["name"], account=_label_of(cfg, got["account"])) \
+            + (" " + t("FR_INCOMPLETE") if got.get("incomplete") else "")
     if status == "no-folders":
         return t("FR_NO_FOLDERS")
     return t("FR_UNAVAILABLE")
@@ -554,7 +587,8 @@ def _render(cfg: dict, got: dict) -> str:
 
 def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extras: dict) -> str:
     """The reply of `file-read` chosen by a tier or by the interpreter (runtime/ops_natural.py `run` has already asked the policy). The name is checked to be a span of the
-    line; the service word (when there is one) must name exactly one service and agree with the account the line itself names ("do google drive"); a folder named in the line
+    line; the service word (when there is one) must name exactly one service and agree with the account the line itself names ("do google drive"; a line that names both searches both,
+    and a word that is only "drive" names none); a folder named in the line
     narrows the search. Else the fixed ask-again sentence and nothing is listed. The conversation keeps a neutral word."""
     cfg = ctx["cfg"]
     extras["stored"] = phrases.text("NAT_READ_REPLY", cfg)
@@ -562,14 +596,16 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     word = args.get("account")
     if not isinstance(wanted, str) or not natural.normal(wanted) or natural.normal(wanted) not in natural.normal(said) or len(wanted) > natural.SPAN_MAX:
         return phrases.text("IX_ASK_AGAIN", cfg)
-    named = _account_of_line(said, wanted)
-    account = _service_of(word) if word else named
-    if word and (account is None or (named and named != account)):
+    named = _accounts_of_line(said, wanted)
+    if word and natural.ascii_normal(str(word)) in GENERIC:
+        word = None          # "drive" alone names no service: both accounts are searched
+    account = _service_of(word) if word else (next(iter(named)) if len(named) == 1 else None)
+    if word and (account is None or (named and named != {account})):          # a word no table reads, or one that does not agree with the line (a line that names both accounts agrees with neither)
         return phrases.text("IX_ASK_AGAIN", cfg)
     got = _find_and_read(cfg, wanted, account, said)
     if got["status"] == "several" and channel == "messaging":
-        _remember(ctx, channel, sender, got["refs"])
-    return _render(cfg, got)
+        _remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")))
+    return _render(cfg, got, channel == "messaging")
 
 
 if __name__ == "__main__":
