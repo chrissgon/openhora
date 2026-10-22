@@ -5,7 +5,9 @@ The three answer files at the prompt that is in use (`5bee55ce...`: DeepSeek ite
 with the pipeline of the measurement; the count of each category must equal the count of the evidence lines of the same test, written here as literals and read again from the evidence
 file; for every replayed item that reached the model and has no frame, `ops_interpret.decide` (what the runtime calls on the model's text) gives the decision the pipeline gave. The two
 files at the earlier prompt (`c492b43b...`) are refused by the replay's own header check. No model is called; a change of the prompt, the catalog, the protocol, the route or the code of
-the checks fails this test. The data files it reads are named below, so the test selector picks it when one changes (the interpreter data files: interpreter_prompt.txt,
+the checks fails this test. The recorded answers were made with the catalog `a43735d2...`, which a later slice changed (S8 added `file-read`): the gate keeps replaying them against a
+committed copy of THAT catalog (`evals/interpreter/replay/catalogs/`), put in the place of the served one for the length of each replay, so that a change to the served catalog
+neither weakens the gate nor changes what the recorded answers meant; every header must name that catalog's hash. The data files it reads are named below, so the test selector picks it when one changes (the interpreter data files: interpreter_prompt.txt,
 interpreter_catalog.json, interpreter_protocol.json, interpreter_routes.json, interpreter_enable.json).
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interpreter_replay_gate.py
@@ -41,6 +43,21 @@ IN_USE = {   # answers file -> (its evidence file, the counts of the categories 
 }
 EARLIER = ("or-deepseek-v4.1-flash/iter-1-20261021T094443/20261021T124445Z-ea9f0c2f.answers.jsonl", "or-deepseek-v4.1-flash/iter-1-20261021T094736/20261021T124738Z-d0fc5d83.answers.jsonl")
 PROMPT_IN_USE = "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06"
+RECORDED_CATALOG = REPO / "evals" / "interpreter" / "replay" / "catalogs" / "catalog-a43735d2.json"
+RECORDED_CATALOG_SHA256 = "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d"      # a literal: the hash every in-use answers file names in its header
+
+
+@pytest.fixture
+def recorded_catalog(monkeypatch):
+    """The catalog the answers were recorded with, in the place of the served one (the served file is not touched): the check, the pipeline and the runtime's `decide` all read it."""
+    recorded = json.loads(RECORDED_CATALOG.read_text(encoding="utf-8"))
+    assert interpreter.catalog_sha256(recorded) == RECORDED_CATALOG_SHA256
+    for module in {interpreter, ops_interpret.interpreter}:
+        monkeypatch.setattr(module, "SERVED", recorded)
+        monkeypatch.setattr(module, "SERVED_SHA256", RECORDED_CATALOG_SHA256)
+    monkeypatch.setattr(interpreter_pipeline, "SERVED", recorded)
+    monkeypatch.setattr(interpreter_pipeline, "ALLOWED", frozenset(row["op"] for row in recorded["ops"]))
+    return recorded
 
 
 def replay(path: Path) -> tuple:
@@ -66,7 +83,7 @@ def test_the_data_files_the_gate_depends_on_exist_and_the_prompt_in_use_is_the_o
 
 
 @pytest.mark.parametrize("name", sorted(IN_USE))
-def test_the_replay_gives_the_counts_of_the_evidence(name):
+def test_the_replay_gives_the_counts_of_the_evidence(name, recorded_catalog):
     evidence, literal = IN_USE[name]
     chosen, scored, rows, _ = replay(REPLAY / name)
     got = dict(collections.Counter(row["category"] for row in rows))
@@ -75,7 +92,7 @@ def test_the_replay_gives_the_counts_of_the_evidence(name):
 
 
 @pytest.mark.parametrize("name", sorted(IN_USE))
-def test_the_decision_of_the_runtime_for_a_recorded_answer_is_the_decision_of_the_measured_pipeline(name):
+def test_the_decision_of_the_runtime_for_a_recorded_answer_is_the_decision_of_the_measured_pipeline(name, recorded_catalog):
     chosen, scored, rows, found = replay(REPLAY / name)
     compared = 0
     for item, run, outcome, category in scored:
@@ -97,7 +114,7 @@ def test_an_answers_file_at_the_earlier_prompt_is_refused_by_the_header_check(na
     assert interpreter_measure.differing(header, wanted) == "prompt_sha256"
 
 
-def test_vacuity_one_recorded_answer_altered_in_a_copy_changes_the_counts(tmp_path):
+def test_vacuity_one_recorded_answer_altered_in_a_copy_changes_the_counts(tmp_path, recorded_catalog):
     name = "or-deepseek-v4.1-flash/iter-2-20261021T125017/20261021T155019Z-f148397b.answers.jsonl"
     copy = tmp_path / "answers.jsonl"
     shutil.copy(REPLAY / name, copy)
@@ -110,4 +127,30 @@ def test_vacuity_one_recorded_answer_altered_in_a_copy_changes_the_counts(tmp_pa
             break
     copy.write_text("\n".join(lines) + "\n", encoding="utf-8")
     _, _, rows, _ = replay(copy)
+    assert dict(collections.Counter(row["category"] for row in rows)) != IN_USE[name][1]
+
+
+@pytest.mark.parametrize("name", sorted(IN_USE))
+def test_every_in_use_answers_file_names_the_catalog_it_was_recorded_with(name):
+    header, _ = interpreter_measure.read_answers(str(REPLAY / name))
+    assert header["catalog_sha256"] == RECORDED_CATALOG_SHA256
+    assert header["prompt_sha256"] == PROMPT_IN_USE
+
+
+def test_the_served_catalog_is_no_longer_the_recorded_one_and_the_gate_does_not_read_it():
+    """The slice that added `file-read` changed the served catalog; the gate replays the recorded copy, so the two differ and only the copy matters to it."""
+    assert interpreter.SERVED_SHA256 != RECORDED_CATALOG_SHA256
+    recorded = {row["op"] for row in json.loads(RECORDED_CATALOG.read_text(encoding="utf-8"))["ops"]}
+    served = {row["op"] for row in interpreter.SERVED["ops"]}
+    assert recorded < served and served - recorded == {"file-read"}
+
+
+def test_vacuity_a_recorded_copy_that_lost_an_operation_changes_the_replay(monkeypatch, tmp_path, recorded_catalog):
+    """The planted fault: the copy of the recorded catalog is altered (an operation the recorded answers name is removed), and the counts or the hash no longer hold."""
+    altered = json.loads(json.dumps(recorded_catalog))
+    altered["ops"] = [row for row in altered["ops"] if row["op"] != "mail-trash"]
+    assert interpreter.catalog_sha256(altered) != RECORDED_CATALOG_SHA256
+    name = "or-deepseek-v4.1-flash/iter-2-20261021T125017/20261021T155019Z-f148397b.answers.jsonl"
+    monkeypatch.setattr(interpreter_pipeline, "ALLOWED", frozenset(row["op"] for row in altered["ops"]))
+    _, _, rows, _ = replay(REPLAY / name)
     assert dict(collections.Counter(row["category"] for row in rows)) != IN_USE[name][1]

@@ -660,6 +660,21 @@ TABLE = {
     "IX_WRITE_LANGUAGE": "Por enquanto, peça isso em português ou em inglês.",
     "IX_OUTAGE": "Não consegui entender agora. Tente de novo em alguns minutos.",
     "PHONE_NOT_UNDERSTOOD": "Não entendi o pedido e não comecei nada. Pode dizer de outro jeito?",
+    "FR_GOOGLE": "Google Drive",
+    "FR_MICROSOFT": "OneDrive",
+    "FR_HEAD": "{name} ({account}, pasta {folder}):",
+    "FR_MORE": "O texto continua: faltam mostrar {remaining} caracteres.",
+    "FR_SEVERAL": "Encontrei {count} arquivos com esse nome. Qual deles? Diga o nome completo com a terminação e o Google Drive ou o OneDrive.",
+    "FR_ITEM": "{n}. {name} - pasta {folder}, {account}",
+    "FR_FOLDER": "{folder} ({account})",
+    "FR_NONE": "Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas: {folders}.",
+    "FR_PARTIAL": "Não consegui olhar todos os arquivos dessas pastas (algumas têm mais arquivos do que consigo listar, ou não responderam), então o arquivo pode estar lá.",
+    "FR_NO_FOLDERS": "Nenhuma pasta do seu Google Drive ou do OneDrive está configurada neste projeto, então não consigo procurar arquivos.",
+    "FR_UNAVAILABLE": "Não consegui olhar as suas pastas agora. Tente de novo em alguns minutos.",
+    "FR_UNREADABLE": "Encontrei {name} ({account}), mas não consigo ler esse tipo de arquivo aqui.",
+    "FR_WITHHELD": "Encontrei {name} ({account}), mas não mostrei: o texto tem algo que parece uma senha ou uma chave.",
+    "FR_TOO_BIG": "Encontrei {name} ({account}), mas ele é grande demais para eu ler aqui.",
+    "FR_EMPTY": "Encontrei {name} ({account}), mas não há texto nele para mostrar.",
 }
 
 STATUS = {

@@ -32,9 +32,10 @@ REPO = Path(__file__).resolve().parents[2]
 FILE = REPO / "runtime" / "interpreter_enable.json"
 ROUTE = "or-deepseek-v4.1-flash"
 HASHES = {"route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd", "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
-          "catalog_sha256": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d", "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504"}
+          "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1", "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504"}
+FIRST = dict(HASHES, catalog_sha256="a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d")      # the entry decided before slice S8 added `file-read` to the catalog
 LANGUAGES = ["pt-BR", "en", "es", "fr", "de", "it"]
-STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate"
+STATUS_LINE = "enabled by maintainer decision 2026-10-21 (S8: file-read added to the catalog), below the gate"
 
 
 def status_module():
@@ -66,9 +67,10 @@ def variant(tmp_path, name, **changes) -> Path:
 
 def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date():
     doc = committed()
-    assert set(doc) == {"v", "entries"} and doc["v"] == 1 and len(doc["entries"]) == 1
-    entry = doc["entries"][0]
-    assert {key: entry[key] for key in HASHES} == HASHES
+    assert set(doc) == {"v", "entries"} and doc["v"] == 1 and len(doc["entries"]) >= 2
+    first, entry = doc["entries"][0], doc["entries"][-1]
+    assert {key: first[key] for key in FIRST} == FIRST and first["date"] == "2026-10-21"      # the earlier entries stay as they were decided
+    assert {key: entry[key] for key in HASHES} == HASHES      # the newest names every hash of this checkout
     assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-21" and entry["route"] == ROUTE
     assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
 

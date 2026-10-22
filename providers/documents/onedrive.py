@@ -23,6 +23,7 @@ Usage:
   uv run providers/documents/onedrive.py read --id <drive id>/<item id> --as-source --out-dir <folder> [--max-bytes <n>]
   uv run providers/documents/onedrive.py search --query <text> [--top <n, at most 25>]
   uv run providers/documents/onedrive.py children --path <folder path in OneDrive> [--top <n, at most 200>]
+  uv run providers/documents/onedrive.py children --folder-id <folder item id> [--top <n, at most 200>]
 
   --check     refreshes the access token (the one network call) and checks that it carries the platform's set (the account record) or
               Files.Read and nothing wider (the legacy record); prints
@@ -38,8 +39,8 @@ Usage:
               after the download the item is read again and a changed cTag refuses ("the file changed while it was read").
   search      for the person's terminal: up to 25 items of the person's OneDrive whose name or content matches the text, each with
               {"id" ("<drive id>/<item id>"), "name", "kind", "path", "size", "modified", "supported", "reason"}. It registers nothing.
-  children    for the person's terminal: the items of one folder (a path from the root of the OneDrive; "/" is the root), in the same
-              shape. Names, paths and search results are another person's text in principle: they are cleaned to one line and shown,
+  children    for the person's terminal and for the runtime's read of a file by its name: the items of one folder (a path from the root of the OneDrive,
+              "/" being the root, or --folder-id, the folder's item id in the person's own drive), in the same shape. Names, paths and search results are another person's text in principle: they are cleaned to one line and shown,
               never used as a path or run.
   stat and read take --as-source, as the Notion and Drive providers' do, so that the verbs of a later write-back keep their own flags.
 
@@ -517,9 +518,19 @@ def folder_route(value) -> str:
     return f"/me/drive/root:/{urllib.parse.quote('/'.join(segments), safe='/')}:/children"
 
 
+def folder_id_route(value) -> str:
+    """The Graph path of the children of a folder named by its item id in the person's own drive (the id of the platform's configuration)."""
+    raw = str(value or "").strip()
+    if not ID_PART.fullmatch(raw) or set(raw) == {"."}:
+        raise ProviderError("--folder-id is a folder item id (letters, digits and ! . _ -)", EXIT_USAGE)
+    return f"/me/drive/items/{urllib.parse.quote(raw, safe='!')}/children"
+
+
 def cmd_children(args: dict) -> int:
-    route, top = folder_route(args.get("--path")), top_of(args, CHILDREN_TOP_MAX)
-    return listing(open_graph(), route, top, "folder children")
+    if args.get("--folder-id") is not None and args.get("--path") is not None:
+        raise ProviderError("give --path or --folder-id, not both", EXIT_USAGE)
+    route = folder_id_route(args["--folder-id"]) if args.get("--folder-id") is not None else folder_route(args.get("--path"))
+    return listing(open_graph(), route, top_of(args, CHILDREN_TOP_MAX), "folder children")
 
 
 def cmd_unsupported(args: dict) -> int:
@@ -530,8 +541,8 @@ def cmd_unsupported(args: dict) -> int:
 VERBS = {"stat": cmd_stat, "read": cmd_read, "search": cmd_search, "children": cmd_children, "comments": cmd_unsupported,
          "write": cmd_unsupported, "notice": cmd_unsupported, "resolve": cmd_unsupported}
 FLAGS_OF = {"stat": ("--id", "--as-source"), "read": ("--id", "--as-source", "--out-dir", "--max-bytes"), "search": ("--query", "--top"),
-            "children": ("--path", "--top")}
-VALUE_FLAGS = ("--id", "--out-dir", "--max-bytes", "--query", "--top", "--config-file", "--path", "--markdown-file", "--idempotency-key",
+            "children": ("--path", "--folder-id", "--top")}
+VALUE_FLAGS = ("--id", "--out-dir", "--max-bytes", "--query", "--top", "--folder-id", "--config-file", "--path", "--markdown-file", "--idempotency-key",
                "--notice", "--text", "--parent")
 SWITCHES = ("--check", "--as-source", "--dry-run", "--confirmed", "--not-created")
 

@@ -19,7 +19,7 @@ phrases = st.load("phrases")
 nt = st.load("natural_time")
 
 R = {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-     "reminders", "flows", "flow-check", "connections", "commands", "items"}      # NR-5 (Q6): items, the numbered messages and events
+     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read"}      # NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
 N = {"remind", "reminder-forget", "reminder-restore"}
 W = {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"}
 D = {"approve", "reject", "release", "answer", "go-ahead"}
@@ -88,7 +88,7 @@ def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
     for name in R:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
         row = operations.by_name(name)
         assert row["model"] is False, name
-        assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders")), name
+        assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files")), name
     for name, cls in natural.CLASSES.items():      # an operation that is only the terminal's is never run from a line
         if operations.by_name(name)["channels"] == ("terminal",):
             assert cls == "G", name
