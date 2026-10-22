@@ -52,6 +52,7 @@ import threading
 import time
 from zoneinfo import ZoneInfo
 
+import event_lookup
 import interpreter
 import interpreter_enable
 import interpreter_route
@@ -224,9 +225,20 @@ def _refusal(ctx: dict, op: str, sender) -> str:
     return "error: " + (operations.refusal(op, CHANNEL, ctx["cfg"]["channels"], sender=sender) or phrases.text("IX_ASK_AGAIN", ctx["cfg"]))
 
 
+CANNOT = {"event-create": "IX_CANNOT_EVENT_CREATE"}      # every other write: IX_CANNOT_WRITE (an event to change or cancel is answered by runtime/event_lookup.py)
+
+
+def _cannot(ctx: dict, op: str) -> str:
+    """The sentence for a write that could not be prepared. IX_WRITE_LANGUAGE is true only for a project language with no write forms (the tables detect them in pt-BR and en
+    alone); in those two the sentence says what was understood and what is missing, never a language."""
+    if _tag(ctx["cfg"]) not in ROUTE_LANGUAGES:
+        return phrases.text("IX_WRITE_LANGUAGE", ctx["cfg"])
+    return phrases.text(CANNOT.get(op, "IX_CANNOT_WRITE"), ctx["cfg"])
+
+
 def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict) -> tuple:
-    """An operation the check believed: a write opens its card through its family (a seed of the time when the model gave one), every other class goes through the
-    dispatcher of the natural requests, which asks the policy again. Nothing is executed here."""
+    """An operation the check believed: a write opens its card through its family (a seed of the time when the model gave one; an event to change or cancel found by the
+    words of the line, runtime/event_lookup.py), every other class goes through the dispatcher of the natural requests, which asks the policy again. Nothing is executed here."""
     op, time_ = decision["op"], decision.get("time")
     if natural.class_of(op) == "E":
         writes = importlib.import_module("ops_natural_writes")
@@ -236,9 +248,11 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed)
         elif (mail := mail_compose.seed(op, decision, said)) is not None:          # a new e-mail: the card is opened from the verified spans, never from the closed forms (slice S7)
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
+        elif op in event_lookup.OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES:
+            opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, writes, ops_natural._clock())
         else:
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
-        return _said(opened if opened is not None else phrases.text("IX_WRITE_LANGUAGE", ctx["cfg"]), extras)
+        return _said(opened if opened is not None else _cannot(ctx, op), extras)
     when = time_["local"].replace("T", " ") if time_ else None
     reply = ops_natural.run(project, ctx, op, decision["args"], said, CHANNEL, sender, extras, when=when, routed=True)
     return _said(reply, extras)

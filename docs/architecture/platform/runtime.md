@@ -82,6 +82,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/effect_write.py` | The effect kind of writing a document back to the platform that holds the project's documents (package P8, decision D17, direction 2): the text a step task prepared replaces, whole, a document that lives on the platform (a Notion page today), after the person approved the exact content. |
 | `runtime/effects.py` | The external effects of the task runtime: what a skill with a confirmation gate showed at its gate, recovered from what the run left, and (stage 4, WP-4.8) its execution by code once the person approved its hash. |
 | `runtime/endings.py` | How a run ended, for a run that did not fail: the classifier of endings. |
+| `runtime/event_lookup.py` | An event of the person's own calendar named by its words (slice S6): "remove the haircut for tomorrow", "move the dentist to 3 pm". |
 | `runtime/files_document.py` | The document of a write to the person's own Drive or OneDrive, and nothing that writes (package W4a): what the step kind `file-write` builds and the effect kind `files` approves. |
 | `runtime/flow_check.py` | The flow check: what a flow may not hold, decided by code when it is created or changed (decisions D27 and D31, P6a). |
 | `runtime/flow_files.py` | Flow files: one data file per flow, with its tasks and their dependencies written out. |
