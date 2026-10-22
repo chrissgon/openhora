@@ -42,6 +42,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import intake  # noqa: E402
+import line_stage  # noqa: E402
 import natural  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
@@ -303,6 +304,7 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     if not isinstance(wanted, str) or not natural.normal(wanted) or natural.normal(wanted) not in natural.normal(said) or len(wanted) > natural.SPAN_MAX \
             or (word and account is None):
         return phrases.text("IX_ASK_AGAIN", cfg)
+    line_stage.publish("file")      # S19
     return _render(cfg, _find_and_read(cfg, wanted, account))
 
 

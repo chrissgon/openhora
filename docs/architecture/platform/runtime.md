@@ -102,6 +102,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
 | `runtime/language.py` | The language artifacts are written in: the tag rule, the order that decides it, and the words a run, a plan card and a refusal use. |
 | `runtime/lease.py` | Two hosts do not write the sources folder within one lease window, and no database or lock lives in a synced folder (package P-OPS, finding I4). |
+| `runtime/line_stage.py` | The stage of the line being answered (slice S19): the one word the operations layer leaves for the messaging bridge to say what is being done. |
 | `runtime/mail_address.py` | What the runtime needs to know of an e-mail address, and nothing else (package EMAIL-SEND): the same rule as providers/_email.py `normalize_address`, written again because the runtime does not import a provider; a test holds the two equal on a table of addresses. |
 | `runtime/mail_compose.py` | The text of a new e-mail worded by the model from what the person described (slice S7), and the seed that opens its card from the interpreter's decision. |
 | `runtime/mail_refs.py` | The message a reply answers, from a reference into a snapshot (package W2, SPEC-SECRETARY-WRITES 3.2 and 3.4), and nothing that calls a provider. |
@@ -109,6 +110,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/manifest.py` | The runtime manifest of a skill: skills/&lt;name&gt;/evals/runtime-manifest.json, read and checked. |
 | `runtime/mcp.py` | The MCP mode: the operations layer of runtime/ops.py served as tools of a Model Context Protocol server over standard input and output. |
 | `runtime/messaging.py` | The messaging bridge: the operations layer of runtime/ops.py reached from a messaging app the person already uses, with no model between the app and the operations. |
+| `runtime/messaging_ack.py` | One short acknowledgement when a reply takes time (slice S19): a small helper of the messaging bridge, never a gate. |
 | `runtime/messaging_attach.py` | The messaging bridge's part of the files a listed sender sends (package ATT-1b): from the update to the fetch, the hold, the card or the reply, and from the card's answer to the add or the discard. |
 | `runtime/messaging_bridge.py` | The messaging bridge's logic (runtime/messaging.py is its shell): notices out, intents in, every operation through one call path. |
 | `runtime/messaging_cards.py` | A notice as a platform-neutral card (runtime/messaging.py): a pending decision becomes {"text", "actions", "link", "document"}, the message every messenger provider takes (providers/messenger/README.md), plus what the bridge needs to bind a tap to it. |

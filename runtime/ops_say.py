@@ -36,6 +36,7 @@ import autonomy
 import greeting
 import lab
 import language as language_rules
+import line_stage
 import natural
 import operations
 import ops_actor
@@ -832,6 +833,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
     if not ok:
         return phrases.text("PLANNING_NOT_STARTED", ctx["cfg"], why=why), None, None, False, None
     extras = extras if extras is not None else {}
+    line_stage.publish("plan")      # S19: the planning agent is about to work
     if channel == "messaging":      # the sender's bound question is being answered or replaced: a new one is bound below, when the router asks again (S4)
         pending_items.drop_key(_binding_key(ctx, sender))
     if answer_to is not None:
