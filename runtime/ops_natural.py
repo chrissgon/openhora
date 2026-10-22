@@ -252,6 +252,9 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
         listed = importlib.import_module("event_lookup").take(project, ctx, said, sender, extras, _writes(), _clock())
         if listed is not None:
             return listed
+        picked = importlib.import_module("ops_file_read").take(project, ctx, said, channel, sender, extras)      # S17: a number after a list of files ("o 2") picks that file
+        if picked is not None:
+            return picked
     if channel != "mcp":      # a write form opens the card of its exact content (limit L61), never a write
         opened = _writes().open_line(project, ctx, said, channel, sender, extras)
         if opened is not None:

@@ -38,6 +38,8 @@ import autonomy  # noqa: E402
 import billing  # noqa: E402
 import lab  # noqa: E402
 import operations  # noqa: E402
+import policy_grants  # noqa: E402
+import policy_widening  # noqa: E402
 import project_config  # noqa: E402
 
 STORE_CLASS = "store:runtime"
@@ -135,13 +137,32 @@ def _config_of(project: str) -> dict:
     return cfg
 
 
-def _accepted(cfg: dict, accepted) -> None:
-    """Refuse (code 3) a configuration whose hash is not the accepted one."""
+class NotAccepted(OpsError):
+    """The configuration is not the accepted one (code 3). Its text is a path, two hashes, the widening lines when the file widens something, and the command that gets past it:
+    a log keeps it whole (runtime/service.py `fault_text`)."""
+
+
+def _accepted(cfg: dict, accepted, widening=None) -> None:
+    """Refuse (code 3) a configuration whose hash is not the accepted one. `widening` is (the hash `accept-config --widen` takes, the lines of the widening list) when the file widens
+    what a channel or a sender may do, else None (S12). The hash never travels without its list: the person reads what the file gives away in the same text, before the command."""
     if accepted != cfg["sha256"]:
-        command = _command("accept-config", cfg["project"], sha256=cfg["sha256"])
-        raise OpsError(f"the configuration {cfg['path']} has the hash {cfg['sha256']} and the accepted one is "
-                       f"{accepted or 'none: no configuration was accepted yet'}. Read the file; when it is what you "
-                       f"want, run: {command}", 3, next=command)
+        command = _command("accept-config", cfg["project"], sha256=cfg["sha256"], **({"widen": widening[0]} if widening else {}))
+        given = ("\nThe file widens what a channel may do or what a listed sender may do (or where the platform may write in your accounts). It gives, and the accepted file did not:"
+                 + widening[1] + "\n") if widening else " "
+        raise NotAccepted(f"the configuration {cfg['path']} has the hash {cfg['sha256']} and the accepted one is "
+                          f"{accepted or 'none: no configuration was accepted yet'}.{given}Read the file; when it is what you "
+                          f"want, run: {command}", 3, next=command)
+
+
+def _widening(cfg: dict, store, conn, accepted):
+    """(the hash of the widening list `config` shows, the list's lines as the terminal prints them) for this file, or None when it widens nothing or it cannot be worked out."""
+    try:
+        got = lambda name: store.cursor_get(conn, name)
+        view = policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None, got(policy_widening.ACCOUNTS),
+                                  got(policy_widening.KEY) or policy_widening.PENDING_SECRET)
+        return (view["widening_sha256"], policy_widening.lines(view["widening"])) if view["widening"] else None
+    except Exception:      # noqa: BLE001 - a refusal is never held back by this hint: the command is then the plain one
+        return None
 
 
 def context(project: str, *, check_config: bool = True) -> dict:
@@ -162,7 +183,7 @@ def context(project: str, *, check_config: bool = True) -> dict:
             accepted = store.cursor_get(conn, project_config.ACCEPTED)
         except store.StoreError as e:
             raise OpsError(f"the store at {cfg['store_db']}: {e}", e.code) from None
-        _accepted(cfg, accepted)
+        _accepted(cfg, accepted, None if accepted == cfg["sha256"] else _widening(cfg, store, conn, accepted))
     return {"cfg": cfg, "store": store, "conn": conn, "root": ROOT}
 
 
