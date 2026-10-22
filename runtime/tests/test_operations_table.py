@@ -53,6 +53,8 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "natural_write", "natural_draft", "natural_forget", "render", "natural_file_accounts",
                   # ops_file_read.py (S8): the reply a line in words gets for file-read, beside the operation
                   "reply",
+                  # ops_file_read.py (S17): the number said after a list of files, the line counter that ends the list, and the reset a test makes
+                  "take", "begin_turn", "forget_lists",
                   # ops_sources.py: what the planner and a run ask of the sources, beside the five operations
                   "catalog_block", "router_block", "known_ids", "forced_for", "copies_for", "record_copies", "prompt_lines",
                   # ops_cancel.py: what a run, the router and the board ask of a cancel, beside cancel and stop_task
