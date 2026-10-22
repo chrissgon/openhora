@@ -651,8 +651,10 @@ def test_the_record_keeps_a_margin_under_the_cursor_limit_in_the_worst_case_of_e
     snap = {"channels": {c: list(everything) for c in operations.POLICY_CHANNELS},
             "senders": {f"{'p' * 32}:{n:064d}": list(everything) for n in range(project_config.SENDERS_MAX)}}
     size = len(policy_widening.dump(snap).encode())
-    assert size < 3700, f"the record is {size} bytes of the 4096 a cursor holds: it must keep room for the groups that will be added (about 15)"
-    assert size < 4 * 1024 - 15 * (len("approve-effect-publish") + 4)
+    # S18 added the 46th group: 45 groups were 3,684 bytes (the record's mask of every sender gains a hex digit at each fourth group, 100 bytes in this worst case) and 46 are 3,800.
+    # The margin was cut from "about 15 more groups" to about 7 on purpose, recorded in docs/decisions.md: the next package that adds a group moves the record to a denser mask first.
+    assert size < 3900, f"the record is {size} bytes of the 4096 a cursor holds: it must keep room for the groups that will be added (about 7)"
+    assert size < 4 * 1024 - 7 * (len("approve-effect-publish") + 4)
 
 
 def test_a_group_that_holds_another_is_one_line_and_the_pairs_are_the_tables():

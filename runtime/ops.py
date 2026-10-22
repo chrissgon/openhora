@@ -202,6 +202,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, never bound at import)
+import ops_question  # noqa: E402  (a question turned down is closed with its request: reject on a question)
 import ops_cancel  # noqa: E402  (cancel and stop-task at any moment; a run asks it whether it was stopped; re-exported below)
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
 import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; this file re-exports `run_task`, `dispatch` and `reap`)
@@ -2259,7 +2260,8 @@ def hand_over(project: str, task_id: int, file: str) -> dict:
 
 def reject(project: str, pending_id: int, note: str | None = None, channel: str | None = None, sender: str | None = None) -> dict:
     """Reject a pending decision of kind `plan` or `acceptance`: the request is cancelled, with what is open under
-    it. A note is kept on a rejected plan. An `effect` rejected cancels its task, and nothing is sent."""
+    it. A note is kept on a rejected plan. An `effect` rejected cancels its task, and nothing is sent. A `question`
+    rejected is dismissed: it closes, with its request when nothing else of it is open."""
     ctx = core.context(project)
     ops_actor.guard(ctx, "reject", channel, sender)
     actor = ops_actor.label(ctx["cfg"], channel, sender)
@@ -2276,7 +2278,9 @@ def reject(project: str, pending_id: int, note: str | None = None, channel: str 
         with ops_step_effects.resolution_guard(ctx, item):    # refused while the write of an output runs: it would end with no record
             return ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="rejected",
                                                        by="user", answer=said, actor=actor))
-    raise core.OpsError(f"pending decision {pending_id} is a {item['kind']}: reject takes a plan, an acceptance or an effect", 2)
+    if item["kind"] == "question":     # S14: turning a question down closes it, with its request when nothing else of it is open (runtime/ops_question.py)
+        return ops_question.dismiss(ctx, item, channel=channel, sender=sender)
+    raise core.OpsError(f"pending decision {pending_id} is a {item['kind']}: reject takes a plan, an acceptance, an effect or a question", 2)
 
 
 # --- stage 6: the dispatcher's operations ----------------------------------------------------------------------------
@@ -2705,6 +2709,8 @@ from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 from ops_file_read import file_read  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.
 from ops_mail_send import mail_reply, mail_send  # noqa: E402,F401
+# A waiting card changed by words (runtime/ops_card_revise.py, slice S13): the check and the change; the change opens a new card and sends nothing.
+from ops_card_revise import card_revise, card_revise_check  # noqa: E402,F401
 # The person's own mailbox (runtime/ops_mailbox.py, package W3): a draft, archive, a move, read state, the trash; each one prepares a card and writes nothing.
 from ops_mailbox import mail_archive, mail_draft, mail_mark, mail_move, mail_trash  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)

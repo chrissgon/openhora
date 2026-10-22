@@ -353,6 +353,9 @@ def _check_assigned(where: str, channel: str, groups: list, profile: str | None,
     if "approve-networked-plans" in groups and "approve-plans" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}'approve-networked-plans' needs 'approve-plans' beside it "
                           "(it adds networked plans to the plans the channel approves)")
+    if "send-files" in groups and "read-files" not in groups:
+        raise ConfigError(f"runtime.json {where}: {label}'send-files' needs 'read-files' beside it "
+                          "(it sends the file that reading files finds, so a policy that only sends is refused)")
     if channel in operations.MUST_READ and "read" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}must list the group 'read' (the {channel} reads what it shows)")
 

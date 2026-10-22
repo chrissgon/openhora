@@ -77,7 +77,7 @@ class Model:
 
     def complete(self, route_id, system, user, **kw):
         kind = "compose" if system == mail_compose.prompt_template() else "interpret"
-        self.calls.append({"kind": kind, "route": route_id, "user": user, "kw": kw})
+        self.calls.append({"kind": kind, "route": route_id, "system": system, "user": user, "kw": kw})
         answer = self.compose if kind == "compose" else self.interpret
         if isinstance(answer, Exception):
             raise answer
@@ -240,12 +240,14 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
-    newest = enable.load()["entries"][-1]
-    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256()
-    assert newest["date"] == "2026-10-21" and newest["basis"] == "maintainer-decision" and "para emails eu iria pedir para a IA criar um texto melhor escrito" in newest["reason"]
-    first = enable.load()["entries"][-2]
-    assert {k: newest[k] for k in enable.HASH_KEYS} == {k: first[k] for k in enable.HASH_KEYS}, "every hash of the earlier decision stands"
-    assert "compose_prompt_sha256" not in first
+    entries = enable.load()["entries"]
+    newest, s12, s7, first = entries[-1], entries[-2], entries[-3], entries[-4]
+    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256() == s12["compose_prompt_sha256"]      # the newest decision (S13) carries the compose pin of the one before it (S12)
+    assert s12["date"] == "2026-10-22" and s12["basis"] == "maintainer-decision" and "a IA deve verificar a ortografia do assunto do email" in s12["reason"]
+    assert s7["date"] == "2026-10-21" and "para emails eu iria pedir para a IA criar um texto melhor escrito" in s7["reason"], "the entry of the first compose prompt stays"
+    assert s7["compose_prompt_sha256"] == "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf" and s7["compose_prompt_sha256"] != newest["compose_prompt_sha256"]
+    assert {k: newest[k] for k in enable.HASH_KEYS} == {k: s12[k] for k in enable.HASH_KEYS} == {k: s7[k] for k in enable.HASH_KEYS} == {k: first[k] for k in enable.HASH_KEYS}, "every hash of the earlier decisions stands"
+    assert "compose_prompt_sha256" not in first and "revise_prompt_sha256" in newest and "revise_prompt_sha256" not in s12
 
 
 def test_a_line_in_spanish_gets_a_card_by_the_same_path(world, clock, monkeypatch):
@@ -267,6 +269,54 @@ def test_a_subject_the_person_gave_is_kept_as_written_and_only_the_body_is_worde
     assert out["resend"] and "Subject: Reuniao de amanha" in lines and "Subject: " + COMPOSED_SUBJECT not in lines      # validate: allow english-only -- a Portuguese line is the input under test
     assert text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
     assert model.of("compose")[0]["user"].splitlines()[3] == "subject: Reuniao de amanha"      # validate: allow english-only -- a Portuguese line is the input under test
+
+
+# --- the spelling of the subject and the end of the body (S12) ------------------------------------------------------------------------------------
+
+
+TYPED_SUBJECT = "Reuniao sobre o Openhora"      # validate: allow english-only -- the live subject typed without its accent
+TYPED_LINE = "Envie um email para joana.silva@clinica.example, " + TYPED_SUBJECT + ". " + SPAN      # validate: allow english-only -- a Portuguese line is the input under test
+
+
+def with_subject_typed(world, monkeypatch, composed_subject, body=COMPOSED_BODY):
+    compose = json.dumps({"subject": composed_subject, "body": body}, ensure_ascii=False)
+    return setup(world, monkeypatch, interpret=op("mail-send", {"to": ADDRESS, "subject": TYPED_SUBJECT, "body": SPAN}), compose=compose)
+
+
+def test_the_model_may_fix_the_spelling_of_the_typed_subject_and_the_card_shows_the_fixed_one(world, clock, monkeypatch):
+    model = with_subject_typed(world, monkeypatch, "Reunião sobre o Openhora")      # validate: allow english-only -- the stand-in model's Portuguese answer
+    out = phone(world, TYPED_LINE)
+    lines = card_lines(world, out)
+    assert out["resend"] and lines[3] == "Subject: Reunião sobre o Openhora"      # validate: allow english-only -- the stand-in model's Portuguese answer
+    assert model.of("compose")[0]["user"].splitlines()[3] == "subject: " + TYPED_SUBJECT
+    nothing_sent(world)
+
+
+@pytest.mark.parametrize("composed", ["Convite para reunião", "Reunião Openhora", "Reunião sobre o Openhora amanhã", "Reunião sobre o Openhora https://elsewhere.example", "Reunião sobre o openhora"])      # validate: allow english-only -- the stand-in model's Portuguese answers
+def test_a_model_subject_that_is_not_the_same_subject_with_its_spelling_fixed_leaves_the_typed_one_on_the_card(world, clock, monkeypatch, composed):
+    with_subject_typed(world, monkeypatch, composed)
+    out = phone(world, TYPED_LINE)
+    lines = card_lines(world, out)
+    assert out["resend"] and lines[3] == "Subject: " + TYPED_SUBJECT and text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
+
+
+def test_a_composed_body_that_ends_with_a_closing_formula_alone_is_shown_without_it(world, clock, monkeypatch):
+    with_subject_typed(world, monkeypatch, "Reunião sobre o Openhora", body="Olá,\n\nGostaria de marcar uma reunião amanhã às 16h.\n\nAtenciosamente,")      # validate: allow english-only -- the stand-in model's Portuguese answer
+    out = phone(world, TYPED_LINE)
+    lines = card_lines(world, out)
+    assert out["resend"] and text_of(lines) == ["Olá,", "", "Gostaria de marcar uma reunião amanhã às 16h."] and "Atenciosamente" not in card(world, out)      # validate: allow english-only -- the stand-in model's Portuguese answer
+
+
+def test_a_stand_in_that_accents_what_was_typed_without_accents_reaches_the_card_and_the_prompt_asks_for_it(world, clock, monkeypatch):
+    typed = "Perguntar se voce pode fazer a reuniao amanha as 16hrs"      # validate: allow english-only -- a Portuguese description typed without accents
+    body = "Olá,\n\nVocê pode fazer a reunião amanhã às 16h?\n\nObrigado."      # validate: allow english-only -- the stand-in model's Portuguese answer
+    model = setup(world, monkeypatch, interpret=op("mail-send", {"to": ADDRESS, "body": typed}), compose=json.dumps({"subject": "Reunião amanhã", "body": body}, ensure_ascii=False))      # validate: allow english-only -- the stand-in model's Portuguese answer
+    out = phone(world, "Envie um email para joana.silva@clinica.example. " + typed)      # validate: allow english-only -- a Portuguese line is the input under test
+    assert text_of(card_lines(world, out)) == body.split("\n") and "voce" not in card(world, out)
+    call = model.of("compose")[0]
+    assert call["user"].splitlines()[-1] == "description: " + typed and call["system"] == mail_compose.prompt_template()
+    assert "Write the subject and the body with the correct spelling, accents and punctuation of that language" in call["system"]
+    assert "the person's typing is not the spelling to copy" in call["system"]
 
 
 # --- the guided dialogue ---------------------------------------------------------------------------------------------------------------------------

@@ -44,6 +44,14 @@ token and anything shaped like one removed; the token is in no argument, no log,
 redirect is followed. A request has a timeout. A verb never retries a call; the one exception is the plain resend of a text Telegram refused to parse, a second
 call made on purpose.
 
+Sending a file (S18). The neutral message may carry `"file": {"name", "kind": "photo" | "document", "path"}`: the bridge wrote the bytes to one temporary file
+of its own at `path` (mode 0600, in a folder it removes when the send ends) and this verb reads it, checks it, and sends it after the message as a reply to it: sendPhoto
+(multipart field `photo`) or sendDocument (field `document`). It is read here with O_NOFOLLOW from a regular file, at most `max_send_bytes` (20 MiB, a literal: below the 50 MB the Bot API
+documents for sendDocument, and the most this runtime reads) or, for a photo, `max_photo_bytes` (10 MiB, the documented sendPhoto limit); a photo must be a png or a jpeg
+by its first bytes (`photo_types`), else it is a document; the type must be one of `send_types`. A file that Telegram refuses after the message went out is reported like a document's: the message id
+is printed with `"document_failed": true` and a warning on stderr that holds no name, no path and no token. The file's bytes are in no log, no output and no error. These limits were written
+from the documented behaviour of the Bot API and NOT re-read when S18 was built (it had no network); the maintainer's live test confirms them.
+
 Attachments (ATT-2). A message with a document, photo, voice note, video, audio or sticker becomes an update whose
 `attachments` holds {"ref": the file_id, "name", "size", "type"} (a photo is the largest size Telegram made; `type` is
 the media type of a document, else photo, voice, video, audio or sticker; the bridge takes a photo and an image document as save-only images) and whose `text` is the caption. `fetch-attachment`
@@ -74,8 +82,10 @@ import importlib.util
 import json
 import os
 import re
+import stat
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -93,7 +103,9 @@ DEFAULT_API_BASE = "https://api.telegram.org"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 CAPABILITIES = {"max_text": 4096, "buttons": True, "max_buttons": 6, "max_button_label": 40, "lists": False,
                 "max_list_rows": 0, "url_buttons": True, "reply_context": True, "documents": True,
-                "attachments": True, "max_attachment_bytes": 20971520, "typing": True}   # 20 MiB: the Bot API serves a download of at most 20 MB (getFile answers "file is too big" above it); a literal, because the architecture tables read it
+                "attachments": True, "max_attachment_bytes": 20971520, "typing": True,
+                "send_files": True, "max_send_bytes": 20971520, "max_photo_bytes": 10485760, "photo_types": ["png", "jpeg"],
+                "send_types": ["pdf", "docx", "xlsx", "pptx", "ooxml", "html", "csv", "text", "png", "jpeg", "webp", "gif"]}   # 20 MiB: the Bot API serves a download of at most 20 MB (getFile answers "file is too big" above it); a literal, because the architecture tables read it
 MAX_ATTACHMENT_BYTES = CAPABILITIES["max_attachment_bytes"]
 CALLBACK_DATA_BYTES = 64
 HTTP_MARGIN_SECONDS = 15
@@ -409,7 +421,65 @@ def check_message(message) -> dict:
     if document is not None and (not isinstance(document, dict) or not isinstance(document.get("name"), str)
                                  or not isinstance(document.get("text"), str) or not document["text"]):
         raise ProviderError("a document is {\"name\": text, \"text\": text}", EXIT_USAGE)
+    file = message.get("file")
+    if file is not None:
+        if document is not None:
+            raise ProviderError("a message carries a document or a file, not both", EXIT_USAGE)
+        if not isinstance(file, dict) or not isinstance(file.get("name"), str) or not file["name"] or file.get("kind") not in ("photo", "document") \
+                or not isinstance(file.get("path"), str) or not os.path.isabs(file["path"]):
+            raise ProviderError("a file is {\"name\": text, \"kind\": \"photo\" or \"document\", \"path\": the absolute path of the file to send}", EXIT_USAGE)
     return message
+
+
+def sniff_type(head: bytes):
+    """The subtype of a file read from its first bytes, for the types this provider sends: png, jpeg, webp, gif, pdf, a zip-based Office file (docx, xlsx, pptx are told apart
+    by the runtime that sent it; here only `ooxml`), html or text; None when it is none of them."""
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if head[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if head[:5] == b"%PDF-":
+        return "pdf"
+    if head[:4] == b"PK\x03\x04":
+        return "ooxml"
+    if b"\x00" not in head:
+        try:
+            head.decode("utf-8")
+        except UnicodeDecodeError as e:
+            if e.start < len(head) - 4:      # a character cut by the end of the sample is not a fault
+                return None
+        return "text"
+    return None
+
+
+def read_file(file: dict) -> tuple:
+    """(field, name, bytes, content type) of the file to send, read from `file["path"]`: opened without following a link, a regular file, within the limit of its kind. A usage
+    error (exit 2) when it cannot be sent, with a sentence that holds no name and no path."""
+    kind = file["kind"]
+    limit = CAPABILITIES["max_photo_bytes"] if kind == "photo" else CAPABILITIES["max_send_bytes"]
+    try:
+        fd = os.open(file["path"], os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+    except OSError:
+        raise ProviderError("the file to send cannot be opened", EXIT_USAGE) from None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size < 1 or info.st_size > limit:
+            raise ProviderError(f"the file to send is empty, is not a file, or is over the {limit} bytes Telegram takes as a {kind} here", EXIT_USAGE)
+        with os.fdopen(fd, "rb", closefd=False) as handle:
+            data = handle.read(limit + 1)
+    finally:
+        os.close(fd)
+    if len(data) > limit:
+        raise ProviderError(f"the file to send is over the {limit} bytes Telegram takes as a {kind} here", EXIT_USAGE)
+    found = sniff_type(data[:4096])
+    if found not in CAPABILITIES["send_types"] or (kind == "photo" and found not in CAPABILITIES["photo_types"]):
+        raise ProviderError(f"this kind of file is not sent as a {kind} here", EXIT_USAGE)
+    content_type = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif", "pdf": "application/pdf", "html": "text/html", "text": "text/plain", "csv": "text/csv"}.get(found, "application/octet-stream")
+    return kind, file["name"], data, content_type
 
 
 def keyboard(message: dict) -> dict | None:
@@ -429,6 +499,29 @@ def multipart(fields: dict, name: str, text: str) -> tuple:
     parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="{safe}"\r\n'
                   "Content-Type: text/plain; charset=utf-8\r\n\r\n").encode("utf-8") + text.encode("utf-8")
                  + f"\r\n--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def safe_file_name(name: str) -> str:
+    """The name a sent file carries: its letters and digits in any script and its other printable characters kept ("Relatório.pdf"), with only what could break the header or the
+    path removed: path separators, quotes, control and format characters (the bidirectional marks included), unassigned and private-use code points, and leading dots and spaces. At most 100
+    characters, the ending kept; "file" when nothing is left."""
+    kept = "".join(c for c in str(name) if c not in '/\\"' and unicodedata.category(c) not in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp")).lstrip(". ").rstrip(" ")
+    if len(kept) > 100:
+        stem, dot, ending = kept.rpartition(".")
+        kept = (stem[:100 - len(ending) - 1] + "." + ending) if dot and stem and len(ending) <= 10 else kept[:100]
+    return kept or "file"
+
+
+def multipart_file(fields: dict, field: str, name: str, data: bytes, content_type: str) -> tuple:
+    """(body, content type) of a sendPhoto or sendDocument request: the fields, then the file under `field` ("photo" or "document"). The name keeps its ending."""
+    boundary = "wb" + uuid.uuid4().hex
+    safe = safe_file_name(name)
+    parts = []
+    for key, value in fields.items():
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode("utf-8"))
+    parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{safe}"\r\n'
+                  f"Content-Type: {content_type}\r\n\r\n").encode("utf-8") + data + f"\r\n--{boundary}--\r\n".encode("utf-8"))
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
@@ -617,6 +710,7 @@ def send(chat: str, message: dict, token: str, base: str) -> dict:
     if not CHAT_ID.fullmatch(chat):
         raise ProviderError("--chat is a Telegram chat id: whole digits, with a leading minus for a group", EXIT_USAGE)
     message = check_message(message)
+    to_send = read_file(message["file"]) if message.get("file") else None      # read and checked before the message goes out: a file that cannot be sent is a usage error, with nothing sent
     fields = {"chat_id": int(chat), "text": message["text"], "link_preview_options": {"is_disabled": True}}
     markup = keyboard(message)
     if markup:
@@ -642,6 +736,14 @@ def send(chat: str, message: dict, token: str, base: str) -> dict:
             call("sendDocument", {}, token, base, SEND_TIMEOUT_SECONDS, body=body, content_type=kind)
         except ProviderError as e:  # the card went out: its id is still printed, so the bridge records it and never resends
             print(f"warning: the message was sent and its document was not ({redact(e, token)})", file=sys.stderr)
+            return {"message_id": str(sent["message_id"]), "document_failed": True}
+    if to_send is not None:
+        kind, name, data, content_type = to_send
+        body, form = multipart_file({"chat_id": chat, "reply_to_message_id": sent["message_id"]}, kind, name, data, content_type)
+        try:
+            call("sendPhoto" if kind == "photo" else "sendDocument", {}, token, base, SEND_TIMEOUT_SECONDS, body=body, content_type=form)
+        except ProviderError as e:  # the message went out: its id is still printed, and the bridge says the file did not arrive; the warning names no file
+            print(f"warning: the message was sent and its file was not ({redact(e, token)})", file=sys.stderr)
             return {"message_id": str(sent["message_id"]), "document_failed": True}
     return {"message_id": str(sent["message_id"])}
 

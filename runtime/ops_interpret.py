@@ -57,6 +57,7 @@ import interpreter
 import interpreter_enable
 import interpreter_route
 import language as language_rules
+import line_stage
 import mail_compose
 import natural
 import operations
@@ -168,6 +169,78 @@ def decide(line: str, text, now, zone: str, allowed, frame=None) -> dict:
     return interpreter.check(obj, line, frame, interpreter.SERVED, now, zone, allowed)
 
 
+ASK_AGAIN_WHY = {"E_INT": "slot not a number written in the line", "E_SPAN": "span not in the line", "E_SLOT_UNKNOWN": "slot the op does not have", "E_OP_UNKNOWN": "unknown op",
+                 "E_JSON": "parse invalid", "E_SIZE": "parse invalid", "E_SHAPE": "parse invalid", "E_VERSION": "parse invalid", "E_TIME_FORMAT": "parse invalid",
+                 "E_WEEKDAY": "time and weekday disagree", "E_INHERIT": "inherit refused", "E_ITEM_UNKNOWN": "unknown frame item"}      # closed words: the reason an ask-again is said in the log, never a value of the line
+
+
+def ask_again_reason(decision: dict) -> str:
+    """The closed reason a decision ends in the sentence IX_ASK_AGAIN, for the service log: a word of ASK_AGAIN_WHY or of the few below, never the line, a span, a slot value or the
+    model's text (limit L63)."""
+    kind, why = decision.get("kind"), decision.get("why")
+    if kind == "refuse_policy":
+        return "policy refuses the op with no sentence"
+    if kind != "clarify":
+        return "decision not understood"
+    if why == "invalid":
+        return ASK_AGAIN_WHY.get(decision.get("error"), "decision invalid")
+    if why == "private-route":
+        return "private line sent to the model's route"
+    if why == "model":
+        return "model asked for a slot" if decision.get("slot") else "model asked between ops"
+    return "clarify"
+
+
+def _log_ask_again(decision: dict) -> None:
+    """One line on stderr (the service log) for each line answered with IX_ASK_AGAIN: the closed reason only."""
+    try:
+        print(f"interpreter: ask-again ({ask_again_reason(decision)})", file=sys.stderr, flush=True)
+    except Exception:      # noqa: BLE001 - a closed stream is no reason to fail the turn
+        pass
+
+
+def _event_slots_fixed(obj: dict, line: str):
+    """The object of an event to change or cancel with the slots the check cannot believe left out, or None when nothing is left out (slice S16). The event of such a line is found
+    from the words of the line (runtime/event_lookup.py), so a number slot that is not a number written in the line (the model wrote the event's name there), and, for a removal, any
+    slot the operation does not have (a title, a time) are dropped; a time or a title of a change that does not pass stays refused as before."""
+    slots = dict(obj["slots"])
+    fixed = {k: v for k, v in slots.items() if not (k == "event" and not natural.check_operation(obj["op"], {"event": v}, None, line)["ok"])}
+    if obj["op"] == "event-cancel":
+        fixed = {k: v for k, v in fixed.items() if k == "event"}
+    if fixed == slots:
+        return None
+    out = {k: v for k, v in obj.items() if k != "slots"}
+    out["slots"] = fixed
+    if obj["op"] == "event-cancel":
+        out.pop("time_iso", None)
+        out.pop("weekday", None)
+        out.pop("inherit", None)
+    return out
+
+
+def lenient(line: str, text, strict: dict, now, zone: str, allowed, frame=None) -> dict:
+    """`strict`, the decision `decide` gave, or the decision for the line read as the event it describes (slice S16). Only a refused decision about an event to change or cancel is
+    read again, and only when the line's leading verb names the same operation as the model's (`event_lookup.verb_op`): an op object whose `event` slot is not a number of the line (or, for a removal, that has a slot the operation lacks) is checked again without those slots; a model that
+    only asks for the slot `event` gets the operation the line's leading verb names. The event is always found from the person's own words by code afterwards, never from the model's."""
+    if strict.get("kind") != "clarify" or strict.get("why") not in ("invalid", "model"):
+        return strict
+    obj, _, _ = interpreter.parse(text)
+    if obj is None:
+        return strict
+    if obj.get("kind") == "op" and obj.get("op") in event_lookup.OPS:
+        if event_lookup.verb_op(line) != obj["op"]:
+            return strict          # the model's op is believed only when the line's own leading verb says the same: "do not remove ..." or "move ..." answered with a removal stays refused
+        fixed = _event_slots_fixed(obj, line)
+    elif obj.get("kind") == "clarify" and obj.get("slot") == "event" and (op := event_lookup.verb_op(line)) is not None:
+        fixed = {"v": obj["v"], "kind": "op", "op": op, "slots": {}}
+    else:
+        return strict
+    if fixed is None:
+        return strict
+    again = interpreter.check(fixed, line, frame, interpreter.SERVED, now, zone, allowed)
+    return again if again.get("kind") in ("op", "refuse_policy") else strict
+
+
 def router_frame(age_s):
     """The typed frame for a router question bound to the sender: one item, the question's id (`i1`), kind, need and age, and none of its words (None: no question is bound)."""
     if age_s is None:
@@ -183,6 +256,7 @@ def _allowed(ctx: dict, sender) -> set:
 
 def _ask_model(ctx: dict, entry: dict, said: str, sender, frame=None):
     """The decision for the line, or None when no call could be made or it failed."""
+    line_stage.publish("think")      # S19: the stage a phone is told if the line is still unanswered after a while
     try:
         now = ops_natural._clock()
         zone = _zone(now)
@@ -194,7 +268,8 @@ def _ask_model(ctx: dict, entry: dict, said: str, sender, frame=None):
     if not got.get("ok"):
         return None
     try:
-        return decide(said, got.get("text"), now, zone, _allowed(ctx, sender), frame)
+        allowed = _allowed(ctx, sender)
+        return lenient(said, got.get("text"), decide(said, got.get("text"), now, zone, allowed, frame), now, zone, allowed, frame)
     except Exception:      # noqa: BLE001
         return {"kind": "clarify", "error": "E_SHAPE", "why": "invalid", "slot": None, "ops": None}
 
@@ -224,7 +299,10 @@ def _refusal(ctx: dict, op: str, sender) -> str:
     if not listed:
         return ops_natural.phone_sentence(ctx, op)
     refused = operations.refusal(op, CHANNEL, ctx["cfg"]["channels"], sender=sender)
-    return phone_refusal.said(refused, CHANNEL, ctx["cfg"]) if refused else phrases.text("IX_ASK_AGAIN", ctx["cfg"])      # S10: a phone is told in one plain sentence, never "error:" or a command
+    if refused:
+        return phone_refusal.said(refused, CHANNEL, ctx["cfg"])
+    _log_ask_again({"kind": "refuse_policy"})
+    return phrases.text("IX_ASK_AGAIN", ctx["cfg"])      # S10: a phone is told in one plain sentence, never "error:" or a command
 
 
 CANNOT = {"event-create": "IX_CANNOT_EVENT_CREATE"}      # every other write: IX_CANNOT_WRITE (an event to change or cancel is answered by runtime/event_lookup.py)
@@ -273,6 +351,8 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     entry = interpreter_enable.active(_tag(cfg))
     decision = interpreter.precheck(said)
     if decision is None:
+        decision = importlib.import_module("ops_card_revise").decided(project, CHANNEL, sender, said)      # S13: the decision made while the line was checked as a change of a waiting card, once
+    if decision is None:
         decision = _ask_model(ctx, entry["entry"], said, sender, router_frame(age_s)) if entry is not None and _admit(ctx, sender) else None
     if decision is None:
         return _no_decision(ctx, said, extras)
@@ -296,6 +376,8 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     if kind == "refuse_policy":
         return _said(_refusal(ctx, decision["op"], sender), extras)
     key = WHY_SENTENCE.get(decision.get("why")) if kind == "clarify" else None
+    if key is None:
+        _log_ask_again(decision)
     return _said(phrases.text(key or "IX_ASK_AGAIN", cfg), extras)
 
 

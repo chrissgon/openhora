@@ -41,6 +41,7 @@ import time
 import unicodedata
 
 import drafts
+import line_stage
 import messaging_guard as guard
 import ops_core as core
 import natural
@@ -251,6 +252,9 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
         listed = importlib.import_module("event_lookup").take(project, ctx, said, sender, extras, _writes(), _clock())
         if listed is not None:
             return listed
+        picked = importlib.import_module("ops_file_read").take(project, ctx, said, channel, sender, extras)      # S17: a number after a list of files ("o 2") picks that file
+        if picked is not None:
+            return picked
     if channel != "mcp":      # a write form opens the card of its exact content (limit L61), never a write
         opened = _writes().open_line(project, ctx, said, channel, sender, extras)
         if opened is not None:
@@ -292,7 +296,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     if cls == "R":
         if "mcp" not in row["channels"] or keeps_private(ctx, name, channel, sender):      # the MCP mode reads the conversation: what it could not read itself (reminders, files people sent, the private lines of a card drawn for a holder of ask-mail) is stored as a neutral word (limits L50, L51)
             extras["stored"] = t("NAT_READ_REPLY")
-        return _read(project, ctx, name, row, dict(args, kind=natural_writes().items_kind(said)) if name == "items" else args, channel, sender)      # NR-5: the noun of the line says which items
+        return _read(project, ctx, name, row, dict(args, kind=natural_writes().items_kind(said), **importlib.import_module("ops_items")._named_account(said)) if name == "items" else args, channel, sender)      # NR-5: the noun of the line says which items; S15: an account it names narrows them
     if cls == "N":
         return _notice(project, ctx, name, row, args, said, channel, sender, extras, when, routed)
     if cls == "W":
@@ -357,12 +361,19 @@ def _read(project: str, ctx: dict, name: str, row: dict, args: dict, channel, se
         return phrases.text("NAT_ASK_ID", cfg)
     if name in ("status", "progress"):
         return _say().state_reply(project, cfg=cfg)
+    if name == "items":      # S19: the mail or the calendar is read
+        if args.get("kind") == "calendar":
+            line_stage.publish("calendar")
+        else:
+            line_stage.publish("mail")
     try:
         out = _call(project, row, args, channel, sender)
     except core.OpsError as e:
         return _error(cfg, e, channel)
     if name == "items":      # S11: the numbers this list shows are what the sender may point to next (runtime/event_lookup.py)
         importlib.import_module("event_lookup").remember_items(ctx, channel, sender, out)
+    if name == "items":      # S15: with nothing to list, the reply says what to add and where (a phone: no command)
+        return _clip(importlib.import_module("ops_items").reply(project, ctx, out, channel), channel)
     return _clip(_render(name, out, cfg, channel), channel)
 
 

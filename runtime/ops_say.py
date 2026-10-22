@@ -36,11 +36,14 @@ import autonomy
 import greeting
 import lab
 import language as language_rules
+import line_stage
 import natural
 import operations
 import ops_actor
 import ops_natural
 import pending_items
+import phone_delete
+import phone_questions
 import phone_refusal
 import phrases
 import plan
@@ -141,7 +144,7 @@ def chat_memory(messages: list, settled: set, quiet=frozenset()) -> str:
     return "\n".join([MEMORY_HEAD, *lines]) if lines else ""
 
 
-def say(project: str, text: str, channel: str | None = None, sender: str | None = None) -> dict:
+def say(project: str, text: str, channel: str | None = None, sender: str | None = None, can_send: dict | None = None) -> dict:
     """One turn of the conversation with the planning agent (decision D12), one more shell of this layer. The person's
     line is stored (for a messaging sender whom the interpreter reads, AFTER the decision and as a neutral word unless it went to the planning agent: runtime/ops_interpret.py, limit L63); a line that starts with "/" is one command of the table of operations (runtime/operations.py), which calls its operation once; a plain
     line that asks about the state (STATE_QUESTIONS) is answered at once by code from the store's records (state_reply):
@@ -158,6 +161,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     shell passes none and is `chat`): a command in the line is done only when its row lists that channel, so a shell
     that may not approve, reject, retry or cancel cannot do it by typing the command here either. `sender` (POL-2) is the messaging sender who typed the
     line (`<platform>:<sender id>`, operations.sender_key): a command in it is checked against THAT sender's profile and done as that sender.
+    `can_send` (S18) is what the messaging bridge says its app can carry as a file (the provider's capabilities: ops_file_read._limits); only the bridge passes it, and only a messaging
+    call keeps it. A reply that carries a file hands it back in "attachment" ({"name", "kind", "data"}: bytes in memory, for the bridge to send and drop; never stored).
     Returns {"reply", "request_id", "pending_id", "ran", "queued"}."""
     channel = channel or "chat"
     ops_actor.require(channel, sender)
@@ -165,6 +170,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     said = core._text(text, "the line")
     store = ctx["store"]
     importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
+    importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
     handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender) or _greets(ctx, said, channel, sender)      # S5: a greeting is answered by code too, never queued
     if _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
@@ -181,6 +187,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     deferred = not said.startswith("/") and importlib.import_module("ops_interpret").enabled(ctx, channel, sender)
     stored = None if deferred else core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=kept)
     extras = {"deferred": True} if deferred else {}
+    if can_send is not None and channel == "messaging":
+        extras["can_send"] = can_send
     try:
         reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"] if stored else None, sender, extras)
     finally:
@@ -189,7 +197,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
                  text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=extras.get("task_id", request_id), run_id=extras.get("run_id", run_id))
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
-            **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {})}
+            **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {}),
+            **({"attachment": extras["attachment"]} if channel == "messaging" and "attachment" in extras else {})}
 
 
 def person_line(text: str) -> str:
@@ -307,6 +316,8 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
     if asked is not None and ops_natural.recognises(ctx, said, _natural_channel(channel), sender):      # a request code recognises is a new line, never the answer (LIVE-2), for the interpreter's senders too
         asked = None
     framed = asked is not None and bool(extras.get("deferred"))      # S4: of the lines no list of code claims, the interpreter tells the answer from a new line, by a typed frame (decision 229 (1))
+    if asked is None and talks and channel == "messaging" and phone_delete.asks(said):      # a file is not deleted from a message yet (S14): one plain sentence, no card, no request, no model
+        return phrases.text("PHONE_NO_FILE_DELETE", ctx["cfg"]), None, None, False, None, None
     if asked is None and state_question(said):
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
             return phone_refusal.said(operations.not_enabled('status', channel), channel, ctx["cfg"]), None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
@@ -376,9 +387,22 @@ def _short(text) -> str:
     return one if len(one) <= TITLE_CUT else one[:TITLE_CUT - 1].rstrip() + "..."
 
 
+PLAIN_TITLES = {"TITLE_ROUTER_ASKS": "PEND_CARD_TITLE", "TITLE_ROUTE_UNRECOGNISED": "PEND_NOT_UNDERSTOOD_TITLE"}      # the titles that name the platform's internals, said as what they mean
+
+
+def _title(text, cfg=None) -> str:
+    """A request's or a decision's title for a person: a title code wrote whole (a card's, "Mail: send from your account") in the project's language, the router's own titles as plain
+    words, any other title (the person's or a model's) as it is; then cut (S14)."""
+    said = phrases.heading(text, cfg)
+    for key, plain in PLAIN_TITLES.items():
+        if text == phrases.en(key):
+            said = phrases.text(plain, cfg)
+    return _short(said)
+
+
 def _names(rows: list, cfg=None) -> str:
     """'a, b, c and 2 more' for the titles of rows."""
-    titles = [_short(r["title"]) for r in rows]
+    titles = [_title(r["title"], cfg) for r in rows]
     shown = ", ".join(titles[:LISTED])
     return shown + (phrases.text("NAMES_MORE", cfg, n=len(titles) - LISTED) if len(titles) > LISTED else "")
 
@@ -398,7 +422,7 @@ def state_reply(project: str, proposed: str | None = None, cfg: dict | None = No
     for r in open_requests:
         tasks = r["tasks"]
         by = lambda *states: [t for t in tasks if t["state"] in states]  # noqa: E731
-        title = _short(r["title"])
+        title = _title(r["title"], cfg)
         if r["state"] == "requested":
             lines.append(t("STATE_RECORDED", id=r["id"], title=title))
             continue
@@ -408,15 +432,15 @@ def state_reply(project: str, proposed: str | None = None, cfg: dict | None = No
             if rows:
                 lines.append(t(key, names=_names(rows, cfg)))
         for task in by("ready"):
-            lines.append(t("STATE_READY", id=task["id"], title=_short(task["title"]),
+            lines.append(t("STATE_READY", id=task["id"], title=_title(task["title"], cfg),
                            held=t("STATE_HELD", reason=held[task["id"]]) if task["id"] in held else ""))
         for task in by("blocked", "failed"):
             note = f': {_short(task["note"])}' if task.get("note") else ""
-            lines.append(t("STATE_STUCK", id=task["id"], title=_short(task["title"]), state=phrases.status(task["state"], cfg), note=note))
+            lines.append(t("STATE_STUCK", id=task["id"], title=_title(task["title"], cfg), state=phrases.status(task["state"], cfg), note=note))
     if not open_requests:
         finished = sum(1 for r in state["requests"] if r["state"] == "done")
         lines.append(t("STATE_NONE_OPEN") + (t("STATE_FINISHED", n=finished) if finished else ""))
-    waiting = [t("STATE_WAIT_ITEM", kind=phrases.kind_word(w["kind"], cfg), title=_short(w["title"]), id=w["pending_id"]) for w in progress["waiting_for_you"]]
+    waiting = [t("STATE_WAIT_ITEM", kind=phrases.kind_word(w["kind"], cfg), title=_title(w["title"], cfg), id=w["pending_id"]) for w in progress["waiting_for_you"]]
     lines.append(t("STATE_WAITS", items="; ".join(waiting) if waiting else t("STATE_NOTHING")))
     if proposed:
         lines += ["", t("PROPOSES") + proposed]
@@ -657,11 +681,23 @@ def _drain_route(project: str, ctx: dict, request_id: int) -> dict:
     return {"routed": "route", "request_id": request_id, "pending_id": done.get("pending_id"), "ran": True}
 
 
+def _plan_line(task: dict, cfg, channel) -> str:
+    """One task of a plan's reply: `- key: title (skill)`; on a phone the skill's name is its plain label, or left out when it has none (S14: no identifier of this machine)."""
+    line = f"- {task['key']}: {task['title']} ({task.get('skill') or phrases.text('PLAN_STEP', cfg, step=task['step'])})"
+    return phone_questions.scrub(line, cfg) if channel == "messaging" else line
+
+
 def _close_by_code(ctx: dict, request_id: int, by: str) -> None:
     """Cancel a request that code answered itself (`by` starts with `code:`) and mark it, so that the router's memory does not read it as a settled exchange (S4)."""
+    _close_request(ctx, request_id, by)
+
+
+def _close_request(ctx: dict, request_id: int, by: str) -> dict:
+    """The cancel of `_close_by_code` for any label (the person who dismissed a question is `by`, S14): the store's answer, {"request", "cancelled", "pending", ...}."""
     import ops_cancel      # at call time, like the other operations this sibling reaches
-    core._stored(ctx, ops_cancel.request_cancel, request_id, by=by, context=ctx)
+    done = core._stored(ctx, ops_cancel.request_cancel, request_id, by=by, context=ctx)
     core._stored(ctx, ctx["store"].cursor_set, CODE_CLOSED.format(id=request_id), "1")
+    return done
 
 
 def _last_request(ctx: dict):
@@ -832,6 +868,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
     if not ok:
         return phrases.text("PLANNING_NOT_STARTED", ctx["cfg"], why=why), None, None, False, None
     extras = extras if extras is not None else {}
+    line_stage.publish("plan")      # S19: the planning agent is about to work
     if channel == "messaging":      # the sender's bound question is being answered or replaced: a new one is bound below, when the router asks again (S4)
         pending_items.drop_key(_binding_key(ctx, sender))
     if answer_to is not None:
@@ -855,6 +892,8 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
     if routed.get("kind") == "direct":
         _close_by_code(ctx, request_id, "code:direct")
         extras["task_id"] = request_id      # the reply is stored under the request it closed, so that the next line is not taken for the answer to an older question (S4)
+        if channel == "messaging" and routed.get("next"):      # a phone is told the answer alone: the digest of the state is for the person who asked for the state (S14)
+            return phone_questions.clean(routed["next"], ctx["cfg"]) + importlib.import_module("ops_ask").hint(ctx, channel, sender), None, None, True, routed.get("run_id")
         return (state_reply(project, routed.get("next"), ctx["cfg"]) + importlib.import_module("ops_ask").hint(ctx, channel, sender),
                 None, None, True, routed.get("run_id"))
     if routed.get("kind") == "operation":
@@ -868,17 +907,20 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
     item = core._stored(ctx, ctx["store"].pending_get, routed["pending_id"]) if routed.get("pending_id") else None
     if item is None:
         failure = (routed.get("failure") or {}).get("reason") or "the router's run failed"
+        if channel == "messaging":      # a phone is not told the layer's English reason, nor the router by name (S14)
+            return phrases.text("PHONE_ROUTER_FAILED", ctx["cfg"]), request_id, None, True, routed.get("run_id")
         return phrases.text("ROUTER_FAILED", ctx["cfg"], failure=failure), request_id, None, True, routed.get("run_id")
     if item["kind"] == "plan":
         payload = item["payload"]
         lines = [item["title"]]
-        lines += [f"- {t['key']}: {t['title']} ({t.get('skill') or phrases.text('PLAN_STEP', ctx['cfg'], step=t['step'])})" for t in payload.get("tasks") or []]
+        lines += [_plan_line(t, ctx["cfg"], channel) for t in payload.get("tasks") or []]
         lines.append(language_rules.payload_line(payload))     # the language the plan writes in, before the person approves
         estimate = payload.get("estimate") or {}
         lines += [phrases.text("PLAN_ESTIMATE", ctx["cfg"], runs=estimate.get("runs", estimate.get("runs_at_least")))
                   + (f" ({estimate['formula']})" if estimate.get("formula") else ""), ""]
         for n, u in enumerate(payload.get("unrouted") or [], 1):
-            lines += [phrases.text("PLAN_NOT_PLANNED", ctx["cfg"], n=n, item=u["item"]), u["reply"].rstrip("\n"), ""]
+            lines += ([phrases.text("PHONE_NOT_PLANNED", ctx["cfg"], n=n, item=u["item"]), phone_questions.clean(u["reply"].rstrip("\n"), ctx["cfg"]), ""] if channel == "messaging"
+                      else [phrases.text("PLAN_NOT_PLANNED", ctx["cfg"], n=n, item=u["item"]), u["reply"].rstrip("\n"), ""])
         lines.append(phrases.text("PLAN_NEXT", ctx["cfg"], pending=item["id"]))
         reply = "\n".join(lines)
     elif (item.get("payload") or {}).get("ending") == "unclassified":

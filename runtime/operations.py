@@ -593,6 +593,10 @@ GROUPS = {
     # S8: the text of a file in the folders the project lists under `accounts`, read by its name. In no default policy: a messaging sender gets it only from a profile or channel entry accepted
     # with --widen; never on the MCP mode (the row does not list it). It reads and shows; it writes nothing and sends nothing to a model.
     "read-files": {"operations": ("file-read",), "kind": None},
+    # S18: the file itself, sent as an attachment beside the text, when file-read finds one. A capability added to `file-read` that never grants it (KIND_ONLY, as `interpret` is): it needs
+    # `read-files` beside it (project_config refuses a policy that lists it alone). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
+    # --widen; never on the MCP mode. The whole file leaves the drive for the messaging app's servers.
+    "send-files": {"operations": ("file-read",), "kind": "send"},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -602,8 +606,8 @@ NEVER_NARROWED = ("terminal",)
 POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's configuration narrows; `chat` (local access, equal to the terminal) and `terminal` never are
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
-MESSAGING_ONLY_GROUPS = ("read-limited", "ask-mail", "interpret")          # valid on a messaging app alone (the page and the MCP mode list `read`; the page and the terminal name a mail source with @<id> as they always did)
-KIND_ONLY = ("ask-mail", "interpret")                           # groups that add a capability to an operation another group grants: they never grant the operation when no kind is asked (policy_allows)
+MESSAGING_ONLY_GROUPS = ("read-limited", "ask-mail", "interpret", "send-files")          # valid on a messaging app alone (the page and the MCP mode list `read`; the page and the terminal name a mail source with @<id> as they always did)
+KIND_ONLY = ("ask-mail", "interpret", "send-files")                           # groups that add a capability to an operation another group grants: they never grant the operation when no kind is asked (policy_allows)
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
@@ -697,6 +701,7 @@ GROUP_TEXT = {
     "mail-organize": "prepares changes to your mailbox (a draft, archive, a move to a folder, read state, the trash); each one waits for approval of its card, and nothing is sent or deleted for good",
     "interpret": "sends the plain lines no list takes to the interpreter's model service, which reads them in any language; retention: the route's terms (adds to talk, never grants it)",
     "read-files": "shows the text of the files in your configured Drive and OneDrive folders in the chat, found by their names; a messaging app's servers see it as they see any message, and no model reads it",
+    "send-files": "sends the found file itself to the chat, not only its text: the whole file leaves your drive for the messaging app's servers; one whose text looks like a password or a key is not sent (adds to read-files)",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

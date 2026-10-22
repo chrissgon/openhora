@@ -98,6 +98,11 @@ new card otherwise). Several such cards: one numbered list is sent (kind and tit
 the card. Anything else is not touched: the line goes on as it always did. A card on a platform with no buttons ends with `REPLY_WORDS_LINE` in place of "Send /approve 12".
 A table command typed on a phone (`/cancel 8`) is answered with a sentence in the project's language (`command_sentence`), never the operation's JSON.
 
+Words that change a card (S13, limits L63 and L64). A plain line that is not such a word is about the card that waits when that card is the LAST message sent to the chat (or the line replies to
+it): `revise_line`, after `word_line`, asks the operations layer (`card_revise_check`) what the line is for that card; the change itself (`card_revise`) runs in a job, because it calls a model,
+and ends in one sentence and the new card, which is the last message and is decided by the same words and buttons, or in one plain sentence with the old card still open. The old card is ended
+by the operations layer and its hash is never approvable again. A line that proves not to be a change goes on as it would have. Nothing is sent or written by this path.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -113,17 +118,21 @@ import traceback
 
 import card_words
 import greeting
+import messaging_ack as ack
 import messaging_attach as attach
 import messaging_cards as cards
 import messaging_failure as failure
+import messaging_file as sendfile
 import messaging_guard as guard
 import messaging_outcome as outcome
+import messaging_pending as pending_view
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
 import messaging_typing as indicator
 import natural
 import natural_time
+import phone_errors
 import phone_refusal
 import phrases
 import shell_kit
@@ -133,6 +142,7 @@ CARDS_PER_TICK = 10
 POLL_SECONDS = 25
 DEFERRED_LOG_EVERY = 86400.0   # seconds between two log lines about one deferred card
 RETRY_SECONDS = 5
+ACK_ONCE_SECONDS = 120.0       # a line acknowledged by one part of its job is not acknowledged again by the next part (S19)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DROPPED = "dropped an update from an unlisted sender"
 # The sentences a person reads are the phrase table's (runtime/phrases.py, package LR-1): these names keep the English text (a test, a card and the docs read
@@ -271,6 +281,7 @@ class Bridge(shell_kit.Jobs):
         self.policy_noted = set()
         self.everyone = list(self.projects)   # every project given; `self.projects` is the part that is ready to serve
         self.skipped = {}                     # project id -> why it is skipped now (absent: served)
+        self.config_told = set()              # (chat, configuration hash) already told that the configuration must be accepted (memory only; S12)
         self.deferred = {}                    # (project id, pending id, chat) -> when it was last logged as deferred
         self.deferred_chats = set()           # chats with a card kept for later: an update from one asks for a notice at once
         self.unread_waiting = {}              # chat -> how many skipped messages it has not been told of (memory only)
@@ -425,6 +436,26 @@ class Bridge(shell_kit.Jobs):
                 out.append(project)
         return out
 
+    def config_pending(self, update: dict, sender: str, chat: str) -> None:
+        """A sender whose line cannot be served because the project's configuration is not accepted is told so, once per chat and per hash of the file (S12): one plain sentence
+        in the project's language, with no hash, path or command (limit L62; those are in the terminal and in the log). The line is never acted on. Who is told is read from the
+        file itself (the senders it lists for this platform), the one read of an unaccepted file: the sentence says nothing of the project; a chat that is not the sender's own
+        private chat, an empty update and a sender no file lists are told nothing."""
+        if not (update.get("private") and chat == sender and ((update.get("text") or "").strip() or update.get("action") or update.get("attachments"))):
+            return
+        for project in self.everyone:
+            try:
+                found = self.ops.config(project["path"])
+            except self.ops.OpsError:
+                continue
+            listed = ((found.get("messaging") or {}).get("senders") or {}).get(self.platform) or []
+            key = (chat, found.get("sha256"))
+            if found.get("accepted") or sender not in listed or key in self.config_told:
+                continue
+            if self.reply(chat, self.t("CONFIG_PENDING", cfg={"language": found.get("language")}), project):
+                self.config_told.add(key)
+            return
+
     def listed_in(self, project: dict, sender: str) -> bool:
         """Whether the sender is listed for this very project: a card of one project is acted on only by its senders."""
         try:
@@ -462,16 +493,34 @@ class Bridge(shell_kit.Jobs):
         """What the net under the phone's sentences (messaging_guard) cut from a message: the kinds only, never the text."""
         self.log(f"a message carried {' and '.join(kinds)} of this machine; it was cut before it was sent")
 
-    def reply(self, chat: str, text: str, project=None, guard=False):
+    def reply(self, chat: str, text: str, project=None, guard=False, attachment=None):
         """Send a reply. True when every piece went out, False when a send failed (logged), None when the platform deferred it
         (it cannot take a message yet: not an error, not logged, and the caller may try again). `project` names the language of the line that says there is
-        no reply."""
+        no reply. `attachment` (S18) is the file the reply carries ({"name", "kind", "data"}): it goes with the last piece, from one temporary file removed when the send ends."""
         caps = self.messenger.capabilities()
         if text:
-            text = phone_refusal.plain(text, self.cfg(project, chat))      # S10: the operations layer's own refusal (a Refused or an OpsError a path above passes on) is one plain sentence on a phone: never "error:", a command or an operation's name; any other text is as it was
-        for piece in cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"]):
+            text = phone_errors.said(phone_refusal.plain(text, self.cfg(project, chat)), self.cfg(project, chat))      # S14: an `error: ` text of the operations layer is the language's sentence on a phone (phone_errors). S10: the operations layer's own refusal (a Refused or an OpsError a path above passes on) is one plain sentence on a phone: never "error:", a command or an operation's name; any other text is as it was
+        pieces = cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"])
+        for number, piece in enumerate(pieces, 1):
+            message = {"text": piece, "actions": [], "link": None, "document": None}
             try:
-                sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None}, guard)
+                if attachment is not None and number == len(pieces):
+                    try:
+                        sent = self.deliver_file(chat, message, attachment, guard)
+                        failed = getattr(sent, "document_failed", False)      # the text went out and the file did not (the provider says so)
+                    except provider.MessengerError as e:
+                        if e.kind == "usage":
+                            sent, failed = self.deliver(chat, message, guard), True      # the provider refused the file before it sent anything: the text goes alone
+                        elif e.kind == "timeout":
+                            self.log("a reply with a file ran over the time of the send")      # the text may have gone out already: it is NOT sent again (a second copy), and the person is told about the file
+                            sent, failed = None, True
+                        else:
+                            raise
+                    if failed:      # one plain sentence, never the platform's words
+                        said_last = self.deliver(chat, {"text": self.t("FS_NOT_SENT", project=project, chat=chat), "actions": [], "link": None, "document": None})
+                        sent = sent or said_last
+                else:
+                    sent = self.deliver(chat, message, guard)
                 self.last_message[chat] = str(sent) if sent else None
                 self.scope.replied = str(sent) if sent else None      # this thread's own last piece, for `note_asked`: the shared dict above can be changed meanwhile by another thread's send
             except provider.MessengerError as e:
@@ -480,6 +529,25 @@ class Bridge(shell_kit.Jobs):
                 self.log(f"a reply could not be sent ({e.kind})")
                 return False
         return True
+
+    def deliver_file(self, chat: str, message: dict, attachment: dict, guard_text: bool = False):
+        """`deliver` with a file: the bytes are written to one temporary file (messaging_file.staged), the message carries its path, and the file is gone when the send ends,
+        whatever the end. Nothing of the file is logged."""
+        with sendfile.staged(attachment) as entry:
+            return self.deliver(chat, dict(message, file=entry), guard_text)
+
+    def file_to_send(self, project: dict, chat: str, attachment):
+        """(file, why): the file a reply may carry NOW, and why not when it may not. The sender's profile in the configuration read at this moment must still hold `send-files` and
+        `read-files`, and the file must be within what the app takes (messaging_file.refusal). `why` is "" (it goes), "read" (the right to read files is gone: nothing that was found is
+        shown), "right" (the right to receive files is gone) or "limit" (the app cannot carry it)."""
+        if attachment is None:
+            return None, ""
+        try:
+            settings = self.settings(project)
+            why = "read" if settings is None else sendfile.refusal(self.ops.operations, settings["policy"], self.key(chat), attachment, sendfile.limits(self.messenger.capabilities()))
+        except Exception:      # noqa: BLE001 - a configuration or a provider that cannot be read sends no file
+            why = "limit"
+        return (attachment if not why else None), why
 
     def ask_yes(self, project: dict, chat: str, text: str) -> bool:
         """Send a question about a reminder with ONE button, "Yes" (NR-1), and bind it in the ledger (kind `reminder`; the ledger holds no text: the project, the chat, the
@@ -727,6 +795,7 @@ class Bridge(shell_kit.Jobs):
         listed = self.projects_for(sender) if update.get("private") and chat == sender else []
         if not listed:
             self.log(DROPPED)
+            self.config_pending(update, sender, chat)
             return
         if update.get("attachments") is not None:
             found = provider.valid_attachments(update["attachments"])
@@ -762,6 +831,8 @@ class Bridge(shell_kit.Jobs):
                 self.remind.discarded.add(chat)
         if kind in ("text", "natural", "reply") and self.word_line(update, intent, project, listed, sender, chat):
             pass          # an approve or a reject word decided a decision card, or listed the cards to choose from (S2, limit L64)
+        elif self.revise_line(update, intent, kind, project, listed, chat):
+            pass          # a change of the card that waits, said in words (S13, limit L64)
         elif kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands" and not self.greets(project, chat, intent["text"]):      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project), except from a sender who may talk, whose help line is a greeting (S5)
             self.reply(chat, self.t("HELP", project=project), project)
         elif kind in ("text", "natural") and self.attach.line(project, chat, intent.get("text") or ""):
@@ -897,6 +968,71 @@ class Bridge(shell_kit.Jobs):
         else:
             return self.word_act(newest[0], chat, newest[1], word["op"]) or False
         return True
+
+    # --- words that change a waiting card (S13, limits L55 and L64) -------------------------------------------------------------
+
+    def revise_line(self, update: dict, intent: dict, kind: str, project: dict, listed: list, chat: str) -> bool:
+        """A plain line that changes a word of the card that waits ("after Regards, put my name", "muda para as 10h"): True when it was taken. Which card: the one the line replies to
+        or, with no reply, the card that is the LAST message sent to this chat (`last_sent`), when it is a decision card of this chat sent whole, still open and unchanged (its hash
+        is the card's), in a project that lists the sender; a platform whose acts are replies (e-mail) is not touched. A line that is a word that decides a card went before (word_line);
+        a forwarded message never gets here. What the line is for that card is the operations layer's (`card_revise_check`): None goes on as it always did, a card of a write that cannot
+        be changed by words gets one sentence, and the change itself runs in a job (it calls a model) and ends in the new card or one plain sentence."""
+        text = intent.get("text") or ""
+        if (kind == "natural" and not (intent.get("op") == "write" and intent.get("write") == "event-change")) or kind not in ("text", "natural", "reply") or not text.strip() \
+                or text.lstrip().startswith("/") or ("forwarded" in update and update["forwarded"] is not False) or self.messenger.capabilities().get("actions_need_reply"):
+            return False
+        replied = update.get("reply_to")
+        shown = replied if isinstance(replied, str) and replied else self.last_sent.get(chat)
+        card = self.ledger.by_message(chat, shown) if shown else None
+        project = next((p for p in listed if card and p["id"] == card["project"]), None)
+        if card is None or project is None or card.get("kind") in NOT_DECISION or card.get("pending_id") is None or card.get("whole") is not True or card.get("chat") != chat:
+            return False
+        checker = getattr(self.ops, "card_revise_check", None)          # an operations object without it (a test's) has nothing to change
+        if checker is None:
+            return False
+        try:
+            item = self.ops.pending(project["path"], pending_id=card["pending_id"])
+            if cards.content_sha256(item) != card["content_sha256"] or (item.get("status", "open") != "open" and not (isinstance(replied, str) and replied)):
+                return False      # a card that is not open is asked about only when the line replies to it (the layer says whether a revision replaced it)
+            found = checker(project["path"], card["pending_id"], card["content_sha256"], text, channel=CHANNEL, sender=self.key(chat))
+        except self.ops.OpsError:
+            return False
+        if found == "sentence":
+            self.keep_cards(chat, self.t("RV_NOT_REVISABLE", project=project), project)
+            return True
+        if found == "replaced":
+            self.reply(chat, self.t("RV_REPLACED", project=project), project)
+            return True
+        if found is None:
+            return False
+        self.start(project, chat, "event-create", lambda: self.revise_now(project, chat, card, text, kind))          # the label of a row that takes no model slot: the model here is the daily route's
+        return True
+
+    def revise_now(self, project: dict, chat: str, card: dict, text: str, kind: str) -> None:
+        """The body of the job of `revise_line`: the change, then the new card (sent as every card is) after one sentence, or one plain sentence and the old card still open; a line
+        that proved not to be a change goes on as it would have (a write form to its family, any other line to the conversation)."""
+        shown = None
+        try:
+            try:
+                shown = indicator.Typing(self.messenger).begin(chat, text)
+            except Exception:      # never a lost reply
+                shown = None
+            result = self.ops.card_revise(project["path"], card["pending_id"], card["content_sha256"], text, channel=CHANNEL, sender=self.key(chat))
+        except self.ops.OpsError:
+            result = {"say": self.t("RV_FAILED", project=project), "resend": None}
+        finally:
+            if shown is not None:
+                shown.stop()
+        if result.get("pass"):
+            if kind == "natural":
+                self.write_now(project, chat, text)
+            else:
+                self.line(project, chat, text, None)()
+            return
+        if result.get("say"):
+            self.reply(chat, result["say"], project)
+        if result.get("resend") is not None and not self.resend(project, chat, result["resend"], force=True):          # the old card, sent once more after a sentence, is the last message again
+            self.reply(chat, self.t("NW_CARD_NOT_SENT", project=project, pending=result["resend"]), project)
 
     def word_reply(self, listed: list, chat: str, word: dict, replied) -> bool:
         """A word sent as a reply to a message: it decides THAT card when the message is a decision card of this chat (it need not be the last message: the reply names it)."""
@@ -1086,7 +1222,7 @@ class Bridge(shell_kit.Jobs):
         try:
             found = self.run_op(project, "pending", sender=chat)["pending"]
         except (Refused, self.ops.OpsError) as e:
-            self.reply(chat, str(e), project, guard=True)
+            self.oops(chat, e, project)
             return
         files = self.attach.waiting(project, chat)      # this sender's own files that wait for an answer and have a card in this chat (their profile permits `attachments`), else None
         if not found:
@@ -1102,8 +1238,8 @@ class Bridge(shell_kit.Jobs):
                 if files:
                     self.reply(chat, files, project)
                 return
-        words = lambda kind: phrases.kind_word(kind, settings)  # noqa: E731
-        self.reply(chat, f"{project['name']}: " + "\n".join(f"#{i['id']} {words(i['kind'])}: {phrases.heading(i['title'], settings)}" for i in found), project)
+        lines = [self.pending_line(project, i, settings) for i in found] + [pending_view.footer(found, self.messenger.capabilities(), settings)]
+        self.reply(chat, f"{project['name']}: " + "\n".join(line for line in lines if line), project)
         if files:
             self.reply(chat, files, project)
         try:
@@ -1111,13 +1247,28 @@ class Bridge(shell_kit.Jobs):
         except self.ops.OpsError as e:
             self.log(f"cards could not be sent ({e.__class__.__name__})")
 
+    def pending_line(self, project: dict, listed: dict, settings) -> str:
+        """One line of `/pending`: a question is said in plain words (messaging_pending: what it asks, or that the request was not understood), any other decision as its kind and its title."""
+        if listed["kind"] == "question" and (settings or {}).get("notices") == "text":      # what is asked is the project's text: a project whose notices carry none of it lists the question as it always did
+            try:
+                said = pending_view.line(self.ops.pending(project["path"], pending_id=listed["id"]), settings)
+            except self.ops.OpsError:
+                said = None
+            if said:
+                return said
+        return f"#{listed['id']} {phrases.kind_word(listed['kind'], settings)}: {phrases.heading(listed['title'], settings)}"
+
+    def oops(self, chat: str, error, project: dict) -> None:
+        """Say an error of the operations layer to the chat: its precise text on an English phone, the language's sentence on any other (phone_errors)."""
+        self.reply(chat, phone_errors.said(str(error), self.cfg(project, chat), failure=True), project, guard=True)
+
     def act(self, project: dict, chat: str, op: str, pending_id: int, card=None, note=None, text=None, typed_hash=None) -> None:
         """approve, reject, release or answer one decision, bound to the card the person saw."""
         try:
             card = card or self.ledger.last_card(project["id"], pending_id, chat)
             if card is not None and card.get("chat") != chat:      # never another chat's card
                 card = None
-            if op in ("answer", "reject", "release") and card is None:     # a decision is acted on from the card its sender was sent, as an approval is
+            if op in ("answer", "reject", "release") and card is None and not (op == "reject" and self.is_question(project, pending_id)):     # a decision is acted on from the card its sender was sent, as an approval is; a question is turned down with no hash and no effect (S14)
                 self.reply(chat, self.t("NO_CARD", project=project), project)
                 return
             if op == "answer":
@@ -1129,15 +1280,22 @@ class Bridge(shell_kit.Jobs):
                 self.approve(project, chat, item, card, typed_hash)
             elif op == "reject":
                 self.run_op(project, "reject", sender=chat, pending_id=pending_id, **({"note": note} if note else {}))
-                self.reply(chat, self.t("REJECTED", project=project, id=pending_id), project)
+                self.reply(chat, self.t("QUESTION_DISMISSED" if item["kind"] == "question" else "REJECTED", project=project, id=pending_id), project)
             else:
                 self.release(project, chat, pending_id)
         except Refused as e:
             self.reply(chat, str(e), project, guard=True)
         except self.ops.OpsError as e:
-            self.reply(chat, str(e), project, guard=True)
+            self.oops(chat, e, project)
             if op == "approve":
                 self.renew(project, chat, pending_id, card)
+
+    def is_question(self, project: dict, pending_id: int) -> bool:
+        """Whether the pending decision is a question, as it is now (S14: a question is turned down without the card it was asked on)."""
+        try:
+            return self.ops.pending(project["path"], pending_id=pending_id).get("kind") == "question"
+        except self.ops.OpsError:
+            return False
 
     def renew(self, project: dict, chat: str, pending_id: int, card) -> None:
         """After a refusal, the decision as it is now, when it changed since the card: a new card."""
@@ -1251,7 +1409,7 @@ class Bridge(shell_kit.Jobs):
             except Refused as e:
                 self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
-                self.reply(chat, self.t("RUN_BUSY", project=project) if type(e).__name__ == "RunBusy" else str(e), project, guard=True)
+                self.oops(chat, e, project) if type(e).__name__ != "RunBusy" else self.reply(chat, self.t("RUN_BUSY", project=project), project)
         self.start(project, chat, "release", call)
 
     def say(self, project: dict, chat: str, text: str) -> None:
@@ -1312,7 +1470,11 @@ class Bridge(shell_kit.Jobs):
             needed = seed["op"] if seed else self.needs(text, project, chat)
             if needed:
                 self.allow(project, needed, sender=chat)          # the operation's own group, never `talk`: the layer asks it again
-            result = self.ops.natural_write(project["path"], text, channel=CHANNEL, sender=self.key(chat), seed=seed)
+            acked = self.ack_begin(project, chat, text)      # S19: the card of a write may wait for a read or for the model that words an e-mail
+            try:
+                result = self.ops.natural_write(project["path"], text, channel=CHANNEL, sender=self.key(chat), seed=seed)
+            finally:
+                self.ack_end(acked)      # before anything is sent
         except Refused as e:
             self.reply(chat, self.t("ATT_SAVE_OFF", project=project) if needed == "file-save" else str(e), project, guard=True)          # a plain sentence for a save, never the name of an operation
             return False
@@ -1357,16 +1519,18 @@ class Bridge(shell_kit.Jobs):
                     if settings is None or chat not in settings["senders"]:
                         self.log(DROPPED)
                         return
-                shown = None
+                shown = acked = None
                 try:
                     try:
                         shown = indicator.Typing(self.messenger).begin(chat, text)      # S10: "typing..." while the reply is prepared, on a platform that has it
                     except Exception:      # never a lost reply
                         shown = None
-                    result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text)
+                    acked = self.ack_begin(project, chat, text)      # S19: one short sentence if the reply takes more than a moment
+                    result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text, **self.send_arguments())
                 finally:
                     if shown is not None:
                         shown.stop()      # before anything is sent: no call is made after this
+                    self.ack_end(acked)
                 raw = result.get("reply") or self.t("NO_REPLY", project=project)
                 said = self.command_sentence(project, text, raw)
                 converted = said is not raw      # a sentence made from a command's result carries a text of the operations layer (a held task's reason): it passes the net of `messaging_guard`
@@ -1377,7 +1541,14 @@ class Bridge(shell_kit.Jobs):
                 if not said:
                     return
                 self.scope.replied = None
-                if self.reply(chat, said, project, guard=converted) is True and result.get("pending_id") is not None:
+                attached, why = self.file_to_send(project, chat, result.get("attachment"))
+                if why == "read":      # the right to read files is gone since the search: neither the file nor the text found is sent, and the reply says that the right changed
+                    said = self.t("FS_RIGHT_CHANGED", project=project)
+                elif why == "right":      # the right to receive files is gone: the text that was found goes, the file stays home, and the reply says that the right changed
+                    said = said + "\n\n" + self.t("FS_RIGHT_CHANGED", project=project)
+                elif why:      # the app cannot carry the file now
+                    said = said + "\n\n" + self.t("FS_NOT_SENT", project=project)
+                if self.reply(chat, said, project, guard=converted, attachment=attached) is True and result.get("pending_id") is not None:
                     self.note_asked(project, chat, result["pending_id"], getattr(self.scope, "replied", None))      # the router's question reached this chat as the reply: its notice would be the same question twice
             except Refused as e:
                 self.reply(chat, str(e), project, guard=True)
@@ -1392,6 +1563,41 @@ class Bridge(shell_kit.Jobs):
                 else:
                     self.reply(chat, self.t("QUEUED", project=project), project)
         return call
+
+    def send_arguments(self) -> dict:
+        """What the app can carry as a file, for the call of `say` (S18): `{"can_send": limits}` when the provider declares `send_files`, else nothing (the call is the one it always was)."""
+        try:
+            found = sendfile.limits(self.messenger.capabilities())
+        except Exception:      # noqa: BLE001
+            found = None
+        return {"can_send": found} if found else {}
+
+    def ack_begin(self, project: dict, chat: str, text: str):
+        """S19: start the timer of the one acknowledgement of this line (runtime/messaging_ack.py), on the thread that runs it. None when this thread already has one (a write
+        that turns out to be a plain line calls `line` inside `write_now`: one line, one acknowledgement) and on any fault: never a lost reply."""
+        if getattr(self.scope, "ack", None) is not None:
+            return None
+        sent = getattr(self.scope, "ack_sent", None)
+        if sent is not None and sent[0] == (chat, text) and self.monotonic() - sent[1] < ACK_ONCE_SECONDS:
+            return None      # this very line has been acknowledged by the part of the job that ran first
+        try:
+            handle = ack.Ack(lambda to, stage: self.acknowledge(project, to, stage)).begin(chat, text)
+        except Exception:
+            return None
+        self.scope.ack = handle
+        return handle
+
+    def ack_end(self, handle) -> None:
+        """Stop the timer before the reply is sent: nothing starts after this (the reply never waits for an acknowledgement that is on its way)."""
+        if handle is not None:
+            handle.stop()
+            self.scope.ack = None
+            if handle.sent:
+                self.scope.ack_sent = ((handle.chat, handle.text), self.monotonic())
+
+    def acknowledge(self, project: dict, chat: str, stage) -> None:
+        """Send the acknowledgement for the stage the job had reached (`ACK_<STAGE>` of the phrase table, in the chat's language): the plain sentence, no model, no word of the person's."""
+        self.deliver(chat, {"text": self.t(ack.key(stage), project=project, chat=chat), "actions": [], "link": None, "document": None})
 
     def note_asked(self, project: dict, chat: str, pending_id: int, message_id=None) -> None:
         """The reply to a line was the router's question and it went out in `chat`: the ledger records that this decision, with this content, is in this chat
@@ -1434,14 +1640,14 @@ class Bridge(shell_kit.Jobs):
         found = natural.needs(text)
         return found if found is not None and CHANNEL in self.ops.operations.by_name(found)["channels"] else None
 
-    def resend(self, project: dict, chat: str, pending_id: int) -> bool:
+    def resend(self, project: dict, chat: str, pending_id: int, force: bool = False) -> bool:
         """Send the card of an open decision again to the chat that named it in words (NR-2): the same card, under the same rules, so the decision is
         made from it. True when the card is there for the sender: sent now, or sent less than RESEND_EVERY seconds ago (a line repeated is not a flood).
         False for a decision that is not open, or that the sender is not sent a card for."""
         key = (project["id"], chat, pending_id)
         now = self.monotonic()
         last = self.resent.get(key)
-        if last is not None and now - last < RESEND_EVERY:
+        if not force and last is not None and now - last < RESEND_EVERY:          # `force`: a card that a sentence of the change pushed up from the last place (S13) is sent whatever it was sent before
             return True
         try:
             item = self.ops.pending(project["path"], pending_id=pending_id)
@@ -1633,6 +1839,7 @@ class Bridge(shell_kit.Jobs):
             self.close_queue()
 
     def loop(self, stop: threading.Event, notice_every: float, poll: int = POLL_SECONDS) -> None:
+        sendfile.sweep()      # S18: a crash may have left the folder of a file that was being sent; the ones older than an hour are removed (this module's prefix, this user's, mode 0700)
         session = getattr(self.messenger, "session", None)
         if session is not None:
             return self.listen_loop(stop, notice_every, session, poll)

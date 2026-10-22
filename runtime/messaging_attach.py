@@ -340,6 +340,9 @@ class Attachments:
         bridge = self.bridge
         card = bridge.ledger.attachment_card(project["id"], number, chat)
         if card is None:
+            if word == "discard" and bridge.is_question(project, number):      # no file of that number: `/discard <n>` turns down the question of that number (S14)
+                bridge.act(project, chat, "reject", number)
+                return
             bridge.reply(chat, bridge.t("NO_CARD", project=project), project)
             return
         self.decide(project, chat, word, number, card)
