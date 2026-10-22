@@ -1357,11 +1357,16 @@ class Bridge(shell_kit.Jobs):
                     if settings is None or chat not in settings["senders"]:
                         self.log(DROPPED)
                         return
-                shown = indicator.Typing(self.messenger).begin(chat, text)      # S10: "typing..." while the reply is prepared, on a platform that has it
+                shown = None
                 try:
+                    try:
+                        shown = indicator.Typing(self.messenger).begin(chat, text)      # S10: "typing..." while the reply is prepared, on a platform that has it
+                    except Exception:      # never a lost reply
+                        shown = None
                     result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text)
                 finally:
-                    shown.stop()      # before anything is sent: the indicator never outlives the reply
+                    if shown is not None:
+                        shown.stop()      # before anything is sent: no call is made after this
                 raw = result.get("reply") or self.t("NO_REPLY", project=project)
                 said = self.command_sentence(project, text, raw)
                 converted = said is not raw      # a sentence made from a command's result carries a text of the operations layer (a held task's reason): it passes the net of `messaging_guard`

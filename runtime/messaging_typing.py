@@ -13,8 +13,8 @@ the reply is sent or after `LIMIT` seconds, whichever is first. Nothing else is 
     answer it, but a job that ends within `START_DELAY` seconds (a tier-1 form, a greeting: code answers in milliseconds) shows nothing and is not held up by it;
   - a platform that does not declare `typing`, and a messenger with no `typing` method, are not asked anything;
   - the calls are made on a thread of their own and every failure is ignored with no log (the text of a failure may hold a chat id): the indicator never delays and never
-    blocks the reply, and the reply is sent only after the thread has stopped (`stop` waits at most `JOIN_SECONDS` for a call that is in flight), so an indicator does not
-    outlive the message it announced.
+    blocks the reply. `stop` does not wait for the thread: it only sets a flag, and a call that was already in flight when the reply went out is the one late indicator the
+    platform clears by itself in a few seconds; no call is made after the flag is set.
 
 Standard library only. Runs on Python 3.9: python3 runtime/messaging_typing.py --help
 """
@@ -26,7 +26,6 @@ import threading
 START_DELAY = 0.5       # seconds a job runs before the first indicator: an answer of code is never announced
 INTERVAL = 4.0          # seconds between two indicators (Telegram shows one for about five)
 LIMIT = 60.0            # seconds after which the indicator is not asked again
-JOIN_SECONDS = 3.0      # the longest `stop` waits for a call in flight
 
 
 class Typing:
@@ -47,8 +46,11 @@ class Typing:
 
     def begin(self, chat, text):
         handle = _Handle(self, chat)
-        if self.wanted(text):
-            handle.start()
+        try:
+            if self.wanted(text):
+                handle.start()
+        except Exception:      # a thread that cannot start is no indicator: never a lost reply
+            handle.done.set()
         return handle
 
 
@@ -67,6 +69,8 @@ class _Handle:
             return
         waited = 0.0
         while True:
+            if self.done.is_set():      # a late start after stop is a no-op
+                return
             try:
                 self.owner.messenger.typing(self.chat)
             except Exception:      # silent: the indicator is a courtesy
@@ -79,8 +83,6 @@ class _Handle:
 
     def stop(self) -> None:
         self.done.set()
-        if self.thread is not None and self.thread is not threading.current_thread():
-            self.thread.join(JOIN_SECONDS)
 
 
 if __name__ == "__main__":

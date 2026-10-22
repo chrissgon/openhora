@@ -135,18 +135,29 @@ def _forms() -> dict:
     return _COMPILED
 
 
-SIGNATURE_STARTS = ("-- ", "enviado do meu", "sent from my", "enviado de", "get outlook for")
+SIGNATURE_STARTS = ("enviado do meu", "sent from my", "enviado de", "get outlook for")      # a phone's one-line signature: short, with no comma (a longer line is the sender's words)
+SIGNATURE_WORDS_MAX = 6
 QUOTE_HEADER = re.compile(r"(?:em|on)\s.*(?:escreveu|wrote)\s*:?", re.I)
+
+
+def _delimiter(line: str) -> bool:
+    """Whether a stripped line starts the signature block or the quoted history for good: the "--" delimiter, a quoted line, or a quote header."""
+    return line == "--" or line.startswith(("-- ", ">")) or bool(QUOTE_HEADER.fullmatch(line))
+
+
+def _phone_signature(line: str) -> bool:
+    return line.lower().startswith(SIGNATURE_STARTS) and len(line.split()) <= SIGNATURE_WORDS_MAX and "," not in line
 
 
 def _opens_tail(line: str) -> bool:
     """Whether a stripped line opens the signature or the quoted history of an e-mail reply."""
-    low = line.lower()
-    return line == "--" or line.startswith(">") or low.startswith(SIGNATURE_STARTS) or bool(QUOTE_HEADER.fullmatch(line))
+    return _delimiter(line) or _phone_signature(line)
 
 
 def reply_line(text):
-    """The first non-empty line of an e-mail reply, when everything after it is a signature or a quote; else "" (see the module's text)."""
+    """The first non-empty line of an e-mail reply, when everything after it is a signature or a quote; else "" (see the module's text). Every later non-empty line is
+    checked: a line that is not a signature or a quote (the sender's own words, even after a phone's one-line signature) makes the text more than one phrase; from a
+    delimiter ("--", a quote) on, the rest is the signature or the history and is not read."""
     if not isinstance(text, str):
         return ""
     first = None
@@ -157,8 +168,10 @@ def reply_line(text):
             if _opens_tail(line):
                 return ""
             first = line
-        else:
-            return first if _opens_tail(line) else ""
+        elif not _opens_tail(line):
+            return ""
+        elif _delimiter(line):
+            return first
     return first or ""
 
 

@@ -60,7 +60,8 @@ def test_a_quote_directly_under_the_word_is_ignored(world, text):
 
 
 @pytest.mark.parametrize("text", ["sim, mas muda o hor\u00e1rio\nEnviado do meu iPhone", "sim mas s\u00f3 amanh\u00e3\n> quoted card", "pode marcar amanh\u00e3 \u00e0s 3\n-- \nAna",
-                                  "sim\nmas muda o hor\u00e1rio", "sim\n\nAtenciosamente,\nAna", "sim\nn\u00e3o\nEnviado do meu iPhone"])
+                                  "sim\nmas muda o hor\u00e1rio", "sim\n\nAtenciosamente,\nAna", "sim\n\nEnviado do meu iPhone\nmas s\u00f3 depois que a Ana confirmar",
+                                  "n\u00e3o\n\nSent from my iPhone\nbut only after Ana confirms", "sim\nenviado de volta, n\u00e3o aprove", "sim\nn\u00e3o\nEnviado do meu iPhone"])
 def test_a_first_line_that_is_more_than_a_word_or_a_second_line_of_words_decides_nothing(world, text):
     shown = email(world)
     world.say(text, reply_to=shown)
@@ -99,7 +100,10 @@ def test_a_chat_app_decides_by_the_plain_word(world):      # the other half of t
 # --- the pure reading ----------------------------------------------------------------------------------------------------------------------------------
 
 
-READINGS = [("sim", "sim"), ("sim\n\nEnviado do meu iPhone", "sim"), ("sim\n> quoted", "sim"), ("sim, mas muda\nEnviado do meu iPhone", "sim, mas muda"), ("Enviado do meu iPhone", ""),
+READINGS = [("sim\n\nEnviado do meu iPhone\nmas s\u00f3 depois que a Ana confirmar", ""), ("n\u00e3o\n\nSent from my iPhone\nbut only after Ana confirms", ""),
+            ("sim\n\nEnviado do meu iPhone", "sim"), ("sim\nenviado de volta, n\u00e3o aprove", ""), ("sim\nEnviado do meu iPhone\n-- \nAna\nqualquer coisa", "sim"),
+            ("sim\nEnviado do meu iPhone\n> quoted words", "sim"), ("sim\nEnviado de Outlook para Android\nEnviado do meu iPhone", "sim"),
+            ("sim", "sim"), ("sim\n\nEnviado do meu iPhone", "sim"), ("sim\n> quoted", "sim"), ("sim, mas muda\nEnviado do meu iPhone", "sim, mas muda"), ("Enviado do meu iPhone", ""),
             ("", ""), ("sim\nmas muda", ""), ("\n  sim  \n-- \nAna", "sim"), ("-- \nsim", ""), ("> sim", "")]
 
 

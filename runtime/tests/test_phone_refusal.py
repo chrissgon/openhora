@@ -72,3 +72,10 @@ def test_ops_interpret_refusal_is_the_plain_sentence_and_its_fallback_has_no_err
     allowed = {"cfg": {"channels": {"messaging": ["read", "talk"]}}}
     again = ops_interpret._refusal(allowed, "pending", "telegram:1")      # the policy lets it through now: the interpreter asks again, as a sentence and not as an error
     assert again == phrases.text("IX_ASK_AGAIN", allowed["cfg"]) and not again.startswith("error")
+
+
+def test_a_place_where_it_is_done_is_not_told_as_a_permission():
+    for refused in ("/set-mode is done in the terminal or on the page", "/sync is done in the terminal", "/x is not done on this channel"):
+        assert phone_refusal.said(refused, "messaging", EN) == EN_ELSEWHERE, refused
+        assert phone_refusal.said(refused, "messaging", PT) == PT_ELSEWHERE
+        assert phone_refusal.said(refused, "page", EN) == "error: " + refused

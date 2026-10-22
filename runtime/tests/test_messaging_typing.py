@@ -149,3 +149,33 @@ def test_wanted_reads_the_line_and_the_capability():
     threads = threading.active_count()
     indicator.Typing(Fake()).begin("1", "/ask x").stop()
     assert threading.active_count() == threads      # a command starts no thread
+
+
+def test_stop_does_not_wait_for_a_call_in_flight_and_no_call_follows_it(world):
+    release, started = threading.Event(), threading.Event()
+
+    class Slow(Fake):
+        def typing(self, chat):
+            self.calls.append(chat)
+            started.set()
+            release.wait(5)
+    fake = Slow()
+    handle = indicator.Typing(fake, interval=0.05, limit=60, delay=0.0).begin("1", "hello")
+    assert started.wait(5)
+    began = time.monotonic()
+    handle.stop()
+    assert time.monotonic() - began < 0.5      # it did not join the call that is still running
+    release.set()
+    time.sleep(0.3)
+    assert len(fake.calls) == 1      # and nothing was asked after the stop
+
+
+def test_a_start_after_stop_is_a_no_op_and_a_begin_that_raises_loses_no_reply(world, monkeypatch):
+    fake = Fake()
+    handle = indicator.Typing(fake, interval=0.05, limit=60, delay=0.3).begin("1", "hello")
+    handle.stop()      # stopped during the start delay
+    time.sleep(0.5)
+    assert fake.calls == []
+    monkeypatch.setattr(indicator.Typing, "begin", lambda self, chat, text: (_ for _ in ()).throw(RuntimeError("boom")))
+    world.say("tell me about the shop")
+    assert wait_for(lambda: world.texts() == ["Noted."], 10)      # the reply went out all the same

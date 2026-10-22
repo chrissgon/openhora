@@ -39,7 +39,9 @@ def sentence(cfg=None) -> str:
 
 def said(refused: str, channel, cfg=None) -> str:
     """The reply of a refusal on `channel`: the plain sentence on a messaging app, `error: <refused>` on any other channel (the precise text is useful there)."""
-    return sentence(cfg) if channel == CHANNEL else f"error: {refused}"
+    if channel != CHANNEL:
+        return f"error: {refused}"
+    return plain(f"error: {refused}", cfg) if ELSEWHERE.fullmatch(str(refused)) else sentence(cfg)      # "is done in the terminal / not done on this channel": where it is done, not a permission
 
 
 def plain(text, cfg=None):
