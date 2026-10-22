@@ -55,7 +55,7 @@ ACTIVITIES = f"Atividades da semana\n\nSegunda: ensaio do coral.\nQuarta: visita
 LINE_1 = f"Me traga o conteudo do arquivo {WANTED}"
 LINE_2 = f'Leia o arquivo do meu onedrive com o nome "{WANTED}"'
 HEAD = f"{WANTED} (OneDrive, pasta default):\n\n"
-NONE = "Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas: default (Google Drive), contratos (Google Drive), default (OneDrive)."  # validate: allow english-only -- the Portuguese sentence or name under test
+NONE = "Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas e nas pastas dentro delas: default (Google Drive), contratos (Google Drive), default (OneDrive)."  # validate: allow english-only -- the Portuguese sentence or name under test
 REFUSAL = "error: /file-read is not enabled for this channel; the project's configuration (channels.messaging) turns it on"
 
 
@@ -131,7 +131,7 @@ def stored(world) -> list:
 
 def test_the_first_line_with_no_service_shows_the_text_of_the_file_found_in_the_configured_folders(drives):
     assert phone(drives, LINE_1) == HEAD + ACTIVITIES.strip()
-    assert sorted(drives["drives"].listed()) == [("google", "GDRIVEFOLDER0001"), ("google", "GDRIVEFOLDER0002"), ("microsoft", "/Documentos")]
+    assert sorted(drives["drives"].listed()) == [("google", "GDRIVEFOLDER0001"), ("google", "GDRIVEFOLDER0002"), ("google", "gsub000000000001"), ("microsoft", "/Documentos")]      # S17: the subfolder is walked too
     assert drives["drives"].reads() == [("microsoft", "drv1/it!1")]
 
 
@@ -157,9 +157,9 @@ def test_vacuity_a_search_that_also_listed_an_unconfigured_folder_would_be_seen(
     drives["drives"].folders[("microsoft", "/Documentos")] = []
     real = ops_file_read._search
 
-    def wrong(cfg, wanted, account=None):
+    def wrong(cfg, wanted, account=None, said=None):
         cfg = dict(cfg, accounts={**cfg["accounts"], "google": {**cfg["accounts"]["google"], "folders": {"default": "OUTSIDEFOLDER0001"}}})
-        return real(cfg, wanted, account)
+        return real(cfg, wanted, account, said)
     monkeypatch.setattr(ops_file_read, "_search", wrong)
     assert phone(drives, LINE_1) != NONE
     assert ("google", "OUTSIDEFOLDER0001") in drives["drives"].listed()
@@ -167,7 +167,7 @@ def test_vacuity_a_search_that_also_listed_an_unconfigured_folder_would_be_seen(
 
 def test_several_files_with_the_name_are_listed_as_a_numbered_list_and_nothing_is_read(drives):
     drives["drives"].folders[("google", "GDRIVEFOLDER0002")].append(item("gfile0000000003", WANTED))
-    assert phone(drives, LINE_1) == ("Encontrei 2 arquivos com esse nome. Qual deles? Diga o nome completo com a terminação e o Google Drive ou o OneDrive.\n"  # validate: allow english-only -- the Portuguese sentence or name under test
+    assert phone(drives, LINE_1) == ("Encontrei 2 arquivos que combinam. Qual deles? Diga o número, por exemplo \"o 2\".\n"  # validate: allow english-only -- the Portuguese sentence or name under test
                                       f"1. {WANTED} - pasta contratos, Google Drive\n2. {WANTED} - pasta default, OneDrive")
     assert drives["drives"].reads() == []
 
