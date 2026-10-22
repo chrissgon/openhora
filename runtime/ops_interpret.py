@@ -219,7 +219,7 @@ def _event_slots_fixed(obj: dict, line: str):
 
 def lenient(line: str, text, strict: dict, now, zone: str, allowed, frame=None) -> dict:
     """`strict`, the decision `decide` gave, or the decision for the line read as the event it describes (slice S16). Only a refused decision about an event to change or cancel is
-    read again: an op object whose `event` slot is not a number of the line (or, for a removal, that has a slot the operation lacks) is checked again without those slots; a model that
+    read again, and only when the line's leading verb names the same operation as the model's (`event_lookup.verb_op`): an op object whose `event` slot is not a number of the line (or, for a removal, that has a slot the operation lacks) is checked again without those slots; a model that
     only asks for the slot `event` gets the operation the line's leading verb names. The event is always found from the person's own words by code afterwards, never from the model's."""
     if strict.get("kind") != "clarify" or strict.get("why") not in ("invalid", "model"):
         return strict
@@ -227,6 +227,8 @@ def lenient(line: str, text, strict: dict, now, zone: str, allowed, frame=None) 
     if obj is None:
         return strict
     if obj.get("kind") == "op" and obj.get("op") in event_lookup.OPS:
+        if event_lookup.verb_op(line) != obj["op"]:
+            return strict          # the model's op is believed only when the line's own leading verb says the same: "do not remove ..." or "move ..." answered with a removal stays refused
         fixed = _event_slots_fixed(obj, line)
     elif obj.get("kind") == "clarify" and obj.get("slot") == "event" and (op := event_lookup.verb_op(line)) is not None:
         fixed = {"v": obj["v"], "kind": "op", "op": op, "slots": {}}

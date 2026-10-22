@@ -44,7 +44,7 @@ Events the platform created (slice S16). When no calendar source holds an event 
 platform created itself and has not removed since (runtime/event_created.py: the approved cards of this project's ledger and their documents), by the same rules: the window or the
 named day, the title as whole words of the line, the account a line names. Exactly one: the card opens through the family path with the reference `created:<card>`, the reference the
 calendar operations already take for an event the runtime made; the preparation of that card reads the event from the provider and pins its version, so an event deleted there is
-refused. Before it is named, each event that fits is read back once from the provider (`event_created.live`) and dropped when it is gone or no longer at the time the ledger says (a read
+refused. Before it is named, each event that fits (at most LIST_MAX of them for a line; the rest are only counted, and a count makes the answer a list) is read back once from the provider (`event_created.live`) and dropped when it is gone or no longer at the instants the ledger says (compared as absolute instants, never as wall times); a read that fails is one plain sentence (EV_CHECK_FAILED), never 'no calendar added' (a read
 of the event the platform wrote, covered by the right to read the calendar, contracts/runtime.md L52). Several: the same numbered list; a number said after it (`take`) opens the card
 of that entry. None, with no calendar source: one plain sentence (EV_NONE_NO_SOURCE) that only events created here can be found until a calendar is added.
 
@@ -375,9 +375,10 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
     if len(matches) > 1:
         return _text(ctx, "EV_LIST_AGAIN"), False
     source, op = matches[0][0], {"cancel": "event-cancel", "change": "event-change"}.get(form["verb"]) or record["op"]
-    if source == event_created.SOURCE:          # an entry of the list of events the platform created: its card number is what the list recorded; it must still be in the ledger
-        own = event_created.by_pending(ctx, int(matches[0][1])) if matches[0][1].isdigit() else None
-        if own is None:
+    if source == event_created.SOURCE:          # an entry of the list of events the platform created: the card number and the signature the list recorded; the entry must still be in the ledger and as shown
+        number, _, shown = matches[0][1].partition(":")
+        own = event_created.by_pending(ctx, int(number)) if number.isdigit() else None
+        if own is None or event_created.signature(own) != shown:
             return _text(ctx, "EV_LIST_AGAIN"), False
         bind = {"created": own["pending"], "account": own["account"]}
     elif not _fresh(ctx, sender, *matches[0]):
@@ -541,10 +542,15 @@ def verb_op(said: str):
 
 
 def _own(ctx: dict, text: str, kind: str, value, today: datetime.date, said: str, account) -> tuple:
-    """(the events the platform created that fit, the account that narrowed them): `_narrowed` over the ledger rows, each one read back from the provider before it is named
-    (event_created.live), so an event deleted or moved there is dropped. The rows are numbered 1, 2, ... in the order of their start: the number of the list `_list` shows."""
+    """(the events the platform created that fit, the account that narrowed them, how many fit beyond the cap, whether a read-back failed): `_narrowed` over the ledger rows (read
+    once), cut to LIST_MAX before any call to the provider, so a line reads at most that many events; each one is read back from the provider (event_created.live) and one that is gone
+    or at other instants is dropped. The rows are numbered 1, 2, ... in the order of their start: the number of the list `_list` shows, and they record the card number with a
+    signature of what was shown (`read_at`)."""
     fits, account = _narrowed(ctx, event_created.created(ctx), text, kind, value, today, said, account)
-    return [dict(r, n=i + 1, read_at=str(r["pending"])) for i, r in enumerate(r for r in fits if event_created.live(ctx, r))], account
+    extra, checked = max(0, len(fits) - LIST_MAX), fits[:LIST_MAX]
+    states = [event_created.live(ctx, r) for r in checked]
+    kept = [r for r, state in zip(checked, states) if state == "ok"]
+    return [dict(r, n=i + 1, read_at=f"{r['pending']}:{event_created.signature(r)}") for i, r in enumerate(kept)], account, extra, "error" in states
 
 
 def _none(ctx: dict, kind: str, problem, account) -> str:
@@ -585,13 +591,16 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
         refresh(project, ctx)          # a miss (nothing fits, or every snapshot is older than its limit): the calendar is read again ONCE for this line, then searched again
         rows, problem = events(ctx, sender)
         found, account = ([], account) if problem else _narrowed(ctx, rows, text, kind, value, now.date(), said, account)
+    extra = 0
     if not found:          # S16: no source holds it (or there is none): the events this platform created are searched, the same way
-        found, account = _own(ctx, text, kind, value, now.date(), said, named)
+        found, account, extra, failed = _own(ctx, text, kind, value, now.date(), said, named)
+        if failed:
+            return _text(ctx, "EV_CHECK_FAILED")          # a read-back failed: neither a card nor "not found" is true; nothing of the failure is said
     if not found:
         return _none(ctx, kind, problem, account)
-    if len(found) > 1:
+    if len(found) > 1 or extra:
         remember_list(ctx, sender, op, found, time_["local"] if op == "event-change" and time_ else None)
-        return _list(ctx, op, found)
+        return _list(ctx, op, found) + (("\n" + _text(ctx, "EV_MORE", k=extra)) if extra else "")
     slots = {"event": found[0]["n"], "source": found[0]["source"]}
     if found[0]["source"] == event_created.SOURCE:          # a card number, not a place in a snapshot: the reference `created:<card>` (runtime/ops_natural_calendar.py)
         slots = {"created": found[0]["pending"], "account": found[0]["account"]}

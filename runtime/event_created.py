@@ -12,10 +12,14 @@ the document itself (runtime/effect_calendar.py) holds the event as it was appro
 
   created(ctx)                  [row] for each event an approved create made, newest state: a later approved change of that event replaces its times and title, a later approved removal
                                 takes it out. A row is {"source": "created", "pending": the card that created it, "account", "calendar", "calendar_id", "event_id", "title", "start",
-                                "end" (wall times, `YYYY-MM-DDTHH:MM` or a day), "day": the date, "time": "13:00-14:00" or "all day", "all_day"}. Rows are in the order of their start.
-  by_pending(ctx, pending)      the row of one create card, or None (removed since, or no such card)
-  live(ctx, row)                True only when the provider still holds the event, at the times the ledger says: the read the card's own preparation makes (`CalendarReader.event_get`), made
-                                once more here so that a moved or deleted event is dropped from the search instead of being named. Any failure is False.
+                                "end" (wall times of THIS machine's zone, `YYYY-MM-DDTHH:MM`, or days), "start_at" and "end_at" (the instants as approved), "day": the date, "time": "13:00-14:00" or "all day",
+                                "all_day"}. The wall times and the day are computed from the instants in the machine's zone now, so a zone that changed since the card was approved moves
+                                neither the day the event is searched on nor the comparison with the provider. Rows are in the order of their start.
+  by_pending(ctx, pending, rows=None)   the row of one create card, or None (removed since, or no such card); `rows` is a `created` the caller has already read
+  signature(row)                a short hash of the title and the instants of a row: what a list of events records to know, later, that an entry is still the one it showed
+  live(ctx, row)                "ok" when the provider still holds the event at the instants the ledger says (compared as absolute instants, never as wall times), "gone" when it does not
+                                hold it or holds it at other instants, "error" when the read could not be made (a failure of the provider or of the account). The read is the one the card's own
+                                preparation makes (`CalendarReader.event_get`), made once more here so that a moved or deleted event is dropped from the search instead of being named.
 
 Reading the event back by its id, for an event the platform wrote, is a read the right to read the calendar covers (contracts/runtime.md, limit L52); the card that follows reads it again
 and pins its version (L56), so nothing here decides what is written. Privacy (L63): titles of the person's own calendar are returned to the caller and never logged, printed or kept here.
@@ -24,10 +28,11 @@ Standard library only. Runs on Python 3.9: python3 runtime/event_created.py --he
 from __future__ import annotations
 
 import datetime
+import hashlib
 import importlib
 import sys
 
-SOURCE = "created"          # the `source` word of a row (not a source id: the registry's ids are never this word followed by a number)
+SOURCE = "@created"         # the `source` word of a row: it starts with a character no source id can start with (sources.SOURCE_ID), so no registered source is mistaken for it
 SCAN_MAX = 2000             # decisions read, newest first: the ledger of a long-lived project is not walked for ever
 
 
@@ -46,7 +51,11 @@ def _document(ctx: dict, item: dict):
 
 def _row(pending: int, doc: dict) -> dict:
     event = doc["event"]
+    document = importlib.import_module("calendar_document")
     first, last = event["start"], event["end"]
+    if not event["all_day"]:          # the wall times of the machine's zone NOW, from the instants: the document's own wall times are those of the zone it was approved in
+        first = document._wall_of(document.parse_instant(event["start_at"])).strftime("%Y-%m-%dT%H:%M")
+        last = document._wall_of(document.parse_instant(event["end_at"])).strftime("%Y-%m-%dT%H:%M")
     day = datetime.date.fromisoformat(first[:10])
     if event["all_day"]:
         shown = "all day"
@@ -55,7 +64,7 @@ def _row(pending: int, doc: dict) -> dict:
     else:
         shown = f"{first[11:16]}-{last[11:16]} ({last[:10]})"
     return {"source": SOURCE, "pending": pending, "account": doc["account"], "calendar": doc["calendar"], "calendar_id": doc["calendar_id"], "event_id": doc["event_id"],
-            "title": event["title"], "start": first, "end": last, "day": day, "time": shown, "all_day": event["all_day"]}
+            "title": event["title"], "start": first, "end": last, "start_at": event["start_at"], "end_at": event["end_at"], "day": day, "time": shown, "all_day": event["all_day"]}
 
 
 def _effects(ctx: dict) -> list:
@@ -101,26 +110,40 @@ def created(ctx: dict) -> list:
     return sorted(kept.values(), key=lambda r: (r["start"], r["pending"]))
 
 
-def by_pending(ctx: dict, pending) -> "dict | None":
-    return next((r for r in created(ctx) if r["pending"] == pending), None)
+def by_pending(ctx: dict, pending, rows=None) -> "dict | None":
+    return next((r for r in (created(ctx) if rows is None else rows) if r["pending"] == pending), None)
 
 
-def live(ctx: dict, row: dict) -> bool:
-    """Whether the provider holds the event at the times of the row (see the module's text)."""
+def _instants(row: dict) -> tuple:
+    """The start and the end of a row as comparable values: aware datetimes for a timed event, the day strings for an all-day one."""
+    if row["all_day"]:
+        return (row["start_at"], row["end_at"])
+    document = importlib.import_module("calendar_document")
+    return (document.parse_instant(row["start_at"]), document.parse_instant(row["end_at"]))
+
+
+def signature(row: dict) -> str:
+    """12 hex digits of a hash of the title and the instants of the row (no text is kept by a list: only this)."""
+    start, end = (str(x.astimezone(datetime.timezone.utc)) if hasattr(x, "astimezone") else x for x in _instants(row))
+    return hashlib.sha256("\n".join((row["title"], start, end)).encode("utf-8")).hexdigest()[:12]
+
+
+def live(ctx: dict, row: dict) -> str:
+    """"ok", "gone" or "error" (see the module's text)."""
     try:
         seams = _seams()
         reader = seams.CalendarReader(ctx)
         if not reader.enabled(row["account"]):
-            return False
+            return "gone"
         got = reader.event_get(row["account"], row["calendar_id"], row["event_id"])
         raw = got.get("event") if isinstance(got, dict) and got.get("found") is True else None
         if raw is None:
-            return False
-        document = importlib.import_module("calendar_document")
-        event = document.from_service(raw)
-        return (event["start"], event["end"], event["all_day"]) == (row["start"], row["end"], row["all_day"])
-    except Exception:      # noqa: BLE001 - no read, no event: the search drops it and says nothing of the fault
-        return False
+            return "gone"
+        event = importlib.import_module("calendar_document").from_service(raw)
+        same = event["all_day"] == row["all_day"] and _instants(dict(row, start_at=event["start_at"], end_at=event["end_at"])) == _instants(row)
+        return "ok" if same else "gone"
+    except Exception:      # noqa: BLE001 - no read, no event: nothing of the fault is kept (it can hold a provider's words)
+        return "error"
 
 
 if __name__ == "__main__":
