@@ -682,10 +682,10 @@ def _plan_line(task: dict, cfg, channel) -> str:
 
 def _close_by_code(ctx: dict, request_id: int, by: str) -> None:
     """Cancel a request that code answered itself (`by` starts with `code:`) and mark it, so that the router's memory does not read it as a settled exchange (S4)."""
-    close_request(ctx, request_id, by)
+    _close_request(ctx, request_id, by)
 
 
-def close_request(ctx: dict, request_id: int, by: str) -> dict:
+def _close_request(ctx: dict, request_id: int, by: str) -> dict:
     """The cancel of `_close_by_code` for any label (the person who dismissed a question is `by`, S14): the store's answer, {"request", "cancelled", "pending", ...}."""
     import ops_cancel      # at call time, like the other operations this sibling reaches
     done = core._stored(ctx, ops_cancel.request_cancel, request_id, by=by, context=ctx)

@@ -40,7 +40,7 @@ def dismiss(ctx: dict, item: dict, channel=None, sender=None) -> dict:
         raise core.OpsError(f"question {item['id']} was not dismissed: its request still has other decisions open", 1)
     ops_cancel, ops_say, ops_flows = (importlib.import_module(n) for n in ("ops_cancel", "ops_say", "ops_flows"))
     profile = ops_actor.profile_of(ctx["cfg"], sender) if channel == ops_actor.MESSAGING and sender else None
-    done = ops_say.close_request(ctx, request_id, ops_cancel._who("user", channel, profile))
+    done = ops_say._close_request(ctx, request_id, ops_cancel._who("user", channel, profile))
     ops_flows.discard_staged(ctx, request_id)
     return {"pending_id": item["id"], "kind": "question", "resolution": "dismissed", "request": request_id,
             "cancelled": done.get("cancelled", []), "pending": done.get("pending", [])}
