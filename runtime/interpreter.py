@@ -564,6 +564,26 @@ def _hour_without_day_is_asked(hits: list) -> bool:
     return not any(h.get("s0", h["s"]) > h["s"] for h in hits)
 
 
+HOUR_OWN_CONNECTORS = ("at", "as")          # folded: the connector a bare-hour phrase holds as its own first word ("at 12", "as 12")
+NOON_PHRASES = (("meio", "dia"), ("meia", "noite"), ("noon",), ("midnight",))          # folded: the phrases that name an hour with no digit
+NOON_CONNECTORS = ("a", "ao")          # folded: the article-preposition just before one of them ("a meia-noite", "ao meio-dia")
+
+
+def _connector_beside_hour(found: dict) -> bool:
+    """Whether the connector that introduces the hour is part of its phrase, so that `_hour_without_day_is_asked` (which sees a connector only where `natural_time._extend` took it into
+    the phrase) must not ask: the first word of a bare-hour phrase ("at 12", "as 12"), or the word just before a noon or midnight phrase ("ao meio-dia", "a meia-noite"). A connector
+    before an hour written in digits ("a 15h", "um 15 Uhr", "alle 15") is not enough, and a day word beside the phrase is still caught by `_unread_day`."""
+    norm = found["norm"]
+    for h in found["hits"]:
+        words = re.findall(r"[a-z0-9]+", norm[h["s"]:h["e"]])
+        if words and words[0] in HOUR_OWN_CONNECTORS:
+            return True
+        before = re.findall(r"[a-z0-9]+", norm[:h["s"]])
+        if before and before[-1] in NOON_CONNECTORS and any(tuple(words[:len(phrase)]) == phrase for phrase in NOON_PHRASES):
+            return True
+    return False
+
+
 def _unread_day(found: dict, dated: bool) -> bool:
     """Whether the line holds, outside its time phrases, a word or a number that may name a day code did not read: a weekday, a month or a relative-day word of `interpreter_day_words.json`, a German
     two-letter weekday with its period, or a day written as numbers ("29/10"); and, when code read an hour only (`dated` is False), also a length of days ("en dos dias", "dans 2 jours") or a whole
@@ -602,7 +622,7 @@ def _classify(span: str, line: str, now_local):
     if not reading.get("dated") and nt.leftover_doubt(found, None, tables, unknown=True):
         if not _known_outside(found):
             return "model", reading          # code read an hour only, the line holds words no table has and none that a table does (a language without tables): the model's date, the code's hour
-        if _hour_without_day_is_asked(hits):
+        if _hour_without_day_is_asked(hits) and not _connector_beside_hour(found):
             return "ask", None          # an hour with no day, no trigger word of a table beside it and words no table has ("el jueves a las 15:00 en el calendario"): code never takes the clock's own day for a day the line may name
     if _unread_day(found, bool(reading.get("dated"))):
         return "ask", None          # a word or a number that may name a day stands outside the time code read ("jueves at 15:00", "the 29 at 3pm", "tomorrow at 3pm el jueves"): a trigger word does not make it one language
