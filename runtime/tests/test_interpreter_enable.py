@@ -37,7 +37,8 @@ FIRST = dict(HASHES, catalog_sha256="a43735d2073b926d34e3deefc0c8a8791b729fbe760
 LANGUAGES = ["pt-BR", "en", "es", "fr", "de", "it"]
 S8_STATUS_LINE = "enabled by maintainer decision 2026-10-21 (S8: file-read added to the catalog), below the gate"
 COMPOSE_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt pinned)"      # the entry of slice S7
-STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt re-pinned 2026-10-22)"      # the newest entry (slice S12)
+S12_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt re-pinned 2026-10-22)"      # the entry of slice S12
+STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned)"      # the newest entry (slice S13)
 
 
 def status_module():
@@ -75,8 +76,11 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert {key: entry[key] for key in HASHES} == HASHES      # the newest names every hash of this checkout
     assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-22" and entry["route"] == ROUTE
     assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
-    assert doc["entries"][-2]["status_line"] == COMPOSE_STATUS_LINE and doc["entries"][-2]["date"] == "2026-10-21" and doc["entries"][-2]["compose_prompt_sha256"] != entry["compose_prompt_sha256"]
-    assert doc["entries"][-3]["status_line"] == S8_STATUS_LINE and "compose_prompt_sha256" not in doc["entries"][-3] and "compose_prompt_sha256" in entry
+    by_line = {e["status_line"]: e for e in doc["entries"]}
+    assert "compose_prompt_sha256" not in by_line[S8_STATUS_LINE], "the entry of S8 pins no compose prompt"
+    assert by_line[COMPOSE_STATUS_LINE]["date"] == "2026-10-21" and by_line[COMPOSE_STATUS_LINE]["compose_prompt_sha256"] == "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf" and "revise_prompt_sha256" not in by_line[COMPOSE_STATUS_LINE]
+    assert by_line[S12_STATUS_LINE]["date"] == "2026-10-22" and by_line[S12_STATUS_LINE]["compose_prompt_sha256"] != by_line[COMPOSE_STATUS_LINE]["compose_prompt_sha256"] and "revise_prompt_sha256" not in by_line[S12_STATUS_LINE]
+    assert entry["compose_prompt_sha256"] == by_line[S12_STATUS_LINE]["compose_prompt_sha256"] and "revise_prompt_sha256" in entry, "the newest carries the compose pin of S12 and the revise pin of S13"
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():
