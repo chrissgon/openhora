@@ -100,7 +100,12 @@ TABLE = [
     ("de", "versuch Aufgabe 5 noch einmal", op("retry", {"id": "5"}), "RUN-REPLY", {"run": "retry", "args": {"task_id": 5}, "when": None, "routed": True}),
     ("en", "plan a three-day workshop for the new hires", '{"v":1,"kind":"route"}', "ROUTED", {"routed": "plan a three-day workshop for the new hires"}),
     ("pt-BR", "obrigado, era so isso", '{"v":1,"kind":"none"}', "I did not see a request in that message.", None),      # validate: allow english-only -- the Portuguese line or sentence under test
-    ("es", "aprueba el plan", op("approve"), "A decision is made on its card: use the buttons of the card.", None),
+    ("es", "aprueba el plan", op("approve"), "Which decision? Say its number in the same line.", None),      # S20: a decision is named by the one number written in the line
+    ("es", "rechaza la pregunta 25", op("reject"), "RUN-REPLY", {"run": "reject", "args": {"pending_id": 25}, "when": None, "routed": True}),
+    ("fr", "libere la livraison 7", op("release"), "RUN-REPLY", {"run": "release", "args": {"pending_id": 7}, "when": None, "routed": True}),
+    ("de", "genehmige Entscheidung 31", op("approve"), "RUN-REPLY", {"run": "approve", "args": {"pending_id": 31}, "when": None, "routed": True}),
+    ("it", "respingi le richieste 3 e 4", op("reject"), "Which decision? Say its number in the same line.", None),
+    ("en", "answer question 9 with yes", op("answer"), "A question is answered by replying to it: write your answer.", None),
     ("fr", "lance un tour du dispatcher", op("dispatch"), "That is not done from a message. Do it on the platform's page.", None),
     ("it", "metti la cosa nel calendario", '{"v":1,"kind":"clarify","ops":["event-create","remind"]}', ONCE, None),
     ("de", "schreib an Ana wegen der Rechnung", '{"v":1,"kind":"clarify","slot":"to"}', ONCE, None),

@@ -163,6 +163,9 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     line (`<platform>:<sender id>`, operations.sender_key): a command in it is checked against THAT sender's profile and done as that sender.
     `can_send` (S18) is what the messaging bridge says its app can carry as a file (the provider's capabilities: ops_file_read._limits); only the bridge passes it, and only a messaging
     call keeps it. A reply that carries a file hands it back in "attachment" ({"name", "kind", "data"}: bytes in memory, for the bridge to send and drop; never stored).
+    A plain line on a messaging app that stands for a typed command (slice S20: "rejeite a pergunta 25" is `/reject 25`) hands the typed line back in "typed": for a command the
+    messaging bridge answers itself (`/pending`, `/reject`, `/release`, `/add`, `/discard`) the reply is empty and the bridge does what it does for the typed line; for a command
+    the table answers (`/cancel`, `/stop-task`, `/retry`, `/attachments`) the reply is the command's own, and "typed" lets the bridge say it as it says the typed one.
     Returns {"reply", "request_id", "pending_id", "ran", "queued"}."""
     channel = channel or "chat"
     ops_actor.require(channel, sender)
@@ -198,6 +201,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
                  text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=extras.get("task_id", request_id), run_id=extras.get("run_id", run_id))
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
             **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {}),
+            **({"typed": extras["typed"]} if channel == "messaging" and "typed" in extras else {}),
             **({"attachment": extras["attachment"]} if channel == "messaging" and "attachment" in extras else {})}
 
 

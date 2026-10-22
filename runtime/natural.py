@@ -1227,6 +1227,15 @@ def _numbers(line: str) -> set:
     return {int(n) for n in re.findall(r"[0-9]+", unicodedata.normalize("NFKC", line)) if len(n) <= 9}
 
 
+def decision_numbers(said: str) -> list:
+    """The numbers of a line that can name a decision (slice S20): a whole word of digits ("25", "#25"), with its edge marks off, in a line that holds no date or time. A number glued
+    to a letter or a mark ("25h", "12:30", "10/25", "2026-10-22") is a time or a date, never a decision, and so is every number of a line that says a date or a time ("rejeite 25 de outubro")."""
+    if nt.find(said)["hits"]:
+        return []
+    words = (word.strip(".,;:!?()[]\"'") for word in unicodedata.normalize("NFKC", said).split())
+    return [int(word.lstrip("#")) for word in words if re.fullmatch(r"#?[0-9]{1,9}", word)]
+
+
 def check_operation(name, slots: dict, when, line) -> dict:
     """Whether the router's `Operation:` outcome can be believed against the person's line, by code only: {"ok": True, "name", "args": {parameter:
     value}, "when": the normalised time or None} or {"ok": False, "why"}. `slots` is {slot: words} from the `Argument <slot>:` lines. The name must be

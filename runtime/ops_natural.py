@@ -16,6 +16,10 @@ fixed (contracts/runtime.md, "Natural requests", limit L54):
      router chose it (below); W runs nothing (the reply is the exact command to send); D decides nothing (the reply points to the card, which the messaging
      bridge sends again); E and G run nothing (the reply is the exact operation or command and the place: an E operation ends in a card the person approves);
      `ask` is called with the person's WHOLE line.
+     On a messaging app (slice S20) a command with a typed form is run BY that typed form, so that the words and the line `/cancel 9` have the same policy check, the same
+     refusals and the same effect: the commands the table answers (`/cancel`, `/stop-task`, `/retry`, `/attachments`) are called here as `ops_say._say_command` calls them, and
+     the ones the messaging bridge answers itself (`/pending`, `/reject`, `/release`, `/add`, `/discard`) are handed to the bridge as `extras["typed"]`, the typed line, which
+     it handles as if the person had typed it. A decision is the exception on the side of the effect: `approve` is never run from words, its card is sent again (below).
   4. Every argument is a number written in the line, a piece of it, a span of it or, for a time, the router's `When:` slot, which no code can check
      against the line: an operation that receives one is NEVER executed at once.
 
@@ -58,6 +62,13 @@ FIELD_MAX = 120              # characters of one value in a row
 monotonic = time.monotonic   # the clock of a question's age (a test replaces it)
 BRIDGE_FORMS = {"attachment-add": "/add {attachment_id}", "attachment-discard": "/discard {attachment_id}"}   # the commands a messaging app has for these
 PATH = re.compile(r"(?:^|[\s'\"(])(?:/[\w.-]+/|~/|[A-Za-z]:\\)[^\s]*")      # a path of this machine, not a typed command such as /approve 12
+# S20: the typed command of an operation on a messaging app: (the line, the parameter that fills it or None, whether the messaging bridge answers it itself). The line is the typed
+# one; an operation here is run BY it (`_typed`), never by a second path, so that the words and the line have one policy check, one set of refusals and one effect.
+TYPED = {"pending": ("/pending", None, True), "attachments": ("/attachments", None, False), "progress": ("/progress", None, False),
+         "cancel": ("/cancel {n}", "request_id", False), "stop-task": ("/stop-task {n}", "task_id", False), "retry": ("/retry {n}", "task_id", False),
+         "attachment-add": ("/add {n}", "attachment_id", True), "attachment-discard": ("/discard {n}", "attachment_id", True),
+         "reject": ("/reject {n}", "pending_id", True), "release": ("/release {n}", "pending_id", True)}
+ROUTINE_BRAKES = {"routine-pause": "CMD_ROUTINE_PAUSED", "routine-cancel": "CMD_ROUTINE_CANCELLED"}      # S20: no typed form on a phone; the call is the operation's own, after the same policy check
 
 
 def _ops():
@@ -291,6 +302,10 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         refused = operations.refusal("pending", where, policy, sender=sender)
         if refused:
             return phone_refusal.said(refused, channel, cfg)
+    if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here
+        done = _typed(project, ctx, name, args, sender, extras, row)
+        if done is not None:
+            return done
     if name == "file-read":      # S8: the text of a file found by its name; code writes the reply and the conversation keeps a neutral word (runtime/ops_file_read.py)
         return importlib.import_module("ops_file_read").reply(project, ctx, args, said, channel, sender, extras)
     if cls == "R":
@@ -560,11 +575,61 @@ def _complete(project: str, ctx: dict, draft: dict, answer, said: str, channel, 
 # --- D: decisions, W: writes, G: gated ---------------------------------------------------------------------------------------------------------
 
 
+def hand_over(project: str, ctx: dict, line: str, by_bridge: bool, sender, extras: dict) -> str:
+    """S20: the typed line a command in words stands for, run as the person's typed line is. `extras["typed"]` carries it to the bridge, which answers it as it answers
+    the typed line (`command_sentence` for a table command; the bridge's own handling of `/pending`, `/reject`, `/release`, `/add` and `/discard`). A command the table answers is
+    called here exactly as `ops_say._say_command` calls it (its policy check, its refusal, its effect) and its reply is returned; one the bridge answers itself returns no reply
+    and the bridge does the rest. The conversation keeps the typed line as the reply it stores for the second kind (a command and a number, nothing the person wrote)."""
+    extras["typed"] = line
+    if by_bridge:
+        extras["stored"] = line
+        return ""
+    return _say()._say_command(project, ctx, line, "messaging", None, sender)[0]
+
+
+def _typed(project: str, ctx: dict, name: str, args: dict, sender, extras: dict, row: dict):
+    """The reply of a command that has a typed form (TYPED) or a routine's brake, on a messaging app; None for any other operation or a read that carries an argument the
+    typed command has no word for (`/pending 5` is the list on a phone; "pending decision 5 whole" is the read)."""
+    cfg = ctx["cfg"]
+    if name in ROUTINE_BRAKES:
+        number = args.get("routine_id")
+        if number is None:
+            return phrases.text("NAT_ASK_ID", cfg)
+        try:
+            _call(project, row, {"routine_id": number}, "messaging", sender)
+        except core.OpsError as e:
+            return _error(cfg, e, "messaging")
+        return phrases.text(ROUTINE_BRAKES[name], cfg, n=number)
+    found = TYPED.get(name)
+    if found is None:
+        return None
+    template, parameter, by_bridge = found
+    if parameter is None:
+        return _stored_apart(hand_over(project, ctx, template, by_bridge, sender, extras), cfg, row, by_bridge, extras) if not args else None
+    number = args.get(parameter)
+    if number is None:
+        return phrases.text("NAT_ASK_ID", cfg)
+    return _stored_apart(hand_over(project, ctx, template.format(n=number), by_bridge, sender, extras), cfg, row, by_bridge, extras)
+
+
+def _stored_apart(reply: str, cfg: dict, row: dict, by_bridge: bool, extras: dict) -> str:
+    """The reply of a command the table answered, with the conversation keeping a neutral word when the MCP mode, which reads the conversation, is not a channel of the operation's row
+    (limits L50 and L51: the list of the files people sent is shown where it was asked, as when it was asked by a read in words)."""
+    if not by_bridge and "mcp" not in row["channels"]:
+        extras["stored"] = phrases.text("NAT_READ_REPLY", cfg)
+    return reply
+
+
 def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, extras: dict) -> str:
+    """A decision named in words. `approve` is never made from words: on a messaging app the decision's card is sent again (S20: the sentence says so, and that the card is approved
+    with its button or by the word that follows it); `reject` and `release` (the safe direction: nothing is sent, written or spent) are run by their typed lines (`hand_over`), so that
+    the card the person was sent, the policy and the refusals are the typed command's own. A number that is not an open decision gets the one sentence NAT_NO_DECISION."""
     cfg = ctx["cfg"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     number = args.get("pending_id")
     command = _command(ctx, name, args, channel, channel)
+    if number is None and channel == "messaging" and name in ("approve", "reject", "release"):
+        return t("NAT_WHICH_DECISION")
     if number is None or name == "go-ahead":
         return t("NAT_DECISION_TYPED", command=command) if command else phone_sentence(ctx, name)
     try:
@@ -574,6 +639,8 @@ def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, e
     if item is None or item.get("status", "open") != "open":
         return t("NAT_NO_DECISION", id=number)      # the same sentence for one that does not exist and one that is closed: a sender learns nothing of another's decisions
     if channel == "messaging":
+        if name in ("reject", "release"):
+            return hand_over(project, ctx, TYPED[name][0].format(n=number), True, sender, extras)
         extras["resend"] = number      # the bridge sends the decision's card again, to this chat, under the rules of any card; it says so only when it did
         return t("NAT_DECISION_CARD", id=number)
     return t("NAT_DECISION_TYPED", command=command)

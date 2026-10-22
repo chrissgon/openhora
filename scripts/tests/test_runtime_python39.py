@@ -48,8 +48,8 @@ ON_SYSTEM_PYTHON = [
     # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.
     "runtime/messaging.py", "runtime/messaging_bridge.py", "runtime/messaging_cards.py", "runtime/messaging_inbound.py",
     "runtime/messaging_ledger.py", "runtime/messaging_provider.py", "runtime/messaging_guard.py", "runtime/messaging_outcome.py", "runtime/messaging_failure.py",
-    # The words that decide a decision card (S2, limit L64) and the greeting forms (S5): pure readings of one line, read by the bridge.
-    "runtime/card_words.py", "runtime/greeting.py",
+    # The words that decide a decision card (S2, limit L64), the greeting forms (S5) and the words that choose the project (S20): pure readings of one line, read by the bridge.
+    "runtime/card_words.py", "runtime/greeting.py", "runtime/command_words.py",
     # S10: the plain sentence of a refusal on a phone, and the typing indicator while a reply is prepared (both read by the bridge)
     "runtime/phone_refusal.py", "runtime/messaging_typing.py", "runtime/messaging_file.py", "runtime/send_scan.py", "runtime/phone_errors.py", "runtime/phone_delete.py", "runtime/messaging_pending.py", "runtime/ops_question.py", "runtime/messaging_ack.py", "runtime/line_stage.py",
     # What the two shells share (stage 9, WP-9.9): the job registry, the status words, the project list.

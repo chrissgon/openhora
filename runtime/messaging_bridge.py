@@ -103,6 +103,13 @@ it): `revise_line`, after `word_line`, asks the operations layer (`card_revise_c
 and ends in one sentence and the new card, which is the last message and is decided by the same words and buttons, or in one plain sentence with the old card still open. The old card is ended
 by the operations layer and its hash is never approvable again. A line that proves not to be a change goes on as it would have. Nothing is sent or written by this path.
 
+Every command in words (S20, limits L54 and L64). A command a sender can type can be asked for in words, and the words are the typed command. The operations layer reads the line (a closed form
+of the tier-1 tables, or the interpreter's decision) and hands the bridge the typed line it stands for (`result["typed"]`); `line` then handles it exactly as it handles the typed one
+(`handle`: `/reject`, `/release`, `/add`, `/discard`, `/pending`), or says the reply of a table command as `command_sentence` says the typed one's. The only things not done from words are
+the ones the typed line does not do either: an approval is never made (the reply sends the decision's card again and leaves it the last message, so that the word that follows decides it),
+and an answer keeps its words. A closed form of a decision or an act is answered by code, so `say` starts it without the project's model slot (a brake said in words works while the planning
+agent answers); `project_line` reads "muda para o projeto X" (runtime/command_words.py) and does what `/project X` does.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -117,6 +124,7 @@ import time
 import traceback
 
 import card_words
+import command_words
 import greeting
 import messaging_ack as ack
 import messaging_attach as attach
@@ -833,6 +841,8 @@ class Bridge(shell_kit.Jobs):
             pass          # an approve or a reject word decided a decision card, or listed the cards to choose from (S2, limit L64)
         elif self.revise_line(update, intent, kind, project, listed, chat):
             pass          # a change of the card that waits, said in words (S13, limit L64)
+        elif self.project_line(intent, kind, listed, sender, chat):
+            pass          # "muda para o projeto X": the typed /project, said in words (S20)
         elif kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands" and not self.greets(project, chat, intent["text"]):      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project), except from a sender who may talk, whose help line is a greeting (S5)
             self.reply(chat, self.t("HELP", project=project), project)
         elif kind in ("text", "natural") and self.attach.line(project, chat, intent.get("text") or ""):
@@ -967,6 +977,27 @@ class Bridge(shell_kit.Jobs):
             return False      # a position chooses from the list only
         else:
             return self.word_act(newest[0], chat, newest[1], word["op"]) or False
+        return True
+
+    # --- the project the lines go to, said in words (S20) -----------------------------------------------------------------------
+
+    def project_line(self, intent: dict, kind: str, listed: list, sender: str, chat: str) -> bool:
+        """A plain line that is, whole, a form of runtime/command_words.py ("muda para o projeto northwind", "which project am I using"): True when it was taken, and then it did what the
+        typed `/project [name]` does (`choose`: the same projects, the same sentences). The name is looked for among the projects THIS sender is listed in; a name that is none gets the
+        typed command's "No such project" when the lead can only mean a switch, and a lead that may begin another request (`weak`) is a form only for a name that is a project of the sender."""
+        if kind != "text":
+            return False
+        found = command_words.project(intent.get("text") or "")
+        if found is None:
+            return False
+        name = found["name"]
+        if name:
+            exact = command_words.resolve(name, [(p["name"], p["id"]) for p in listed])
+            if exact is not None:
+                name = exact
+            elif found["weak"] or len(name.split()) > 3:
+                return False
+        self.choose(sender, chat, listed, name)
         return True
 
     # --- words that change a waiting card (S13, limits L55 and L64) -------------------------------------------------------------
@@ -1415,6 +1446,10 @@ class Bridge(shell_kit.Jobs):
     def say(self, project: dict, chat: str, text: str) -> None:
         """A free line to the planning agent. A line that may wait (`queueable`) and meets a project that is busy is kept (`keep`) and answered `QUEUED`;
         a line that comes while others wait goes behind them (also one that is being started), so that the lines start in the order they came."""
+        found = None if text.lstrip().startswith("/") else natural.match(text)
+        if found is not None and natural.class_of(found["op"]) in ("D", "W"):      # a decision or an act said in a closed form (S20) is answered by code with no model: it takes no model slot, so a brake said in words works while the planning agent answers, as the typed /reject does
+            self.start(project, chat, found["op"], self.line(project, chat, text, None))
+            return
         if not queueable(text):
             self.start(project, chat, "say", self.line(project, chat, text, None))
             return
@@ -1531,14 +1566,22 @@ class Bridge(shell_kit.Jobs):
                     if shown is not None:
                         shown.stop()      # before anything is sent: no call is made after this
                     self.ack_end(acked)
+                typed = result.get("typed")
+                if typed and not result.get("reply"):      # a command asked for in words that the bridge answers itself (S20): it does what it does for the typed line
+                    self.handle({"sender": chat, "chat": chat, "private": True, "text": typed})
+                    return
                 raw = result.get("reply") or self.t("NO_REPLY", project=project)
-                said = self.command_sentence(project, text, raw)
+                said = self.command_sentence(project, typed or text, raw)
                 converted = said is not raw      # a sentence made from a command's result carries a text of the operations layer (a held task's reason): it passes the net of `messaging_guard`
-                if result.get("resend") is not None and not self.resend(project, chat, result["resend"]):      # a decision named in words (NR-2): its card goes out again
-                    said = self.t("NAT_DECISION_NO_CARD", project=project)      # and the sentence says so only when a card is there
+                carded = result.get("resend") is not None
+                if carded and not self.resend(project, chat, result["resend"]):      # a decision named in words (NR-2): its card goes out again
+                    said, carded = self.t("NAT_DECISION_NO_CARD", project=project), False      # and the sentence says so only when a card is there
                 else:
                     said = self.without_card_line(said, result.get("resend"), project) or ("" if result.get("resend") is not None else said)
                 if not said:
+                    return
+                if carded and result.get("attachment") is None and result.get("pending_id") is None:      # the sentence about the card sent again leaves the card the last message, so that the word that follows ("aprovo") decides it (S20, limit L64)
+                    self.keep_cards(chat, said, project)
                     return
                 self.scope.replied = None
                 attached, why = self.file_to_send(project, chat, result.get("attachment"))

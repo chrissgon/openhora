@@ -29,6 +29,10 @@ the model wrote in this call is ever shown, and nothing here approves, sends or 
 by the maintainer's decision of 2026-10-20 (slice S7): a new e-mail (`mail-send`, `mail-draft` with no message) opens its card through the seed of `mail_compose.seed`, and the
 text on that card may be worded by a second call (runtime/mail_compose.py), validated by code, with the person's own words as the fallback.
 
+A decision the model names (slice S20). The catalog lists `approve`, `reject`, `release`, `answer` and `go-ahead` as refused; the model names one and never gives its number, and code reads the number
+from the line (`natural.decision_numbers`: the one whole number written in it, none in a line that says a date or a time). `reject` and `release` are then the typed commands (`ops_natural.run` hands
+the bridge the typed line), `approve` sends the decision's card again and approves nothing, and `answer` and `go-ahead` have words of their own. No operation was added to the catalog.
+
 The call. The route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again in `_daily_call`, so a route of any other kind
 cannot be called from here; the entry that enables the interpreter names the route and the hashes it was decided on (runtime/interpreter_enable.py).
 
@@ -341,6 +345,23 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
     return _said(reply, extras)
 
 
+DECIDED = ("approve", "reject", "release")      # the decisions a line names by a number written in it (slice S20); `answer` and `go-ahead` have words of their own
+
+
+def _decided(project: str, ctx: dict, op: str, said: str, sender, extras: dict) -> tuple:
+    """The reply for a decision the model named (slice S20). The number is the one number WRITTEN in the line, read by code (never the model's); a line with none, or with two,
+    asks which. `reject` and `release` are run as their typed lines are, `approve` sends the decision's card again and approves nothing (all of it is `ops_natural.run`, which
+    asks the policy as the typed command is asked); an `answer` is a reply to the question, and `go-ahead` is not done from a message."""
+    if op not in DECIDED:
+        if op == "answer":
+            return _said(phrases.text("IX_ANSWER_ON_QUESTION", ctx["cfg"]), extras)
+        return _said(ops_natural.phone_sentence(ctx, op), extras)
+    numbers = natural.decision_numbers(said)
+    if len(numbers) != 1:
+        return _said(phrases.text("NAT_WHICH_DECISION", ctx["cfg"]), extras)
+    return _said(ops_natural.run(project, ctx, op, {"pending_id": numbers[0]}, said, CHANNEL, sender, extras, routed=True), extras)
+
+
 def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     """The reply tuple of a plain line read by the interpreter, or None when the line goes to the planning agent as today. `extras["interpreted"]` says what the
     conversation stores for the line: True (the default from here on) a neutral word, False the line itself (it was sent to the agent). With `extras["frame_age"]` (the sender
@@ -372,7 +393,7 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     if kind == "refuse" and decision.get("class") != "D":
         return _said(ops_natural.phone_sentence(ctx, decision["op"]), extras)
     if kind == "refuse":
-        return _said(phrases.text("IX_USE_CARD", cfg), extras)
+        return _decided(project, ctx, decision["op"], said, sender, extras)
     if kind == "refuse_policy":
         return _said(_refusal(ctx, decision["op"], sender), extras)
     key = WHY_SENTENCE.get(decision.get("why")) if kind == "clarify" else None
