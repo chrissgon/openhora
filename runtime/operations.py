@@ -403,6 +403,12 @@ OPERATIONS = (
               {"name": "account", "kind": "choice", "choices": ("google", "microsoft")}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "show the text of a file of your Google Drive (account google) or OneDrive (account microsoft), found by its name (case, accents and the extension do not matter) among the direct contents of the folders the project lists under accounts.<account>.folders in runtime.json, and in no other folder; without --account both accounts are searched. One match is read and its text shown (at most 3,500 characters, then how many remain); several are listed to choose from; none says which folders were searched. Nothing is written or sent to a model; from a messaging app the sender needs the group read-files"},
+    # R2-F1: a question of general information (the weather, a price, the news, a fact) answered by a web search. One run of the skill core-research with web access, chosen by code, outside any
+    # area agent's pack; the question and the answer's links pass a web search service and the model that runs it. The group research is in no default policy; never on the page or the MCP mode.
+    {"name": "research", "call": "research",
+     "args": ({"name": "question", "kind": "str", "required": True},),
+     "channels": ("terminal", "messaging"), "model": True, "job": True, "channel_arg": True,
+     "help": "answer a question of general information (the weather, a price or quote, the news, a fact) from a web search: one run of the research skill with web access, at most the project's research cost per run (research.max_cost_usd), time (research.timeout_seconds) and runs per day (research.max_per_day); the question is sent to a web search service and to the model that runs it; the reply is the answer in plain words with its sources as links, kept nowhere; from a messaging app the sender needs the group research"},
     {"name": "instructions", "call": "instructions_read", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the project's standing instructions (docs/workbench/instructions.md, written only by you): whether the file is there, its sha256, its characters against the cap, the problem that would stop a run, and the text; every model run of the project receives it in its prompt, and it never replaces a skill's stop rule, a confirmation gate or an approval"},
     {"name": "instructions-set", "call": "instructions_set",
@@ -597,6 +603,9 @@ GROUPS = {
     # `read-files` beside it (project_config refuses a policy that lists it alone). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
     # --widen; never on the MCP mode. The whole file leaves the drive for the messaging app's servers.
     "send-files": {"operations": ("file-read",), "kind": "send"},
+    # R2-F1: a question of general information answered by a web search (runtime/ops_research.py). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
+    # --widen; never on the page or the MCP mode (the row does not list them). It reads and answers; it writes nothing, opens no card and sends nothing but the question, to a search service and a model.
+    "research": {"operations": ("research",), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -702,6 +711,7 @@ GROUP_TEXT = {
     "interpret": "sends the plain lines no list takes to the interpreter's model service, which reads them in any language; retention: the route's terms (adds to talk, never grants it)",
     "read-files": "shows the text of the files in your configured Drive and OneDrive folders in the chat, found by their names; a messaging app's servers see it as they see any message, and no model reads it",
     "send-files": "sends the found file itself to the chat, not only its text: the whole file leaves your drive for the messaging app's servers; one whose text looks like a password or a key is not sent (adds to read-files)",
+    "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

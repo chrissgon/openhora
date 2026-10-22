@@ -15,7 +15,7 @@ the points where the work begins (never from the person's words, never from a mo
   file      a file of the person's Drive or OneDrive is being found    (ops_file_read.reply)
   compose   the model is wording an e-mail                             (mail_compose.write)
   card      the card of a write is being prepared                      (ops_natural_writes.open_line)
-  research  a question is being answered from the project's sources   (ops_interpret / ops_ask._ask over other sources)
+  research  a question is being answered from the project's sources, or by a web search   (ops_interpret / ops_ask._ask over other sources; ops_research._research)
   plan      the planning agent (the router) is working                 (ops_say._say_route)
 
 `watch()` registers the calling thread (the thread that runs the line) and returns a slot; `publish(stage)` called on that thread sets the slot's stage, and is a no-op on a

@@ -32,13 +32,14 @@ REPO = Path(__file__).resolve().parents[2]
 FILE = REPO / "runtime" / "interpreter_enable.json"
 ROUTE = "or-deepseek-v4.1-flash"
 HASHES = {"route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd", "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
-          "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1", "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504"}
+          "catalog_sha256": "fd05b3d27bf994935dae860053652fdeeae10a90e23bb1bc75aa8c29081eedc7", "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504"}
 FIRST = dict(HASHES, catalog_sha256="a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d")      # the entry decided before slice S8 added `file-read` to the catalog
 LANGUAGES = ["pt-BR", "en", "es", "fr", "de", "it"]
 S8_STATUS_LINE = "enabled by maintainer decision 2026-10-21 (S8: file-read added to the catalog), below the gate"
 COMPOSE_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt pinned)"      # the entry of slice S7
 S12_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt re-pinned 2026-10-22)"      # the entry of slice S12
-STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned)"      # the newest entry (slice S13)
+S13_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned)"      # the entry of slice S13
+STATUS_LINE = S13_STATUS_LINE + "; research added to the catalog 2026-10-22 (R2-F1)"      # the newest entry (slice R2-F1)
 
 
 def status_module():
@@ -80,7 +81,10 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert "compose_prompt_sha256" not in by_line[S8_STATUS_LINE], "the entry of S8 pins no compose prompt"
     assert by_line[COMPOSE_STATUS_LINE]["date"] == "2026-10-21" and by_line[COMPOSE_STATUS_LINE]["compose_prompt_sha256"] == "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf" and "revise_prompt_sha256" not in by_line[COMPOSE_STATUS_LINE]
     assert by_line[S12_STATUS_LINE]["date"] == "2026-10-22" and by_line[S12_STATUS_LINE]["compose_prompt_sha256"] != by_line[COMPOSE_STATUS_LINE]["compose_prompt_sha256"] and "revise_prompt_sha256" not in by_line[S12_STATUS_LINE]
-    assert entry["compose_prompt_sha256"] == by_line[S12_STATUS_LINE]["compose_prompt_sha256"] and "revise_prompt_sha256" in entry, "the newest carries the compose pin of S12 and the revise pin of S13"
+    assert by_line[S13_STATUS_LINE]["date"] == "2026-10-22" and by_line[S13_STATUS_LINE]["compose_prompt_sha256"] == by_line[S12_STATUS_LINE]["compose_prompt_sha256"] and "revise_prompt_sha256" in by_line[S13_STATUS_LINE]
+    assert by_line[S13_STATUS_LINE]["catalog_sha256"] == "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1" != entry["catalog_sha256"], "R2-F1 added `research` to the catalog: only its entry names the new hash"
+    assert {key: entry[key] for key in ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")} == \
+        {key: by_line[S13_STATUS_LINE][key] for key in ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")}, "every other pin of the newest entry stands as decided"
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():

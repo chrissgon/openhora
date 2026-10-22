@@ -349,7 +349,7 @@ def test_the_served_catalog_has_the_operation_as_a_read_with_a_span_and_a_word()
 def test_the_interpreter_stays_on_with_the_newest_entry_and_is_off_when_its_catalog_hash_is_wrong(tmp_path):
     data = json.loads((REPO / "runtime" / "interpreter_enable.json").read_text(encoding="utf-8"))
     before = "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d"      # the catalog before this slice: an earlier entry still names it
-    served = "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1"
+    served = "fd05b3d27bf994935dae860053652fdeeae10a90e23bb1bc75aa8c29081eedc7"
     assert any(e["catalog_sha256"] == before for e in data["entries"][:-1])
     newest = data["entries"][-1]
     assert interpreter.SERVED_SHA256 == served and newest["catalog_sha256"] == served

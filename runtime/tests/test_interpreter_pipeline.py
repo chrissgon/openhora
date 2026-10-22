@@ -240,14 +240,14 @@ def test_the_mapping_of_an_operation(op, word):
 
 
 def test_the_mapping_of_every_operation_of_the_served_catalog_follows_its_class():
-    assert len(CATALOG["ops"]) == 63
+    assert len(CATALOG["ops"]) == 64
     for row in CATALOG["ops"]:
         want = "remind_confirm" if row["op"] == "remind" else WORD_OF_CLASS[row["class"]]
         assert pipeline.observed_of_op(row["op"]) == want, row["op"]
 
 
 def test_the_allowed_operations_are_the_served_catalog_s():
-    assert pipeline.ALLOWED == frozenset(row["op"] for row in CATALOG["ops"]) and len(pipeline.ALLOWED) == 63
+    assert pipeline.ALLOWED == frozenset(row["op"] for row in CATALOG["ops"]) and len(pipeline.ALLOWED) == 64
     assert not (pipeline.ALLOWED & {row["op"] for row in CATALOG["refused"]})
 
 
