@@ -86,7 +86,7 @@ def test_what_a_phone_is_told_of_an_error_of_the_operations_layer(world):
     assert phone(ops.OpsError("No file 3 waits for you."), world.project) == "Não há arquivo 3 esperando por você."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert phone(ops.OpsError(attachments.REFUSED.format(name="a.docx", reason="it holds macros, which are never converted")), world.project) == (
         "a.docx não foi adicionado e foi apagado: contém macros, que nunca são convertidas.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    assert phone(ops.OpsError("Send /add 3 or /discard 3."), world.project) == "Send /add 3 or /discard 3.", "a text the table does not know stays as the operations layer said it"
+    assert phone(ops.OpsError("Send /add 3 or /discard 3."), world.project) == "Não consegui concluir isso. Tente de novo; se continuar falhando, veja o que aconteceu na página da plataforma.", "a text the table does not know is the plain sentence in a language that is not English (S14b)"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert phone(ops.OpsError("The sources folder cannot be opened", 3), world.project) == PT["ATT_MACHINE"]
     speak(world, None)
     assert phone(ops.OpsError("No file 3 waits for you."), world.project) == "No file 3 waits for you."
