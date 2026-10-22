@@ -41,6 +41,7 @@ import operations
 import ops_actor
 import ops_natural
 import pending_items
+import phone_refusal
 import phrases
 import plan
 import router
@@ -307,14 +308,14 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
     framed = asked is not None and bool(extras.get("deferred"))      # S4: of the lines no list of code claims, the interpreter tells the answer from a new line, by a typed frame (decision 229 (1))
     if asked is None and state_question(said):
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
-            return f"error: {operations.not_enabled('status', channel)}", None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
+            return phone_refusal.said(operations.not_enabled('status', channel), channel, ctx["cfg"]), None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
         return state_reply(project, cfg=ctx["cfg"]), None, None, False, None, None
     if asked is None:      # a tier-1 form or the answer to a draft: code, no model, no route lock (package NR-2); any other line drops the sender's draft
         natural_reply = ops_natural.take(project, ctx, said, _natural_channel(channel), sender, extras)
         if natural_reply is not None:
             return natural_reply, None, None, False, extras.get("run_id"), None
     if not talks:      # admitted under another group, and no form of it took the line: it is not a model's, so it is refused as the typed `talk` is
-        return f"error: {operations.refusal('say', channel, ctx['cfg']['channels'], sender=sender)}", None, None, False, None, None
+        return phone_refusal.said(operations.refusal('say', channel, ctx['cfg']['channels'], sender=sender), channel, ctx["cfg"]), None, None, False, None, None
     if extras.get("deferred"):      # S1 (limit L63): a plain line of a sender the interpreter reads, which no list of code took (the hybrid order of 2026-10-21)
         if framed:
             extras["frame_age"] = _question_age(ctx, sender)      # the typed frame's one item is built from this age alone (runtime/ops_interpret.py `router_frame`)
@@ -749,7 +750,7 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
     policy = ctx["cfg"]["channels"]
     refused = operations.refusal(name, channel, policy, sender=sender)  # the project's policy, under the channel that carries the line (and the sender's profile)
     if refused:
-        return f"error: {refused}", None, None, False, None
+        return phone_refusal.said(refused, channel, ctx["cfg"]), None, None, False, None
     if channel == "messaging" and name == "approve":  # an acceptance approved from a line has no card to be bound to
         return "error: use the card's button, or /approve <id> as the whole line", None, None, False, None
     if name == "approve":  # the decision's kind is read first: the policy covers a kind, and an effect is never approved from a line
@@ -764,7 +765,7 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
                     + core._command("approve", ctx["cfg"]["project"], pending_id=found["pending_id"], sha256="<hash>")), None, None, False, None
         refused = operations.refusal(name, channel, policy, kind, sender=sender)
         if refused:
-            return f"error: {refused}", None, None, False, None
+            return phone_refusal.said(refused, channel, ctx["cfg"]), None, None, False, None
     function = getattr(_ops(), row["call"])
     if row.get("channel_arg"):
         found = dict(found, channel=channel if channel == "messaging" else "chat")  # a messaging app's own rule (ops_waits) narrows approve

@@ -35,7 +35,7 @@ shell_kit = st.load("shell_kit")
 
 OTHER = "55119000000003"
 CLERK = "55119000000004"
-NOT_ENABLED = "is not enabled for this channel"
+NOT_ENABLED = "You do not have permission for that here yet."      # S10: the plain sentence a phone is told (limit L62)
 POLICIES_ALL = {**POLICIES, "clerk": {"groups": ["read-limited", "talk", "answer", "approve-acceptances"], "notices": "actionable"},
                 "watcher": {"groups": ["read-limited", "talk", "answer"], "notices": "actionable"}}
 

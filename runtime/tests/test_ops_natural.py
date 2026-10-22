@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_natural.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 from pathlib import Path
 
@@ -166,9 +168,9 @@ def test_a_profile_without_the_group_gets_the_typed_commands_refusal_and_the_ope
     calls = []
     monkeypatch.setattr(ops, "pending", lambda *a, **k: calls.append(a) or {"pending": []})
     typed = phone(world, "notalk", "/pending")["reply"]
-    assert typed.startswith("error: /pending is not enabled for this channel")
+    assert typed == PLAIN_REFUSAL
     refused = phone(world, "notalk", "pendencias")["reply"]
-    assert refused == typed == "error: " + operations.refusal("pending", "messaging", ops_core.context(world["path"])["cfg"]["channels"], sender=KEY["notalk"])
+    assert refused == typed and operations.refusal("pending", "messaging", ops_core.context(world["path"])["cfg"]["channels"], sender=KEY["notalk"])
     assert calls == []
 
 
@@ -337,7 +339,7 @@ def test_limit_54_a_read_or_a_notice_without_its_group_gets_the_typed_refusal_an
             continue
         ctx = ops_core.context(world["path"])
         reply = ops_natural.run(world["path"], ctx, name, {}, "a line", "messaging", KEY["reader"], {})
-        assert reply == "error: " + operations.refusal(name, "messaging", policy, sender=KEY["reader"]), (name, reply)
+        assert operations.refusal(name, "messaging", policy, sender=KEY["reader"]) and reply == PLAIN_REFUSAL, (name, reply)
         walked.append(name)
     assert spied == {} and set(walked) >= {"status", "pending", "task", "agents", "sources", "reminders", "reminder-forget", "remind", "routines"}
 

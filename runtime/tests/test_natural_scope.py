@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_scope.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import pytest
 
 import standin_tree as st
@@ -46,7 +48,7 @@ def test_a_sender_without_talk_answers_no_router_question_and_causes_no_router_r
     assert rig.sent()[1]["chat"] == READER and rig.sent()[1]["message"]["text"].startswith("- lease-contract")
     rig.bridge.handle(rig.update(READER, "Which market first?"))        # no form takes it: it needs talk, which the viewer lacks
     assert wait_for(lambda: len(rig.sent()) >= 3) and settled(rig)
-    assert "/say is not enabled" in rig.sent()[2]["message"]["text"]
+    assert rig.sent()[2]["message"]["text"] == PLAIN_REFUSAL
     assert st.calls(rig.world["adapter"]) == ran, "the viewer started no router run"
     open_question = ops.pending(rig.project["path"])["pending"]
     assert [p["kind"] for p in open_question] == ["question"], "the owner's question is still open: nobody answered it"
@@ -58,7 +60,7 @@ def test_a_line_admitted_under_another_group_is_refused_by_the_layer_when_no_for
     ops.say(world["path"], "Which market first?", channel="page")      # the page asks the router a question
     before = list(st.calls(world["adapter"]))
     out = ops.say(world["path"], "The clinic project.", channel="messaging", sender=KEY["reader"])      # a viewer's plain line would answer it
-    assert out["reply"].startswith("error: /say is not enabled") and out["ran"] is False and out["pending_id"] is None
+    assert out["reply"] == PLAIN_REFUSAL and out["ran"] is False and out["pending_id"] is None
     assert st.calls(world["adapter"]) == before
     assert ops.pending(world["path"])["pending"][0]["kind"] == "question"
     assert ops.say(world["path"], "pendencias", channel="messaging", sender=KEY["reader"])["reply"] != out["reply"], "a form is still answered while a question is open"

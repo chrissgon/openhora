@@ -83,7 +83,7 @@ def fetch(a) -> int:
 def main() -> int:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="verb", required=True)
-    for name in ("capabilities", "receive", "send", "ack", "fetch-attachment"):
+    for name in ("capabilities", "receive", "send", "ack", "typing", "fetch-attachment"):
         s = sub.add_parser(name)
         s.add_argument("--platform", required=True)
         if name == "fetch-attachment":
@@ -93,8 +93,9 @@ def main() -> int:
         if name == "receive":
             s.add_argument("--offset", type=int, default=0)
             s.add_argument("--timeout", type=int, default=0)
-        if name == "send":
+        if name in ("send", "typing"):
             s.add_argument("--chat", required=True)
+        if name == "send":
             s.add_argument("--message-file", required=True)
         if name == "ack":
             s.add_argument("--action-ref", required=True)
@@ -112,6 +113,12 @@ def main() -> int:
         print(json.dumps({"message_id": str(100 + count), **({"document_failed": True} if failed else {})}))
     elif a.verb == "fetch-attachment":
         return fetch(a)
+    elif a.verb == "typing":      # S10: records the call; a test asks for a failure with fail_typing.json
+        append("typing.jsonl", {"chat": a.chat})
+        if read("fail_typing.json", False) is True:
+            print("the platform refused the indicator", file=sys.stderr)
+            return 1
+        print(json.dumps({"typing": True}))
     else:
         append("acks.jsonl", {"ref": a.action_ref})
         print(json.dumps({"acked": True}))
