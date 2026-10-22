@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_followups.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import pytest
 
 import standin_tree as st
@@ -115,7 +117,7 @@ def test_help_in_words_is_answered_with_the_messaging_help_for_a_sender_who_may_
     assert wait_for(lambda: len(rig.sent()) == 1), line
     assert rig.sent()[0]["message"]["text"] == phrases.text("HELP", None) and st.calls(rig.world["adapter"]) == []
     rig.bridge.handle(rig.update(READER, "Which market first?"))
-    assert wait_for(lambda: len(rig.sent()) == 2) and "not enabled" in rig.sent()[1]["message"]["text"], "a plain line still needs talk"
+    assert wait_for(lambda: len(rig.sent()) == 2) and rig.sent()[1]["message"]["text"] == PLAIN_REFUSAL, "a plain line still needs talk"
 
 
 # --- NIT: an operation named for a queued request is answered ----------------------------------------------------------------------------------

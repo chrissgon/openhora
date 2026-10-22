@@ -719,7 +719,7 @@ def channel_groups(root):
 
 
 CAPABILITY_KEYS = ("max_text", "buttons", "max_buttons", "max_button_label", "lists", "max_list_rows", "url_buttons",
-                   "reply_context", "documents", "listen", "actions_need_reply", "attachments", "max_attachment_bytes")
+                   "reply_context", "documents", "listen", "actions_need_reply", "attachments", "max_attachment_bytes", "typing")
 
 
 def _capability_text(value):
@@ -790,7 +790,7 @@ def messenger_capabilities(root):
         caps = _capabilities_of(root, f"providers/messenger/{name}.py")
         for platform in resolve.served_platforms("messenger:<platform>", name, root=root) or [NONE]:
             rows.append([_code(platform), _code(f"{name}.py")] + [_capability_text(caps.get(k)) for k in CAPABILITY_KEYS])
-    head = ("`yes` and `no` are booleans; a key a provider leaves out is `no` (`listen`, `actions_need_reply`, `attachments` and `max_attachment_bytes` are optional); `configured` is a value "
+    head = ("`yes` and `no` are booleans; a key a provider leaves out is `no` (`listen`, `actions_need_reply`, `attachments`, `max_attachment_bytes` and `typing` are optional); `configured` is a value "
             "the provider computes from its saved settings, not a constant.\n\n")
     return head + _table(["Platform", "Provider"] + [_code(k) for k in CAPABILITY_KEYS], rows)
 

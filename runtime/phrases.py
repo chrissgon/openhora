@@ -416,6 +416,7 @@ TABLE = {
         "PHONE_EVENT_AGAIN": "I could not read that as a request for your calendar, so nothing was done. Say it again with the day and the time, for example: put the dentist on Thursday at 3 pm.",
         "PHONE_WRITE_AGAIN": "I could not read that as a clear request to your accounts, so nothing was done. Say it again with the details: what, and when or to whom.",
         "PHONE_RESTORE": "Bringing a reminder back, when I am not sure which one you mean, is done {where}",
+        "PHONE_NOT_ALLOWED": "You do not have permission for that here yet. It can be enabled {where}",
         # --- why a write to the person's accounts was not made, said to a phone in plain words (messaging_failure.py, package LIVE-2) ---
         "FAIL_SERVICE_FILES_GOOGLE": "Google Drive", "FAIL_SERVICE_FILES_MICROSOFT": "OneDrive",
         "FAIL_SERVICE_MAIL_GOOGLE": "Gmail", "FAIL_SERVICE_MAIL_MICROSOFT": "Outlook",

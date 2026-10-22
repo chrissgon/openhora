@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_channel_policy.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 import os
 import threading
@@ -328,7 +330,7 @@ def test_a_typed_approve_on_the_page_follows_the_page_policy_and_never_approves_
     assert ops.pending(path, effect["id"])["status"] == "open"
     for channel in ("terminal", "mcp", "messaging", None):
         said = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"]
-        assert said.startswith("error: ") and provider_calls(tree) == [], channel
+        assert (said == PLAIN_REFUSAL if channel == "messaging" else said.startswith("error: ")) and provider_calls(tree) == [], channel
     ops.say(path, f"/approve {accept_id}", channel="page")
     assert ops.pending(path, accept_id)["status"] == "resolved"
     set_channels(path, {"page": ["read"]})                                 # a line needs talk to be said at all, on the page route

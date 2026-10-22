@@ -46,6 +46,7 @@ import ops_core as core
 import natural
 import operations
 import ops_actor
+import phone_refusal
 import phrases
 
 DRAFT_TTL = drafts.TTL       # seconds a question waits for its answer (this spec's choice, not measured)
@@ -277,11 +278,11 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     policy = cfg["channels"]
     refused = operations.refusal(name, where, policy, sender=sender)
     if refused:
-        return f"error: {refused}"
+        return phone_refusal.said(refused, channel, cfg)
     if cls == "D":
         refused = operations.refusal("pending", where, policy, sender=sender)
         if refused:
-            return f"error: {refused}"
+            return phone_refusal.said(refused, channel, cfg)
     if name == "file-read":      # S8: the text of a file found by its name; code writes the reply and the conversation keeps a neutral word (runtime/ops_file_read.py)
         return importlib.import_module("ops_file_read").reply(project, ctx, args, said, channel, sender, extras)
     if cls == "R":
@@ -515,7 +516,7 @@ def _complete(project: str, ctx: dict, draft: dict, answer, said: str, channel, 
     if draft.get("kind") == "which":
         refused = operations.refusal("ask", where, cfg["channels"], sender=sender)      # the policy again, now, as for any operation a line reaches
         if refused:
-            return f"error: {refused}"
+            return phone_refusal.said(refused, channel, cfg)
         text = draft["line"] + " @" + draft["ids"][answer - 1]
         return _ask(project, ctx, operations.by_name("ask"), text, channel, sender, extras, again=draft)
     # a question about a reminder, answered: the engine's rules decide (a yes makes it, a no keeps nothing, anything else is asked again or is a new line)
@@ -523,7 +524,7 @@ def _complete(project: str, ctx: dict, draft: dict, answer, said: str, channel, 
     name = "reminder-forget" if answer.get("forget") is not None else "remind"
     refused = operations.refusal(name, where, cfg["channels"], sender=sender)      # the policy again, now: the profile may have changed since the question
     if refused:
-        return f"error: {refused}"
+        return phone_refusal.said(refused, channel, cfg)
     text = channel != "messaging" or _notices_text(cfg)
     if answer.get("cancel"):
         return phrases.text("NT_KEPT" if answer.get("kept") else "NT_CANCELLED", cfg)

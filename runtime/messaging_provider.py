@@ -36,12 +36,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CAPABILITY_KEYS = {"max_text": int, "buttons": bool, "max_buttons": int, "max_button_label": int, "lists": bool,
                    "max_list_rows": int, "url_buttons": bool, "reply_context": bool, "documents": bool}
-OPTIONAL_KEYS = {"listen": bool, "actions_need_reply": bool, "attachments": bool, "max_attachment_bytes": int}   # a capability a provider may leave out; absent is stored as False (0 for a number)
+OPTIONAL_KEYS = {"listen": bool, "actions_need_reply": bool, "attachments": bool, "max_attachment_bytes": int, "typing": bool}   # a capability a provider may leave out; absent is stored as False (0 for a number)
 # actions_need_reply: the bridge acts on a typed approve, reject, release or answer only when the update is a reply to the card of that decision
 # (e-mail: an address proves little, and a reply that names the card's random Message-ID also proves the card reached the person)
 # attachments: the provider maps a file a sender sends into the update's `attachments` and serves `fetch-attachment` (and the listen op `fetch`); without it the bridge
+# typing: the provider serves the verb `typing --chat <id>` (the platform's "typing..." indicator, S10); a platform without it is simply not asked
 # sends no attachment intent anywhere and answers "This app's connection does not take files yet." max_attachment_bytes: the most the platform serves for one file (0: none said)
 SEND_SECONDS = 60
+TYPING_SECONDS = 15                # the typing indicator is a small call; the bridge does not wait for it
 MAX_LINE = 1 << 20                 # the longest line of the listen protocol, either way, without its newline
 READY_SECONDS = 180                # the first start of a provider with pinned dependencies installs them
 BACKOFF = (1.0, 300.0)             # the first wait before a restart and its ceiling; each wait doubles the last
@@ -169,6 +171,14 @@ class Messenger:
         if not isinstance(found.get("message_id"), str):
             raise MessengerError("failed", "send did not return a message_id")
         return Sent(found["message_id"], found.get("document_failed") is True)
+
+    def typing(self, chat: str) -> bool:
+        """Show the platform's typing indicator in `chat` once (S10). False, and nothing asked, for a platform that does not declare `typing` and for a provider that listens
+        (its protocol has no such op); a failed call is the caller's to ignore (MessengerError)."""
+        if self.session is not None or not self.capabilities().get("typing"):
+            return False
+        self._call("typing", ["--chat", str(chat)], timeout=TYPING_SECONDS)
+        return True
 
     def fetch(self, ref: str, out_dir: str, max_bytes: int) -> dict:
         """Ask the provider to fetch the attachment `ref` of this platform into `<out_dir>/content`, at most `max_bytes`. Returns {"bytes", "sha256"}, checked

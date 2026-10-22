@@ -17,6 +17,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_channel_grants_mailbo
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 from pathlib import Path
 
@@ -179,7 +181,7 @@ def test_the_mcp_mode_and_the_conversation_never_prepare_or_approve_a_mailbox_ch
             approve(desk, started, channel)
     for channel in ("messaging", "chat"):       # a line typed into say never approves it, on any channel
         reply = ops.say(desk["path"], f"/approve {started['pending']} {item_of(desk, started)['payload_sha256']}", channel=channel, sender=(SENDER if channel == "messaging" else None))["reply"]
-        assert reply.startswith("error: ")
+        assert reply == PLAIN_REFUSAL if channel == "messaging" else reply.startswith("error: ")
     assert desk["google"].writes() == [] and ops.pending(desk["path"], started["pending"])["status"] == "open"
     assert approve(desk, started, "terminal")["task_state"] == "done"
     assert operations.GRANTS["mcp"] == ("approve-plans", "approve-acceptances", "reject-cancel", "retry")

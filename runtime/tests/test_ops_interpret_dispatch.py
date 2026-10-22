@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_interpret_dispatc
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 
 import pytest
@@ -207,7 +209,7 @@ def test_a_refusal_of_the_policy_is_the_sentence_the_typed_command_gets(world, m
     calls = []
     prepare(world, monkeypatch, calls, {"text": op("retry", {"id": "5"})})
     got = phone(world, "versuch Aufgabe 5 noch einmal", who="plain")["reply"]
-    assert got == "error: /retry is not enabled for this channel; the project's configuration (channels.messaging) turns it on"
+    assert got == PLAIN_REFUSAL and "error" not in got and "/" not in got
     assert [c for c in calls if "run" in c] == []
 
 

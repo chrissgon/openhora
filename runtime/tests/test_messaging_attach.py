@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_attach.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import hashlib
 import json
 import os
@@ -374,7 +376,7 @@ def test_a_card_is_acted_on_only_by_the_sender_it_was_sent_to_and_only_while_the
     assert world.case.rows()[0]["status"] == "held"
     accept(world.case.path, channels={"messaging": ["read"]}, policies=None)       # the policy narrowed after the card was sent
     world.say(action=action)
-    assert "is not enabled for this channel" in world.texts()[-1] and world.case.rows()[0]["status"] == "held"
+    assert world.texts()[-1] == PLAIN_REFUSAL and world.case.rows()[0]["status"] == "held"
 
 
 def test_a_credential_in_the_file_refuses_the_add_with_the_fixed_sentence_and_the_key_is_never_echoed(world):

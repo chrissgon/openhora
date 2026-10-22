@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import hashlib
 import json
 import os
@@ -337,8 +339,7 @@ def test_the_closed_default_refuses_every_acting_command_in_the_bridge_and_calls
     for count, line in enumerate(("/approve 1", "/reject 1", "/release 2"), start=1):
         world.say(line)  # a release replies from a job thread: wait for this line's own reply, not the last one's
         assert wait_for(lambda: len(world.texts()) >= before + count), line
-        assert "is not enabled for this channel" in world.texts()[-1] and f"/{line[1:].split()[0]} is not enabled" in world.texts()[-1], line
-        assert "(channels.messaging) turns it on" in world.texts()[-1]
+        assert world.texts()[-1] == PLAIN_REFUSAL, line      # one plain sentence: no command, no "error:", no key of the configuration
     assert world.calls("approve") == world.calls("reject") == world.calls("release") == []
     world.say("/status")  # a typed command the bridge does not handle goes to say, where the operations layer decides
     assert wait_for(lambda: world.calls("say")) and world.calls("say")[0][2] == {"text": "/status", "channel": "messaging"}

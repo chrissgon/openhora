@@ -9,6 +9,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_natural_wri
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 import shutil
 from types import SimpleNamespace
@@ -153,7 +155,7 @@ def test_the_loose_verb_question_answered_event_opens_the_event_and_something_el
 
 def test_a_profile_without_calendar_write_is_told_what_the_typed_command_says_and_a_profile_that_cannot_read_pending_is_told_it_gets_no_cards(day):
     day.say(PLAIN, "marca dentista quinta às 10h no google")
-    assert "/event-create is not enabled for this channel" in day.texts(PLAIN)[-1]
+    assert day.texts(PLAIN)[-1] == PLAIN_REFUSAL
 
 
 def test_a_sender_without_ask_mail_naming_an_event_number_gets_the_sentence_and_nothing_of_the_calendar(day, monkeypatch):

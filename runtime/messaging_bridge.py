@@ -121,8 +121,10 @@ import messaging_outcome as outcome
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
+import messaging_typing as indicator
 import natural
 import natural_time
+import phone_refusal
 import phrases
 import shell_kit
 
@@ -465,6 +467,8 @@ class Bridge(shell_kit.Jobs):
         (it cannot take a message yet: not an error, not logged, and the caller may try again). `project` names the language of the line that says there is
         no reply."""
         caps = self.messenger.capabilities()
+        if text:
+            text = phone_refusal.plain(text, self.cfg(project, chat))      # S10: the operations layer's own refusal (a Refused or an OpsError a path above passes on) is one plain sentence on a phone: never "error:", a command or an operation's name; any other text is as it was
         for piece in cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"]):
             try:
                 sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None}, guard)
@@ -864,7 +868,10 @@ class Bridge(shell_kit.Jobs):
         """A line that is, whole, only an approve or reject form (card_words): True when it was taken (it decided a card, or sent the list of cards, or said it approves one at a
         time), False when the line is not for the cards and goes on as it always did. Every condition of L64 that this method checks is checked again by `word_act` against the
         ledger and the decision as they are now."""
-        word = card_words.card_word(intent.get("text"))
+        said = intent.get("text")
+        if self.messenger.capabilities().get("actions_need_reply"):
+            said = card_words.reply_line(said)      # S10: an e-mail reply decides with its first line; its signature and the quoted card are not words
+        word = card_words.card_word(said)
         if word is None or ("forwarded" in update and update["forwarded"] is not False):
             return False
         if update.get("reply_to"):
@@ -1350,7 +1357,11 @@ class Bridge(shell_kit.Jobs):
                     if settings is None or chat not in settings["senders"]:
                         self.log(DROPPED)
                         return
-                result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text)
+                shown = indicator.Typing(self.messenger).begin(chat, text)      # S10: "typing..." while the reply is prepared, on a platform that has it
+                try:
+                    result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text)
+                finally:
+                    shown.stop()      # before anything is sent: the indicator never outlives the reply
                 raw = result.get("reply") or self.t("NO_REPLY", project=project)
                 said = self.command_sentence(project, text, raw)
                 converted = said is not raw      # a sentence made from a command's result carries a text of the operations layer (a held task's reason): it passes the net of `messaging_guard`

@@ -18,6 +18,11 @@ language is (the same rule the natural-request tables follow). The approve and r
 This module decides nothing: it reads no card, no policy and no ledger. The bridge (runtime/messaging_bridge.py) executes what a word means, only when every condition of L64
 holds, through the same call as the card's button. `all` is returned as it is; the caller never approves it.
 
+`reply_line(text)` (S10) is the line an e-mail reply decides with: a reply carries a phone's signature or the quoted card under its words ("sim", a blank line, "Enviado do meu iPhone"), which
+made it more than one phrase. The first non-empty line is the line; everything after it must be a signature or a quote (it begins at a delimiter line: "--", "Enviado do meu",
+"Sent from my", "Enviado de", "Get Outlook for", a quote header such as "Em ... escreveu:" or "On ... wrote:", or a line that starts with ">"), else the text is not one phrase
+and nothing is returned ("sim" and then "mas muda o horario" on its own line is a request, never an approval). Only the bridge calls it, and only on a platform whose acts are replies.
+
 Standard library only. Runs on Python 3.9: python3 runtime/card_words.py --help
 """
 from __future__ import annotations
@@ -128,6 +133,33 @@ def _forms() -> dict:
                           re.compile(f"{lead}{every}\\s+{form}{tail}")]
         _COMPILED.update(shapes=shapes, ordinal_at=ordinal_at)
     return _COMPILED
+
+
+SIGNATURE_STARTS = ("-- ", "enviado do meu", "sent from my", "enviado de", "get outlook for")
+QUOTE_HEADER = re.compile(r"(?:em|on)\s.*(?:escreveu|wrote)\s*:?", re.I)
+
+
+def _opens_tail(line: str) -> bool:
+    """Whether a stripped line opens the signature or the quoted history of an e-mail reply."""
+    low = line.lower()
+    return line == "--" or line.startswith(">") or low.startswith(SIGNATURE_STARTS) or bool(QUOTE_HEADER.fullmatch(line))
+
+
+def reply_line(text):
+    """The first non-empty line of an e-mail reply, when everything after it is a signature or a quote; else "" (see the module's text)."""
+    if not isinstance(text, str):
+        return ""
+    first = None
+    for line in (raw.strip() for raw in text.split("\n")):
+        if not line:
+            continue
+        if first is None:
+            if _opens_tail(line):
+                return ""
+            first = line
+        else:
+            return first if _opens_tail(line) else ""
+    return first or ""
 
 
 def card_word(line):

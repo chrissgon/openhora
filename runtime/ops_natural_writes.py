@@ -43,6 +43,7 @@ import operations
 import ops_actor
 import ops_core as core
 import ops_natural
+import phone_refusal
 import phrases
 import project_config
 
@@ -218,7 +219,7 @@ def _admit(ctx: dict, op: str, channel, sender):
         return f"error: /{op} is done in the terminal or on the page" + (f". {extra}" if extra else "")
     refused = operations.refusal(op, where, cfg["channels"], sender=sender)
     if refused:
-        return f"error: {refused}"
+        return phone_refusal.said(refused, channel, cfg)
     if channel == "messaging" and not operations.permitted("pending", where, cfg["channels"], None, sender):
         return _t(ctx, "NW_NO_CARDS")
     return None

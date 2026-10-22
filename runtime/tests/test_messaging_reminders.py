@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_reminders.p
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import datetime
 import json
 import re
@@ -96,7 +98,7 @@ def test_a_line_the_bridge_cannot_read_is_asked_back_and_makes_nothing(day):
 
 def test_a_sender_whose_profile_lacks_the_group_is_refused_and_so_is_the_default_policy(day):
     day.say(STAFF, "/remind 15:00 Call the dentist")
-    assert NOT_ENABLED in day.texts(STAFF)[-1] and "/remind" in day.texts(STAFF)[-1]
+    assert day.texts(STAFF)[-1] == PLAIN_REFUSAL
     day.say(STAFF, "/reminders")
     assert NOT_ENABLED in day.texts(STAFF)[-1]
     day.say(STAFF, "/forget 1")
