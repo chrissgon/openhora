@@ -783,6 +783,10 @@ TABLE = {
         "NW_ITEMS_T_RECURRING": "recurring",
         "EV_NONE_NO_SOURCE": "I did not find that event. No calendar of yours is added to this project yet, so I can only find events that I created here. Add your calendar to find the others.",
         "EV_CHECK_FAILED": "I could not check your calendar just now, so I did nothing. Try again in a moment.",
+        "NW_ITEMS_HEAD_CHECKED": "{name} (checked {when}):",
+        "NW_ITEMS_TODAY": "today",
+        "NW_ITEMS_YESTERDAY": "yesterday",
+        "NW_ITEMS_PREVIEW": "Start of the text: {text}",
         "PHONE_NOT_UNDERSTOOD": "I did not understand the request and started nothing. Can you say it another way?",
         # --- one short acknowledgement when a reply takes time (slice S19: runtime/messaging_ack.py, runtime/line_stage.py): chosen by code from the stage the job had reached ---
         "ACK_GENERIC": "One moment, I am looking into it...",
