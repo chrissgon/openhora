@@ -175,7 +175,7 @@ def test_an_answer_that_is_still_wrong_keeps_the_ask_again_and_says_why_in_the_l
     for text, why in cases:
         capsys.readouterr()
         Model(monkeypatch, text)
-        assert say(world, LIVE) == ASK_AGAIN, text
+        assert say(world, "O corte de cabelo de amanha") == ASK_AGAIN, text          # a line with no verb that asks to change or cancel an event: nothing to read it by
         err = capsys.readouterr().err
         assert err.splitlines()[-1:] == [f"interpreter: ask-again ({why})"], (text, err)
         for secret in ("corte", "cabelo", "Remova", "amanh", "ZEBRA", "zzz", "x9", "pat@example.com"):
@@ -327,7 +327,7 @@ def test_the_account_a_line_names_narrows_the_search_to_the_events_created_there
     assert reply.endswith("O card #4 espera a sua aprovação."), reply      # validate: allow english-only -- the Portuguese line or sentence under test
     lines = pending(world, 4)["body"].splitlines()
     assert any(l.startswith("Account: microsoft (") for l in lines) and "Event: AAMkEvent0001=" in lines, lines
-    assert "After: When: Wed 21/10/2026 18:00-19:00 (America/Sao_Paulo)" in lines, lines
+    assert "After: When: Thu 22/10/2026 18:00-19:00 (America/Sao_Paulo)" in lines, lines
 
 
 def test_an_account_with_no_event_created_there_is_one_plain_sentence(world, monkeypatch):
@@ -396,19 +396,38 @@ def test_nothing_in_this_path_approves_or_writes(world, monkeypatch):
 # --- the model's operation is believed only when the line's own verb says the same ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("line, text", [
-    ("Não remova o corte de cabelo de amanha", op_text("event-cancel", {"event": TITLE})),      # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Muda o corte de cabelo de amanha para as 18h", op_text("event-cancel", {"event": TITLE, "time": "as 18h"}, time_iso="2026-10-22T18:00", weekday="thu")),
-    ("Remarque o corte de cabelo de amanha", op_text("event-cancel", {"event": TITLE})),
-    ("Cancela o corte de cabelo de amanha", op_text("event-change", {"event": TITLE})),
-])
-def test_a_model_op_the_lines_own_verb_does_not_name_is_not_read_again_and_opens_no_card(world, monkeypatch, line, text):
+def test_a_negated_line_is_not_a_removal_whatever_the_model_says(world, monkeypatch):
     build(world, monkeypatch)
     made(world)
     world["google"].requests.clear()
+    model = Model(monkeypatch, op_text("event-cancel", {"event": TITLE}))
+    assert say(world, "Não remova o corte de cabelo de amanha") == ASK_AGAIN and model.calls == 1      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert cards(world) == [1] and writes(world) == [], "no card of any kind: the line has no verb that asks for it"
+
+
+# The model's operation is never what is carried out when the line's own verb says another: the verb of the line decides, the event is found by its name, and nothing
+# the model wrote but the verified time reaches the card.
+@pytest.mark.parametrize("line, text, reply, lines_have, lines_lack", [
+    ("Muda o corte de cabelo de amanha para as 18h", op_text("event-cancel", {"event": TITLE, "time": "as 18h"}, time_iso="2026-10-22T18:00", weekday="thu"), CARD_2,
+     ["After: When: Thu 22/10/2026 18:00-19:00 (America/Sao_Paulo)", "Event: ev0001"], ["Removing, title: corte de cabelo"]),
+    ("Cancela o corte de cabelo de amanha", op_text("event-change", {"event": TITLE}), CARD_2, ["Removing, title: corte de cabelo", "Event: ev0001"], []),
+])
+def test_the_verb_of_the_line_decides_when_the_model_names_the_other_operation(world, monkeypatch, line, text, reply, lines_have, lines_lack):
+    build(world, monkeypatch)
+    made(world)
     model = Model(monkeypatch, text)
-    assert say(world, line) == ASK_AGAIN and model.calls == 1, line
-    assert cards(world) == [1] and writes(world) == [], "no card of any kind"
+    assert say(world, line) == reply and model.calls == 1, line
+    lines = pending(world, 2)["body"].splitlines()
+    assert [l for l in lines_have if l not in lines] == [] and [l for l in lines_lack if l in lines] == [], lines
+    assert pending(world, 2)["status"] == "open"
+
+
+def test_a_change_verb_with_no_time_asks_what_to_change_and_opens_nothing(world, monkeypatch):
+    build(world, monkeypatch)
+    made(world)
+    Model(monkeypatch, op_text("event-cancel", {"event": TITLE}))
+    assert say(world, "Remarque o corte de cabelo de amanha") == "Achei o evento, mas não entendi o que mudar. Diga o novo dia e horário, ou o novo nome."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert cards(world) == [1]
 
 
 def test_the_same_slots_with_the_verb_the_line_has_do_open_the_card(world, monkeypatch):

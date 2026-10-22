@@ -782,6 +782,9 @@ TABLE = {
         "NW_ITEMS_T_ONLINE": "online meeting",
         "NW_ITEMS_T_RECURRING": "recurring",
         "EV_NONE_NO_SOURCE": "I did not find that event. No calendar of yours is added to this project yet, so I can only find events that I created here. Add your calendar to find the others.",
+        "EV_FOUND": "I found: {title}, {when}. Is this the one?",
+        "EV_NAME_NONE": "I did not find an event with a similar name in the next {days} days. Ask for your calendar to see the events.",
+        "EV_NAME_NONE_DAY": "I did not find an event with a similar name on that day. Ask for your calendar to see the events.",
         "EV_CHECK_FAILED": "I could not check your calendar just now, so I did nothing. Try again in a moment.",
         "PHONE_NOT_UNDERSTOOD": "I did not understand the request and started nothing. Can you say it another way?",
         # --- one short acknowledgement when a reply takes time (slice S19: runtime/messaging_ack.py, runtime/line_stage.py): chosen by code from the stage the job had reached ---

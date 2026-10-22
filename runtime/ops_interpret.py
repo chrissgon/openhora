@@ -218,27 +218,38 @@ def _event_slots_fixed(obj: dict, line: str):
     return out
 
 
+def _by_verb(line: str, strict: dict, now, zone: str, allowed, frame, obj) -> dict:
+    """The decision for a line that asks to change or cancel an event by its name when the model's answer cannot be believed (slice S16b): the operation is the one the line's own
+    leading verb names, the time is what the time engine reads without doubt (`event_lookup._code_time`), and the event is found by the closest name afterwards. `strict` stays when
+    the line has no such verb, or when the model named an operation of another kind, or asked about something that is not an event."""
+    op = event_lookup.verb_op(line)
+    if op is None:
+        return strict
+    if obj is not None and ((obj.get("kind") == "op" and obj.get("op") not in event_lookup.OPS) or (obj.get("kind") == "clarify" and "ops" in obj and not set(obj["ops"]) <= set(event_lookup.OPS))
+                            or obj.get("kind") not in ("op", "clarify")):
+        return strict
+    again = interpreter.check({"v": 1, "kind": "op", "op": op, "slots": {}}, line, frame, interpreter.SERVED, now, zone, allowed)
+    if again.get("kind") == "op" and op == "event-change":
+        again = dict(again, time=event_lookup._code_time(line, now))
+    return again if again.get("kind") in ("op", "refuse_policy") else strict
+
+
 def lenient(line: str, text, strict: dict, now, zone: str, allowed, frame=None) -> dict:
-    """`strict`, the decision `decide` gave, or the decision for the line read as the event it describes (slice S16). Only a refused decision about an event to change or cancel is
-    read again, and only when the line's leading verb names the same operation as the model's (`event_lookup.verb_op`): an op object whose `event` slot is not a number of the line (or, for a removal, that has a slot the operation lacks) is checked again without those slots; a model that
-    only asks for the slot `event` gets the operation the line's leading verb names. The event is always found from the person's own words by code afterwards, never from the model's."""
+    """`strict`, the decision `decide` gave, or the decision for the line read as the event it describes (slices S16, S16b). Only a refused decision is read again, and only for a line
+    whose leading verb asks to change or cancel an event (`event_lookup.verb_op`). When the model named the same operation as that verb, an op object whose `event` slot is not a
+    number of the line (or, for a removal, that has a slot the operation lacks) is checked again without those slots. In every other case (the model named another operation, asked
+    for a slot, or said nothing that parses) the operation is the verb's and the event is found by the name in the line (`_by_verb`). The event is always found from the person's own
+    words by code afterwards, never from the model's."""
     if strict.get("kind") != "clarify" or strict.get("why") not in ("invalid", "model"):
         return strict
     obj, _, _ = interpreter.parse(text)
-    if obj is None:
-        return strict
-    if obj.get("kind") == "op" and obj.get("op") in event_lookup.OPS:
-        if event_lookup.verb_op(line) != obj["op"]:
-            return strict          # the model's op is believed only when the line's own leading verb says the same: "do not remove ..." or "move ..." answered with a removal stays refused
+    if obj is not None and obj.get("kind") == "op" and obj.get("op") in event_lookup.OPS and event_lookup.verb_op(line) == obj["op"]:
         fixed = _event_slots_fixed(obj, line)
-    elif obj.get("kind") == "clarify" and obj.get("slot") == "event" and (op := event_lookup.verb_op(line)) is not None:
-        fixed = {"v": obj["v"], "kind": "op", "op": op, "slots": {}}
-    else:
-        return strict
-    if fixed is None:
-        return strict
-    again = interpreter.check(fixed, line, frame, interpreter.SERVED, now, zone, allowed)
-    return again if again.get("kind") in ("op", "refuse_policy") else strict
+        if fixed is None:
+            return strict
+        again = interpreter.check(fixed, line, frame, interpreter.SERVED, now, zone, allowed)
+        return again if again.get("kind") in ("op", "refuse_policy") else strict
+    return _by_verb(line, strict, now, zone, allowed, frame, obj)
 
 
 def router_frame(age_s):
