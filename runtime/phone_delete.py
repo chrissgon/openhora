@@ -22,8 +22,9 @@ import re
 import sys
 import unicodedata
 
-VERBS = frozenset("""apaga apague apagar apaguem remove remova remover removam exclui exclua excluir deleta delete deletar deletem elimina elimine eliminar descarte descarta descartar
-jogue joga jogar tire tira tirar erase trash discard toss borra borre borrar quita quite quitar supprime supprimer supprimez efface effacer effacez retire retirer jette jeter
+# "descarta" and "discard" are not here: with a file held for the person they are the words of a card (messaging_attach.line), and without one they are an ordinary line.
+VERBS = frozenset("""apaga apague apagar apaguem remove remova remover removam exclui exclua excluir deleta delete deletar deletem elimina elimine eliminar
+jogue joga jogar tire tira tirar erase trash toss borra borre borrar quita quite quitar supprime supprimer supprimez efface effacer effacez retire retirer jette jeter
 loesche loeschen losche loschen entferne entfernen wirf werfe cancella cancellare rimuovi rimuovere butta buttare eliminare""".split())
 MOVERS = frozenset("mova mover move mueve mueva mets mettre verschiebe verschieben sposta spostare put send".split())      # "move the file to the trash": a verb of moving counts only with a word of the trash
 TRASH = frozenset("lixeira lixo trash recycle bin papelera basura corbeille poubelle papierkorb muell cestino spazzatura".split())

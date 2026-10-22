@@ -117,7 +117,7 @@ DELETE_LINES = ["Remova o arquivo openhora-mark do drive", "Remova o arquivo ope
 NOT_DELETE_LINES = ["remova o evento de amanhã", "Remova o corte de cabelo de amanhã da agenda", "remova o corte de cabelo da agenda", "apague o evento de sexta", "apague o email com o documento anexo",  # validate: allow english-only -- the lines under test
                     "apague o e-mail do João", "mova o email para a lixeira", "tire o evento da agenda", "delete the meeting from the calendar", "apague o lembrete",  # validate: allow english-only -- the lines under test
                     "não apague o arquivo", "do not delete the file", "como apagar um arquivo?", "salva o arquivo no drive", "o arquivo foi apagado", "/delete arquivo", "Delete",  # validate: allow english-only -- the lines under test
-                    "send the file to Maria", "remova a cláusula do contrato", "mostre o arquivo openhora-mark do drive"]  # validate: allow english-only -- the lines under test
+                    "send the file to Maria", "remova a cláusula do contrato", "mostre o arquivo openhora-mark do drive", "descarta o arquivo", "discard the file"]      # the last two are the words of a held file's card (messaging_attach.line)  # validate: allow english-only -- the lines under test
 
 
 @pytest.mark.parametrize("line", DELETE_LINES)
