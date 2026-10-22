@@ -257,6 +257,16 @@ WORDS = {
     "internal": shell_kit.INTERNAL,
 }
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+FAULT_MAX = 300         # characters of an error that the log keeps
+ACTIONABLE_MAX = 1500   # characters of an error that carries its own command (OpsError.next, the accept-config refusal): a path, two hashes and the command, never a line or a secret
+
+
+def fault_text(error) -> str:
+    """An error as the log shows it: one line, cut at FAULT_MAX characters, except a refusal that carries the command that gets past it (the configuration is not accepted),
+    which is kept whole up to ACTIONABLE_MAX: cut at 300 it lost the end of the command (S12)."""
+    text = CONTROL.sub(" ", str(error))
+    nxt = getattr(error, "next", None)
+    return text[:ACTIONABLE_MAX] if isinstance(nxt, str) and nxt and CONTROL.sub(" ", nxt) in text else text[:FAULT_MAX]
 
 
 class Usage(Exception):
@@ -649,7 +659,7 @@ def dispatch_loop(service: Service, every: float, stop, op: str = "dispatch") ->
             except busy:
                 continue
             except Exception as e:  # the loop survives whatever one round raises
-                text = f"{op} of {project['id']}: {type(e).__name__}: {CONTROL.sub(' ', str(e))[:300]}"
+                text = f"{op} of {project['id']}: {type(e).__name__}: {fault_text(e)}"
                 if last.get((op, project["id"])) != text:
                     service.log(text)
                 last[(op, project["id"])] = text
@@ -1011,7 +1021,7 @@ def check_projects(ops_module, projects, dispatch_every, log) -> None:
         try:
             report = ops_module.service_check(project["path"], dispatch_every=dispatch_every or 0)
         except Exception as e:  # a check that fails never stops the service
-            log(f"service check of {project['name']}: {type(e).__name__}: {CONTROL.sub(' ', str(e))[:300]}")
+            log(f"service check of {project['name']}: {type(e).__name__}: {fault_text(e)}")
             continue
         if not isinstance(report, dict):
             continue

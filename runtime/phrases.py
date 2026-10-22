@@ -764,6 +764,7 @@ TABLE = {
         "FR_WITHHELD": "I found {name} ({account}), but I did not show it: its text holds something that looks like a password or a key.",
         "FR_TOO_BIG": "I found {name} ({account}), but it is too large for me to read here.",
         "FR_EMPTY": "I found {name} ({account}), but there is no text in it to show.",
+        "CONFIG_PENDING": "The project's configuration changed and must be accepted in the terminal before I can go on.",
     },
     "pt-BR": phrases_pt_br.TABLE,
 }

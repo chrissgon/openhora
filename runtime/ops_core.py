@@ -38,6 +38,8 @@ import autonomy  # noqa: E402
 import billing  # noqa: E402
 import lab  # noqa: E402
 import operations  # noqa: E402
+import policy_grants  # noqa: E402
+import policy_widening  # noqa: E402
 import project_config  # noqa: E402
 
 STORE_CLASS = "store:runtime"
@@ -135,13 +137,25 @@ def _config_of(project: str) -> dict:
     return cfg
 
 
-def _accepted(cfg: dict, accepted) -> None:
-    """Refuse (code 3) a configuration whose hash is not the accepted one."""
+def _accepted(cfg: dict, accepted, widening=None) -> None:
+    """Refuse (code 3) a configuration whose hash is not the accepted one. `widening` is the hash `accept-config --widen` takes for this file (None when the file widens
+    nothing or it is not known): the command in the sentence carries it, so that the person can run it as it stands (S12)."""
     if accepted != cfg["sha256"]:
-        command = _command("accept-config", cfg["project"], sha256=cfg["sha256"])
+        command = _command("accept-config", cfg["project"], sha256=cfg["sha256"], **({"widen": widening} if widening else {}))
         raise OpsError(f"the configuration {cfg['path']} has the hash {cfg['sha256']} and the accepted one is "
                        f"{accepted or 'none: no configuration was accepted yet'}. Read the file; when it is what you "
                        f"want, run: {command}", 3, next=command)
+
+
+def _widening_hash(cfg: dict, store, conn, accepted):
+    """The hash of the widening list `config` shows for this file (the one `accept-config --widen` takes), or None when the file widens nothing or it cannot be worked out."""
+    try:
+        got = lambda name: store.cursor_get(conn, name)
+        view = policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None, got(policy_widening.ACCOUNTS),
+                                  got(policy_widening.KEY) or policy_widening.PENDING_SECRET)
+        return view["widening_sha256"] if view["widening"] else None
+    except Exception:      # noqa: BLE001 - a refusal is never held back by this hint: the command is then the plain one
+        return None
 
 
 def context(project: str, *, check_config: bool = True) -> dict:
@@ -162,7 +176,7 @@ def context(project: str, *, check_config: bool = True) -> dict:
             accepted = store.cursor_get(conn, project_config.ACCEPTED)
         except store.StoreError as e:
             raise OpsError(f"the store at {cfg['store_db']}: {e}", e.code) from None
-        _accepted(cfg, accepted)
+        _accepted(cfg, accepted, None if accepted == cfg["sha256"] else _widening_hash(cfg, store, conn, accepted))
     return {"cfg": cfg, "store": store, "conn": conn, "root": ROOT}
 
 

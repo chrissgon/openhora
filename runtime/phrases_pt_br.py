@@ -717,6 +717,7 @@ TABLE = {
     "FR_WITHHELD": "Encontrei {name} ({account}), mas não mostrei: o texto tem algo que parece uma senha ou uma chave.",
     "FR_TOO_BIG": "Encontrei {name} ({account}), mas ele é grande demais para eu ler aqui.",
     "FR_EMPTY": "Encontrei {name} ({account}), mas não há texto nele para mostrar.",
+    "CONFIG_PENDING": "A configuração do projeto mudou e precisa ser aceita no terminal antes de eu continuar.",
 }
 
 STATUS = {
