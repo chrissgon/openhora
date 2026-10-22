@@ -46,14 +46,14 @@ TABLE = {
     "RELEASED": "#{id} liberada.",
     "NOT_APPROVABLE": "A decisão pendente {number} é do tipo {kind}: aprovar vale só para um plano ou um aceite.",
     # --- /help and the usage lines ---
-    "HELP": ("Comandos:\n/pending            o que espera por você\n/approve <id>       aprova o que o último card de <id> mostrou\n"
-             "/reject <id> [note] rejeita\n/release <id>       libera uma entrega\n/answer <id> <text> responde a uma pergunta\n"
-             "/ask <question>     responde a uma pergunta com as fontes do projeto\n"
-             "/add <n>            adiciona como fonte um arquivo que você enviou\n/discard <n>        apaga um arquivo que você enviou\n"
-             "/remind <time> <text> um lembrete enviado a você uma vez (15:00, 2026-10-20 09:30 ou in 2h)\n/reminders          os lembretes que esperam\n"
-             "/forget <n>         cancela um lembrete\n"
-             "/project [name]     escolhe o projeto para onde vão suas mensagens\n/help               esta lista\n"
-             "Qualquer outra mensagem vai para o agente de planejamento. Os comandos ativos dependem das suas permissões."),
+    "HELP": ("Comandos:\n\nPedidos\n/pending \u2014 o que espera por você\n/approve <id> \u2014 aprova o que o último card de <id> mostrou\n"
+             "/reject <id> [nota] \u2014 rejeita, ou dispensa uma pergunta\n/release <id> \u2014 libera uma entrega\n/answer <id> <texto> \u2014 responde a uma pergunta\n"
+             "/ask <pergunta> \u2014 responde a uma pergunta com as fontes do projeto\n\n"
+             "Arquivos\n/add <n> \u2014 adiciona como fonte um arquivo que você enviou\n/discard <n> \u2014 apaga um arquivo que você enviou\n\n"
+             "Lembretes\n/remind <hora> <texto> \u2014 um lembrete enviado a você uma vez (15:00, 2026-10-20 09:30 ou in 2h)\n/reminders \u2014 os lembretes que esperam\n"
+             "/forget <n> \u2014 cancela um lembrete\n\n"
+             "Projeto\n/project [nome] \u2014 escolhe o projeto para onde vão suas mensagens\n/help \u2014 esta lista\n\n"
+             "Você também pode pedir com as suas palavras. Os comandos ativos dependem das suas permissões."),
     "USAGE_APPROVE": "Uso: /approve <id>",
     "USAGE_REJECT": "Uso: /reject <id> [note]",
     "USAGE_RELEASE": "Uso: /release <id>",
@@ -742,6 +742,24 @@ TABLE = {
     "FR_WITHHELD": "Encontrei {name} ({account}), mas não mostrei: o texto tem algo que parece uma senha ou uma chave.",
     "FR_TOO_BIG": "Encontrei {name} ({account}), mas ele é grande demais para eu ler aqui.",
     "FR_EMPTY": "Encontrei {name} ({account}), mas não há texto nele para mostrar.",
+    "QUESTION_DISMISSED": "Pergunta #{id} dispensada.",
+    "PEND_QUESTION": "#{id} pergunta do assistente: {text}",
+    "PEND_NOT_UNDERSTOOD": "#{id} pedido não entendido",
+    "PEND_DISMISS_TYPED": "Para dispensar, responda: /reject <número>.",
+    "PEND_DISMISS_REPLY": "Para dispensar, responda à mensagem dela com: /reject <número>.",
+    "NO_SUCH_DECISION": "Não encontrei a decisão {number}.",
+    "NOT_ANSWERABLE": "A decisão pendente {number} é do tipo {kind}: ela se aprova ou se rejeita, não se responde.",
+    "NOT_RELEASABLE": "A decisão pendente {number} é do tipo {kind}: ela se responde, não se libera.",
+    "NOT_REJECTABLE": "A decisão pendente {number} é do tipo {kind}: rejeitar vale só para um plano, um aceite, uma ação ou uma pergunta.",
+    "QUESTION_HAS_COMPANY": "A pergunta {number} não foi dispensada: o pedido dela ainda tem outras decisões abertas.",
+    "PHONE_USE_CARD": "Use o botão do card, ou envie /approve <id> como a mensagem inteira.",
+    "PHONE_FAILED": "Não consegui concluir isso. Tente de novo; se continuar falhando, veja o que aconteceu {where}",
+    "PHONE_ROUTER_FAILED": "Não consegui olhar o seu pedido agora. Tente de novo em alguns minutos.",
+    "PHONE_NOT_PLANNED": "Não planejado {n}: {item}.",
+    "NOT_OPEN_DONE": "O pedido #{number} já foi {status}.",
+    "PHONE_NO_FILE_DELETE": "Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive.",
+    "PEND_CARD_TITLE": "Pergunta do assistente",
+    "PEND_NOT_UNDERSTOOD_TITLE": "Pedido não entendido",
 }
 
 STATUS = {

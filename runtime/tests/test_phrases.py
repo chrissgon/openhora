@@ -77,7 +77,7 @@ def test_the_commands_and_mentions_of_a_sentence_are_the_same_in_every_language(
 
 def test_the_angle_bracket_arguments_of_a_command_are_not_translated():
     args = re.compile(r"/[a-z]+ (?:<[a-z]+>|\[[a-z]+\])|<text>|<id>|<n>|<question>")
-    for key in ("HELP", "RM_USAGE", "ASK_NEXT", "ASK_HINT", "NOT_NAMED_NEXT") + tuple(k for k in EN if k.startswith("USAGE_")):
+    for key in ("RM_USAGE", "ASK_NEXT", "ASK_HINT", "NOT_NAMED_NEXT") + tuple(k for k in EN if k.startswith("USAGE_")):      # HELP (S14) names its arguments in the language: the phone's list is read, not typed
         assert sorted(args.findall(PT[key])) == sorted(args.findall(EN[key])), key
 
 

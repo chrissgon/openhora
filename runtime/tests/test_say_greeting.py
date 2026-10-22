@@ -109,7 +109,7 @@ def test_a_sender_who_may_not_talk_gets_the_refusal_of_today_for_a_greeting(worl
     calls = calls_of(world, monkeypatch)
     for line in ("hello", "bom dia", "hola, buenos d\u00edas"):
         assert phone(world, "silent", line)["reply"] == PLAIN_REFUSAL, line
-    assert phone(world, "silent", "ajuda")["reply"].startswith("Commands:\n/pending"), "a help line in words is the fixed list for this sender, as it was"      # validate: allow english-only -- the line under test
+    assert phone(world, "silent", "ajuda")["reply"].startswith("Commands:\n\nRequests\n/pending"), "a help line in words is the fixed list for this sender, as it was"      # validate: allow english-only -- the line under test
     assert calls == []
 
 

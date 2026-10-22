@@ -202,6 +202,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, never bound at import)
+import ops_question  # noqa: E402  (a question turned down is closed with its request: reject on a question)
 import ops_cancel  # noqa: E402  (cancel and stop-task at any moment; a run asks it whether it was stopped; re-exported below)
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
 import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; this file re-exports `run_task`, `dispatch` and `reap`)
@@ -2259,7 +2260,8 @@ def hand_over(project: str, task_id: int, file: str) -> dict:
 
 def reject(project: str, pending_id: int, note: str | None = None, channel: str | None = None, sender: str | None = None) -> dict:
     """Reject a pending decision of kind `plan` or `acceptance`: the request is cancelled, with what is open under
-    it. A note is kept on a rejected plan. An `effect` rejected cancels its task, and nothing is sent."""
+    it. A note is kept on a rejected plan. An `effect` rejected cancels its task, and nothing is sent. A `question`
+    rejected is dismissed: it closes, with its request when nothing else of it is open."""
     ctx = core.context(project)
     ops_actor.guard(ctx, "reject", channel, sender)
     actor = ops_actor.label(ctx["cfg"], channel, sender)
@@ -2276,7 +2278,9 @@ def reject(project: str, pending_id: int, note: str | None = None, channel: str 
         with ops_step_effects.resolution_guard(ctx, item):    # refused while the write of an output runs: it would end with no record
             return ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="rejected",
                                                        by="user", answer=said, actor=actor))
-    raise core.OpsError(f"pending decision {pending_id} is a {item['kind']}: reject takes a plan, an acceptance or an effect", 2)
+    if item["kind"] == "question":     # S14: turning a question down closes it, with its request when nothing else of it is open (runtime/ops_question.py)
+        return ops_question.dismiss(ctx, item, channel=channel, sender=sender)
+    raise core.OpsError(f"pending decision {pending_id} is a {item['kind']}: reject takes a plan, an acceptance, an effect or a question", 2)
 
 
 # --- stage 6: the dispatcher's operations ----------------------------------------------------------------------------
