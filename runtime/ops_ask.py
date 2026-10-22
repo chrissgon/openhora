@@ -52,6 +52,7 @@ import ask_reply
 import ask_select
 import autonomy
 import lab
+import line_stage
 import natural
 import operations
 import ops_actor
@@ -272,6 +273,7 @@ def _ask(project: str, text: str, channel: str | None = None, sender: str | None
         agent = plan.agent_of(skill, plan.agent_skills(cfg, core.ROOT))
     except (plan.PlanError, ValueError) as e:
         raise core.OpsError(str(e), 2) from None
+    line_stage.publish(line_stage.for_kinds(kinds.get(i) for i in picked["ids"]))      # S19: after every refusal above, so that no promise is made that is then broken
     actor = ops_actor.label(cfg, channel, sender)
     attended = actor in (None, "terminal", "chat")    # a version the person changed by hand goes only to an ask typed where the person is
     meta, keys, routing = ops_contained.routed(ctx, skill)

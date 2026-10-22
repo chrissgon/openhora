@@ -330,8 +330,10 @@ def test_the_policy_is_read_when_the_person_taps_so_a_grant_taken_back_approves_
     grant(world)
     said = len(world.texts())
     world.fake.config_answer = lambda project: {"path": project, "sha256": "a" * 64, "accepted": False, "data_dir": "x", **world.config}
-    world.say(None, action=action)       # a configuration that is not accepted refuses everything: the tap is dropped with no call and no reply
-    assert approve_calls(world) == [] and len(world.texts()) == said
+    world.say(None, action=action)       # a configuration that is not accepted refuses everything: the tap is not acted on, and (S12) the person is told once, in one plain sentence
+    assert approve_calls(world) == [] and world.texts()[said:] == ["The project's configuration changed and must be accepted in the terminal before I can go on."]
+    world.say(None, action=action)
+    assert approve_calls(world) == [] and len(world.texts()) == said + 1, "the same file is told once"
 
 
 def test_an_effect_card_sent_before_the_word_was_granted_is_sent_again_once_it_can_be_approved(world):

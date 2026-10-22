@@ -230,3 +230,307 @@ def test_the_committed_prompt_has_the_sha256_the_file_pins_and_holds_no_third_pa
     text = (st.RUNTIME / "mail_compose_prompt.txt").read_text(encoding="utf-8")
     assert re.fullmatch(r"[0-9a-f]{64}", mail_compose.prompt_sha256()) and mail_compose.prompt_template() == text
     assert "{{" not in text and "http" not in text and "@" not in text, "a fixed prompt: no placeholder, no address, no link"
+
+
+# --- the spelling of the typed subject (S12) --------------------------------------------------------------------------------------------------------
+
+import unicodedata      # noqa: E402
+
+
+def plain_words(text: str) -> list:
+    """The test's own reading of a subject: accents removed, lower case, the words in order."""
+    flat = "".join(c for c in unicodedata.normalize("NFD", text.lower()) if unicodedata.category(c) != "Mn")
+    return re.findall(r"[a-z0-9]+", flat)
+
+
+def subject_violations(typed: str, result: str) -> list:
+    """What a kept or corrected subject must never be, from the test's own rules: another word count, a non-letter character that is not the person's (digits, punctuation, symbols, spaces),
+    a letter of another script, a compatibility form or an invisible character, a different capital on a name."""
+    found = []
+    if result == typed:
+        return found
+    if len(plain_words(typed)) != len(plain_words(result)):
+        found.append("words")
+    keep = lambda text: re.sub(r"\s+", " ", "".join(c for c in unicodedata.normalize("NFC", text) if unicodedata.category(c)[0] not in "LM" or c.isspace()))
+    if keep(result) != keep(typed):
+        found.append("non-letters")
+    script = lambda text: {unicodedata.name(c).split(" ")[0] for c in text if unicodedata.category(c)[0] == "L"}
+    if not script(result) <= script(typed):
+        found.append("script")
+    if unicodedata.normalize("NFKC", result) != result or any(unicodedata.category(c) in ("Cf", "Cc") for c in result):
+        found.append("form")
+    if "@" in result or "http" in result.lower() or "www." in result.lower():
+        found.append("link")
+    for old, new in zip(typed.split(), result.split()):
+        if old[:1].isupper() != new[:1].isupper() and typed.split().index(old) > 0:
+            found.append("capital")
+    return found
+
+
+SPELLING_KEPT = [      # (typed, the model's subject): the typed subject stays
+    ("Reuniao sobre o Openhora", "Convite para reuni\u00e3o"),      # another subject
+    ("Reuni\u00e3o sobre o Openhora", "Convite para reuni\u00e3o"),
+    ("Reuniao sobre Openhora", "Reuni\u00e3o sobre o Openhora"),      # a word added
+    ("Reuniao sobre o Openhora", "Reuni\u00e3o Openhora"),      # words removed
+    ("Reuniao sobre o Openhora", "Openhora sobre o reuni\u00e3o"),      # another order
+    ("Reuniao dia 12", "Reuni\u00e3o dia 13"),      # a new digit
+    ("Reuniao dia 12", "Reuni\u00e3o dia 12 as 10"),
+    ("Reuniao", "Reuni\u00e3o https://elsewhere.example"),      # a link
+    ("Reuniao", "Reuni\u00e3o elsewhere.com"),
+    ("Reuniao", "Reuni\u00e3o ana@elsewhere.example"),
+    ("Reuniao sobre Openhora", "Reuni\u00e3o sobre openhora"),      # a name's capital changed
+    ("Reuniao sobre openhora", "Reuni\u00e3o sobre Openhora"),
+    ("reuniao sobre Openhora", "reuni\u00e3o sobre OPENHORA"),
+    ("Reuniao sobre o Openhora", "Re: Reuni\u00e3o sobre o Openhora"),      # a reply mark
+    ("Reuniao sobre o Openhora", "Reuni\u00e3o\nsobre o Openhora"),      # two lines
+    ("Reuniao sobre o Openhora", ""),
+    ("Reuniao sobre o Openhora", 5),
+    ("Reuniao com a Ana", "Reuni\u00e3o com o Ana"),      # a short word replaced
+    ("Reuniao amanha", "Reuni\u00e3o hoje"),      # a word replaced
+    ("Meeting tomorow", "Meeting tomorrow, urgent"),
+    ("Opnehora", "Openhora"),      # an edit of a word typed with a capital
+    ("Reuniao sobre o Openhora", "Reunao sobre o Openhora"),
+    ("aprovado", "reprovado"), ("possivel", "impossivel"), ("can attend", "cant attend"), ("is legal", "is illegal"),      # a letter added at the start, or a short word changed
+    ("pago", "pagou"), ("ver", "vez"),
+    ("Reuniao amanha", "Reuniao amanha."), ("Reuniao amanha", "Reuniao  amanha ?"),
+]
+SPELLING_FIXED = [      # (typed, the model's subject, the subject on the card)
+    ("Reuniao sobre o Openhora", "Reuni\u00e3o sobre o Openhora", "Reuni\u00e3o sobre o Openhora"),
+    ("reuniao sobre Openhora", "Reuni\u00e3o sobre Openhora", "Reuni\u00e3o sobre Openhora"),      # the first letter of the first word may become a capital
+    ("Reuniao sobre as tarefas", "Reuniao sobre as tarefaz", "Reuniao sobre as tarefaz"),      # a small edit inside a lower-case word
+    ("Meeting tomorow at 10", "Meeting tomorrow at 10", "Meeting tomorrow at 10"),
+    ("Reunion de planificacion", "Reuni\u00f3n de planificaci\u00f3n", "Reuni\u00f3n de planificaci\u00f3n"),
+    ("Reuniao Ana", "Reuni\u00e3o Ana", "Reuni\u00e3o Ana"),
+    ("reuniao amanha", "Reuni\u00e3o amanh\u00e3", "Reuni\u00e3o amanh\u00e3"),
+]
+
+
+PROBES_KEPT = [      # every probe of the review that is not the same subject with its spelling fixed: (typed, the model's subject)
+    ('Fatura paga', 'Fatura pagar'),
+    ('Reuniao as 16h', 'Reuni\xe3o \xe0s 17h'),
+    ('Pagamento 500', 'Pagamento 600'),
+    ('Nao pagar', 'Pagar'),
+    ('pode pagar', 'nao pagar'),
+    ('vou aceitar', 'vou recusar'),
+    ('Vou ir', 'Nao ir'),
+    ('Reuniao com Ana', 'Reuniao com Ann'),
+    ('Reuniao com Ana', 'Reuniao com Ama'),
+    ('Reuniao com Joao', 'Reuniao com Jose'),
+    ('Reuniao com Maria', 'Reuniao com Mario'),
+    ('confirmo presenca', 'cancelo presenca'),
+    ('aprovado', 'reprovado'),
+    ('approved', 'unapproved'),
+    ('can attend', 'cant attend'),
+    ('I can come', 'I cant come'),
+    ('is legal', 'is illegal'),
+    ('possivel', 'impossivel'),
+    ('sim', 'nao'),
+    ('Oi', 'OI'),
+    ('reuniao ana', 'Reuniao Ana'),
+    ('Reuniao', 'Reuni\u200bao'),
+    ('Reuniao', 'Reuniao\u202e'),
+    ('Reuniao amanha', 'Reuniao amanh\u0430'),
+    ('Pagamento', 'Pagamento\xa0x'),
+    ('Reuniao amanha', 'Reuni\xe3o, amanh\xe3!'),
+    ('Reuniao amanha', 'Reuniao: amanha?'),
+    ('Reuniao amanha', 'Reuniao - amanha (urgente)'),
+    ('Reuniao amanha', 'Reuniao amanha 2'),
+    ('Reuniao amanha', 'Reuniao amanha \U0001f600'),
+    ('Reuniao amanha', 'Reuniao amanha $$$'),
+    ('Reuniao amanha', 'Reuniao amanha <b>'),
+    ('Re uniao', 'Reuniao'),
+    ('teste', 'test@x.io'),
+    ('site', 'site.com'),
+    ('Reuniao x', 'Reuniao.com'),
+    ('valor 1,5', 'valor 15'),
+    ('valor 1.5', 'valor 1,5'),
+    ('valor 1.5', 'valor 1-5'),
+    ('valor R$ 10', 'valor US$ 10'),
+    ('valor 10%', 'valor 10'),
+    ('ate 10/11', 'at\xe9 11/10'),
+    ('Reuniao amanha', 'Reuniao amanha \xbd'),
+    ('item 2', 'item \xb2'),
+    ('item 2', 'item \u2082'),
+    ('I', 'l'),
+    ('Hello Bob', 'Hello Rob'),
+    ('Hi Al', 'Hi AI'),
+    ('Prazo terca', 'Prazo quarta'),
+    ('Meeting monday', 'Meeting sunday'),
+    ('Encontro dia 5', 'Encontro dia cinco'),
+    ('ok', 'ok!'),
+    ('a b', 'ab'),
+    ('Reuniao amanha', 'reuniao amanha'),
+    ('Reuniao ANA', 'Reuniao Ana'),
+    ('Reuniao Ana', 'Reuniao ANA'),
+    ('Projeto x', 'Projeto \u2715'),
+    ('Reuniao amanha', 'Reuniao\tamanha'),
+    ('Reuniao amanha', 'Reuniao\u2028amanha'),
+    ('Reuniao amanha', 'Reuniao amanha\u200f'),
+    ('Reuniao amanha', 'Reuniao amanha\u0301'),
+    ('Reuniao', 'R\u0435uniao'),
+    ('Reuniao', 'Reunia\u043e'),
+    ('Contrato', 'Contrat\u03bf'),
+    ('Fwd teste', 'Fwd: teste'),
+    ('Re teste', 'Re: teste'),
+    ('Pagar 1000', 'Pagar 1 000'),
+    ('caixa', 'caixa\ufe0f'),
+    ('Pagar 1.500', 'Pagar 1,500'),
+    ('Pagar 1.500', 'Pagar 1500'),
+    ('Pagar -5', 'Pagar 5'),
+    ('10:30', '10/30'),
+    ('Desconto 10%', 'Desconto 10'),
+    ('Custo \u20ac 10', 'Custo $ 10'),
+    ('Custo 10 \u20ac', 'Custo 10 \xa3'),
+    ('nota > 5', 'nota < 5'),
+    ('Item #1', 'Item 1'),
+    ('Reuniao confirmada', 'Reuniao confirmada?'),
+    ('1/2 dia', '1-2 dia'),
+    ('Reuniao amanha', 'Reuniao amanha \u26a0'),
+    ('Reuniao amanha', 'Reuniao amanha \u274c'),
+    ('Reuniao amanha', 'Reuniao amanha !!!'),
+    ('Dr Silva', 'Dr. Silva'),
+    ('McDonald reuniao', 'Mcdonald reuniao'),
+    ('iPhone novo', 'Iphone novo'),
+    ('Lista ABC', 'Lista ACB'),
+    ('Codigo XKCD', 'Codigo XKDC'),
+    ('senha Ab', 'senha Ab'),
+    ('Reuniao', 'Reuniao\xad'),
+    ('Reuniao', 'Reuni\u2060ao'),
+    ('Reuniao', 'Reuniao\u3000'),
+    ('Ola', '\uff9bla'),
+    ('teste', '\uff54\uff45\uff53\uff54\uff45'),
+    ('Reuniao', '\uff32euniao'),
+    ('send now', 'send not'),
+    ('will', 'wont'),
+    ('do it', 'do not'),
+]
+PROBES_FIXED = [      # the probes that are spelling or a small edit inside a lower-case word: (typed, the model's subject)
+    ('Reuniao amanha', 'Reuni\xe3o amanh\xe3'),
+    ('pode pagar', 'pode pegar'),
+    ('Fatura paga', 'Fatura para'),
+    ('ana', 'Ana'),
+    ('Prazo sexta', 'Prazo sesta'),
+    ('Prazo terca', 'Prazo ter\xe7a'),
+    ('Reuni\xe3o', 'Reuniao'),
+    ('Nao vou', 'N\xe3o vou'),
+    ('Joao e Ana', 'Jo\xe3o e Ana'),
+    ('pedido abcdef', 'pedido abcdeg'),
+    ('ola', 'ol\xe1'),
+    ('Meeting at five', 'Meeting at fine'),
+]
+
+
+@pytest.mark.parametrize("typed, shown", SPELLING_KEPT + PROBES_KEPT)
+def test_a_model_subject_that_is_not_the_same_words_with_the_spelling_fixed_keeps_the_typed_subject(typed, shown):
+    assert mail_compose.spelled(typed, shown) == typed
+
+
+@pytest.mark.parametrize("typed, shown, expected", SPELLING_FIXED)
+def test_a_model_subject_that_is_the_same_words_with_the_spelling_fixed_replaces_the_typed_one(typed, shown, expected):
+    assert mail_compose.spelled(typed, shown) == expected
+    assert subject_violations(typed, expected) == []
+
+
+@pytest.mark.parametrize("typed, shown", PROBES_FIXED)
+def test_the_probes_that_are_spelling_or_a_small_edit_inside_a_lower_case_word_are_taken_and_pass_the_oracle(typed, shown):
+    assert mail_compose.spelled(typed, shown) == shown.strip() and subject_violations(typed, shown) == []
+
+
+@pytest.mark.parametrize("typed, shown, kind", [
+    ("Pagar -5", "Pagar 5", "non-letters"), ("Custo \u20ac 10", "Custo $ 10", "non-letters"), ("nota > 5", "nota < 5", "non-letters"), ("Pagar 1.500", "Pagar 1,500", "non-letters"),
+    ("Desconto 10%", "Desconto 10", "non-letters"), ("Item #1", "Item 1", "non-letters"), ("10:30", "10/30", "non-letters"), ("item 2", "item \u00b2", "form"),
+    ("Reuniao", "R\u0435uniao", "script"), ("Reuniao", "Reuniao\u043e", "script"), ("Contrato", "Contrat\u03bf", "script"),      # Cyrillic and Greek lookalikes in a Latin word
+    ("Reuniao", "\uff32euniao", "form"), ("teste", "\uff54\uff45\uff53\uff54\uff45", "form"), ("Reuniao", "Reuni\u200bao", "form"), ("Reuniao", "Reuniao\u202e", "form"),
+    ("Reuniao amanha", "Reuniao amanha ?", "non-letters"), ("Re uniao", "Reuniao", "non-letters"),
+])
+def test_the_oracle_sees_what_the_review_changed_and_spelled_refuses_every_one_of_them(typed, shown, kind):
+    assert kind in subject_violations(typed, shown), "vacuity: the oracle flags the plant"
+    assert mail_compose.spelled(typed, shown) == typed
+
+
+def test_validate_returns_the_corrected_subject_only_when_it_is_the_same_subject():
+    assert mail_compose.validate(answer(subject="Reuni\u00e3o sobre o Openhora"), TO, "Reuniao sobre o Openhora")["subject"] == "Reuni\u00e3o sobre o Openhora"
+    assert mail_compose.validate(answer(subject="Convite para reuni\u00e3o"), TO, "Reuniao sobre o Openhora")["subject"] == "Reuniao sobre o Openhora"
+    assert mail_compose.validate(answer(subject="Reuni\u00e3o sobre o Openhora"), TO, None)["subject"] == "Reuni\u00e3o sobre o Openhora"      # no subject typed: the model's, as before
+    assert mail_compose.validate(answer(subject="Reuni\u00e3o https://elsewhere.example"), TO, "Reuniao")["subject"] == "Reuniao"
+
+
+def test_the_oracle_never_sees_a_violation_in_what_spelled_returns_over_the_corpus_and_sees_the_plant():
+    for typed, shown in SPELLING_KEPT + [(t, s) for t, s, _ in SPELLING_FIXED]:
+        assert subject_violations(typed, mail_compose.spelled(typed, shown)) == [], (typed, shown)
+    assert "words" in subject_violations("Reuniao sobre o Openhora", "Convite para reuni\u00e3o"), "vacuity: an accept-all spelling check would be caught"
+    assert "non-letters" in subject_violations("Reuniao dia 12", "Reuni\u00e3o dia 13")
+    assert "link" in subject_violations("Reuniao", "Reuni\u00e3o https://elsewhere.example")
+    assert "capital" in subject_violations("Reuniao sobre Openhora", "Reuni\u00e3o sobre openhora")
+
+
+# --- no dangling closing formula (S12) ---------------------------------------------------------------------------------------------------------------
+
+DANGLING = [      # (body, the body kept)
+    ("Hello,\n\nCould we meet tomorrow?\n\nBest regards,", "Hello,\n\nCould we meet tomorrow?"),
+    ("Ol\u00e1,\n\nGostaria de marcar uma reuni\u00e3o.\n\nAtenciosamente,", "Ol\u00e1,\n\nGostaria de marcar uma reuni\u00e3o."),
+    ("Ol\u00e1,\n\nAgrade\u00e7o desde j\u00e1.\n\nAtenciosamente,\n[Seu nome]", "Ol\u00e1,\n\nAgrade\u00e7o desde j\u00e1."),
+    ("Hola,\n\nGracias por todo.\n\nSaludos,\n", "Hola,\n\nGracias por todo."),
+    ("Bonjour,\n\nMerci pour tout.\n\nCordialement,", "Bonjour,\n\nMerci pour tout."),
+    ("Hallo,\n\nVielen Dank.\n\nMit freundlichen Gr\u00fc\u00dfen,", "Hallo,\n\nVielen Dank."),
+    ("Ciao,\n\nGrazie mille.\n\nCordiali saluti", "Ciao,\n\nGrazie mille."),
+    ("Ol\u00e1,\n\nUm abra\u00e7o.\n\nAbra\u00e7os,", "Ol\u00e1,\n\nUm abra\u00e7o."),
+    ("Ol\u00e1,\n\nOk.\n\nObrigado,", "Ol\u00e1,\n\nOk."),
+    ("Ol\u00e1,\n\nOk.\n\nAtt,\n\n", "Ol\u00e1,\n\nOk."),
+    ("Hi,\n\nPlease see the list.\nThanks\nBest\nCheers", "Hi,\n\nPlease see the list.\nThanks\nBest"),      # at most one closing line is removed
+    ("Hi,\nplease confirm.\nBest\n[Name]\n[Company]", "Hi,\nplease confirm.\nBest\n[Name]\n[Company]"),      # two placeholders: the last line is not the one placeholder after a closing
+    ("Hi,\nplease confirm.\n\nBest\n\n[Name]", "Hi,\nplease confirm."),
+    ("Prezados,\n\nSegue.\n\nAtt.,", "Prezados,\n\nSegue."),
+    ("Hi,\n\nNew menu items:\nThank you\nMerci\nGrazie", "Hi,\n\nNew menu items:\nThank you\nMerci"),      # one closing line only, and not after a line that ends with a colon
+]
+KEPT_AS_IT_IS = [      # a name follows, or the line is a finished courtesy sentence
+    "Ol\u00e1,\n\nOk.\n\nAtenciosamente,\nAna",
+    "Hello,\n\nOk.\n\nBest regards,\nAna Souza",
+    "Ol\u00e1,\n\nGostaria de marcar uma reuni\u00e3o.\n\nObrigado.",
+    "Hello,\n\nCould we meet tomorrow?\n\nThank you.",
+    "Hello,\n\nPlease reply. Best regards, Ana",
+    "Hi,\n\nItems to buy:\n[milk]\n[eggs]",      # content, not a signature
+    "Hi,\n\nThe answer is:\n[A]",
+    "Hi,\n\nPlease reply with one word:\nThanks",      # the closing word is the answer to the line before
+    "Oi,\n\nO nome do filme \u00e9:\nObrigado",
+    "Hi,\n\nI said:\nDanke",
+]
+
+
+@pytest.mark.parametrize("body, kept", DANGLING)
+def test_a_body_that_ends_with_a_closing_formula_alone_loses_it(body, kept):
+    assert mail_compose.without_dangling_close(body) == kept
+    got = mail_compose.validate(json.dumps({"subject": "S", "body": body}, ensure_ascii=False), TO, None)
+    assert got["body"] == kept
+
+
+@pytest.mark.parametrize("body", KEPT_AS_IT_IS)
+def test_a_closing_with_a_name_after_it_and_a_finished_courtesy_sentence_stay(body):
+    assert mail_compose.without_dangling_close(body) == body
+
+
+def test_no_accepted_body_ends_with_a_closing_formula_alone_over_every_listed_formula():
+    formulas = ["Atenciosamente", "Abra\u00e7os", "Att", "Cordialmente", "Obrigado", "Obrigada", "Best regards", "Regards", "Kind regards", "Saludos", "Cordialement",
+                "Mit freundlichen Gr\u00fc\u00dfen", "Cordiali saluti"]
+    for formula in formulas:
+        for ending in (formula + ",", formula, formula.upper() + ",", formula + ",\n[Your name]"):
+            got = mail_compose.validate(json.dumps({"subject": "S", "body": "Hello,\n\nCould we meet?\n\n" + ending}), TO, None)
+            assert got["body"] == "Hello,\n\nCould we meet?", (formula, ending)
+    assert mail_compose.validate(json.dumps({"subject": "S", "body": "Atenciosamente,"}), TO, None) is None, "a body that was only a closing is no body"
+
+
+def test_vacuity_the_oracle_of_the_closing_sees_a_planted_dangling_one():
+    last = lambda body: [line for line in body.split("\n") if line.strip()][-1].strip().lower().rstrip(",")
+    assert last("Hello,\n\nOk.\n\nBest regards,") == "best regards", "the plant is a closing formula on its own last line"
+    for body, _kept in DANGLING:
+        assert last(mail_compose.validate(json.dumps({"subject": "S", "body": body}, ensure_ascii=False), TO, None)["body"]) not in ("best regards", "atenciosamente", "saludos", "cordialement", "cordiali saluti", "att", "abra\u00e7os", "obrigado")
+
+
+# --- the prompt (S12) ------------------------------------------------------------------------------------------------------------------------------------
+
+
+def test_the_prompt_asks_for_correct_spelling_and_accents_in_the_subject_and_the_body_and_no_dangling_closing():
+    text = mail_compose.prompt_template()
+    assert "Write the subject and the body with the correct spelling, accents and punctuation of that language, even when the description is typed without accents" in text
+    assert "copy it into \"subject\" with only its spelling and accents corrected: the same words in the same order" in text
+    assert "never a closing formula alone such as \"Best regards,\"" in text and "a placeholder for one such as [Your name]" in text

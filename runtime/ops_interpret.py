@@ -57,6 +57,7 @@ import interpreter
 import interpreter_enable
 import interpreter_route
 import language as language_rules
+import line_stage
 import mail_compose
 import natural
 import operations
@@ -183,6 +184,7 @@ def _allowed(ctx: dict, sender) -> set:
 
 def _ask_model(ctx: dict, entry: dict, said: str, sender, frame=None):
     """The decision for the line, or None when no call could be made or it failed."""
+    line_stage.publish("think")      # S19: the stage a phone is told if the line is still unanswered after a while
     try:
         now = ops_natural._clock()
         zone = _zone(now)

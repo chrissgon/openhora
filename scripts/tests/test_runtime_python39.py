@@ -51,7 +51,7 @@ ON_SYSTEM_PYTHON = [
     # The words that decide a decision card (S2, limit L64) and the greeting forms (S5): pure readings of one line, read by the bridge.
     "runtime/card_words.py", "runtime/greeting.py",
     # S10: the plain sentence of a refusal on a phone, and the typing indicator while a reply is prepared (both read by the bridge)
-    "runtime/phone_refusal.py", "runtime/messaging_typing.py", "runtime/messaging_file.py", "runtime/phone_errors.py", "runtime/phone_delete.py", "runtime/messaging_pending.py", "runtime/ops_question.py",
+    "runtime/phone_refusal.py", "runtime/messaging_typing.py", "runtime/messaging_file.py", "runtime/phone_errors.py", "runtime/phone_delete.py", "runtime/messaging_pending.py", "runtime/ops_question.py", "runtime/messaging_ack.py", "runtime/line_stage.py",
     # What the two shells share (stage 9, WP-9.9): the job registry, the status words, the project list.
     "runtime/shell_kit.py",
     # The cost of a run recomputed from its token counts (stage 9): the operations layer imports it.

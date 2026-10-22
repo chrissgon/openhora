@@ -60,6 +60,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import intake  # noqa: E402
+import line_stage  # noqa: E402
 import natural  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
@@ -593,7 +594,7 @@ def _sending(ctx: dict, channel, sender, extras: dict):
     sender's profile in the configuration in force NOW holds `send-files` and `read-files` (the group is asked again at every send, a pick included)."""
     if channel != "messaging" or not isinstance(sender, str):
         return None
-    channels = ctx["cfg"]["channels"]
+    channels = ctx["cfg"].get("channels")
     if not (operations.holds(SEND_GROUP, "messaging", channels, sender) and operations.holds("read-files", "messaging", channels, sender)):
         return None
     return _limits(extras.get("can_send"))
@@ -697,6 +698,7 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     account = _service_of(word) if word else (next(iter(named)) if len(named) == 1 else None)
     if word and (account is None or (named and named != {account})):          # a word no table reads, or one that does not agree with the line (a line that names both accounts agrees with neither)
         return phrases.text("IX_ASK_AGAIN", cfg)
+    line_stage.publish("file")      # S19: the name is checked, the folders are searched
     got = _find_and_read(cfg, wanted, account, said, _sending(ctx, channel, sender, extras))
     if got["status"] == "several" and channel == "messaging":
         _remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")))
