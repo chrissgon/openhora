@@ -84,6 +84,7 @@ CODE_RE = re.compile(r"[a-z0-9:._-]{1,64}")
 TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}")
 FENCE_RE = re.compile(r"```json[ \t]*\r?\n(.*?)\r?\n?```", re.S)
 INTS_RE = re.compile(r"[0-9]{1,9}(?:,[0-9]{1,9})*")
+ACCOUNT_WORDS_MAX = 3      # words in a row an account slot may hold: "google drive", "one drive", "google calendar" (S17)
 LINE_BREAKS = re.compile(r"\s+")           # every run of white space, line separators included (str `\s` holds U+0085, U+2028 and U+2029)
 
 KINDS = ("op", "answer", "clarify", "route", "none")
@@ -709,19 +710,33 @@ def _slot_error(op: str, slot: str, value: str, line: str) -> str:
     return "E_INT" if kind in ("int", "ints") else "E_SPAN"
 
 
+def _account_run(op: str, slot: str, value: str, line: str) -> bool:
+    """Whether `value` is the account slot written with two or three words that stand in a row in the line ("google drive", "one drive"): `natural.check_operation` reads a word slot as ONE
+    word of the line, so an account named by a brand of several words is checked here, by the same rule for each of its words (a whole word of the line, no piece inside a longer one)."""
+    spec = natural.NATURAL[op]["slots"].get(slot)
+    parts = value.split()
+    if spec is None or list(spec) != ["word", "account"] or not 2 <= len(parts) <= ACCOUNT_WORDS_MAX or " ".join(parts) != value:
+        return False
+    tokens = [t.strip(natural.WORD_EDGE) for t in unicodedata.normalize("NFKC", line).split()]
+    return all(natural.WORD_RE.fullmatch(p) for p in parts) and any(tokens[i:i + len(parts)] == parts for i in range(len(tokens) - len(parts) + 1))
+
+
 def _check_slots(op: str, slots: dict, line: str):
-    """(args, None) when every slot passes `natural.check_operation` (unchanged) and every text slot is also a piece of the line as written; else (None, error)."""
+    """(args, None) when every slot passes `natural.check_operation` (unchanged; an account of several words in a row passes `_account_run` instead) and every text slot is also a piece of the line as written; else (None, error)."""
     for slot, value in slots.items():
         if slot not in natural.NATURAL[op]["slots"]:
             return None, "E_SLOT_UNKNOWN"
         if natural.NATURAL[op]["slots"][slot][0] == "ints" and not INTS_RE.fullmatch(value):
             return None, "E_INT"          # the protocol writes a list of numbers as digits joined by commas, nothing looser
-    got = natural.check_operation(op, slots, None, line)
+    runs = {slot: value for slot, value in slots.items() if _account_run(op, slot, value, line)}
+    single = {slot: value for slot, value in slots.items() if slot not in runs}
+    got = natural.check_operation(op, single, None, line)
     if not got["ok"]:
-        for slot, value in slots.items():
+        for slot, value in single.items():
             if not natural.check_operation(op, {slot: value}, None, line)["ok"]:
                 return None, _slot_error(op, slot, value, line)
         return None, "E_SPAN"
+    got = dict(got, args={**got["args"], **{natural.NATURAL[op]["slots"][slot][1]: value for slot, value in runs.items()}})
     for slot, value in slots.items():
         if natural.NATURAL[op]["slots"][slot][0] in ("span", "word") and not _span_in_line(value, line):          # a word is also as typed: a full-width or ligature form is not
             return None, "E_SPAN"
