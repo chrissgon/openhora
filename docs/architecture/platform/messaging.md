@@ -1082,6 +1082,7 @@ How to add a platform: add one file, `providers/messenger/<impl>.py`, that decla
 ## Changes
 
 - 2026-10-22: a short acknowledgement when a reply takes time (S19): `runtime/messaging_ack.py`, `runtime/line_stage.py`, the nine `ACK_*` sentences of the phrase table (pt-BR and en); rule 64.
+- 2026-10-22: the mail and calendar lists on a phone are fresh and plain (S15): a source whose snapshot is older than 10 minutes is read again once under the read right the sender holds, the list shows plain names, local times and the day of each event, and with no source of the asked kind the reply says it is added once on the platform's page (`runtime/ops_items.py`, limit L52).
 - 2026-10-22: a number after a list of events and the account a line names (S11): "cancela o 2" after the list opens the card of item 2, and "no outlook" chooses the account of a new event (`runtime/event_lookup.py` `take`, `account_named`, rule 59).
 - 2026-10-21: plain refusals on a phone, a card word read from an e-mail reply's first line, and a typing indicator (S10): `runtime/phone_refusal.py`, `card_words.reply_line`, `runtime/messaging_typing.py`, the optional capability `typing` and the Telegram verb `typing`; rules 62 and 63, limits L62 and L64 amended.
 - 2026-10-21: a greeting gets a greeting back and a summary of what the sender may do (S5): `runtime/greeting.py`, `ops_say.greeting_reply`, and a help line in words from a sender who holds `talk` is that summary instead of the fixed list (`Bridge.greets`).
