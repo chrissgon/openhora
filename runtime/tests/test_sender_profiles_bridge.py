@@ -239,7 +239,7 @@ def test_the_first_act_on_a_decision_several_senders_received_resolves_it_and_th
     assert lab.status(lab.plan) == "resolved" and lab.who(lab.plan).endswith(f":owner:{OTHER}")
     tasks_before = [t["id"] for r in ops.status(lab.path)["requests"] for t in r["tasks"]]
     lab.say(OWNER, action=second)
-    assert "resolved, not open" in lab.texts(OWNER)[-1] and lab.status(lab.plan) == "resolved"
+    assert lab.texts(OWNER)[-1] == "Request #3 was already resolved." and lab.status(lab.plan) == "resolved"
     assert lab.who(lab.plan).endswith(f":owner:{OTHER}"), "the first act stays the record"
     assert [t["id"] for r in ops.status(lab.path)["requests"] for t in r["tasks"]] == tasks_before and tasks_before, "the plan was approved once"
 

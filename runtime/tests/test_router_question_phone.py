@@ -163,7 +163,7 @@ def test_the_notice_card_of_the_question_holds_only_the_questions_under_the_fram
     phone.bridge.tick()
     card = phone.texts(STAFF)[0]
     asked(card)
-    title = {"pt-BR": "O roteador pergunta", "en": "The router asks"}[language]
+    title = {"pt-BR": "Pergunta do assistente", "en": "Question from the assistant"}[language]      # S14: a phone is not told "the router asks"
     assert title in card and VIEW[language] in card
     item = ops.pending(phone.path, out["pending_id"])
     assert cards.content_sha256(item) == cards.sha256_text(cards.decision_text(item)), "the card is bound to the stored text, not to the shown one"
@@ -301,7 +301,7 @@ def test_the_asking_sender_gets_the_question_once_and_another_listed_sender_gets
     assert len(phone.texts(OWNER)) == 1, "the notice of the decision the reply already carried is not sent: not now and not on the next period"
     [card] = phone.texts(STAFF)
     asked(card)
-    assert "O roteador pergunta" in card and "pergunta #" in card, "the other sender still gets the notice, in the language"
+    assert "Pergunta do assistente" in card and "pergunta #" in card and "roteador" not in card, "the other sender still gets the notice, in the language"
 
 
 def test_the_notice_still_goes_when_the_reply_did_not_reach_the_chat(phone, monkeypatch):
@@ -311,7 +311,7 @@ def test_the_notice_still_goes_when_the_reply_did_not_reach_the_chat(phone, monk
     phone.say(OWNER, LINE)
     assert phone.texts(OWNER) == []
     phone.bridge.tick()
-    assert wait_for(lambda: len(phone.texts(OWNER)) == 1) and "O roteador pergunta" in phone.texts(OWNER)[0]
+    assert wait_for(lambda: len(phone.texts(OWNER)) == 1) and "Pergunta do assistente" in phone.texts(OWNER)[0]
 
 
 def test_only_the_routers_question_is_marked_a_plan_keeps_its_card(phone):

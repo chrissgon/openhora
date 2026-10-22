@@ -46,6 +46,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import phrases  # noqa: E402  (the same folder: the sentences of a card, in the project's language)
+import messaging_pending as pending_view  # noqa: E402  (what a question says in a list and on a card)
 
 CHANNEL = "messaging"
 LEDGER_LINE = re.compile(r"^(Ledger \(the publisher's record of the keys it published\)): /[^\n]+$", re.M)      # the platform's own frame line (publish_document): the publisher's ledger file by its path on this machine
@@ -188,7 +189,12 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg) if unreadable else (effect_card_text(item, cfg, private, owner, False) if kind == "effect" else None)      # an effect that carries its card as lines (FND), said line by line in the language; the line that tells how to approve is a command, which a phone is never given (limit L62)
     if shown_body is None and router_asks(item):
         shown_body = phrases.asked_view(item.get("body"), cfg)      # the router's question reaches a phone as the question and its framing, not as the template around it; the hash is made of the stored body
-    full = decision_text(dict(item, title=phrases.heading(item.get("title"), cfg),
+    shown_title = phrases.heading(item.get("title"), cfg)
+    if kind == "question" and router_asks(item):
+        shown_title = phrases.text("PEND_CARD_TITLE", cfg)      # a phone is not told "the router asks" (S14); the stored title is the card's hash
+    elif kind == "question" and shown_body is None and pending_view.unclassified(item):
+        shown_title, shown_body = phrases.text("PEND_NOT_UNDERSTOOD_TITLE", cfg), phrases.text("PHONE_NOT_UNDERSTOOD", cfg)      # a request the router could not read: one plain sentence, not the route and the flow (S14)
+    full = decision_text(dict(item, title=shown_title,
                               body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
     if shown_body is None and kind == "effect":      # a stored body (no card): only the platform's two frame lines are touched, every other line is the person's data and is shown as it is
         full = APPROVE_FRAME.sub("", LEDGER_LINE.sub(lambda m: m.group(1) + ": " + phrases.text("PHONE_LEDGER_FILE", cfg), full)).rstrip("\n")
