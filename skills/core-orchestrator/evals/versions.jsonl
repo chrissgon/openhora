@@ -4,6 +4,4 @@
 {"version": "2.1.0", "content_sha256": "bd91c58581b470633ed8f2b4934c73766f9104f71ee6acb5baaea5f589ca85ca", "class": "y", "date": "2026-10-03"}
 {"version": "2.2.0", "content_sha256": "b4fabfdeaff0509463a242cb294ae4a15b7ebf1bc42e5e8e1c70a6b19563803e", "class": "y", "date": "2026-10-04"}
 {"version": "2.3.0", "content_sha256": "9e8754fbb17751027396937bf2a25b52dfa77d2451b59766404d905700297f1f", "class": "y", "date": "2026-10-13"}
-{"version": "3.0.0", "content_sha256": "1ddfcff06bae7a1e1166b2f8e637ff402b71d2f50a14e20cecf40930536aae4e", "class": "x", "date": "2026-10-15"}
-{"version": "4.0.0", "content_sha256": "9540e2b95085782dbdb726b6c9085a719f4e4413c8d0fff4196243987ba2827c", "class": "x", "date": "2026-10-16"}
-{"version": "4.1.0", "content_sha256": "4615de0ab0111ff8e54cb42d186e6ff4bf508fbb055243412ea0264a4cacd4cb", "class": "y", "date": "2026-10-16"}
+{"version": "3.0.0", "content_sha256": "2297959f7235503dcb70e5e2349904f5725dd9dedbbc3027737f5431f9e15bae", "class": "x", "date": "2026-10-22"}
