@@ -85,7 +85,8 @@ MENTION = re.compile(r"(?:^|\s)@\S")      # an `@id` mention of a source; an add
 TOP_KEYS = ("polite", "articles", "joiners", "range", "service_in", "kind_fillers")
 SECTIONS = {
     "services": ("google", "microsoft"),
-    "calendar": ("in_calendar", "calendar_after", "range_from", "range_to", "all_day", "change_verbs", "cancel_verbs", "nouns", "nouns_plural", "to_time", "rename", "rename_to"),
+    "calendar": ("in_calendar", "calendar_after", "range_from", "range_to", "all_day", "change_verbs", "cancel_verbs", "nouns", "nouns_plural", "to_time", "rename", "rename_to",
+                 "brands_google", "brands_microsoft"),
     "mail": ("send_verbs", "reply_verbs", "draft_verbs", "archive_verbs", "move_verbs", "mark_verbs", "trash_verbs", "nouns", "plural", "to", "subject", "body", "of",
              "folder", "read", "unread", "newest", "date_words"),
     "files": ("create_verbs", "replace_verbs", "save_verbs", "nouns", "named", "content", "folder", "this", "held_nouns", "gdoc", "text_words", "of", "replace_with",

@@ -164,6 +164,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     ctx = core.context(project)
     said = core._text(text, "the line")
     store = ctx["store"]
+    importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
     handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender) or _greets(ctx, said, channel, sender)      # S5: a greeting is answered by code too, never queued
     if _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the

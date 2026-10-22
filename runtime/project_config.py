@@ -54,10 +54,12 @@ accepted with accept-config; it holds no secret (the password is the secret MAIL
 
 It also reads "accounts" (package FND; absent: the platform writes to no account of the person's): where the platform may write in the person's own
 Google and Microsoft accounts, an object {"google": {...}, "microsoft": {...}} whose entries are each {"address": "<plain address>" (required),
-"calendars": {"<name>": "<calendar id>"}, "folders": {"<name>": "<Drive folder id | OneDrive folder id or /path>"}, "mail_folders": {"<name>":
+"calendars": {"<name>": "<calendar id>"}, "folders": {"<name>": "<Drive folder id or /path | OneDrive folder id or /path>"}, "mail_folders": {"<name>":
 "<label or folder id>"}, "move_removes_inbox": true | false (default true)}, and, beside the two accounts, "default": "google" | "microsoft" (an account the object lists: the
 account a line in words goes to when it names no service and both could serve it, package NR-5; `account_default`). A name is lowercase letters, digits and hyphens, at most 32; an id is
-checked by a full-match pattern of its provider (a Google id holds no slash; a OneDrive path is `/` and names, no `.` or `..`). The account's token
+checked by a full-match pattern of its provider (a Google id holds no slash; a OneDrive path is `/` and names, no `.` or `..`). A Google folder may also be a path from
+My Drive in the same form ("/Documentos", "/Clientes/2026"): accepting the file resolves each one to its folder id through the Drive provider (`resolve-path`, runtime/ops_config.py), the
+ids are kept in `google-folders.json` in data_dir, `load` puts them in place of the paths, and `google_folders` of the loaded file lists each path beside its id (None until accepted). The account's token
 may reach more than this (the platform's scope set, contracts/secrets.md); what the platform WRITES to is only what is named here, and every
 write kind refuses a target that is not (limit L55; `account_target`). Like every key, changed only in the terminal and accepted with
 accept-config; it holds no secret.
@@ -240,7 +242,7 @@ def load(project: str) -> dict:
     out["sweep_orphan_containers"] = sweep
     out["language"] = _language(raw.get("language"))
     out["outbox"] = _outbox(raw.get("outbox"), out["workbench"])
-    out["accounts"] = _accounts(raw.get("accounts"))
+    out["accounts"], out["google_folders"] = with_google_ids(_accounts(raw.get("accounts")), resolved_google_paths(out["data_dir"]))
     return out
 
 
@@ -682,9 +684,59 @@ def _account_path(value: str) -> bool:
 def _account_id(provider: str, section: str, value) -> bool:
     if not isinstance(value, str):
         return False
-    if provider == "microsoft" and section == "folders" and value.startswith("/"):
+    if provider in ACCOUNT_PROVIDERS and section == "folders" and value.startswith("/"):      # a OneDrive folder is an id or a path; a Google folder too (S11): resolved to its id when the file is accepted
         return _account_path(value)
     return ACCOUNT_ID[(provider, section)].fullmatch(value) is not None
+
+
+GOOGLE_PATHS_FILE = "google-folders.json"      # in data_dir: {"v": 1, "folders": {"<path>": "<id>"}}, written when the person accepts the file (runtime/ops_config.py)
+
+
+def google_paths(accounts) -> dict:
+    """{folder name: path} of the Google folders the file gives as a path from My Drive (S11), the ones accepting the file resolves to an id."""
+    folders = (((accounts or {}).get("google") or {}).get("folders")) or {}
+    return {name: value for name, value in folders.items() if isinstance(value, str) and value.startswith("/")}
+
+
+def resolved_google_paths(data_dir) -> dict:
+    """{path: id} of the file the last acceptance wrote in `data_dir`; {} when there is none or it is not one this module wrote (every id is checked again as a Google folder id)."""
+    try:
+        with open(os.path.join(data_dir, GOOGLE_PATHS_FILE), encoding="utf-8") as f:
+            found = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    folders = found.get("folders") if isinstance(found, dict) and found.get("v") == 1 else None
+    if not isinstance(folders, dict):
+        return {}
+    return {p: i for p, i in folders.items() if isinstance(p, str) and _account_path(p) and isinstance(i, str) and ACCOUNT_ID[("google", "folders")].fullmatch(i)}
+
+
+def write_google_paths(data_dir, resolved: dict) -> None:
+    """Write {path: id} as the file of the last acceptance (mode 0600, replaced whole); with none to keep, the file is removed. Raises OSError."""
+    target = os.path.join(data_dir, GOOGLE_PATHS_FILE)
+    if not resolved:
+        try:
+            os.remove(target)
+        except FileNotFoundError:
+            pass
+        return
+    os.makedirs(data_dir, exist_ok=True)
+    temp = f"{target}.{os.getpid()}.tmp"
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump({"v": 1, "folders": dict(sorted(resolved.items()))}, f)
+    os.replace(temp, target)
+
+
+def with_google_ids(accounts, known: dict) -> tuple:
+    """(accounts, shown): the accounts with every Google folder given as a path replaced by the id in `known` ({path: id}; a path with none stays a path, which
+    `account_target` refuses), and `shown`, {name: {"path", "id" (None when not resolved)}}, what `config` prints beside each path. A copy: `accounts` is not changed."""
+    paths = google_paths(accounts)
+    if not paths:
+        return accounts, {}
+    google = dict(accounts["google"])
+    google["folders"] = {name: known.get(value, value) for name, value in google["folders"].items()}
+    return dict(accounts, google=google), {name: {"path": value, "id": known.get(value)} for name, value in paths.items()}
 
 
 def _accounts(value):
@@ -717,7 +769,7 @@ def _accounts(value):
                     raise ConfigError(f"{here}.{section}: a name is lowercase letters, digits and hyphens, at most 32 characters")
                 if not _account_id(provider, section, ident):
                     raise ConfigError(f"{here}.{section}.{name} is not the id of a {provider} {section[:-1].replace('_', ' ')}"
-                                      + (" (a Google id holds no slash)" if provider == "google" else ""))
+                                      + (" (a Google id holds no slash; a Google folder may also be a path from My Drive, such as /Clientes/2026)" if provider == "google" else ""))
             item[section] = dict(named)
         inbox = entry.get("move_removes_inbox", True)
         if not isinstance(inbox, bool):
@@ -727,6 +779,11 @@ def _accounts(value):
     if ACCOUNT_DEFAULT in value:
         out[ACCOUNT_DEFAULT] = value[ACCOUNT_DEFAULT]
     return out
+
+
+def file_accounts(cfg: dict):
+    """The key "accounts" as the file gives it, checked again, with a Google folder path still a path (`cfg["accounts"]` has the ids the last acceptance resolved in their place)."""
+    return _accounts(((cfg or {}).get("raw") or {}).get("accounts"))
 
 
 def account_default(cfg: dict):
@@ -764,7 +821,10 @@ def account_target(cfg: dict, account, section: str, name=None) -> tuple:
     if name not in listed:
         return None, (f"{clean_name(name)!r} is not one of the {what} the project lists for the account {account} (accounts.{account}.{section} in "
                       f"runtime.json): {', '.join(listed) or 'none are listed'}")
-    return listed[name], None
+    found = listed[name]
+    if account == "google" and section == "folders" and found.startswith("/"):      # a path nobody resolved: a write never goes to a folder the person has not seen as an id
+        return None, f"the Google folder {found} has not been resolved to its id: accept the configuration again, which resolves it through your Google account"
+    return found, None
 
 
 def resolver(workbench: str):

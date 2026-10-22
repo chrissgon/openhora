@@ -25,6 +25,7 @@ Usage:
   uv run providers/documents/gdrive.py read --id <file id> --as-source --out-dir <folder> [--max-bytes <n>]
   uv run providers/documents/gdrive.py pick  [--no-browser]
   uv run providers/documents/gdrive.py children --id <folder id> [--top <n, at most 200>]
+  uv run providers/documents/gdrive.py resolve-path --path </Folder/Subfolder>
 
   --check     refreshes the access token (the one network call) and checks its scope (the platform's four for the account token; drive.file and nothing wider for the legacy record);
               prints {"ok": true, "scope", "obtained_at"}. Exit 3 when there is no authorization or it was refused.
@@ -39,6 +40,10 @@ Usage:
   children    the direct contents of one folder (not its subfolders' contents), up to --top (default and most 200), by name: {"items": [{"id", "name",
               "kind" ("file" or "folder"), "mime_type", "size", "modified", "supported", "reason"}], "count", "truncated"}. One GET of the files list;
               it registers nothing and reads no file. Names are another person's text in principle: cleaned to one line, shown, never used as a path.
+  resolve-path  the id of the folder a path names in the account's My Drive, found folder by folder from the root: one GET of the files list for each name of the
+              path (the same host, never a write), the folders only, not in the trash. The path starts with a slash and holds 1 to 8 names, each 1 to 100 characters
+              with no control character. A name that matches no folder, or more than one, is refused (exit 1) with the path read so far in the message: the verb
+              never picks one of several. Prints {"id", "path", "levels"}. Nothing is registered and no file is read.
   pick        opens Google's Picker for the person on a one-shot page on 127.0.0.1 (gdrive_auth.py pick, which see) and prints
               {"picked": [{"id", "name", "mime_type"}], "cancelled": bool}. It registers nothing and reads no file; the runtime does,
               with `stat` and `read`. The local address to open is printed on stderr. Needs the one-time `gdrive_auth.py authorize`.
@@ -103,6 +108,8 @@ EXPORT_LIMIT_BYTES = 10 * 1024 * 1024   # Google's limit on exported content (fi
 FILE_FIELDS = "id,name,mimeType,size,version,modifiedTime,md5Checksum,trashed"
 FILE_ID = re.compile(r"[A-Za-z0-9_-]{10,100}")
 CHILDREN_TOP_MAX = 200                  # files one `children` call lists
+PATH_NAMES_MAX, PATH_NAME_MAX = 8, 100  # names in a path `resolve-path` walks, and the characters of one name
+ROOT = "root"                           # Drive's name for the top of My Drive
 LIST_LIMIT_BYTES = 4 * 1024 * 1024      # the most a files list may be
 OUT_NAME = "content"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
@@ -540,6 +547,48 @@ def cmd_children(args: dict) -> int:
     return emit({"items": items, "count": len(items), "truncated": bool(data.get("nextPageToken")) or len(entries) > top})
 
 
+def path_names(value) -> list:
+    """The names of a folder path (`/Clientes/2026`): a slash, then 1 to PATH_NAMES_MAX names joined by slashes, each 1 to PATH_NAME_MAX characters, neither `.` nor `..`,
+    no blank at either end and no control character. Anything else is a usage error before a request is made."""
+    if not isinstance(value, str) or not value.startswith("/") or len(value) > 800:
+        raise ProviderError("--path is a folder path from My Drive that starts with a slash, such as /Clientes/2026", EXIT_USAGE)
+    names = value[1:].split("/")
+    if len(names) > PATH_NAMES_MAX or any(not 0 < len(n) <= PATH_NAME_MAX or n in (".", "..") or n != n.strip() or re.search(r"[\x00-\x1f\x7f]", n) for n in names):
+        raise ProviderError(f"--path holds 1 to {PATH_NAMES_MAX} names of 1 to {PATH_NAME_MAX} characters, without . or .. and without control characters", EXIT_USAGE)
+    return names
+
+
+def cmd_resolve_path(args: dict) -> int:
+    """The id of the folder a path names: one GET of the files list for each name, from the root, the query built from the previous id (checked) and the name (escaped)."""
+    names = path_names(args.get("--path"))
+    drive = open_drive()
+    parent, seen = ROOT, ""
+    for name in names:
+        seen += "/" + name
+        quoted = name.replace("\\", "\\\\").replace("'", "\\'")
+        query = {"q": f"'{parent}' in parents and name = '{quoted}' and mimeType = '{FOLDER}' and trashed = false", "fields": "nextPageToken,incompleteSearch,files(id,name,mimeType)", "pageSize": "10",
+                 "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
+        status, body = drive.get("/drive/v3/files", query, LIST_LIMIT_BYTES)
+        if status != 200:
+            raise drive.failure(status, body, "files.list")
+        try:
+            data = json.loads(body)
+        except ValueError:
+            data = None
+        entries = data.get("files") if isinstance(data, dict) else None
+        if not isinstance(entries, list):
+            raise ProviderError("Drive answered a list this provider does not understand")
+        if data.get("nextPageToken") or data.get("incompleteSearch"):
+            raise ProviderError(f"Drive did not give the whole list of folders named {one_line(seen, 200)}, so the path cannot be told apart from another: give the folder's id")
+        found = [e for e in entries if isinstance(e, dict) and e.get("name") == name and e.get("mimeType") == FOLDER and isinstance(e.get("id"), str) and FILE_ID.fullmatch(e["id"])]
+        if not found:
+            raise ProviderError(f"no folder {one_line(seen, 200)} in My Drive")
+        if len(found) > 1:
+            raise ProviderError(f"{len(found)} folders in My Drive are named {one_line(seen, 200)}: the path does not say which; rename one or give the folder's id")
+        parent = found[0]["id"]
+    return emit({"id": parent, "path": "/" + "/".join(names), "levels": len(names)})
+
+
 def cmd_pick(args: dict) -> int:
     """The Picker, for the runtime: gdrive_auth.py's `pick` (it runs the one-shot page and prints the picks), through its own main so that its
     errors keep their exit codes."""
@@ -556,7 +605,7 @@ def cmd_unsupported(args: dict) -> int:
                         "nothing to Drive", EXIT_USAGE)
 
 
-VERBS = {"stat": cmd_stat, "read": cmd_read, "children": cmd_children, "pick": cmd_pick, "comments": cmd_unsupported, "write": cmd_unsupported, "notice": cmd_unsupported,
+VERBS = {"stat": cmd_stat, "read": cmd_read, "children": cmd_children, "resolve-path": cmd_resolve_path, "pick": cmd_pick, "comments": cmd_unsupported, "write": cmd_unsupported, "notice": cmd_unsupported,
          "resolve": cmd_unsupported}
 READS = ("stat", "read")
 VALUE_FLAGS = ("--id", "--out-dir", "--max-bytes", "--top", "--config-file", "--path", "--markdown-file", "--idempotency-key", "--notice",

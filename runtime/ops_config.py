@@ -153,19 +153,27 @@ def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen:
     is accepted only with `widen`, the sha256 of the widening list that `config` shows (policy_widening.widening_sha256): without it the call
     stops and prints the list and the command (the hash proves no reading: whoever can run accept-config can compute it). A project accepted
     before the record of what a file effectively has is asked once for what it lists beyond the defaults.
-    Returns {"accepted", "previous", "path", "checkpoints", "widened"}: "widened" lists what this acceptance gave away."""
+    A Google folder given as a path ("/Documentos") is resolved to its folder id first, through the Drive provider (runtime/ops_google_folders.py); one that is missing or
+    ambiguous refuses the acceptance and names the path.
+    Returns {"accepted", "previous", "path", "checkpoints", "widened"}, and "google_folders" ({name: {"path", "id"}}) when the file names such a path: "widened" lists what this acceptance gave away."""
     ctx = core.context(project, check_config=False)
     cfg = ctx["cfg"]
     with core._config_lock(cfg):
         cfg = core._config_of(project)  # the file as it is now, under the lock
         if sha256 != cfg["sha256"]:
             raise core.OpsError(f"the file's hash is {cfg['sha256']} and you typed {sha256}: nothing was accepted", 1)
+        folders = importlib.import_module("ops_google_folders")
+        resolved = folders.resolve(cfg)      # S11: a Google folder given as a path becomes its id here; the widening below and the record are made with the ids
+        cfg = folders.with_ids(cfg, resolved)
         listed = _widening_of(ctx, cfg)
         digest = policy_widening.widening_sha256(listed)
         if listed and widen != digest:
             raise _widening_refusal(cfg, listed, digest)
+        folders.keep(cfg, resolved)
         done = _record_acceptance(ctx, cfg, sha256, "person", adopt=adopt_sources)
     out = {"accepted": sha256, "previous": done["previous"], "path": cfg["path"], "checkpoints": done["checkpoints"], "widened": listed}
+    if cfg.get("google_folders"):
+        out["google_folders"] = cfg["google_folders"]      # each path beside the id it was resolved to
     if done.get("adopted"):
         out["sources_folder_adopted"] = done["adopted"]
     return out

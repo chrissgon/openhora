@@ -343,11 +343,18 @@ def _read(ctx: dict, said: str, seed, hint):
         op = seed["op"]
         if op in ("event-change", "event-cancel") and seed.get("slots"):          # an event found by its words (runtime/event_lookup.py): its source and number, and what to change
             return {"op": op, "family": "calendar", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
+        if op in ("event-change", "event-cancel") and seed.get("line"):          # a number said after a list (runtime/event_lookup.py `take`): the numbered line, read as such, bound to the source the list showed
+            got = nw.read(seed["line"], now, op=op)
+            if got is not None:
+                got["slots"].update(seed.get("bind") or {})
+            return got
         if op == "event-create" and seed.get("reading"):
             reading = seed["reading"]
             slots = {"start": f"{reading['date']}T{reading['time']}"}
             if seed.get("text"):
                 slots["title"] = seed["text"]
+            if seed.get("account"):          # the account the line names (runtime/event_lookup.py `seed_service`): the family does not ask which
+                slots["account"] = seed["account"]
             return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading}
         if op in ("mail-send", "mail-draft") and seed.get("slots") is not None:          # a new e-mail the interpreter decided (runtime/mail_compose.py `seed`): its slots, never the closed forms
             return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}

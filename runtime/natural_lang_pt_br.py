@@ -220,6 +220,9 @@ TABLE = {
             "calendar": {
                 "in_calendar": ["na agenda", "no calendario", "na agenda de", "na agenda do", "na agenda da", "no calendario de", "no calendario do", "no calendario da"],
                 "calendar_after": [],
+                # S11: the words that name the account of a calendar line (runtime/event_lookup.py): the brand alone, not the file or mail words of the same service
+                "brands_google": ["google", "gmail", "gcal"],
+                "brands_microsoft": ["outlook", "microsoft", "hotmail", "office365", "office 365"],
                 "range_from": ["das", "de"],
                 "range_to": ["as", "ate", "ate as", "a"],
                 "all_day": ["dia todo", "o dia todo", "o dia inteiro", "dia inteiro"],

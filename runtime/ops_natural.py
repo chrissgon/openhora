@@ -247,6 +247,10 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
             if answer is not None:
                 return _complete(project, ctx, draft, answer, said, channel, sender, extras)
             extras["discarded"] = True          # a question this line asks (a write's, NR-5) says the previous one was discarded
+    if channel == "messaging":      # S11: a number after a list of events ("cancela o 2", "o 2") means that entry, as "cancela o evento 2" does (runtime/event_lookup.py)
+        listed = importlib.import_module("event_lookup").take(project, ctx, said, sender, extras, _writes(), _clock())
+        if listed is not None:
+            return listed
     if channel != "mcp":      # a write form opens the card of its exact content (limit L61), never a write
         opened = _writes().open_line(project, ctx, said, channel, sender, extras)
         if opened is not None:
@@ -357,6 +361,8 @@ def _read(project: str, ctx: dict, name: str, row: dict, args: dict, channel, se
         out = _call(project, row, args, channel, sender)
     except core.OpsError as e:
         return _error(cfg, e, channel)
+    if name == "items":      # S11: the numbers this list shows are what the sender may point to next (runtime/event_lookup.py)
+        importlib.import_module("event_lookup").remember_items(ctx, channel, sender, out)
     return _clip(_render(name, out, cfg, channel), channel)
 
 
