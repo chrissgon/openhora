@@ -258,15 +258,14 @@ WORDS = {
 }
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 FAULT_MAX = 300         # characters of an error that the log keeps
-ACTIONABLE_MAX = 1500   # characters of an error that carries its own command (OpsError.next, the accept-config refusal): a path, two hashes and the command, never a line or a secret
+WHOLE_MAX = 6000        # characters of the refusal "the configuration is not accepted" that the log keeps: a path, two hashes, the widening lines and the command, never a line or a secret
 
 
 def fault_text(error) -> str:
-    """An error as the log shows it: one line, cut at FAULT_MAX characters, except a refusal that carries the command that gets past it (the configuration is not accepted),
-    which is kept whole up to ACTIONABLE_MAX: cut at 300 it lost the end of the command (S12)."""
+    """An error as the log shows it: one line, cut at FAULT_MAX characters, except the refusal of a configuration that is not accepted (ops_core.NotAccepted, code 3), which is kept
+    whole up to WHOLE_MAX: cut at 300 it lost the end of the command (S12)."""
     text = CONTROL.sub(" ", str(error))
-    nxt = getattr(error, "next", None)
-    return text[:ACTIONABLE_MAX] if isinstance(nxt, str) and nxt and CONTROL.sub(" ", nxt) in text else text[:FAULT_MAX]
+    return text[:WHOLE_MAX] if type(error).__name__ == "NotAccepted" and getattr(error, "code", None) == 3 else text[:FAULT_MAX]
 
 
 class Usage(Exception):

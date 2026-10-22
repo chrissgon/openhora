@@ -27,12 +27,13 @@ To, the Subject and the WHOLE text, and nothing is sent until the person approve
   validate(text, to, subject)       {"subject", "body"} for the model's text, or None. Code decides: strict JSON with exactly the two keys; a subject of one line; a body of
                                     plain text of at most 4000 characters; no header line, no HTML, no code fence, no link, no web address and no e-mail address other than the
                                     recipients the person typed; nothing the card refuses (`send_document.text_problem`). A body that ends with a closing formula alone
-                                    ("Atenciosamente,", "Best regards,", a bracketed placeholder name...) loses those last lines (`without_dangling_close`): a name after the
-                                    formula keeps it
-  spelled(typed, shown)             the subject the person typed, with its spelling fixed when the model's `shown` is the SAME subject (S12): after NFKC, accent stripping and case
-                                    folding the same words in the same order, none added or removed, each within a small edit distance (0 for a word of 1-2 letters, 1 up to 6, 2
-                                    above; a word with a digit exactly), a name's capital letters as typed (only the first letter of the first word may become a capital), and the
-                                    checks of a model-written subject; else `typed`
+                                    ("Atenciosamente,", "Best regards,") loses that last line and the bracketed placeholder name after it (`without_dangling_close`: one closing at most,
+                                    never after a line that ends with ":"): a name after the formula keeps it
+  spelled(typed, shown)             the subject the person typed, with its spelling fixed when the model's `shown` is the SAME subject (S12): NFKC with no format or control character; its
+                                    letters in the scripts the typed letters use; every character that is not a letter (digits, punctuation, symbols, spaces) the person's, in the same
+                                    places; a word typed with a capital or a digit changes its accents only (the first letter of the first word may become a capital); a word typed in
+                                    lower case, letters only, may also have a small edit inside it (0 up to 3 letters, 1 up to 6, 2 above; no letter added or removed at its start or end);
+                                    and the checks of a model-written subject; else `typed`
 
 What the model may see: five lines made of the date, the chat's language, the typed recipient addresses, the subject span (or empty) and the person's own words for the body
 (at most 1000 characters, else the text is sent as written). Never a message of the mailbox, a file, or any third-party text.
@@ -115,21 +116,58 @@ def _distance(a: str, b: str) -> int:
     return rows[len(a)][len(b)]
 
 
+def _is_letter(char: str) -> bool:
+    return unicodedata.category(char)[0] in "LM"
+
+
+def _skeleton(text: str) -> str:
+    """The text with every run of letters read as one mark and every run of spaces as one space: what must be identical, character for character, in the person's subject and in
+    the model's (digits, punctuation, symbols and spaces never change; only letters may)."""
+    out = []
+    for char in unicodedata.normalize("NFC", text):
+        if _is_letter(char):
+            if not out or out[-1] != "\0":
+                out.append("\0")
+        elif char.isspace():
+            if not out or out[-1] != " ":
+                out.append(" ")
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+def _scripts(text: str) -> set:
+    return {unicodedata.name(char, "?").split(" ")[0] for char in text if unicodedata.category(char)[0] == "L"}
+
+
 def _same_words(typed: str, shown: str) -> bool:
-    """Whether `shown` is `typed` with its spelling fixed (see `spelled`)."""
-    before, after = re.findall(r"[^\W_]+", _fold(typed)), re.findall(r"[^\W_]+", _fold(shown))
-    raw_before, raw_after = re.findall(r"[^\W_]+", _bare(typed)), re.findall(r"[^\W_]+", _bare(shown))
-    if not before or len(before) != len(after) or len(raw_before) != len(raw_after) or len(before) != len(raw_before):
+    """Whether `shown` is `typed` with its spelling fixed (see `spelled`): only letters differ; the letters are of the scripts the person used; a word typed with a capital or a digit
+    changes its accents only; a word typed in lower case, letters only, may also have a small edit inside it."""
+    if unicodedata.normalize("NFKC", shown) != shown or any(unicodedata.category(char) in ("Cf", "Cc") for char in shown):
+        return False      # full-width and compatibility forms, zero-width and direction marks, tabs and other controls
+    typed, shown = unicodedata.normalize("NFC", typed), unicodedata.normalize("NFC", shown)
+    if _skeleton(typed) != _skeleton(shown) or not _scripts(shown) <= _scripts(typed):
+        return False
+    before, after = re.findall(r"[^\W_]+", typed), re.findall(r"[^\W_]+", shown)
+    if len(before) != len(after):
         return False
     for at, (old, new) in enumerate(zip(before, after)):
-        allowed = 0 if any(c.isdigit() for c in old + new) else (0 if len(old) <= 2 else 1 if len(old) <= 6 else 2)
-        if _distance(old, new) > allowed:
-            return False
-        was, now = raw_before[at], raw_after[at]
         if old == new:
-            if was != now and not (at == 0 and was[:1].islower() and now == was[:1].upper() + was[1:]):
-                return False      # only the accent may change, not the capitals
-        elif (was[:1].isupper() != now[:1].isupper() and not (at == 0 and was[:1].islower())) or was.isupper() != now.isupper():
+            continue
+        if _fold(old) == _fold(new):      # the accents changed: the capitals stay as typed, except the first letter of the first word
+            lower_first = at == 0 and old[:1].islower() and new[:1].isupper()
+            if _bare(old) != _bare(new) and not (lower_first and _bare(new) == _bare(old)[:1].upper() + _bare(old)[1:]):
+                return False
+            continue
+        if not old.isalpha() or old != old.lower():
+            return False      # a name, a word with a digit: no edit at all
+        flat = new[:1].lower() + new[1:] if at == 0 else new
+        if flat != flat.lower() or not new.isalpha():
+            return False
+        before_word, after_word = _fold(old), _fold(new)
+        if len(before_word) != len(after_word) and (before_word[:1] != after_word[:1] or before_word[-1:] != after_word[-1:]):
+            return False      # a letter added or removed at the start or the end of a word turns it into another (aprovado, reprovado; pago, pagou)
+        if _distance(before_word, after_word) > (0 if len(before_word) <= 3 else 1 if len(before_word) <= 6 else 2):
             return False
     return True
 
@@ -149,15 +187,22 @@ def spelled(typed: str, shown) -> str:
 
 
 def without_dangling_close(body: str) -> str:
-    """The body without the closing formula that has nothing after it (and the bracketed placeholder name that may follow it): "Atenciosamente," as the last line is dropped,
-    a closing followed by a name stays, a finished courtesy sentence ("Obrigado.") stays."""
-    lines = body.split("\n")
-    while lines:
-        last = lines[-1].strip()
-        if last and not PLACEHOLDER.fullmatch(last) and _fold(last).rstrip(",").strip() not in CLOSINGS:
-            break
-        lines.pop()
-    return "\n".join(lines).strip()
+    """The body without the closing formula that has nothing after it, and the bracketed placeholder name after it: "Atenciosamente," as the last line is dropped. At most one closing is
+    removed, and none after a line that ends with ":" (the line is then the answer to it); a closing followed by a name stays, and so does a finished courtesy sentence ("Obrigado.")."""
+    lines = body.rstrip().split("\n")
+    last = len(lines) - 1
+    if PLACEHOLDER.fullmatch(lines[last].strip()):
+        last -= 1
+        while last >= 0 and not lines[last].strip():
+            last -= 1
+    if last < 0 or _fold(lines[last].strip()).rstrip(",").strip() not in CLOSINGS:
+        return body.strip()
+    kept = lines[:last]
+    while kept and not kept[-1].strip():
+        kept.pop()
+    if kept and kept[-1].rstrip().endswith(":"):
+        return body.strip()
+    return "\n".join(kept).strip()
 
 
 def strip_marker(text):
