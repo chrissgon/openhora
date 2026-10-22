@@ -66,14 +66,14 @@ def unread(lab):  # noqa: F811
 ENGLISH = [
     ["This button is no longer valid. Send /pending."], [EN["HELP"]], ["Usage: /approve <id>"],
     ["Your lines go to northwind-shop. Projects: northwind-shop."], ["No such project. Projects: northwind-shop."], ["northwind-shop: nothing waits for you."],
-    ["northwind-shop: #1 plan: Northwind shop\n#2 question: Northwind shop\n#3 review: Northwind shop"], ["Approved #1."], ["Rejected #1."], ["Answered #2."],
+    ["northwind-shop: #1 plan: Northwind shop\n#2 question from the assistant: Northwind shop launch plan, the private paragraph\n#3 review: Northwind shop\nTo dismiss one, reply: /reject <number>."], ["Approved #1."], ["Rejected #1."], ["Answered #2."],
     ["Pending decision 2 is a question: approve takes a plan or an acceptance."], ["The hash you typed is not the one of the card you saw. Send /pending."],
     ["Act on the card sent to you (send /pending)."], ["Released #3."],
 ]
 PORTUGUESE = [
     ["Este botão não é mais válido. Envie /pending."], [PT["HELP"]], ["Uso: /approve <id>"],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     ["Suas mensagens vão para northwind-shop. Projetos: northwind-shop."], ["Esse projeto não existe. Projetos: northwind-shop."], ["northwind-shop: nada pendente para você."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    ["northwind-shop: #1 plano: Northwind shop\n#2 pergunta: Northwind shop\n#3 revisão: Northwind shop"], ["#1 aprovada."], ["#1 rejeitada."], ["#2 respondida."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    ["northwind-shop: #1 plano: Northwind shop\n#2 pergunta do assistente: Northwind shop launch plan, the private paragraph\n#3 revisão: Northwind shop\nPara dispensar, responda: /reject <número>."], ["#1 aprovada."], ["#1 rejeitada."], ["#2 respondida."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     ["A decisão pendente 2 é do tipo pergunta: aprovar vale só para um plano ou um aceite."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     ["O hash que você digitou não é o do card que você viu. Envie /pending."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     ["Use o card que foi enviado a você (envie /pending)."], ["#3 liberada."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
