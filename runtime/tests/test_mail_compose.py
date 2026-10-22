@@ -39,9 +39,10 @@ def violations(body: str, typed) -> list:
             found.append("header")
         if line.strip().startswith("-----"):
             found.append("frame")
-    if re.search(r"[a-z0-9]\.[a-z]{2,}", plain.lower()) and not all(re.search(r"[a-z0-9]\.[a-z]{2,}", w.lower()) is None or w.strip(".,;:!?").lower() in [t.lower() for t in typed]
-                                                                    for w in plain.split()):
-        found.append("link")
+    plain = plain.replace(chr(0x3002), ".").replace(chr(0xFF61), ".")
+    for word in plain.split():
+        if re.search(r"\w\.[^\W\d_]{2,}", word) and word.strip(".,;:!?()").lower() not in [t.lower() for t in typed]:
+            found.append("link")
     for token in ("http://", "https://", "www.", "ftp://", "mailto:"):
         if token in plain.lower():
             found.append("link")
@@ -70,13 +71,24 @@ HOSTILE = [
     ("address", answer(body="Hello,\n\nWrite to joao" + chr(0xFF20) + "elsewhere.example please.")),      # a full-width at sign
     ("link", answer(body="Hello,\n\nOpen evil.xyz today.")),
     ("link", answer(body="Hello,\n\nOpen foo.example today.")),
+    ("link", answer(body="Hi, see Evil.com for details.")),
+    ("link", answer(body="Visit EVIL.COM now")),
+    ("link", answer(body="visit evil.Com")),
+    ("link", answer(body="visit " + "".join(chr(c) for c in (0x43F, 0x440, 0x438, 0x43C, 0x435, 0x440)) + "." + chr(0x440) + chr(0x444) + " now")),      # a Cyrillic name and TLD
+    ("link", answer(body="visit " + chr(0x435) + "vil.com now")),      # a Cyrillic first letter
+    ("link", answer(body="XN--E1AFMKFD.XN--P1AI")),
+    ("link", answer(body="visit evil.co.uk today")),
+    ("link", answer(body="visit evil" + chr(0x3002) + "com today")),      # an ideographic full stop
+    ("link", answer(body="visit evil" + chr(0xFF61) + "com today")),      # a half-width ideographic full stop
 ]
 SHAPE_BAD = [
     "not json at all", "", "[]", "null", '{"subject": "S"}', '{"body": "B"}', json.dumps({"subject": "S", "body": "B", "extra": "x"}),
     json.dumps({"subject": 5, "body": "B"}), json.dumps({"subject": "S", "body": ["B"]}), '{"subject": "S", "subject": "T", "body": "B"}',
     json.dumps({"subject": "S", "body": ""}), json.dumps({"subject": "S", "body": "   \n "}), json.dumps({"subject": "S", "body": "x" * 4001}),
     json.dumps({"subject": "Line one\nline two", "body": "B"}), json.dumps({"subject": "", "body": "B"}), json.dumps({"subject": "S" * 201, "body": "B"}),
-    json.dumps({"subject": "Mail to bob@elsewhere.example", "body": "B"}), json.dumps({"subject": "Read https://elsewhere.example", "body": "B"}), json.dumps({"subject": "=?utf-8?q?x?=", "body": "B"}),
+    json.dumps({"subject": "Mail to bob@elsewhere.example", "body": "B"}), json.dumps({"subject": "Evil.Com offer", "body": "B"}),
+    json.dumps({"subject": "Re: your invoice", "body": "B"}), json.dumps({"subject": "FW: your invoice", "body": "B"}), json.dumps({"subject": "Fwd: x", "body": "B"}),
+    json.dumps({"subject": "RES: x", "body": "B"}), json.dumps({"subject": "ENC: x", "body": "B"}), json.dumps({"subject": "Read https://elsewhere.example", "body": "B"}), json.dumps({"subject": "=?utf-8?q?x?=", "body": "B"}),
     json.dumps({"subject": "S", "body": "Hello" + chr(0x200B) + " there"}), '{"subject": NaN, "body": "B"}', "x" * 9000,
 ]
 
@@ -105,6 +117,11 @@ def test_a_good_answer_is_accepted_whole_fenced_and_with_the_typed_address_in_it
     assert mail_compose.validate(answer(body="Line one.\r\nLine two.\r\n"), TO, None)["body"] == "Line one.\nLine two."
     for body in ("Write to ana.souza@clinica.example.", "Write to (ana.souza@clinica.example), please.", "Write to Ana.Souza@Clinica.example today."):
         assert mail_compose.validate(answer(body=body), TO, None)["body"] == body, body      # the typed address, whole, in any case and next to punctuation
+
+
+@pytest.mark.parametrize("body", ["Hello,\n\nSee you amanh\u00e3 \u00e0s 16h. Obrigado.", "Total: R$ 1.500,00 at\u00e9 10.11 please.", "Use e.g. this one.", "We meet at 4 p.m. ok", "Dr. Silva will call."])
+def test_ordinary_text_with_dots_is_still_accepted(body):
+    assert mail_compose.validate(answer(body=body), TO, None)["body"] == body.strip()
 
 
 def test_the_subject_the_person_gave_wins_and_is_not_judged_but_the_body_still_is():
@@ -146,6 +163,12 @@ def test_a_seed_takes_the_address_only_when_the_sender_typed_it_as_a_whole_addre
     for wrong in ("souza@clinica.example", "ana.souza@clinica.exampl", "ana.souza@clinica.example.", "someone@else.example"):
         slots = mail_compose.seed("mail-send", decision(to=wrong), LINE)["slots"]
         assert "to" not in slots and "to_names" not in slots, wrong
+
+
+def test_an_address_typed_with_capitals_is_kept_as_typed():
+    line = "Send to Ana.Souza@Clinica.example about it"
+    seed = mail_compose.seed("mail-send", decision(to="Ana.Souza@Clinica.example", body="about it"), line)
+    assert seed["slots"]["to"] == ["Ana.Souza@Clinica.example"]
 
 
 def test_a_word_without_an_at_sign_is_a_name_the_family_asks_the_address_of_and_a_subject_stops_the_model_writing_one():

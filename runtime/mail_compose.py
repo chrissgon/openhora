@@ -63,7 +63,8 @@ FENCE = re.compile(r"```json[ \t]*\r?\n(.*?)\r?\n?```\s*", re.S)
 HEADER = re.compile(r"^\s*(?:to|cc|bcc|from|subject|reply-to|in-reply-to|references|date|received|message-id|mime-version|content-[a-z-]+|x-[a-z0-9-]+|assunto|para|cco)\s*:",
                     re.I | re.M)
 HTML = re.compile(r"</?[a-z][a-z0-9]*(?:\s[^>]*)?/?>|<!--", re.I)
-LINK = re.compile(r"(?i:[a-z][a-z0-9+.-]*://|\bwww\.|\bmailto:)|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,24}\b")      # a scheme or "www." in any case; a name.tld in lower case (a false hit only falls back)
+LINK = re.compile(r"(?i:[a-z][a-z0-9+.-]*://|\bwww\.|\bmailto:)|(?<![\w.-])[^\W_](?:[\w-]*[^\W_])?(?:\.[\w-]+)*\.[^\W\d_]{2,24}\b")      # a scheme or "www." in any case; a name.tld in any case and any script (a false hit only falls back)
+FORWARDED = re.compile(r"\s*(?:re|fwd?|res|enc|rv|aw|wg|vs)\s*:", re.I)      # a model-written subject must not pose as a reply or a forward
 WHITE = re.compile(r"\s+")
 
 
@@ -87,12 +88,18 @@ def strip_marker(text):
 # --- the seed ------------------------------------------------------------------------------------------------------------------------------------
 
 
+def _plain(text: str) -> str:
+    """The text with the full-width and ideographic forms read as the plain ones (NFKC, and the ideographic full stops as dots), the form every check below looks at."""
+    return unicodedata.normalize("NFKC", text).replace("\u3002", ".").replace("\uff61", ".")
+
+
 def _typed_address(span: str, line: str):
-    """`span` when it is a whole address token of the line as the sender typed it, else None."""
+    """The address as the sender typed it (capitals kept) when `span` is a whole address token of the line, compared without regard to case, else None."""
     nwm = importlib.import_module("natural_writes_mail")
     for tok in nwm.tokenize(line) or []:
-        if tok.kind == "addr" and tok.value == span and line[tok.start:tok.end] == span:
-            return span
+        typed = line[tok.start:tok.end]
+        if tok.kind == "addr" and tok.value.lower() == span.lower() and typed.lower() == span.lower():
+            return typed
     return None
 
 
@@ -172,12 +179,12 @@ def validate(text, to, subject=None):
     shown = obj["subject"].strip()
     if not body or len(body) > BODY_MAX or "```" in body or HTML.search(body) or HEADER.search(body) or _problem(body, True):
         return None
-    clean = unicodedata.normalize("NFKC", body)      # a full-width "@" or dot is read as the plain one
+    clean = _plain(body)      # a full-width "@" or dot is read as the plain one
     for address in to:
         clean = re.sub(r"(?<![\w.+-])" + re.escape(unicodedata.normalize("NFKC", address)) + r"(?![\w-])(?!\.[\w])", "", clean, flags=re.I)      # only the whole typed address
     if "@" in clean or LINK.search(clean):
         return None
-    if subject is None and (not shown or len(shown) > SUBJECT_MAX or "\n" in shown or "@" in shown or "=?" in shown or HEADER.search(shown) or HTML.search(shown) or LINK.search(shown)
+    if subject is None and (not shown or len(shown) > SUBJECT_MAX or "\n" in shown or "@" in shown or "=?" in shown or FORWARDED.match(shown) or HEADER.search(shown) or HTML.search(shown) or LINK.search(_plain(shown))
                             or _problem(shown, False)):
         return None
     return {"subject": subject if subject is not None else shown, "body": body}
