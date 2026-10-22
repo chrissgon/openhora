@@ -786,6 +786,10 @@ TABLE = {
         "EV_NAME_NONE": "I did not find an event with a similar name in the next {days} days. Ask for your calendar to see the events.",
         "EV_NAME_NONE_DAY": "I did not find an event with a similar name on that day. Ask for your calendar to see the events.",
         "EV_CHECK_FAILED": "I could not check your calendar just now, so I did nothing. Try again in a moment.",
+        "NW_ITEMS_HEAD_CHECKED": "{name} (checked {when}):",
+        "NW_ITEMS_TODAY": "today",
+        "NW_ITEMS_YESTERDAY": "yesterday",
+        "NW_ITEMS_PREVIEW": "Start of the text: {text}",
         "PHONE_NOT_UNDERSTOOD": "I did not understand the request and started nothing. Can you say it another way?",
         # --- one short acknowledgement when a reply takes time (slice S19: runtime/messaging_ack.py, runtime/line_stage.py): chosen by code from the stage the job had reached ---
         "ACK_GENERIC": "One moment, I am looking into it...",

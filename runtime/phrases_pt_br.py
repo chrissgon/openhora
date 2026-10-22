@@ -739,6 +739,10 @@ TABLE = {
     "EV_NAME_NONE": "Não encontrei nenhum evento com nome parecido nos próximos {days} dias. Peça a sua agenda para ver os eventos.",
     "EV_NAME_NONE_DAY": "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos.",
     "EV_CHECK_FAILED": "Não consegui conferir a sua agenda agora, então não fiz nada. Tente de novo em instantes.",
+    "NW_ITEMS_HEAD_CHECKED": "{name} (verificado {when}):",
+    "NW_ITEMS_TODAY": "hoje",
+    "NW_ITEMS_YESTERDAY": "ontem",
+    "NW_ITEMS_PREVIEW": "Início do texto: {text}",
     "PHONE_NOT_UNDERSTOOD": "Não entendi o pedido e não comecei nada. Pode dizer de outro jeito?",
     # --- uma confirmação curta quando a resposta demora (fatia S19: runtime/messaging_ack.py, runtime/line_stage.py): escolhida por código pela etapa em que o trabalho estava ---
     "ACK_GENERIC": "Um momento, estou vendo isso...",
