@@ -68,7 +68,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `integration:vcs` | `vcs/` | `github.py` | `--check`, `alerts`, `dismiss-alert`, `read-file`, `commit-files`, `open-pr`, `resolve` |
 | `integration:issue-tracker` | `issue-tracker/` | `local.py` | `--check`, `list`, `get`, `comments`, `upsert`, `resolve` |
 | `integration:issue-tracker` | `issue-tracker/` | `notion.py` | `--check`, `list`, `get`, `comments`, `upsert`, `resolve` |
-| `integration:documents` | `documents/` | `gdrive.py` | `--check`, `stat`, `read`, `pick`, `comments`, `write`, `notice`, `resolve` |
+| `integration:documents` | `documents/` | `gdrive.py` | `--check`, `stat`, `read`, `children`, `pick`, `comments`, `write`, `notice`, `resolve` |
 | `integration:documents` | `documents/` | `local.py` | `--check`, `stat`, `read`, `comments`, `write`, `notice`, `resolve` |
 | `integration:documents` | `documents/` | `notion.py` | `--check`, `stat`, `read`, `comments`, `write`, `notice`, `resolve`, `page-create`, `table-read`, `table-create`, `rows-append`, `rows-state` |
 | `integration:documents` | `documents/` | `onedrive.py` | `--check`, `stat`, `read`, `search`, `children`, `comments`, `write`, `notice`, `resolve` |

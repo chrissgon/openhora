@@ -6,8 +6,9 @@
 """Documents provider on Google Drive: an implementation of the class integration:documents that serves the files a
 person picked as SOURCES of a project (runtime/sources.py, decision D13), read only.
 
-It reads files, never folders: the Drive scope is `drive.file`, under which a file the person picked in the Picker is
-given to this app, and a picked folder is not (the folder's children stay out of reach). A Google Doc, Sheet or Slides
+It reads files, never a folder as a document: the Drive scope is `drive.file`, under which a file the person picked in the Picker is
+given to this app, and a picked folder is not (the folder's children stay out of reach; the account token, which sees the whole Drive, can
+list one folder's files with `children`, for the runtime's read of a file by its name). A Google Doc, Sheet or Slides
 file is exported through the Drive API; every other file is downloaded as it is. The provider never parses a file: it
 writes the bytes to `--out-dir` and prints their description, and the runtime hands them to the converter (a container
 with no network) like any other source (limit L27). Nothing here writes to Drive: `write`, `notice` and `resolve` answer
@@ -23,6 +24,7 @@ Usage:
   uv run providers/documents/gdrive.py stat --id <file id> --as-source
   uv run providers/documents/gdrive.py read --id <file id> --as-source --out-dir <folder> [--max-bytes <n>]
   uv run providers/documents/gdrive.py pick  [--no-browser]
+  uv run providers/documents/gdrive.py children --id <folder id> [--top <n, at most 200>]
 
   --check     refreshes the access token (the one network call) and checks its scope (the platform's four for the account token; drive.file and nothing wider for the legacy record);
               prints {"ok": true, "scope", "obtained_at"}. Exit 3 when there is no authorization or it was refused.
@@ -34,6 +36,9 @@ Usage:
               `content` is "markdown" (a Google Doc exported as text/markdown: text already) or "file" (anything else: the
               runtime sniffs the type from the bytes). --max-bytes bounds the content (default 25 MiB, the intake's cap).
   Both take --as-source, as the Notion provider's read does, so that the verbs of a later write-back keep their own flags.
+  children    the direct contents of one folder (not its subfolders' contents), up to --top (default and most 200), by name: {"items": [{"id", "name",
+              "kind" ("file" or "folder"), "mime_type", "size", "modified", "supported", "reason"}], "count", "truncated"}. One GET of the files list;
+              it registers nothing and reads no file. Names are another person's text in principle: cleaned to one line, shown, never used as a path.
   pick        opens Google's Picker for the person on a one-shot page on 127.0.0.1 (gdrive_auth.py pick, which see) and prints
               {"picked": [{"id", "name", "mime_type"}], "cancelled": bool}. It registers nothing and reads no file; the runtime does,
               with `stat` and `read`. The local address to open is printed on stderr. Needs the one-time `gdrive_auth.py authorize`.
@@ -97,6 +102,8 @@ HARD_MAX_BYTES = 256 * 1024 * 1024      # no --max-bytes goes past this
 EXPORT_LIMIT_BYTES = 10 * 1024 * 1024   # Google's limit on exported content (files.export reference); a 403 names it
 FILE_FIELDS = "id,name,mimeType,size,version,modifiedTime,md5Checksum,trashed"
 FILE_ID = re.compile(r"[A-Za-z0-9_-]{10,100}")
+CHILDREN_TOP_MAX = 200                  # files one `children` call lists
+LIST_LIMIT_BYTES = 4 * 1024 * 1024      # the most a files list may be
 OUT_NAME = "content"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 
@@ -496,6 +503,43 @@ def cmd_read(args: dict) -> int:
                  "sha256": hashlib.sha256(data).hexdigest(), "file": OUT_NAME, "as_source": True})
 
 
+def children_top(args: dict) -> int:
+    raw = args.get("--top")
+    if raw is None:
+        return CHILDREN_TOP_MAX
+    if not str(raw).isdigit() or not 1 <= int(raw) <= CHILDREN_TOP_MAX:
+        raise ProviderError(f"--top is a whole number from 1 to {CHILDREN_TOP_MAX}", EXIT_USAGE)
+    return int(raw)
+
+
+def cmd_children(args: dict) -> int:
+    """The files and folders directly inside one folder, by name (a GET of the files list; the folder id is checked, so it cannot change the query)."""
+    ident, top = file_id(args.get("--id")), children_top(args)
+    query = {"q": f"'{ident}' in parents and trashed = false", "fields": f"nextPageToken,files({FILE_FIELDS})", "pageSize": str(top), "orderBy": "name",
+             "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
+    drive = open_drive()
+    status, body = drive.get("/drive/v3/files", query, LIST_LIMIT_BYTES)
+    if status != 200:
+        raise drive.failure(status, body, "files.list")
+    try:
+        data = json.loads(body)
+    except ValueError:
+        data = None
+    entries = data.get("files") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise ProviderError("Drive answered a list this provider does not understand")
+    items = []
+    for meta in entries[:top]:
+        if not isinstance(meta, dict) or not isinstance(meta.get("id"), str) or not FILE_ID.fullmatch(meta["id"]) or not isinstance(meta.get("mimeType"), str):
+            continue
+        supported, reason = reading_plan(meta)
+        size = meta.get("size")
+        items.append({"id": meta["id"], "name": one_line(meta.get("name"), 200), "kind": "folder" if meta["mimeType"] == FOLDER else "file",
+                      "mime_type": meta["mimeType"], "size": int(size) if str(size or "").isdigit() else None,
+                      "modified": one_line(meta.get("modifiedTime"), 40), "supported": supported, "reason": reason})
+    return emit({"items": items, "count": len(items), "truncated": bool(data.get("nextPageToken")) or len(entries) > top})
+
+
 def cmd_pick(args: dict) -> int:
     """The Picker, for the runtime: gdrive_auth.py's `pick` (it runs the one-shot page and prints the picks), through its own main so that its
     errors keep their exit codes."""
@@ -512,10 +556,10 @@ def cmd_unsupported(args: dict) -> int:
                         "nothing to Drive", EXIT_USAGE)
 
 
-VERBS = {"stat": cmd_stat, "read": cmd_read, "pick": cmd_pick, "comments": cmd_unsupported, "write": cmd_unsupported, "notice": cmd_unsupported,
+VERBS = {"stat": cmd_stat, "read": cmd_read, "children": cmd_children, "pick": cmd_pick, "comments": cmd_unsupported, "write": cmd_unsupported, "notice": cmd_unsupported,
          "resolve": cmd_unsupported}
 READS = ("stat", "read")
-VALUE_FLAGS = ("--id", "--out-dir", "--max-bytes", "--config-file", "--path", "--markdown-file", "--idempotency-key", "--notice",
+VALUE_FLAGS = ("--id", "--out-dir", "--max-bytes", "--top", "--config-file", "--path", "--markdown-file", "--idempotency-key", "--notice",
                "--text")
 SWITCHES = ("--check", "--as-source", "--no-browser", "--dry-run", "--confirmed", "--not-created")
 

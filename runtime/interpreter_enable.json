@@ -19,10 +19,22 @@
    "route": "or-deepseek-v4.1-flash",
    "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
    "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
-   "catalog_sha256": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
    "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
    "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
-   "reason": "Adds the e-mail compose prompt (runtime/mail_compose_prompt.txt) to the decision above, which stands with every one of its hashes. The maintainer on 2026-10-20: \"para emails eu iria pedir para a IA criar um texto melhor escrito\". The model words a new e-mail from what the person described; the card shows the whole text and nothing is sent before the person approves it.",
+   "reason": "S8 adds the operation file-read (class R: the text of a file found by its name in the folders the project lists for the person's own accounts), so the served catalog changed; the prompt, the protocol and the route did not. The maintainer approved the slice on 2026-10-21 (translated from Portuguese): \"Yes: build S8, read a file by its name in the folders already configured for the account, before the release.\" Basis of the earlier entry unchanged: IX-3b go false, the maintainer chose to proceed. The replay gate keeps replaying the recorded answers against the catalog they were recorded with.",
+   "status_line": "enabled by maintainer decision 2026-10-21 (S8: file-read added to the catalog), below the gate"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-21",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Adds the e-mail compose prompt (runtime/mail_compose_prompt.txt) to the decisions above, which stand; this entry carries every current checkout hash (catalog with file-read, S8) so the interpreter stays on. The maintainer on 2026-10-20: \"para emails eu iria pedir para a IA criar um texto melhor escrito\". The model words a new e-mail from what the person described; the card shows the whole text and nothing is sent before the person approves it.",
    "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt pinned)",
    "compose_prompt_sha256": "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf"
   }

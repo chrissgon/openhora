@@ -48,6 +48,7 @@ GRAPH_PREFIX = "/v1.0"
 class FakeGraph:
     def __init__(self):
         self.items = {}                     # (drive id, item id) -> dict
+        self.folder_ids = {}                # folder item id -> its folder path (name_folder)
         self.requests, self.downloads, self.token_forms, self.methods = [], [], [], []
         self.scope_granted = REFRESH_SCOPE  # what the token endpoint says it granted
         self.omit_scope = False             # answer a token with no scope field at all
@@ -171,6 +172,9 @@ class FakeGraph:
                     text = rest[len("/me/drive/root/search(q='"):-2].replace("''", "'")
                     found = [k for k, v in owner.items.items() if text.lower() in v["name"].lower()]
                     return self._listing(found, query)
+                if rest.startswith("/me/drive/items/") and rest.endswith("/children"):
+                    folder = owner.folder_ids.get(urllib.parse.unquote(rest[len("/me/drive/items/"):-len("/children")]))
+                    return self._listing(owner.children_of(folder), query) if folder is not None else self._error(404, "itemNotFound", "The resource could not be found.")
                 if rest == "/me/drive/root/children":
                     return self._listing(owner.children_of(""), query)
                 if rest.startswith("/me/drive/root:/") and rest.endswith(":/children"):
@@ -264,6 +268,10 @@ class FakeGraph:
 
     def lie_about_size(self, drive, item, size):
         self.report_size[(drive, item)] = size
+
+    def name_folder(self, item_id, folder_path):
+        """A folder known by its item id (`/me/drive/items/<id>/children`): the items whose folder_path is `folder_path`."""
+        self.folder_ids[item_id] = folder_path
 
     def children_of(self, folder_path):
         return [k for k, v in self.items.items() if v["folder_path"] == folder_path]
