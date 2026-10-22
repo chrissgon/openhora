@@ -225,6 +225,10 @@ The public website (`site/`, published by Netlify at https://openhora.dev).
   - What: a per-message time limit around the conversion (the child process of `providers/messenger/email-imap.py`, or a signal alarm where there is one), with the message returned as `text: ""` and a flag that says it was dropped, and the same in `outlook.py` and `gmail.py`.
   - Done when: a message of `<a` repeated to the size cap costs at most the budget in both readers, and a test says so. (M1 review, 2026-10-18.)
 
+- [ ] **EM6. A first-time recipient is flagged on the card of an e-mail.** The plan of the natural-language layer says a recipient the person never wrote to is flagged on the card; the mail family keeps no record of correspondents, so the card of S7 (an e-mail asked in free words) cannot flag one. (S7, 2026-10-21.)
+  - What: a record of the addresses the person has sent to or received from (the snapshots' indexes already hold the senders of the mailbox), read by code when the card is prepared, and one `CARD_MAIL_` line "First time you write to this address" for an address that is in none.
+  - Done when: a card for an address the person never wrote to carries the line, one for a known address does not, and a test holds both.
+
 ## Files from messaging apps
 
 - [ ] **AT1. The live checks of the attachments (ATT-1 to ATT-4).** Everything is tested against stand-in providers; no provider declares `attachments` until ATT-2 to ATT-4 merge.

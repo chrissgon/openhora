@@ -25,7 +25,9 @@ the sentence is IX_ASK_AGAIN with the question still open. Without a bound quest
 The steps of `turn`: `interpreter.precheck`; the limits below; `interpreter.build_messages` (the user turn is five lines made
 of the date, the time, the zone, the frame and the person's own collapsed line: nothing of any third party); one call to the daily route; `parse`; `check` against the line;
 then the decision is carried out by the call that already exists for it (`ops_natural.run`, `ops_natural_writes.open_line`) or answered by a fixed sentence. Nothing
-the model wrote is ever shown, and nothing here approves, sends or writes: a card is opened by `open_line` and approved on its button by its hash.
+the model wrote in this call is ever shown, and nothing here approves, sends or writes: a card is opened by `open_line` and approved on its button by its hash. One exception,
+by the maintainer's decision of 2026-10-20 (slice S7): a new e-mail (`mail-send`, `mail-draft` with no message) opens its card through the seed of `mail_compose.seed`, and the
+text on that card may be worded by a second call (runtime/mail_compose.py), validated by code, with the person's own words as the fallback.
 
 The call. The route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again in `_daily_call`, so a route of any other kind
 cannot be called from here; the entry that enables the interpreter names the route and the hashes it was decided on (runtime/interpreter_enable.py).
@@ -55,6 +57,7 @@ import interpreter
 import interpreter_enable
 import interpreter_route
 import language as language_rules
+import mail_compose
 import natural
 import operations
 import ops_natural
@@ -243,6 +246,8 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             local = time_["local"]
             seed = {"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or ""}
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed)
+        elif (mail := mail_compose.seed(op, decision, said)) is not None:          # a new e-mail: the card is opened from the verified spans, never from the closed forms (slice S7)
+            opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
         elif op in event_lookup.OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES:
             opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, writes, ops_natural._clock())
         else:

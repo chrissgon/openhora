@@ -694,6 +694,7 @@ TABLE = {
         "NW_MAIL_ASK_SUBJECT": "What is the subject of the e-mail to {to}?",
         "NW_MAIL_ASK_BODY": "What should the e-mail to {to} say?",
         "NW_MAIL_ASK_BODY_REPLY": "What should the reply say?",
+        "MC_ASK_BODY": "What should the e-mail to {to} say? I will word the text, and you will see it on the card. To send your words exactly as you write them, start with \"exact text:\".",
         "NW_MAIL_ASK_STATE": "Mark as read or as unread?",
         "NW_MAIL_STATE_READ": "read",
         "NW_MAIL_STATE_UNREAD": "unread",

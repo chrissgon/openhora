@@ -14,7 +14,8 @@ arguments of the operation's own function, or into the one question that is stil
                                                     matches, a card takes fewer messages); core.OpsError only for a failure of the project's own sources
 
 What is decided here, and from where:
-  * an address, a subject and a body are the person's own words (an address only as written in a line; a name asks for its address, and no mailbox, snapshot or index is
+  * an address, a subject and a body are the person's own words (an address only as written in a line; the body, and a subject the person did not give, may be worded by the
+    model when the text was described to the interpreter or answered to the body question and composing is on for the sender: runtime/mail_compose.py, S7; a name asks for its address, and no mailbox, snapshot or index is
     searched for one); a reply and a reply draft take no recipient: the operation takes it from the index of the message answered (limit L60), never from a body;
   * a message is `<source>#<n>` from digits the person wrote, from the source the person wrote, the one registered mail source of the account, or the one the person chose; or
     it is found BY WORDS in the index of the newest snapshot: the words after "do/da/from" must all be whole words of the message's from-address or subject; a singular
@@ -39,6 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import item_refs  # noqa: E402
+import mail_compose  # noqa: E402
 import mail_refs  # noqa: E402
 import natural_writes_mail as nwm  # noqa: E402
 import ops_core as core  # noqa: E402
@@ -293,8 +295,15 @@ def _reference_args(ctx: dict, op: str, slots: dict, channel, sender):
     return {"args": args}
 
 
-def _compose_args(ctx: dict, op: str, slots: dict):
-    """The arguments of a new e-mail or a new draft, or the question."""
+def _body_key(ctx: dict, channel, sender) -> str:
+    """The question for the body: the one that also says the text will be worded and how to send it as written, when composing is on for the sender."""
+    return "MC_ASK_BODY" if mail_compose.available(ctx, channel, sender) else "NW_MAIL_ASK_BODY"
+
+
+def _compose_args(ctx: dict, op: str, slots: dict, channel=None, sender=None):
+    """The arguments of a new e-mail or a new draft, or the question. When the text was asked of the interpreter's seed or answered to the body question (`_compose`), and
+    composing is on for the sender (runtime/mail_compose.py), the model words the body (and the subject when the person gave none: `_ai_subject`) from the person's words;
+    the text starts with the marker of a literal text ("exact text:") it is sent as written. Every other body is the person's own words."""
     account, ask = _compose_account(ctx, slots)
     if ask:
         return ask
@@ -302,12 +311,22 @@ def _compose_args(ctx: dict, op: str, slots: dict):
         names = slots.get("to_names") or []
         return _ask("to", "NW_MAIL_ASK_TO", name=_joined(names) if names else "")
     to = _joined(slots["to"])
-    if not slots.get("subject"):
+    if not slots.get("subject") and not slots.get("_ai_subject"):
         return _ask("subject", "NW_MAIL_ASK_SUBJECT", to=to)
     if not slots.get("body"):
-        return _ask("body", "NW_MAIL_ASK_BODY", to=to)
-    args = {"account": account, "to": ",".join(slots["to"]), "subject": slots["subject"]}
-    args["text" if op == "mail-send" else "body"] = slots["body"]
+        return _ask("body", _body_key(ctx, channel, sender), to=to)
+    subject, body = slots.get("subject"), slots["body"]
+    if slots.get("_compose"):
+        got = mail_compose.write(ctx, channel, sender, slots["to"], subject, body, bool(slots.get("_ai_subject")))
+        subject, body = got["subject"], got["body"]
+        if not subject:
+            return _ask("subject", "NW_MAIL_ASK_SUBJECT", to=to)
+    else:
+        body = mail_compose.strip_marker(body)[0]
+    if not body.strip():      # "exact text:" with nothing after it
+        return _ask("body", _body_key(ctx, channel, sender), to=to)
+    args = {"account": account, "to": ",".join(slots["to"]), "subject": subject}
+    args["text" if op == "mail-send" else "body"] = body
     return {"args": args}
 
 
@@ -318,7 +337,7 @@ def resolve(ctx: dict, op: str, slots: dict, channel, sender, said=None) -> dict
         if op in REF_OPS or (op == "mail-draft" and _has_reference(slots)):
             return _reference_args(ctx, op, slots, channel, sender)
         if op in ("mail-send", "mail-draft"):
-            return _compose_args(ctx, op, slots)
+            return _compose_args(ctx, op, slots, channel, sender)
     except Say as e:
         return {"say": {"sentence_key": e.key, "fields": e.fields}}
     raise core.OpsError(f"{op} is not an operation of the mail family", 2)
