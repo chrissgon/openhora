@@ -119,7 +119,7 @@ def test_after_the_window_the_next_plain_line_is_a_new_request_and_the_old_reque
     question = ask(phone)
     old = question["task_id"]
     texts_before = len(phone.texts(OWNER))
-    wall.later(3600 + 1)
+    wall.later(3600 + 30)      # not +1: the stand-in clock starts when the fixture is built, the question is asked a moment later by the real clock, and on a loaded machine that moment is seconds
     reply(phone.tree, FLOW, "router-reply.md")
     phone.say(OWNER, "a plain line about something else entirely")
     said = phone.texts(OWNER)[texts_before:]
@@ -226,7 +226,7 @@ def test_a_reminder_line_a_write_line_and_a_read_are_requests_and_a_plain_senten
 def test_the_stale_question_is_also_dropped_for_a_state_question_and_the_natural_peek(phone, wall):
     """Decision 229 (1): once the hour is out, the asker's phone has no question open for the state and the natural peek; nothing is cancelled."""
     question = ask(phone)
-    wall.later(3600 + 5)
+    wall.later(3600 + 30)
     ctx = ops_core.context(phone.path)
     assert ops_say.asks_state(ctx, "status", "messaging", f"telegram:{OWNER}") is True, "no question is open for the phone any more: the state is answered"
     assert ops_say.asks_state(ctx, "status", "page") is False, "but it is for the page"

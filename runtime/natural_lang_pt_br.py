@@ -185,7 +185,12 @@ TABLE = {
             "verdict": [r"(registra|registre) (um )?veredito"],
             "proof": [r"(mostra|mostre)( a)? prova"],
             "items": [r"(meus|minhas) (e mails|emails|eventos|compromissos)", r"(lista|liste|mostra|mostre)( os| as| meus| minhas)? (e mails|emails|eventos|compromissos)",
-                      r"(quais|que) (e mails|emails|eventos|compromissos)( eu tenho| chegaram| tenho)?"],
+                      r"(quais|que) (e mails|emails|eventos|compromissos)( eu tenho| chegaram| tenho)?",
+                      # slice S4b: the calendar read in words; the nouns are those of `writes.calendar.nouns_plural` (so `items_kind` says calendar); a day word is allowed and read by nobody
+                      r"(minha|meu|minhas|meus) (agenda|calendario|compromissos)( (de |para )?(hoje|amanha))?",
+                      r"(me )?(lista|liste|mostra|mostre|veja|ver)( a| minha| meu| o)? (agenda|calendario|compromissos)( (de |para )?(hoje|amanha))?",
+                      r"o que (eu )?(tenho|tem|ha) (na|no)( minha| meu)? (agenda|calendario)( (de |para )?(hoje|amanha))?",
+                      r"(quais|que) compromissos (eu )?tenho( (de |para )?(hoje|amanha))?"],
             "mail-send": [r"(manda|mande|mandar|envia|envie|enviar)( um| uma| o| a)? (e mail|email)"],
             "mail-reply": [r"(responde|responda|responder)( ao| a| o)? (e mail|email)"],
             "mail-draft": [r"(rascunha|rascunhe)( um| uma| o| a)? (e mail|email)"],

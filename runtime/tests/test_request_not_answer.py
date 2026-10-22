@@ -35,6 +35,7 @@ ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
 natural = st.load("natural")
+natural_writes = st.load("natural_writes")
 phrases = st.load("phrases")
 
 TAKEN = "Tomei isso como resposta à pergunta #{id}."  # validate: allow english-only -- the Portuguese sentence under test
@@ -50,6 +51,7 @@ WHICH_TIME = "Qual horário você quer: amanhã,"  # validate: allow english-onl
 REQUESTS = [
     ("mostre os agentes", AGENTS),  # validate: allow english-only -- a line the person types in Portuguese
     ("quanto gastei hoje", "since: "),  # validate: allow english-only -- a line the person types in Portuguese
+    ("mostra minha agenda", NOT_DONE),  # validate: allow english-only -- the line of the live case
     ("liste meus emails", NOT_DONE),  # validate: allow english-only -- a line the person types in Portuguese
     ("quais as fontes", NO_RIGHT),  # validate: allow english-only -- a line the person types in Portuguese
     ("/pending", LISTING),
@@ -67,6 +69,12 @@ def unchanged(phone, question):
     assert len(states(phone)) == 1, "no new request was made"
     ctx = ops_core.context(phone.path)
     assert st.load("ops_say")._bound_question(ctx, f"telegram:{OWNER}") == question["id"]
+
+
+def without_the_calendar_forms(monkeypatch):
+    """The planted fault of the live line: `natural.match` as before the calendar nouns were in the `items` forms (no form for a line that names the agenda)."""
+    real = natural.match
+    monkeypatch.setattr(natural, "match", lambda line, languages=None: None if "agenda" in line else real(line, languages))
 
 
 def old_rule(ctx, said, channel, sender):
@@ -240,14 +248,43 @@ def test_vacuity_under_the_old_rule_the_same_read_costs_a_model_call_and_the_mod
     assert out["reply"].startswith("I took that as the answer")
 
 
+def test_the_live_line_is_served_as_the_calendar_list_by_code_with_no_model_call_and_the_question_stays_open(rig):
+    """The line of the maintainer's Telegram test: a tier-1 form since S4b, so the model is not asked and cannot call it the answer."""
+    pending_id, _ = ask_frame(rig)
+    spy_routes(rig)
+    spy_runs(rig)
+    rig.says["text"] = text("answer", answers_item="i1")      # a model that would call it the answer is never asked
+    out = say_as(rig, "owner", "mostra minha agenda")  # validate: allow english-only -- the line of the live case
+    assert out["reply"] == "RUN-REPLY" and rig.spy == [{"run": "items", "args": {}}], rig.spy
+    assert rig.calls == [], "no model call"
+    assert bound(rig) == pending_id and ops.pending(rig.world["path"], pending_id)["status"] == "open"
+    assert natural_writes.items_kind("mostra minha agenda") == "calendar"  # validate: allow english-only -- the line of the live case
+
+
+def test_vacuity_without_the_calendar_forms_the_live_line_costs_a_call_and_a_model_that_says_answer_takes_it(rig):
+    pending_id, _ = ask_frame(rig)
+    spy_routes(rig)
+    spy_runs(rig)
+    without_the_calendar_forms(rig.monkeypatch)
+    rig.says["text"] = text("answer", answers_item="i1")
+    out = say_as(rig, "owner", "mostra minha agenda")  # validate: allow english-only -- the line of the live case
+    assert len(rig.calls) == 1 and out["reply"].startswith("I took that as the answer") and [row.get("run") for row in rig.spy] == [None]
+
+
+def test_vacuity_a_sender_the_interpreter_does_not_read_has_the_live_line_taken_as_the_answer_without_the_forms(phone, wall, monkeypatch):
+    without_the_calendar_forms(monkeypatch)
+    question, said = served(phone, wall, "mostra minha agenda")  # validate: allow english-only -- the line of the live case
+    assert said[0].startswith(TAKEN.format(id=question["id"]))
+
+
 def test_a_line_the_interpreter_maps_to_an_operation_is_served_and_the_question_stays_open_in_one_call(rig):
     pending_id, _ = ask_frame(rig)
     spy_routes(rig)
     spy_runs(rig)
     rig.says["text"] = text("op", op="items", slots={})
-    out = say_as(rig, "owner", "mostra minha agenda")  # validate: allow english-only -- the line of the live case
+    out = say_as(rig, "owner", "enseña mi agenda de la semana")  # validate: allow english-only -- a line in a language with no tier-1 table
     assert out["reply"] == "RUN-REPLY" and rig.spy == [{"run": "items", "args": {}}], rig.spy
-    assert [c["user"] for c in rig.calls] == [HEAD + FRAME + "\nline: mostra minha agenda"], "one call, with the frame"  # validate: allow english-only -- the line of the live case
+    assert [c["user"] for c in rig.calls] == [HEAD + FRAME + "\nline: enseña mi agenda de la semana"], "one call, with the frame"  # validate: allow english-only -- a line in a language with no tier-1 table
     assert bound(rig) == pending_id and ops.pending(rig.world["path"], pending_id)["status"] == "open"
 
 
