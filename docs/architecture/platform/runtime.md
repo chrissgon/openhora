@@ -117,6 +117,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/messaging_bridge.py` | The messaging bridge's logic (runtime/messaging.py is its shell): notices out, intents in, every operation through one call path. |
 | `runtime/messaging_cards.py` | A notice as a platform-neutral card (runtime/messaging.py): a pending decision becomes {"text", "actions", "link", "document"}, the message every messenger provider takes (providers/messenger/README.md), plus what the bridge needs to bind a tap to it. |
 | `runtime/messaging_failure.py` | Why a write to the person's accounts was not made, said to a phone in plain words (package LIVE-2). |
+| `runtime/messaging_file.py` | The file a reply carries on a messaging app (slice S18): a small helper of the messaging bridge, never a gate by itself. |
 | `runtime/messaging_guard.py` | What a phone never reads (package LIVE-2): a shell command of this platform, or a path of this machine, in a message sent to a messaging app. |
 | `runtime/messaging_inbound.py` | What a person sent to the messaging bridge, as an intent (runtime/messaging.py). |
 | `runtime/messaging_ledger.py` | The messaging bridge's ledger: what it sent, so that a restart sends nothing twice and a tapped button or a reply is bound to the card the person saw (runtime/messaging.py). |
@@ -200,6 +201,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/run_stop.py` | Ending a run that is in progress (R18, limit L41): the process mechanics of a cancel or a stop, with no knowledge of what a request or a task is. |
 | `runtime/secret_state.py` | Whether the OS secret store or the password manager is locked or unavailable, for the messages of the runtime (package P-OPS, finding I3; the password manager, package S16). |
 | `runtime/send_document.py` | The document of an e-mail to send, and nothing that sends (package EMAIL-SEND): what the step kind `send-email` builds and the effect kind `send` approves. |
+| `runtime/send_scan.py` | What is sent is what is scanned (slice S18, limit L14): the credential scan of the bytes of a file that leaves as an attachment. |
 | `runtime/service.py` | The local service: the operations layer of runtime/ops.py served on this machine through an API, with a token and an origin check, and the static files of the interface/ folder of the checkout. |
 | `runtime/service_bridge.py` | The messaging bridge as a child of the local service (runtime/service.py --messaging &lt;platform&gt;): one start brings up the page and the bridge. |
 | `runtime/shell_kit.py` | What the two network-free shells of the operations layer share: the local service (runtime/service.py) and the MCP mode (runtime/mcp.py). |

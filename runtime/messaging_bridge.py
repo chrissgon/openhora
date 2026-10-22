@@ -122,6 +122,7 @@ import messaging_ack as ack
 import messaging_attach as attach
 import messaging_cards as cards
 import messaging_failure as failure
+import messaging_file as sendfile
 import messaging_guard as guard
 import messaging_outcome as outcome
 import messaging_pending as pending_view
@@ -492,16 +493,34 @@ class Bridge(shell_kit.Jobs):
         """What the net under the phone's sentences (messaging_guard) cut from a message: the kinds only, never the text."""
         self.log(f"a message carried {' and '.join(kinds)} of this machine; it was cut before it was sent")
 
-    def reply(self, chat: str, text: str, project=None, guard=False):
+    def reply(self, chat: str, text: str, project=None, guard=False, attachment=None):
         """Send a reply. True when every piece went out, False when a send failed (logged), None when the platform deferred it
         (it cannot take a message yet: not an error, not logged, and the caller may try again). `project` names the language of the line that says there is
-        no reply."""
+        no reply. `attachment` (S18) is the file the reply carries ({"name", "kind", "data"}): it goes with the last piece, from one temporary file removed when the send ends."""
         caps = self.messenger.capabilities()
         if text:
             text = phone_errors.said(phone_refusal.plain(text, self.cfg(project, chat)), self.cfg(project, chat))      # S14: an `error: ` text of the operations layer is the language's sentence on a phone (phone_errors). S10: the operations layer's own refusal (a Refused or an OpsError a path above passes on) is one plain sentence on a phone: never "error:", a command or an operation's name; any other text is as it was
-        for piece in cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"]):
+        pieces = cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"])
+        for number, piece in enumerate(pieces, 1):
+            message = {"text": piece, "actions": [], "link": None, "document": None}
             try:
-                sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None}, guard)
+                if attachment is not None and number == len(pieces):
+                    try:
+                        sent = self.deliver_file(chat, message, attachment, guard)
+                        failed = getattr(sent, "document_failed", False)      # the text went out and the file did not (the provider says so)
+                    except provider.MessengerError as e:
+                        if e.kind == "usage":
+                            sent, failed = self.deliver(chat, message, guard), True      # the provider refused the file before it sent anything: the text goes alone
+                        elif e.kind == "timeout":
+                            self.log("a reply with a file ran over the time of the send")      # the text may have gone out already: it is NOT sent again (a second copy), and the person is told about the file
+                            sent, failed = None, True
+                        else:
+                            raise
+                    if failed:      # one plain sentence, never the platform's words
+                        said_last = self.deliver(chat, {"text": self.t("FS_NOT_SENT", project=project, chat=chat), "actions": [], "link": None, "document": None})
+                        sent = sent or said_last
+                else:
+                    sent = self.deliver(chat, message, guard)
                 self.last_message[chat] = str(sent) if sent else None
                 self.scope.replied = str(sent) if sent else None      # this thread's own last piece, for `note_asked`: the shared dict above can be changed meanwhile by another thread's send
             except provider.MessengerError as e:
@@ -510,6 +529,25 @@ class Bridge(shell_kit.Jobs):
                 self.log(f"a reply could not be sent ({e.kind})")
                 return False
         return True
+
+    def deliver_file(self, chat: str, message: dict, attachment: dict, guard_text: bool = False):
+        """`deliver` with a file: the bytes are written to one temporary file (messaging_file.staged), the message carries its path, and the file is gone when the send ends,
+        whatever the end. Nothing of the file is logged."""
+        with sendfile.staged(attachment) as entry:
+            return self.deliver(chat, dict(message, file=entry), guard_text)
+
+    def file_to_send(self, project: dict, chat: str, attachment):
+        """(file, why): the file a reply may carry NOW, and why not when it may not. The sender's profile in the configuration read at this moment must still hold `send-files` and
+        `read-files`, and the file must be within what the app takes (messaging_file.refusal). `why` is "" (it goes), "read" (the right to read files is gone: nothing that was found is
+        shown), "right" (the right to receive files is gone) or "limit" (the app cannot carry it)."""
+        if attachment is None:
+            return None, ""
+        try:
+            settings = self.settings(project)
+            why = "read" if settings is None else sendfile.refusal(self.ops.operations, settings["policy"], self.key(chat), attachment, sendfile.limits(self.messenger.capabilities()))
+        except Exception:      # noqa: BLE001 - a configuration or a provider that cannot be read sends no file
+            why = "limit"
+        return (attachment if not why else None), why
 
     def ask_yes(self, project: dict, chat: str, text: str) -> bool:
         """Send a question about a reminder with ONE button, "Yes" (NR-1), and bind it in the ledger (kind `reminder`; the ledger holds no text: the project, the chat, the
@@ -1488,7 +1526,7 @@ class Bridge(shell_kit.Jobs):
                     except Exception:      # never a lost reply
                         shown = None
                     acked = self.ack_begin(project, chat, text)      # S19: one short sentence if the reply takes more than a moment
-                    result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text)
+                    result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text, **self.send_arguments())
                 finally:
                     if shown is not None:
                         shown.stop()      # before anything is sent: no call is made after this
@@ -1503,7 +1541,14 @@ class Bridge(shell_kit.Jobs):
                 if not said:
                     return
                 self.scope.replied = None
-                if self.reply(chat, said, project, guard=converted) is True and result.get("pending_id") is not None:
+                attached, why = self.file_to_send(project, chat, result.get("attachment"))
+                if why == "read":      # the right to read files is gone since the search: neither the file nor the text found is sent, and the reply says that the right changed
+                    said = self.t("FS_RIGHT_CHANGED", project=project)
+                elif why == "right":      # the right to receive files is gone: the text that was found goes, the file stays home, and the reply says that the right changed
+                    said = said + "\n\n" + self.t("FS_RIGHT_CHANGED", project=project)
+                elif why:      # the app cannot carry the file now
+                    said = said + "\n\n" + self.t("FS_NOT_SENT", project=project)
+                if self.reply(chat, said, project, guard=converted, attachment=attached) is True and result.get("pending_id") is not None:
                     self.note_asked(project, chat, result["pending_id"], getattr(self.scope, "replied", None))      # the router's question reached this chat as the reply: its notice would be the same question twice
             except Refused as e:
                 self.reply(chat, str(e), project, guard=True)
@@ -1518,6 +1563,14 @@ class Bridge(shell_kit.Jobs):
                 else:
                     self.reply(chat, self.t("QUEUED", project=project), project)
         return call
+
+    def send_arguments(self) -> dict:
+        """What the app can carry as a file, for the call of `say` (S18): `{"can_send": limits}` when the provider declares `send_files`, else nothing (the call is the one it always was)."""
+        try:
+            found = sendfile.limits(self.messenger.capabilities())
+        except Exception:      # noqa: BLE001
+            found = None
+        return {"can_send": found} if found else {}
 
     def ack_begin(self, project: dict, chat: str, text: str):
         """S19: start the timer of the one acknowledgement of this line (runtime/messaging_ack.py), on the thread that runs it. None when this thread already has one (a write
@@ -1786,6 +1839,7 @@ class Bridge(shell_kit.Jobs):
             self.close_queue()
 
     def loop(self, stop: threading.Event, notice_every: float, poll: int = POLL_SECONDS) -> None:
+        sendfile.sweep()      # S18: a crash may have left the folder of a file that was being sent; the ones older than an hour are removed (this module's prefix, this user's, mode 0700)
         session = getattr(self.messenger, "session", None)
         if session is not None:
             return self.listen_loop(stop, notice_every, session, poll)

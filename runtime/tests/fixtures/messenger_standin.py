@@ -108,8 +108,16 @@ def main() -> int:
     elif a.verb == "send":
         with open(a.message_file, encoding="utf-8") as f:
             message = json.load(f)
+        file = message.get("file")
+        if file and read("file_usage.json", False) is True:      # S18: a provider that refuses the file before it sends anything (exit 2); nothing is recorded
+            print("the file to send cannot be sent here", file=sys.stderr)
+            return 2
+        if file:      # S18: what the provider saw at the path while it ran (the bytes are read here, so a test knows the file existed at the send), and whether the folder was private
+            with open(file["path"], "rb") as handle:
+                seen = handle.read()
+            message = {**message, "file": {**file, "bytes_hex": seen.hex(), "mode": oct(os.stat(file["path"]).st_mode & 0o777), "folder_mode": oct(os.stat(os.path.dirname(file["path"])).st_mode & 0o777)}}
         count = append("sent.jsonl", {"chat": a.chat, "message": message})
-        failed = bool(message.get("document")) and read("document_fail.json", False) is True      # a test asks for a document that did not go out
+        failed = (bool(message.get("document")) and read("document_fail.json", False) is True) or (bool(file) and read("file_fail.json", False) is True)      # a test asks for a document or a file that did not go out
         print(json.dumps({"message_id": str(100 + count), **({"document_failed": True} if failed else {})}))
     elif a.verb == "fetch-attachment":
         return fetch(a)

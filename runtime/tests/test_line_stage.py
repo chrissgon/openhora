@@ -136,7 +136,7 @@ def test_another_read_publishes_nothing(watched, monkeypatch):
 
 
 def test_the_read_of_a_file_publishes_file_only_after_the_name_is_checked(watched, monkeypatch):
-    monkeypatch.setattr(ops_file_read, "_find_and_read", lambda cfg, wanted, account=None, said=None: {"status": "no-folders"})
+    monkeypatch.setattr(ops_file_read, "_find_and_read", lambda cfg, wanted, account=None, said=None, send=None: {"status": "no-folders"})
     monkeypatch.setattr(ops_file_read, "_render", lambda cfg, found, pick=True: "none")
     ctx = {"cfg": {}}
     assert ops_file_read.reply("p", ctx, {"file": "missing"}, "show the invented report", "messaging", "telegram:1", {}) != "none"      # the name is not in the line: asked again

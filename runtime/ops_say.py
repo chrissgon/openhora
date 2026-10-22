@@ -144,7 +144,7 @@ def chat_memory(messages: list, settled: set, quiet=frozenset()) -> str:
     return "\n".join([MEMORY_HEAD, *lines]) if lines else ""
 
 
-def say(project: str, text: str, channel: str | None = None, sender: str | None = None) -> dict:
+def say(project: str, text: str, channel: str | None = None, sender: str | None = None, can_send: dict | None = None) -> dict:
     """One turn of the conversation with the planning agent (decision D12), one more shell of this layer. The person's
     line is stored (for a messaging sender whom the interpreter reads, AFTER the decision and as a neutral word unless it went to the planning agent: runtime/ops_interpret.py, limit L63); a line that starts with "/" is one command of the table of operations (runtime/operations.py), which calls its operation once; a plain
     line that asks about the state (STATE_QUESTIONS) is answered at once by code from the store's records (state_reply):
@@ -161,6 +161,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     shell passes none and is `chat`): a command in the line is done only when its row lists that channel, so a shell
     that may not approve, reject, retry or cancel cannot do it by typing the command here either. `sender` (POL-2) is the messaging sender who typed the
     line (`<platform>:<sender id>`, operations.sender_key): a command in it is checked against THAT sender's profile and done as that sender.
+    `can_send` (S18) is what the messaging bridge says its app can carry as a file (the provider's capabilities: ops_file_read._limits); only the bridge passes it, and only a messaging
+    call keeps it. A reply that carries a file hands it back in "attachment" ({"name", "kind", "data"}: bytes in memory, for the bridge to send and drop; never stored).
     Returns {"reply", "request_id", "pending_id", "ran", "queued"}."""
     channel = channel or "chat"
     ops_actor.require(channel, sender)
@@ -185,6 +187,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     deferred = not said.startswith("/") and importlib.import_module("ops_interpret").enabled(ctx, channel, sender)
     stored = None if deferred else core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=kept)
     extras = {"deferred": True} if deferred else {}
+    if can_send is not None and channel == "messaging":
+        extras["can_send"] = can_send
     try:
         reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"] if stored else None, sender, extras)
     finally:
@@ -193,7 +197,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
                  text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=extras.get("task_id", request_id), run_id=extras.get("run_id", run_id))
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
-            **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {})}
+            **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {}),
+            **({"attachment": extras["attachment"]} if channel == "messaging" and "attachment" in extras else {})}
 
 
 def person_line(text: str) -> str:

@@ -75,7 +75,7 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
             assert len(owners) == 1 and owners[0][1] is None, (row["name"], owners)
     # POL-2: `read-limited` is a subset of `read` (the one group beside `brakes`/`reject-cancel` that shares operations), valid on a messaging app alone
     assert set(operations.GROUPS["read-limited"]["operations"]) < set(operations.GROUPS["read"]["operations"])
-    assert operations.MESSAGING_ONLY_GROUPS == ("read-limited", "ask-mail", "interpret")
+    assert operations.MESSAGING_ONLY_GROUPS == ("read-limited", "ask-mail", "interpret", "send-files")
     for group, spec in operations.GROUPS.items():  # every operation a group names is a row of the table
         for name in spec["operations"]:
             operations.by_name(name)
