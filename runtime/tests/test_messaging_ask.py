@@ -102,7 +102,7 @@ def test_a_telegram_slash_ask_is_answered_with_the_quote_and_the_footer_in_the_c
 
 def test_the_help_of_the_bridge_lists_ask(world):
     world.bridge.handle(world.update(OWNER, "/help"))
-    assert "/ask <question>     answer a question from the project's sources" in world.sent()[0]["message"]["text"]
+    assert "/ask <question> — answer a question from the project's sources" in world.sent()[0]["message"]["text"]
     assert inbound.parse(world.update(OWNER, "/ask what?")) == {"kind": "text", "text": "/ask what?"}          # the bridge passes it on: the layer decides
 
 
