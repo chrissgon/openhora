@@ -62,7 +62,7 @@ def test_the_limits_are_told_to_the_operation_and_the_file_goes_with_the_reply_f
     file = sent["message"]["file"]
     assert sent["message"]["text"] == SAID and sent["message"]["document"] is None
     assert (file["name"], file["kind"], bytes.fromhex(file["bytes_hex"]), file["mode"], file["folder_mode"]) == ("Atividades.txt", "document", BYTES, "0o600", "0o700")
-    assert not os.path.exists(file["path"]) and sending.gone(), "the provider read it while it ran, and nothing of it is left"
+    assert sending.gone() and not os.path.exists(file["path"]), "the provider read it while it ran, and nothing of it is left"      # the bridge removes the folder after the provider answers: wait for it, with a deadline
     assert sending.log == []
 
 
