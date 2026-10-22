@@ -241,8 +241,8 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
     entries = enable.load()["entries"]
-    newest, s12, s7, first = entries[-1], entries[-2], entries[-3], entries[-4]
-    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256() == s12["compose_prompt_sha256"]      # the newest decision (S13) carries the compose pin of the one before it (S12)
+    newest, s12, s7, first = entries[-1], entries[-3], entries[-4], entries[-5]      # entries[-2] is the first pin of the revise prompt (S13)
+    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256() == s12["compose_prompt_sha256"] == entries[-2]["compose_prompt_sha256"]      # the decisions of S13 and S13b carry the compose pin of S12
     assert s12["date"] == "2026-10-22" and s12["basis"] == "maintainer-decision" and "a IA deve verificar a ortografia do assunto do email" in s12["reason"]
     assert s7["date"] == "2026-10-21" and "para emails eu iria pedir para a IA criar um texto melhor escrito" in s7["reason"], "the entry of the first compose prompt stays"
     assert s7["compose_prompt_sha256"] == "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf" and s7["compose_prompt_sha256"] != newest["compose_prompt_sha256"]

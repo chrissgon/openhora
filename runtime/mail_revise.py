@@ -48,6 +48,8 @@ DEADLINE_MS = 8000
 INSTRUCTION_MAX = 600       # characters of the person's line that are read; a longer text is a new request, not a change
 BODY_MAX = 4000             # characters of a card's body that are sent; a longer card is not revised (the validator accepts at most this much back)
 WHITE = re.compile(r"\s+")
+OBJECT = re.compile(r"(?<![a-z])(?:a\s+mensagem|(?:o|este|esta|esse|essa|the|this|that|el|la|le|der|die|das|il|lo)\s+(?:e-?mail|mensagem|mensaje|message|texto|text|assunto|asunto|subject|sujet|betreff|oggetto|corpo|cuerpo|body|"
+                    r"corps|evento|event|evenement|termin|card|cartao|correo|courriel|nachricht|messaggio|testo))(?![a-z])")
 QUOTED = re.compile(r"\"([^\"]+)\"|“([^”]+)”")
 ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 # The words of a request to change who receives the e-mail, folded (lower case, no accents), whole words. A closed list that only improves the sentence the person is told:
@@ -63,7 +65,12 @@ CHANGE_WORDS = frozenset({"mude", "muda", "mudar", "altere", "altera", "alterar"
                           "editar", "coloque", "coloca", "colocar", "adicione", "adiciona", "acrescente", "acrescenta", "remova", "remove", "tire", "tira", "substitua", "substitui", "inclua",
                           "inclui", "renomeie", "renomeia", "change", "edit", "adjust", "fix", "replace", "add", "remove", "put", "insert", "update", "rename", "cambia", "cambie", "modifica",
                           "modifique", "anade", "anada", "quita", "quite", "reemplaza", "modifie", "modifiez", "corrigez", "ajoute", "ajoutez", "remplace", "remplacez", "andere", "korrigiere",
-                          "fuge", "ersetze", "aggiungi", "correggi", "sostituisci", "rimuovi"})
+                          "fuge", "ersetze", "aggiungi", "correggi", "sostituisci", "rimuovi",
+                          # S13b: the verbs that write, end or sign a text (the live line "Escreva ao final do email: ..." held none of the words above). "pôr" is not here: folded it is "por".
+                          "escreva", "escreve", "escrever", "reescreva", "reescreve", "reescrever", "ponha", "poe", "deixe", "deixa", "deixar", "termine", "termina", "terminar", "finalize",
+                          "finaliza", "finalizar", "encerre", "encerra", "encerrar", "assine", "assina", "assinar", "acrescentar", "incluir", "retire", "retira", "retirar",
+                          "write", "rewrite", "sign", "end", "finish", "append", "escribe", "escriba", "pon", "ponga", "firma", "firme", "ecris", "ecrivez", "mets", "mettez", "signe", "signez",
+                          "schreibe", "schreib", "setze", "beende", "unterschreibe", "scrivi", "metti", "firma"})
 
 
 def prompt_template() -> str:
@@ -116,9 +123,38 @@ def clean(line):
     return one if one and len(one) <= INSTRUCTION_MAX else None
 
 
-def literals(line: str) -> list:
-    """The texts between quotation marks, in the order they come, each as written (surrounding white space removed)."""
-    return [(a or b).strip() for a, b in QUOTED.findall(line or "") if (a or b).strip()]
+BLOCK = re.compile(r"^(.*?):[ \t]*\n\s*(\S.*)$", re.S)      # "...:" at the end of a line, and a text after it (a colon with the text on the same line is no block)
+
+
+def instruction(text):
+    """The instruction as the person wrote it, line breaks kept (a line's trailing white space and runs of blank lines cut), or None when it is empty or longer than INSTRUCTION_MAX. The
+    model is shown this form, and `literals` reads its text block."""
+    if not isinstance(text, str):
+        return None
+    lines = [" ".join(line.split()) for line in text.replace("\r\n", "\n").replace("\r", "\n").strip().split("\n")]
+    one = re.sub(r"\n{3,}", "\n\n", "\n".join(lines))
+    return one if one and len(one) <= INSTRUCTION_MAX else None
+
+
+def split_block(text: str) -> tuple:
+    """(the instruction before its text block, the block or ""): the block is what follows the first line that ends with a colon, with its line breaks (see `literals`)."""
+    found = BLOCK.match(text or "")
+    return (found.group(1) + ":", found.group(2).strip()) if found else (text or "", "")
+
+
+def literals(text: str) -> list:
+    """The texts the instruction asks for as they are written: the texts between quotation marks, in the order they come (outside the block), then the block after a colon and a
+    line break (`Escreva ao final: <line break> <text>`), each with the white space around it cut. Read the instruction with its line breaks (`instruction`): once it is one line there
+    is no block."""
+    before, block = split_block(text)
+    found = [(a or b).strip() for a, b in QUOTED.findall(before) if (a or b).strip()]
+    return found + ([block] if block else [])
+
+
+def names_object(line: str) -> bool:
+    """Whether the line names the card's object with a definite article ("o email", "a mensagem", "the subject", "el asunto"...), in the singular: a line about THE card, whatever its verb.
+    "os emails" (a list), "um email" (a new one) and "emails" are not. A closed list in the six languages; it only decides whether a sentence is said."""
+    return bool(OBJECT.search(_fold(line or "")))
 
 
 def _fold(text: str) -> str:
@@ -126,7 +162,8 @@ def _fold(text: str) -> str:
 
 
 def _outside(line: str) -> str:
-    return QUOTED.sub(" ", line or "")
+    """The instruction without its quoted texts and without its text block (what the person asks for is not what the person says about the card)."""
+    return QUOTED.sub(" ", split_block(line)[0])
 
 
 def has_address(line: str) -> bool:
@@ -151,7 +188,7 @@ def has_change_word(line: str) -> bool:
 
 
 def message(language: str, subject: str, body: str, line: str) -> str:
-    """The one user message of the model call: four parts and nothing else (see the module's text)."""
+    """The one user message of the model call: four parts and nothing else (see the module's text). The instruction keeps its line breaks, so that a text block can be told."""
     return f"language: {language}\nsubject: {subject}\ninstruction: {line}\nbody:\n{body}"
 
 
@@ -166,6 +203,11 @@ def _own_addresses(*texts) -> list:
             if match not in found:
                 found.append(match)
     return found
+
+
+def _flat(text: str) -> str:
+    """The text with every run of white space one space and the accents composed: how a text asked for is looked for in the card (a line break more or less is no difference)."""
+    return WHITE.sub(" ", unicodedata.normalize("NFC", text)).strip()
 
 
 def _model_field(text, name: str):
@@ -202,13 +244,20 @@ def accept(text, to, subject: str, body: str, line: str):
         return None
     old = body.replace("\r\n", "\n").replace("\r", "\n").strip()
     got = dict(got, body=_kept_close(got["body"], text, old))
+    wanted = [_flat(w) for w in literals(line)]
+    new_flat, old_flat = _flat(got["subject"] + "\n" + got["body"]), _flat(subject + "\n" + old)
+    # a model that writes again, at the end, the very text the card already ends with, has changed nothing the person asked for
+    for w in wanted:
+        if old_flat.endswith(w) and new_flat == old_flat + " " + w:
+            got = {"subject": subject, "body": old}
+            break
     new_body = unicodedata.normalize("NFC", got["body"])
     new_subject = unicodedata.normalize("NFC", got["subject"])
     if new_subject == unicodedata.normalize("NFC", subject) and new_body == unicodedata.normalize("NFC", old):
-        return {"same": True}      # nothing changed: the instruction was not applied
-    for wanted in literals(line):
-        wanted = unicodedata.normalize("NFC", wanted)
-        if wanted not in new_subject and wanted not in new_body:
+        # nothing changed: the instruction was not applied; `holds` says the card already holds every text the line asks for (then the card is already as asked)
+        return {"same": True, "holds": bool(wanted) and all(w in old_flat for w in wanted)}
+    for w in wanted:
+        if w not in _flat(new_subject + "\n" + new_body):
             return None
     return {"subject": got["subject"], "body": got["body"]}
 

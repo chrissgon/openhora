@@ -108,6 +108,91 @@ def _unchanged(old: dict, new: dict) -> bool:
     return all((new.get(k) or None) == (old.get(k) or None) for k in ("location", "notes", "reminder_minutes"))
 
 
+CARD_SLOTS = ("title", "time")      # the slots of an answer that mean something for the card of an event: the card itself names the event, so every other slot is dropped
+
+
+def _cleaned(obj, line: str, lookup):
+    """The model's object read as a change of the card, or None: an `event-change` or an `event-create` (only when the line's own leading verb is a verb that changes) keeps its title and
+    time slots and loses `event`, `calendar`, `service` and every other slot; a clarify of `event` is a change with no slot. The check of the interpreter then decides, as for any line."""
+    if not isinstance(obj, dict):
+        return None
+    if obj.get("kind") == "op" and obj.get("op") in ("event-change", "event-create") and isinstance(obj.get("slots"), dict):
+        if obj["op"] == "event-create" and lookup.verb_op(line) != "event-change":
+            return None
+        slots = {k: v for k, v in obj["slots"].items() if k in CARD_SLOTS}
+        out = {"v": obj.get("v"), "kind": "op", "op": "event-change", "slots": slots}
+        if "time" in slots:
+            out.update({k: obj[k] for k in ("time_iso", "weekday") if k in obj})
+        return out
+    if obj.get("kind") == "clarify" and obj.get("slot") == "event" and lookup.verb_op(line) == "event-change":
+        return {"v": obj.get("v"), "kind": "op", "op": "event-change", "slots": {}}
+    return None
+
+
+def _from_code(line: str, now, zone: str, interpreter, lookup):
+    """The decision for a line whose leading verb changes an event and whose time code reads by itself (the natural time engine, through the interpreter's own rule for who may decide a
+    time), or a clarify when the engine asks, or None when the line holds no time code can read. Only the time: the card names the event."""
+    if lookup.verb_op(line) != "event-change":
+        return None
+    nt = importlib.import_module("natural_time")
+    local = interpreter._local_now(now, zone)
+    parsed = nt.parse(" ".join(line.split()), local)
+    if not parsed or not parsed.get("spans") or parsed.get("vague"):
+        return None
+    collapsed = " ".join(line.split())
+    span = collapsed[parsed["spans"][0][0]:parsed["spans"][-1][1]].strip()
+    source, reading = interpreter._classify(span, collapsed, local)
+    if source == "ask":
+        return {"kind": "clarify", "error": None, "why": "time-ask", "slot": "time", "ops": None}
+    if source != "code":
+        return None
+    return {"kind": "op", "error": None, "op": "event-change", "args": {}, "spans": {"time": span}, "time": {"local": f"{reading['date']}T{reading['time']}", "source": "code"},
+            "inherited": [], "time_disagree": False}
+
+
+def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict):
+    """The decision for a line sent after the card of an event, or None when no call could be made. The model is called once, as the interpreter calls it, but its answer is read FOR the
+    card: the card names the event, so the slot `event` (a title, a day, a number the line does not hold), an answer `event-create`, extra slots and a clarify of `event` do not make the
+    line a new request. What cannot be read from the model's answer is read by code from the line (`_from_code`). The same checks decide, as for any line."""
+    interpreter = importlib.import_module("interpreter")
+    interpret = importlib.import_module("ops_interpret")
+    lookup = importlib.import_module("event_lookup")
+    ops_natural = importlib.import_module("ops_natural")
+    importlib.import_module("line_stage").publish("think")
+    try:
+        now = ops_natural._clock()
+        zone = interpret._zone(now)
+        system, user = interpreter.build_messages(interpreter.SERVED, now, zone, None, line)
+        got = interpret._daily_call(entry, system, user)
+    except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
+        got = {"ok": False}
+    interpret._record(bool(got.get("ok")))
+    if not got.get("ok"):
+        return None
+    try:
+        allowed = interpret._allowed(ctx, sender)
+        strict = interpret.decide(line, got.get("text"), now, zone, allowed)
+        if strict.get("kind") == "op" and strict.get("op") == "event-change":
+            return strict
+        if strict.get("kind") not in ("clarify",):
+            if strict.get("kind") == "op" and strict.get("op") == "event-create" and lookup.verb_op(line) == "event-change":
+                pass      # read below as a change
+            else:
+                return strict      # a route, a none, a refusal, another operation: not for the card
+        obj = interpreter.parse(got.get("text"))[0]
+        cleaned = _cleaned(obj, line, lookup)
+        if cleaned is not None:
+            again = interpreter.check(cleaned, line, None, interpreter.SERVED, now, zone, allowed)
+            if again.get("kind") == "op" and (again.get("spans") or again.get("time")):
+                return again
+            if again.get("kind") == "clarify" and str(again.get("why", "")).startswith("time"):
+                return again
+        coded = _from_code(line, now, zone, interpreter, lookup)
+        return coded if coded is not None else interpret.lenient(line, got.get("text"), strict, now, zone, allowed)      # what is not a change of the card is read as any line is (S16)
+    except Exception:      # noqa: BLE001
+        return {"kind": "clarify", "error": "E_SHAPE", "why": "invalid", "slot": None, "ops": None}
+
+
 def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, channel, sender) -> dict:
     """See the module's text."""
     interpreter = importlib.import_module("interpreter")
@@ -117,12 +202,14 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
     ops_natural = importlib.import_module("ops_natural")
     if interpreter.precheck(line) is not None or not interpret._admit(ctx, sender):
         return {"pass": True}
-    decision = interpret._ask_model(ctx, entry, line, sender)
+    decision = card_decision(ctx, entry, line, sender, doc)
     if decision is None:
         return {"pass": True}
     if decision.get("kind") == "clarify":
         return base.say(ctx, interpret.WHY_SENTENCE.get(decision.get("why")) or "IX_ASK_AGAIN", pending_id)
     spans, time_ = decision.get("spans") or {}, decision.get("time")
+    if decision.get("kind") in ("route", "none") and mail_revise.names_object(line):
+        return base.say(ctx, "RV_NOT_UNDERSTOOD_CARD", pending_id)      # it names the card and no decision is for it: told so, with the card again, never the conversation (S13b)
     if decision.get("kind") != "op" or decision.get("op") != "event-change" or names_another(line, spans, doc):
         base.remember(project, channel, sender, line, decision)      # not a change of this card: the turn that follows reads the decision that was made
         return {"pass": True}

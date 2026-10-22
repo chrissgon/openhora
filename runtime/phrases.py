@@ -701,6 +701,8 @@ TABLE = {
         "RV_NOT_REVISABLE": "To change this card, reject it and ask again.",
         "RV_DONE_MAIL": "Done: here is the e-mail with your change. The previous card no longer works; approve or reject this one.",
         "RV_DONE_EVENT": "Done: here is the event with your change. The previous card no longer works; approve or reject this one.",
+        "RV_ALREADY": "The e-mail already says that.",
+        "RV_NOT_UNDERSTOOD_CARD": "I did not understand the change. Say what to change in the card, for example: change the end to ...",
         "RV_DECIDED": "That card was already decided before I could change it, so nothing was changed.",
         "RV_LOST": "I could not prepare the changed card, and the previous one is closed. Ask again.",
         "RV_REPLACED": "That card was replaced by a newer one. Change the newer card, or ask again.",

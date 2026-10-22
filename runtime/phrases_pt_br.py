@@ -654,6 +654,8 @@ TABLE = {
     "RV_NOT_REVISABLE": "Para mudar este card, rejeite e peça de novo.",
     "RV_DONE_MAIL": "Pronto: aqui está o e-mail com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este.",
     "RV_DONE_EVENT": "Pronto: aqui está o evento com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este.",
+    "RV_ALREADY": "O e-mail já está assim.",
+    "RV_NOT_UNDERSTOOD_CARD": "Não entendi o ajuste. Diga o que mudar no card, por exemplo: muda o fim para …",
     "RV_DECIDED": "Esse card já foi decidido antes de eu conseguir ajustá-lo, então nada foi alterado.",
     "RV_LOST": "Não consegui preparar o card ajustado e o anterior foi encerrado. Peça de novo.",
     "RV_REPLACED": "Esse card foi substituído por um mais novo. Ajuste o card mais novo ou peça de novo.",

@@ -1000,6 +1000,9 @@ class Bridge(shell_kit.Jobs):
         if found == "sentence":
             self.keep_cards(chat, self.t("RV_NOT_REVISABLE", project=project), project)
             return True
+        if found == "unclear":
+            self.keep_cards(chat, self.t("RV_NOT_UNDERSTOOD_CARD", project=project), project)          # it names the card and asks nothing the gate reads (S13b): one sentence, the card stays the last message
+            return True
         if found == "replaced":
             self.reply(chat, self.t("RV_REPLACED", project=project), project)
             return True

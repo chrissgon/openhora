@@ -317,3 +317,77 @@ def test_a_card_that_cannot_be_ended_or_a_new_card_that_cannot_be_opened_never_l
     monkeypatch.setattr(ops, "event_create", lambda project, **kw: (_ for _ in ()).throw(ops.OpsError("no card", 1)))
     got = revise(world, old, sha, LIVE)
     assert got["resend"] is None and got["say"].endswith("Peça de novo.") and open_cards(world) == []      # validate: allow english-only -- the Portuguese sentence under test
+
+
+# --- the live case of 17:01: "muda para as 10h" on the card of a new event, and a model answer of a shape the check refuses -------------------------------------
+
+
+MUDA = "muda para as 10h"      # validate: allow english-only -- the live line, Portuguese
+TIME10 = {"time": "as 10h"}
+SHAPES = {
+    "event-slot-title": op_text("event-change", {"event": "corte de cabelo", **TIME10}, time_iso="2026-10-22T10:00", weekday="thu"),
+    "event-slot-day": op_text("event-change", {"event": "amanhã", **TIME10}, time_iso="2026-10-22T10:00", weekday="thu"),      # validate: allow english-only -- the stand-in model's answer
+    "event-slot-number": op_text("event-change", {"event": "7", **TIME10}, time_iso="2026-10-22T10:00", weekday="thu"),
+    "clarify-event": json.dumps({"v": 1, "kind": "clarify", "slot": "event"}),
+    "extra-slots": op_text("event-change", {**TIME10, "calendar": "pessoal", "service": "outlook"}, time_iso="2026-10-22T10:00", weekday="thu"),
+    "event-create": op_text("event-create", {"title": "corte", **TIME10}, time_iso="2026-10-22T10:00", weekday="thu"),
+    "event-create-time-only": op_text("event-create", TIME10, time_iso="2026-10-22T10:00", weekday="thu"),
+    "invalid-json": "this is not json",
+    "empty-object": "{}",
+}
+
+
+def haircut_card(world):
+    return create(world, account="microsoft", title="corte de cabelo", start="2026-10-23T14:00", end="2026-10-23T15:00")
+
+
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_muda_para_as_10h_revises_the_event_card_whatever_the_shape_of_the_model_answer(world, monkeypatch, shape):
+    model = build(world, monkeypatch, SHAPES[shape])
+    old, sha = haircut_card(world)
+    before = body(world, old)
+    assert "Account: microsoft" in before[1] and "Title: corte de cabelo" in before and "When: Fri 23/10/2026 14:00-15:00 (America/Sao_Paulo)" in before
+    assert check(world, old, sha, MUDA) == "event"
+    got = revise(world, old, sha, MUDA)
+    new = got["resend"]
+    assert isinstance(new, int) and new != old, got
+    after = body(world, new)
+    assert after == [l.replace("14:00-15:00", "10:00-11:00") for l in before], "the new hour on the card's day, the length kept, the account and the calendar kept"
+    assert status(world, old) != "open" and open_cards(world) == [new] and len(model.calls) == 1
+    refused_for_good(world, old, sha)
+    assert all(r["method"] == "GET" or r["path"].endswith("/token") for r in world["graph"].requests), "nothing is written to the calendar"
+    assert reads_only(world) == []
+
+
+@pytest.mark.parametrize("shape", ["event-create", "event-create-time-only", "invalid-json", "empty-object"])
+def test_vacuity_the_interpreter_alone_refuses_these_shapes_so_the_card_is_not_revised_without_the_card_reading(world, monkeypatch, shape):
+    build(world, monkeypatch, SHAPES[shape])
+    ctx = ops_core.context(world["path"])
+    entry = ops_card_revise.entry_of(ctx, "messaging", OWNER, False)
+    old = ops_interpret._ask_model(ctx, entry, MUDA, OWNER)
+    assert old.get("op") != "event-change", "the answer, read as any line is read, is not a change of an event: it was asked again before"
+
+
+@pytest.mark.parametrize("shape", ["event-create", "invalid-json", "clarify-event", "event-slot-title"])
+def test_a_line_that_names_another_event_still_leaves_the_card_alone_in_every_shape(world, monkeypatch, shape):
+    build(world, monkeypatch, SHAPES[shape])
+    old, sha = haircut_card(world)
+    got = revise(world, old, sha, "muda o dentista para as 10h")      # validate: allow english-only -- the Portuguese line under test
+    assert got == {"pass": True} and open_cards(world) == [old] and status(world, old) == "open"
+
+
+def test_a_line_with_a_change_verb_and_nothing_code_can_read_asks_again_and_sends_the_card_again(world, monkeypatch):
+    build(world, monkeypatch, "this is not json")
+    old, sha = haircut_card(world)
+    got = revise(world, old, sha, "muda o evento")      # validate: allow english-only -- the Portuguese line under test
+    assert got["resend"] == old and got["say"] and open_cards(world) == [old]
+
+
+def test_an_hour_the_engine_cannot_decide_alone_is_asked_and_a_moment_in_the_past_is_asked_in_every_shape(world, monkeypatch):
+    build(world, monkeypatch, "this is not json")
+    old, sha = haircut_card(world)
+    got = revise(world, old, sha, "muda para as 9")      # validate: allow english-only -- the Portuguese line under test
+    assert got["resend"] == old and open_cards(world) == [old], "9 may be the morning or the evening: asked, nothing changed"
+    past, past_sha = create(world, account="microsoft", title="corte de cabelo", start="2026-10-21T08:00", end="2026-10-21T09:00")
+    asked = revise(world, past, past_sha, MUDA)
+    assert asked == {"say": phrases.text("IX_ASK_PAST", ops_core.context(world["path"])["cfg"]), "resend": past}
