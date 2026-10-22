@@ -85,6 +85,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/files_document.py` | The document of a write to the person's own Drive or OneDrive, and nothing that writes (package W4a): what the step kind `file-write` builds and the effect kind `files` approves. |
 | `runtime/flow_check.py` | The flow check: what a flow may not hold, decided by code when it is created or changed (decisions D27 and D31, P6a). |
 | `runtime/flow_files.py` | Flow files: one data file per flow, with its tasks and their dependencies written out. |
+| `runtime/greeting.py` | A greeting, or a plain request for help, gets a greeting back and a short summary of what the assistant can do for THIS sender (slice S5). |
 | `runtime/instructions.py` | The person's standing instructions for a project: one Markdown file the person writes, read into the prompt of every model run of the project (limit L40). |
 | `runtime/intake.py` | The generic streaming intake: how a body of a declared length gets from a stream onto disk, safely. |
 | `runtime/interpreter.py` | The interpreter's protocol and its validator (package IX-2a): what a model may say about a person's line, and what code believes of it (plan `PLAN-NL-INTERPRETER-FINAL.md`, section 1). |

@@ -33,6 +33,7 @@ import unicodedata
 
 import ops_core as core
 import autonomy
+import greeting
 import lab
 import language as language_rules
 import natural
@@ -162,7 +163,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     ctx = core.context(project)
     said = core._text(text, "the line")
     store = ctx["store"]
-    handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender)
+    handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender) or _greets(ctx, said, channel, sender)      # S5: a greeting is answered by code too, never queued
     if _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
         # router is free again; a shell that drains nothing is refused while the router answers another request.
@@ -259,6 +260,31 @@ def natural_needs(project: str, text: str, sender=None, channel: str = "messagin
     return ops_natural.needs(core.context(project), text, channel, sender)
 
 
+GREETING_FAMILIES = (      # S5: (phrase key, the operations and kinds one of which the sender's policy must permit) in the order the summary names them
+    ("GREET_MAIL", (("ask", "mail"),)), ("GREET_REMIND", (("remind", None),)), ("GREET_CALENDAR", (("event-create", None),)), ("GREET_SEND", (("mail-send", None),)),
+    ("GREET_ORGANIZE", (("mail-draft", None),)), ("GREET_FILES", (("file-create", None),)))
+GREETING_APPROVALS = ("plan", "acceptance", "effect:calendar", "effect:send-own", "effect:send", "effect:mailbox", "effect:files", "effect:write", "effect:publish", "effect:create")
+
+
+def _greets(ctx: dict, said: str, channel: str, sender=None) -> bool:
+    """Whether a plain line is a greeting that `_turn` answers by code (S5): the whole line is one (runtime/greeting.py) and the sender may talk. It runs no model, so it takes no route lock and is never queued."""
+    return not said.startswith("/") and greeting.is_greeting(said, helps=channel == "messaging") and may_talk(ctx, channel, sender)
+
+
+def _greeting_reply(ctx: dict, channel: str, sender=None) -> str:
+    """The answer to a greeting (S5): a greeting in the project's language, then one plain line for each family of capabilities that THIS sender's policy permits on the channel the line came on
+    (`operations.permitted`), the approval of a card by a word on a messaging app, and, for a sender the interpreter reads, the line about asking in one's own words; a sender who may use none of
+    them gets the one line that says a request may be sent in a sentence. No slash command and no id; it reads no store and no source."""
+    cfg, channel = ctx["cfg"], _natural_channel(channel)
+    policy = cfg["channels"]
+    lines = [phrases.text(key, cfg) for key, forms in GREETING_FAMILIES if any(operations.permitted(op, channel, policy, kind, sender) for op, kind in forms)]
+    if channel == "messaging" and any(operations.permitted("approve", channel, policy, kind, sender) for kind in GREETING_APPROVALS):
+        lines.append(phrases.text("GREET_APPROVE", cfg))
+    if importlib.import_module("ops_interpret").enabled(ctx, channel, sender):
+        lines.append(phrases.text("GREET_OWN_WORDS", cfg))
+    return "\n".join([phrases.text("GREET_HEAD", cfg)] + (lines or [phrases.text("GREET_ASK_WORK", cfg)]))
+
+
 def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender=None, extras=None) -> tuple:
     """(reply, request_id, pending_id, ran, run_id, proposal) of one stored line of the person: a command, a question about the
     state, the answer to the router's question, or a new request. `line_id` is the line's message id: the memory
@@ -273,6 +299,8 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
         return (*out, None)
     talks = may_talk(ctx, channel, sender)
     extras = extras if extras is not None else {}
+    if talks and greeting.is_greeting(said, helps=channel == "messaging"):      # S5: a greeting, or a plain request for help, is answered by code before any open question and any model: never the answer to the router's question
+        return _greeting_reply(ctx, channel, sender), None, None, False, None, None
     asked = _open_question(ctx, channel, sender) if talks else None      # a sender who may not talk never answers the router's question; on a phone it is the question bound to this sender (S4)
     if asked is not None and ops_natural.recognises(ctx, said, _natural_channel(channel), sender):      # a request code recognises is a new line, never the answer (LIVE-2), for the interpreter's senders too
         asked = None

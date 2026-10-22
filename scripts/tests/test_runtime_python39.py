@@ -48,8 +48,8 @@ ON_SYSTEM_PYTHON = [
     # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.
     "runtime/messaging.py", "runtime/messaging_bridge.py", "runtime/messaging_cards.py", "runtime/messaging_inbound.py",
     "runtime/messaging_ledger.py", "runtime/messaging_provider.py", "runtime/messaging_guard.py", "runtime/messaging_outcome.py", "runtime/messaging_failure.py",
-    # The words that decide a decision card (S2, limit L64): a pure reading of one line, read by the bridge.
-    "runtime/card_words.py",
+    # The words that decide a decision card (S2, limit L64) and the greeting forms (S5): pure readings of one line, read by the bridge.
+    "runtime/card_words.py", "runtime/greeting.py",
     # What the two shells share (stage 9, WP-9.9): the job registry, the status words, the project list.
     "runtime/shell_kit.py",
     # The cost of a run recomputed from its token counts (stage 9): the operations layer imports it.

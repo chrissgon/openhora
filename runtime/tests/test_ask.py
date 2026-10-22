@@ -519,25 +519,25 @@ def direct_router(tree, monkeypatch):
 
 def test_a_direct_turn_ends_with_the_ask_hint_only_when_the_sender_may_ask_and_a_source_exists_and_a_skill_answers(two, monkeypatch):
     direct_router(two, monkeypatch)
-    hinted = ops.say(two["path"], "hello there", channel="terminal")["reply"]
+    hinted = ops.say(two["path"], "thanks, nothing else", channel="terminal")["reply"]
     assert hinted.endswith("\n\nTo answer from your sources, send /ask <question>.") and hinted.count("/ask") == 1
-    page = ops.say(two["path"], "hello again", channel="page")["reply"]
+    page = ops.say(two["path"], "thanks again", channel="page")["reply"]
     assert page.endswith(ops_ask.ASK_HINT)
     accept(two["path"], channels={"page": ["read", "talk"]})
-    assert ops.say(two["path"], "hello once more", channel="page")["reply"].count("/ask") == 0          # the page's policy lacks `ask`
+    assert ops.say(two["path"], "thanks once more", channel="page")["reply"].count("/ask") == 0          # the page's policy lacks `ask`
     accept(two["path"], policies=PROFILES, messaging={"senders": SENDERS})
-    assert ops.say(two["path"], "hi", channel="messaging", sender=OWNER_KEY)["reply"].endswith(ops_ask.ASK_HINT)
-    assert "/ask" not in ops.say(two["path"], "hi", channel="messaging", sender=STAFF_KEY)["reply"]       # a sender who may not ask is not told of it
-    assert "/ask" not in ops.say(two["path"], "hello", channel="mcp")["reply"]
+    assert ops.say(two["path"], "thanks", channel="messaging", sender=OWNER_KEY)["reply"].endswith(ops_ask.ASK_HINT)
+    assert "/ask" not in ops.say(two["path"], "thanks", channel="messaging", sender=STAFF_KEY)["reply"]       # a sender who may not ask is not told of it
+    assert "/ask" not in ops.say(two["path"], "thanks a lot", channel="mcp")["reply"]
     monkeypatch.setattr(roles, "answer", lambda root=None, file=None: None)
-    assert "/ask" not in ops.say(two["path"], "hello", channel="terminal")["reply"]                       # no skill answers: no hint
+    assert "/ask" not in ops.say(two["path"], "thanks a lot", channel="terminal")["reply"]                       # no skill answers: no hint
 
 
 def test_a_direct_turn_has_no_hint_in_a_project_with_no_source(tree, monkeypatch):
     direct_router(tree, monkeypatch)
-    assert "/ask" not in ops.say(tree["path"], "hello there", channel="terminal")["reply"]
+    assert "/ask" not in ops.say(tree["path"], "thanks, nothing else", channel="terminal")["reply"]
     add_source(tree, "lease-contract", LEASE)
-    assert ops.say(tree["path"], "hello there", channel="terminal")["reply"].endswith(ops_ask.ASK_HINT)
+    assert ops.say(tree["path"], "thanks, nothing else", channel="terminal")["reply"].endswith(ops_ask.ASK_HINT)
 
 
 # --- the answer skill and the task text ----------------------------------------------------------------------------------------------------------

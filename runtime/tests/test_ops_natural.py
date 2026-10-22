@@ -147,8 +147,8 @@ def test_the_help_is_public_and_a_messaging_app_gets_its_own_list(world):
 
 
 def test_the_help_asks_no_policy_because_it_reads_nothing_of_the_project(world):
-    accept(world["path"], policies={"nothing": ["talk"]}, messaging={"senders": {"telegram": [{"id": READER, "policy": "nothing"}]}})
-    assert phone(world, "reader", "help")["reply"] == phrases.text("HELP", None)
+    accept(world["path"], policies={"nothing": ["read"]}, messaging={"senders": {"telegram": [{"id": READER, "policy": "nothing"}]}})
+    assert phone(world, "reader", "help")["reply"] == phrases.text("HELP", None)      # a sender who may not talk keeps the fixed list; one who may gets the summary of S5 (test_say_greeting.py)
 
 
 def test_the_list_of_sources_a_messaging_sender_gets_has_no_heading_and_no_sample_value(docs):
