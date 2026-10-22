@@ -273,6 +273,7 @@ class Bridge(shell_kit.Jobs):
         self.policy_noted = set()
         self.everyone = list(self.projects)   # every project given; `self.projects` is the part that is ready to serve
         self.skipped = {}                     # project id -> why it is skipped now (absent: served)
+        self.config_told = set()              # (chat, configuration hash) already told that the configuration must be accepted (memory only; S12)
         self.deferred = {}                    # (project id, pending id, chat) -> when it was last logged as deferred
         self.deferred_chats = set()           # chats with a card kept for later: an update from one asks for a notice at once
         self.unread_waiting = {}              # chat -> how many skipped messages it has not been told of (memory only)
@@ -426,6 +427,26 @@ class Bridge(shell_kit.Jobs):
             if settings and sender in settings["senders"]:
                 out.append(project)
         return out
+
+    def config_pending(self, update: dict, sender: str, chat: str) -> None:
+        """A sender whose line cannot be served because the project's configuration is not accepted is told so, once per chat and per hash of the file (S12): one plain sentence
+        in the project's language, with no hash, path or command (limit L62; those are in the terminal and in the log). The line is never acted on. Who is told is read from the
+        file itself (the senders it lists for this platform), the one read of an unaccepted file: the sentence says nothing of the project; a chat that is not the sender's own
+        private chat, an empty update and a sender no file lists are told nothing."""
+        if not (update.get("private") and chat == sender and ((update.get("text") or "").strip() or update.get("action") or update.get("attachments"))):
+            return
+        for project in self.everyone:
+            try:
+                found = self.ops.config(project["path"])
+            except self.ops.OpsError:
+                continue
+            listed = ((found.get("messaging") or {}).get("senders") or {}).get(self.platform) or []
+            key = (chat, found.get("sha256"))
+            if found.get("accepted") or sender not in listed or key in self.config_told:
+                continue
+            if self.reply(chat, self.t("CONFIG_PENDING", cfg={"language": found.get("language")}), project):
+                self.config_told.add(key)
+            return
 
     def listed_in(self, project: dict, sender: str) -> bool:
         """Whether the sender is listed for this very project: a card of one project is acted on only by its senders."""
@@ -729,6 +750,7 @@ class Bridge(shell_kit.Jobs):
         listed = self.projects_for(sender) if update.get("private") and chat == sender else []
         if not listed:
             self.log(DROPPED)
+            self.config_pending(update, sender, chat)
             return
         if update.get("attachments") is not None:
             found = provider.valid_attachments(update["attachments"])

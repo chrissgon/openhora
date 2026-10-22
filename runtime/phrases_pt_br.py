@@ -742,6 +742,7 @@ TABLE = {
     "FR_WITHHELD": "Encontrei {name} ({account}), mas não mostrei: o texto tem algo que parece uma senha ou uma chave.",
     "FR_TOO_BIG": "Encontrei {name} ({account}), mas ele é grande demais para eu ler aqui.",
     "FR_EMPTY": "Encontrei {name} ({account}), mas não há texto nele para mostrar.",
+    "CONFIG_PENDING": "A configuração do projeto mudou e precisa ser aceita no terminal antes de eu continuar.",
     "FR_SEVERAL_PICK": "Encontrei {count} arquivos que combinam. Qual deles? Diga o número, por exemplo \"o 2\".",
     "FR_NONE_SUB": "Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas e nas pastas dentro delas: {folders}.",
     "FR_NO_SUCH_FOLDER": "Não encontrei essa pasta dentro das pastas configuradas para as suas contas, e não procuro fora delas: {folders}.",

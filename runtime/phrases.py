@@ -789,6 +789,7 @@ TABLE = {
         "FR_WITHHELD": "I found {name} ({account}), but I did not show it: its text holds something that looks like a password or a key.",
         "FR_TOO_BIG": "I found {name} ({account}), but it is too large for me to read here.",
         "FR_EMPTY": "I found {name} ({account}), but there is no text in it to show.",
+        "CONFIG_PENDING": "The project's configuration changed and must be accepted in the terminal before I can go on.",
         "FR_SEVERAL_PICK": "I found {count} files that fit. Which one? Say its number, for example \"the 2\".",
         "FR_NONE_SUB": "I did not find a file with that name. I looked only in the folders set up for your accounts, and the folders inside them: {folders}.",
         "FR_NO_SUCH_FOLDER": "I did not find that folder inside the folders set up for your accounts, and I do not look outside them: {folders}.",
