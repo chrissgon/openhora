@@ -37,6 +37,7 @@ import re
 import sys
 
 import drafts
+import line_stage
 import natural
 import natural_writes as nw
 import operations
@@ -387,6 +388,7 @@ def open_line(project: str, ctx: dict, said: str, channel, sender, extras: dict,
     if reading.get("say"):          # a form that is no write form but that NR-1 would have taken for a new event: the sentence only (a change is asked by number)
         extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
         return _t(ctx, reading["say"])
+    line_stage.publish("card")      # S19: the card of the exact content is being prepared (a later stage, the e-mail's wording, replaces it)
     state = new_state(ctx, reading, said)
     return advance(project, ctx, state, channel, sender, extras)
 

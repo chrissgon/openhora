@@ -223,7 +223,10 @@ def test_a_file_edited_but_not_accepted_refuses_every_sender_whatever_their_prof
     write_config(lab.path, policies={**POLICIES_ALL, "owner": [*POLICIES["owner"], "brakes"]})
     seen = len(lab.texts(OWNER))
     lab.say(OWNER, action=button)
-    assert len(lab.texts(OWNER)) == seen and bridge.DROPPED in lab.log, "a project whose file is not accepted serves nobody: the update is dropped"
+    assert bridge.DROPPED in lab.log, "a project whose file is not accepted serves nobody: the update is dropped"
+    assert lab.texts(OWNER)[seen:] == [phrases.en("CONFIG_PENDING")], "S12: and the sender is told once, in one plain sentence, that the configuration must be accepted"
+    lab.say(OWNER, action=button)
+    assert len(lab.texts(OWNER)) == seen + 1, "the same file is told once"
     ctx = ops_core.context(lab.path, check_config=False)
     assert ctx["store"].pending_get(ctx["conn"], lab.plan)["status"] == "open"
 

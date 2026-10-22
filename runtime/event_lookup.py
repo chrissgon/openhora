@@ -62,6 +62,7 @@ import threading
 
 import event_created
 import item_refs
+import line_stage
 import natural
 import natural_time as nt
 import natural_writes as nw
@@ -172,6 +173,7 @@ def refresh(project: str, ctx: dict) -> None:
     """Read each registered calendar source again, once: the provider read the snapshots come from (`ops_sources.source_refresh`, which `snapshot_refresh` in
     runtime/sources_mail.py does), a new version only when the listing changed. The caller has passed `item_refs.may_read`, the right to read these snapshots; the
     read is of the person's own calendar and writes nothing to it. A failure is dropped: nothing of it is kept or said."""
+    line_stage.publish("calendar")      # S19
     refresh_one = importlib.import_module("ops_sources").source_refresh
     for source in importlib.import_module("ops_natural_calendar").calendar_sources(ctx):
         try:

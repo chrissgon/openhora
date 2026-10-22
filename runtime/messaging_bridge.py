@@ -113,6 +113,7 @@ import traceback
 
 import card_words
 import greeting
+import messaging_ack as ack
 import messaging_attach as attach
 import messaging_cards as cards
 import messaging_failure as failure
@@ -135,6 +136,7 @@ CARDS_PER_TICK = 10
 POLL_SECONDS = 25
 DEFERRED_LOG_EVERY = 86400.0   # seconds between two log lines about one deferred card
 RETRY_SECONDS = 5
+ACK_ONCE_SECONDS = 120.0       # a line acknowledged by one part of its job is not acknowledged again by the next part (S19)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DROPPED = "dropped an update from an unlisted sender"
 # The sentences a person reads are the phrase table's (runtime/phrases.py, package LR-1): these names keep the English text (a test, a card and the docs read
@@ -273,6 +275,7 @@ class Bridge(shell_kit.Jobs):
         self.policy_noted = set()
         self.everyone = list(self.projects)   # every project given; `self.projects` is the part that is ready to serve
         self.skipped = {}                     # project id -> why it is skipped now (absent: served)
+        self.config_told = set()              # (chat, configuration hash) already told that the configuration must be accepted (memory only; S12)
         self.deferred = {}                    # (project id, pending id, chat) -> when it was last logged as deferred
         self.deferred_chats = set()           # chats with a card kept for later: an update from one asks for a notice at once
         self.unread_waiting = {}              # chat -> how many skipped messages it has not been told of (memory only)
@@ -426,6 +429,26 @@ class Bridge(shell_kit.Jobs):
             if settings and sender in settings["senders"]:
                 out.append(project)
         return out
+
+    def config_pending(self, update: dict, sender: str, chat: str) -> None:
+        """A sender whose line cannot be served because the project's configuration is not accepted is told so, once per chat and per hash of the file (S12): one plain sentence
+        in the project's language, with no hash, path or command (limit L62; those are in the terminal and in the log). The line is never acted on. Who is told is read from the
+        file itself (the senders it lists for this platform), the one read of an unaccepted file: the sentence says nothing of the project; a chat that is not the sender's own
+        private chat, an empty update and a sender no file lists are told nothing."""
+        if not (update.get("private") and chat == sender and ((update.get("text") or "").strip() or update.get("action") or update.get("attachments"))):
+            return
+        for project in self.everyone:
+            try:
+                found = self.ops.config(project["path"])
+            except self.ops.OpsError:
+                continue
+            listed = ((found.get("messaging") or {}).get("senders") or {}).get(self.platform) or []
+            key = (chat, found.get("sha256"))
+            if found.get("accepted") or sender not in listed or key in self.config_told:
+                continue
+            if self.reply(chat, self.t("CONFIG_PENDING", cfg={"language": found.get("language")}), project):
+                self.config_told.add(key)
+            return
 
     def listed_in(self, project: dict, sender: str) -> bool:
         """Whether the sender is listed for this very project: a card of one project is acted on only by its senders."""
@@ -729,6 +752,7 @@ class Bridge(shell_kit.Jobs):
         listed = self.projects_for(sender) if update.get("private") and chat == sender else []
         if not listed:
             self.log(DROPPED)
+            self.config_pending(update, sender, chat)
             return
         if update.get("attachments") is not None:
             found = provider.valid_attachments(update["attachments"])
@@ -1336,7 +1360,11 @@ class Bridge(shell_kit.Jobs):
             needed = seed["op"] if seed else self.needs(text, project, chat)
             if needed:
                 self.allow(project, needed, sender=chat)          # the operation's own group, never `talk`: the layer asks it again
-            result = self.ops.natural_write(project["path"], text, channel=CHANNEL, sender=self.key(chat), seed=seed)
+            acked = self.ack_begin(project, chat, text)      # S19: the card of a write may wait for a read or for the model that words an e-mail
+            try:
+                result = self.ops.natural_write(project["path"], text, channel=CHANNEL, sender=self.key(chat), seed=seed)
+            finally:
+                self.ack_end(acked)      # before anything is sent
         except Refused as e:
             self.reply(chat, self.t("ATT_SAVE_OFF", project=project) if needed == "file-save" else str(e), project, guard=True)          # a plain sentence for a save, never the name of an operation
             return False
@@ -1381,16 +1409,18 @@ class Bridge(shell_kit.Jobs):
                     if settings is None or chat not in settings["senders"]:
                         self.log(DROPPED)
                         return
-                shown = None
+                shown = acked = None
                 try:
                     try:
                         shown = indicator.Typing(self.messenger).begin(chat, text)      # S10: "typing..." while the reply is prepared, on a platform that has it
                     except Exception:      # never a lost reply
                         shown = None
+                    acked = self.ack_begin(project, chat, text)      # S19: one short sentence if the reply takes more than a moment
                     result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text)
                 finally:
                     if shown is not None:
                         shown.stop()      # before anything is sent: no call is made after this
+                    self.ack_end(acked)
                 raw = result.get("reply") or self.t("NO_REPLY", project=project)
                 said = self.command_sentence(project, text, raw)
                 converted = said is not raw      # a sentence made from a command's result carries a text of the operations layer (a held task's reason): it passes the net of `messaging_guard`
@@ -1416,6 +1446,33 @@ class Bridge(shell_kit.Jobs):
                 else:
                     self.reply(chat, self.t("QUEUED", project=project), project)
         return call
+
+    def ack_begin(self, project: dict, chat: str, text: str):
+        """S19: start the timer of the one acknowledgement of this line (runtime/messaging_ack.py), on the thread that runs it. None when this thread already has one (a write
+        that turns out to be a plain line calls `line` inside `write_now`: one line, one acknowledgement) and on any fault: never a lost reply."""
+        if getattr(self.scope, "ack", None) is not None:
+            return None
+        sent = getattr(self.scope, "ack_sent", None)
+        if sent is not None and sent[0] == (chat, text) and self.monotonic() - sent[1] < ACK_ONCE_SECONDS:
+            return None      # this very line has been acknowledged by the part of the job that ran first
+        try:
+            handle = ack.Ack(lambda to, stage: self.acknowledge(project, to, stage)).begin(chat, text)
+        except Exception:
+            return None
+        self.scope.ack = handle
+        return handle
+
+    def ack_end(self, handle) -> None:
+        """Stop the timer before the reply is sent: nothing starts after this (the reply never waits for an acknowledgement that is on its way)."""
+        if handle is not None:
+            handle.stop()
+            self.scope.ack = None
+            if handle.sent:
+                self.scope.ack_sent = ((handle.chat, handle.text), self.monotonic())
+
+    def acknowledge(self, project: dict, chat: str, stage) -> None:
+        """Send the acknowledgement for the stage the job had reached (`ACK_<STAGE>` of the phrase table, in the chat's language): the plain sentence, no model, no word of the person's."""
+        self.deliver(chat, {"text": self.t(ack.key(stage), project=project, chat=chat), "actions": [], "link": None, "document": None})
 
     def note_asked(self, project: dict, chat: str, pending_id: int, message_id=None) -> None:
         """The reply to a line was the router's question and it went out in `chat`: the ledger records that this decision, with this content, is in this chat
