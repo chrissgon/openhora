@@ -117,7 +117,7 @@ def test_a_reminder_the_router_chose_to_forget_is_never_forgotten_at_once(world)
 
 
 @pytest.mark.parametrize("line, expected", [
-    ("help", "HELP"), ("ajuda", "HELP"), ("what can you do", "HELP"),
+    ("help", "GREET_HEAD"), ("ajuda", "GREET_HEAD"), ("what can you do", "GREET_HEAD"),      # S5: a help line in words from a sender who may talk is the summary of what that sender may do
     ("what flows are there", "That is not done from a message. Do it on the platform's page."),
 ])
 def test_the_help_and_a_read_the_channel_does_not_have_get_a_true_sentence_through_the_bridge(rig, line, expected):
@@ -125,7 +125,7 @@ def test_the_help_and_a_read_the_channel_does_not_have_get_a_true_sentence_throu
     assert wait_for(lambda: len(rig.sent()) == 1) and settled(rig)
     text = rig.sent()[0]["message"]["text"]
     assert "turns it on" not in text and "is not enabled" not in text
-    assert text == (phrases.text("HELP", None) if expected == "HELP" else expected)
+    assert text.splitlines()[0] == phrases.text("GREET_HEAD", None) if expected == "GREET_HEAD" else text == expected
 
 
 def test_a_refusal_for_a_row_no_configuration_can_turn_on_says_where_it_is_done():

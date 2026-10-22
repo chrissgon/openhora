@@ -1077,6 +1077,7 @@ How to add a platform: add one file, `providers/messenger/<impl>.py`, that decla
 
 ## Changes
 
+- 2026-10-21: a greeting gets a greeting back and a summary of what the sender may do (S5): `runtime/greeting.py`, `ops_say.greeting_reply`, and a help line in words from a sender who holds `talk` is that summary instead of the fixed list (`Bridge.greets`).
 - 2026-10-21: the interpreter in the messaging path (S1; the maintainer's confirmation of the three recommendations of `SPEC-IX-PHASE3` and his decision to proceed below the gate): the group `interpret`, `runtime/ops_interpret.py`, `runtime/interpreter_enable.json`, rule 59 and L63; a router reply that names no route is one plain sentence on a phone (`PHONE_NOT_UNDERSTOOD`).
 - 2026-10-21: a card is decided by a word (S2; limit L64, rules 60 and 61): `runtime/card_words.py`, `Bridge.last_sent`, the numbered list for several cards, a reply to a card decides that card, the card of a platform with no buttons ends with `REPLY_WORDS_LINE`, and a table command typed on a phone is answered with a sentence instead of the operation's JSON.
 - 2026-10-20: forwarded messages are never requests (FWD): the update key `forwarded` from every provider, `valid_update` keeps it, the intent `forwarded` and one sentence (`FWD_NOT_A_REQUEST`) before any draft, reminder or store is read; a forwarded file keeps its card and loses its caption.

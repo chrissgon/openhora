@@ -112,6 +112,7 @@ import time
 import traceback
 
 import card_words
+import greeting
 import messaging_attach as attach
 import messaging_cards as cards
 import messaging_failure as failure
@@ -757,7 +758,7 @@ class Bridge(shell_kit.Jobs):
                 self.remind.discarded.add(chat)
         if kind in ("text", "natural", "reply") and self.word_line(update, intent, project, listed, sender, chat):
             pass          # an approve or a reject word decided a decision card, or listed the cards to choose from (S2, limit L64)
-        elif kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands":      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project)
+        elif kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands" and not self.greets(project, chat, intent["text"]):      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project), except from a sender who may talk, whose help line is a greeting (S5)
             self.reply(chat, self.t("HELP", project=project), project)
         elif kind in ("text", "natural") and self.attach.line(project, chat, intent.get("text") or ""):
             pass          # "descarta", "adiciona ao projeto": a line about the file just sent (ATT-3)
@@ -811,6 +812,17 @@ class Bridge(shell_kit.Jobs):
                 self.say(project, chat, intent["text"])
         else:
             self.say(project, chat, intent["text"])
+
+    def greets(self, project: dict, chat: str, text: str) -> bool:
+        """S5: whether a help line in words ("ajuda", "what can you do") is a greeting that `say` answers with the summary of what this sender may do: the whole line is a greeting or
+        a help form (runtime/greeting.py) and the sender holds `talk`. Any other sender keeps the fixed help of this app."""
+        if not greeting.is_greeting(text):
+            return False
+        try:
+            self.allow(project, "say", None, chat)
+        except (Refused, self.ops.OpsError):
+            return False
+        return True
 
     # --- words that decide a card (S2, limit L64) ---------------------------------------------------------------------------
 
@@ -1396,6 +1408,8 @@ class Bridge(shell_kit.Jobs):
         named = self.ops.operations.parse_chat(text)
         if named is not None:
             return "ask" if named[0] == "ask" else None
+        if greeting.is_greeting(text):
+            return None      # S5: a greeting, or a help line in words, is answered by `say` with the summary: it needs `talk`, whatever read the fixed help would have needed
         if project is not None and chat is not None and hasattr(self.ops, "natural_needs"):
             try:
                 return self.ops.natural_needs(project["path"], text, sender=self.key(chat), channel=CHANNEL)

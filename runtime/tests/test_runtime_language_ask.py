@@ -108,11 +108,11 @@ def test_the_state_of_a_project_with_work_open_names_every_part_in_portuguese(tw
 def test_a_direct_turn_ends_with_the_hint_in_the_language(two, monkeypatch):
     direct_router(two, monkeypatch)
     speak(two, "pt-BR")
-    said = ops.say(two["path"], "hello there", channel="terminal")["reply"]
+    said = ops.say(two["path"], "thanks, nothing else", channel="terminal")["reply"]
     assert said.startswith("Nenhum pedido aberto.") and said.endswith("\n\nPara responder a partir das suas fontes, envie /ask <question>.")
     assert "Proposes" not in said and "O agente de planejamento propõe: nothing to do." in said  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     speak(two, None)
-    assert ops.say(two["path"], "hello again", channel="terminal")["reply"].endswith("\n\nTo answer from your sources, send /ask <question>.")
+    assert ops.say(two["path"], "thanks again", channel="terminal")["reply"].endswith("\n\nTo answer from your sources, send /ask <question>.")
 
 
 def test_the_planning_agent_that_may_not_start_is_told_in_the_language(two, monkeypatch):
