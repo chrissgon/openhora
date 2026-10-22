@@ -240,12 +240,14 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
-    newest = enable.load()["entries"][-1]
-    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256()
-    assert newest["date"] == "2026-10-21" and newest["basis"] == "maintainer-decision" and "para emails eu iria pedir para a IA criar um texto melhor escrito" in newest["reason"]
-    first = enable.load()["entries"][-2]
-    assert {k: newest[k] for k in enable.HASH_KEYS} == {k: first[k] for k in enable.HASH_KEYS}, "every hash of the earlier decision stands"
-    assert "compose_prompt_sha256" not in first
+    entries = enable.load()["entries"]
+    newest = entries[-1]
+    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256()      # every later decision (S13) carries the pin too
+    decided = next(e for e in entries if "compose_prompt_sha256" in e)      # the decision that added the compose prompt (slice S7)
+    assert decided["date"] == "2026-10-21" and decided["basis"] == "maintainer-decision" and "para emails eu iria pedir para a IA criar um texto melhor escrito" in decided["reason"]
+    first = entries[entries.index(decided) - 1]
+    assert {k: decided[k] for k in enable.HASH_KEYS} == {k: first[k] for k in enable.HASH_KEYS}, "every hash of the earlier decision stands"
+    assert "compose_prompt_sha256" not in first and {k: newest[k] for k in enable.HASH_KEYS} == {k: decided[k] for k in enable.HASH_KEYS}
 
 
 def test_a_line_in_spanish_gets_a_card_by_the_same_path(world, clock, monkeypatch):

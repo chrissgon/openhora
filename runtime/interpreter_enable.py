@@ -21,6 +21,9 @@ route's band; a test compares the two readings.
   compose_active(language, path=None)
                                 the same as `active` and the newest entry also pins THIS checkout's e-mail compose prompt (`compose_prompt_sha256`, runtime/mail_compose.py), else
                                 None: a changed compose prompt turns composing off and leaves the interpreter on (slice S7)
+  revise_active(language, path=None)
+                                the same as `active` and the newest entry also pins THIS checkout's e-mail revise prompt (`revise_prompt_sha256`, runtime/mail_revise.py), else
+                                None: a changed revise prompt turns the change of a card by words off and leaves the interpreter on (slice S13)
   retention(path=None)          the retention text of the newest entry's route, or None (what a person is shown when they widen the group `interpret`)
 
 Pure: it reads files and calls nothing. Standard library only. Runs on Python 3.9.
@@ -39,13 +42,14 @@ sys.path.insert(0, HERE)
 import interpreter  # noqa: E402  (the same folder: the prompt, the served catalog and the protocol whose hashes an entry names)
 import interpreter_route  # noqa: E402  (the same folder: the daily routes and the hash of a route)
 import mail_compose  # noqa: E402  (the same folder: the sha256 of the e-mail compose prompt)
+import mail_revise  # noqa: E402  (the same folder: the sha256 of the e-mail revise prompt)
 
 ENABLE_FILE = os.path.join(HERE, "interpreter_enable.json")
 KEYS = ("basis", "date", "route", "route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256", "languages", "reason", "status_line")
 BASES = ("maintainer-decision",)
 LANGUAGES = ("pt-BR", "en", "es", "fr", "de", "it")
 HASH_KEYS = ("route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256")
-OPTIONAL_KEYS = ("compose_prompt_sha256",)      # an entry may also pin the e-mail compose prompt (slice S7); an older entry does not
+OPTIONAL_KEYS = ("compose_prompt_sha256", "revise_prompt_sha256")      # an entry may also pin the e-mail compose prompt (slice S7) and the revise prompt (slice S13); an older entry does not
 HEX64 = re.compile(r"[0-9a-f]{64}")
 DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 TEXT_MAX = 600
@@ -137,6 +141,17 @@ def compose_active(language, path=None):
         return None
     try:
         return got if got["entry"].get(OPTIONAL_KEYS[0]) == mail_compose.prompt_sha256() else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def revise_active(language, path=None):
+    """The result of `active` when the newest entry also pins this checkout's revise prompt, else None. Every fault is "off"."""
+    got = active(language, path)
+    if got is None:
+        return None
+    try:
+        return got if got["entry"].get(OPTIONAL_KEYS[1]) == mail_revise.prompt_sha256() else None
     except (OSError, ValueError, KeyError, TypeError):
         return None
 

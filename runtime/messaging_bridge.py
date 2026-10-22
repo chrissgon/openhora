@@ -98,6 +98,11 @@ new card otherwise). Several such cards: one numbered list is sent (kind and tit
 the card. Anything else is not touched: the line goes on as it always did. A card on a platform with no buttons ends with `REPLY_WORDS_LINE` in place of "Send /approve 12".
 A table command typed on a phone (`/cancel 8`) is answered with a sentence in the project's language (`command_sentence`), never the operation's JSON.
 
+Words that change a card (S13, limits L63 and L64). A plain line that is not such a word is about the card that waits when that card is the LAST message sent to the chat (or the line replies to
+it): `revise_line`, after `word_line`, asks the operations layer (`card_revise_check`) what the line is for that card; the change itself (`card_revise`) runs in a job, because it calls a model,
+and ends in one sentence and the new card, which is the last message and is decided by the same words and buttons, or in one plain sentence with the old card still open. The old card is ended
+by the operations layer and its hash is never approvable again. A line that proves not to be a change goes on as it would have. Nothing is sent or written by this path.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -762,6 +767,8 @@ class Bridge(shell_kit.Jobs):
                 self.remind.discarded.add(chat)
         if kind in ("text", "natural", "reply") and self.word_line(update, intent, project, listed, sender, chat):
             pass          # an approve or a reject word decided a decision card, or listed the cards to choose from (S2, limit L64)
+        elif self.revise_line(update, intent, kind, project, listed, chat):
+            pass          # a change of the card that waits, said in words (S13, limit L64)
         elif kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands" and not self.greets(project, chat, intent["text"]):      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project), except from a sender who may talk, whose help line is a greeting (S5)
             self.reply(chat, self.t("HELP", project=project), project)
         elif kind in ("text", "natural") and self.attach.line(project, chat, intent.get("text") or ""):
@@ -897,6 +904,68 @@ class Bridge(shell_kit.Jobs):
         else:
             return self.word_act(newest[0], chat, newest[1], word["op"]) or False
         return True
+
+    # --- words that change a waiting card (S13, limits L55 and L64) -------------------------------------------------------------
+
+    def revise_line(self, update: dict, intent: dict, kind: str, project: dict, listed: list, chat: str) -> bool:
+        """A plain line that changes a word of the card that waits ("after Regards, put my name", "muda para as 10h"): True when it was taken. Which card: the one the line replies to
+        or, with no reply, the card that is the LAST message sent to this chat (`last_sent`), when it is a decision card of this chat sent whole, still open and unchanged (its hash
+        is the card's), in a project that lists the sender; a platform whose acts are replies (e-mail) is not touched. A line that is a word that decides a card went before (word_line);
+        a forwarded message never gets here. What the line is for that card is the operations layer's (`card_revise_check`): None goes on as it always did, a card of a write that cannot
+        be changed by words gets one sentence, and the change itself runs in a job (it calls a model) and ends in the new card or one plain sentence."""
+        text = intent.get("text") or ""
+        if (kind == "natural" and not (intent.get("op") == "write" and intent.get("write") == "event-change")) or kind not in ("text", "natural", "reply") or not text.strip() \
+                or text.lstrip().startswith("/") or ("forwarded" in update and update["forwarded"] is not False) or self.messenger.capabilities().get("actions_need_reply"):
+            return False
+        replied = update.get("reply_to")
+        shown = replied if isinstance(replied, str) and replied else self.last_sent.get(chat)
+        card = self.ledger.by_message(chat, shown) if shown else None
+        project = next((p for p in listed if card and p["id"] == card["project"]), None)
+        if card is None or project is None or card.get("kind") in NOT_DECISION or card.get("pending_id") is None or card.get("whole") is not True or card.get("chat") != chat:
+            return False
+        checker = getattr(self.ops, "card_revise_check", None)          # an operations object without it (a test's) has nothing to change
+        if checker is None:
+            return False
+        try:
+            item = self.ops.pending(project["path"], pending_id=card["pending_id"])
+            if item.get("status", "open") != "open" or cards.content_sha256(item) != card["content_sha256"]:
+                return False
+            found = checker(project["path"], card["pending_id"], card["content_sha256"], text, channel=CHANNEL, sender=self.key(chat))
+        except self.ops.OpsError:
+            return False
+        if found == "sentence":
+            self.keep_cards(chat, self.t("RV_NOT_REVISABLE", project=project), project)
+            return True
+        if found is None:
+            return False
+        self.start(project, chat, "event-create", lambda: self.revise_now(project, chat, card, text, kind))          # the label of a row that takes no model slot: the model here is the daily route's
+        return True
+
+    def revise_now(self, project: dict, chat: str, card: dict, text: str, kind: str) -> None:
+        """The body of the job of `revise_line`: the change, then the new card (sent as every card is) after one sentence, or one plain sentence and the old card still open; a line
+        that proved not to be a change goes on as it would have (a write form to its family, any other line to the conversation)."""
+        shown = None
+        try:
+            try:
+                shown = indicator.Typing(self.messenger).begin(chat, text)
+            except Exception:      # never a lost reply
+                shown = None
+            result = self.ops.card_revise(project["path"], card["pending_id"], card["content_sha256"], text, channel=CHANNEL, sender=self.key(chat))
+        except self.ops.OpsError:
+            result = {"say": self.t("RV_FAILED", project=project), "resend": None}
+        finally:
+            if shown is not None:
+                shown.stop()
+        if result.get("pass"):
+            if kind == "natural":
+                self.write_now(project, chat, text)
+            else:
+                self.line(project, chat, text, None)()
+            return
+        if result.get("say"):
+            self.reply(chat, result["say"], project)
+        if result.get("resend") is not None and not self.resend(project, chat, result["resend"]):
+            self.reply(chat, self.t("NW_CARD_NOT_SENT", project=project, pending=result["resend"]), project)
 
     def word_reply(self, listed: list, chat: str, word: dict, replied) -> bool:
         """A word sent as a reply to a message: it decides THAT card when the message is a decision card of this chat (it need not be the last message: the reply names it)."""

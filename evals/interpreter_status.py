@@ -562,7 +562,7 @@ ENABLE_KEYS = ("basis", "date", "route", "route_sha256", "prompt_sha256", "catal
 
 ENABLE_LANGUAGES = ("pt-BR", "en", "es", "fr", "de", "it")
 ENABLE_HASHES = ("route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256")
-ENABLE_OPTIONAL = ("compose_prompt_sha256",)      # the e-mail compose prompt an entry may also pin (slice S7)
+ENABLE_OPTIONAL = ("compose_prompt_sha256", "revise_prompt_sha256")      # the e-mail compose prompt (slice S7) and revise prompt (slice S13) an entry may also pin
 
 
 def entries_valid(entries):
