@@ -710,7 +710,6 @@ TABLE = {
         "EV_NONE": "I did not find that event in your calendar in the next {days} days.",
         "EV_NONE_DAY": "I did not find that event in your calendar on that day.",
         "EV_ASK_DAY": "I could not read the day you mean. Say the event's name and the day, for example: tomorrow or 22/10.",
-        "EV_STALE": "My last reading of your calendar is more than {hours} hours old, so I cannot tell what is in it. Refresh the calendar source and ask again.",
         "EV_MORE": "...and {k} more. Say the day to narrow it down.",
         "EV_MANY_CANCEL": "More than one event fits. Which one do you want to cancel?",
         "EV_MANY_CANCEL_HOW": "Say, for example: cancel event {n}.",

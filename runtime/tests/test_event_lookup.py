@@ -208,11 +208,79 @@ def test_a_sender_who_may_not_read_a_snapshot_learns_nothing_of_the_calendar(wor
     assert reply.startswith("As mensagens e os eventos são numerados num retrato") and "corte" not in reply and rows(world) == ([], [])      # validate: allow english-only -- the Portuguese line or sentence under test
 
 
-def test_a_snapshot_older_than_26_hours_is_not_read_and_the_reply_says_so(world, monkeypatch):
+def calendar_reads(world):
+    """The reads of a calendar the stand-in provider has answered so far (the test's own count of the verbs it was sent)."""
+    return [c for c in world["snaps"].providers.calls if c["cls"] != "reader:email"]
+
+
+def add_new_event(world, title="reuniao com a Bia", day="24", ident="evnew"):
+    """An event made after the snapshot was taken: the provider holds it, the snapshot does not."""
+    start, end = f"2026-10-{day}T10:00:00-03:00", f"2026-10-{day}T11:00:00-03:00"
+    world["snaps"].providers.events[("google", fgw.CALENDAR)].append(tsm.event(9, start, end, title, id=ident))
+    world["google"].add_event(ident, title, {"dateTime": start}, {"dateTime": end})
+
+
+def test_an_event_made_after_the_snapshot_is_found_after_one_refresh_and_its_card_opens(world, monkeypatch):
+    build(world, monkeypatch)
+    add_new_event(world)
+    assert [e["title"] for e in event_lookup.events(ops_core.context(world["path"]), OWNER)[0]] != [], "the snapshot is readable"
+    assert "reuniao com a Bia" not in [e["title"] for e in event_lookup.events(ops_core.context(world["path"]), OWNER)[0]], "control: the snapshot does not hold it yet"
+    before = len(calendar_reads(world))
+    reply, extras = carry(world, "Cancela a reuniao com a Bia", CANCEL)
+    assert reply == "O card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert len(calendar_reads(world)) - before == 1, "one read of the one calendar source"
+    assert "Named as agenda#5, from the snapshot read at 2026-10-21T17:00:00Z." in card(world, extras)["body"].splitlines()
+    assert reads_only(world) == [] and card(world, extras)["status"] == "open"
+
+
+def test_a_second_miss_makes_exactly_one_provider_read_and_says_not_found(world, monkeypatch):
+    build(world, monkeypatch)
+    before = len(calendar_reads(world))
+    reply, extras = carry(world, "Cancela a aula de natação", CANCEL)      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert reply == "Não encontrei esse evento na sua agenda nos próximos 30 dias." and "resend" not in extras      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert len(calendar_reads(world)) - before == 1, "one read for the line, never a loop"
+    carry(world, "Cancela a aula de natação", CANCEL)      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert len(calendar_reads(world)) - before == 2, "one more for the next line, and only one"
+
+
+def test_a_hit_makes_no_provider_read(world, monkeypatch):
+    build(world, monkeypatch)
+    before = len(calendar_reads(world))
+    carry(world, LIVE, CANCEL)
+    assert len(calendar_reads(world)) == before
+
+
+def test_a_sender_without_the_read_group_gets_no_refresh(world, monkeypatch):
+    build(world, monkeypatch)
+    add_new_event(world)
+    before = len(calendar_reads(world))
+    reply, _ = carry(world, "Cancela a reuniao com a Bia", CANCEL, sender=TALKER)
+    assert reply.startswith("As mensagens e os eventos são numerados num retrato") and len(calendar_reads(world)) == before      # validate: allow english-only -- the Portuguese line or sentence under test
+
+
+def test_a_failed_refresh_is_the_not_found_sentence_and_nothing_else(world, monkeypatch, capfd):
+    build(world, monkeypatch)
+    add_new_event(world)
+    world["snaps"].providers.fail = tsm.Failure(reason="the provider said ZEBRA-SECRET")
+    reply, extras = carry(world, "Cancela a reuniao com a Bia", CANCEL)
+    assert reply == "Não encontrei esse evento na sua agenda nos próximos 30 dias." and "resend" not in extras      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert "ZEBRA" not in reply + " ".join(capfd.readouterr())
+
+
+def test_a_snapshot_older_than_26_hours_counts_as_a_miss_and_is_read_again(world, monkeypatch):
     build(world, monkeypatch)
     world["snaps"].later(hours=30)
-    reply, _ = carry(world, LIVE, CANCEL)
-    assert reply == "Minha última leitura da sua agenda tem mais de 26 horas, então não sei o que há nela. Atualize a agenda e peça de novo."      # validate: allow english-only -- the Portuguese line or sentence under test
+    before = len(calendar_reads(world))
+    reply, extras = carry(world, "Cancela o yoga", CANCEL)
+    assert reply == "O card #1 espera a sua aprovação." and len(calendar_reads(world)) - before == 1      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert card(world, extras)["status"] == "open"
+
+
+def test_a_stale_snapshot_that_cannot_be_read_again_is_the_not_found_sentence(world, monkeypatch):
+    build(world, monkeypatch)
+    world["snaps"].later(hours=30)
+    world["snaps"].providers.fail = tsm.Failure()
+    assert carry(world, LIVE, CANCEL)[0] == "Não encontrei esse evento na sua agenda nesse dia."      # validate: allow english-only -- the Portuguese line or sentence under test
 
 
 def test_a_cancelled_event_is_never_found(world, monkeypatch):

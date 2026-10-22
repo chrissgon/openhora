@@ -22,7 +22,8 @@ Which events fit. An event is a candidate when it is not cancelled and falls in 
 named by a date word code reads (today, tomorrow, "dia 22", 22/10, a weekday: any date of that weekday in the window); a time of day alone names none, so a title that holds a number is
 never mistaken for one; a date word code cannot read is a question, not a guess. A candidate fits when its title, folded (case and accents) and cut into words, occurs as whole words
 in the line (for a change, the line without the span that holds the new time). A title that is part of a longer title that also fits is dropped. Exactly one fits: the card opens.
-Several: a short numbered list and the question which. None: one plain sentence. The numbers listed are the snapshot's own, so "cancela o evento 7" is then the numbered form.
+Several: a short numbered list and the question which. None: the calendar sources are read again once (`refresh`: only a sender who may read a snapshot gets here, no new
+group; a snapshot older than its limit counts as a miss too; a failure is dropped), the search is made again, and still none is one plain sentence; never a second refresh for a line. The numbers listed are the snapshot's own, so "cancela o evento 7" is then the numbered form.
 
 Privacy (limit L63): the line, the titles and the lines of the snapshot are never logged, printed or kept here; the reply holds titles of the person's own calendar, so the
 conversation stores a neutral word for it (`extras["stored"]`). Standard library only. Runs on Python 3.9: python3 runtime/event_lookup.py --help
@@ -118,6 +119,18 @@ def events(ctx: dict, sender) -> tuple:
             if n in known and "cancelled" not in fields[2:]:
                 out.append({"source": source["id"], "n": n, "day": day, "time": fields[0], "title": fields[1]})
     return (out, None) if refused < len(listed) else ([], "stale")
+
+
+def refresh(project: str, ctx: dict) -> None:
+    """Read each registered calendar source again, once: the provider read the snapshots come from (`ops_sources.source_refresh`, which `snapshot_refresh` in
+    runtime/sources_mail.py does), a new version only when the listing changed. The caller has passed `item_refs.may_read`, the right to read these snapshots; the
+    read is of the person's own calendar and writes nothing to it. A failure is dropped: nothing of it is kept or said."""
+    refresh_one = importlib.import_module("ops_sources").source_refresh
+    for source in importlib.import_module("ops_natural_calendar").calendar_sources(ctx):
+        try:
+            refresh_one(project, source["id"])
+        except Exception:      # noqa: BLE001 - the fault can hold a provider's words; the reply is the not-found sentence
+            continue
 
 
 # --- the line ------------------------------------------------------------------------------------------------------------------------------------
@@ -222,9 +235,13 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
     if kind == "unread":
         return _text(ctx, "EV_ASK_DAY")
     rows, problem = events(ctx, sender)
-    if problem:
-        return _text(ctx, PROBLEM[problem]) if problem in PROBLEM else _text(ctx, "EV_STALE", hours=item_refs.REF_MAX_AGE // 3600)
-    found = candidates(rows, text, kind, value, now.date())
+    found = [] if problem else candidates(rows, text, kind, value, now.date())
+    if problem in PROBLEM:
+        return _text(ctx, PROBLEM[problem])          # the sender may not read a snapshot, or there is no calendar source: nothing is refreshed
+    if not found:          # a miss (nothing fits, or every snapshot is older than its limit): the calendar is read again ONCE for this line, then searched again
+        refresh(project, ctx)
+        rows, problem = events(ctx, sender)
+        found = [] if problem else candidates(rows, text, kind, value, now.date())
     if not found:
         return _text(ctx, "EV_NONE_DAY" if kind == "day" else "EV_NONE", days=WINDOW_DAYS)
     if len(found) > 1:
