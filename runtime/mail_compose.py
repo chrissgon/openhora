@@ -341,6 +341,7 @@ def write(ctx: dict, channel, sender, to, subject, text: str, ai_subject: bool =
         now = importlib.import_module("ops_natural")._clock()
         user = "\n".join([f"date: {now.strftime('%Y-%m-%d')} {DAY_NAMES[now.weekday()]}", f"language: {interpret._tag(ctx['cfg'])}", "to: " + ", ".join(to),
                           "subject: " + (subject or ""), "description: " + described])
+        importlib.import_module("line_stage").publish("compose")      # S19: the model words the e-mail
         got = _call(entry, prompt_template(), user)
         ok = bool(got.get("ok"))
         if ok:
