@@ -241,13 +241,13 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
     entries = enable.load()["entries"]
-    newest, earlier, first = entries[-1], entries[-2], entries[-3]
-    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256()
-    assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and "a IA deve verificar a ortografia do assunto do email" in newest["reason"]
-    assert earlier["date"] == "2026-10-21" and "para emails eu iria pedir para a IA criar um texto melhor escrito" in earlier["reason"], "the entry of the first compose prompt stays"
-    assert earlier["compose_prompt_sha256"] == "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf" and earlier["compose_prompt_sha256"] != newest["compose_prompt_sha256"]
-    assert {k: newest[k] for k in enable.HASH_KEYS} == {k: earlier[k] for k in enable.HASH_KEYS} == {k: first[k] for k in enable.HASH_KEYS}, "every hash of the earlier decisions stands"
-    assert "compose_prompt_sha256" not in first
+    newest, s12, s7, first = entries[-1], entries[-2], entries[-3], entries[-4]
+    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256() == s12["compose_prompt_sha256"]      # the newest decision (S13) carries the compose pin of the one before it (S12)
+    assert s12["date"] == "2026-10-22" and s12["basis"] == "maintainer-decision" and "a IA deve verificar a ortografia do assunto do email" in s12["reason"]
+    assert s7["date"] == "2026-10-21" and "para emails eu iria pedir para a IA criar um texto melhor escrito" in s7["reason"], "the entry of the first compose prompt stays"
+    assert s7["compose_prompt_sha256"] == "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf" and s7["compose_prompt_sha256"] != newest["compose_prompt_sha256"]
+    assert {k: newest[k] for k in enable.HASH_KEYS} == {k: s12[k] for k in enable.HASH_KEYS} == {k: s7[k] for k in enable.HASH_KEYS} == {k: first[k] for k in enable.HASH_KEYS}, "every hash of the earlier decisions stands"
+    assert "compose_prompt_sha256" not in first and "revise_prompt_sha256" in newest and "revise_prompt_sha256" not in s12
 
 
 def test_a_line_in_spanish_gets_a_card_by_the_same_path(world, clock, monkeypatch):

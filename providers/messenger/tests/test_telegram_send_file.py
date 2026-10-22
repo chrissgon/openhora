@@ -42,7 +42,7 @@ def test_a_text_file_is_sent_as_a_document_after_the_message_as_a_reply_to_it(mo
     _, body, headers, _ = opener.requests[1]
     assert headers["Content-type"].startswith("multipart/form-data")
     assert b'name="chat_id"\r\n\r\n4242' in body and b'name="reply_to_message_id"\r\n\r\n31' in body
-    assert b'name="document"; filename="Atividades_da_semana.txt"' in body and b"Content-Type: text/plain" in body and TEXT in body
+    assert b'name="document"; filename="Atividades da semana.txt"' in body and b"Content-Type: text/plain" in body and TEXT in body
     assert TOKEN not in err
 
 
@@ -50,7 +50,7 @@ def test_an_image_is_sent_as_a_photo_under_its_own_field(monkeypatch, capsys, tm
     code, out, _, opener = send(monkeypatch, capsys, tmp_path, PNG, "photo", "Foto do coral.png")
     assert code == 0 and json.loads(out) == {"message_id": "31"}
     url, body, _, _ = opener.requests[1]
-    assert url.endswith("/sendPhoto") and b'name="photo"; filename="Foto_do_coral.png"' in body and b"Content-Type: image/png" in body and PNG in body
+    assert url.endswith("/sendPhoto") and b'name="photo"; filename="Foto do coral.png"' in body and b"Content-Type: image/png" in body and PNG in body
 
 
 def test_a_pdf_is_sent_as_a_document_with_its_type(monkeypatch, capsys, tmp_path):
@@ -59,9 +59,18 @@ def test_a_pdf_is_sent_as_a_document_with_its_type(monkeypatch, capsys, tmp_path
     assert code == 0 and url.endswith("/sendDocument") and b"Content-Type: application/pdf" in body and PDF in body
 
 
+def test_the_name_keeps_unicode_letters_and_digits_and_loses_only_what_could_break_the_header_or_the_path(monkeypatch, capsys, tmp_path):
+    cases = {"Relatório do coral 2026.pdf": "Relatório do coral 2026.pdf", "日本語の資料.txt": "日本語の資料.txt", "../../etc/passwd": "etcpasswd", "..\\..\\x.txt": "x.txt",
+             ".hidden.txt": "hidden.txt", 'a"b.txt': "ab.txt", "a\r\nb\x00c\u202ed.txt": "abcd.txt", "": "file", "...": "file"}
+    for name, want in cases.items():
+        assert telegram.safe_file_name(name) == want, name
+    _, _, _, opener = send(monkeypatch, capsys, tmp_path, PDF, "document", "Relatório.pdf")
+    assert 'filename="Relatório.pdf"'.encode("utf-8") in opener.requests[1][1]
+
+
 def test_vacuity_the_name_keeps_its_ending_when_it_is_long(monkeypatch, capsys, tmp_path):
     _, _, _, opener = send(monkeypatch, capsys, tmp_path, TEXT, "document", ("x" * 200) + ".txt")
-    assert b'filename="' + b"x" * 50 + b'.txt"' in opener.requests[1][1]
+    assert b'filename="' + b"x" * 96 + b'.txt"' in opener.requests[1][1]
 
 
 def test_vacuity_a_png_goes_either_way(monkeypatch, capsys, tmp_path):

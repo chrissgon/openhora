@@ -85,6 +85,7 @@ import re
 import stat
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -501,13 +502,21 @@ def multipart(fields: dict, name: str, text: str) -> tuple:
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
+def safe_file_name(name: str) -> str:
+    """The name a sent file carries: its letters and digits in any script and its other printable characters kept ("Relatório.pdf"), with only what could break the header or the
+    path removed: path separators, quotes, control and format characters (the bidirectional marks included), unassigned and private-use code points, and leading dots and spaces. At most 100
+    characters, the ending kept; "file" when nothing is left."""
+    kept = "".join(c for c in str(name) if c not in '/\\"' and unicodedata.category(c) not in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp")).lstrip(". ").rstrip(" ")
+    if len(kept) > 100:
+        stem, dot, ending = kept.rpartition(".")
+        kept = (stem[:100 - len(ending) - 1] + "." + ending) if dot and stem and len(ending) <= 10 else kept[:100]
+    return kept or "file"
+
+
 def multipart_file(fields: dict, field: str, name: str, data: bytes, content_type: str) -> tuple:
     """(body, content type) of a sendPhoto or sendDocument request: the fields, then the file under `field` ("photo" or "document"). The name keeps its ending."""
     boundary = "wb" + uuid.uuid4().hex
-    stem, dot, ending = name.rpartition(".")
-    if not dot or not stem:
-        stem, ending = name, ""
-    safe = (re.sub(r"[^A-Za-z0-9._-]", "_", stem)[:50] or "file") + ("." + re.sub(r"[^A-Za-z0-9]", "", ending)[:8] if re.sub(r"[^A-Za-z0-9]", "", ending) else "")
+    safe = safe_file_name(name)
     parts = []
     for key, value in fields.items():
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode("utf-8"))

@@ -39,7 +39,8 @@ capabilities: the most it takes, the most it takes as a photo, the image types i
 preview as the message text. Before it, in code: the right and the folder grant are asked again (a pick reads the configuration in force now), the size and the type are checked against
 what the app takes (a file over the limit gets one sentence, and the preview when it has text), and the text of every file the converter turns into text, a PDF or an Office file
 included, passes the credential scan (limit L14): a hit withholds the file AND the preview. A file with no text to scan (an image, or a document the converter gives no text for) is sent
-as it is. The bytes live in memory for the length of the call and then in the bridge's one temporary file for the length of the send (runtime/messaging_bridge.py); nothing is
+as it is (its bytes pass `runtime/send_scan.py`: a credential in the raw bytes of a text file, in any XML part of an Office package, or in a PDF's strings or inflated streams withholds the file, and so does a
+package with an embedding or a PDF it cannot read to the end). The bytes live in memory for the length of the call and then in the bridge's one temporary file for the length of the send (runtime/messaging_bridge.py); nothing is
 stored, logged or kept here, and the neutral word the conversation keeps is the same. Without the group, or on a page or a terminal, nothing changes: the reply is the text it always was.
 
 Sibling of runtime/ops.py, which exposes `file_read` under its name. The shared names come from ops_core, read as `core.<name>`. Standard library only. Runs on Python 3.9:
@@ -68,6 +69,7 @@ import operations  # noqa: E402
 import phone_refusal  # noqa: E402
 import phrases  # noqa: E402
 import project_config  # noqa: E402
+import send_scan  # noqa: E402
 import sources  # noqa: E402
 import sources_onedrive  # noqa: E402
 
@@ -406,6 +408,8 @@ def _read(cfg: dict, service: str, ident: str, send=None) -> dict:
         if "\x00" in text or (not text.strip() and send is None):
             raise Unreadable("empty" if not text.strip() else "kind")
         if sources._workcopy().scan(converted):      # limit L14: what looks like a credential is never shown, and never sent
+            raise Unreadable("secret")
+        if send is not None and send_scan.check(data, found[1], sources._workcopy().scan, markdown=info.get("content") == "markdown"):      # what is SENT is what is scanned: the bytes, not only the converter's text
             raise Unreadable("secret")
         return {"text": text if text.strip() else None, "data": data if send is not None else None, "type": found, "markdown": info.get("content") == "markdown"}
     finally:

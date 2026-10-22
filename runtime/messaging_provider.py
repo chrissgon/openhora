@@ -46,6 +46,7 @@ OPTIONAL_KEYS = {"listen": bool, "actions_need_reply": bool, "attachments": bool
 # send_files (S18): the provider takes a `file` entry in the neutral message and sends the file at its path, as a photo or as a document; max_send_bytes the most it sends as a document, max_photo_bytes the most as a
 # photo, photo_types the image types (subtypes read from the bytes: png, jpeg...) it shows as a photo, send_types the types of file it takes at all; without send_files no file is ever handed to it
 SEND_SECONDS = 60
+FILE_SEND_EXTRA = 120              # seconds more for a send with a file: a provider makes up to four calls of its own (the text, its plain resend, the file; Telegram: 30 s each), so the bridge never gives up before it does
 TYPING_SECONDS = 15                # the typing indicator is a small call; the bridge does not wait for it
 MAX_LINE = 1 << 20                 # the longest line of the listen protocol, either way, without its newline
 READY_SECONDS = 180                # the first start of a provider with pinned dependencies installs them
@@ -167,7 +168,7 @@ class Messenger:
             os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(message, f)
-            found = self._call("send", ["--chat", str(chat), "--message-file", path])
+            found = self._call("send", ["--chat", str(chat), "--message-file", path], timeout=SEND_SECONDS + (FILE_SEND_EXTRA if message.get("file") else 0))
         finally:
             try:
                 os.unlink(path)
@@ -395,7 +396,7 @@ class ListenSession:
         line = line_of({"id": number, "op": "send", "chat": str(chat), "message": message})
         if len(line) - 1 > MAX_LINE:
             raise MessengerError("usage", "the message is over the limit of one protocol line")
-        answer = self.request(run, number, line, "send", self.send_seconds)
+        answer = self.request(run, number, line, "send", self.send_seconds + (FILE_SEND_EXTRA if message.get("file") else 0))
         if answer.get("ok") is True:
             return Sent(answer["message_id"], answer.get("document_failed") is True)
         raise MessengerError(answer.get("kind", "failed"), answer.get("reason", "the send failed"))
