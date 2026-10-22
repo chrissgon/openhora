@@ -50,7 +50,7 @@ def test_no_help_line_of_the_summary_carries_a_slash_command(day):
 def test_a_sender_who_may_not_talk_keeps_the_fixed_help_and_gets_no_reply_to_a_greeting(day):
     with_silent_sender(day)
     day.say(SILENT, "ajuda")      # validate: allow english-only -- the line under test
-    assert day.texts(SILENT)[-1].startswith("Commands:\n/pending")
+    assert day.texts(SILENT)[-1].startswith("Commands:\n\nRequests\n/pending")
     count = len(day.texts(SILENT))
     day.say(SILENT, "oi")      # validate: allow english-only -- the line under test
     assert HEAD not in "".join(day.texts(SILENT)[count:]), "the summary is for a sender who may talk"

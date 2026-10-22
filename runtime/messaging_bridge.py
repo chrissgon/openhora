@@ -118,12 +118,14 @@ import messaging_cards as cards
 import messaging_failure as failure
 import messaging_guard as guard
 import messaging_outcome as outcome
+import messaging_pending as pending_view
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
 import messaging_typing as indicator
 import natural
 import natural_time
+import phone_errors
 import phone_refusal
 import phrases
 import shell_kit
@@ -468,7 +470,7 @@ class Bridge(shell_kit.Jobs):
         no reply."""
         caps = self.messenger.capabilities()
         if text:
-            text = phone_refusal.plain(text, self.cfg(project, chat))      # S10: the operations layer's own refusal (a Refused or an OpsError a path above passes on) is one plain sentence on a phone: never "error:", a command or an operation's name; any other text is as it was
+            text = phone_errors.said(phone_refusal.plain(text, self.cfg(project, chat)), self.cfg(project, chat))      # S14: an `error: ` text of the operations layer is the language's sentence on a phone (phone_errors). S10: the operations layer's own refusal (a Refused or an OpsError a path above passes on) is one plain sentence on a phone: never "error:", a command or an operation's name; any other text is as it was
         for piece in cards.split(text or self.t("NO_REPLY", project=project, chat=chat), caps["max_text"]):
             try:
                 sent = self.deliver(chat, {"text": piece, "actions": [], "link": None, "document": None}, guard)
@@ -1086,7 +1088,7 @@ class Bridge(shell_kit.Jobs):
         try:
             found = self.run_op(project, "pending", sender=chat)["pending"]
         except (Refused, self.ops.OpsError) as e:
-            self.reply(chat, str(e), project, guard=True)
+            self.oops(chat, e, project)
             return
         files = self.attach.waiting(project, chat)      # this sender's own files that wait for an answer and have a card in this chat (their profile permits `attachments`), else None
         if not found:
@@ -1102,8 +1104,8 @@ class Bridge(shell_kit.Jobs):
                 if files:
                     self.reply(chat, files, project)
                 return
-        words = lambda kind: phrases.kind_word(kind, settings)  # noqa: E731
-        self.reply(chat, f"{project['name']}: " + "\n".join(f"#{i['id']} {words(i['kind'])}: {phrases.heading(i['title'], settings)}" for i in found), project)
+        lines = [self.pending_line(project, i, settings) for i in found] + [pending_view.footer(found, self.messenger.capabilities(), settings)]
+        self.reply(chat, f"{project['name']}: " + "\n".join(line for line in lines if line), project)
         if files:
             self.reply(chat, files, project)
         try:
@@ -1111,13 +1113,28 @@ class Bridge(shell_kit.Jobs):
         except self.ops.OpsError as e:
             self.log(f"cards could not be sent ({e.__class__.__name__})")
 
+    def pending_line(self, project: dict, listed: dict, settings) -> str:
+        """One line of `/pending`: a question is said in plain words (messaging_pending: what it asks, or that the request was not understood), any other decision as its kind and its title."""
+        if listed["kind"] == "question" and (settings or {}).get("notices") == "text":      # what is asked is the project's text: a project whose notices carry none of it lists the question as it always did
+            try:
+                said = pending_view.line(self.ops.pending(project["path"], pending_id=listed["id"]), settings)
+            except self.ops.OpsError:
+                said = None
+            if said:
+                return said
+        return f"#{listed['id']} {phrases.kind_word(listed['kind'], settings)}: {phrases.heading(listed['title'], settings)}"
+
+    def oops(self, chat: str, error, project: dict) -> None:
+        """Say an error of the operations layer to the chat: its precise text on an English phone, the language's sentence on any other (phone_errors)."""
+        self.reply(chat, phone_errors.said(str(error), self.cfg(project, chat), failure=True), project, guard=True)
+
     def act(self, project: dict, chat: str, op: str, pending_id: int, card=None, note=None, text=None, typed_hash=None) -> None:
         """approve, reject, release or answer one decision, bound to the card the person saw."""
         try:
             card = card or self.ledger.last_card(project["id"], pending_id, chat)
             if card is not None and card.get("chat") != chat:      # never another chat's card
                 card = None
-            if op in ("answer", "reject", "release") and card is None:     # a decision is acted on from the card its sender was sent, as an approval is
+            if op in ("answer", "reject", "release") and card is None and not (op == "reject" and self.is_question(project, pending_id)):     # a decision is acted on from the card its sender was sent, as an approval is; a question is turned down with no hash and no effect (S14)
                 self.reply(chat, self.t("NO_CARD", project=project), project)
                 return
             if op == "answer":
@@ -1129,15 +1146,22 @@ class Bridge(shell_kit.Jobs):
                 self.approve(project, chat, item, card, typed_hash)
             elif op == "reject":
                 self.run_op(project, "reject", sender=chat, pending_id=pending_id, **({"note": note} if note else {}))
-                self.reply(chat, self.t("REJECTED", project=project, id=pending_id), project)
+                self.reply(chat, self.t("QUESTION_DISMISSED" if item["kind"] == "question" else "REJECTED", project=project, id=pending_id), project)
             else:
                 self.release(project, chat, pending_id)
         except Refused as e:
             self.reply(chat, str(e), project, guard=True)
         except self.ops.OpsError as e:
-            self.reply(chat, str(e), project, guard=True)
+            self.oops(chat, e, project)
             if op == "approve":
                 self.renew(project, chat, pending_id, card)
+
+    def is_question(self, project: dict, pending_id: int) -> bool:
+        """Whether the pending decision is a question, as it is now (S14: a question is turned down without the card it was asked on)."""
+        try:
+            return self.ops.pending(project["path"], pending_id=pending_id).get("kind") == "question"
+        except self.ops.OpsError:
+            return False
 
     def renew(self, project: dict, chat: str, pending_id: int, card) -> None:
         """After a refusal, the decision as it is now, when it changed since the card: a new card."""
@@ -1251,7 +1275,7 @@ class Bridge(shell_kit.Jobs):
             except Refused as e:
                 self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
-                self.reply(chat, self.t("RUN_BUSY", project=project) if type(e).__name__ == "RunBusy" else str(e), project, guard=True)
+                self.oops(chat, e, project) if type(e).__name__ != "RunBusy" else self.reply(chat, self.t("RUN_BUSY", project=project), project)
         self.start(project, chat, "release", call)
 
     def say(self, project: dict, chat: str, text: str) -> None:

@@ -93,14 +93,14 @@ TABLE = {
         "RELEASED": "Released #{id}.",
         "NOT_APPROVABLE": "Pending decision {number} is a {kind}: approve takes a plan or an acceptance.",
         # --- /help and the usage lines (messaging_inbound.py) ---
-        "HELP": ("Commands:\n/pending            what waits for you\n/approve <id>       approve what the last card of <id> showed\n"
-                 "/reject <id> [note] reject it\n/release <id>       release a delivery\n/answer <id> <text> answer a question\n"
-                 "/ask <question>     answer a question from the project's sources\n"
-                 "/add <n>            add a file you sent as a source\n/discard <n>        delete a file you sent\n"
-                 "/remind <time> <text> a reminder sent back to you once (15:00, 2026-10-20 09:30 or in 2h)\n/reminders          the reminders that wait\n"
-                 "/forget <n>         cancel a reminder\n"
-                 "/project [name]     choose the project your lines go to\n/help               this list\n"
-                 "Any other line goes to the planning agent. Which of these are active depends on your permissions."),
+        "HELP": ("Commands:\n\nRequests\n/pending \u2014 what waits for you\n/approve <id> \u2014 approve what the last card of <id> showed\n"
+                 "/reject <id> [note] \u2014 reject it, or dismiss a question\n/release <id> \u2014 release a delivery\n/answer <id> <text> \u2014 answer a question\n"
+                 "/ask <question> \u2014 answer a question from the project's sources\n\n"
+                 "Files\n/add <n> \u2014 add a file you sent as a source\n/discard <n> \u2014 delete a file you sent\n\n"
+                 "Reminders\n/remind <time> <text> \u2014 a reminder sent back to you once (15:00, 2026-10-20 09:30 or in 2h)\n/reminders \u2014 the reminders that wait\n"
+                 "/forget <n> \u2014 cancel a reminder\n\n"
+                 "Project\n/project [name] \u2014 choose the project your lines go to\n/help \u2014 this list\n\n"
+                 "You can also ask in your own words. Which of these are active depends on your permissions."),
         "USAGE_APPROVE": "Usage: /approve <id>",
         "USAGE_REJECT": "Usage: /reject <id> [note]",
         "USAGE_RELEASE": "Usage: /release <id>",
@@ -764,6 +764,24 @@ TABLE = {
         "FR_WITHHELD": "I found {name} ({account}), but I did not show it: its text holds something that looks like a password or a key.",
         "FR_TOO_BIG": "I found {name} ({account}), but it is too large for me to read here.",
         "FR_EMPTY": "I found {name} ({account}), but there is no text in it to show.",
+        "QUESTION_DISMISSED": "Question #{id} dismissed.",
+        "PEND_QUESTION": "#{id} question from the assistant: {text}",
+        "PEND_NOT_UNDERSTOOD": "#{id} request not understood",
+        "PEND_DISMISS_TYPED": "To dismiss one, reply: /reject <number>.",
+        "PEND_DISMISS_REPLY": "To dismiss one, reply to its message with: /reject <number>.",
+        "NO_SUCH_DECISION": "I did not find decision {number}.",
+        "NOT_ANSWERABLE": "Pending decision {number} is a {kind}: it is approved or rejected, not answered.",
+        "NOT_RELEASABLE": "Pending decision {number} is a {kind}: it is answered, not released.",
+        "NOT_REJECTABLE": "Pending decision {number} is a {kind}: reject takes a plan, an acceptance, an effect or a question.",
+        "QUESTION_HAS_COMPANY": "Question {number} was not dismissed: its request still has other decisions open.",
+        "PHONE_USE_CARD": "Use the card's button, or send /approve <id> as the whole line.",
+        "PHONE_FAILED": "I could not finish that. Try again; if it keeps failing, see what happened {where}",
+        "PHONE_ROUTER_FAILED": "I could not look at your request right now. Try again in a few minutes.",
+        "PHONE_NOT_PLANNED": "Not planned {n}: {item}.",
+        "NOT_OPEN_DONE": "Request #{number} was already {status}.",
+        "PHONE_NO_FILE_DELETE": "I cannot delete files from a message yet. You can delete it in Google Drive or OneDrive.",
+        "PEND_CARD_TITLE": "Question from the assistant",
+        "PEND_NOT_UNDERSTOOD_TITLE": "Request not understood",
     },
     "pt-BR": phrases_pt_br.TABLE,
 }
