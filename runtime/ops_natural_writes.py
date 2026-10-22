@@ -340,6 +340,8 @@ def _read(ctx: dict, said: str, seed, hint):
     now = _now()
     if seed:
         op = seed["op"]
+        if op in ("event-change", "event-cancel") and seed.get("slots"):          # an event found by its words (runtime/event_lookup.py): its source and number, and what to change
+            return {"op": op, "family": "calendar", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
         if op == "event-create" and seed.get("reading"):
             reading = seed["reading"]
             slots = {"start": f"{reading['date']}T{reading['time']}"}
