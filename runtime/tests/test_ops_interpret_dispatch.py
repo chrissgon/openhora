@@ -224,7 +224,7 @@ def test_the_live_lines_of_the_maintainer_reach_a_read_and_the_yes_question(worl
     calls = []
     prepare(world, monkeypatch, calls, {"text": op("items")}, spies=False)
     out = phone(world, "liste o ultimo email do meu Outlook", who="mailer")
-    assert out["reply"] == "No numbered items yet: a mail or calendar source needs a snapshot first." and len(calls) == 1 and calls[0]["user"].endswith("line: liste o ultimo email do meu Outlook")
+    assert out["reply"] == "Your Outlook mailbox has not been added to this project yet, so there is nothing to list. It is added once, on the platform's page." and len(calls) == 1 and calls[0]["user"].endswith("line: liste o ultimo email do meu Outlook")
     prepare(world, monkeypatch, calls, {"text": op("remind", {"text": "llamar a Dana", "when": "manana a las 10:00"}, time_iso="2026-10-19T10:00", weekday="mon")}, spies=False)
     asked = phone(world, "recuerdame llamar a Dana manana a las 10:00")
     assert asked["reply"] == "I understood: tomorrow, Mon 19/10, at 10:00: llamar a Dana. Confirm? (yes / another time)"
