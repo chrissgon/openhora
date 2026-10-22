@@ -164,6 +164,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/parallel.py` | The rules of tasks that run at once, decided by pure functions: whether a ready task may start beside the ones that run (a slot of its agent, a slot of the project, no code task of its request, no artifact in use), and what a skill's footprint is. |
 | `runtime/path_rule.py` | The path rule: how one path of what a run left goes back to the project. |
 | `runtime/pending_items.py` | The store of the questions a conversation leaves open for one asker (slice S4, decision 229 (1) of 2026-10-20): the bindings of the conversation layer, in memory only. |
+| `runtime/phone_questions.py` | The router's questions as a phone shows them (slice S9, limit L62): a pure renderer, no model, no store, no network. |
 | `runtime/phrases.py` | The phrase table (package LR-1): the sentences the runtime says to a person in the project's language, and the one function that picks them. |
 | `runtime/phrases_pt_br.py` | The Brazilian Portuguese column of the phrase table (package LR-1, runtime/phrases.py): data only, a pure literal, no code and no import. |
 | `runtime/plan.py` | The plan of a request: the tasks code builds from a route, which the person approves before any task exists. |
