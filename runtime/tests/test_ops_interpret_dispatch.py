@@ -184,15 +184,21 @@ def test_the_call_is_the_daily_route_with_the_protocols_settings_and_the_hash_it
                              "reasoning": "off"}
 
 
-def test_a_write_no_table_reads_says_to_ask_in_portuguese_or_english_and_a_pt_br_project_is_answered_in_it(world, monkeypatch):
+def test_a_write_that_cannot_be_prepared_says_what_was_understood_and_only_a_language_with_no_write_forms_is_told_to_ask_in_another(world, monkeypatch):
     calls = []
     prepare(world, monkeypatch, calls, {"text": op("mail-archive", {"messages": "3,7"}), "card": None})
-    assert phone(world, "archiva los mensajes 3 y 7")["reply"] == "For now, ask for that in Portuguese or in English."
+    line = "archiva los mensajes 3 y 7"
+    assert phone(world, line)["reply"] == ("I understood that you want to change something in your accounts, but I could not prepare it, so I did nothing. "
+                                           "Tell me what it is, which item and when.")      # an en project: never "ask in Portuguese or in English"
     write_config(world["path"], language="pt-BR")
     accept(world["path"], policies=IX_PROFILES, messaging={"senders": IX_SENDERS})
-    assert phone(world, "archiva los mensajes 3 y 7")["reply"] == "Por enquanto, peça isso em português ou em inglês."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert phone(world, line)["reply"] == ("Entendi que você quer mudar algo nas suas contas, mas não consegui montar o cartão, então não fiz nada. "  # validate: allow english-only -- the Portuguese line or sentence under test
+                                           "Diga o que é, qual item e quando.")      # validate: allow english-only -- the Portuguese line or sentence under test
+    write_config(world["path"], language="es")
+    accept(world["path"], policies=IX_PROFILES, messaging={"senders": IX_SENDERS})
+    assert phone(world, line)["reply"] == "For now, ask for that in Portuguese or in English."      # es has no write forms: the sentence is true there (and has no table, so English)
     prepare(world, monkeypatch, [], {"text": '{"v":1,"kind":"none"}'})
-    assert phone(world, "gracias, nada mas")["reply"] == "Não vi um pedido nessa mensagem."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert phone(world, "gracias, nada mas")["reply"] == "I did not see a request in that message."
 
 
 def test_an_event_with_no_time_goes_to_its_family_with_the_name_only(world, monkeypatch):
