@@ -61,6 +61,7 @@ import mail_compose
 import natural
 import operations
 import ops_natural
+import phone_refusal
 import phrases
 
 CHANNEL = "messaging"
@@ -222,7 +223,8 @@ def _refusal(ctx: dict, op: str, sender) -> str:
         listed = False
     if not listed:
         return ops_natural.phone_sentence(ctx, op)
-    return "error: " + (operations.refusal(op, CHANNEL, ctx["cfg"]["channels"], sender=sender) or phrases.text("IX_ASK_AGAIN", ctx["cfg"]))
+    refused = operations.refusal(op, CHANNEL, ctx["cfg"]["channels"], sender=sender)
+    return phone_refusal.said(refused, CHANNEL, ctx["cfg"]) if refused else phrases.text("IX_ASK_AGAIN", ctx["cfg"])      # S10: a phone is told in one plain sentence, never "error:" or a command
 
 
 CANNOT = {"event-create": "IX_CANNOT_EVENT_CREATE"}      # every other write: IX_CANNOT_WRITE (an event to change or cancel is answered by runtime/event_lookup.py)

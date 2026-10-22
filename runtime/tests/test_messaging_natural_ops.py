@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_natural.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 import shutil
 
@@ -69,7 +71,7 @@ def test_a_tier_1_form_is_checked_against_its_own_group_not_talk_and_a_plain_lin
     assert first["chat"] == READER and first["message"]["text"].startswith("- lease-contract (file, ") and "meeting-notes" in first["message"]["text"]
     rig.bridge.handle(rig.update(READER, "Which market first?"))
     assert wait_for(lambda: len(rig.sent()) == 2)
-    assert "not enabled for this channel" in rig.sent()[1]["message"]["text"]
+    assert rig.sent()[1]["message"]["text"] == PLAIN_REFUSAL
     assert st.calls(rig.world["adapter"]) == [], "neither line ran a model"
 
 

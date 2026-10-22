@@ -12,6 +12,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_channel_grants_calend
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 
 import pytest
@@ -110,7 +112,7 @@ def test_the_mcp_mode_and_the_conversation_never_prepare_or_approve_a_calendar_c
     for channel in ("messaging", "chat"):       # a line typed into say never approves it, on any channel
         reply = ops.say(world["path"], f"/approve {started['pending']} {item_of(world, started)['payload_sha256']}", channel=channel,
                         sender=(SENDER if channel == "messaging" else None))["reply"]
-        assert reply.startswith("error: ")
+        assert reply == PLAIN_REFUSAL if channel == "messaging" else reply.startswith("error: ")
     assert world["google"].requests == [] and ops.pending(world["path"], started["pending"])["status"] == "open"
     assert approve(world, started, "terminal")["task_state"] == "done"
     assert operations.GRANTS["mcp"] == ("approve-plans", "approve-acceptances", "reject-cancel", "retry")

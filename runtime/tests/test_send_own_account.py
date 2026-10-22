@@ -18,6 +18,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_send_own_account.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import ast
 import datetime
 import email
@@ -602,7 +604,7 @@ def test_the_mcp_mode_and_the_conversation_never_prepare_or_approve_an_email_fro
     for channel in ("messaging", "chat"):
         said = ops.say(world["path"], f"/approve {started['pending']} {item_of(world, started)['payload_sha256']}", channel=channel,
                        sender=(SENDER if channel == "messaging" else None))["reply"]
-        assert said.startswith("error: ")
+        assert said == PLAIN_REFUSAL if channel == "messaging" else said.startswith("error: ")
     assert world["gmail"].requests == [] and ops.pending(world["path"], started["pending"])["status"] == "open"
     assert operations.GROUPS["mail-send"] == {"operations": ("mail-send", "mail-reply"), "kind": None} and "mail-send" not in operations.DEFAULT_POLICY["messaging"]
     assert "approve-effect-send" not in operations.GRANTS["mcp"]

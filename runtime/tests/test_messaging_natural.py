@@ -38,7 +38,7 @@ def portuguese(day):  # noqa: F811
     accept(day.path, language="pt-BR")
 
 
-NO_GROUP = "/event-create is not enabled for this channel"          # the profile of these tests lists no calendar-write: a write line gets the typed refusal (NR-5)
+NO_GROUP = "Você ainda não tem permissão para isso por aqui."          # the profile of these tests lists no calendar-write: a write line gets the plain refusal of a phone (NR-5, S10)  # validate: allow english-only -- the Portuguese sentence under test
 
 
 def say_plain(day, text, sender=OWNER):  # noqa: F811
@@ -405,7 +405,7 @@ def test_schedule_the_post_for_tomorrow_does_not_get_the_calendar_reply(day, pla
 
 def test_a_profile_without_the_group_gets_the_typed_refusal_for_a_remind_word_and_its_bare_lines_go_on_to_the_planning_agent(day, planner):  # noqa: F811
     say_yes(day, STAFF, ENGLISH)
-    assert NOT_ENABLED in day.texts(STAFF)[-1] and "remind" in day.texts(STAFF)[-1] and day.all()["open"] == []
+    assert NOT_ENABLED in day.texts(STAFF)[-1] and "/" not in day.texts(STAFF)[-1] and day.all()["open"] == []
     typed = len(day.texts(STAFF))
     say_yes(day, STAFF, "/remind tomorrow 1 pm call the florist")
     assert day.texts(STAFF)[typed:] and NOT_ENABLED in day.texts(STAFF)[-1]

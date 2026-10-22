@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_sender_profiles.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import hashlib
 import inspect
 import json
@@ -510,7 +512,7 @@ def test_a_typed_costs_command_is_refused_to_the_limited_reader_and_answered_to_
     path = str(tree["project"])
     accept(path, policies=POLICIES, channels={"messaging": "staff"}, messaging={"senders": SENDERS})
     refused = ops.say(path, "/progress", channel="messaging", sender=STAFF_KEY)["reply"]      # progress carries a run's cost
-    assert "is not enabled for this channel" in refused
+    assert refused == PLAIN_REFUSAL
     allowed = ops.say(path, "/progress", channel="messaging", sender=OWNER_KEY)["reply"]
     assert "is not enabled" not in allowed and "cost known" in allowed
     assert "is not enabled" not in ops.say(path, "/status", channel="messaging", sender=STAFF_KEY)["reply"]
@@ -699,7 +701,7 @@ def test_a_profile_that_reads_nothing_is_not_told_the_state_by_a_plain_line_and_
     accept(path, policies={**POLICIES, "mute": ["talk"]}, channels={"messaging": "staff"},
            messaging={"senders": {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": STAFF, "policy": "mute"}]}})
     refused = ops.say(path, "what is the status?", channel="messaging", sender=STAFF_KEY)["reply"]
-    assert "is not enabled for this channel" in refused
+    assert refused == PLAIN_REFUSAL
     told = ops.say(path, "what is the status?", channel="messaging", sender=OWNER_KEY)["reply"]
     assert "is not enabled" not in told and ops.say(path, "what is the status?", channel="messaging", sender="telegram:55119000000099")["reply"]
 

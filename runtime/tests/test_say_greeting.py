@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_say_greeting.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import re
 
 import standin_tree as st
@@ -106,7 +108,7 @@ def test_a_greeting_followed_by_a_request_is_not_a_greeting_and_goes_on_as_befor
 def test_a_sender_who_may_not_talk_gets_the_refusal_of_today_for_a_greeting(world, monkeypatch):
     calls = calls_of(world, monkeypatch)
     for line in ("hello", "bom dia", "hola, buenos d\u00edas"):
-        assert phone(world, "silent", line)["reply"] == REFUSAL, line
+        assert phone(world, "silent", line)["reply"] == PLAIN_REFUSAL, line
     assert phone(world, "silent", "ajuda")["reply"].startswith("Commands:\n/pending"), "a help line in words is the fixed list for this sender, as it was"      # validate: allow english-only -- the line under test
     assert calls == []
 

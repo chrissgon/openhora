@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_instructions_runs.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 import re
 
@@ -236,7 +238,7 @@ def test_an_instruction_to_skip_the_gate_changes_nothing_about_the_effect_gate(e
     assert provider_calls(effects_tree) == [] and ops.pending(path, item["id"])["status"] == "open"
     for channel in ("messaging", "mcp"):
         typed = ops.say(path, f"/approve {item['id']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"]
-        assert typed.startswith("error:") and provider_calls(effects_tree) == []
+        assert (typed == PLAIN_REFUSAL if channel == "messaging" else typed.startswith("error:")) and provider_calls(effects_tree) == []
     # without the hash the page does not execute it either; with the hash it does, and only then
     with pytest.raises(ops.OpsError):
         ops.approve(path, item["id"], None, channel="page")

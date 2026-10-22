@@ -12,6 +12,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_card_words.
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import pytest
 
 import standin_tree as st
@@ -258,7 +260,7 @@ def test_a_grant_taken_away_after_the_card_was_drawn_refuses_the_word_as_it_refu
     world.bridge.tick()
     world.config["channels"] = {"messaging": ["read", "talk", "reject-cancel"]}
     world.say("sim")
-    assert nothing_decided(world) and world.calls("say") == [] and "approve" in world.texts()[-1].lower()
+    assert nothing_decided(world) and world.calls("say") == [] and world.texts()[-1] == PLAIN_REFUSAL
 
 
 def test_a_card_that_was_not_sent_whole_decides_nothing(world):

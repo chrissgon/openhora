@@ -6,6 +6,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_natural_writes_fi
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 
 import pytest
@@ -152,7 +154,7 @@ def test_a_profile_without_files_write_gets_the_typed_sentence(world, clock, spy
     policy(world)
     hold(world, sender="6161")
     out = phone(world, "salva esse pdf no drive", PLAIN)
-    assert out["reply"].startswith("error: /file-save is not enabled for this channel") and spy == []
+    assert out["reply"] == PLAIN_REFUSAL and spy == []
 
 
 @pytest.mark.parametrize("channel, carried", [(None, "terminal"), ("page", "page")])

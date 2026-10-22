@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_ask.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 import os
 import shutil
@@ -109,7 +111,7 @@ def test_a_sender_whose_profile_lacks_ask_is_told_it_is_not_enabled_and_nothing_
            messaging={"senders": {"telegram": [{"id": OWNER, "policy": "asker"}, {"id": STAFF, "policy": "plain"}]}})
     world.bridge.handle(world.update(STAFF, "/ask qual o prazo do contrato?"))
     assert wait_for(lambda: len(world.sent()) == 1)
-    assert world.sent()[0]["chat"] == STAFF and "not enabled for this channel" in world.sent()[0]["message"]["text"]
+    assert world.sent()[0]["chat"] == STAFF and world.sent()[0]["message"]["text"] == PLAIN_REFUSAL
     assert runs(world.tree) == [] and st.calls(world.tree["adapter"]) == []
 
 
@@ -187,7 +189,7 @@ def test_a_profile_with_ask_and_no_talk_can_ask_and_cannot_talk(world):
     assert "Checked quote [lease-contract]" in world.sent()[0]["message"]["text"] and len(runs(world.tree)) == 1
     world.bridge.handle(world.update(OWNER, "hello there"))                                      # a plain line needs talk, which this profile lacks
     assert wait_for(lambda: len(world.sent()) == 2 and all(not t.is_alive() for t in world.bridge.threads))
-    assert "not enabled for this channel" in world.sent()[1]["message"]["text"] and len(runs(world.tree)) == 1
+    assert world.sent()[1]["message"]["text"] == PLAIN_REFUSAL and len(runs(world.tree)) == 1
     world.bridge.handle(world.update(STAFF, "/ask qual o prazo do contrato?"))                   # talk without ask cannot ask
     assert wait_for(lambda: len(world.sent()) == 3 and all(not t.is_alive() for t in world.bridge.threads))
-    assert "not enabled for this channel" in world.sent()[2]["message"]["text"] and len(runs(world.tree)) == 1
+    assert world.sent()[2]["message"]["text"] == PLAIN_REFUSAL and len(runs(world.tree)) == 1

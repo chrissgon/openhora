@@ -8,6 +8,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_natural_writes.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 
 import pytest
@@ -129,7 +131,7 @@ def test_the_card_opens_from_every_channel_that_carries_the_line(world, clock, s
 def test_a_profile_without_the_operations_group_gets_the_typed_sentence_and_nothing_starts(world, clock, spy, line):
     policy(world)
     out = phone(world, line, PLAIN)
-    assert out["reply"].startswith("error: /") and "is not enabled for this channel" in out["reply"] and spy == [] and rows(world) == ([], [])
+    assert out["reply"] == PLAIN_REFUSAL and spy == [] and rows(world) == ([], [])
 
 
 def test_a_messaging_sender_who_cannot_be_sent_a_card_gets_a_sentence_and_nothing_is_opened(world, clock, spy):

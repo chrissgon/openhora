@@ -18,6 +18,11 @@ language is (the same rule the natural-request tables follow). The approve and r
 This module decides nothing: it reads no card, no policy and no ledger. The bridge (runtime/messaging_bridge.py) executes what a word means, only when every condition of L64
 holds, through the same call as the card's button. `all` is returned as it is; the caller never approves it.
 
+`reply_line(text)` (S10) is the line an e-mail reply decides with: a reply carries a phone's signature or the quoted card under its words ("sim", a blank line, "Enviado do meu iPhone"), which
+made it more than one phrase. The first non-empty line is the line; everything after it must be a signature or a quote (it begins at a delimiter line: "--", "Enviado do meu",
+"Sent from my", "Enviado de", "Get Outlook for", a quote header such as "Em ... escreveu:" or "On ... wrote:", or a line that starts with ">"), else the text is not one phrase
+and nothing is returned ("sim" and then "mas muda o horario" on its own line is a request, never an approval). Only the bridge calls it, and only on a platform whose acts are replies.
+
 Standard library only. Runs on Python 3.9: python3 runtime/card_words.py --help
 """
 from __future__ import annotations
@@ -128,6 +133,46 @@ def _forms() -> dict:
                           re.compile(f"{lead}{every}\\s+{form}{tail}")]
         _COMPILED.update(shapes=shapes, ordinal_at=ordinal_at)
     return _COMPILED
+
+
+SIGNATURE_STARTS = ("enviado do meu", "sent from my", "enviado de", "get outlook for")      # a phone's one-line signature: short, with no comma (a longer line is the sender's words)
+SIGNATURE_WORDS_MAX = 6
+QUOTE_HEADER = re.compile(r"(?:em|on)\s.*(?:escreveu|wrote)\s*:?", re.I)
+
+
+def _delimiter(line: str) -> bool:
+    """Whether a stripped line starts the signature block or the quoted history for good: the "--" delimiter, a quoted line, or a quote header."""
+    return line == "--" or line.startswith(("-- ", ">")) or bool(QUOTE_HEADER.fullmatch(line))
+
+
+def _phone_signature(line: str) -> bool:
+    return line.lower().startswith(SIGNATURE_STARTS) and len(line.split()) <= SIGNATURE_WORDS_MAX and "," not in line
+
+
+def _opens_tail(line: str) -> bool:
+    """Whether a stripped line opens the signature or the quoted history of an e-mail reply."""
+    return _delimiter(line) or _phone_signature(line)
+
+
+def reply_line(text):
+    """The first non-empty line of an e-mail reply, when everything after it is a signature or a quote; else "" (see the module's text). Every later non-empty line is
+    checked: a line that is not a signature or a quote (the sender's own words, even after a phone's one-line signature) makes the text more than one phrase; from a
+    delimiter ("--", a quote) on, the rest is the signature or the history and is not read."""
+    if not isinstance(text, str):
+        return ""
+    first = None
+    for line in (raw.strip() for raw in text.split("\n")):
+        if not line:
+            continue
+        if first is None:
+            if _opens_tail(line):
+                return ""
+            first = line
+        elif not _opens_tail(line):
+            return ""
+        elif _delimiter(line):
+            return first
+    return first or ""
 
 
 def card_word(line):

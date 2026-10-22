@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_say_operation.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import pytest
 
 import standin_tree as st
@@ -118,7 +120,7 @@ def test_ask_from_a_messaging_sender_without_the_group_is_the_typed_refusal_and_
     with_senders(docs)
     router_says(docs, OPERATION.format(name="ask"))
     out = phone(docs, "plain", "qual o prazo do contrato?")
-    assert out["reply"] == "error: " + operations.refusal("ask", "messaging", ops_core.context(docs["path"])["cfg"]["channels"], sender=KEY["plain"])
+    assert operations.refusal("ask", "messaging", ops_core.context(docs["path"])["cfg"]["channels"], sender=KEY["plain"]) and out["reply"] == PLAIN_REFUSAL
     typed = phone(docs, "plain", "/ask qual o prazo do contrato?")
     assert typed["reply"] == out["reply"]
     assert st.calls(docs["adapter"]) == ["core-orchestrator 1"], "the router ran (the line cost it); the answer skill did not"
@@ -245,7 +247,7 @@ def test_a_profile_without_the_group_reminders_is_refused_and_no_draft_is_made(w
     with_senders(world)
     router_says(world, HAIRCUT_ES)
     out = phone(world, "asker", SPANISH)
-    assert out["reply"] == "error: " + operations.refusal("remind", "messaging", ops_core.context(world["path"])["cfg"]["channels"], sender=KEY["asker"])
+    assert operations.refusal("remind", "messaging", ops_core.context(world["path"])["cfg"]["channels"], sender=KEY["asker"]) and out["reply"] == PLAIN_REFUSAL
     assert drafts.count() == 0 and reminders(world) == []
 
 
@@ -255,7 +257,7 @@ def test_the_group_is_asked_again_when_the_answer_comes_a_profile_narrowed_meanw
     phone(world, "owner", SPANISH)
     accept(world["path"], policies={**PROFILES, "owner": ["read", "talk"]}, messaging={"senders": SENDERS})
     out = phone(world, "owner", "yes")
-    assert out["reply"].startswith("error: /remind is not enabled") and reminders(world) == []
+    assert out["reply"] == PLAIN_REFUSAL and reminders(world) == []
 
 
 def test_a_time_that_is_past_or_missing_or_a_text_that_is_missing_is_refused_or_asked_back_before_any_draft(world):

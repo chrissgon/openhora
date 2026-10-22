@@ -23,6 +23,7 @@ Verbs (JSON on stdout, diagnostics on stderr, input by flags or files, no prompt
   receive --platform telegram --offset <n> --timeout <seconds>
   send --platform telegram --chat <id> --message-file <f>
   ack --platform telegram --action-ref <ref>
+  typing --platform telegram --chat <id>      sendChatAction `typing` (the "typing..." line under the chat's name, about 5 seconds); prints {"typing": true}
   fetch-attachment --platform telegram --ref <file id> --out <dir> --max-bytes <n>
   --check --platform telegram         verify the token with getMe; exit 0 ready, 3 not configured
 
@@ -92,7 +93,7 @@ DEFAULT_API_BASE = "https://api.telegram.org"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 CAPABILITIES = {"max_text": 4096, "buttons": True, "max_buttons": 6, "max_button_label": 40, "lists": False,
                 "max_list_rows": 0, "url_buttons": True, "reply_context": True, "documents": True,
-                "attachments": True, "max_attachment_bytes": 20971520}   # 20 MiB: the Bot API serves a download of at most 20 MB (getFile answers "file is too big" above it); a literal, because the architecture tables read it
+                "attachments": True, "max_attachment_bytes": 20971520, "typing": True}   # 20 MiB: the Bot API serves a download of at most 20 MB (getFile answers "file is too big" above it); a literal, because the architecture tables read it
 MAX_ATTACHMENT_BYTES = CAPABILITIES["max_attachment_bytes"]
 CALLBACK_DATA_BYTES = 64
 HTTP_MARGIN_SECONDS = 15
@@ -652,6 +653,15 @@ def ack(action_ref: str, token: str, base: str) -> dict:
     return {"acked": True}
 
 
+def typing(chat: str, token: str, base: str) -> dict:
+    """The typing indicator (sendChatAction, action `typing`): the same host and token as a send, no message and no file. Telegram shows it for about five seconds or until a
+    message arrives, so the bridge asks again every few seconds while a reply is prepared. A failure is the bridge's to ignore."""
+    if not CHAT_ID.fullmatch(chat):
+        raise ProviderError("--chat is a Telegram chat id: digits, with a leading - for a group", EXIT_USAGE)
+    call("sendChatAction", {"chat_id": int(chat), "action": "typing"}, token, base, SEND_TIMEOUT_SECONDS)
+    return {"typing": True}
+
+
 # --- fetch-attachment ----------------------------------------------------------------------------------------------------
 
 def file_url_allowed(url: str, base: str, test_mode: bool) -> bool:
@@ -785,14 +795,15 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--check", action="store_true", help="verify the token with getMe; exit 0 ready, 3 not configured")
     p.add_argument("--platform")
     sub = p.add_subparsers(dest="verb")
-    for name in ("capabilities", "receive", "send", "ack", "fetch-attachment"):
+    for name in ("capabilities", "receive", "send", "ack", "typing", "fetch-attachment"):
         s = sub.add_parser(name)
         s.add_argument("--platform", default=argparse.SUPPRESS)
         if name == "receive":
             s.add_argument("--offset", type=int, default=0)
             s.add_argument("--timeout", type=int, default=0)
-        if name == "send":
+        if name in ("send", "typing"):
             s.add_argument("--chat", required=True)
+        if name == "send":
             s.add_argument("--message-file", required=True)
         if name == "ack":
             s.add_argument("--action-ref", required=True)
@@ -808,7 +819,7 @@ def run(argv) -> int:
     if args.platform != "telegram":
         raise ProviderError("this implementation serves --platform telegram", EXIT_USAGE)
     if not args.check and not args.verb:
-        raise ProviderError("give a verb: capabilities, receive, send, ack or fetch-attachment (see --help)", EXIT_USAGE)
+        raise ProviderError("give a verb: capabilities, receive, send, ack, typing or fetch-attachment (see --help)", EXIT_USAGE)
     if args.verb == "capabilities":
         print(json.dumps(CAPABILITIES))
         return EXIT_OK
@@ -837,6 +848,8 @@ def run(argv) -> int:
             print(json.dumps(receive(args.offset, args.timeout, token, base)))
         elif args.verb == "send":
             print(json.dumps(send(args.chat, message, token, base)))
+        elif args.verb == "typing":
+            print(json.dumps(typing(args.chat, token, base)))
         elif args.verb == "fetch-attachment":
             print(json.dumps(fetch_attachment(args.ref, args.out, max_bytes, token, base, test_mode)))
         else:

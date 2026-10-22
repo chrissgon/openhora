@@ -15,6 +15,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_file_read.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL_PT  # noqa: E402
+
 import hashlib
 import json
 from pathlib import Path
@@ -191,7 +193,7 @@ def test_the_names_are_compared_whole_with_the_extension_optional(wanted, found,
 
 
 def test_a_sender_without_the_group_read_files_gets_the_refusal_and_no_provider_is_called(drives):
-    assert phone(drives, LINE_1, PLAIN_KEY) == REFUSAL
+    assert phone(drives, LINE_1, PLAIN_KEY) == PLAIN_REFUSAL_PT
     assert drives["drives"].calls == []
 
 
