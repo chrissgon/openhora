@@ -36,12 +36,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CAPABILITY_KEYS = {"max_text": int, "buttons": bool, "max_buttons": int, "max_button_label": int, "lists": bool,
                    "max_list_rows": int, "url_buttons": bool, "reply_context": bool, "documents": bool}
-OPTIONAL_KEYS = {"listen": bool, "actions_need_reply": bool, "attachments": bool, "max_attachment_bytes": int, "typing": bool}   # a capability a provider may leave out; absent is stored as False (0 for a number)
+OPTIONAL_KEYS = {"listen": bool, "actions_need_reply": bool, "attachments": bool, "max_attachment_bytes": int, "typing": bool,
+                 "send_files": bool, "max_send_bytes": int, "max_photo_bytes": int, "photo_types": list, "send_types": list}   # a capability a provider may leave out; absent is stored as False (0 for a number)
 # actions_need_reply: the bridge acts on a typed approve, reject, release or answer only when the update is a reply to the card of that decision
 # (e-mail: an address proves little, and a reply that names the card's random Message-ID also proves the card reached the person)
 # attachments: the provider maps a file a sender sends into the update's `attachments` and serves `fetch-attachment` (and the listen op `fetch`); without it the bridge
 # typing: the provider serves the verb `typing --chat <id>` (the platform's "typing..." indicator, S10); a platform without it is simply not asked
 # sends no attachment intent anywhere and answers "This app's connection does not take files yet." max_attachment_bytes: the most the platform serves for one file (0: none said)
+# send_files (S18): the provider takes a `file` entry in the neutral message and sends the file at its path, as a photo or as a document; max_send_bytes the most it sends as a document, max_photo_bytes the most as a
+# photo, photo_types the image types (subtypes read from the bytes: png, jpeg...) it shows as a photo, send_types the types of file it takes at all; without send_files no file is ever handed to it
 SEND_SECONDS = 60
 TYPING_SECONDS = 15                # the typing indicator is a small call; the bridge does not wait for it
 MAX_LINE = 1 << 20                 # the longest line of the listen protocol, either way, without its newline
@@ -126,6 +129,8 @@ class Messenger:
                     raise MessengerError("failed", f"capabilities has a {key} that is not a {kind.__name__}")
             if found.get("max_attachment_bytes", 0) < 0:
                 raise MessengerError("failed", "capabilities has a max_attachment_bytes below 0")
+            if found.get("max_send_bytes", 0) < 0 or found.get("max_photo_bytes", 0) < 0:
+                raise MessengerError("failed", "capabilities has a send limit below 0")
             self._caps = {key: found[key] for key in CAPABILITY_KEYS}
             self._caps.update({key: found.get(key, kind()) for key, kind in OPTIONAL_KEYS.items() if kind is not bool})
             self._caps.update({key: found.get(key, False) for key, kind in OPTIONAL_KEYS.items() if kind is bool})

@@ -47,7 +47,7 @@ CHANNELS = ("terminal", "chat", "page", "mcp", "messaging", "bogus")
 KINDS = (None, "plan", "acceptance", "effect")
 BRAKES_BEFORE = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")
 NEW_GROUPS = ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-publish", "approve-networked-plans",
-              "read-limited", "ask-mail", "interpret")      # POL-2's group is new too: the rule before the grants knew no such name; so is NR-2's, which adds to `ask` and grants nothing alone, and S1's `interpret`, which adds to `say` and grants nothing alone
+              "read-limited", "ask-mail", "interpret", "send-files")      # POL-2's group is new too: the rule before the grants knew no such name; so is NR-2's, which adds to `ask` and grants nothing alone, S1's `interpret`, which adds to `say` and grants nothing alone, and S18's `send-files`, which adds to `file-read` and grants nothing alone
 # The rule as it was before the grants, written out here (the default has to answer exactly so): a row lists the channel, the terminal is never
 # narrowed, an effect only from the terminal and the page, a channel with no entry keeps its default or its ceiling, a group covers its kind.
 OLD_GROUPS = {name: spec for name, spec in operations.GROUPS.items() if name not in NEW_GROUPS}

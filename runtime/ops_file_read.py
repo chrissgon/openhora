@@ -33,6 +33,15 @@ provider's failure is a fixed sentence (its text is another service's). The one 
 in the process's memory for the sender's next line (LIST_WINDOW_S at most), dropped by that line whatever it is; nothing of it is written, logged or sent. No model ever reads the file: the interpreter decides the operation and the name from the person's
 line alone. A question about the file is NOT answered from it: the answer from sources (`ask`) reads registered sources only, and this slice registers none, so the text is shown.
 
+The file itself (S18): when the sender holds the group `send-files` (beside `read-files`) and the bridge says the messaging app can carry a file (`extras["can_send"]`, the messenger's
+capabilities: the most it takes, the most it takes as a photo, the image types it shows as a photo, the types it takes), the reply of a found file carries the file as
+`extras["attachment"]` = {"name", "kind": "photo" | "document", "data"}: a photo for a jpeg or png image under the photo limit, a document otherwise. A readable text file keeps today's
+preview as the message text. Before it, in code: the right and the folder grant are asked again (a pick reads the configuration in force now), the size and the type are checked against
+what the app takes (a file over the limit gets one sentence, and the preview when it has text), and the text of every file the converter turns into text, a PDF or an Office file
+included, passes the credential scan (limit L14): a hit withholds the file AND the preview. A file with no text to scan (an image, or a document the converter gives no text for) is sent
+as it is. The bytes live in memory for the length of the call and then in the bridge's one temporary file for the length of the send (runtime/messaging_bridge.py); nothing is
+stored, logged or kept here, and the neutral word the conversation keeps is the same. Without the group, or on a page or a terminal, nothing changes: the reply is the text it always was.
+
 Sibling of runtime/ops.py, which exposes `file_read` under its name. The shared names come from ops_core, read as `core.<name>`. Standard library only. Runs on Python 3.9:
 python3 runtime/ops_file_read.py --help
 """
@@ -78,6 +87,9 @@ SERVICES = ("google", "microsoft")
 SERVICE_PHRASE = {"google": "FR_GOOGLE", "microsoft": "FR_MICROSOFT"}
 EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,5}$")
 CONTENT = "content"      # the name of the file a provider writes in its --out-dir
+SEND_GROUP = "send-files"      # S18: the group that lets the file itself leave with the reply
+PHOTO = "photo"          # the kind of attachment the messenger sends as a photo; every other is a "document"
+EXTENSIONS = {"pdf": "pdf", "docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "html": "html", "csv": "csv", "text": "txt", "png": "png", "jpeg": "jpg", "webp": "webp", "gif": "gif"}      # the ending a sent file gets when its name has none (a Google Doc has none)
 
 provider_call = None     # a test replaces it: call(cls, verb, args, root=, implementation=, timeout=, env=) -> dict, as providers/resolve.py `call`
 clock = time.monotonic   # a test replaces it: seconds, as time.monotonic
@@ -346,6 +358,13 @@ def _read_bytes(cfg: dict, service: str, ident: str, out_dir: str) -> dict:
 
 def _read_text(cfg: dict, service: str, ident: str) -> str:
     """The text of one file the search found, as a source's import converts it, and nothing is registered. Unreadable (code) when it cannot be shown."""
+    return _read(cfg, service, ident)["text"]
+
+
+def _read(cfg: dict, service: str, ident: str, send=None) -> dict:
+    """{"text", "data", "type", "markdown"} of one file the search found: its text as a source's import converts it (None when there is none to show), and, with `send` (S18: the
+    messenger's limits), the file's bytes and its type (kind, subtype) read from them. Nothing is registered. Unreadable (code) when it cannot be shown or sent: "kind" (a type
+    that is not read, or not on the list the app takes), "size", "secret" (limit L14: the text looks like a credential: neither is shown), "empty" (no text, without `send`), "service"."""
     try:
         stage = sources._make_staging(cfg["data_dir"], secrets.token_hex(8))
     except Exception:      # noqa: BLE001
@@ -366,6 +385,14 @@ def _read_text(cfg: dict, service: str, ident: str) -> str:
             raise Unreadable("service") from None
         if len(data) != info.get("bytes") or sources._sha(data) != info.get("sha256"):
             raise Unreadable("service")
+        found = intake.sniff(data[:intake.SNIFF_BYTES])
+        if send is not None:
+            if info.get("content") == "markdown":
+                found = ("document", "text")
+            elif found is not None and found[0] == "image" and found[1] in send["types"]:
+                return {"text": None, "data": data, "type": found, "markdown": False}      # nothing to scan: an image is sent as it is
+            elif found is None or found[1] not in send["types"]:
+                raise Unreadable("kind")
         if info.get("content") == "markdown":
             try:
                 text = sources.strip_embedded_images(data.decode("utf-8"))[0]
@@ -375,11 +402,11 @@ def _read_text(cfg: dict, service: str, ident: str) -> str:
         else:
             converted = _converted(cfg, data, path, out)
             text = converted.decode("utf-8", "replace")
-        if "\x00" in text or not text.strip():
+        if "\x00" in text or (not text.strip() and send is None):
             raise Unreadable("empty" if not text.strip() else "kind")
-        if sources._workcopy().scan(converted):      # limit L14: what looks like a credential is never shown
+        if sources._workcopy().scan(converted):      # limit L14: what looks like a credential is never shown, and never sent
             raise Unreadable("secret")
-        return text
+        return {"text": text if text.strip() else None, "data": data if send is not None else None, "type": found, "markdown": info.get("content") == "markdown"}
     finally:
         shutil.rmtree(stage, ignore_errors=True)
 
@@ -421,18 +448,50 @@ def _cut(text: str) -> tuple:
 # --- the operation -----------------------------------------------------------------------------------------------------------------------------
 
 
-def _read_match(cfg: dict, match: dict) -> dict:
-    """The outcome of reading the one file chosen: {"status": "text", ...} | {"status": "unreadable", "name", "account", "why"}."""
+def _file_name(name: str, found, exported: bool) -> str:
+    """The name a sent file carries: the file's own, with an ending added when it has none (a Google Doc has none): md for a Doc exported as text, else the ending of its type."""
+    if EXTENSION.search(name):
+        return name
+    ending = "md" if exported else EXTENSIONS.get(found[1] if found else "")
+    return f"{name}.{ending}" if ending else name
+
+
+def _attachment(match: dict, got: dict, send: dict):
+    """({"name", "kind", "data"}, why) for a file that was read to be sent: why is "" when it goes, "send-size" when it is over what the app takes. A photo only for a type the
+    app shows as a photo and under its photo limit; a document otherwise."""
+    data, found = got["data"], got["type"]
+    if len(data) > send["max_bytes"]:
+        return None, "send-size"
+    photo = found[0] == "image" and found[1] in send["photo_types"] and len(data) <= send["photo_max_bytes"]
+    return {"name": _file_name(match["name"], found, got["markdown"]), "kind": PHOTO if photo else "document", "data": data}, ""
+
+
+def _read_match(cfg: dict, match: dict, send=None) -> dict:
+    """The outcome of reading the one file chosen: {"status": "text", ...} | {"status": "unreadable", "name", "account", "why"}. With `send` (the messenger's limits, S18) a file that
+    goes carries "attach" ({"name", "kind", "data"}), a text file keeps its preview, a file with no text is {"status": "sent", ...}, and `sending` is true in every outcome so that
+    the sentences are the ones about sending."""
+    flag = {"sending": True} if send is not None else {}
     if not match["supported"]:
-        return {"status": "unreadable", "name": match["name"], "account": match["service"], "why": "kind"}
+        return {"status": "unreadable", "name": match["name"], "account": match["service"], "why": "kind", **flag}
     try:
-        shown, remaining = _cut(_read_text(cfg, match["service"], match["id"]))
+        got = _read(cfg, match["service"], match["id"], send)
     except Unreadable as e:
-        return {"status": "unreadable", "name": match["name"], "account": match["service"], "why": e.code}
-    return {"status": "text", "name": match["name"], "folder": match["folder"], "account": match["service"], "text": shown, "remaining": remaining}
+        return {"status": "unreadable", "name": match["name"], "account": match["service"], "why": e.code, **flag}
+    shown, remaining = _cut(got["text"]) if got["text"] else ("", 0)
+    base = {"name": match["name"], "folder": match["folder"], "account": match["service"]}
+    if send is None:
+        return dict(base, status="text", text=shown, remaining=remaining)
+    attach, why = _attachment(match, got, send)
+    if attach is None:
+        if not shown:
+            return {"status": "unreadable", "name": match["name"], "account": match["service"], "why": why, **flag}
+        return dict(base, status="text", text=shown, remaining=remaining, too_big=True, **flag)
+    if not shown:
+        return dict(base, status="sent", attach=attach, **flag)
+    return dict(base, status="text", text=shown, remaining=remaining, attach=attach, **flag)
 
 
-def _find_and_read(cfg: dict, wanted: str, account=None, said=None) -> dict:
+def _find_and_read(cfg: dict, wanted: str, account=None, said=None, send=None) -> dict:
     """The outcome of one request, as data: {"status": "no-folders"} | {"status": "none", "folders", "failed", "truncated", "cut"} | {"status": "no-folder", "folders", "cut"} |
     {"status": "several", "matches", "count", "refs"} | {"status": "text", ...} | {"status": "unreadable", ...} | {"status": "unavailable"}. `refs` (the ids the pick "o 2" reads) never
     leave this module's callers: the typed operation drops it."""
@@ -450,7 +509,7 @@ def _find_and_read(cfg: dict, wanted: str, account=None, said=None) -> dict:
         shown = matches[:LIST_MAX]
         return {"status": "several", "matches": [{k: m[k] for k in ("name", "folder", "service")} for m in shown], "count": len(matches), "refs": shown,
                 **({"incomplete": True} if found["incomplete"] else {})}
-    return dict(_read_match(cfg, matches[0]), **({"incomplete": True} if found["incomplete"] else {}))
+    return dict(_read_match(cfg, matches[0], send), **({"incomplete": True} if found["incomplete"] else {}))
 
 
 def file_read(project: str, file: str, account: str | None = None, channel: str | None = None, sender: str | None = None) -> dict:
@@ -517,6 +576,38 @@ def _live(ctx: dict, channel, sender):
     return found
 
 
+def _limits(caps) -> dict | None:
+    """The messenger's limits for a file it carries, checked and bounded by what this layer reads (sources.ORIGINAL_CAP), or None when they are not well formed:
+    {"max_bytes", "photo_max_bytes", "photo_types", "types"}. The bridge builds them from the provider's capabilities, and a call that names none sends no file."""
+    if not isinstance(caps, dict):
+        return None
+    number = lambda value: type(value) is int and value >= 0  # noqa: E731
+    texts = lambda value: isinstance(value, list) and all(isinstance(v, str) for v in value)  # noqa: E731
+    if not (number(caps.get("max_bytes")) and caps["max_bytes"] > 0 and number(caps.get("photo_max_bytes")) and texts(caps.get("photo_types")) and texts(caps.get("types"))):
+        return None
+    return {"max_bytes": min(caps["max_bytes"], sources.ORIGINAL_CAP), "photo_max_bytes": caps["photo_max_bytes"], "photo_types": list(caps["photo_types"]), "types": list(caps["types"])}
+
+
+def _sending(ctx: dict, channel, sender, extras: dict):
+    """The limits of the file to send with this reply (`_limits`), or None: the file goes only on a messaging app, when the bridge named the app's limits for this call and the
+    sender's profile in the configuration in force NOW holds `send-files` and `read-files` (the group is asked again at every send, a pick included)."""
+    if channel != "messaging" or not isinstance(sender, str):
+        return None
+    channels = ctx["cfg"]["channels"]
+    if not (operations.holds(SEND_GROUP, "messaging", channels, sender) and operations.holds("read-files", "messaging", channels, sender)):
+        return None
+    return _limits(extras.get("can_send"))
+
+
+def _finish(cfg: dict, got: dict, extras: dict, pick: bool = True) -> str:
+    """The sentence for an outcome; the file that goes with it (if any) is handed to the caller in `extras["attachment"]`, in memory, and nowhere else."""
+    attach = got.pop("attach", None)
+    text = _render(cfg, got, pick)
+    if attach is not None:
+        extras["attachment"] = attach
+    return text
+
+
 def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     """The reply to a number said right after a list of files ("o 2", "2", "the 2nd"), or None when the line is not one (no live list for this sender, a line that is no bare
     number, a number the list did not show). Any line ends the list, so a pick is used once. The sender's right to read files is asked again, and so is the grant: the configured
@@ -540,7 +631,7 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     extras["stored"] = phrases.text("NAT_READ_REPLY", cfg)
     if (match["service"], match["root"]) not in granted:          # the folder the file was found under is not configured any more: it is not read
         return _render(cfg, {"status": "no-folder", "folders": folders, "cut": None} if folders else {"status": "no-folders"})
-    return _render(cfg, dict(_read_match(cfg, match), **({"incomplete": True} if record["incomplete"] else {})))
+    return _finish(cfg, dict(_read_match(cfg, match, _sending(ctx, channel, sender, extras)), **({"incomplete": True} if record["incomplete"] else {})), extras)
 
 
 # --- the reply to a line in words ---------------------------------------------------------------------------------------------------------------
@@ -568,7 +659,10 @@ def _render(cfg: dict, got: dict, pick: bool = True) -> str:
     if status == "text":
         head = t("FR_HEAD", name=got["name"], account=_label_of(cfg, got["account"]), folder=got["folder"])
         more = "\n\n" + t("FR_MORE", remaining=got["remaining"]) if got["remaining"] else ""
-        return f"{head}\n\n{got['text']}{more}" + ("\n\n" + t("FR_INCOMPLETE") if got.get("incomplete") else "")
+        large = "\n\n" + t("FS_TOO_BIG", name=got["name"], account=_label_of(cfg, got["account"])) if got.get("too_big") else ""
+        return f"{head}\n\n{got['text']}{more}{large}" + ("\n\n" + t("FR_INCOMPLETE") if got.get("incomplete") else "")
+    if status == "sent":
+        return t("FS_SENT", name=got["name"], account=_label_of(cfg, got["account"]), folder=got["folder"]) + ("\n\n" + t("FR_INCOMPLETE") if got.get("incomplete") else "")
     if status == "several":
         rows = [t("FR_ITEM", n=n, name=m["name"], folder=m["folder"], account=_label_of(cfg, m["service"])) for n, m in enumerate(got["matches"], 1)]
         return "\n".join([t("FR_SEVERAL_PICK" if pick else "FR_SEVERAL_NAME", count=got["count"])] + rows + ([t("FR_INCOMPLETE")] if got.get("incomplete") else []))
@@ -578,7 +672,8 @@ def _render(cfg: dict, got: dict, pick: bool = True) -> str:
         cut = " " + t("FR_CUT") if got.get("cut") else ""
         return t("FR_NONE_SUB" if status == "none" else "FR_NO_SUCH_FOLDER", folders=folders) + partial + cut
     if status == "unreadable":
-        return t({"secret": "FR_WITHHELD", "size": "FR_TOO_BIG", "empty": "FR_EMPTY"}.get(got["why"], "FR_UNREADABLE"), name=got["name"], account=_label_of(cfg, got["account"])) \
+        words = {"secret": "FS_WITHHELD", "size": "FS_TOO_BIG", "send-size": "FS_TOO_BIG", "kind": "FS_KIND"} if got.get("sending") else {"secret": "FR_WITHHELD", "size": "FR_TOO_BIG", "empty": "FR_EMPTY"}
+        return t(words.get(got["why"], "FR_UNREADABLE"), name=got["name"], account=_label_of(cfg, got["account"])) \
             + (" " + t("FR_INCOMPLETE") if got.get("incomplete") else "")
     if status == "no-folders":
         return t("FR_NO_FOLDERS")
@@ -602,10 +697,10 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     account = _service_of(word) if word else (next(iter(named)) if len(named) == 1 else None)
     if word and (account is None or (named and named != {account})):          # a word no table reads, or one that does not agree with the line (a line that names both accounts agrees with neither)
         return phrases.text("IX_ASK_AGAIN", cfg)
-    got = _find_and_read(cfg, wanted, account, said)
+    got = _find_and_read(cfg, wanted, account, said, _sending(ctx, channel, sender, extras))
     if got["status"] == "several" and channel == "messaging":
         _remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")))
-    return _render(cfg, got, channel == "messaging")
+    return _finish(cfg, got, extras, channel == "messaging")
 
 
 if __name__ == "__main__":

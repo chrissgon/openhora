@@ -113,6 +113,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/messaging_bridge.py` | The messaging bridge's logic (runtime/messaging.py is its shell): notices out, intents in, every operation through one call path. |
 | `runtime/messaging_cards.py` | A notice as a platform-neutral card (runtime/messaging.py): a pending decision becomes {"text", "actions", "link", "document"}, the message every messenger provider takes (providers/messenger/README.md), plus what the bridge needs to bind a tap to it. |
 | `runtime/messaging_failure.py` | Why a write to the person's accounts was not made, said to a phone in plain words (package LIVE-2). |
+| `runtime/messaging_file.py` | The file a reply carries on a messaging app (slice S18): a small helper of the messaging bridge, never a gate by itself. |
 | `runtime/messaging_guard.py` | What a phone never reads (package LIVE-2): a shell command of this platform, or a path of this machine, in a message sent to a messaging app. |
 | `runtime/messaging_inbound.py` | What a person sent to the messaging bridge, as an intent (runtime/messaging.py). |
 | `runtime/messaging_ledger.py` | The messaging bridge's ledger: what it sent, so that a restart sends nothing twice and a tapped button or a reply is bound to the card the person saw (runtime/messaging.py). |
