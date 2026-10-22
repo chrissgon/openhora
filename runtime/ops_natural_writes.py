@@ -341,12 +341,16 @@ def _read(ctx: dict, said: str, seed, hint):
     now = _now()
     if seed:
         op = seed["op"]
+        if op in ("event-change", "event-cancel") and seed.get("slots"):          # an event found by its words (runtime/event_lookup.py): its source and number, and what to change
+            return {"op": op, "family": "calendar", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
         if op == "event-create" and seed.get("reading"):
             reading = seed["reading"]
             slots = {"start": f"{reading['date']}T{reading['time']}"}
             if seed.get("text"):
                 slots["title"] = seed["text"]
             return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading}
+        if op in ("mail-send", "mail-draft") and seed.get("slots") is not None:          # a new e-mail the interpreter decided (runtime/mail_compose.py `seed`): its slots, never the closed forms
+            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
         if op == "file-save" and seed.get("attachment") is not None:          # a held file named by its number (the caption of a file, a button of its card): the text may add a folder
             got = nw.read(said, now, op=op) if said.strip() else None
             got = got or {"op": op, "family": "files", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
@@ -401,6 +405,8 @@ def _classify(ctx: dict, state: dict, said: str):
     module = importlib.import_module(nw.FAMILIES[state["family"]])
     if need in getattr(module, "NEEDS", ()):          # a need the family answers itself (the answer may be a number it showed, not a place in the list)
         got = module.answer(need, said, state["slots"], tables, now, options=state["options"])
+        if got is not None and need == "body" and state["op"] in ("mail-send", "mail-draft"):
+            got["slots"]["_compose"] = True          # the answer describes the e-mail: the model words it when composing is on, "exact text:" sends it as written (runtime/mail_compose.py)
         return {"kind": "slots", "slots": got["slots"]} if got is not None else _retry(state, said, tables)
     if need in ("time", "reading", "weekday"):
         engine = state["slots"].get("_engine")
