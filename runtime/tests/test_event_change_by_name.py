@@ -20,7 +20,7 @@ import pytest
 import standin_tree as st
 from test_calendar_write import approve, create, rows, world  # noqa: F401  (the calendar world and its stand-in providers)
 from test_event_lookup import OWNER, build as build_with_source, op_text
-from test_event_lookup_own_events import CARD_2, NO_SOURCE, Model, build, cards, fresh, made, pending, say, writes  # noqa: F401
+from test_event_lookup_own_events import ASK_AGAIN, CARD_2, NO_SOURCE, Model, build, cards, fresh, made, pending, say, writes  # noqa: F401
 from test_ops_natural_writes import forget  # noqa: F401
 
 event_lookup = st.load("event_lookup")
@@ -149,3 +149,129 @@ def test_nothing_is_approved_or_written_by_any_of_these_paths(world, monkeypatch
     assert [pending(world, n)["status"] for n in cards(world)[1:]] == ["open"] * (len(cards(world)) - 1)
     stored = json.dumps([pending(world, n) for n in cards(world)], ensure_ascii=False)
     assert "mude o" not in stored.lower() and "cancela o" not in stored.lower(), "no word of the lines is stored"
+
+
+# --- the review round: the object of the line, two verbs, the clock on the event's day, all-day events -----------------------------------------------------------
+
+CANNOT = "Entendi que você quer mudar algo nas suas contas, mas não consegui montar o cartão, então não fiz nada. Diga o que é, qual item e quando."      # validate: allow english-only -- the Portuguese line or sentence under test
+PAST = "Esse horário já passou. Diga um horário que ainda vem pela frente."      # validate: allow english-only -- the Portuguese line or sentence under test
+ALL_DAY = "Esse evento é de dia inteiro, então não o mudei: um horário não diz quanto tempo ele dura. Diga a hora de início e a de fim, por exemplo: das 10h às 11h."      # validate: allow english-only -- the Portuguese line or sentence under test
+GARBAGE = "Sure! not json"
+CLARIFY = '{"v":1,"kind":"clarify","slot":"%s"}'
+
+
+@pytest.mark.parametrize("line, answer", [
+    ("cancela a rotina do relatorio", CLARIFY % "id"),
+    ("apaga o email da Ana", CLARIFY % "messages"),
+    ("apaga o email da Ana", GARBAGE),
+    ("move o email da Ana para a pasta Clientes", CLARIFY % "folder"),
+    ("cancela o lembrete de pagar a conta", CLARIFY % "id"),
+    ("remove o arquivo relatorio", CLARIFY % "file"),
+    ("delete the email from Ana", GARBAGE),
+    ("cancela o relatorio mensal da ana@example.com", GARBAGE),
+])
+def test_a_line_that_names_another_object_never_becomes_an_event_card_through_the_verb(world, monkeypatch, line, answer):
+    build(world, monkeypatch)
+    made(world, title="relatorio mensal", start="2026-10-23T14:00")
+    made(world, title="Ana", start="2026-10-23T16:00")
+    world["google"].requests.clear()
+    Model(monkeypatch, answer)
+    reply = say(world, line)
+    assert not reply.startswith("O card") and not reply.startswith("Encontrei"), (line, reply)      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert cards(world) == [1, 2] and writes(world) == [], "no event card was opened"
+
+
+@pytest.mark.parametrize("line, answer", [("cancela o relatorio mensal", GARBAGE), ("cancela o relatorio mensal", CLARIFY % "event"), ("Cancela o relatorio mensal", op_text("event-cancel", {"event": "relatorio"}))])
+def test_the_same_garbage_for_a_line_with_no_other_object_does_open_the_card(world, monkeypatch, line, answer):
+    """Vacuity of the test above: only the object of the line differs."""
+    build(world, monkeypatch)
+    made(world, title="relatorio mensal", start="2026-10-23T14:00")
+    Model(monkeypatch, answer)
+    assert say(world, line) == CARD_2, line
+
+
+def test_a_reminder_line_never_opens_an_event_card_with_or_without_the_model(world, monkeypatch):
+    the_event(world, monkeypatch)
+    model = Model(monkeypatch, op_text("event-change", {"time": "as 10h"}, time_iso="2026-10-22T10:00", weekday="thu"), op_text("event-change"))
+    assert say(world, "mude o lembrete de pagar a conta para as 10h") == CANNOT and cards(world) == [1], "whoever read the line: code or model"
+    assert say(world, "mude o lembrete de pagar a conta") == CANNOT and cards(world) == [1], "the model's valid event operation does not make it an event"
+    assert model.calls <= 2
+
+
+@pytest.mark.parametrize("line, answer", [
+    ("cancela o corte e marca de novo para as 10h", op_text("event-change", {"event": TITLE})),
+    ("muda o corte, ou melhor cancela", op_text("event-cancel", {"event": TITLE})),
+    ("muda o corte, ou melhor cancela", op_text("event-cancel")),
+    ("cancela o corte de cabelo e cancela o outro", op_text("event-cancel")),
+])
+def test_a_line_with_the_other_kind_or_two_change_verbs_asks_again(world, monkeypatch, line, answer):
+    the_event(world, monkeypatch, account="google")
+    Model(monkeypatch, answer)
+    assert say(world, line) == ASK_AGAIN and cards(world) == [1], line
+
+
+@pytest.mark.parametrize("line", ["cancela o corte de cabelo?", "cancela o corte de cabelo se chover", "cancela o corte de cabelo, caso chova", "muda o corte de cabelo para as 10h?",
+                                  "muda o corte de cabelo para as 10h se der"])
+def test_a_question_or_a_trailing_condition_asks_again(world, monkeypatch, line):
+    the_event(world, monkeypatch, account="google")
+    Model(monkeypatch, op_text("event-cancel"), op_text("event-cancel"))
+    assert say(world, line) == ASK_AGAIN and cards(world) == [1], line
+    Model(monkeypatch, op_text("event-cancel"))
+    assert say(world, "cancela o corte de cabelo") == "O card #2 espera a sua aprovação.", "vacuity: the same line without the question or the condition opens"      # validate: allow english-only -- the Portuguese line or sentence under test
+
+
+def test_a_clock_that_has_passed_on_the_events_own_day_is_asked_never_opened(world, monkeypatch):
+    build(world, monkeypatch)
+    made(world, start="2026-10-21T16:00", account="microsoft")          # today, an hour after the clock of the test (15:00)
+    Model(monkeypatch)
+    assert say(world, "mude o corte de cabelo para as 10h") == PAST and cards(world) == [1]
+    assert say(world, "mude o corte de cabelo para as 18h") == CARD_2, "vacuity: a clock still ahead on the same day opens"      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert "After: When: Wed 21/10/2026 18:00-19:00 (America/Sao_Paulo)" in card_lines(world)
+
+
+def test_the_model_path_does_not_replace_a_time_the_check_accepted_with_a_past_one(world, monkeypatch):
+    build(world, monkeypatch)
+    made(world, start="2026-10-21T16:00", account="microsoft")
+    ctx = ops_core.context(world["path"])
+    writes_module = st.load("ops_natural_writes")
+    now = st.load("ops_natural")._clock()
+    # the model read "as 10h" as tomorrow's 10:00, which the check accepts; on the event's own day (today, 16:00) it is in the past
+    decision = {"op": "event-change", "time": {"local": "2026-10-22T10:00", "source": "model"}, "spans": {"time": "as 10h"}, "args": {}}
+    assert event_lookup.open_event(world["path"], ctx, decision, "mude o corte de cabelo as 10h", OWNER, {}, writes_module, now) == PAST and cards(world) == [1]
+    decision["time"]["local"], decision["spans"]["time"] = "2026-10-22T18:00", "as 18h"
+    assert event_lookup.open_event(world["path"], ctx, decision, "mude o corte de cabelo as 18h", OWNER, {}, writes_module, now) == CARD_2, "vacuity: a clock still ahead opens"
+
+
+def test_after_a_list_the_clock_on_the_picked_entrys_day_is_checked_too(world, monkeypatch):
+    build(world, monkeypatch)
+    made(world, start="2026-10-21T16:00")
+    made(world, start="2026-10-23T14:00")
+    Model(monkeypatch)
+    assert say(world, "mude o corte de cabelo para as 10h").startswith("Mais de um evento combina.")      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert say(world, "o 1") == PAST and cards(world) == [1, 2]
+    assert say(world, "mude o corte de cabelo para as 10h").startswith("Mais de um evento combina.")      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert say(world, "o 2") == "O card #3 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test
+
+
+def test_a_clock_change_of_an_all_day_event_is_refused_in_a_sentence_and_a_cancel_is_not(world, monkeypatch):
+    build(world, monkeypatch)
+    made(world, start="2026-10-23", account="google")
+    Model(monkeypatch, op_text("event-cancel"))
+    assert say(world, "mude o corte de cabelo para as 10h") == ALL_DAY and cards(world) == [1]
+    assert say(world, "cancela o corte de cabelo") == CARD_2, "vacuity: the all-day event is found, only the clock is refused"
+
+
+def test_exact_means_the_title_is_the_line_title_span_and_an_exact_name_wins_a_tie():
+    import datetime
+    today = datetime.date(2026, 10, 21)
+
+    def row(title, n=1):
+        return {"source": "agenda", "n": n, "day": datetime.date(2026, 10, 23), "time": "14:00-15:00", "title": title}
+    got = event_lookup.ranked([row("Ana")], "cancela o almoço com a Ana", "none", None, today)      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert [(r["title"], r["exact"]) for r in got] == [("Ana", False)], "the title is only part of what the line says"
+    got = event_lookup.ranked([row("Ana")], "cancela a Ana", "none", None, today)
+    assert [(r["title"], r["exact"]) for r in got] == [("Ana", True)]
+    got = event_lookup.ranked([row("corte", 1), row("cortes", 2)], "cancela o corte", "none", None, today)
+    assert [(r["title"], r["exact"]) for r in got] == [("corte", True)], "the exact name wins alone over the near one"
+    got = event_lookup.ranked([row("corte", 1), row("cortes", 2)], "cancela os cortess", "none", None, today)
+    assert sorted(r["title"] for r in got) == ["corte", "cortes"], "vacuity: with no exact name the near ones are listed together"

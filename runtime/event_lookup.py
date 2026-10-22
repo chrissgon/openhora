@@ -385,18 +385,18 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
     if len(matches) > 1:
         return _text(ctx, "EV_LIST_AGAIN"), False
     source, op = matches[0][0], {"cancel": "event-cancel", "change": "event-change"}.get(form["verb"]) or record["op"]
-    day = None
+    entry = None
     if source == event_created.SOURCE:          # an entry of the list of events the platform created: the card number and the signature the list recorded; the entry must still be in the ledger and as shown
         number, _, shown = matches[0][1].partition(":")
         own = event_created.by_pending(ctx, int(number)) if number.isdigit() else None
         if own is None or event_created.signature(own) != shown:
             return _text(ctx, "EV_LIST_AGAIN"), False
-        bind, day = {"created": own["pending"], "account": own["account"]}, own["day"]
+        bind, entry = {"created": own["pending"], "account": own["account"]}, own
     elif not _fresh(ctx, sender, *matches[0]):
         return _text(ctx, "EV_LIST_AGAIN"), False
     else:
         bind = {"source": source}
-        day = next((r["day"] for r in events(ctx, sender)[0] if (r["source"], r["n"]) == (source, form["n"])), None)
+        entry = next((r for r in events(ctx, sender)[0] if (r["source"], r["n"]) == (source, form["n"])), None)
     if form["verb"] is not None:
         return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "line": form["canonical"], "bind": bind}), False
     if op is None:
@@ -405,9 +405,14 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
     if op == "event-change":
         if not record["start"]:
             return _text(ctx, "EV_CHANGE_WHAT"), True
-        if record["start"].startswith("@") and day is None:
+        if entry is None:
             return _text(ctx, "EV_LIST_AGAIN"), False
-        slots["start"] = _start_on(record["start"], day)
+        if _is_all_day(entry):
+            return _text(ctx, "EV_ALLDAY_CLOCK"), False
+        slots["start"] = _start_on(record["start"], entry["day"])
+        problem = _past_problem(slots["start"], _natural()._clock())
+        if problem:
+            return _text(ctx, problem), False
     return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "slots": slots}), False
 
 
@@ -545,60 +550,66 @@ def _near(a: str, b: str) -> bool:
     return allowed > 0 and abs(len(a) - len(b)) <= allowed and _edit(a, b) <= allowed
 
 
-def _fit(title: list, line: list) -> tuple:
-    """(share, exact) of a title's words in a line's words: the share is Dice (2 * matched / (title words + line words)) with each line word used once and a word matched when
-    `_near`; `exact` is true when every title word is a word of the line as it is (no edit)."""
-    free, matched, exact = list(line), 0, True
+def _fit(title: list, line: list) -> float:
+    """The share of a title's words in a line's words: Dice (2 * matched / (title words + line words)) with each line word used once and a word matched when `_near`; 0 when
+    fewer than half of the title's words are matched."""
+    free, matched = list(line), 0
     for word in title:
         at = next((i for i, other in enumerate(free) if other == word), None)
         if at is None:
             at = next((i for i, other in enumerate(free) if _near(word, other)), None)
-            exact = False if at is not None else exact
         if at is None:
-            exact = False
             continue
         matched += 1
         free.pop(at)
     if not matched or matched * 2 < len(title):
-        return 0.0, False
-    return 2.0 * matched / (len(title) + len(line)), exact
+        return 0.0
+    return 2.0 * matched / (len(title) + len(line))
 
 
-def _edges_text(said: str, row: dict) -> str:
-    """The line as `ranked` read it for this title: the whole line for a title that holds a time, else the line without the time phrases (the confirmation words at its edges are
-    left out of the words later)."""
-    return said if nt.find(row["title"])["hits"] else nt.without(said, nt._spans(nt.find(said)))
+def _brand_words() -> set:
+    return {w for brands in _brands().values() for brand in brands for w in brand}
+
+
+def _exact(title_words: list, line_words: list) -> bool:
+    """Whether the line's title span is the title: the title's words, all of them and in order, are a run of the line's words, and every word of the line outside that run is a
+    word that names no event (a stop word, or the name of an account). "cancela o almoco com a ana" is not exact for an event called "Ana"; "corte cabelo" is not for "corte de cabelo"."""
+    n, skippable = len(title_words), _stop_words() | _brand_words()
+    return n > 0 and any(line_words[i:i + n] == title_words and all(w in skippable for w in line_words[:i] + line_words[i + n:]) for i in range(len(line_words) - n + 1))
 
 
 def ranked(rows: list, said: str, kind: str, value, today: datetime.date) -> list:
     """The events of `rows` that the line names, by the closest name (slice S16b): in the window or on the named day, and whose title is near the words of the line (case and accents
-    folded, the closed stop words left out, a small edit distance for each word, at least half of the title's words), each row with its "score" and whether its name is "exact".
-    The words of the line are those left when a confirmation word at its edges is taken out; the words the time engine reads as a day or a time are taken out too, so that a
-    title such as "Dia" is not named by "dia 23", except for a title that holds such a word itself ("Reuniao 10h"), which is read against the whole line. The best row is the
-    one when it beats the next by CLOSE_MARGIN; else the rows within CLOSE_MARGIN of it, in the order given, are the several close ones."""
-    whole = _tokens(_edges(said))
-    bare = _tokens(_edges(nt.without(said, nt._spans(nt.find(said)))))
+    folded, the closed stop words left out, a small edit distance for each word, at least half of the title's words), each row with its "score" and whether its name is "exact"
+    (`_exact`). The words of the line are those left when a confirmation word at its edges is taken out; the words the time engine reads as a day or a time are taken out too, so
+    that a title such as "Dia" is not named by "dia 23", except for a title that holds such a word itself ("Reuniao 10h"), which is read against the whole line; the name of an
+    account is a word of the line like any other (it makes the title that holds it the closer one). The best row is the one when it beats the next by CLOSE_MARGIN; else the rows within CLOSE_MARGIN
+    of it, in the order given, are the several close ones; and among those, the rows whose name is exact win alone, the near ones being dropped."""
+    whole_words = _edges(said)
+    bare_words = _edges(nt.without(said, nt._spans(nt.find(said))))
     fits = []
     for row in rows:
         words = _words(row["title"])
         title = _tokens(words)
         if sum(len(w) for w in words) < TITLE_MIN or not title:
             continue
-        against = whole if nt.find(row["title"])["hits"] else bare
-        score, exact = _fit(title, against)
+        line_words = whole_words if nt.find(row["title"])["hits"] else bare_words
+        score = _fit(title, _tokens(line_words))
         if score < SCORE_MIN:
             continue
-        exact = exact and set(words) <= {w for w in _words(_edges_text(said, row))}          # exact: every word of the title, the small ones too, is a word of the line as typed
         if kind == "day":
             ok = row["day"] == value
         else:
             ok = today <= row["day"] <= today + datetime.timedelta(days=WINDOW_DAYS) and (kind != "weekday" or row["day"].weekday() == value)
         if ok:
-            fits.append(dict(row, score=score, exact=exact))
+            fits.append(dict(row, score=score, exact=_exact(words, line_words)))
     if not fits:
         return []
     best = max(f["score"] for f in fits)
-    return [f for f in fits if f["score"] >= best - CLOSE_MARGIN] if sum(1 for f in fits if f["score"] >= best - CLOSE_MARGIN) > 1 else [next(f for f in fits if f["score"] == best)]
+    close = [f for f in fits if f["score"] >= best - CLOSE_MARGIN]
+    if len(close) > 1:
+        close = [f for f in close if f["exact"]] or close
+    return close if len(close) > 1 else close[:1]
 
 
 def candidates(rows: list, said: str, kind: str, value, today: datetime.date) -> list:
@@ -652,6 +663,57 @@ def verb_op(said: str):
     return "event-change" if line.lead(nw.listed(tables, "calendar", "change_verbs"), tables) is not None else None
 
 
+# The words of an object that is not an event (closed lists in the six languages of the tables, folded): a line that names one of these, or an address, asks for something
+# else than an event even when its verb is "cancel" or "move" (slice S16b, review round).
+OTHER_OBJECTS = {
+    "mail": ("email", "emails", "mail", "mails", "mensagem", "mensagens", "message", "messages", "mensaje", "mensajes", "correo", "correos", "correio", "courriel", "courriels",
+             "nachricht", "nachrichten", "messaggio", "messaggi", "posta"),
+    "file": ("arquivo", "arquivos", "file", "files", "archivo", "archivos", "fichier", "fichiers", "datei", "dateien", "documento", "documentos", "document", "documents"),
+    "reminder": ("lembrete", "lembretes", "reminder", "reminders", "recordatorio", "recordatorios", "rappel", "rappels", "erinnerung", "erinnerungen", "promemoria"),
+    "routine": ("rotina", "rotinas", "routine", "routines", "rutina", "rutinas", "routinen"),
+    "task": ("tarefa", "tarefas", "task", "tasks", "tarea", "tareas", "tache", "taches", "aufgabe", "aufgaben", "compito", "compiti"),
+    "folder": ("pasta", "pastas", "folder", "folders", "carpeta", "carpetas", "dossier", "dossiers", "ordner", "cartella", "cartelle"),
+    "request": ("pedido", "pedidos", "request", "requests", "solicitud", "solicitudes", "demande", "demandes", "anfrage", "anfragen", "richiesta", "richieste"),
+}
+CONDITIONAL = {"se", "caso", "qualora", "si", "if", "unless", "falls", "wenn", "sofern", "cas"}      # validate: allow english-only -- the closed words of the languages a line may be written in
+
+
+def names_other_object(said: str) -> bool:
+    """Whether the line names an object that is not an event (OTHER_OBJECTS) or holds an address: then the verb of the line does not tell that it is about an event."""
+    if "@" in said:
+        return True
+    words = set(_words(said))
+    return any(words.intersection(group) for group in OTHER_OBJECTS.values())
+
+
+def asks_again(said: str) -> bool:
+    """Whether a line is not a plain request to change or cancel one event: it ends in a question mark, it carries a condition after its verb ("... se chover", "... caso ..."), or it
+    holds two verbs that change or cancel ("cancela o corte e muda ..."). Such a line is asked again, whatever the model said."""
+    if said.rstrip().endswith(("?", "\uff1f")):
+        return True
+    tables = natural._tables(None)
+    line = nw.Line(said)
+    verbs = nw.listed(tables, "calendar", "cancel_verbs") + nw.listed(tables, "calendar", "change_verbs")
+    spans = line.find_all(verbs, 0)
+    if len(spans) >= 2:
+        return True
+    if spans:
+        after = line.norm[spans[0][1]:].split()
+        return any(w.strip(",.;:!") in CONDITIONAL for w in after[:-1])
+    return False
+
+
+def _is_all_day(row: dict) -> bool:
+    return bool(row.get("all_day")) or str(row.get("time", "")).startswith("all day")
+
+
+def _past_problem(start: str, now):
+    """The sentence key when the new start (`YYYY-MM-DDTHH:MM`) cannot be used as it is, by the same check the model's times pass (interpreter._instant_problem: past, far, a
+    clock that skips or repeats the hour), else None. A start the line fixed on the event's own day is checked here too: it is never taken for a time the check accepted."""
+    why = importlib.import_module("interpreter")._instant_problem(datetime.datetime.strptime(start, "%Y-%m-%dT%H:%M"), now.tzinfo, now)
+    return {"time-past": "IX_ASK_PAST", "time-far": "IX_ASK_FAR"}.get(why, "IX_ASK_TIME") if why else None
+
+
 def _own(ctx: dict, text: str, kind: str, value, today: datetime.date, said: str, account) -> tuple:
     """(the events the platform created that fit, the account that narrowed them, how many fit beyond the cap, whether a read-back failed): `_narrowed` over the ledger rows (read
     once), cut to LIST_MAX before any call to the provider, so a line reads at most that many events; each one is read back from the provider (event_created.live) and one that is gone
@@ -700,6 +762,9 @@ def by_name(project: str, ctx: dict, said: str, sender, extras: dict, writes, no
     op = verb_op(said)
     if op is None:
         return None
+    if names_other_object(said):          # "mude o lembrete de pagar a conta para as 10h": a reminder, not an event; the line is not carried out as anything else here
+        extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
+        return _text(ctx, "IX_CANNOT_WRITE")
     decision = {"op": op, "time": _code_time(said, now) if op == "event-change" else None, "spans": {}, "args": {}}
     return open_event(project, ctx, decision, said, sender, extras, writes, now)
 
@@ -707,12 +772,17 @@ def by_name(project: str, ctx: dict, said: str, sender, extras: dict, writes, no
 def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict, writes, now):
     """The reply for a decision to change or cancel an event (module text). `writes` is the module ops_natural_writes, which opens the card."""
     op, time_ = decision["op"], decision.get("time")
+    if asks_again(said):          # a question, a condition, or two verbs: nothing is opened, whatever the model said
+        extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
+        return _text(ctx, "IX_ASK_AGAIN")
     reading = nw.read(said, now, op=op)
     if reading is None or (not reading.get("say") and "event" in reading["slots"]):
         opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)          # the call as before: the numbered form, or nothing the family reads
         if opened is not None:
             return opened
     extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
+    if names_other_object(said):          # no number, and the line names a mail, a file, a reminder, a routine, a task, a folder or an address: it is not about an event, whoever read it
+        return _text(ctx, "IX_CANNOT_WRITE")
     spans = decision.get("spans") or {}
     text = " ".join(said.split())
     for key in (("time", "title") if op == "event-change" else ()):          # the new time and the new title are not the words of the event to change
@@ -751,7 +821,12 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
     if op == "event-change":
         title = spans.get("title")
         if time_:
+            if _is_all_day(was):          # an all-day event has no length for a clock: none is picked
+                return _text(ctx, "EV_ALLDAY_CLOCK")
             slots["start"] = _start_on("@" + time_["local"][11:16], was["day"]) if _clock_only(time_, spans, now) else time_["local"]
+            problem = _past_problem(slots["start"], now)          # the moment on the event's day is checked as any time is (TIME-GUARD): never taken for one the check accepted
+            if problem:
+                return _text(ctx, problem)
         if title and _words(title) != _words(found[0]["title"]):
             slots["title"] = title
         if "start" not in slots and "title" not in slots:

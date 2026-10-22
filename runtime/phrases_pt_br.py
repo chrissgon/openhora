@@ -735,6 +735,7 @@ TABLE = {
     "NW_ITEMS_T_ONLINE": "reunião online",
     "NW_ITEMS_T_RECURRING": "recorrente",
     "EV_NONE_NO_SOURCE": "Não encontrei esse evento. Nenhuma agenda sua foi adicionada a este projeto ainda, então só consigo achar os eventos que eu mesmo criei aqui. Adicione a sua agenda para achar os outros.",
+    "EV_ALLDAY_CLOCK": "Esse evento é de dia inteiro, então não o mudei: um horário não diz quanto tempo ele dura. Diga a hora de início e a de fim, por exemplo: das 10h às 11h.",
     "EV_FOUND": "Encontrei: {title}, {when}. É este?",
     "EV_NAME_NONE": "Não encontrei nenhum evento com nome parecido nos próximos {days} dias. Peça a sua agenda para ver os eventos.",
     "EV_NAME_NONE_DAY": "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos.",

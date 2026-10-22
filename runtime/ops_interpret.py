@@ -219,14 +219,15 @@ def _event_slots_fixed(obj: dict, line: str):
 
 
 def _by_verb(line: str, strict: dict, now, zone: str, allowed, frame, obj) -> dict:
-    """The decision for a line that asks to change or cancel an event by its name when the model's answer cannot be believed (slice S16b): the operation is the one the line's own
-    leading verb names, the time is what the time engine reads without doubt (`event_lookup._code_time`), and the event is found by the closest name afterwards. `strict` stays when
-    the line has no such verb, or when the model named an operation of another kind, or asked about something that is not an event."""
-    op = event_lookup.verb_op(line)
-    if op is None:
+    """The decision for a line that asks to change or cancel an event by its name when the model's answer cannot be believed (slices S16b): the operation is the one the line's own
+    leading verb names, the time is what the time engine reads without doubt (`event_lookup._code_time`), and the event is found by the closest name afterwards. It applies only when ALL
+    hold: (a) the model's answer is garbage (nothing parses), or a clarify of the slot `event`; (b) the line names no other object (a mail, a file, a reminder, a routine, a task, a
+    folder, a request, an address) and is no question, no condition and no two verbs; (c) a verb that changes or cancels leads the line. A model that named an operation (an event
+    one of the other kind is never swapped, and a refused op of another family stays refused) or asked about another slot keeps its refusal."""
+    op = event_lookup.verb_op(line)          # (c)
+    if op is None or event_lookup.names_other_object(line) or event_lookup.asks_again(line):          # (b)
         return strict
-    if obj is not None and ((obj.get("kind") == "op" and obj.get("op") not in event_lookup.OPS) or (obj.get("kind") == "clarify" and "ops" in obj and not set(obj["ops"]) <= set(event_lookup.OPS))
-                            or obj.get("kind") not in ("op", "clarify")):
+    if obj is not None and not (obj.get("kind") == "clarify" and obj.get("slot") == "event"):          # (a)
         return strict
     again = interpreter.check({"v": 1, "kind": "op", "op": op, "slots": {}}, line, frame, interpreter.SERVED, now, zone, allowed)
     if again.get("kind") == "op" and op == "event-change":
@@ -235,15 +236,18 @@ def _by_verb(line: str, strict: dict, now, zone: str, allowed, frame, obj) -> di
 
 
 def lenient(line: str, text, strict: dict, now, zone: str, allowed, frame=None) -> dict:
-    """`strict`, the decision `decide` gave, or the decision for the line read as the event it describes (slices S16, S16b). Only a refused decision is read again, and only for a line
-    whose leading verb asks to change or cancel an event (`event_lookup.verb_op`). When the model named the same operation as that verb, an op object whose `event` slot is not a
-    number of the line (or, for a removal, that has a slot the operation lacks) is checked again without those slots. In every other case (the model named another operation, asked
-    for a slot, or said nothing that parses) the operation is the verb's and the event is found by the name in the line (`_by_verb`). The event is always found from the person's own
-    words by code afterwards, never from the model's."""
+    """`strict`, the decision `decide` gave, or the decision for the line read as the event it describes (slices S16, S16b). Only a refused decision is read again, and only for a
+    line whose leading verb asks to change or cancel an event (`event_lookup.verb_op`) and that names no other object, is no question, carries no condition and has one such verb.
+    When the model named the same operation as that verb, an op object whose `event` slot is not a number of the line (or, for a removal, that has a slot the operation lacks) is
+    checked again without those slots. A model that named the other event operation, or any other operation, keeps the refusal: it is never swapped for the verb's. Garbage, or a
+    clarify of the slot `event`, gets the operation of the verb and the event is found by the name in the line (`_by_verb`). The event is always found from the person's own words
+    by code afterwards, never from the model's."""
     if strict.get("kind") != "clarify" or strict.get("why") not in ("invalid", "model"):
         return strict
     obj, _, _ = interpreter.parse(text)
-    if obj is not None and obj.get("kind") == "op" and obj.get("op") in event_lookup.OPS and event_lookup.verb_op(line) == obj["op"]:
+    if obj is not None and obj.get("kind") == "op":
+        if obj.get("op") not in event_lookup.OPS or event_lookup.verb_op(line) != obj["op"] or event_lookup.names_other_object(line) or event_lookup.asks_again(line):
+            return strict
         fixed = _event_slots_fixed(obj, line)
         if fixed is None:
             return strict
