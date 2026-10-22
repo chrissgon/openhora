@@ -41,6 +41,7 @@ import time
 import unicodedata
 
 import drafts
+import line_stage
 import messaging_guard as guard
 import ops_core as core
 import natural
@@ -360,6 +361,11 @@ def _read(project: str, ctx: dict, name: str, row: dict, args: dict, channel, se
         return phrases.text("NAT_ASK_ID", cfg)
     if name in ("status", "progress"):
         return _say().state_reply(project, cfg=cfg)
+    if name == "items":      # S19: the mail or the calendar is read
+        if args.get("kind") == "calendar":
+            line_stage.publish("calendar")
+        else:
+            line_stage.publish("mail")
     try:
         out = _call(project, row, args, channel, sender)
     except core.OpsError as e:

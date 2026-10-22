@@ -151,3 +151,12 @@ def test_the_decision_kept_for_a_line_is_keyed_by_project_and_sender_expires_and
     ops_card_revise.remember("/work/a", "messaging", "telegram:1", "muda para as 10h", {"kind": "op"})
     assert ops_card_revise.decided("/work/a", "messaging", "telegram:1", "another line") is None
     assert ops_card_revise.decided("/work/a", "messaging", "telegram:1", "muda para as 10h") is None, "dropped when read, whatever the line was"
+
+
+def test_a_closing_the_card_ended_with_stays_when_the_model_keeps_it_and_one_the_model_adds_does_not_come():
+    changed = BODY.replace("Podemos", "Poderíamos")      # validate: allow english-only -- a Portuguese text under test
+    got = accept(answer(changed), line='Troque a primeira palavra por "Poderíamos"')      # validate: allow english-only -- a Portuguese line under test
+    assert got["body"].endswith("Atenciosamente,") and "Poderíamos" in got["body"], "the card's own closing is not dropped by the validator's rule against a dangling closing"      # validate: allow english-only -- a Portuguese text under test
+    without = "Olá,\n\nPodemos marcar uma reunião?"      # validate: allow english-only -- a Portuguese card under test
+    added = accept(answer(without + "\n\nAtenciosamente,"), line='Troque a primeira palavra por "Poderíamos"', body=without)      # validate: allow english-only -- a Portuguese text under test
+    assert added == {"same": True}, "a closing with nothing after it is dropped as it is in a text the model writes: the card is unchanged"

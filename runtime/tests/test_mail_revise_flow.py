@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
-from test_mail_compose_flow import ADDRESS, LIVE, LIVE_DECISION, SENDER, ZONE, card_lines, clock, forget, op, phone, text_of  # noqa: F401
+from test_mail_compose_flow import ADDRESS, SENDER, ZONE, card_lines, clock, forget, op, phone, text_of  # noqa: F401
 from test_send_own_account import ACCOUNTS, world  # noqa: F401  (the own-account mail world)
 
 ops = st.load("ops")
@@ -41,6 +41,10 @@ phrases = st.load("phrases")
 
 BARE = "telegram:5151"
 CLOSED = "Olá,\n\nGostaria de marcar uma reunião amanhã às 16h. Você teria disponibilidade?\n\nAtenciosamente,"      # validate: allow english-only -- the stand-in model's Portuguese answer
+SUBJECT = "Reunião amanhã às 16h"      # validate: allow english-only -- the stand-in subject in Portuguese
+# A text sent as written ("texto exato:"): the card keeps the closing formula that ends it, which the compose call itself no longer leaves dangling (S12). It is the card the live case needs.
+LIVE = f"Envie um email para {ADDRESS} assunto {SUBJECT}. texto exato: {CLOSED}"      # validate: allow english-only -- the Portuguese line under test
+LIVE_DECISION = op("mail-send", {"to": ADDRESS, "subject": SUBJECT, "body": "texto exato: " + CLOSED})
 COMPOSE = json.dumps({"subject": "Reunião amanhã às 16h", "body": CLOSED}, ensure_ascii=False)      # validate: allow english-only -- the stand-in model's Portuguese answer
 INSTRUCTION = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Christopher Gonçalves"'      # validate: allow english-only -- the live line, Portuguese
 REVISED_BODY = CLOSED + "\nChristopher Gonçalves"      # validate: allow english-only -- the stand-in model's Portuguese answer

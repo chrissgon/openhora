@@ -26,7 +26,14 @@ To, the Subject and the WHOLE text, and nothing is sent until the person approve
                                     words cut at 60 characters (None when the person gave none and the seed did not ask the model: the family asks)
   validate(text, to, subject)       {"subject", "body"} for the model's text, or None. Code decides: strict JSON with exactly the two keys; a subject of one line; a body of
                                     plain text of at most 4000 characters; no header line, no HTML, no code fence, no link, no web address and no e-mail address other than the
-                                    recipients the person typed; nothing the card refuses (`send_document.text_problem`)
+                                    recipients the person typed; nothing the card refuses (`send_document.text_problem`). A body that ends with a closing formula alone
+                                    ("Atenciosamente,", "Best regards,") loses that last line and the bracketed placeholder name after it (`without_dangling_close`: one closing at most,
+                                    never after a line that ends with ":"): a name after the formula keeps it
+  spelled(typed, shown)             the subject the person typed, with its spelling fixed when the model's `shown` is the SAME subject (S12): NFKC with no format or control character; its
+                                    letters in the scripts the typed letters use; every character that is not a letter (digits, punctuation, symbols, spaces) the person's, in the same
+                                    places; a word typed with a capital or a digit changes its accents only (the first letter of the first word may become a capital); a word typed in
+                                    lower case, letters only, may also have a small edit inside it (0 up to 3 letters, 1 up to 6, 2 above; no letter added or removed at its start or end);
+                                    and the checks of a model-written subject; else `typed`
 
 What the model may see: five lines made of the date, the chat's language, the typed recipient addresses, the subject span (or empty) and the person's own words for the body
 (at most 1000 characters, else the text is sent as written). Never a message of the mailbox, a file, or any third-party text.
@@ -66,6 +73,14 @@ HTML = re.compile(r"</?[a-z][a-z0-9]*(?:\s[^>]*)?/?>|<!--", re.I)
 LINK = re.compile(r"(?i:[a-z][a-z0-9+.-]*://|\bwww\.|\bmailto:)|(?<![\w.-])[^\W_](?:[\w-]*[^\W_])?(?:\.[\w-]+)*\.[^\W\d_]{2,24}\b")      # a scheme or "www." in any case; a name.tld in any case and any script (a false hit only falls back)
 FORWARDED = re.compile(r"\s*(?:re|fwd?|res|enc|rv|aw|wg|vs)\s*:", re.I)      # a model-written subject must not pose as a reply or a forward
 WHITE = re.compile(r"\s+")
+PLACEHOLDER = re.compile(r"\[[^\]\n]{1,40}\]")      # "[Your name]": a signature the model left for the person to fill
+CLOSINGS = frozenset((      # the closing formulas of the six languages, folded (_fold); a last line that is one of these, with or without a comma, closes nothing
+    "atenciosamente", "abracos", "abraco", "um abraco", "att", "att.", "cordialmente", "obrigado", "obrigada", "cordiais saudacoes", "saudacoes",
+    "best regards", "regards", "kind regards", "warm regards", "best wishes", "sincerely", "yours sincerely", "yours truly", "thanks", "thank you", "best", "cheers",
+    "saludos", "un saludo", "saludos cordiales", "atentamente", "cordiales saludos", "gracias",
+    "cordialement", "bien cordialement", "bien a vous", "merci", "cordiales salutations", "bien a toi",
+    "mit freundlichen grussen", "freundliche grusse", "viele grusse", "beste grusse", "mit besten grussen", "liebe grusse", "danke",
+    "cordiali saluti", "distinti saluti", "saluti", "un caro saluto", "grazie", "a presto"))
 
 
 def prompt_template() -> str:
@@ -77,6 +92,117 @@ def prompt_sha256() -> str:
     """The sha256 of the compose prompt's bytes: the version that interpreter_enable.json pins."""
     with open(PROMPT_FILE, "rb") as handle:
         return hashlib.sha256(handle.read()).hexdigest()
+
+
+def _fold(text: str) -> str:
+    """The text as the spelling check compares it: NFKC, case folded, accents removed."""
+    folded = unicodedata.normalize("NFD", unicodedata.normalize("NFKC", text).casefold())
+    return unicodedata.normalize("NFC", "".join(c for c in folded if unicodedata.category(c) != "Mn"))
+
+
+def _bare(text: str) -> str:
+    """The text with its accents removed and its capitals kept (a name's case is compared on this)."""
+    return "".join(c for c in unicodedata.normalize("NFD", unicodedata.normalize("NFKC", text)) if unicodedata.category(c) != "Mn")
+
+
+def _distance(a: str, b: str) -> int:
+    """The Damerau-Levenshtein distance (adjacent swaps count one) of two short words."""
+    rows = [[j for j in range(len(b) + 1)]] + [[i] + [0] * len(b) for i in range(1, len(a) + 1)]
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            rows[i][j] = min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + (a[i - 1] != b[j - 1]))
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                rows[i][j] = min(rows[i][j], rows[i - 2][j - 2] + 1)
+    return rows[len(a)][len(b)]
+
+
+def _is_letter(char: str) -> bool:
+    return unicodedata.category(char)[0] in "LM"
+
+
+def _skeleton(text: str) -> str:
+    """The text with every run of letters read as one mark and every run of spaces as one space: what must be identical, character for character, in the person's subject and in
+    the model's (digits, punctuation, symbols and spaces never change; only letters may)."""
+    out = []
+    for char in unicodedata.normalize("NFC", text):
+        if _is_letter(char):
+            if not out or out[-1] != "\0":
+                out.append("\0")
+        elif char.isspace():
+            if not out or out[-1] != " ":
+                out.append(" ")
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+def _scripts(text: str) -> set:
+    return {unicodedata.name(char, "?").split(" ")[0] for char in text if unicodedata.category(char)[0] == "L"}
+
+
+def _same_words(typed: str, shown: str) -> bool:
+    """Whether `shown` is `typed` with its spelling fixed (see `spelled`): only letters differ; the letters are of the scripts the person used; a word typed with a capital or a digit
+    changes its accents only; a word typed in lower case, letters only, may also have a small edit inside it."""
+    if unicodedata.normalize("NFKC", shown) != shown or any(unicodedata.category(char) in ("Cf", "Cc") for char in shown):
+        return False      # full-width and compatibility forms, zero-width and direction marks, tabs and other controls
+    typed, shown = unicodedata.normalize("NFC", typed), unicodedata.normalize("NFC", shown)
+    if _skeleton(typed) != _skeleton(shown) or not _scripts(shown) <= _scripts(typed):
+        return False
+    before, after = re.findall(r"[^\W_]+", typed), re.findall(r"[^\W_]+", shown)
+    if len(before) != len(after):
+        return False
+    for at, (old, new) in enumerate(zip(before, after)):
+        if old == new:
+            continue
+        if _fold(old) == _fold(new):      # the accents changed: the capitals stay as typed, except the first letter of the first word
+            lower_first = at == 0 and old[:1].islower() and new[:1].isupper()
+            if _bare(old) != _bare(new) and not (lower_first and _bare(new) == _bare(old)[:1].upper() + _bare(old)[1:]):
+                return False
+            continue
+        if not old.isalpha() or old != old.lower():
+            return False      # a name, a word with a digit: no edit at all
+        flat = new[:1].lower() + new[1:] if at == 0 else new
+        if flat != flat.lower() or not new.isalpha():
+            return False
+        before_word, after_word = _fold(old), _fold(new)
+        if len(before_word) != len(after_word) and (before_word[:1] != after_word[:1] or before_word[-1:] != after_word[-1:]):
+            return False      # a letter added or removed at the start or the end of a word turns it into another (aprovado, reprovado; pago, pagou)
+        if _distance(before_word, after_word) > (0 if len(before_word) <= 3 else 1 if len(before_word) <= 6 else 2):
+            return False
+    return True
+
+
+def _subject_problem(shown: str) -> bool:
+    """Whether a model-written subject cannot stand: empty, long, several lines, an address, a link, a header, markup, a reply or forward mark, or what the card refuses."""
+    return bool(not shown or len(shown) > SUBJECT_MAX or "\n" in shown or "@" in shown or "=?" in shown or FORWARDED.match(shown) or HEADER.search(shown) or HTML.search(shown)
+                or LINK.search(_plain(shown)) or _problem(shown, False))
+
+
+def spelled(typed: str, shown) -> str:
+    """The subject the person typed with its spelling fixed when the model's `shown` is the same subject (see the module's text), else the typed one."""
+    if not isinstance(shown, str):
+        return typed
+    shown = shown.strip()
+    return shown if shown != typed and not _subject_problem(shown) and _same_words(typed, shown) else typed
+
+
+def without_dangling_close(body: str) -> str:
+    """The body without the closing formula that has nothing after it, and the bracketed placeholder name after it: "Atenciosamente," as the last line is dropped. At most one closing is
+    removed, and none after a line that ends with ":" (the line is then the answer to it); a closing followed by a name stays, and so does a finished courtesy sentence ("Obrigado.")."""
+    lines = body.rstrip().split("\n")
+    last = len(lines) - 1
+    if PLACEHOLDER.fullmatch(lines[last].strip()):
+        last -= 1
+        while last >= 0 and not lines[last].strip():
+            last -= 1
+    if last < 0 or _fold(lines[last].strip()).rstrip(",").strip() not in CLOSINGS:
+        return body.strip()
+    kept = lines[:last]
+    while kept and not kept[-1].strip():
+        kept.pop()
+    if kept and kept[-1].rstrip().endswith(":"):
+        return body.strip()
+    return "\n".join(kept).strip()
 
 
 def strip_marker(text):
@@ -175,7 +301,7 @@ def validate(text, to, subject=None):
         return None
     if not isinstance(obj, dict) or set(obj) != {"subject", "body"} or not all(isinstance(obj[k], str) for k in obj):
         return None
-    body = obj["body"].replace("\r\n", "\n").replace("\r", "\n").strip()
+    body = without_dangling_close(obj["body"].replace("\r\n", "\n").replace("\r", "\n").strip())
     shown = obj["subject"].strip()
     if not body or len(body) > BODY_MAX or "```" in body or HTML.search(body) or HEADER.search(body) or _problem(body, True):
         return None
@@ -184,10 +310,9 @@ def validate(text, to, subject=None):
         clean = re.sub(r"(?<![\w.+-])" + re.escape(unicodedata.normalize("NFKC", address)) + r"(?![\w-])(?!\.[\w])", "", clean, flags=re.I)      # only the whole typed address
     if "@" in clean or LINK.search(clean):
         return None
-    if subject is None and (not shown or len(shown) > SUBJECT_MAX or "\n" in shown or "@" in shown or "=?" in shown or FORWARDED.match(shown) or HEADER.search(shown) or HTML.search(shown) or LINK.search(_plain(shown))
-                            or _problem(shown, False)):
+    if subject is None and _subject_problem(shown):
         return None
-    return {"subject": subject if subject is not None else shown, "body": body}
+    return {"subject": spelled(subject, shown) if subject is not None else shown, "body": body}
 
 
 def _subject_of(described: str) -> str:
@@ -216,6 +341,7 @@ def write(ctx: dict, channel, sender, to, subject, text: str, ai_subject: bool =
         now = importlib.import_module("ops_natural")._clock()
         user = "\n".join([f"date: {now.strftime('%Y-%m-%d')} {DAY_NAMES[now.weekday()]}", f"language: {interpret._tag(ctx['cfg'])}", "to: " + ", ".join(to),
                           "subject: " + (subject or ""), "description: " + described])
+        importlib.import_module("line_stage").publish("compose")      # S19: the model words the e-mail
         got = _call(entry, prompt_template(), user)
         ok = bool(got.get("ok"))
         if ok:
