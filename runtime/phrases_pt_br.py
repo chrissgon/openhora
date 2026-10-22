@@ -53,8 +53,7 @@ TABLE = {
              "/remind <time> <text> um lembrete enviado a você uma vez (15:00, 2026-10-20 09:30 ou in 2h)\n/reminders          os lembretes que esperam\n"
              "/forget <n>         cancela um lembrete\n"
              "/project [name]     escolhe o projeto para onde vão suas mensagens\n/help               esta lista\n"
-             "Qualquer outra mensagem vai para o agente de planejamento. A configuração do projeto (channels.messaging) diz quais destes comandos "
-             "estão ativados."),
+             "Qualquer outra mensagem vai para o agente de planejamento. Os comandos ativos dependem das suas permissões."),
     "USAGE_APPROVE": "Uso: /approve <id>",
     "USAGE_REJECT": "Uso: /reject <id> [note]",
     "USAGE_RELEASE": "Uso: /release <id>",
@@ -641,6 +640,17 @@ TABLE = {
     # --- uma linha simples que o interpretador lê (pacote S1: runtime/ops_interpret.py): frases fixas, nenhuma palavra do modelo é mostrada ---
     "IX_PRIVATE_LINE": "(uma mensagem)",
     "IX_NONE": "Não vi um pedido nessa mensagem.",
+    # --- a resposta a uma saudação (pacote S5: runtime/greeting.py, ops_say._greeting_reply): linhas simples, uma para cada família de capacidades que a política do remetente permite ---
+    "GREET_HEAD": "Olá! Eu posso ajudar com isto:",
+    "GREET_MAIL": "- ler e resumir os seus e-mails",
+    "GREET_REMIND": "- criar lembretes",
+    "GREET_CALENDAR": "- criar, mudar ou cancelar eventos na sua agenda, com a sua aprovação",
+    "GREET_SEND": "- escrever e enviar e-mails, cada um só depois da sua aprovação",
+    "GREET_ORGANIZE": "- organizar a sua caixa de e-mail (rascunho, arquivar, mover, marcar, lixeira), com a sua aprovação",
+    "GREET_FILES": "- salvar arquivos no seu Drive ou OneDrive, com a sua aprovação",
+    "GREET_APPROVE": "- aprovar um card respondendo \"aprovo\" ou \"sim\", ou recusar respondendo \"não\"",
+    "GREET_OWN_WORDS": "- você pode pedir com as suas palavras, em qualquer uma de seis línguas",
+    "GREET_ASK_WORK": "- me mande um pedido em uma frase e eu o passo ao agente de planejamento",
     "IX_ASK_TIME": "Não tenho certeza do dia e da hora. Diga de novo, com o dia e a hora.",
     "IX_ASK_PAST": "Esse horário já passou. Diga um horário que ainda vem pela frente.",
     "IX_ASK_FAR": "Isso está a mais de um ano. Diga um dia mais perto.",

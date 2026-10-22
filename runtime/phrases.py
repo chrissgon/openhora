@@ -99,8 +99,7 @@ TABLE = {
                  "/remind <time> <text> a reminder sent back to you once (15:00, 2026-10-20 09:30 or in 2h)\n/reminders          the reminders that wait\n"
                  "/forget <n>         cancel a reminder\n"
                  "/project [name]     choose the project your lines go to\n/help               this list\n"
-                 "Any other line goes to the planning agent. Which of these your project turns on is in its configuration "
-                 "(channels.messaging)."),
+                 "Any other line goes to the planning agent. Which of these are active depends on your permissions."),
         "USAGE_APPROVE": "Usage: /approve <id>",
         "USAGE_REJECT": "Usage: /reject <id> [note]",
         "USAGE_RELEASE": "Usage: /release <id>",
@@ -687,6 +686,17 @@ TABLE = {
         # --- a plain line the interpreter reads (package S1: runtime/ops_interpret.py): fixed sentences, no word of the model is ever shown ---
         "IX_PRIVATE_LINE": "(a message)",
         "IX_NONE": "I did not see a request in that message.",
+        # --- the answer to a greeting (package S5: runtime/greeting.py, ops_say._greeting_reply): plain lines, one for each family of capabilities the sender's policy permits ---
+        "GREET_HEAD": "Hello! Here is what I can do for you now:",
+        "GREET_MAIL": "- read and summarise your e-mails",
+        "GREET_REMIND": "- set reminders",
+        "GREET_CALENDAR": "- create, change or cancel events on your calendar, after you approve",
+        "GREET_SEND": "- draft and send e-mails, each one only after you approve it",
+        "GREET_ORGANIZE": "- tidy your mailbox (drafts, archive, move, mark, trash), after you approve",
+        "GREET_FILES": "- save files to your Drive or OneDrive, after you approve",
+        "GREET_APPROVE": "- approve a card by replying \"approve\" or \"yes\", or refuse it by replying \"no\"",
+        "GREET_OWN_WORDS": "- you can ask in your own words, in any of six languages",
+        "GREET_ASK_WORK": "- send me a request in a sentence and I will pass it to the planning agent",
         "IX_ASK_TIME": "I am not sure of the day and the time. Say them again, with the day and the hour.",
         "IX_ASK_PAST": "That time has already passed. Say a time that is still ahead.",
         "IX_ASK_FAR": "That is more than a year away. Say a nearer day.",
