@@ -27,7 +27,7 @@ CAPS = {"send_files": True, "max_send_bytes": 1000, "max_photo_bytes": 500, "pho
 LIMITS = {"max_bytes": 1000, "photo_max_bytes": 500, "photo_types": ["png"], "types": ["text", "png"]}
 BYTES = b"Segunda: ensaio do coral.\n"
 HELD = {"name": "Atividades.txt", "kind": "document", "data": BYTES}
-SAID = "Atividades (OneDrive, pasta default):\n\nSegunda: ensaio do coral."
+SAID = "Atividades (OneDrive, pasta Documentos):\n\nSegunda: ensaio do coral."
 NOT_SENT = "The file did not arrive. Try again in a few minutes."
 RIGHT = "I did not send the file: what you may receive here changed after you asked."
 
