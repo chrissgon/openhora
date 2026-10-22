@@ -36,7 +36,8 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
   every(key)                  the sentence of a key in every language of the table (the forms a model must not write, the headings a model's line may imitate)
   decimal(text, cfg)          a number written with a point, as the language writes it (a comma in Portuguese)
   question_lines(reply)       the `Q<n>: ... Recommended: ...` lines of a router reply that asks, and nothing else of its template
-  asked_view(reply, cfg)      what a messaging app shows of such a reply: the framing (ROUTER_ASKS_FRAME) in the project's language, then those lines
+  asked_view(reply, cfg)      what a messaging app shows of such a reply: the framing (ROUTER_ASKS_FRAME) in the project's language, then the questions numbered, each with its
+                              recommended answer below it (runtime/phone_questions.py)
   localize(sentence, cfg)     an English sentence of a reminder or a file, as an operation raised it, in the project's language; any other text unchanged
   status(word, cfg)           a status word of the store as a word of the language (the word itself when unknown or the language has no table)
   heading(title, cfg)         the title of a decision that code wrote whole, as a word of the language; any other title unchanged
@@ -279,10 +280,36 @@ TABLE = {
         # --- the conversation (ops_say.py) ---
         "PLAN_NEXT": "Approve with /approve {pending}",
         "ASK_NEXT": "Answer with a plain line, or start again with /new <text>",
-        "ASK_NEXT_PHONE": "Answer with a plain line. If you want something else, just say it: a request I recognise is never taken as an answer.",
+        "ASK_NEXT_PHONE": "Answer in a plain message.",
         "ANSWER_TAKEN": "I took that as the answer to question #{id}.",
-        "ROUTER_ASKS_FRAME": "Before I start I need your answer:",
+        "ROUTER_ASKS_FRAME": "Questions:",
         "ROUTER_QUOTED_NOTE": "The request quoted instructions from external content; they were not followed. See them on the page.",
+        # --- the router's questions on a phone (phone_questions.py, slice S9): the labels it says, and the plain names of installed skills and flows ---
+        "PQ_LABEL_ROUTE": "Route",
+        "PQ_LABEL_WHY": "Why",
+        "PQ_LABEL_NEXT": "Next",
+        "PQ_LABEL_QUESTION": "Question",
+        "PQ_LABEL_RECOMMENDED": "Recommended",
+        "PQ_NAME_FLOW_BRAND": "the brand flow",
+        "PQ_NAME_FLOW_WEBSITE": "the website flow",
+        "PQ_NAME_FLOW_NEW_PROJECT": "the new-project flow",
+        "PQ_NAME_FLOW_DESIGN": "the design flow",
+        "PQ_NAME_FLOW_FIX_BUG": "the bug-fix flow",
+        "PQ_NAME_FLOW_BUILD_FEATURE": "the new-feature flow",
+        "PQ_NAME_FLOW_CODE_CHANGE": "the code-change flow",
+        "PQ_NAME_FLOW_IMPROVE_CODE": "the code-improvement flow",
+        "PQ_NAME_FLOW_MARKET_POSITIONING": "the market-positioning flow",
+        "PQ_NAME_FLOW_PUBLISH_POST": "the post-publishing flow",
+        "PQ_NAME_FLOW_SEND_EMAIL": "the e-mail flow",
+        "PQ_NAME_FLOW_SHORT_VIDEO": "the short-video flow",
+        "PQ_NAME_CORE_RESEARCH": "the research",
+        "PQ_NAME_CORE_CLARIFY": "the clarification step",
+        "PQ_NAME_BRAND_PROFILE": "the brand profile",
+        "PQ_NAME_BRAND_NAME": "the name check",
+        "PQ_NAME_BRAND_STRATEGY": "the brand strategy",
+        "PQ_NAME_BRAND_VOICE": "the brand voice",
+        "PQ_NAME_BRAND_IDENTITY": "the visual identity",
+        "PQ_NAME_MKT_PUBLISH": "the publishing step",
         "INSTR_PROPOSAL_ASK": "Add this line to the project's instructions?",
         "INSTR_WHERE_SAYS": "or on the page: Building > Instructions",
         "INSTR_WHERE_ELSEWHERE": "accept it on the page (Building > Instructions) or in the terminal",
@@ -987,14 +1014,12 @@ def question_lines(reply) -> list:
 
 
 def asked_view(reply, cfg=None) -> str:
-    """What a messaging app shows of a router reply that asks: the framing sentence in the project's language (`cfg` maps `language`), a blank line, the questions
-    (question_lines) and, when the section of instructions found in external content is not `none`, one line saying so (ROUTER_QUOTED_NOTE). The page and the
-    terminal show the reply whole; a phone shows the question. A reply with no question before that section comes back as it was (nothing is guessed)."""
-    read = read_question(reply)
-    if not read["questions"]:
-        return reply
-    note = "\n\n" + text("ROUTER_QUOTED_NOTE", cfg) if read["quoted"] else ""
-    return text("ROUTER_ASKS_FRAME", cfg) + "\n\n" + "\n".join(read["questions"]) + note
+    """What a messaging app shows of a router reply that asks (runtime/phone_questions.py, slice S9): the numbered questions under the framing in the project's language
+    (`cfg` maps `language`), each with its recommended answer on the line below, one blank line between the items, and, when the section of instructions found in external
+    content is not `none`, one line saying so (ROUTER_QUOTED_NOTE). A reply with no question that can be read comes back cleaned, not guessed: no code fence, the router's
+    labels and the names of skills and flows said plainly. The page and the terminal show the reply whole; a phone shows the questions."""
+    import phone_questions      # imported here: that module reads this one's table
+    return phone_questions.view(reply, cfg)
 
 
 def is_router_question(item) -> bool:
