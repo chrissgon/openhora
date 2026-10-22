@@ -148,10 +148,10 @@ def test_the_mcp_mode_never_opens_a_write_from_a_line(world, clock, spy):
 
 def test_a_refusal_of_the_start_is_the_reply_and_leaves_no_request_behind(world, clock, monkeypatch):
     policy(world)
-    seed_graph(world)
+    seed_graph(world, attendees=[{"emailAddress": {"address": "guest@example.org"}}])      # a meeting: the start of a removal refuses it (an Outlook removal itself is on since S21)
     install_item_refs(world, monkeypatch, {"agenda#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
     out = say(world, "cancela o evento 1 no outlook")
-    assert out["reply"].startswith("error: "), out["reply"]
+    assert out["reply"].startswith("error: ") and "other attendees" in out["reply"], out["reply"]
     tasks, pending = rows(world)
     assert pending == [] and {t["state"] for t in tasks} <= {"cancelled"}
     assert not [r for r in world["graph"].graph_requests() if r["method"] != "GET"]

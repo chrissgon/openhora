@@ -547,6 +547,7 @@ TABLE = {
     "CARD_CAL_CREATE": "O código cria este evento depois da sua aprovação, e nada mais.",
     "CARD_CAL_CHANGE": "O código altera este evento depois da sua aprovação, só se ele ainda estiver como foi lido em {read_at}.",
     "CARD_CAL_CANCEL": "O código remove este evento depois da sua aprovação. O Google deve movê-lo para a lixeira da agenda, de onde você pode restaurá-lo por 30 dias (Google Agenda, Lixeira); isso ainda não foi verificado.",
+    "CARD_CAL_CANCEL_OUTLOOK": "O código remove este evento depois da sua aprovação. O Outlook pode não guardar uma cópia do evento apagado; depois de aprovado, pode não ser possível recuperá-lo.",
     "CARD_CAL_EVENT": "Evento: {event_id}",
     "CARD_CAL_NOW_WHEN": "O evento agora é em: {when}",
     "CARD_CAL_NOW_TITLE": "O evento agora: {title}",

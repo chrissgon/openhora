@@ -1,8 +1,8 @@
 """A stand-in for Microsoft on 127.0.0.1, for the tests of the Outlook calendar writer (package W1): the Microsoft identity token endpoint (a public client, a new
 refresh token on every refresh, the old one left valid) and the events of the default calendar and of one named calendar through Graph (get, list with a filter on
-the private property, create, patch). It keeps its events in memory, gives each a changeKey that moves with every change, and RECORDS every request (method, path,
-query, headers that matter, body) so that a test can assert the exact list. It serves no removal: a DELETE is answered 405 and recorded, and `unexpected()` lists it
-with any other request the writer should never send.
+the private property, create, patch, and the removal of one event: a 204, the event moved to `removed`; like Graph it takes no If-Match). It keeps its events in
+memory, gives each a changeKey that moves with every change, and RECORDS every request (method, path, query, headers that matter, body) so that a test can assert the
+exact list. `unexpected()` lists any request the writer should never send.
 
   fake = FakeGraphCalendar()                  # starts on a free loopback port in a daemon thread; fake.close() stops it
   fake.record_json(**over)                    # a MICROSOFT_ACCOUNT_TOKEN value this fake accepts
@@ -43,6 +43,7 @@ class FakeGraphCalendar:
         self.requests: list = []
         self.token_forms: list = []
         self.events: dict = {}
+        self.removed: dict = {}      # the events a removal took out of the calendar, by id
         self.version = 0
         self.counter = 0
         self.rotations = 0
@@ -150,7 +151,7 @@ class FakeGraphCalendar:
             rest = path[len(GRAPH):] if path.startswith(GRAPH + "/") else path
             ok = (rest == "/me/calendars" and method == "GET"
                   or re.fullmatch(r"/me/calendars?(/[^/]+)?/events", rest) is not None and method in ("GET", "POST") and not rest.startswith("/me/calendars/events")
-                  or re.fullmatch(r"/me/calendars?(/[^/]+)?/events/[^/]+", rest) is not None and method in ("GET", "PATCH"))
+                  or re.fullmatch(r"/me/calendars?(/[^/]+)?/events/[^/]+", rest) is not None and method in ("GET", "PATCH", "DELETE"))
             if not ok:
                 found.append((method, path))
         return found
@@ -166,14 +167,14 @@ class FakeGraphCalendar:
         if rest == "/me/calendars" and method == "GET":
             return 200, {"value": [{"id": NAMED}]}, {}, None
         where = self.scope_of(rest)
-        if where is None or method == "DELETE":
+        if where is None:
             return 405, {"error": {"code": "methodNotAllowed", "message": "this stand-in serves only the writer's requests"}}, {}, None
         calendar, event_id = where
         if method == "GET" and event_id is None:
             wanted = re.search(r"ep/value eq '([^']*)'", entry["query"].get("$filter", ""))
             items = [e for e in self.events.values() if not wanted or any(p["value"] == wanted.group(1) for p in e["singleValueExtendedProperties"])]
             return 200, {"value": [{"id": e["id"], "changeKey": e["changeKey"]} for e in items]}, {}, None
-        if method in ("POST", "PATCH") and self.refuse_next:
+        if method in ("POST", "PATCH", "DELETE") and self.refuse_next:
             status, code = self.refuse_next
             self.refuse_next = None
             return status, {"error": {"code": code, "message": f"stand-in refusal {code}"}}, ({"Retry-After": "30"} if status in (429, 503) else {}), None
@@ -204,6 +205,11 @@ class FakeGraphCalendar:
                 self.merge(item, entry["body"])
                 return item
             return 200, item, {}, apply
+        if method == "DELETE":
+            def apply():
+                self.removed[item["id"]] = self.events.pop(item["id"])
+                return None
+            return 204, None, {}, apply
         return 405, {"error": {"code": "methodNotAllowed", "message": "not served"}}, {}, None
 
     def merge(self, item, body):

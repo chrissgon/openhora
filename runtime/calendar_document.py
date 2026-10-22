@@ -349,8 +349,6 @@ def check(doc) -> dict:
         raise _usage("the account is google or microsoft, with the writer that serves it")
     if doc["operation"] not in OPERATIONS:
         raise _usage(f"the operation is one of {', '.join(OPERATIONS)}")
-    if doc["account"] == "microsoft" and doc["operation"] == "cancel":
-        raise _usage("removing an event from an Outlook calendar is not available yet (it waits for the check that a removed event can be restored)")
     if not isinstance(doc["address"], str) or not 3 <= len(doc["address"]) <= 254 or "@" not in doc["address"]:
         raise _usage("address is the account's address")
     if not isinstance(doc["calendar"], str) or not NAME.fullmatch(doc["calendar"]) or not isinstance(doc["calendar_id"], str) \
@@ -481,7 +479,8 @@ def card_lines(doc: dict, digest: str) -> list:
         head.append(["CARD_CAL_SNAPSHOT", {"reference": f"{doc['reference']['source']}#{doc['reference']['n']}", "read_at": doc["reference"]["read_at"]}])
     base = [["CARD_CAL_BASE", {"etag_short": etag_short(doc["base_etag"])}]]
     if operation == "cancel":
-        return [["CARD_CAL_CANCEL", {}]] + head + _event_lines(doc["before"], zone, current=True) + base
+        # the line about where a removed event goes is the account's own: Google is expected to keep it in a trash, Outlook may keep no copy (not verified)
+        return [["CARD_CAL_CANCEL" if doc["account"] == "google" else "CARD_CAL_CANCEL_OUTLOOK", {}]] + head + _event_lines(doc["before"], zone, current=True) + base
     changed, out = doc["changed"], [["CARD_CAL_CHANGE", {"read_at": doc["read_at"]}]] + head
     before, after = doc["before"], doc["event"]
     out += _part_lines("BEFORE", before, zone, changed) + _part_lines("AFTER", after, zone, changed)

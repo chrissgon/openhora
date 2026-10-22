@@ -184,9 +184,6 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
     account, operation = args["account"], args["operation"]
     if not reader.enabled(account):
         raise steps.StepFailure("not_configured", "account", "", "list the account in docs/workbench/runtime.json (the key accounts) and accept the file")
-    if account == "microsoft" and operation == "cancel":
-        raise steps.StepFailure("not_available", "operation", "writer", "removing an event from an Outlook calendar is not available yet: Microsoft does not say where "
-                                "a removed event goes, so it is off until that is shown")
     named = None
     if operation == "create":
         name = reader.calendar_name(account, args.get("calendar"))

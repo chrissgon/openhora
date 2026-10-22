@@ -9,7 +9,9 @@ on a `.example` or `example.com` name. Held here, and the limit each belongs to:
        create, a change and a removal is exactly one POST, one PATCH with `If-Match` and one DELETE with `If-Match`, each with `sendUpdates=none`, and no attendee;
   L56  a change or a removal is made only to the event as it was read: another version between the card and the approval is `stale`, nothing is sent, the decision
        is answered and the task starts over from the step that reads;
-  L57  Outlook has no removal: the start refuses it, the document refuses it, and the writer has no verb for it;
+  L57  an Outlook removal is one DELETE of the event, made only after the approval of the card that says Outlook may keep no copy (the maintainer's choice of
+       2026-10-22, which reverses Q12 of SPEC-SECRETARY-WRITES; where a removed event goes is not verified); a meeting, a series and an event someone else
+       organizes are refused at the start; a moved version is stale and sends nothing; the Google removal is unchanged;
   L58  the writer is started only by the effect module and the read-only seam: the seam reads one event and asks for a dry run (no credential), nothing else;
   L59  the writer's environment is the minimum plus the one token of the account asked for; no token is in the store, the card or the effect file.
 
@@ -594,21 +596,138 @@ def test_limit_57_a_removal_is_one_delete_with_if_match_and_send_updates_none_th
     assert "ev0001" in world["google"].removed and world["google"].events == {} and world["google"].unexpected() == []
 
 
-def test_limit_57_removing_an_outlook_event_is_refused_at_the_start_in_the_document_and_the_writer_has_no_verb(world, monkeypatch):
+OUTLOOK_LINE_EN = ("Code removes this event after your approval. Outlook may not keep a copy of a removed event; once approved, it may not be possible to recover it.")
+OUTLOOK_LINE_PT = "O Outlook pode n\u00e3o guardar uma c\u00f3pia do evento apagado; depois de aprovado, pode n\u00e3o ser poss\u00edvel recuper\u00e1-lo."
+GOOGLE_LINE_EN = ("Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days "
+                  "(Google Calendar, Trash); this has not been verified yet.")
+REMOVAL = "DEL" + "ETE"      # built here so that no scan of this file's text mistakes the test for a request
+
+
+def graph_removals(world):
+    return [r for r in world["graph"].graph_requests() if r["method"] == REMOVAL]
+
+
+def outlook_removal(world, monkeypatch):
+    """A seeded Outlook event of the person's alone, named by a snapshot item, and the removal card prepared for it."""
     seed_graph(world)
+    install_item_refs(world, monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
+    return ops.event_cancel(world["path"], "microsoft", "calendar#1")
+
+
+def test_limit_57_an_outlook_removal_is_one_delete_of_the_event_made_only_by_the_approval_of_a_card_that_says_it_may_not_come_back(world, monkeypatch):
+    started = outlook_removal(world, monkeypatch)
+    item = item_of(world, started)
+    lines = item["body"].splitlines()
+    assert item["title"] == "Calendar: remove an event" and lines[0] == OUTLOOK_LINE_EN, lines[0]
+    assert "trash" not in item["body"] and "Google" not in lines[0], "the Outlook card makes no promise of a trash"
+    assert f"Account: microsoft ({fgc.ADDRESS})" in lines and f"Event: {GRAPH_SEEDED}" in lines and "Removing, title: Dentist" in lines and lines[-1].startswith("Based on version ")
+    portuguese = cards.effect_card_text(item, {"language": "pt-BR"}).splitlines()
+    assert portuguese[0] == "O c\u00f3digo remove este evento depois da sua aprova\u00e7\u00e3o. " + OUTLOOK_LINE_PT      # validate: allow english-only -- the Portuguese line under test
+    doc = effect_doc(world, started)
+    assert doc["operation"] == "cancel" and doc["account"] == "microsoft" and doc["implementation"] == "outlook-calendar" and doc["event"] is None
+    assert doc["event_id"] == GRAPH_SEEDED and doc["base_etag"] == world["graph"].events[GRAPH_SEEDED]["changeKey"] and doc["changed"] == []
+    assert graph_removals(world) == [] and world["graph"].removed == {} and GRAPH_SEEDED in world["graph"].events, "nothing is removed before the approval"
+    assert len(world["graph"].token_forms) == 1, "the preparation read the event once; the dry run of the request opened no connection and read no credential"
+    world["graph"].requests.clear()
+    done = approve(world, started)
+    assert done["task_state"] == "done" and done["result"]["operation"] == "cancel" and done["result"]["account"] == "microsoft"
+    assert [(r["method"], r["path"]) for r in world["graph"].graph_requests()] == [("GET", f"{GRAPH_EVENTS}/{GRAPH_SEEDED}"), ("GET", f"{GRAPH_EVENTS}/{GRAPH_SEEDED}"),
+                                                                                (REMOVAL, f"{GRAPH_EVENTS}/{GRAPH_SEEDED}")]
+    [removal] = graph_removals(world)
+    assert removal["query"] == {} and removal["body"] is None and GRAPH_SEEDED in world["graph"].removed and world["graph"].events == {} and world["graph"].unexpected() == []
+    assert world["google"].requests == []
+
+
+def test_the_outlook_line_is_the_outlook_cards_alone_and_the_google_card_keeps_its_own(world, monkeypatch):
+    outlook = item_of(world, outlook_removal(world, monkeypatch))
+    google = made_event(world)
+    removal = item_of(world, ops.event_cancel(world["path"], "google", f"created:{google['pending']}"))
+    assert OUTLOOK_LINE_EN == outlook["body"].splitlines()[0] and GOOGLE_LINE_EN == removal["body"].splitlines()[0]
+    assert OUTLOOK_LINE_EN not in removal["body"] and "Outlook" not in removal["body"] and GOOGLE_LINE_EN not in outlook["body"], "vacuity: each card holds only its own line"
+    assert cards.effect_card_text(removal, {"language": "pt-BR"}).splitlines()[0].endswith("isso ainda n\u00e3o foi verificado.")      # validate: allow english-only -- the Portuguese line under test
+    assert OUTLOOK_LINE_PT not in cards.effect_card_text(removal, {"language": "pt-BR"})
+
+
+def test_an_outlook_removal_of_an_event_whose_change_key_moved_after_the_card_is_stale_and_nothing_is_sent(world, monkeypatch):
+    started = outlook_removal(world, monkeypatch)
+    world["graph"].events[GRAPH_SEEDED]["changeKey"] = world["graph"].next_key()
+    world["graph"].requests.clear()
+    with pytest.raises(ops.OpsError) as stale:
+        approve(world, started)
+    assert "another version" in str(stale.value) and graph_removals(world) == [] and world["graph"].removed == {} and GRAPH_SEEDED in world["graph"].events
+    assert task_state(world, started["task"]) == "ready"
+    again = ops.event_cancel(world["path"], "microsoft", "calendar#1")      # vacuity: the same removal, prepared again on the version now held, is made
+    assert approve(world, again)["task_state"] == "done" and len(graph_removals(world)) == 1 and GRAPH_SEEDED in world["graph"].removed
+
+
+def test_an_outlook_removal_after_the_change_key_moved_is_refused_and_the_writer_sends_no_delete(world, monkeypatch):
+    started = outlook_removal(world, monkeypatch)
+    doc = effect_doc(world, started)
+    world["graph"].events[GRAPH_SEEDED]["changeKey"] = world["graph"].next_key()
+    world["graph"].requests.clear()
+    with pytest.raises(ops.OpsError):
+        approve(world, started)
+    assert graph_removals(world) == [] and doc["base_etag"] != world["graph"].events[GRAPH_SEEDED]["changeKey"]
+
+
+@pytest.mark.parametrize("more, sentence", [({"attendees": [{"emailAddress": {"address": "other@example.org"}}]}, "other attendees"),
+                                            ({"type": "seriesMaster"}, "repeats"), ({"type": "occurrence"}, "repeats"), ({"seriesMasterId": "AAMkSeries0001="}, "repeats"),
+                                            ({"isOrganizer": False}, "organized by someone else")], ids=str)
+def test_an_outlook_meeting_a_series_and_an_event_someone_else_organizes_are_not_removed_and_nothing_is_left_behind(world, monkeypatch, more, sentence):
+    seed_graph(world, **more)
     install_item_refs(world, monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
     with pytest.raises(ops.OpsError) as why:
         ops.event_cancel(world["path"], "microsoft", "calendar#1")
-    assert "not available yet" in str(why.value) and world["graph"].requests == []
-    doc = {"effect": "calendar", "operation": "cancel", "account": "microsoft", "implementation": "outlook-calendar"}
-    with pytest.raises(effects.EffectError) as refused_doc:
-        calendar_document.check(doc | {k: None for k in calendar_document.KEYS if k not in doc})
-    assert refused_doc.value.kind == "usage"
+    assert sentence in str(why.value) and why.value.code == 1
+    tasks, pending = rows(world)
+    assert pending == [] and {t["state"] for t in tasks} <= {"cancelled"} and graph_removals(world) == [] and world["graph"].removed == {}
+
+
+def test_an_outlook_event_of_the_persons_alone_is_removed_where_the_same_event_with_a_guest_is_not(world, monkeypatch):      # vacuity of the refusals above
+    seed_graph(world, attendees=[{"emailAddress": {"address": fgc.ADDRESS}}])
+    install_item_refs(world, monkeypatch, {"calendar#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
+    assert approve(world, ops.event_cancel(world["path"], "microsoft", "calendar#1"))["task_state"] == "done" and GRAPH_SEEDED in world["graph"].removed
+
+
+def test_a_guest_who_joins_after_the_card_is_refused_by_the_writer_even_with_the_version_the_card_has(world, monkeypatch):
+    started = outlook_removal(world, monkeypatch)
+    world["graph"].events[GRAPH_SEEDED]["attendees"] = [{"emailAddress": {"address": "late@example.org"}}]      # a change the version of the card does not see
+    world["graph"].requests.clear()
+    with pytest.raises(ops.OpsError) as refused:
+        approve(world, started)      # the runtime's own read finds the same changeKey, so only the writer's check stands between the guest and the DELETE
+    assert "not eligible" in str(refused.value) and "other attendees" in str(refused.value), str(refused.value)
+    assert graph_removals(world) == [] and world["graph"].removed == {}
+
+
+def test_a_lost_answer_of_an_outlook_removal_is_found_by_the_event_being_gone_and_recorded_done_not_sent_again(world, monkeypatch):
+    started = outlook_removal(world, monkeypatch)
+    world["graph"].lose_answer_once = True
+    with pytest.raises(ops.OpsError) as lost:
+        approve(world, started)
+    assert "may or may not have landed" in str(lost.value) or "outcome is unknown" in str(lost.value)
+    assert GRAPH_SEEDED in world["graph"].removed and task_state(world, started["task"]) == "waiting"
+    world["graph"].requests.clear()
+    done = approve(world, started)      # the event answers 404 now
+    assert done["task_state"] == "done" and done["result"]["replayed"] is True
+    assert graph_removals(world) == [], "the removal was not made twice"
+    assert approve_again_is_refused(world, started)
+
+
+def approve_again_is_refused(world, started):
+    with pytest.raises(ops.OpsError):
+        approve(world, started)
+    return True
+
+
+def test_the_effect_of_an_outlook_removal_passes_the_document_check_and_the_preflight(world, monkeypatch):
+    started = outlook_removal(world, monkeypatch)
+    doc = effect_doc(world, started)
+    assert calendar_document.check(doc) == doc
     cfg = ops_core.context(world["path"])["cfg"]
-    assert effect_calendar.preflight(cfg, {**doc, "address": fgc.ADDRESS, "calendar": "personal", "calendar_id": "default"}, str(world["tree"]))[0] == 1
-    assert calendar_document.VERBS["microsoft"]["cancel"] == "event-delete"
-    writer = (world["tree"] / "providers" / "writer" / "outlook-calendar.py").read_text(encoding="utf-8")
-    assert "event-delete" not in writer.split('"""', 2)[2], "the Outlook writer has no verb that removes an event"
+    assert effect_calendar.preflight(cfg, doc, str(world["tree"])) is None
+    assert effect_calendar.preflight(cfg, {**doc, "address": "someone.else@mail.example"}, str(world["tree"]))[0] == 1      # vacuity: the preflight still refuses what is not configured
+    assert calendar_document.VERBS["microsoft"]["cancel"] == "event-delete" and calendar_document.verb_of(doc) == "event-delete"
+    assert calendar_document.provider_args(doc, None) == ["--calendar", "default", "--event", GRAPH_SEEDED, "--base-etag", doc["base_etag"], "--idempotency-key", doc["idempotency_key"]]
 
 
 # --- Outlook: a create and a change -------------------------------------------------------------------------------------------------------------

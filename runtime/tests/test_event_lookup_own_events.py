@@ -32,6 +32,7 @@ event_created = st.load("event_created")
 ops_items = st.load("ops_items")
 ops_step_seams = st.load("ops_step_seams")
 interpreter_route = st.load("interpreter_route")
+messaging_cards = st.load("messaging_cards")
 
 TITLE = "corte de cabelo"
 CARD_2 = "O card #2 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test
@@ -244,6 +245,35 @@ def test_the_live_line_as_typed_with_its_accent_opens_the_same_card(world, monke
     model = Model(monkeypatch, MODEL_TEXTS["the event's name in the number slot"])
     assert say(world, LIVE_ACCENTED) == CARD_2 and model.calls == 1
     assert card_problems(pending(world, 2), *HAIR_22) == []
+
+
+OUTLOOK = f"microsoft ({fgc.ADDRESS})"
+OUTLOOK_LINE = "O Outlook pode n\u00e3o guardar uma c\u00f3pia do evento apagado; depois de aprovado, pode n\u00e3o ser poss\u00edvel recuper\u00e1-lo."      # validate: allow english-only -- the Portuguese line or sentence under test
+
+
+def graph_deletes(world):
+    delete = "DEL" + "ETE"      # built here so that no scan of this file's text mistakes the test for a request
+    return [(r["method"], r["path"], r["query"], r["body"]) for r in world["graph"].graph_requests() if r["method"] == delete]
+
+
+def test_the_live_line_on_an_outlook_event_opens_the_cancel_card_with_the_outlook_line_and_deletes_nothing_until_it_is_approved(world, monkeypatch):
+    build(world, monkeypatch)
+    made(world, account="microsoft", start="2026-10-22T13:00")
+    model = Model(monkeypatch, MODEL_TEXTS["the event's name in the number slot"])
+    world["graph"].requests.clear()
+    reply = say(world, LIVE_ACCENTED)
+    item = pending(world, 2)
+    assert reply == CARD_2 and model.calls == 1 and item["status"] == "open" and item["resolution"] is None
+    assert card_problems(item, "AAMkEvent0001=", TITLE, "Thu 22/10/2026 13:00-14:00", OUTLOOK) == [], item["body"]
+    portuguese = messaging_cards.effect_card_text(item, {"language": "pt-BR"}).splitlines()
+    assert portuguese[0] == "O c\u00f3digo remove este evento depois da sua aprova\u00e7\u00e3o. " + OUTLOOK_LINE      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert item["body"].splitlines()[0] == ("Code removes this event after your approval. Outlook may not keep a copy of a removed event; once approved, it may not be possible to recover it.")
+    assert writes(world) == [] and graph_deletes(world) == [] and world["graph"].removed == {} and "AAMkEvent0001=" in world["graph"].events, "only reads before the approval"
+    wrong = card_problems(item, "AAMkEvent0001=", TITLE, "Thu 22/10/2026 13:00-14:00", GOOGLE)
+    assert wrong != [], "vacuity: the oracle sees another account"
+    approve(world, item)
+    assert graph_deletes(world) == [("DEL" + "ETE", "/v1.0/me/calendar/events/AAMkEvent0001=", {}, None)], "exactly one removal, of that event, after the approval"
+    assert "AAMkEvent0001=" in world["graph"].removed and world["graph"].events == {} and world["google"].requests == []
 
 
 def test_a_removal_card_is_the_same_card_the_reference_created_opens(world, monkeypatch):

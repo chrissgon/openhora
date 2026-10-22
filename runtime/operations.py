@@ -466,7 +466,7 @@ OPERATIONS = (
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
               {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"}, {"name": "calendar", "kind": "str"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
-     "help": "prepare the removal of an event of your own calendar and stop at a card (nothing is removed until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; Google is expected to move it to the calendar's trash for 30 days (to verify live); on Outlook this is not available yet; nobody is told"},
+     "help": "prepare the removal of an event of your own calendar and stop at a card (nothing is removed until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; Google is expected to move it to the calendar's trash for 30 days (to verify live); on Outlook the removed event may not be recoverable (not verified); nobody is told"},
     # W2: an e-mail from the person's own account (SPEC-SECRETARY-WRITES 3.2). Each one PREPARES a card and sends nothing: the e-mail is sent when its card is approved with its
     # hash (limits L55 and L42). Off for a messaging app until a profile lists the group mail-send; never on the MCP mode.
     {"name": "mail-send", "call": "mail_send",

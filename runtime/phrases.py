@@ -594,6 +594,7 @@ TABLE = {
         "CARD_CAL_CREATE": "Code creates this event after your approval, and nothing else.",
         "CARD_CAL_CHANGE": "Code changes this event after your approval, only if it is still as read at {read_at}.",
         "CARD_CAL_CANCEL": "Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days (Google Calendar, Trash); this has not been verified yet.",
+        "CARD_CAL_CANCEL_OUTLOOK": "Code removes this event after your approval. Outlook may not keep a copy of a removed event; once approved, it may not be possible to recover it.",
         "CARD_CAL_EVENT": "Event: {event_id}",
         "CARD_CAL_NOW_WHEN": "The event now is at: {when}",
         "CARD_CAL_NOW_TITLE": "The event now: {title}",
