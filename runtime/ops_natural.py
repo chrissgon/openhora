@@ -47,6 +47,7 @@ import ops_core as core
 import natural
 import operations
 import ops_actor
+import phone_errors
 import phone_refusal
 import phrases
 
@@ -298,7 +299,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     if cls == "R":
         if "mcp" not in row["channels"] or keeps_private(ctx, name, channel, sender):      # the MCP mode reads the conversation: what it could not read itself (reminders, files people sent, the private lines of a card drawn for a holder of ask-mail) is stored as a neutral word (limits L50, L51)
             extras["stored"] = t("NAT_READ_REPLY")
-        return _read(project, ctx, name, row, dict(args, kind=natural_writes().items_kind(said), **importlib.import_module("ops_items")._named_account(said)) if name == "items" else args, channel, sender)      # NR-5: the noun of the line says which items; S15: an account it names narrows them
+        return _read(project, ctx, name, row, dict(args, kind=natural_writes().items_kind(said), **importlib.import_module("ops_items")._line_args(said)) if name == "items" else args, channel, sender)      # NR-5: the noun of the line says which items; S15: an account it names narrows them
     if cls == "N":
         return _notice(project, ctx, name, row, args, said, channel, sender, extras, when, routed)
     if cls == "W":
@@ -383,8 +384,8 @@ def _error(cfg: dict, error, channel) -> str:
     """An error of the operations layer as a person is told: its message in the project's language where a table has it; on a messaging app a message with a path
     in it, or a problem of this machine, is a fixed sentence."""
     text = str(error)
-    if channel == "messaging" and getattr(error, "phone", None):      # a sentence the operation wrote for a phone: plain words, what failed and what to check (messaging_failure)
-        return str(error.phone)
+    if channel == "messaging" and getattr(error, "phone", None):      # a sentence the operation wrote for a phone: plain words, what failed and what to check (messaging_failure); made safe in a language that is not English (S14b)
+        return phone_errors.safe(str(error.phone), cfg)
     if channel == "messaging" and (PATH.search(text) or guard.find(text) or getattr(error, "code", 1) == 3):
         return phrases.text("ATT_MACHINE", cfg)
     return "error: " + phrases.localize(text, cfg)
@@ -405,6 +406,9 @@ def _short(value) -> str:
 
 
 HIDDEN_KEYS = ("command", "path", "folder", "dir", "warning")      # a field that names this machine or carries a command is not written into a message
+
+
+REFUSAL_KEYS = ("error", "refused", "reason", "why")      # the fields of a result that tell why something was not done
 
 
 def _hidden(key) -> bool:
@@ -449,7 +453,9 @@ def _render(name: str, out, cfg: dict, channel) -> str:
     for key, value in out.items():
         if _hidden(key):
             continue
-        if _scalar(value):
+        if channel == "messaging" and key in REFUSAL_KEYS and isinstance(value, str) and not phone_errors.english(cfg):      # a refusal a result carries is told in the language on a phone (S14b)
+            lines.append(phone_errors.safe(value, cfg))
+        elif _scalar(value):
             lines.append(f"{key}: {_short(value)}")
         elif isinstance(value, list) and value and all(isinstance(v, dict) for v in value):
             lines.append(f"{key}:")

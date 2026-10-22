@@ -736,6 +736,10 @@ TABLE = {
     "NW_ITEMS_T_RECURRING": "recorrente",
     "EV_NONE_NO_SOURCE": "Não encontrei esse evento. Nenhuma agenda sua foi adicionada a este projeto ainda, então só consigo achar os eventos que eu mesmo criei aqui. Adicione a sua agenda para achar os outros.",
     "EV_CHECK_FAILED": "Não consegui conferir a sua agenda agora, então não fiz nada. Tente de novo em instantes.",
+    "NW_ITEMS_HEAD_CHECKED": "{name} (verificado {when}):",
+    "NW_ITEMS_TODAY": "hoje",
+    "NW_ITEMS_YESTERDAY": "ontem",
+    "NW_ITEMS_PREVIEW": "Início do texto: {text}",
     "PHONE_NOT_UNDERSTOOD": "Não entendi o pedido e não comecei nada. Pode dizer de outro jeito?",
     # --- uma confirmação curta quando a resposta demora (fatia S19: runtime/messaging_ack.py, runtime/line_stage.py): escolhida por código pela etapa em que o trabalho estava ---
     "ACK_GENERIC": "Um momento, estou vendo isso...",
@@ -791,6 +795,7 @@ TABLE = {
     "PHONE_NOT_PLANNED": "Não planejado {n}: {item}.",
     "NOT_OPEN_DONE": "O pedido #{number} já foi {status}.",
     "PHONE_NO_FILE_DELETE": "Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive.",
+    "FAIL_OUTLOOK_REMOVE": "Ainda não consigo apagar eventos da agenda do Outlook por aqui. Você pode apagar pelo próprio Outlook.",
     "PEND_CARD_TITLE": "Pergunta do assistente",
     "PEND_NOT_UNDERSTOOD_TITLE": "Pedido não entendido",
     # --- uma pergunta de informação geral respondida por uma pesquisa na web (fatia R2-F1: runtime/ops_research.py, runtime/research_reply.py) ---
