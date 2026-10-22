@@ -80,12 +80,23 @@ def test_a_write_that_names_the_agenda_is_no_tier_1_form_and_reaches_the_path_it
     assert ((natural.candidate(line) or {}).get("op") or "") == candidate
 
 
-def widened(form):
-    """A copy of the shipped tables with one more `items` form: the planted fault."""
-    tables = copy.deepcopy(nt.languages())
-    for table in tables:
-        table["requests"]["forms"]["items"] = [*table["requests"]["forms"]["items"], form]
-    return tables
+@pytest.fixture
+def widened():
+    """A function: the shipped tables with one more `items` form (the planted fault). `natural` caches the compiled forms by the id of a table, and an id is reused once a table is
+    freed, so each copy is kept alive for the test and its cache entry is dropped before and after."""
+    kept = []
+
+    def make(form):
+        tables = copy.deepcopy(nt.languages())
+        for table in tables:
+            table["requests"]["forms"]["items"] = [*table["requests"]["forms"]["items"], form]
+            natural._COMPILED.pop(id(table), None)
+        kept.append(tables)
+        return tables
+    yield make
+    for tables in kept:
+        for table in tables:
+            natural._COMPILED.pop(id(table), None)
 
 
 @pytest.mark.parametrize("form,line", [
@@ -93,7 +104,8 @@ def widened(form):
     (r"muda a reuniao na agenda( para as 11)?", "muda a reuniao na agenda para as 11"),
     (r"(remove|cancel) the (meeting|dentist) (from|on) my calendar", "cancel the dentist on my calendar"),
 ])
-def test_vacuity_a_form_that_is_too_wide_catches_the_write_and_the_same_oracle_sees_it(form, line):
-    assert natural.match(line, widened(form))["op"] == "items"
+def test_vacuity_a_form_that_is_too_wide_catches_the_write_and_the_same_oracle_sees_it(widened, form, line):
+    tables = widened(form)
+    assert natural.match(line, tables)["op"] == "items"
     with pytest.raises(AssertionError):
-        assert natural.match(line, widened(form)) is None
+        assert natural.match(line, tables) is None
