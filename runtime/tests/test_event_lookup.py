@@ -289,6 +289,42 @@ def test_a_cancelled_event_is_never_found(world, monkeypatch):
     assert carry(world, "Cancela o yoga", CANCEL)[0] == "O card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test, and the control: a live event is found
 
 
+def test_a_rename_does_not_match_the_new_title_as_the_event_to_change(world, monkeypatch):
+    build(world, monkeypatch, events=[("22", "10:00", "11:00", "Planejamento", "evplan")])
+    text = op_text("event-change", {"title": "Planejamento trimestral"})
+    reply, extras = carry(world, "Renomeia a reunião para Planejamento trimestral", text)      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert reply == "Não encontrei esse evento na sua agenda nos próximos 30 dias." and "resend" not in extras and rows(world) == ([], [])      # validate: allow english-only -- the Portuguese line or sentence under test
+    # control: when the old title is in the line, the same title span renames that event
+    _, extras = carry(world, "Renomeia o planejamento para Planejamento trimestral", text)
+    lines = card(world, extras)["body"].splitlines()
+    assert "Named as agenda#1, from the snapshot read at 2026-10-21T17:00:00Z." in lines and "After: Title: Planejamento trimestral" in lines, lines
+
+
+@pytest.mark.parametrize("line", ["Muda o yoga para as 10h do dia 23", "Muda o yoga para as 10h do\ndia 23", "Muda o yoga para as 10h do  dia 23", "Muda o yoga para as 10h do \t dia   23"])
+def test_a_break_or_a_double_space_in_the_time_phrase_does_not_make_its_day_the_old_events_day(world, monkeypatch, line):
+    build(world, monkeypatch, events=[("22", "18:00", "19:00", "Yoga", "evyoga22"), ("23", "18:00", "19:00", "Yoga", "evyoga23")])
+    reply, extras = carry(world, line, op_text("event-change", {"time": "as 10h do dia 23"}, time_iso="2026-10-23T10:00", weekday="fri"))
+    assert reply == ("Mais de um evento combina. Qual deles você quer mudar?\n1. Thu 22/10/2026 18:00-19:00 · Yoga\n2. Fri 23/10/2026 18:00-19:00 · Yoga\n"      # validate: allow english-only -- the Portuguese line or sentence under test
+                     "Diga o número e o novo horário, por exemplo: remarca o evento 1 para sexta às 15h."), line      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert "resend" not in extras
+
+
+def test_a_span_the_line_does_not_hold_is_a_question_and_no_day_is_read_from_the_unstripped_line(world, monkeypatch):
+    build(world, monkeypatch)
+    ctx = ops_core.context(world["path"])
+    made = decision("Muda o yoga para as 10h do dia 23", op_text("event-change", {"time": "as 10h do dia 23"}, time_iso="2026-10-23T10:00", weekday="fri"))
+    made["spans"] = {"time": "as 11h do dia 24"}      # a span the line does not hold (planted)
+    got = event_lookup.open_event(world["path"], ctx, made, "Muda o yoga para as 10h do dia 23", OWNER, {}, st.load("ops_natural_writes"), ops_natural._clock())
+    assert got == "Não consegui ler o dia que você quis dizer. Diga o nome do evento e o dia, por exemplo: amanhã ou 22/10."      # validate: allow english-only -- the Portuguese line or sentence under test
+
+
+def test_a_word_of_the_day_or_a_yes_is_not_the_title_of_an_event(world, monkeypatch):
+    build(world, monkeypatch, events=[("23", "09:00", "10:00", "Dia", "evdia"), ("23", "11:00", "12:00", "Sim", "evsim")])
+    for line in ("cancela o dentista dia 23", "sim, cancela o dentista", "cancela o dentista, ok"):
+        reply, extras = carry(world, line, CANCEL)
+        assert reply.startswith("Não encontrei esse evento") and "resend" not in extras, line      # validate: allow english-only -- the Portuguese line or sentence under test
+
+
 # --- the pure rule: which events a line names ------------------------------------------------------------------------------------------------------
 
 
@@ -391,3 +427,13 @@ def test_the_whole_turn_stores_neither_the_line_nor_a_title_and_prints_nothing(w
     for piece in ("corte de cabelo", "Remova", "Cancela o", "amanha"):
         assert piece.lower() not in seen.lower(), piece
     assert "(pedido para as suas contas)" in stored or "(uma mensagem)" in stored      # validate: allow english-only -- the Portuguese line or sentence under test
+
+
+def test_the_words_the_time_engine_reads_and_a_yes_at_the_edges_are_not_matched_against_titles():
+    rows_ = [row("2026-10-23", "Dia", 1), row("2026-10-23", "Sim", 2), row("2026-10-23", "Reunião 10h", 3), row("2026-10-23", "Jantar da Ana", 4), row("2026-10-23", "Dentista", 5)]      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert titles(event_lookup.candidates(rows_, "cancela o dentista dia 23", "none", None, TODAY)) == ["Dentista"]
+    assert titles(event_lookup.candidates(rows_, "sim, cancela o dentista", "none", None, TODAY)) == ["Dentista"]
+    assert titles(event_lookup.candidates(rows_, "cancela o dentista, ok", "none", None, TODAY)) == ["Dentista"]
+    assert titles(event_lookup.candidates(rows_, "cancela a reunião 10h", "none", None, TODAY)) == ["Reunião 10h"], "a title that holds a time is read against the whole line"      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert titles(event_lookup.candidates(rows_, "cancela o jantar da ana", "none", None, TODAY)) == ["Jantar da Ana"], "a yes word inside a title stays"
+    assert titles(event_lookup.candidates(rows_, "cancela o dia", "none", None, TODAY)) == ["Dia"], "control: the word is a title when nothing reads it as a day"

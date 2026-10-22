@@ -21,7 +21,7 @@ written and no model is used.
 Which events fit. An event is a candidate when it is not cancelled and falls in the window: from today to 30 days ahead, or, when the line names a day, that day alone. A day is
 named by a date word code reads (today, tomorrow, "dia 22", 22/10, a weekday: any date of that weekday in the window); a time of day alone names none, so a title that holds a number is
 never mistaken for one; a date word code cannot read is a question, not a guess. A candidate fits when its title, folded (case and accents) and cut into words, occurs as whole words
-in the line (for a change, the line without the span that holds the new time). A title that is part of a longer title that also fits is dropped. Exactly one fits: the card opens.
+in the line (for a change, the line without the spans that hold the new time and the new title, found in the line with its white space collapsed; a span not found is a question). A title that is part of a longer title that also fits is dropped. Exactly one fits: the card opens.
 Several: a short numbered list and the question which. None: the calendar sources are read again once (`refresh`: only a sender who may read a snapshot gets here, no new
 group; a snapshot older than its limit counts as a miss too; a failure is dropped), the search is made again, and still none is one plain sentence; never a second refresh for a line. The numbers listed are the snapshot's own, so "cancela o evento 7" is then the numbered form.
 
@@ -177,16 +177,54 @@ def _day_named(text: str, now):
     return "unread", None
 
 
-def _without(said: str, span) -> str:
-    return said.replace(span, " ", 1) if span and span in said else said
+def _cut(text: str, span):
+    """`text` without the first occurrence of `span` (both with every run of white space one space, as the interpreter accepts a span against the collapsed line), or None when
+    the span is not in it."""
+    piece = " ".join(str(span).split())
+    at = text.find(piece) if piece else -1
+    return None if at < 0 else text[:at] + " " + text[at + len(piece):]
+
+
+_CONFIRM = []
+
+
+def _confirmations() -> list:
+    """The closed confirmation words and phrases of every language table (yes and no, in the answers and in the requests), as word lists, longest first."""
+    if not _CONFIRM:
+        found = set()
+        for table in nt.languages():
+            for group in ("answers", "requests"):
+                for key in ("yes", "no"):
+                    found.update(tuple(_words(w)) for w in (table.get(group) or {}).get(key) or [] if isinstance(w, str) and _words(w))
+        _CONFIRM.extend(sorted(found, key=len, reverse=True))
+    return _CONFIRM
+
+
+def _edges(text: str) -> list:
+    """The words of the line without a confirmation word or phrase at its start or its end ("sim, cancela o dentista"): a word of the title is never one of those."""
+    words = _words(text)
+    changed = True
+    while changed:
+        changed = False
+        for phrase in _confirmations():
+            n = len(phrase)
+            if len(words) > n and tuple(words[:n]) == phrase:
+                words, changed = words[n:], True
+            elif len(words) > n and tuple(words[-n:]) == phrase:
+                words, changed = words[:-n], True
+    return words
 
 
 def candidates(rows: list, said: str, kind: str, value, today: datetime.date) -> list:
-    """The events of `rows` the line names: in the window or on the named day, and whose title is whole words of the line (a title inside a longer fitting title is dropped)."""
-    line = _words(said)
+    """The events of `rows` the line names: in the window or on the named day, and whose title is whole words of the line (a title inside a longer fitting title is dropped).
+    The words of the line are those left when a confirmation word at its edges is taken out; the words the time engine reads as a day or a time are taken out too, so that a
+    title such as "Dia" is not named by "dia 23", except for a title that holds such a word itself ("Reuniao 10h"), which is read against the whole line."""
+    whole = _edges(said)
+    bare = _edges(nt.without(said, nt._spans(nt.find(said))))
     fits = []
     for row in rows:
         words = _words(row["title"])
+        line = whole if nt.find(row["title"])["hits"] else bare
         if sum(len(w) for w in words) < TITLE_MIN or not _contains(line, words):
             continue
         if kind == "day":
@@ -230,7 +268,12 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
             return opened
     extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
     spans = decision.get("spans") or {}
-    text = _without(said, spans.get("time") if op == "event-change" else None)
+    text = " ".join(said.split())
+    for key in (("time", "title") if op == "event-change" else ()):          # the new time and the new title are not the words of the event to change
+        if spans.get(key):
+            text = _cut(text, spans[key])
+            if text is None:
+                return _text(ctx, "EV_ASK_DAY")          # a span the line does not hold as written: no day is read from the unstripped line
     kind, value = _day_named(text, now)
     if kind == "unread":
         return _text(ctx, "EV_ASK_DAY")
