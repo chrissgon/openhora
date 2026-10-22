@@ -28,8 +28,8 @@ ops_natural = st.load("ops_natural")
 phrases = st.load("phrases")
 
 OUTLOOK_LINE = "Liste o ultimo email do meu Outlook"
-OLD, NEW = "bia@clinic.example · Appointment confirmed", "cora@clinic.example · New invoice"
-OUTLOOK_MAIL = "dan@work.example · Weekly report"
+OLD, NEW = "Bia Costa · Appointment confirmed · today 06:00", "Cora Dias · New invoice · today 06:00"      # the stand-in provider prints every message at 09:00 UTC, which is 06:00 in the world's zone
+OUTLOOK_MAIL = "Dan Reis · Weekly report · today 06:00"
 NOTE = "(list from 07:12)"       # the stand-in clock reads at 10:12 UTC; the world's zone is America/Sao_Paulo (-03:00)
 NOT_ADDED = "Your mailbox has not been added to this project yet, so there is nothing to list. It is added once, on the platform's page."
 
@@ -56,6 +56,7 @@ def project(world, language="en", page_url=None):
 def snaps(world, monkeypatch):  # noqa: F811
     s = Snapshots(world, monkeypatch)
     monkeypatch.setattr(ops_items, "SNAPSHOT_CLOCK", lambda: s.now)
+    ops_items._CHECKED.clear()
     s.providers.mail["gmail"] = [tsm.message(1, sender="Bia Costa <bia@clinic.example>", subject="Appointment confirmed")]
     s.providers.mail["outlook"] = [tsm.message(1, sender="Dan Reis <dan@work.example>", subject="Weekly report", source="outlook")]
     return s
@@ -318,7 +319,7 @@ def test_the_mail_on_a_phone_has_a_plain_name_and_a_local_time(world, snaps, clo
     with_inbox(world, snaps)
     reply = ask(world, "list my emails")
     assert reply.splitlines() == ["Gmail inbox (read at 07:12):", "1. " + OLD]
-    assert "inbox (read" in reply and "(read 2026" not in reply
+    assert "bia@clinic.example" not in reply and "(read 2026" not in reply
 
 
 def test_a_snapshot_read_on_another_day_says_the_day(world, snaps, clock):
