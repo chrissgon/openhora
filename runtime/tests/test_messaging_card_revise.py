@@ -134,7 +134,7 @@ def test_a_card_that_is_not_open_a_question_and_a_reply_to_a_message_that_is_no_
     mail_card(world)
     revise = Revise(world)
     world.items[7]["status"] = "resolved"
-    world.say(LINE, reply_to=message_ids(world)[0])
+    world.say(LINE)      # a card that is not open and is not replied to is never asked about
     world.say(LINE, reply_to="999")
     assert revise.checks == []
     world.items[3] = decision("question", 3)
@@ -182,3 +182,27 @@ def test_a_failure_of_the_layer_is_one_plain_sentence_and_the_card_is_left_alone
     world.fake.card_revise = lambda *a, **k: (_ for _ in ()).throw(world.fake.OpsError("boom"))
     world.say(LINE)
     assert wait_for(lambda: world.texts()[-1].startswith("I could not make that change")) and nothing_decided(world)
+
+
+def test_a_sentence_that_leaves_the_old_card_open_sends_the_card_again_so_a_word_still_decides_it(world):
+    mail_card(world)
+    revise = Revise(world, result={"say": "Sorry.", "resend": 7})
+    for turn in (1, 2):      # twice in a row: the second send is not held back by the limit on cards sent again to a chat
+        world.say(LINE)
+        assert wait_for(lambda: len(world.sent()) == 1 + 2 * turn)      # the card, then (the sentence and the card again) once for each line
+        assert wait_for(lambda: world.bridge.last_sent.get(SENDER) == message_ids(world)[-1])
+    assert world.texts()[1] == "Sorry." and len(world.sent()) == 5 and world.sent()[2]["message"]["text"] == world.sent()[0]["message"]["text"]      # the card, the sentence, the same card, again
+    world.say("sim")
+    assert approvals(world) == [(7, HASH)], "the old card, with its own hash, is decided by the word"
+
+
+def test_a_reply_to_a_card_that_a_change_replaced_is_told_so_in_one_sentence_and_goes_nowhere_else(world):
+    mail_card(world)
+    revise = Revise(world, found="replaced")
+    world.items[7]["status"] = "resolved"
+    world.say(LINE, reply_to=message_ids(world)[0])
+    assert revise.checks == [(7, HASH, LINE, "messaging", KEY)] and world.texts()[-1] == "That card was replaced by a newer one. Change the newer card, or ask again."
+    assert revise.changes == [] and world.calls("say") == []
+    revise.found = None
+    world.say(LINE, reply_to=message_ids(world)[0])      # the layer says it is nothing: it goes on as it always did
+    assert went_to_say(world)

@@ -928,13 +928,16 @@ class Bridge(shell_kit.Jobs):
             return False
         try:
             item = self.ops.pending(project["path"], pending_id=card["pending_id"])
-            if item.get("status", "open") != "open" or cards.content_sha256(item) != card["content_sha256"]:
-                return False
+            if cards.content_sha256(item) != card["content_sha256"] or (item.get("status", "open") != "open" and not (isinstance(replied, str) and replied)):
+                return False      # a card that is not open is asked about only when the line replies to it (the layer says whether a revision replaced it)
             found = checker(project["path"], card["pending_id"], card["content_sha256"], text, channel=CHANNEL, sender=self.key(chat))
         except self.ops.OpsError:
             return False
         if found == "sentence":
             self.keep_cards(chat, self.t("RV_NOT_REVISABLE", project=project), project)
+            return True
+        if found == "replaced":
+            self.reply(chat, self.t("RV_REPLACED", project=project), project)
             return True
         if found is None:
             return False
@@ -964,7 +967,7 @@ class Bridge(shell_kit.Jobs):
             return
         if result.get("say"):
             self.reply(chat, result["say"], project)
-        if result.get("resend") is not None and not self.resend(project, chat, result["resend"]):
+        if result.get("resend") is not None and not self.resend(project, chat, result["resend"], force=True):          # the old card, sent once more after a sentence, is the last message again
             self.reply(chat, self.t("NW_CARD_NOT_SENT", project=project, pending=result["resend"]), project)
 
     def word_reply(self, listed: list, chat: str, word: dict, replied) -> bool:
@@ -1503,14 +1506,14 @@ class Bridge(shell_kit.Jobs):
         found = natural.needs(text)
         return found if found is not None and CHANNEL in self.ops.operations.by_name(found)["channels"] else None
 
-    def resend(self, project: dict, chat: str, pending_id: int) -> bool:
+    def resend(self, project: dict, chat: str, pending_id: int, force: bool = False) -> bool:
         """Send the card of an open decision again to the chat that named it in words (NR-2): the same card, under the same rules, so the decision is
         made from it. True when the card is there for the sender: sent now, or sent less than RESEND_EVERY seconds ago (a line repeated is not a flood).
         False for a decision that is not open, or that the sender is not sent a card for."""
         key = (project["id"], chat, pending_id)
         now = self.monotonic()
         last = self.resent.get(key)
-        if last is not None and now - last < RESEND_EVERY:
+        if not force and last is not None and now - last < RESEND_EVERY:          # `force`: a card that a sentence of the change pushed up from the last place (S13) is sent whatever it was sent before
             return True
         try:
             item = self.ops.pending(project["path"], pending_id=pending_id)

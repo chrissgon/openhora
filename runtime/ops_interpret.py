@@ -273,7 +273,7 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     entry = interpreter_enable.active(_tag(cfg))
     decision = interpreter.precheck(said)
     if decision is None:
-        decision = importlib.import_module("ops_card_revise").decided(sender, said)      # S13: the decision made while the line was checked as a change of a waiting card, once
+        decision = importlib.import_module("ops_card_revise").decided(project, CHANNEL, sender, said)      # S13: the decision made while the line was checked as a change of a waiting card, once
     if decision is None:
         decision = _ask_model(ctx, entry["entry"], said, sender, router_frame(age_s)) if entry is not None and _admit(ctx, sender) else None
     if decision is None:

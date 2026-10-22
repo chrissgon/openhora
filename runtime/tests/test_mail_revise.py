@@ -18,6 +18,7 @@ import standin_tree as st
 mail_revise = st.load("mail_revise")
 interpreter_enable = st.load("interpreter_enable")
 mail_compose = st.load("mail_compose")
+ops_card_revise = st.load("ops_card_revise")
 
 TO = ["joana.silva@clinica.example"]
 SUBJECT = "Reunião amanhã"      # validate: allow english-only -- a Portuguese card under test
@@ -133,3 +134,20 @@ def test_a_card_that_is_a_reply_has_a_copy_or_a_file_or_is_not_a_mail_is_not_rev
 def test_the_instruction_is_one_line_of_bounded_length():
     assert mail_revise.clean("  a \n b  ") == "a b" and mail_revise.clean("") is None and mail_revise.clean(None) is None
     assert mail_revise.clean("x" * 600) is not None and mail_revise.clean("x" * 601) is None
+
+
+def test_the_decision_kept_for_a_line_is_keyed_by_project_and_sender_expires_and_is_used_once(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr(ops_card_revise, "clock", lambda: now[0])
+    ops_card_revise.forget_all()
+    ops_card_revise.remember("/work/a", "messaging", "telegram:1", "muda  para as 10h", {"kind": "op"})
+    assert ops_card_revise.decided("/work/a", "messaging", "telegram:2", "muda para as 10h") is None, "another sender"
+    assert ops_card_revise.decided("/work/b", "messaging", "telegram:1", "muda para as 10h") is None, "another project"
+    assert ops_card_revise.decided("/work/a", "messaging", "telegram:1", "muda para as 10h") == {"kind": "op"}, "vacuity: the same project, sender and line (white space collapsed)"
+    assert ops_card_revise.decided("/work/a", "messaging", "telegram:1", "muda para as 10h") is None, "once"
+    ops_card_revise.remember("/work/a", "messaging", "telegram:1", "muda para as 10h", {"kind": "op"})
+    now[0] += 61.0
+    assert ops_card_revise.decided("/work/a", "messaging", "telegram:1", "muda para as 10h") is None, "60 seconds"
+    ops_card_revise.remember("/work/a", "messaging", "telegram:1", "muda para as 10h", {"kind": "op"})
+    assert ops_card_revise.decided("/work/a", "messaging", "telegram:1", "another line") is None
+    assert ops_card_revise.decided("/work/a", "messaging", "telegram:1", "muda para as 10h") is None, "dropped when read, whatever the line was"

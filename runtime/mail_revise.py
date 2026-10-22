@@ -7,7 +7,7 @@
 
 The maintainer's rule (2026-10-22): "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível". A person who reads the card of an e-mail and wants
 a word changed says so in a line ("after Regards, put my name"), and the card is replaced by a new one with the change. This file is the pure part; the operation that
-reads the card and opens the new one is runtime/ops_mail_revise.py. Nothing here sends, approves, opens or closes a card, logs, prints or stores a word.
+reads the card and opens the new one is runtime/ops_card_revise.py. Nothing here sends, approves, opens or closes a card, logs, prints or stores a word.
 
   prompt_template(), prompt_sha256()       the fixed prompt (runtime/mail_revise_prompt.txt) and the hash that runtime/interpreter_enable.json pins (`revise_prompt_sha256`)
   shape(doc)                               {"kind": "send" | "draft", "account", "address" (the account's, the From), "to", "subject", "body"} for the effect document of a NEW e-mail from the person's own

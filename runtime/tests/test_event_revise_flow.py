@@ -23,7 +23,8 @@ import pytest
 
 import standin_tree as st
 import test_event_lookup as tel
-from test_calendar_write import rows, world  # noqa: F401  (the calendar world and its real snapshots)
+import test_sources_mail as tsm
+from test_calendar_write import fgw, rows, world  # noqa: F401  (the calendar world and its real snapshots)
 from test_event_lookup import OWNER, carry, op_text, reads_only  # noqa: F401
 from test_ops_natural_writes import forget  # noqa: F401
 
@@ -113,7 +114,7 @@ def test_the_live_line_on_the_card_of_a_new_event_opens_a_new_card_with_the_new_
     got = revise(world, old, sha, LIVE)
     new = got["resend"]
     assert isinstance(new, int) and new != old
-    assert got["say"] == "Pronto: aqui está o e-mail com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este."      # validate: allow english-only -- the Portuguese sentence under test
+    assert got["say"] == "Pronto: aqui está o evento com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este." and "e-mail" not in got["say"]      # validate: allow english-only -- the Portuguese sentence under test
     assert body(world, new) == [line.replace("Title: evento social", "Title: Evento Coders 26K") for line in OLD], "only the title moved"
     assert status(world, old) != "open" and open_cards(world) == [new]
     refused_for_good(world, old, sha)
@@ -172,7 +173,7 @@ def test_a_time_that_needs_a_question_is_asked_as_it_is_for_any_line_and_nothing
     model = build(world, monkeypatch, op_text("event-change", {"time": "as 10"}, time_iso="2026-10-22T10:00", weekday="thu"))
     old, sha = create(world)
     got = revise(world, old, sha, "muda para as 10")
-    assert got["resend"] is None and got["say"] and open_cards(world) == [old] and status(world, old) == "open"
+    assert got["resend"] == old and got["say"] and open_cards(world) == [old] and status(world, old) == "open", "the question, and the old card sent once more after it"
     assert len(model.calls) == 1
 
 
@@ -185,7 +186,7 @@ def test_a_decision_that_is_not_a_change_of_an_event_goes_on_and_is_not_read_twi
     ctx = ops_core.context(world["path"])
     got = ops_interpret.turn(world["path"], ctx, line, OWNER, {})      # the turn that follows reads the decision that was kept
     assert len(model.calls) == 1 and got is not None
-    assert ops_card_revise.decided(OWNER, line) is None, "once"
+    assert ops_card_revise.decided(world["path"], "messaging", OWNER, line) is None, "once"
 
 
 def test_a_failed_model_call_goes_on_and_a_change_with_nothing_named_asks_what(world, monkeypatch):
@@ -195,7 +196,7 @@ def test_a_failed_model_call_goes_on_and_a_change_with_nothing_named_asks_what(w
     ops_interpret.forget_all()
     model.text = op_text("event-change")
     got = revise(world, old, sha, "muda o evento")
-    assert got["resend"] is None and got["say"] == phrases.text("EV_CHANGE_WHAT", ops_core.context(world["path"])["cfg"]) and open_cards(world) == [old]
+    assert got["resend"] == old and got["say"] == phrases.text("EV_CHANGE_WHAT", ops_core.context(world["path"])["cfg"]) and open_cards(world) == [old]
 
 
 def test_the_card_of_a_change_of_an_event_found_in_a_snapshot_is_changed_with_the_same_event(world, monkeypatch):
@@ -240,3 +241,79 @@ def test_a_card_that_changed_a_sender_not_read_by_the_interpreter_and_one_who_ca
     assert check(world, old, sha, LIVE, sender=tel.TALKER) is None, "the talker holds no `interpret`"
     assert revise(world, old, sha, LIVE, sender=tel.TALKER) == {"pass": True} and model.calls == []
     assert check(world, old, sha, LIVE) == "event", "vacuity: the owner's line is one"
+
+
+# --- the fixes of the review: the event, the other event, the moment, the parts the line did not name, no two open cards ------------------------------------------
+
+
+def snapshot_cards(world, monkeypatch, text):
+    """The calendar world with a change card for the yoga (agenda#3) and a model that answers `text`."""
+    build(world, monkeypatch, text)
+    _, extras = carry(world, "Muda o yoga para as 10h do dia 23", op_text("event-change", {"time": "as 10h do dia 23"}, time_iso="2026-10-23T10:00", weekday="fri"))
+    return extras["resend"], ops.pending(world["path"], extras["resend"])["payload_sha256"]
+
+
+def test_a_snapshot_refreshed_meanwhile_never_makes_the_new_card_move_another_event(world, monkeypatch):
+    old, sha = snapshot_cards(world, monkeypatch, op_text("event-change", {"title": "Barbeiro"}))
+    assert any("Named as agenda#3" in l for l in body(world, old))
+    provided = [tsm.event(i + 1, f"2026-10-{day}T{start}:00-03:00", f"2026-10-{day}T{end}:00-03:00", title, id=ident)
+                for i, (day, start, end, title, ident) in enumerate([("20", "09:00", "10:00", "Early", "evearly")] + tel.EVENTS)]      # an earlier event: every number after it moves by one
+    world["google"].add_event("evearly", "Early", {"dateTime": "2026-10-20T09:00:00-03:00"}, {"dateTime": "2026-10-20T10:00:00-03:00"})
+    world["snaps"].providers.events[("google", fgw.CALENDAR)] = provided
+    world["snaps"].later(minutes=1)
+    world["snaps"].refresh("agenda")
+    got = revise(world, old, sha, "muda o título para Barbeiro")      # validate: allow english-only -- the Portuguese line under test
+    assert got["resend"] is None and got["say"].endswith("Peça de novo.")      # validate: allow english-only -- the Portuguese sentence under test
+    assert open_cards(world) == [], "no card stays open, and none names the event that the old number points to now"
+    assert reads_only(world) == []
+
+
+def test_a_line_that_names_another_event_leaves_the_card_alone_and_goes_on(world, monkeypatch):
+    model = build(world, monkeypatch, op_text("event-change", {"time": "as 10h"}, time_iso="2026-10-22T10:00", weekday="thu"))
+    old, sha = create(world)
+    assert revise(world, old, sha, "muda o dentista para as 10h") == {"pass": True}      # validate: allow english-only -- the Portuguese line under test
+    assert open_cards(world) == [old] and status(world, old) == "open" and len(model.calls) == 1
+    assert ops_card_revise.decided(world["path"], "messaging", OWNER, "muda o dentista para as 10h") is not None, "the decision is kept for the turn that follows"      # validate: allow english-only -- the Portuguese line under test
+
+
+@pytest.mark.parametrize("line", ["muda para as 10h", "muda o evento social para as 10h", "muda o horario do evento para as 10h"])      # validate: allow english-only -- the Portuguese lines under test
+def test_a_line_that_names_the_cards_own_event_or_none_still_revises_it(world, monkeypatch, line):
+    build(world, monkeypatch, op_text("event-change", {"time": "as 10h"}, time_iso="2026-10-22T10:00", weekday="thu"))
+    old, sha = create(world)
+    new = revise(world, old, sha, line)["resend"]
+    assert "When: Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)" in body(world, new)
+
+
+def test_a_moment_in_the_past_is_asked_as_a_typed_line_would_be(world, monkeypatch):
+    build(world, monkeypatch, op_text("event-change", {"time": "as 10h"}, time_iso="2026-10-22T10:00", weekday="thu"))
+    old, sha = create(world, start="2026-10-21T08:00", end="2026-10-21T09:00")      # the card's day is today, 15:00 has passed: 10h on that day is past
+    got = revise(world, old, sha, "muda para as 10h")
+    assert got == {"say": phrases.text("IX_ASK_PAST", ops_core.context(world["path"])["cfg"]), "resend": old} and open_cards(world) == [old]
+
+
+def test_the_parts_the_line_did_not_name_are_copied_and_a_card_that_lost_one_is_ended(world, monkeypatch):
+    build(world, monkeypatch, op_text("event-change", {"title": "Evento Coders 26K"}))
+    old, sha = create(world, location="Main Street", reminder_minutes=30, notes="Bring cash")
+    kept = [l for l in body(world, old) if l.startswith(("Where", "Calendar reminder", "Notes"))]
+    assert len(kept) == 3
+    real = ops.event_create
+    monkeypatch.setattr(ops, "event_create", lambda project, **kw: real(project, **dict(kw, location="Elsewhere")))
+    lost = revise(world, old, sha, LIVE)
+    assert lost["resend"] is None and open_cards(world) == [], "a card that does not keep the location is ended, and none stays open"
+    monkeypatch.setattr(ops, "event_create", real)
+    old2, sha2 = create(world, location="Main Street", reminder_minutes=30, notes="Bring cash")
+    new = revise(world, old2, sha2, LIVE)["resend"]
+    assert [l for l in body(world, new) if l.startswith(("Where", "Calendar reminder", "Notes"))] == kept
+
+
+def test_a_card_that_cannot_be_ended_or_a_new_card_that_cannot_be_opened_never_leaves_two_open_cards(world, monkeypatch):
+    build(world, monkeypatch, op_text("event-change", {"title": "Evento Coders 26K"}))
+    old, sha = create(world)
+    real = ops.reject
+    monkeypatch.setattr(ops, "reject", lambda project, number, **kw: (_ for _ in ()).throw(ops.OpsError("busy", 1)))
+    got = revise(world, old, sha, LIVE)
+    monkeypatch.setattr(ops, "reject", real)
+    assert got["resend"] == old and open_cards(world) == [old]
+    monkeypatch.setattr(ops, "event_create", lambda project, **kw: (_ for _ in ()).throw(ops.OpsError("no card", 1)))
+    got = revise(world, old, sha, LIVE)
+    assert got["resend"] is None and got["say"].endswith("Peça de novo.") and open_cards(world) == []      # validate: allow english-only -- the Portuguese sentence under test
