@@ -140,6 +140,7 @@ import messaging_remind as remind
 import messaging_typing as indicator
 import natural
 import natural_time
+import phone_delete
 import phone_errors
 import phone_refusal
 import phrases
@@ -1430,7 +1431,7 @@ class Bridge(shell_kit.Jobs):
         """The sentence for an approval that did not write: the operations layer's `phone` sentence when it wrote one, else the plain words messaging_failure picks from its
         code and words, with the effect's word. The error's own text (a step name, a hash, a command) stays in the terminal and the page."""
         said = getattr(error, "phone", None)
-        return str(said) if said else failure.from_error(error, cfg, word=item.get("effect_word"), account=(item.get("payload") or {}).get("account"))
+        return phone_errors.safe(str(said), cfg) if said else failure.from_error(error, cfg, word=item.get("effect_word"), account=(item.get("payload") or {}).get("account"))
 
     def release(self, project: dict, chat: str, pending_id: int) -> None:
         def call():
@@ -1446,6 +1447,14 @@ class Bridge(shell_kit.Jobs):
     def say(self, project: dict, chat: str, text: str) -> None:
         """A free line to the planning agent. A line that may wait (`queueable`) and meets a project that is busy is kept (`keep`) and answered `QUEUED`;
         a line that comes while others wait goes behind them (also one that is being started), so that the lines start in the order they came."""
+        if phone_delete.asks(text):      # S14b: a request to delete a file is answered at once, before any queue, run or model; a sender who may not talk gets the refusal of any line
+            try:
+                self.allow(project, "say", None, chat)
+            except (Refused, self.ops.OpsError):
+                pass
+            else:
+                self.reply(chat, self.t("PHONE_NO_FILE_DELETE", project=project), project)
+                return
         found = None if text.lstrip().startswith("/") else natural.match(text)
         if found is not None and natural.class_of(found["op"]) in ("D", "W"):      # a decision or an act said in a closed form (S20) is answered by code with no model: it takes no model slot, so a brake said in words works while the planning agent answers, as the typed /reject does
             self.start(project, chat, found["op"], self.line(project, chat, text, None))

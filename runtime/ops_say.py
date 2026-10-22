@@ -174,7 +174,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     store = ctx["store"]
     importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
     importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
-    handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender) or _greets(ctx, said, channel, sender)      # S5: a greeting is answered by code too, never queued
+    handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender) or _greets(ctx, said, channel, sender) or (channel == "messaging" and may_talk(ctx, channel, sender) and phone_delete.asks(said))      # S14b: a request to delete a file is answered by code, so it waits for no run and no queue. S5: a greeting is answered by code too, never queued
     if _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
         # router is free again; a shell that drains nothing is refused while the router answers another request.
@@ -316,12 +316,12 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
     extras = extras if extras is not None else {}
     if talks and greeting.is_greeting(said, helps=channel == "messaging"):      # S5: a greeting, or a plain request for help, is answered by code before any open question and any model: never the answer to the router's question
         return _greeting_reply(ctx, channel, sender), None, None, False, None, None
+    if talks and channel == "messaging" and phone_delete.asks(said):      # a file is not deleted from a message yet (S14, S14b): one plain sentence, no card, no request, no model, before an open question (a request to delete is never its answer), the lists of code and the interpreter
+        return phrases.text("PHONE_NO_FILE_DELETE", ctx["cfg"]), None, None, False, None, None
     asked = _open_question(ctx, channel, sender) if talks else None      # a sender who may not talk never answers the router's question; on a phone it is the question bound to this sender (S4)
     if asked is not None and ops_natural.recognises(ctx, said, _natural_channel(channel), sender):      # a request code recognises is a new line, never the answer (LIVE-2), for the interpreter's senders too
         asked = None
     framed = asked is not None and bool(extras.get("deferred"))      # S4: of the lines no list of code claims, the interpreter tells the answer from a new line, by a typed frame (decision 229 (1))
-    if asked is None and talks and channel == "messaging" and phone_delete.asks(said):      # a file is not deleted from a message yet (S14): one plain sentence, no card, no request, no model
-        return phrases.text("PHONE_NO_FILE_DELETE", ctx["cfg"]), None, None, False, None, None
     if asked is None and state_question(said):
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
             return phone_refusal.said(operations.not_enabled('status', channel), channel, ctx["cfg"]), None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
