@@ -920,7 +920,7 @@ CLASSES = {
     # R: reads
     "status": "R", "progress": "R", "pending": "R", "task": "R", "agents": "R", "skills": "R", "costs": "R", "artifacts": "R", "artifact": "R",
     "instructions": "R", "routines": "R", "sources": "R", "attachments": "R", "reminders": "R", "flows": "R", "flow-check": "R",
-    "connections": "R", "commands": "R", "items": "R",
+    "connections": "R", "commands": "R", "items": "R", "file-read": "R",
     # N: a notice and the person's own writes
     "remind": "N", "reminder-forget": "N", "reminder-restore": "N",
     # W: confirmed writes
@@ -969,6 +969,7 @@ NATURAL = {
     "connections": {"slots": {}, "what": "which provider each requirement class resolves to"},
     "commands": {"slots": {}, "what": "what can be asked and the commands"},
     "items": {"slots": {}, "what": "the numbered messages and events of the mail and calendar snapshots"},
+    "file-read": {"slots": {"file": ["span", "file"], "service": ["word", "account"]}, "what": "show the text of a file of the person's own Drive or OneDrive, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive)"},
     "remind": {"slots": {"text": ["span", "text"], "when": ["when", "when"]}, "what": "a reminder sent back once at a time"},
     "reminder-forget": {"slots": {"id": ["int", "reminder_id"]}, "what": "cancel a reminder that waits"},
     "reminder-restore": {"slots": {"id": ["int", "reminder_id"]}, "what": "bring back a reminder cancelled a moment ago"},

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -125,6 +126,8 @@ class FakeDrive:
                 if auth != f"Bearer {ACCESS_TOKEN}":
                     return self._error(401, "authError", "Invalid Credentials")
                 path = parsed.path
+                if path == "/drive/v3/files":
+                    return self._list(query)
                 if not path.startswith("/drive/v3/files/"):
                     return self._error(404, "notFound", "not served")
                 rest = path[len("/drive/v3/files/"):]
@@ -146,6 +149,21 @@ class FakeDrive:
                     meta["md5Checksum"] = f.get("md5") or hashlib.md5(f["content"]).hexdigest()
                 self._json(200, meta)
 
+            def _list(self, query):
+                """The files list of one folder: `'<id>' in parents and trashed = false`, by name, with a next-page token when more than pageSize."""
+                match = re.fullmatch(r"'([A-Za-z0-9_-]+)' in parents and trashed = false", query.get("q", ""))
+                if match is None:
+                    return self._error(400, "invalidQuery", "Invalid Value")
+                found = sorted(((i, f) for i, f in owner.files.items() if f.get("parent") == match.group(1) and not f["trashed"]), key=lambda pair: pair[1]["name"])
+                size = int(query.get("pageSize", "100"))
+                files = []
+                for ident, f in found[:size]:
+                    meta = {"id": ident, "name": f["name"], "mimeType": f["mimeType"], "version": str(f["version"]), "modifiedTime": f["modifiedTime"], "trashed": False}
+                    if f["content"] is not None:
+                        meta["size"] = str(len(f["content"]))
+                    files.append(meta)
+                self._json(200, {"files": files, **({"nextPageToken": "fake-next"} if len(found) > size else {})})
+
             def _export(self, f, query):
                 if not f["mimeType"].startswith(GOOGLE) or f["mimeType"] == FOLDER:
                     return self._error(403, "fileNotExportable", "Export only supports Docs Editors files.")
@@ -165,10 +183,10 @@ class FakeDrive:
         self._thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         self._thread.start()
 
-    def add(self, ident, name, mime, content=None, exports=None, trashed=False):
-        """A file the app was given. A Google file carries `exports` ({mime: bytes}); any other carries `content` (bytes)."""
+    def add(self, ident, name, mime, content=None, exports=None, trashed=False, parent=None):
+        """A file the app was given. A Google file carries `exports` ({mime: bytes}); any other carries `content` (bytes). `parent` is the id of its folder."""
         self.files[ident] = {"name": name, "mimeType": mime, "content": content, "exports": dict(exports or {}), "version": 1,
-                             "modifiedTime": "2026-10-15T09:00:00.000Z", "trashed": trashed}
+                             "modifiedTime": "2026-10-15T09:00:00.000Z", "trashed": trashed, "parent": parent}
         return ident
 
     def edit(self, ident, content=None, exports=None):

@@ -351,6 +351,7 @@ ROUTES = (
     _route("POST", "/projects/{p}/files", "file-create", take=("account", "file_name", "content", "from_path", "folder")),      # W4a: each only prepares a card
     _route("POST", "/projects/{p}/files/replace", "file-replace", take=("account", "file", "content", "from_path")),
     _route("POST", "/projects/{p}/files/save", "file-save", take=("account", "attachment", "file_name", "folder")),
+    _route("POST", "/projects/{p}/files/read", "file-read", take=("file", "account")),      # S8: the text of a file found by its name in the configured folders; a POST so that a name is never in a URL
     _route("POST", "/projects/{p}/mail/send", "mail-send"),
     _route("POST", "/projects/{p}/mail/reply", "mail-reply"),
     _route("POST", "/projects/{p}/mail/draft", "mail-draft"),

@@ -88,7 +88,7 @@ def test_the_catalog_is_rendered_one_line_per_op_then_the_refused_block():
     assert "- mail-archive [E] a card that takes messages out of the inbox; slots: messages:ints" in rendered
     assert "- ask [work] answer a question from the text of the project's sources (the question is the person's whole line); slots: none" in rendered
     at = rendered.index("refused:")
-    assert at == 62 and len(rendered) == 62 + 1 + 21
+    assert at == 63 and len(rendered) == 63 + 1 + 21
     assert rendered[at + 1] == "- approve [refused D] approve a plan or an acceptance (from its card)"
     assert "- config [refused G] the configuration and its hash" in rendered[at + 1:]
     assert not any(" [refused" in line for line in rendered[:at])

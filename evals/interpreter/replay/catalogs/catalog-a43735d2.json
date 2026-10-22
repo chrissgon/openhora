@@ -1,0 +1,566 @@
+{
+ "ops": [
+  {
+   "class": "R",
+   "op": "status",
+   "slots": {},
+   "what": "where the work stands"
+  },
+  {
+   "class": "R",
+   "op": "progress",
+   "slots": {
+    "since": "word"
+   },
+   "what": "what happened lately"
+  },
+  {
+   "class": "R",
+   "op": "pending",
+   "slots": {
+    "id": "int"
+   },
+   "what": "what waits for the person; with an id, that decision"
+  },
+  {
+   "class": "R",
+   "op": "task",
+   "slots": {
+    "id": "int"
+   },
+   "what": "one task or request with its runs"
+  },
+  {
+   "class": "R",
+   "op": "agents",
+   "slots": {},
+   "what": "each area agent and its use of today"
+  },
+  {
+   "class": "R",
+   "op": "skills",
+   "slots": {},
+   "what": "the skills in scope with their proof"
+  },
+  {
+   "class": "R",
+   "op": "costs",
+   "slots": {
+    "since": "word"
+   },
+   "what": "the runs by day, agent and model with their cost"
+  },
+  {
+   "class": "R",
+   "op": "artifacts",
+   "slots": {},
+   "what": "the project's files under docs/"
+  },
+  {
+   "class": "R",
+   "op": "artifact",
+   "slots": {
+    "path": "word"
+   },
+   "what": "the text of one file under docs/"
+  },
+  {
+   "class": "R",
+   "op": "instructions",
+   "slots": {},
+   "what": "the project's standing instructions"
+  },
+  {
+   "class": "R",
+   "op": "routines",
+   "slots": {
+    "id": "int"
+   },
+   "what": "the routines and their state"
+  },
+  {
+   "class": "R",
+   "op": "sources",
+   "slots": {},
+   "what": "the project's sources: what files there are"
+  },
+  {
+   "class": "R",
+   "op": "attachments",
+   "slots": {},
+   "what": "the files people sent through a messaging app"
+  },
+  {
+   "class": "R",
+   "op": "reminders",
+   "slots": {},
+   "what": "the reminders that wait"
+  },
+  {
+   "class": "R",
+   "op": "flows",
+   "slots": {},
+   "what": "the flows the project can run"
+  },
+  {
+   "class": "R",
+   "op": "flow-check",
+   "slots": {
+    "flow": "word"
+   },
+   "what": "the check of one flow"
+  },
+  {
+   "class": "R",
+   "op": "connections",
+   "slots": {},
+   "what": "which provider each requirement class resolves to"
+  },
+  {
+   "class": "R",
+   "op": "commands",
+   "slots": {},
+   "what": "what can be asked and the commands"
+  },
+  {
+   "class": "R",
+   "op": "items",
+   "slots": {},
+   "what": "the numbered messages and events of the mail and calendar snapshots"
+  },
+  {
+   "class": "N",
+   "op": "remind",
+   "slots": {
+    "text": "span",
+    "when": "when"
+   },
+   "what": "a reminder sent back once at a time"
+  },
+  {
+   "class": "N",
+   "op": "reminder-forget",
+   "slots": {
+    "id": "int"
+   },
+   "what": "cancel a reminder that waits"
+  },
+  {
+   "class": "N",
+   "op": "reminder-restore",
+   "slots": {
+    "id": "int"
+   },
+   "what": "bring back a reminder cancelled a moment ago"
+  },
+  {
+   "class": "W",
+   "op": "cancel",
+   "slots": {
+    "id": "int"
+   },
+   "what": "cancel a request"
+  },
+  {
+   "class": "W",
+   "op": "stop-task",
+   "slots": {
+    "id": "int"
+   },
+   "what": "stop a running task"
+  },
+  {
+   "class": "W",
+   "op": "retry",
+   "slots": {
+    "id": "int"
+   },
+   "what": "make a failed or blocked task ready again"
+  },
+  {
+   "class": "W",
+   "op": "routine-pause",
+   "slots": {
+    "id": "int"
+   },
+   "what": "pause a routine"
+  },
+  {
+   "class": "W",
+   "op": "routine-cancel",
+   "slots": {
+    "id": "int"
+   },
+   "what": "cancel a routine"
+  },
+  {
+   "class": "W",
+   "op": "routine-create",
+   "slots": {},
+   "what": "create a routine"
+  },
+  {
+   "class": "W",
+   "op": "routine-change",
+   "slots": {
+    "id": "int"
+   },
+   "what": "change a routine"
+  },
+  {
+   "class": "W",
+   "op": "attachment-add",
+   "slots": {
+    "id": "int"
+   },
+   "what": "add a file that was sent as a source"
+  },
+  {
+   "class": "W",
+   "op": "attachment-discard",
+   "slots": {
+    "id": "int"
+   },
+   "what": "delete a file that was sent"
+  },
+  {
+   "class": "E",
+   "op": "event-create",
+   "slots": {
+    "calendar": "word",
+    "service": "word",
+    "time": "span",
+    "title": "span"
+   },
+   "what": "a card that creates an event on the person's own calendar"
+  },
+  {
+   "class": "E",
+   "op": "event-change",
+   "slots": {
+    "event": "int",
+    "time": "span",
+    "title": "span"
+   },
+   "what": "a card that changes an event of the person's own calendar"
+  },
+  {
+   "class": "E",
+   "op": "event-cancel",
+   "slots": {
+    "event": "int"
+   },
+   "what": "a card that removes an event of the person's own calendar"
+  },
+  {
+   "class": "E",
+   "op": "mail-send",
+   "slots": {
+    "body": "span",
+    "subject": "span",
+    "to": "word"
+   },
+   "what": "a card that sends an e-mail from the person's own account"
+  },
+  {
+   "class": "E",
+   "op": "mail-reply",
+   "slots": {
+    "body": "span",
+    "message": "int"
+   },
+   "what": "a card that sends a reply to an e-mail"
+  },
+  {
+   "class": "E",
+   "op": "mail-draft",
+   "slots": {
+    "body": "span",
+    "message": "int",
+    "subject": "span",
+    "to": "word"
+   },
+   "what": "a card that saves a draft in the person's own mailbox"
+  },
+  {
+   "class": "E",
+   "op": "mail-archive",
+   "slots": {
+    "messages": "ints"
+   },
+   "what": "a card that takes messages out of the inbox"
+  },
+  {
+   "class": "E",
+   "op": "mail-move",
+   "slots": {
+    "folder": "word",
+    "messages": "ints"
+   },
+   "what": "a card that moves messages to a folder"
+  },
+  {
+   "class": "E",
+   "op": "mail-mark",
+   "slots": {
+    "messages": "ints",
+    "state": "span"
+   },
+   "what": "a card that marks messages read or unread"
+  },
+  {
+   "class": "E",
+   "op": "mail-trash",
+   "slots": {
+    "messages": "ints"
+   },
+   "what": "a card that moves messages to the trash"
+  },
+  {
+   "class": "E",
+   "op": "file-create",
+   "slots": {
+    "content": "span",
+    "folder": "word",
+    "name": "word"
+   },
+   "what": "a card that creates a file in the person's own drive"
+  },
+  {
+   "class": "E",
+   "op": "file-replace",
+   "slots": {
+    "content": "span",
+    "file": "span"
+   },
+   "what": "a card that writes a new revision of a file that is a source"
+  },
+  {
+   "class": "E",
+   "op": "file-save",
+   "slots": {
+    "attachment": "int",
+    "folder": "word"
+   },
+   "what": "a card that saves a file someone sent"
+  },
+  {
+   "class": "work",
+   "op": "ask",
+   "slots": {},
+   "what": "answer a question from the text of the project's sources (the question is the person's whole line)"
+  },
+  {
+   "class": "G",
+   "op": "routine-resume",
+   "slots": {
+    "id": "int"
+   },
+   "what": "resume a paused routine"
+  },
+  {
+   "class": "G",
+   "op": "instructions-set",
+   "slots": {},
+   "what": "replace the standing instructions"
+  },
+  {
+   "class": "G",
+   "op": "instructions-add",
+   "slots": {},
+   "what": "add a line to the standing instructions"
+  },
+  {
+   "class": "G",
+   "op": "source-refresh",
+   "slots": {},
+   "what": "refresh a source"
+  },
+  {
+   "class": "G",
+   "op": "source-describe",
+   "slots": {},
+   "what": "describe a source"
+  },
+  {
+   "class": "G",
+   "op": "flow-save",
+   "slots": {},
+   "what": "save an approved plan as a flow"
+  },
+  {
+   "class": "G",
+   "op": "stage-file",
+   "slots": {},
+   "what": "hand a file over for a request's plan"
+  },
+  {
+   "class": "G",
+   "op": "sync",
+   "slots": {},
+   "what": "mirror the tasks and the documents"
+  },
+  {
+   "class": "G",
+   "op": "hand-over",
+   "slots": {},
+   "what": "copy a file into a task's file drop"
+  },
+  {
+   "class": "G",
+   "op": "dispatch",
+   "slots": {},
+   "what": "one round of the dispatcher"
+  },
+  {
+   "class": "G",
+   "op": "verdict",
+   "slots": {},
+   "what": "record a verdict on a run"
+  },
+  {
+   "class": "G",
+   "op": "run-next",
+   "slots": {},
+   "what": "run the next ready task"
+  },
+  {
+   "class": "G",
+   "op": "run-task",
+   "slots": {},
+   "what": "run one named task"
+  },
+  {
+   "class": "G",
+   "op": "run-step",
+   "slots": {},
+   "what": "run one named step task"
+  },
+  {
+   "class": "G",
+   "op": "proof",
+   "slots": {},
+   "what": "the model each skill would run on"
+  },
+  {
+   "class": "G",
+   "op": "revoke-policy",
+   "slots": {},
+   "what": "end a standing approval"
+  },
+  {
+   "class": "G",
+   "op": "stop-runs",
+   "slots": {},
+   "what": "end the runs this process started"
+  }
+ ],
+ "refused": [
+  {
+   "class": "D",
+   "op": "approve",
+   "what": "approve a plan or an acceptance (from its card)"
+  },
+  {
+   "class": "D",
+   "op": "reject",
+   "what": "reject a decision (from its card)"
+  },
+  {
+   "class": "D",
+   "op": "release",
+   "what": "release a delivery (from its card)"
+  },
+  {
+   "class": "D",
+   "op": "answer",
+   "what": "answer a question a task asked (from its card)"
+  },
+  {
+   "class": "D",
+   "op": "go-ahead",
+   "what": "go ahead on a task that waits for another request"
+  },
+  {
+   "class": "G",
+   "op": "give-consent",
+   "what": "the consent an autonomous agent needs"
+  },
+  {
+   "class": "G",
+   "op": "set-mode",
+   "what": "move an agent's autonomy mode"
+  },
+  {
+   "class": "G",
+   "op": "set-model",
+   "what": "fix an agent to a model"
+  },
+  {
+   "class": "G",
+   "op": "config",
+   "what": "the configuration and its hash"
+  },
+  {
+   "class": "G",
+   "op": "accept-config",
+   "what": "accept the configuration's hash"
+  },
+  {
+   "class": "G",
+   "op": "routine-approve",
+   "what": "approve a routine by its hash"
+  },
+  {
+   "class": "G",
+   "op": "source-add",
+   "what": "register a source"
+  },
+  {
+   "class": "G",
+   "op": "source-import",
+   "what": "import a version of a source"
+  },
+  {
+   "class": "G",
+   "op": "source-drive",
+   "what": "make Drive files sources"
+  },
+  {
+   "class": "G",
+   "op": "source-onedrive",
+   "what": "make OneDrive files sources"
+  },
+  {
+   "class": "G",
+   "op": "source-mail",
+   "what": "a window of the mailbox as a source"
+  },
+  {
+   "class": "G",
+   "op": "source-calendar",
+   "what": "a calendar's window as a source"
+  },
+  {
+   "class": "G",
+   "op": "deps",
+   "what": "install the dependency sets"
+  },
+  {
+   "class": "G",
+   "op": "approve-policy",
+   "what": "a standing approval of a policy file"
+  },
+  {
+   "class": "G",
+   "op": "standing",
+   "what": "whether a standing approval covers a policy"
+  },
+  {
+   "class": "G",
+   "op": "execute-under-policy",
+   "what": "execute an effect inside a standing approval"
+  }
+ ],
+ "v": 1
+}

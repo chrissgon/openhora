@@ -38,6 +38,7 @@ ops_files = st.load("ops_files")
 ops_mail_send = st.load("ops_mail_send")
 ops_mailbox = st.load("ops_mailbox")
 ops_items = st.load("ops_items")
+ops_file_read = st.load("ops_file_read")
 operations = st.load("operations")
 cli = st.load("cli")
 effects = st.load("effects")
@@ -50,6 +51,8 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "person_line", "asks_natural", "holds_mail", "may_talk", "natural_needs", "natural_reply",
                   # ops_say.py and ops_items.py (NR-5): the bridge's entries for a write asked in words, and how the numbered items are written as lines
                   "natural_write", "natural_draft", "natural_forget", "render", "natural_file_accounts",
+                  # ops_file_read.py (S8): the reply a line in words gets for file-read, beside the operation
+                  "reply",
                   # ops_sources.py: what the planner and a run ask of the sources, beside the five operations
                   "catalog_block", "router_block", "known_ids", "forced_for", "copies_for", "record_copies", "prompt_lines",
                   # ops_cancel.py: what a run, the router and the board ask of a cancel, beside cancel and stop_task
@@ -125,7 +128,7 @@ def test_every_row_calls_a_function_of_the_operations_layer_that_accepts_its_arg
 
 def test_every_public_function_of_the_operations_layer_is_a_row_or_listed_as_not_one():
     # the layer is seven files (CONS-1B, ADJ-R1, R4-C3, P6a): ops.py and the siblings it re-exports from; a function counts where it is defined
-    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_instructions, ops_contained, ops_ask, ops_cancel, ops_attachments, ops_reminders, ops_calendar, ops_files, ops_mail_send, ops_mailbox, ops_items) for n, f in inspect.getmembers(module, inspect.isfunction)
+    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_instructions, ops_contained, ops_ask, ops_cancel, ops_attachments, ops_reminders, ops_calendar, ops_files, ops_mail_send, ops_mailbox, ops_items, ops_file_read) for n, f in inspect.getmembers(module, inspect.isfunction)
               if not n.startswith("_") and f.__module__ == module.__name__}
     called = {r["call"] for r in operations.OPERATIONS}
     assert called <= public

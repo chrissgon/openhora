@@ -343,6 +343,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `file-create` | `--account` `--name` `[--content]` `[--content-file]` `[--from]` `[--folder]` | `file_create` |
 | `file-replace` | `--account` `--file` `[--content]` `[--content-file]` `[--from]` | `file_replace` |
 | `file-save` | `--account` `--attachment` `[--name]` `[--folder]` | `file_save` |
+| `file-read` | `--file` `[--account]` | `file_read` |
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
 | `instructions-add` | `--line` `--base-sha256` | `instructions_add` |
@@ -490,6 +491,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/files` | `file-create` | - | `account`, `file_name`, `content`, `from_path`, `folder` | - | - |
 | POST | `/projects/{p}/files/replace` | `file-replace` | - | `account`, `file`, `content`, `from_path` | - | - |
 | POST | `/projects/{p}/files/save` | `file-save` | - | `account`, `attachment`, `file_name`, `folder` | - | - |
+| POST | `/projects/{p}/files/read` | `file-read` | - | `file`, `account` | - | - |
 | POST | `/projects/{p}/mail/send` | `mail-send` | - | every other argument | - | - |
 | POST | `/projects/{p}/mail/reply` | `mail-reply` | - | every other argument | - | - |
 | POST | `/projects/{p}/mail/draft` | `mail-draft` | - | every other argument | - | - |

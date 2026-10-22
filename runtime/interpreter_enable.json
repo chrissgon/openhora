@@ -12,6 +12,18 @@
    "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
    "reason": "IX-3b go false (wrong_card Wilson upper: DeepSeek 5.59%, reference 2.29%, limit 2%); correct per item DeepSeek 84%, current pipeline 21%; actions without confirmation 0. The maintainer chose to proceed (DECISIONS 2026-10-21).",
    "status_line": "enabled by maintainer decision 2026-10-21, below the gate"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-21",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "S8 adds the operation file-read (class R: the text of a file found by its name in the folders the project lists for the person's own accounts), so the served catalog changed; the prompt, the protocol and the route did not. The maintainer approved the slice on 2026-10-21 (translated from Portuguese): \"Yes: build S8, read a file by its name in the folders already configured for the account, before the release.\" Basis of the earlier entry unchanged: IX-3b go false, the maintainer chose to proceed. The replay gate keeps replaying the recorded answers against the catalog they were recorded with.",
+   "status_line": "enabled by maintainer decision 2026-10-21 (S8: file-read added to the catalog), below the gate"
   }
  ]
 }

@@ -396,6 +396,13 @@ OPERATIONS = (
               {"name": "file_name", "kind": "str", "flag": "name"}, {"name": "folder", "kind": "str"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
      "help": "prepare the saving of a file someone sent through a messaging app (--attachment is the number of a held file, see attachments) in a folder of your Drive or OneDrive, named as it was sent or by --name, and ask for the approval of its card, which names the file, its size and its hash; from a messaging app, only a file you sent, approved only by you; the held file stays held (add or discard it as before)"},
+    # S8: the text of one file, found by its name in the folders the project lists under `accounts.<account>.folders`. A read: nothing is written, nothing is sent to a model, and the
+    # text is shown to the channel that asked and kept nowhere. The group read-files is in no default policy and never on the MCP mode (no row lists it).
+    {"name": "file-read", "call": "file_read",
+     "args": ({"name": "file", "kind": "str", "required": True},
+              {"name": "account", "kind": "choice", "choices": ("google", "microsoft")}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "show the text of a file of your Google Drive (account google) or OneDrive (account microsoft), found by its name (case, accents and the extension do not matter) among the direct contents of the folders the project lists under accounts.<account>.folders in runtime.json, and in no other folder; without --account both accounts are searched. One match is read and its text shown (at most 3,500 characters, then how many remain); several are listed to choose from; none says which folders were searched. Nothing is written or sent to a model; from a messaging app the sender needs the group read-files"},
     {"name": "instructions", "call": "instructions_read", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the project's standing instructions (docs/workbench/instructions.md, written only by you): whether the file is there, its sha256, its characters against the cap, the problem that would stop a run, and the text; every model run of the project receives it in its prompt, and it never replaces a skill's stop rule, a confirmation gate or an approval"},
     {"name": "instructions-set", "call": "instructions_set",
@@ -583,6 +590,9 @@ GROUPS = {
     # S1: the plain lines no list takes go to the interpreter's model service (runtime/ops_interpret.py). A capability added to `say` that never grants it (KIND_ONLY): a profile lists
     # `talk` too. In no default policy: a messaging sender gets it only from a profile or channel entry accepted with --widen (which prints the route's retention beside it).
     "interpret": {"operations": ("say",), "kind": "interpret"},
+    # S8: the text of a file in the folders the project lists under `accounts`, read by its name. In no default policy: a messaging sender gets it only from a profile or channel entry accepted
+    # with --widen; never on the MCP mode (the row does not list it). It reads and shows; it writes nothing and sends nothing to a model.
+    "read-files": {"operations": ("file-read",), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -686,6 +696,7 @@ GROUP_TEXT = {
     "files-write": "prepares new files and new revisions in your own Drive and OneDrive, and the saving of a file you sent; each one waits for approval of its card",
     "mail-organize": "prepares changes to your mailbox (a draft, archive, a move to a folder, read state, the trash); each one waits for approval of its card, and nothing is sent or deleted for good",
     "interpret": "sends the plain lines no list takes to the interpreter's model service, which reads them in any language; retention: the route's terms (adds to talk, never grants it)",
+    "read-files": "shows the text of the files in your configured Drive and OneDrive folders in the chat, found by their names; a messaging app's servers see it as they see any message, and no model reads it",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

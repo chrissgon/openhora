@@ -70,6 +70,7 @@ Usage:
   python3 runtime/cli.py file-create --project <dir> --account google|microsoft --name <name>.md|.txt|.docx|.gdoc (--content <text> | --content-file <path> | --from docs/<path>) [--folder <name>]
   python3 runtime/cli.py file-replace --project <dir> --account google|microsoft --file <source id> (--content <text> | --content-file <path> | --from docs/<path>)
   python3 runtime/cli.py file-save --project <dir> --account google|microsoft --attachment <held file number> [--name <name>] [--folder <name>]
+  python3 runtime/cli.py file-read --project <dir> --file <name> [--account google|microsoft]
   python3 runtime/cli.py mail-send --project <dir> --account google|microsoft --to <addresses> [--cc <addresses>] [--bcc <addresses>] --subject <one line> (--text <words> | --text-file <path>) [--attach <docs/...>]...
   python3 runtime/cli.py mail-reply --project <dir> --account google|microsoft --message <source>#<n> (--text <words> | --text-file <path>)
   python3 runtime/cli.py mail-draft --project <dir> --account google|microsoft (--to <addresses> --subject <text> [--cc <addresses>] [--bcc <addresses>] | --message <source>#<n>) --body <text>
@@ -359,6 +360,10 @@ file-create  prepares a NEW file in a folder of your Google Drive (--account goo
 file-replace  prepares a NEW REVISION of a file that is a source of the project (--file is its source id; the source must be up to date) and stops at its
           card, which shows the revision it replaces; the previous revision stays in the service's history. The content is a text or a file of the project of
           the same type. Nothing is written until you approve the hash, and nothing is if the file moved since it was read. No model.
+file-read  shows the text of a file of your Google Drive or OneDrive, found by its --name among the direct contents of the folders the project lists under
+          accounts.<account>.folders in runtime.json, and in no other folder (case, accents and the extension do not matter; --account narrows the search to one
+          account). One match is read and its text printed (at most 3,500 characters, then how many remain); several are listed; none says which folders were
+          searched. Nothing is written, registered or sent to a model. From a messaging app the sender needs the group read-files.
 file-save  prepares the saving of a file someone sent through a messaging app (--attachment is the number of a held file, see attachments), named as it was
           sent or by --name, in a folder the project lists (--folder), and stops at its card, which names the file, its size and its hash. The held file stays held.
           No model.
