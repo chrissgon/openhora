@@ -562,6 +562,7 @@ ENABLE_KEYS = ("basis", "date", "route", "route_sha256", "prompt_sha256", "catal
 
 ENABLE_LANGUAGES = ("pt-BR", "en", "es", "fr", "de", "it")
 ENABLE_HASHES = ("route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256")
+ENABLE_OPTIONAL = ("compose_prompt_sha256",)      # the e-mail compose prompt an entry may also pin (slice S7)
 
 
 def entries_valid(entries):
@@ -570,7 +571,7 @@ def entries_valid(entries):
     if not isinstance(entries, list) or not entries:
         return False
     for entry in entries:
-        if not isinstance(entry, dict) or set(entry) != set(ENABLE_KEYS) or entry["basis"] != "maintainer-decision" or not isinstance(entry["route"], str) or not entry["route"]:
+        if not isinstance(entry, dict) or not set(ENABLE_KEYS) <= set(entry) <= set(ENABLE_KEYS + ENABLE_OPTIONAL) or entry["basis"] != "maintainer-decision" or not isinstance(entry["route"], str) or not entry["route"]:
             return False
         date = entry["date"]
         if not isinstance(date, str) or not date.isascii() or len(date) != 10 or not date.replace("-", "").isdigit() or date[4] != "-" or date[7] != "-":
@@ -579,7 +580,7 @@ def entries_valid(entries):
             datetime.date.fromisoformat(date)
         except ValueError:
             return False
-        if not all(isinstance(entry[k], str) and len(entry[k]) == 64 and set(entry[k]) <= set("0123456789abcdef") for k in ENABLE_HASHES):
+        if not all(isinstance(entry[k], str) and len(entry[k]) == 64 and set(entry[k]) <= set("0123456789abcdef") for k in ENABLE_HASHES + tuple(o for o in ENABLE_OPTIONAL if o in entry)):
             return False
         langs = entry["languages"]
         if not isinstance(langs, list) or not langs or len(set(langs)) != len(langs) or not all(isinstance(l, str) and l in ENABLE_LANGUAGES for l in langs):

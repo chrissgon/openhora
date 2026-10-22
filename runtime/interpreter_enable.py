@@ -18,6 +18,9 @@ route's band; a test compares the two readings.
   load(path=None)               the file, checked: {"v": 1, "entries": [...]} with closed keys, dates in order. Raises EnableError.
   checkout_hashes(route_id)     {"route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256"} of this checkout for a daily route, or EnableError
   active(language, path=None)   {"entry", "route"} when the newest entry is in force for the language, else None (it never raises: any fault is "off")
+  compose_active(language, path=None)
+                                the same as `active` and the newest entry also pins THIS checkout's e-mail compose prompt (`compose_prompt_sha256`, runtime/mail_compose.py), else
+                                None: a changed compose prompt turns composing off and leaves the interpreter on (slice S7)
   retention(path=None)          the retention text of the newest entry's route, or None (what a person is shown when they widen the group `interpret`)
 
 Pure: it reads files and calls nothing. Standard library only. Runs on Python 3.9.
@@ -35,12 +38,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import interpreter  # noqa: E402  (the same folder: the prompt, the served catalog and the protocol whose hashes an entry names)
 import interpreter_route  # noqa: E402  (the same folder: the daily routes and the hash of a route)
+import mail_compose  # noqa: E402  (the same folder: the sha256 of the e-mail compose prompt)
 
 ENABLE_FILE = os.path.join(HERE, "interpreter_enable.json")
 KEYS = ("basis", "date", "route", "route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256", "languages", "reason", "status_line")
 BASES = ("maintainer-decision",)
 LANGUAGES = ("pt-BR", "en", "es", "fr", "de", "it")
 HASH_KEYS = ("route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256")
+OPTIONAL_KEYS = ("compose_prompt_sha256",)      # an entry may also pin the e-mail compose prompt (slice S7); an older entry does not
 HEX64 = re.compile(r"[0-9a-f]{64}")
 DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 TEXT_MAX = 600
@@ -52,8 +57,8 @@ class EnableError(ValueError):
 
 def _entry_problem(entry) -> str:
     """The first thing wrong with one entry (a sentence that never repeats a value), or ''."""
-    if not isinstance(entry, dict) or set(entry) != set(KEYS):
-        return "an entry has exactly the keys " + ", ".join(KEYS)
+    if not isinstance(entry, dict) or not set(KEYS) <= set(entry) <= set(KEYS + OPTIONAL_KEYS):
+        return "an entry has the keys " + ", ".join(KEYS) + " and, optionally, " + ", ".join(OPTIONAL_KEYS)
     if entry["basis"] not in BASES:
         return "basis is one of " + ", ".join(BASES)
     if not isinstance(entry["date"], str) or not DATE.fullmatch(entry["date"]):
@@ -64,7 +69,7 @@ def _entry_problem(entry) -> str:
         return "date is a real day"
     if not isinstance(entry["route"], str) or not entry["route"]:
         return "route is a route id"
-    for key in HASH_KEYS:
+    for key in HASH_KEYS + tuple(k for k in OPTIONAL_KEYS if k in entry):
         if not isinstance(entry[key], str) or not HEX64.fullmatch(entry[key]):
             return f"{key} is a sha256 (64 lower-case hexadecimal digits)"
     langs = entry["languages"]
@@ -122,6 +127,17 @@ def active(language, path=None):
             return None
         return {"entry": entry, "route": _daily_row(entry["route"])}
     except (EnableError, OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def compose_active(language, path=None):
+    """The result of `active` when the newest entry also pins this checkout's compose prompt, else None. Every fault is "off"."""
+    got = active(language, path)
+    if got is None:
+        return None
+    try:
+        return got if got["entry"].get(OPTIONAL_KEYS[0]) == mail_compose.prompt_sha256() else None
+    except (OSError, ValueError, KeyError, TypeError):
         return None
 
 

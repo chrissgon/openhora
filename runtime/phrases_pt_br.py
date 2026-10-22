@@ -621,6 +621,7 @@ TABLE = {
     "NW_MAIL_ASK_SUBJECT": "Qual o assunto do e-mail para {to}?",
     "NW_MAIL_ASK_BODY": "O que o e-mail para {to} deve dizer?",
     "NW_MAIL_ASK_BODY_REPLY": "O que a resposta deve dizer?",
+    "MC_ASK_BODY": "O que o e-mail para {to} deve dizer? Eu redijo o texto e você o vê no card. Para enviar suas palavras exatamente como escreveu, comece com \"texto exato:\".",
     "NW_MAIL_ASK_STATE": "Marcar como lido ou como não lido?",
     "NW_MAIL_STATE_READ": "lido",
     "NW_MAIL_STATE_UNREAD": "não lido",

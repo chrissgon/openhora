@@ -34,7 +34,8 @@ ROUTE = "or-deepseek-v4.1-flash"
 HASHES = {"route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd", "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
           "catalog_sha256": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d", "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504"}
 LANGUAGES = ["pt-BR", "en", "es", "fr", "de", "it"]
-STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate"
+FIRST_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate"
+STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt pinned)"      # the newest entry (slice S7)
 
 
 def status_module():
@@ -66,11 +67,11 @@ def variant(tmp_path, name, **changes) -> Path:
 
 def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date():
     doc = committed()
-    assert set(doc) == {"v", "entries"} and doc["v"] == 1 and len(doc["entries"]) == 1
-    entry = doc["entries"][0]
-    assert {key: entry[key] for key in HASHES} == HASHES
-    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-21" and entry["route"] == ROUTE
-    assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
+    assert set(doc) == {"v", "entries"} and doc["v"] == 1 and len(doc["entries"]) == 2
+    for entry, line in zip(doc["entries"], (FIRST_STATUS_LINE, STATUS_LINE)):
+        assert {key: entry[key] for key in HASHES} == HASHES
+        assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-21" and entry["route"] == ROUTE
+        assert entry["languages"] == LANGUAGES and entry["status_line"] == line
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():
@@ -88,6 +89,7 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     ("language", {"languages": ["ja"]}), ("unknown-route", {"route": "no-such-route"}), ("account-route", {"route": "acct-claude-sonnet-5.5"}),
     ("extra-key", {"extra": "key"}), ("missing-key", {"reason": None}), ("date-shape", {"date": "21/10/2026"}), ("date-not-a-day", {"date": "2026-02-30"}),
     ("basis", {"basis": "evidence"}), ("hash-shape", {"prompt_sha256": "5BEE55CE" + HASHES["prompt_sha256"][8:]}), ("languages-twice", {"languages": ["en", "en"]}),
+    ("compose-hash-shape", {"compose_prompt_sha256": "NOT-A-HASH"}),
 ])
 def test_a_changed_entry_is_off_for_the_runtime_and_for_the_status_alike(tmp_path, name, change):
     path = variant(tmp_path, name + ".json", **change)
