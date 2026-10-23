@@ -162,7 +162,9 @@ def test_the_router_naming_a_decision_a_gated_act_or_a_planned_effect_executes_n
     with_senders(world)
     plan_id = phone(world, "owner", "Which market first?")["pending_id"]
     router_says(world, OPERATION.format(name="approve") + f"Argument id: {plan_id}\n")
-    out = phone(world, "owner", f"please sign off on number {plan_id}")
+    unread = phone(world, "owner", f"please sign off on number {plan_id}")      # S20: the router's reading is believed only when the line's own verb says the same; "sign off" is no verb of the list
+    assert unread["reply"] == phrases.text("IX_ASK_AGAIN", None) and "resend" not in unread
+    out = phone(world, "owner", f"please approve number {plan_id}")
     assert out["reply"] == phrases.text("NAT_DECISION_CARD", None, id=plan_id) and out["resend"] == plan_id
     assert ops.pending(world["path"], plan_id)["status"] == "open"
     router_says(world, OPERATION.format(name="set-model"))
