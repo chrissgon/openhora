@@ -138,6 +138,14 @@
    "what": "show the text of a file of the person's own Drive or OneDrive, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive)"
   },
   {
+   "class": "R",
+   "op": "research",
+   "slots": {
+    "question": "span"
+   },
+   "what": "answer a question of general information that is not about the person's own files, mail, calendar or sources (the weather, a price or quote, the news, a fact) from a web search (the question is the span: all the words that say what to find out, with the place and the day)"
+  },
+  {
    "class": "N",
    "op": "remind",
    "slots": {

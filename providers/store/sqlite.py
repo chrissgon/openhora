@@ -2681,10 +2681,11 @@ ANSWER_FAILED_BY = "code:answer-failed"   # the `by` of the request an answer ru
 
 def answer_run_start(conn: sqlite3.Connection, request_id: int | None = None, *, skill: str, model: str, adapter: str,
                      skill_version: str | None = None, skill_sha256: str | None = None, billing: str | None = None,
-                     autonomy: str | None = None, title: str | None = None, text: str | None = None) -> dict:
+                     autonomy: str | None = None, title: str | None = None, text: str | None = None, web: bool = False) -> dict:
     """A run of the answer skill on the request a question made (the ask operation, runtime/ops_ask.py): the same row and the same
     checks as `route_run_start` (the request is `requested`, has no open decision and is not being cancelled; no router or answer run
-    is running: one conversation model call per project at a time), on the web never. The row is a row of task_runs whose task is the
+    is running: one conversation model call per project at a time), on the web never; `web` is true only for the web research
+    (runtime/ops_research.py, slice R2-F1), so that the row says what the run did. The row is a row of task_runs whose task is the
     request, so no new column, state or trigger exists. With no `request_id`, the request is made in the same transaction from `title`
     and `text`, so that no request of a question exists without its run (a mirror that reads the store between the two never sees it);
     its title is `title` and the request's number ("Question 7"), so that the text of a question is in the request's `text` and in no
@@ -2705,7 +2706,7 @@ def answer_run_start(conn: sqlite3.Connection, request_id: int | None = None, *,
             request_id = _request_in(conn, title, text, None, [], None, None, None, now)["request"]
             conn.execute("UPDATE tasks SET title = ? WHERE id = ?", (f"{title} {request_id}", request_id))
         run_id = _router_run_in(conn, request_id, skill=skill, model=model, adapter=adapter, skill_version=skill_version,
-                                skill_sha256=skill_sha256, web=False, reroute=False, billing=billing, autonomy=autonomy, now=now)
+                                skill_sha256=skill_sha256, web=bool(web), reroute=False, billing=billing, autonomy=autonomy, now=now)
     return {"run_id": run_id, "request_id": request_id, "started_at": now}
 
 

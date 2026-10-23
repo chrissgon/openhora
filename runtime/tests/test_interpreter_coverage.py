@@ -33,7 +33,8 @@ MIN_TEST = 2
 # Served operations that wait for their corpus items. Slice S8 added `file-read` after the dev corpus was drawn and the test split closed: items added to `dev.jsonl` would change the
 # sample the replay gate draws from it, and the held-out split cannot be opened or extended here. The operation is exempt from the two minimums ONLY while it has fewer items than
 # they ask (an exemption that is no longer needed is itself a problem), and its items are written with the next revision of the corpus (after the release).
-PENDING_CORPUS = {"file-read": "added by slice S8 after the corpus was drawn; its dev and test items wait for the next revision of the corpus"}
+PENDING_CORPUS = {"file-read": "added by slice S8 after the corpus was drawn; its dev and test items wait for the next revision of the corpus",
+                  "research": "added by slice R2-F1 after the corpus was drawn; its dev and test items wait for the next revision of the corpus"}
 
 # The operations a policy group grants and the catalog does not serve as a line to turn into an operation, by the test's own literals.
 DECISIONS = ["approve", "reject", "release", "answer", "go-ahead"]
@@ -197,9 +198,10 @@ def test_vacuity_the_dev_reader_counts_both_files_and_each_item_once(tmp_path, m
     assert dev_counts() == {"status": 2}
 
 
-def test_the_one_operation_waiting_for_corpus_items_is_listed_and_still_has_none():
-    assert sorted(PENDING_CORPUS) == ["file-read"] and all(PENDING_CORPUS.values())
-    assert dev_counts().get("file-read", 0) < MIN_DEV and split_counts().get("file-read", 0) < MIN_TEST
+def test_the_operations_waiting_for_corpus_items_are_listed_and_still_have_none():
+    assert sorted(PENDING_CORPUS) == ["file-read", "research"] and all(PENDING_CORPUS.values())
+    for op in PENDING_CORPUS:
+        assert dev_counts().get(op, 0) < MIN_DEV and split_counts().get(op, 0) < MIN_TEST, op
 
 
 def test_vacuity_an_exemption_that_is_no_longer_needed_fails_and_an_unlisted_operation_without_items_still_fails():

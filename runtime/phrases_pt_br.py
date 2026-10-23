@@ -804,6 +804,24 @@ TABLE = {
     "FAIL_OUTLOOK_REMOVE": "Ainda não consigo apagar eventos da agenda do Outlook por aqui. Você pode apagar pelo próprio Outlook.",
     "PEND_CARD_TITLE": "Pergunta do assistente",
     "PEND_NOT_UNDERSTOOD_TITLE": "Pedido não entendido",
+    # --- uma pergunta de informação geral respondida por uma pesquisa na web (fatia R2-F1: runtime/ops_research.py, runtime/research_reply.py) ---
+    "RS_SOURCES": "Fontes:",
+    "RS_NO_LINKS": "Não consegui anexar as fontes.",
+    "RS_UNPROVEN": "Esta pesquisa ainda não passou por um teste completo neste modelo; confira nas fontes antes de confiar.",
+    "RS_ESTIMATE": "estimativa",
+    "RS_OPINION": "opinião",
+    "RS_LOW": "pouca certeza",
+    "RS_NO_WEB": "Não consegui acessar a web agora para pesquisar.",
+    "RS_NOTHING": "Pesquisei, mas não encontrei uma resposta confiável para isso.",
+    "RS_ASK_AGAIN": "Não entendi o que procurar. Pode escrever a pergunta com mais detalhes (um lugar, uma data, um nome)?",
+    "RS_TIMEOUT": "A pesquisa demorou demais e foi interrompida.",
+    "RS_CAP": "A pesquisa chegou ao limite de custo e foi interrompida.",
+    "RS_FAILED": "Não consegui fazer a pesquisa agora. Tente de novo em alguns minutos.",
+    "RS_LIMIT": "Já fiz {count} pesquisas hoje, que é o limite do dia.",
+    "RS_LIMIT_ONE": "Já fiz 1 pesquisa hoje, que é o limite do dia.",
+    "RS_BUSY": "Já estou pesquisando outra pergunta; tente de novo em instantes.",
+    "RS_STORED": "(respondido por uma pesquisa na web)",
+    "RS_NOT_BUILT": "A pesquisa na web não está disponível nesta instalação.",
 }
 
 STATUS = {

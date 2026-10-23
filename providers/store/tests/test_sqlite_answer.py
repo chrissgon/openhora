@@ -49,6 +49,15 @@ def test_an_answer_run_is_a_run_row_of_the_request_and_ending_it_makes_the_reque
     assert store.pending_list(conn) == []     # a question opens no decision of the person's
 
 
+def test_the_row_of_a_web_research_says_it_used_the_web_and_an_answer_run_never_does(conn):
+    """R2-F1: `web` is an optional keyword of `answer_run_start`; without it the row says the run was not on the web, as before."""
+    plain = store.answer_run_start(conn, title="Question", text="neutral", **SKILL)
+    store.answer_run_finish(conn, plain["run_id"], status="ok", attempts=1)
+    webbed = store.answer_run_start(conn, title="Question", text="web research", web=True, **dict(SKILL, skill="core-research"))
+    assert store.task_run_get(conn, plain["run_id"])["web"] == 0
+    assert store.task_run_get(conn, webbed["run_id"])["web"] == 1
+
+
 def test_a_failed_answer_run_cancels_its_request_by_code(conn):
     request = question(conn)
     run = store.answer_run_start(conn, request, **SKILL)["run_id"]
