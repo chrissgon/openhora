@@ -33,7 +33,8 @@ To, the Subject and the WHOLE text, and nothing is sent until the person approve
                                     letters in the scripts the typed letters use; every character that is not a letter (digits, punctuation, symbols, spaces) the person's, in the same
                                     places; a word typed with a capital or a digit changes its accents only (the first letter of the first word may become a capital); a word typed in
                                     lower case, letters only, may also have a small edit inside it (0 up to 3 letters, 1 up to 6, 2 above; no letter added or removed at its start or end);
-                                    and the checks of a model-written subject; else `typed`
+                                    and the checks of a model-written subject; else `typed`. S13b: those checks of the WHOLE subject come first; then each word is the model's when it
+                                    passes the rule for a word and the typed one when it does not (one word that fails no longer keeps the whole subject as typed)
 
 What the model may see: five lines made of the date, the chat's language, the typed recipient addresses, the subject span (or empty) and the person's own words for the body
 (at most 1000 characters, else the text is sent as written). Never a message of the mailbox, a file, or any third-party text.
@@ -140,36 +141,58 @@ def _scripts(text: str) -> set:
     return {unicodedata.name(char, "?").split(" ")[0] for char in text if unicodedata.category(char)[0] == "L"}
 
 
-def _same_words(typed: str, shown: str) -> bool:
-    """Whether `shown` is `typed` with its spelling fixed (see `spelled`): only letters differ; the letters are of the scripts the person used; a word typed with a capital or a digit
-    changes its accents only; a word typed in lower case, letters only, may also have a small edit inside it."""
+def _frame_ok(typed: str, shown: str) -> bool:
+    """The checks of the whole subject that every word of the model's version depends on (see `spelled`): stable under NFKC, no format or control character, the letters of the scripts the
+    person used, the same skeleton (digits, punctuation, symbols and spaces never change) and the same number of words."""
     if unicodedata.normalize("NFKC", shown) != shown or any(unicodedata.category(char) in ("Cf", "Cc") for char in shown):
         return False      # full-width and compatibility forms, zero-width and direction marks, tabs and other controls
     typed, shown = unicodedata.normalize("NFC", typed), unicodedata.normalize("NFC", shown)
     if _skeleton(typed) != _skeleton(shown) or not _scripts(shown) <= _scripts(typed):
         return False
-    before, after = re.findall(r"[^\W_]+", typed), re.findall(r"[^\W_]+", shown)
-    if len(before) != len(after):
+    return len(re.findall(r"[^\W_]+", typed)) == len(re.findall(r"[^\W_]+", shown))
+
+
+def _word_ok(at: int, old: str, new: str) -> bool:
+    """Whether the model's word `new` may stand for the typed word `old` (the `at`-th word): the same, or with its accents changed (the capitals stay as typed, except the first letter
+    of the first word), or, for a word typed in lower case with letters only, a small edit inside it."""
+    if old == new:
+        return True
+    if _fold(old) == _fold(new):      # the accents changed: the capitals stay as typed, except the first letter of the first word
+        lower_first = at == 0 and old[:1].islower() and new[:1].isupper()
+        return not (_bare(old) != _bare(new) and not (lower_first and _bare(new) == _bare(old)[:1].upper() + _bare(old)[1:]))
+    if not old.isalpha() or old != old.lower():
+        return False      # a name, a word with a digit: no edit at all
+    flat = new[:1].lower() + new[1:] if at == 0 else new
+    if flat != flat.lower() or not new.isalpha():
         return False
-    for at, (old, new) in enumerate(zip(before, after)):
-        if old == new:
-            continue
-        if _fold(old) == _fold(new):      # the accents changed: the capitals stay as typed, except the first letter of the first word
-            lower_first = at == 0 and old[:1].islower() and new[:1].isupper()
-            if _bare(old) != _bare(new) and not (lower_first and _bare(new) == _bare(old)[:1].upper() + _bare(old)[1:]):
-                return False
-            continue
-        if not old.isalpha() or old != old.lower():
-            return False      # a name, a word with a digit: no edit at all
-        flat = new[:1].lower() + new[1:] if at == 0 else new
-        if flat != flat.lower() or not new.isalpha():
-            return False
-        before_word, after_word = _fold(old), _fold(new)
-        if len(before_word) != len(after_word) and (before_word[:1] != after_word[:1] or before_word[-1:] != after_word[-1:]):
-            return False      # a letter added or removed at the start or the end of a word turns it into another (aprovado, reprovado; pago, pagou)
-        if _distance(before_word, after_word) > (0 if len(before_word) <= 3 else 1 if len(before_word) <= 6 else 2):
-            return False
-    return True
+    before_word, after_word = _fold(old), _fold(new)
+    if len(before_word) != len(after_word) and (before_word[:1] != after_word[:1] or before_word[-1:] != after_word[-1:]):
+        return False      # a letter added or removed at the start or the end of a word turns it into another (aprovado, reprovado; pago, pagou)
+    return _distance(before_word, after_word) <= (0 if len(before_word) <= 3 else 1 if len(before_word) <= 6 else 2)
+
+
+def _same_words(typed: str, shown: str) -> bool:
+    """Whether `shown` is `typed` with its spelling fixed (see `spelled`): only letters differ; the letters are of the scripts the person used; a word typed with a capital or a digit
+    changes its accents only; a word typed in lower case, letters only, may also have a small edit inside it."""
+    if not _frame_ok(typed, shown):
+        return False
+    typed, shown = unicodedata.normalize("NFC", typed), unicodedata.normalize("NFC", shown)
+    before, after = re.findall(r"[^\W_]+", typed), re.findall(r"[^\W_]+", shown)
+    return all(_word_ok(at, old, new) for at, (old, new) in enumerate(zip(before, after)))
+
+
+def _merged(typed: str, shown: str) -> str:
+    """The typed subject with every word the model's version may stand for replaced by the model's word, and every other word as typed (S13b: one word that fails does not keep the whole
+    subject unaccented). The whole subject must pass `_frame_ok` first; what is not a word (spaces, digits, punctuation) is the typed subject's own."""
+    if not _frame_ok(typed, shown):      # on the texts as they are: a decomposed accent is not NFKC-stable, and is refused
+        return typed
+    typed, shown = unicodedata.normalize("NFC", typed), unicodedata.normalize("NFC", shown)
+    words = iter(enumerate(re.findall(r"[^\W_]+", shown)))
+
+    def pick(match):
+        at, new = next(words)
+        return new if _word_ok(at, match.group(0), new) else match.group(0)
+    return re.sub(r"[^\W_]+", pick, typed)
 
 
 def _subject_problem(shown: str) -> bool:
@@ -179,11 +202,15 @@ def _subject_problem(shown: str) -> bool:
 
 
 def spelled(typed: str, shown) -> str:
-    """The subject the person typed with its spelling fixed when the model's `shown` is the same subject (see the module's text), else the typed one."""
+    """The subject the person typed with its spelling fixed where the model's `shown` is the same subject (see the module's text), else the typed one. The whole of `shown` must stand as a
+    model-written subject and have the typed subject's frame (`_frame_ok`); then each word is taken from the model when it may stand for the typed word (`_word_ok`) and kept as typed when it
+    may not, so that "Reuniao sobre o Openhora" answered as "Reuni\u00e3o sobre o OpenHora" becomes "Reuni\u00e3o sobre o Openhora"."""
     if not isinstance(shown, str):
         return typed
     shown = shown.strip()
-    return shown if shown != typed and not _subject_problem(shown) and _same_words(typed, shown) else typed
+    if shown == typed or _subject_problem(shown):
+        return typed
+    return _merged(typed, shown)
 
 
 def without_dangling_close(body: str) -> str:

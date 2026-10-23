@@ -292,12 +292,19 @@ def test_the_model_may_fix_the_spelling_of_the_typed_subject_and_the_card_shows_
     nothing_sent(world)
 
 
-@pytest.mark.parametrize("composed", ["Convite para reunião", "Reunião Openhora", "Reunião sobre o Openhora amanhã", "Reunião sobre o Openhora https://elsewhere.example", "Reunião sobre o openhora"])      # validate: allow english-only -- the stand-in model's Portuguese answers
+@pytest.mark.parametrize("composed", ["Convite para reunião", "Reunião Openhora", "Reunião sobre o Openhora amanhã", "Reunião sobre o Openhora https://elsewhere.example"])      # validate: allow english-only -- the stand-in model's Portuguese answers
 def test_a_model_subject_that_is_not_the_same_subject_with_its_spelling_fixed_leaves_the_typed_one_on_the_card(world, clock, monkeypatch, composed):
     with_subject_typed(world, monkeypatch, composed)
     out = phone(world, TYPED_LINE)
     lines = card_lines(world, out)
     assert out["resend"] and lines[3] == "Subject: " + TYPED_SUBJECT and text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
+
+
+def test_a_model_subject_with_one_word_that_fails_the_rule_still_fixes_the_accents_of_the_others_on_the_card(world, clock, monkeypatch):
+    with_subject_typed(world, monkeypatch, "Reunião sobre o OpenHora")      # validate: allow english-only -- the stand-in model's Portuguese answer
+    out = phone(world, TYPED_LINE)
+    lines = card_lines(world, out)
+    assert out["resend"] and lines[3] == "Subject: Reunião sobre o Openhora" and text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
 
 
 def test_a_composed_body_that_ends_with_a_closing_formula_alone_is_shown_without_it(world, clock, monkeypatch):
