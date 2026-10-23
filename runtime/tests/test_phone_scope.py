@@ -75,7 +75,6 @@ CASES = {
     "reply body with a home path": (effect(reply("<a1@clinic.example>", "\u2502 file at /Users/ana/Desktop/x.pdf"), "send-own"), "file at /Users/ana/Desktop/x.pdf"),
     "reply body with a drive path": (effect(reply("<a1@clinic.example>", "\u2502 open C:\\Users\\ana\\x.docx"), "send-own"), "open C:\\Users\\ana\\x.docx"),
     "reply body with a url": (effect(reply("<a1@clinic.example>", "\u2502 see https://x.example/a/b/c"), "send-own"), "see https://x.example/a/b/c"),
-    "reply with a gmail message id": (effect(reply("<CAKx+Fk=/Gp7/wPq@mail.gmail.com>", "\u2502 Hi"), "send-own"), "<CAKx+Fk=/Gp7/wPq@mail.gmail.com>"),
     "reply body with a flag": (effect(reply("<a1@clinic.example>", "\u2502 we discussed the --project budget"), "send-own"), "we discussed the --project budget"),
 }
 
@@ -183,3 +182,14 @@ def test_a_typed_commands_result_on_a_phone_leaves_out_its_command_and_path_fiel
     shown = ops_say._phone_view(result)
     assert shown == {"held": [{"task_id": 8, "reason": "dispatch off"}], "requests": [{"id": 3, "title": "uv run demo", "next": "Approve the plan."}], "data": {"n": 2}}
     assert "held" in result and result["path"] == "/p/docs", "the caller's result is not changed"
+
+
+@pytest.mark.parametrize("tag", ["en", "pt-BR"])
+def test_the_id_of_the_message_a_reply_answers_is_not_drawn_on_a_phone_but_the_persons_text_is(tag):
+    """S16c: the message id of a reply is an internal; the body the person wrote stays, whole."""
+    item = effect(reply("<CAKx+Fk=/Gp7/wPq@mail.gmail.com>", "\u2502 Hi Ana"), "send-own")
+    policy = {"messaging": ["read", "ask-mail", "approve-effect-send-own"]}
+    built = cards.build("office", item, CAPS, policy, "text", None, operations=operations, sender=SENDER, cfg={"language": tag})
+    text = built["message"]["text"]
+    assert "CAKx+Fk" not in text and "Hi Ana" in text and built["content_sha256"] == HASH
+    assert "CAKx+Fk" in item["body"], "vacuity: the stored body, which the terminal shows, holds the id"

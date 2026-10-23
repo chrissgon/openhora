@@ -571,10 +571,19 @@ def _brand_words() -> set:
     return {w for brands in _brands().values() for brand in brands for w in brand}
 
 
+TITLE_NOUNS = {"reuniao", "reunioes", "meeting", "meetings", "appointment", "appointments", "compromisso", "compromissos"}      # nouns of the tables that are also what titles are called: they are words of a title, never skipped
+
+
+def _noun_words() -> set:
+    """The calendar nouns of the language tables ("evento", "compromisso"...): they name the kind of thing, so a line that says "o evento corte de cabelo" has the title "corte de cabelo"."""
+    tables = natural._tables(None)
+    return {w for key in ("nouns", "nouns_plural") for phrase in nw.listed(tables, "calendar", key) for w in _words(phrase)} - TITLE_NOUNS
+
+
 def _exact(title_words: list, line_words: list) -> bool:
     """Whether the line's title span is the title: the title's words, all of them and in order, are a run of the line's words, and every word of the line outside that run is a
     word that names no event (a stop word, or the name of an account). "cancela o almoco com a ana" is not exact for an event called "Ana"; "corte cabelo" is not for "corte de cabelo"."""
-    n, skippable = len(title_words), _stop_words() | _brand_words()
+    n, skippable = len(title_words), _stop_words() | _brand_words() | _noun_words()
     return n > 0 and any(line_words[i:i + n] == title_words and all(w in skippable for w in line_words[:i] + line_words[i + n:]) for i in range(len(line_words) - n + 1))
 
 
@@ -639,6 +648,26 @@ def _shown(row: dict, with_source: bool) -> str:
 def _when(row: dict) -> str:
     """`Fri 23/10/2026 14:00-15:00` (the shape a phone renders in its language), the day and the time of an event."""
     return f"{ENGLISH_WEEKDAY[row['day'].weekday()]} {row['day'].strftime('%d/%m/%Y')} {row['time']}"
+
+
+_ZONE_TAIL = re.compile(r"\s*\([^()]*\)$")
+
+
+def _found_fields(ctx: dict, extras: dict, row: dict) -> dict:
+    """{"title", "when"} of the "Encontrei ... É este?" line: the event as the card has it, read live from the provider when the card was prepared (the lines "the event now" of
+    the stored card), not as the snapshot or the ledger had it; the row's own values only when the card holds no such line. The zone the card adds to a time is left off."""
+    title, when = row["title"], _when(row)
+    try:
+        item = ctx["store"].pending_get(ctx["conn"], extras["resend"])
+        card = item["payload"]["card"]
+    except Exception:      # noqa: BLE001 - no card to read: the row's values
+        return {"title": title, "when": when}
+    for key, fields in card:
+        if key == "CARD_CAL_NOW_TITLE" and fields.get("title") not in (None, "-"):
+            title = fields["title"]
+        elif key == "CARD_CAL_NOW_WHEN" and fields.get("when"):
+            when = _ZONE_TAIL.sub("", fields["when"])
+    return {"title": title, "when": when}
 
 
 def _list(ctx: dict, op: str, found: list) -> str:
@@ -833,7 +862,9 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
             return _text(ctx, "EV_CHANGE_WHAT")
     opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "slots": slots})
     if opened is not None and not was.get("exact", True):          # the name was near, not the same: the person is shown which event it is, and the card that follows is the question
-        return _text(ctx, "EV_FOUND", title=was["title"], when=_when(was)) + "\n" + opened
+        lead = _text(ctx, "EV_FOUND", **_found_fields(ctx, extras, was))
+        extras["lead"] = lead          # a messaging app says it BEFORE the card (the bridge), never after it
+        return lead + "\n" + opened
     return opened
 
 

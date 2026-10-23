@@ -470,8 +470,9 @@ def card_lines(doc: dict, digest: str) -> list:
     head = [["CARD_ACCOUNT", {"account": doc["account"], "address": doc["address"]}], ["CARD_CAL_CALENDAR", {"calendar": doc["calendar"]}]]
     if operation == "create":
         return [["CARD_CAL_CREATE", {}]] + head + _event_lines(doc["event"], zone) + [["CARD_CAL_NOBODY", {}]]
-    # The event as the calendar holds it NOW (read in the preparation): its id and its time are always shown, so that whoever approves sees which event it is and a
-    # renumbered snapshot cannot make them approve another one. Its title, place and notes are under the keys of phrases.CARD_PRIVATE.
+    # The event as the calendar holds it NOW (read in the preparation): its id and its time are always on the card, so that whoever approves in the terminal or on the page sees which event
+    # it is and a renumbered snapshot cannot make them approve another one. A phone is not shown the id, the snapshot or the version (runtime/messaging_cards.py PHONE_DROPPED; the hash still
+    # covers them): it is shown the account, the calendar, the title and the time as read now, which name the event. Title, place and notes are under the keys of phrases.CARD_PRIVATE.
     head.append(["CARD_CAL_EVENT", {"event_id": doc["event_id"]}])
     head.append(["CARD_CAL_NOW_WHEN", {"when": when_text(doc["before"], zone)}])
     head.append(["CARD_CAL_NOW_TITLE", {"title": doc["before"]["title"] or "-"}])

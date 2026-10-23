@@ -83,7 +83,7 @@ def test_a_provider_that_declares_no_send_files_is_told_nothing_and_is_never_han
     [sent] = wait_sent(sending)
     assert "can_send" not in say_calls(sending)[0][2]
     assert "file" not in sent["message"]
-    assert sent["message"]["text"] == SAID + "\n\n" + NOT_SENT, "an attachment the provider cannot carry stays home, and the reply says so"
+    assert sent["message"]["text"] == NOT_SENT, "an attachment the provider cannot carry stays home, and the reply is the sentence alone (no caption that promises a file)"
 
 
 def test_vacuity_a_provider_that_declares_send_files_is_told_its_limits(sending):
@@ -99,7 +99,7 @@ def test_a_profile_that_lost_the_group_since_the_search_sends_no_file_and_the_re
     sending.config["channels"] = {"messaging": OPEN_POLICY + ["read-files"]}
     sending.say("bring me the activities")
     [sent] = wait_sent(sending)
-    assert "file" not in sent["message"] and sent["message"]["text"] == SAID + "\n\n" + RIGHT
+    assert "file" not in sent["message"] and sent["message"]["text"] == RIGHT
     assert sending.gone()
 
 
@@ -124,7 +124,7 @@ def test_a_file_beyond_the_limits_of_the_app_is_not_handed_to_the_provider(sendi
     sending.answer(held)
     sending.say("bring me the activities")
     [sent] = wait_sent(sending)
-    assert "file" not in sent["message"] and sent["message"]["text"] == SAID + "\n\n" + NOT_SENT
+    assert "file" not in sent["message"] and sent["message"]["text"] == NOT_SENT
 
 
 def test_a_file_that_did_not_arrive_after_the_text_went_out_is_one_plain_sentence(sending):
@@ -137,13 +137,12 @@ def test_a_file_that_did_not_arrive_after_the_text_went_out_is_one_plain_sentenc
     assert sending.gone()
 
 
-def test_a_file_the_provider_refused_before_sending_anything_leaves_the_text_alone_and_the_sentence(sending):
+def test_a_file_the_provider_refused_before_sending_anything_sends_the_sentence_alone_and_not_the_caption(sending):
     (sending.standin / "file_usage.json").write_text("true")
     sending.answer()
     sending.say("bring me the activities")
-    first, second = wait_sent(sending, 2)
-    assert first["message"]["text"] == SAID and "file" not in first["message"]
-    assert second["message"]["text"] == NOT_SENT
+    [only] = wait_sent(sending)
+    assert only["message"]["text"] == NOT_SENT and "file" not in only["message"], "the caption promised a file: only the sentence goes"
     assert sending.gone(), "the folder is gone although the provider refused"
 
 

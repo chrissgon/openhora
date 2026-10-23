@@ -92,7 +92,8 @@ def is_long(doc) -> bool:
 
 
 def on_cards(doc) -> bool:
-    """Whether the whole change can be on a messaging card: it is (the card is the whole event, and nothing the hash covers is left off it)."""
+    """Whether the whole change can be on a messaging card: it is. The card names the whole event; a phone's text leaves off the event's id, the snapshot's name and the version (the page and
+    the terminal show every line, and the hash covers them all), and what it does show (account, calendar, title, the time as read now, and the time after) names the event."""
     return True
 
 

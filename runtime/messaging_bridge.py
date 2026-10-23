@@ -519,7 +519,7 @@ class Bridge(shell_kit.Jobs):
                         failed = getattr(sent, "document_failed", False)      # the text went out and the file did not (the provider says so)
                     except provider.MessengerError as e:
                         if e.kind == "usage":
-                            sent, failed = self.deliver(chat, message, guard), True      # the provider refused the file before it sent anything: the text goes alone
+                            sent, failed = None, True      # the provider refused the file before it sent anything: only the sentence goes (S18b: the caption promised a file)
                         elif e.kind == "timeout":
                             self.log("a reply with a file ran over the time of the send")      # the text may have gone out already: it is NOT sent again (a second copy), and the person is told about the file
                             sent, failed = None, True
@@ -1437,6 +1437,16 @@ class Bridge(shell_kit.Jobs):
                 self.renew(project, chat, number, card)
         self.start(project, chat, "approve", call)
 
+    def lead_first(self, project: dict, chat: str, result: dict, said: str) -> tuple:
+        """Send the line that introduces a card ("Encontrei: ... É este?", result["lead"]) as a message BEFORE the card, and return (`said` without it, whether the line was sent): the card
+        is then the last message (S2), and the line names the event as the card has it (it was written from the card's own lines). Nothing is sent when the result has no such line or `said`
+        does not hold it. When the line was sent, the caller sends the card again whatever it was sent before (RESEND_EVERY would skip it, and the line would be the last message)."""
+        lead = result.get("lead")
+        if not isinstance(lead, str) or not lead or lead not in said:
+            return said, False
+        self.reply(chat, lead, project)
+        return said.replace(lead, "", 1).strip("\n"), True
+
     def without_card_line(self, said: str, pending, project) -> str:
         """`said` without the line that tells a card of this decision waits for approval (ACCT_CARD_SENT): the card was just sent to this chat and says it itself. Called only
         when the card went out; where no card was shown the line stays, and so does any other line (a doubt about the date, a rolled day)."""
@@ -1553,7 +1563,10 @@ class Bridge(shell_kit.Jobs):
             self.line(project, chat, text, None)()
             return False
         opened = result.get("resend") is not None
-        if opened and not self.resend(project, chat, result["resend"]):
+        led = False
+        if opened:
+            said, led = self.lead_first(project, chat, result, said)      # S16c: "Encontrei ... É este?" goes before the card, never after it
+        if opened and not self.resend(project, chat, result["resend"], **({"force": True} if led else {})):      # a line was just sent: the card goes again, so that it is the last message
             said, opened = self.t("NW_CARD_NOT_SENT", project=project, pending=result["resend"]), False
         if result.get("asked") and chat in self.remind.discarded:
             self.remind.discarded.discard(chat)
@@ -1604,7 +1617,10 @@ class Bridge(shell_kit.Jobs):
                 said = self.command_sentence(project, typed or text, raw)
                 converted = said is not raw      # a sentence made from a command's result carries a text of the operations layer (a held task's reason): it passes the net of `messaging_guard`
                 carded = result.get("resend") is not None
-                if carded and not self.resend(project, chat, result["resend"], force=bool(result.get("resend_forced"))):      # a decision named in words (NR-2): its card goes out again
+                led = False
+                if carded:
+                    said, led = self.lead_first(project, chat, result, said)      # S16c: "Encontrei ... É este?" goes before the card, never after it
+                if carded and not self.resend(project, chat, result["resend"], force=bool(result.get("resend_forced")) or led):      # a decision named in words (NR-2): its card goes out again
                     said, carded = self.t("NAT_DECISION_NO_CARD", project=project), False      # and the sentence says so only when a card is there
                 else:
                     said = self.without_card_line(said, result.get("resend"), project) or ("" if result.get("resend") is not None else said)
@@ -1617,10 +1633,10 @@ class Bridge(shell_kit.Jobs):
                 attached, why = self.file_to_send(project, chat, result.get("attachment"))
                 if why == "read":      # the right to read files is gone since the search: neither the file nor the text found is sent, and the reply says that the right changed
                     said = self.t("FS_RIGHT_CHANGED", project=project)
-                elif why == "right":      # the right to receive files is gone: the text that was found goes, the file stays home, and the reply says that the right changed
-                    said = said + "\n\n" + self.t("FS_RIGHT_CHANGED", project=project)
+                elif why == "right":      # the right to receive files is gone: the file stays home and the reply says that the right changed (S18b: no caption that promises a file, no preview)
+                    said = self.t("FS_RIGHT_CHANGED", project=project)
                 elif why:      # the app cannot carry the file now
-                    said = said + "\n\n" + self.t("FS_NOT_SENT", project=project)
+                    said = self.t("FS_NOT_SENT", project=project)
                 if self.reply(chat, said, project, guard=converted, attachment=attached) is True and result.get("pending_id") is not None:
                     self.note_asked(project, chat, result["pending_id"], getattr(self.scope, "replied", None))      # the router's question reached this chat as the reply: its notice would be the same question twice
             except Refused as e:
