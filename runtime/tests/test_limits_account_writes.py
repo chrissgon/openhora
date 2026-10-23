@@ -35,8 +35,8 @@ SCANNED = ["providers/writer/**/*.py", "providers/mailer/gmail.py", "providers/m
 # calendar's trash for 30 days (the person restores it there); S21: the Outlook calendar writer's two removals of one event, which may be unrecoverable (not
 # verified); each pair is honoured only in that file's own constant ALLOWED.
 ALLOWED_DELETE = (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),
-                  ("providers/writer/outlook-calendar.py", r"/me/calendar/events/[^/]+"),
-                  ("providers/writer/outlook-calendar.py", r"/me/calendars/[^/]+/events/[^/]+"))
+                  ("providers/writer/outlook-calendar.py", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+                  ("providers/writer/outlook-calendar.py", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"))
 WORD = re.compile(r"(?<![A-Za-z])delete(?![A-Za-z])", re.I)               # the word `delete` alone (not `deleted`, `deleteditems`)
 METHODISH = re.compile(r"\s*delete(?![A-Za-z-])", re.I)                    # a string that starts with the method: "DELETE", "delete /x"
 DANGEROUS = re.compile(r"permanent_?delete|batch_?delete|empty_?trash", re.I)
@@ -176,9 +176,8 @@ def test_limit_57_measure_no_script_of_the_writers_helpers_or_readers_holds_a_pe
     found = [f for path in scanned for f in delete_findings(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))]
     assert found == [], found
     assert ALLOWED_DELETE == (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),
-                              ("providers/writer/outlook-calendar.py", r"/me/calendar/events/[^/]+"),
-                              ("providers/writer/outlook-calendar.py", r"/me/calendars/[^/]+/events/[^/]+")), "no other pair is allowed until the package that needs it adds it, with the reason"
-    assert not [f for f in found if "outlook-calendar" in f[0]], "vacuity: the Outlook file is scanned, with its pairs"
+                              ("providers/writer/outlook-calendar.py", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+                              ("providers/writer/outlook-calendar.py", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+")), "no other pair is allowed until the package that needs it adds it, with the reason"
     assert any("outlook-calendar" in str(path) for path in scanned)
 
 
@@ -257,7 +256,7 @@ def test_limit_58_measure_only_the_effect_modules_and_the_seam_name_a_writer_at_
 
 
 OUTLOOK_FILE = "providers/writer/outlook-calendar.py"
-OUTLOOK_PAIRS = r"""ALLOWED = (("GET", r"/me/calendar/events/[^/]+"), ("DELETE", r"/me/calendar/events/[^/]+"), ("DELETE", r"/me/calendars/[^/]+/events/[^/]+"))
+OUTLOOK_PAIRS = r"""ALLOWED = (("GET", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"), ("DELETE", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"), ("DELETE", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"))
 REMOVE_DEFAULT, REMOVE_IN = ALLOWED[1], ALLOWED[2]
 """
 
@@ -265,9 +264,9 @@ REMOVE_DEFAULT, REMOVE_IN = ALLOWED[1], ALLOWED[2]
 def test_limit_57_measure_the_outlook_writers_two_event_pairs_are_honoured_in_its_own_file_and_nothing_else_is():
     assert delete_findings(OUTLOOK_PAIRS, OUTLOOK_FILE) == []
     assert delete_findings(OUTLOOK_PAIRS, "providers/writer/outlook-mail.py") != [], "another file does not inherit them"
-    wider = OUTLOOK_PAIRS.replace('("DELETE", r"/me/calendars/[^/]+/events/[^/]+")', '("DELETE", r"/me/calendars/[^/]+/events/[^/]+"), ("DELETE", r"/me/messages/[^/]+")')
+    wider = OUTLOOK_PAIRS.replace('("DELETE", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+")', '("DELETE", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"), ("DELETE", r"/me/messages/[^/]+")')
     assert any("HTTP DELETE" in f[2] for f in delete_findings(wider, OUTLOOK_FILE)), "a third pair is a finding"
-    looser = OUTLOOK_PAIRS.replace('r"/me/calendar/events/[^/]+"), ("DELETE", r"/me/calendars', 'r"/me/calendar/events/.*"), ("DELETE", r"/me/calendars')
+    looser = OUTLOOK_PAIRS.replace('r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"), ("DELETE", r"/me/calendars', 'r"/me/calendar/events/.*"), ("DELETE", r"/me/calendars')
     assert looser != OUTLOOK_PAIRS and delete_findings(looser, OUTLOOK_FILE) != [], "a regex the allow-list does not name is a finding"
     decoy = OUTLOOK_PAIRS + "\nrequest('DELETE', '/me/messages/' + message)\n"
     assert any("HTTP DELETE" in f[2] for f in delete_findings(decoy, OUTLOOK_FILE))

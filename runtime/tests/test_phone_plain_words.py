@@ -378,17 +378,12 @@ def test_no_refusal_of_the_calendar_mail_files_and_sources_operations_reaches_a_
     assert leaks(items) == []
 
 
-OLD_OUTLOOK_REFUSAL = ("removing an event from an Outlook calendar is not available yet: Microsoft does not say where a removed event goes, so it is off until that is shown")
-
-
-def test_the_outlook_removal_refusal_is_raised_nowhere_since_s21_and_the_net_still_tells_the_old_text_by_its_own_sentence():
-    assert [i for i in refusals() if "Outlook calendar is not available" in i[1]] == [], "removing an Outlook event is on (S21): no source raises the refusal"
-    for shape in ("step", "effect"):      # the branch of messaging_failure stays, unused, with its phrase: the old text is still told in the language
-        assert on_a_portuguese_phone(shape, OLD_OUTLOOK_REFUSAL) == "Ainda não consigo apagar eventos da agenda do Outlook por aqui. Você pode apagar pelo próprio Outlook.", shape  # validate: allow english-only -- the Portuguese sentence under test
+def test_the_outlook_removal_refusal_is_raised_nowhere_since_s21():
+    assert [i for i in refusals() if "Outlook calendar is not available" in i[1]] == [], "removing an Outlook event is on (S21): no source raises the refusal any more"
 
 
 def test_vacuity_a_net_that_returns_the_text_is_noticed_by_the_sweep(monkeypatch):
-    items = [("step", "removing an event from an Outlook calendar is not available yet: Microsoft does not say", "step_calendar_event"), ("ops", "the title is not a string", "x")]
+    items = [("ops", "the title is not a string", "x")]
     assert leaks(items) == []
     monkeypatch.setattr(phone_errors, "safe", lambda text, cfg=None: text)
     monkeypatch.setattr(messaging_failure, "phone_errors", phone_errors)

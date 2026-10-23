@@ -849,7 +849,6 @@ TABLE = {
         "PHONE_NOT_PLANNED": "Not planned {n}: {item}.",
         "NOT_OPEN_DONE": "Request #{number} was already {status}.",
         "PHONE_NO_FILE_DELETE": "I cannot delete files from a message yet. You can delete it in Google Drive or OneDrive.",
-        "FAIL_OUTLOOK_REMOVE": "I cannot delete events from an Outlook calendar from here yet. You can delete it in Outlook itself.",
         "PEND_CARD_TITLE": "Question from the assistant",
         "PEND_NOT_UNDERSTOOD_TITLE": "Request not understood",
         # --- a question of general information answered by a web search (slice R2-F1: runtime/ops_research.py, runtime/research_reply.py) ---

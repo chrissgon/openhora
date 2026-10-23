@@ -1,12 +1,12 @@
-"""Removing an event from an Outlook calendar, on a Portuguese phone (slice S14b, changed by slice S21; runtime/messaging_failure.py `from_step`, `ops_natural._error`).
+"""Removing an event from an Outlook calendar, on a phone (slice S14b, changed by slice S21; runtime/ops_natural.py, runtime/account_start.py).
 
 The live line (2026-10-22, 17:03): "Remova o corte de cabelo de amanha da agenda" about an event on the Microsoft account was answered with the writer's English sentence, raw, because
-removing an Outlook event was off (decision Q12 of SPEC-SECRETARY-WRITES). S14b told that refusal in one plain sentence of the language (`FAIL_OUTLOOK_REMOVE`). The maintainer then
-reversed Q12 ("Apenas apague", 2026-10-22, slice S21): the removal is on, the line opens the cancel card with the Outlook line, and the refusal is no longer raised, so the phrase and the
-branch of `messaging_failure` that tells it stay in the code unused. What this file holds now: the live line on an Outlook event opens a card (in the language of the project, never the
-old refusal and never raw English), the typed path opens the same card, the Google event of the same line still opens its card, and the file lines keep their sentence.
+removing an Outlook event was off (decision Q12 of SPEC-SECRETARY-WRITES). S14b told that refusal in one plain sentence of the language. The maintainer then reversed Q12 ("Apenas apague",
+2026-10-22, slice S21): the removal is on, the line opens the cancel card with the Outlook line, and the refusal, its phrase and the code that told it are gone. What this file holds now: the
+live line on an Outlook event opens a card in the language of the project (never raw English), the typed path opens the same card, the Google event of the same line still opens its
+card, and the file lines keep their sentence.
 
-THE ORACLE is this file's own literals. It never calls the code under test to decide what is right. The vacuity cases plant the old English sentence and show the oracle flags it. Over the
+THE ORACLE is this file's own literals. It never calls the code under test to decide what is right. The vacuity cases plant a raw English sentence and show the oracle flags it. Over the
 real calendar world of test_calendar_write.py; invented names.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_phone_outlook_remove.py
@@ -22,9 +22,6 @@ from test_event_lookup_number_account import CARD_SENT, Model, add_outlook, fres
 
 ops = st.load("ops")
 
-PT = "Ainda não consigo apagar eventos da agenda do Outlook por aqui. Você pode apagar pelo próprio Outlook."      # validate: allow english-only -- the Portuguese sentence under test
-EN = "I cannot delete events from an Outlook calendar from here yet. You can delete it in Outlook itself."
-LIVE = "removing an event from an Outlook calendar is not available yet: Microsoft does not say where a removed event goes, so it is off until that is shown"      # the refusal of before S21, planted as the vacuity case
 LINE = "Cancela o corte de cabelo no outlook"
 ENGLISH = re.compile(r"\b(the|is|not|removing|available|yet|where|goes|until|shown|from|an|event)\b")
 
@@ -41,7 +38,7 @@ def test_the_live_line_on_an_outlook_event_opens_the_cancel_card_in_portuguese_a
     add_outlook(world)
     reply, extras = carry(world, LINE, CANCEL)
     assert reply == CARD_SENT and "resend" in extras and reads_only(world) == [], "a card waits for the approval; nothing was written"
-    assert reply not in (PT, EN) and not raw_english(reply) and "Microsoft" not in reply and "off until" not in reply
+    assert not raw_english(reply) and "Microsoft" not in reply
     item = ops.pending(world["path"], extras["resend"])
     assert item["status"] == "open" and item["body"].splitlines()[0] == OUTLOOK_LINE_EN and f"Account: microsoft ({fgc.ADDRESS})" in item["body"].splitlines()
     assert [r["method"] for r in world["graph"].graph_requests() if r["method"] != "GET"] == [] and "AAMkOut=" in world["graph"].events
@@ -102,5 +99,5 @@ def test_event_and_mail_removals_are_not_taken_for_a_file(world, monkeypatch):
     assert model.calls == 1
 
 
-def test_vacuity_the_old_english_sentence_is_noticed_and_the_card_sentence_is_not():
-    assert raw_english(LIVE) and raw_english("error: " + LIVE) and not raw_english(PT) and not raw_english(CARD_SENT)
+def test_vacuity_a_raw_english_sentence_is_noticed_and_the_card_sentence_is_not():
+    assert raw_english("removing an event from an Outlook calendar is not available yet") and not raw_english(CARD_SENT)

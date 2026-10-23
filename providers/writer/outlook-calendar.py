@@ -99,17 +99,19 @@ EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_NOT_CONFIGURED, EXIT_UNKNOWN = (_calenda
 SERVES = "writer:calendar"
 IMPLEMENTATION = "outlook-calendar"
 # The only requests this writer sends (limits L57 and L58): a method and a full-match pattern of the path, as the request function sees it (ids are percent-encoded).
+# An id in a path is what the builders let through, percent-encoded as they send it: letters, digits, `_` and `-`, and the encodings of `=` (%3D) and, for an event, `+`
+# (%2B). No dot, so `.` and `..` are not a segment, and no `/`, so a path cannot leave the calendar's events (L57: this is the guard of the one removal).
 ALLOWED = (("GET", r"/me/calendars"),
            ("GET", r"/me/calendar/events"),
-           ("GET", r"/me/calendars/[^/]+/events"),
-           ("GET", r"/me/calendar/events/[^/]+"),
-           ("GET", r"/me/calendars/[^/]+/events/[^/]+"),
+           ("GET", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events"),
+           ("GET", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+           ("GET", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
            ("POST", r"/me/calendar/events"),
-           ("POST", r"/me/calendars/[^/]+/events"),
-           ("PATCH", r"/me/calendar/events/[^/]+"),
-           ("PATCH", r"/me/calendars/[^/]+/events/[^/]+"),
-           ("DELETE", r"/me/calendar/events/[^/]+"),
-           ("DELETE", r"/me/calendars/[^/]+/events/[^/]+"))
+           ("POST", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events"),
+           ("PATCH", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+           ("PATCH", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+           ("DELETE", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+           ("DELETE", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"))
 (LIST_CALENDARS, LIST_DEFAULT, LIST_IN, GET_DEFAULT, GET_IN, POST_DEFAULT, POST_IN, PATCH_DEFAULT, PATCH_IN, REMOVE_DEFAULT, REMOVE_IN) = ALLOWED
 KEY_PROPERTY = "String {c1a7e5d2-9b34-4f68-8a1e-3d5f7b2c9e40} Name openhora_key"   # the private property every request writes: a lost answer is looked up by it
 PROFILE = msgraph.account_profile(

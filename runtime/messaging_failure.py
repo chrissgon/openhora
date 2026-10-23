@@ -40,9 +40,6 @@ AUTH = re.compile(r"not authori[sz]ed|authori[sz]e|unauthori[sz]ed|credential|to
 UNKNOWN = re.compile(r"outcome is unknown|may or may not|whether .* (was|is) (written|made)|not known|exit(?:ed)?(?: with)?(?: status)?(?: code)? 4\b", re.I)
 
 
-OUTLOOK_REMOVE = re.compile(r"removing an event from an Outlook calendar is not available")      # the writer's refusal of Q12, told by one sentence of its own
-
-
 def _family(kind=None, word=None):
     if kind == "calendar-event" or word == "calendar":
         return "CALENDAR"
@@ -79,8 +76,6 @@ def from_step(kind, account, code, field, folder, cfg, said=None) -> str:
         return phrases.text("FAIL_NAME_TAKEN", cfg)
     if code in ("file_too_large", "too_large"):
         return phrases.text("FAIL_TOO_LARGE", cfg)
-    if code == "not_available" and kind == "calendar-event" and account == "microsoft":      # removing an event from Outlook is off by decision (SPEC-SECRETARY-WRITES Q12): the plain sentence, never the writer's English
-        return phrases.text("FAIL_OUTLOOK_REMOVE", cfg)
     if said:      # a code that is about the request itself (a day that does not exist, a file of another type): the step's own sentence for the person, localized; an English sentence no table knows is the plain one (S14b)
         return phone_errors.safe(phrases.localize(said, cfg), cfg)
     return phrases.phone("FAIL_NOT_DONE", cfg)
@@ -91,8 +86,6 @@ def from_error(error, cfg, word=None, account=None) -> str:
     wrote). `word` is the effect's word (`files`, `calendar`, `mailbox`, `send`) and `account` its account, when the caller knows them."""
     text = str(error)
     service = _service(_family(None, word), account, cfg)
-    if OUTLOOK_REMOVE.search(text):
-        return phrases.text("FAIL_OUTLOOK_REMOVE", cfg)
     if UNKNOWN.search(text):
         return phrases.text("FAIL_UNKNOWN", cfg, place=phrases.text(PLACE_OF_WORD.get(word, "FAIL_LOOK_ANY"), cfg))
     if QUOTA.search(text):

@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -171,7 +172,7 @@ def test_a_change_reads_the_event_compares_its_change_key_and_sends_one_patch_of
 
 
 def test_a_change_of_the_time_sends_start_end_and_all_day_together(fake, tmp_path, state):
-    base = an_event(fake)["changeKey"]
+    base = an_event(fake, _calendar=fgc.NAMED)["changeKey"]
     spec = {"all_day": True, "start_at": "2026-10-19", "end_at": "2026-10-20"}
     out(run(fake, tmp_path, state, *patch_args(tmp_path, spec, base, calendar=fgc.NAMED)))
     _, (method, path, _, body) = calls(fake)
@@ -229,7 +230,7 @@ def test_a_removal_is_a_read_a_comparison_of_the_change_key_and_exactly_one_dele
 
 
 def test_a_removal_in_a_named_calendar_goes_to_that_calendars_event(fake, tmp_path, state):
-    base = an_event(fake)["changeKey"]
+    base = an_event(fake, _calendar=fgc.NAMED)["changeKey"]
     out(run(fake, tmp_path, state, *delete_args(base, calendar=fgc.NAMED)))
     assert [(m, p) for m, p, _, _ in calls(fake)] == [("GET", f"{NAMED_EVENTS}/AAMkEvent9999="), (REMOVAL, f"{NAMED_EVENTS}/AAMkEvent9999=")]
 
@@ -345,10 +346,45 @@ def test_the_verbs_this_writer_does_not_have_are_still_a_usage_error_and_send_no
     assert fake.requests == [] and fake.token_forms == [] and "AAMkEvent9999=" in fake.events
 
 
+DOT_AND_ESCAPE_PATHS = ["/me/calendar/events/..", "/me/calendar/events/.", "/me/calendar/events/%2e%2e", "/me/calendar/events/%2E%2E", "/me/calendars/../events/x",
+                        "/me/calendars/./events/x", "/me/calendars/%2e%2e/events/x", "/me/calendars/x/events/..", "/me/calendar/events/x/..", "/me/calendar/events/%2F",
+                        "/me/calendar/events/a%2Fb", "/me/calendar/events/a.b", "/me/calendar/events/", "/me/calendars//events/x", "/me/calendar/events/x%00",
+                        "/me/calendarGroups/g1/calendars/c1/events/x", "/me/calendarGroups/g1/calendars/c1", "/me/calendarGroups/g1", "/me/calendarView/x",
+                        "/me/events/x", "/me/messages/x", "/users/other/calendar/events/x", "/me/calendars/x/events/y/attachments/z"]
+
+
+def test_the_guard_of_the_removal_refuses_dot_segments_escapes_calendar_groups_and_other_trees_by_itself(fake):
+    """The request function alone, with no builder in front of it: the pair of the list is the guard of L57, so it must not rest on the checks of the arguments."""
+    writer = load_writer()
+    sent = []
+    writer.msgraph.http = lambda *a, **k: sent.append(a)
+    session = writer.Session(writer.msgraph.GraphClient(writer.PROFILE, fake.base, "token", True), {})
+    for entry in (writer.REMOVE_DEFAULT, writer.REMOVE_IN):
+        for path in DOT_AND_ESCAPE_PATHS:
+            with pytest.raises(writer.WriterError) as why:
+                writer.request(entry, session, path, {}, {}, write=True)
+            assert why.value.code == 2, (entry, path)
+    assert sent == [], "no connection was opened for any of them"
+    for entry, path in ((writer.REMOVE_DEFAULT, "/me/calendar/events/AAMkEvent9999%3D"), (writer.REMOVE_DEFAULT, "/me/calendar/events/a_b-c%2B1"),
+                        (writer.REMOVE_IN, "/me/calendars/AAMkNamedCalendar_1%3D/events/AAMkEvent9999%3D")):      # vacuity: what the builders send is let through
+        writer.request(entry, session, path, {}, {}, write=True)
+    assert len(sent) == 3
+
+
+def test_the_ids_the_builders_percent_encode_all_match_the_guard(fake, tmp_path, state):
+    writer = load_writer()
+    for calendar in ("default", "AAMkNamedCalendar_1=", "a-b_c=="):
+        for event in ("AAMkEvent9999=", "a+b=c-d_e", "A" * 600):
+            path = writer.events_path(calendar, event)
+            entry = writer.REMOVE_DEFAULT if calendar == "default" else writer.REMOVE_IN
+            assert re.fullmatch(entry[1], path), path
+
+
 def test_the_allow_list_holds_the_events_removal_and_nothing_wider_and_the_request_function_refuses_the_rest(fake):
     writer = load_writer()
     assert sorted({m for m, _ in writer.ALLOWED}) == [REMOVAL, "GET", "PATCH", "POST"] and writer.SERVES == "writer:calendar"
-    assert [pair for pair in writer.ALLOWED if pair[0] == REMOVAL] == [(REMOVAL, r"/me/calendar/events/[^/]+"), (REMOVAL, r"/me/calendars/[^/]+/events/[^/]+")]
+    assert [pair for pair in writer.ALLOWED if pair[0] == REMOVAL] == [(REMOVAL, r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+                                                                        (REMOVAL, r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+")]
     sent = []
     writer.msgraph.http = lambda *a, **k: sent.append(a)
     session = writer.Session(writer.msgraph.GraphClient(writer.PROFILE, fake.base, "token", True), {})
@@ -363,6 +399,27 @@ def test_the_allow_list_holds_the_events_removal_and_nothing_wider_and_the_reque
     assert sent == []
     writer.request(writer.REMOVE_DEFAULT, session, "/me/calendar/events/x", {}, {})      # vacuity: the pair of the list passes the check and reaches the connection
     assert len(sent) == 1
+
+
+def test_an_event_is_removed_or_changed_only_through_the_calendar_it_is_in_and_a_wrong_calendar_is_refused_as_changed_and_sends_nothing(fake, tmp_path, state):
+    home = an_event(fake)      # in the default calendar
+    base = home["changeKey"]
+    other = fake.add_event("AAMkInNamed001=", "Standup", "2026-10-19T09:00:00", "2026-10-19T09:30:00", _calendar=fgc.NAMED)
+    for calendar in (fgc.NAMED, "AAMkUnlisted999="):      # the default calendar's event, asked for through other calendars' paths
+        proc = run(fake, tmp_path, state, *delete_args(base, calendar=calendar))
+        assert proc.returncode == 1 and proc.stderr.strip().startswith("error: changed:"), calendar
+        proc = run(fake, tmp_path, state, *patch_args(tmp_path, {"title": "Moved"}, base, calendar=calendar))
+        assert proc.returncode == 1 and proc.stderr.strip().startswith("error: changed:"), calendar
+    proc = run(fake, tmp_path, state, *delete_args(other["changeKey"], event="AAMkInNamed001=", calendar="default"))      # and the named one, through the default path
+    assert proc.returncode == 1 and "changed:" in proc.stderr
+    proc = run(fake, tmp_path, state, *patch_args(tmp_path, {"title": "Moved"}, other["changeKey"], event="AAMkInNamed001=", calendar="default"))
+    assert proc.returncode == 1 and "changed:" in proc.stderr
+    assert {m for m, _, _, _ in calls(fake)} == {"GET"}, "only reads were sent: the pre-read through the calendar's own route found nothing"
+    assert fake.removed == {} and set(fake.events) == {"AAMkEvent9999=", "AAMkInNamed001="} and fake.events["AAMkEvent9999="]["subject"] == "Dentist"
+    # vacuity: through their own calendars the very same calls are made
+    assert out(run(fake, tmp_path, state, *delete_args(base, key=KEY + "a")))["done"] is True
+    assert out(run(fake, tmp_path, state, *patch_args(tmp_path, {"title": "Moved"}, other["changeKey"], event="AAMkInNamed001=", calendar=fgc.NAMED, key=KEY + "b")))["done"] is True
+    assert "AAMkEvent9999=" in fake.removed and fake.events["AAMkInNamed001="]["subject"] == "Moved"
 
 
 # --- reading an event ---------------------------------------------------------------------------------------------------------------------------------
