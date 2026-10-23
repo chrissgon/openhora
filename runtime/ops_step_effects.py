@@ -41,6 +41,7 @@ from __future__ import annotations
 import contextlib
 import datetime
 import hashlib
+import importlib
 import os
 import sys
 
@@ -174,6 +175,7 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None, actor=None) ->
             # (core.WRITE_LOCK_WAIT): it waits for as long as it takes. Every holder is bounded (a provider call has its timeout).
             with core._write_lock(cfg, wait=None):
                 done = core._stored(ctx, store.effect_done, pending_id, approval["id"], by="user", result=result, actor=actor)
+    importlib.import_module("ops_items").mark_changed(ctx, doc)      # S15c: a calendar or mailbox effect landed: the next list on a phone reads that account's sources again
     return {"done": done, "approval": approval, "doc": doc, "result": result}
 
 
