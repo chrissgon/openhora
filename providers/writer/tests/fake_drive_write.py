@@ -134,6 +134,9 @@ class FakeDriveWrite:
                 found = re.fullmatch(r"/upload/drive/v3/files/([^/]+)", entry["path"])
                 if found:
                     return owner.write(self, entry, "PATCH", lambda: owner.update(found.group(1), entry))
+                found = re.fullmatch(r"/drive/v3/files/([^/]+)", entry["path"])
+                if found:      # R2-A: the one metadata PATCH of the writer, the move of a file to the trash
+                    return owner.write(self, entry, "TRASH", lambda: owner.trash(found.group(1), entry))
                 found = re.fullmatch(r"/drive/v3/files/([^/]+)/revisions/([^/]+)", entry["path"])
                 if found:
                     return owner.write(self, entry, "REVISION", lambda: owner.keep(found.group(1), found.group(2), entry))
@@ -258,6 +261,17 @@ class FakeDriveWrite:
         meta["appProperties"] = {**meta["appProperties"], **patch.get("appProperties", {})}
         if meta["revisions"]:
             meta["revisions"].append({"id": self.new_id("rev"), "keepForever": False})
+        return 200, self.resource(meta)
+
+    def trash(self, ident, entry):
+        meta = self.files.get(ident)
+        if meta is None:
+            return 404, {"error": {"message": "File not found"}}
+        if json.loads(entry["body"]) != {"trashed": True}:
+            return 400, {"error": {"message": "stand-in: the only metadata change served is trashed=true"}}
+        meta["trashed"] = True
+        meta["version"] = str(int(meta["version"]) + 1)
+        meta["modifiedTime"] = self.tick()
         return 200, self.resource(meta)
 
     def keep(self, ident, revision, entry):

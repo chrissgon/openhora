@@ -163,6 +163,9 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     line (`<platform>:<sender id>`, operations.sender_key): a command in it is checked against THAT sender's profile and done as that sender.
     `can_send` (S18) is what the messaging bridge says its app can carry as a file (the provider's capabilities: ops_file_read._limits); only the bridge passes it, and only a messaging
     call keeps it. A reply that carries a file hands it back in "attachment" ({"name", "kind", "data"}: bytes in memory, for the bridge to send and drop; never stored).
+    A plain line on a messaging app that stands for a typed command (slice S20: "rejeite a pergunta 25" is `/reject 25`) hands the typed line back in "typed": for a command the
+    messaging bridge answers itself (`/pending`, `/reject`, `/release`, `/add`, `/discard`) the reply is empty and the bridge does what it does for the typed line; for a command
+    the table answers (`/cancel`, `/stop-task`, `/retry`, `/attachments`) the reply is the command's own, and "typed" lets the bridge say it as it says the typed one.
     Returns {"reply", "request_id", "pending_id", "ran", "queued"}."""
     channel = channel or "chat"
     ops_actor.require(channel, sender)
@@ -171,7 +174,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     store = ctx["store"]
     importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
     importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
-    handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender) or _greets(ctx, said, channel, sender)      # S5: a greeting is answered by code too, never queued
+    handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender) or _greets(ctx, said, channel, sender) or (channel == "messaging" and may_talk(ctx, channel, sender) and importlib.import_module("ops_file_trash").catches(ctx, said, channel, sender))      # S14b: a request to delete a file is answered by code, so it waits for no run and no queue (R2-A: for a sender who may move a file to the trash, when the name can be read by code). S5: a greeting is answered by code too, never queued
     if _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
         # router is free again; a shell that drains nothing is refused while the router answers another request.
@@ -197,7 +200,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
                  text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=extras.get("task_id", request_id), run_id=extras.get("run_id", run_id))
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
-            **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {}),
+            **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {}), **({"resend_forced": True} if extras.get("resend_forced") else {}),
+            **({"typed": extras["typed"]} if channel == "messaging" and "typed" in extras else {}),
             **({"attachment": extras["attachment"]} if channel == "messaging" and "attachment" in extras else {})}
 
 
@@ -312,12 +316,17 @@ def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender
     extras = extras if extras is not None else {}
     if talks and greeting.is_greeting(said, helps=channel == "messaging"):      # S5: a greeting, or a plain request for help, is answered by code before any open question and any model: never the answer to the router's question
         return _greeting_reply(ctx, channel, sender), None, None, False, None, None
+    if talks and channel == "messaging" and phone_delete.asks(said):      # a file is not deleted from a message (S14, S14b): one plain sentence, no card, no request, no model, before an open question (a request to delete is never its answer), the lists of code and the interpreter
+        trash = importlib.import_module("ops_file_trash")
+        if not trash.permitted(ctx, channel, sender):
+            return phrases.text("PHONE_NO_FILE_DELETE", ctx["cfg"]), None, None, False, None, None
+        moved = trash.line(project, ctx, said, channel, sender, extras)      # R2-A: a sender who may move a file to the trash gets the card of the file (or the list, or one sentence); never a delete for good
+        if moved is not None:
+            return moved, None, None, False, None, None
     asked = _open_question(ctx, channel, sender) if talks else None      # a sender who may not talk never answers the router's question; on a phone it is the question bound to this sender (S4)
     if asked is not None and ops_natural.recognises(ctx, said, _natural_channel(channel), sender):      # a request code recognises is a new line, never the answer (LIVE-2), for the interpreter's senders too
         asked = None
     framed = asked is not None and bool(extras.get("deferred"))      # S4: of the lines no list of code claims, the interpreter tells the answer from a new line, by a typed frame (decision 229 (1))
-    if asked is None and talks and channel == "messaging" and phone_delete.asks(said):      # a file is not deleted from a message yet (S14): one plain sentence, no card, no request, no model
-        return phrases.text("PHONE_NO_FILE_DELETE", ctx["cfg"]), None, None, False, None, None
     if asked is None and state_question(said):
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
             return phone_refusal.said(operations.not_enabled('status', channel), channel, ctx["cfg"]), None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it

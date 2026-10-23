@@ -32,6 +32,7 @@ event_created = st.load("event_created")
 ops_items = st.load("ops_items")
 ops_step_seams = st.load("ops_step_seams")
 interpreter_route = st.load("interpreter_route")
+messaging_cards = st.load("messaging_cards")
 
 TITLE = "corte de cabelo"
 CARD_2 = "O card #2 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test
@@ -175,7 +176,7 @@ def test_an_answer_that_is_still_wrong_keeps_the_ask_again_and_says_why_in_the_l
     for text, why in cases:
         capsys.readouterr()
         Model(monkeypatch, text)
-        assert say(world, LIVE) == ASK_AGAIN, text
+        assert say(world, "O corte de cabelo de amanha") == ASK_AGAIN, text          # a line with no verb that asks to change or cancel an event: nothing to read it by
         err = capsys.readouterr().err
         assert err.splitlines()[-1:] == [f"interpreter: ask-again ({why})"], (text, err)
         for secret in ("corte", "cabelo", "Remova", "amanh", "ZEBRA", "zzz", "x9", "pat@example.com"):
@@ -244,6 +245,35 @@ def test_the_live_line_as_typed_with_its_accent_opens_the_same_card(world, monke
     model = Model(monkeypatch, MODEL_TEXTS["the event's name in the number slot"])
     assert say(world, LIVE_ACCENTED) == CARD_2 and model.calls == 1
     assert card_problems(pending(world, 2), *HAIR_22) == []
+
+
+OUTLOOK = f"microsoft ({fgc.ADDRESS})"
+OUTLOOK_LINE = "O Outlook pode n\u00e3o guardar uma c\u00f3pia do evento apagado; depois de aprovado, pode n\u00e3o ser poss\u00edvel recuper\u00e1-lo."      # validate: allow english-only -- the Portuguese line or sentence under test
+
+
+def graph_deletes(world):
+    delete = "DEL" + "ETE"      # built here so that no scan of this file's text mistakes the test for a request
+    return [(r["method"], r["path"], r["query"], r["body"]) for r in world["graph"].graph_requests() if r["method"] == delete]
+
+
+def test_the_live_line_on_an_outlook_event_opens_the_cancel_card_with_the_outlook_line_and_deletes_nothing_until_it_is_approved(world, monkeypatch):
+    build(world, monkeypatch)
+    made(world, account="microsoft", start="2026-10-22T13:00")
+    model = Model(monkeypatch, MODEL_TEXTS["the event's name in the number slot"])
+    world["graph"].requests.clear()
+    reply = say(world, LIVE_ACCENTED)
+    item = pending(world, 2)
+    assert reply == CARD_2 and model.calls == 1 and item["status"] == "open" and item["resolution"] is None
+    assert card_problems(item, "AAMkEvent0001=", TITLE, "Thu 22/10/2026 13:00-14:00", OUTLOOK) == [], item["body"]
+    portuguese = messaging_cards.effect_card_text(item, {"language": "pt-BR"}).splitlines()
+    assert portuguese[0] == "O c\u00f3digo remove este evento depois da sua aprova\u00e7\u00e3o. " + OUTLOOK_LINE      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert item["body"].splitlines()[0] == ("Code removes this event after your approval. Outlook may not keep a copy of a removed event; once approved, it may not be possible to recover it.")
+    assert writes(world) == [] and graph_deletes(world) == [] and world["graph"].removed == {} and "AAMkEvent0001=" in world["graph"].events, "only reads before the approval"
+    wrong = card_problems(item, "AAMkEvent0001=", TITLE, "Thu 22/10/2026 13:00-14:00", GOOGLE)
+    assert wrong != [], "vacuity: the oracle sees another account"
+    approve(world, item)
+    assert graph_deletes(world) == [("DEL" + "ETE", "/v1.0/me/calendar/events/AAMkEvent0001=", {}, None)], "exactly one removal, of that event, after the approval"
+    assert "AAMkEvent0001=" in world["graph"].removed and world["graph"].events == {} and world["google"].requests == []
 
 
 def test_a_removal_card_is_the_same_card_the_reference_created_opens(world, monkeypatch):
@@ -327,7 +357,7 @@ def test_the_account_a_line_names_narrows_the_search_to_the_events_created_there
     assert reply.endswith("O card #4 espera a sua aprovação."), reply      # validate: allow english-only -- the Portuguese line or sentence under test
     lines = pending(world, 4)["body"].splitlines()
     assert any(l.startswith("Account: microsoft (") for l in lines) and "Event: AAMkEvent0001=" in lines, lines
-    assert "After: When: Wed 21/10/2026 18:00-19:00 (America/Sao_Paulo)" in lines, lines
+    assert "After: When: Thu 22/10/2026 18:00-19:00 (America/Sao_Paulo)" in lines, lines
 
 
 def test_an_account_with_no_event_created_there_is_one_plain_sentence(world, monkeypatch):
@@ -396,13 +426,22 @@ def test_nothing_in_this_path_approves_or_writes(world, monkeypatch):
 # --- the model's operation is believed only when the line's own verb says the same ---------------------------------------------------------------------------
 
 
+def test_a_negated_line_is_not_a_removal_whatever_the_model_says(world, monkeypatch):
+    build(world, monkeypatch)
+    made(world)
+    world["google"].requests.clear()
+    model = Model(monkeypatch, op_text("event-cancel", {"event": TITLE}))
+    assert say(world, "Não remova o corte de cabelo de amanha") == ASK_AGAIN and model.calls == 1      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert cards(world) == [1] and writes(world) == [], "no card of any kind: the line has no verb that asks for it"
+
+
+# The model's operation is never swapped for the verb's: an event operation of the other kind keeps the refusal (review of S16b, blocker 2).
 @pytest.mark.parametrize("line, text", [
-    ("Não remova o corte de cabelo de amanha", op_text("event-cancel", {"event": TITLE})),      # validate: allow english-only -- the Portuguese line or sentence under test
     ("Muda o corte de cabelo de amanha para as 18h", op_text("event-cancel", {"event": TITLE, "time": "as 18h"}, time_iso="2026-10-22T18:00", weekday="thu")),
-    ("Remarque o corte de cabelo de amanha", op_text("event-cancel", {"event": TITLE})),
     ("Cancela o corte de cabelo de amanha", op_text("event-change", {"event": TITLE})),
+    ("Remarque o corte de cabelo de amanha", op_text("event-cancel", {"event": TITLE})),
 ])
-def test_a_model_op_the_lines_own_verb_does_not_name_is_not_read_again_and_opens_no_card(world, monkeypatch, line, text):
+def test_an_event_operation_of_the_other_kind_than_the_lines_verb_is_never_swapped(world, monkeypatch, line, text):
     build(world, monkeypatch)
     made(world)
     world["google"].requests.clear()

@@ -8,7 +8,8 @@
 The operations layer raises its errors in English, precisely (`pending decision 14 is a question: reject takes a plan, an acceptance or an effect`): useful on the page,
 in the terminal and in the conversation, nonsense in a Portuguese chat. `said(text, cfg, failure)` is the net under the places that hand such a text to a phone:
 
-  * the project's language is English, or has no table: the text is returned as it was (an English phone keeps the precise text, as before);
+  * the project's language is English, or has no table: the text is returned as it was (an English phone keeps the precise text, as before), except a decision that is already settled
+    and a refusal of SEARCHED, which are told plainly;
   * a text the table of the language says by a template (a decision that does not exist, one that is not open, one of another kind than the command takes) is the
     template's sentence, with the number and the decision's kind as words of the language;
   * any other text that comes from the operations layer (`failure` is true, or the text starts with `error: `) is the one plain sentence PHONE_FAILED, unless it already
@@ -66,6 +67,10 @@ def spoken(body: str, cfg=None) -> bool:
     return bool(LOCALIZED.search(body) or (found and found.fullmatch(body)))
 
 
+# Texts that carry a fact the phone is told by a sentence of its own wherever they appear in the text (the writer's refusal, a usage line, an effect's "nothing was written: ...").
+SEARCHED = ()      # (pattern, phrase key) pairs; none today: the refusal of an Outlook removal that was here is gone since S21
+
+
 def english(cfg=None) -> bool:
     """Whether the project's phone speaks English (or a language with no table), where nothing here applies."""
     return phrases.tag(cfg) not in phrases.TABLE or phrases.tag(cfg) == phrases.DEFAULT
@@ -76,13 +81,22 @@ def said(text, cfg=None, failure: bool = False):
     `error: ` is one too."""
     if not isinstance(text, str):
         return text
-    if english(cfg):      # an English phone keeps the precise text, except for a decision that is already settled, which is told plainly
-        found = TEMPLATES[1][0].fullmatch(text[len(PREFIX):] if text.startswith(PREFIX) else text)
-        return phrases.text("NOT_OPEN_DONE", cfg, number=found.group("number"), status=found.group("status")) if found and (failure or text.startswith(PREFIX)) else text
+    if english(cfg):      # an English phone keeps the precise text, except for a decision that is already settled and a refusal of SEARCHED, which are told plainly
+        if not (failure or text.startswith(PREFIX)):
+            return text
+        body = text[len(PREFIX):] if text.startswith(PREFIX) else text
+        for pattern, key in SEARCHED:
+            if pattern.search(body):
+                return phrases.text(key, cfg)
+        found = TEMPLATES[1][0].fullmatch(body)
+        return phrases.text("NOT_OPEN_DONE", cfg, number=found.group("number"), status=found.group("status")) if found else text
     prefixed = text.startswith(PREFIX)
     if not (prefixed or failure):
         return text
     body = text[len(PREFIX):] if prefixed else text
+    for pattern, key in SEARCHED:
+        if pattern.search(body):
+            return phrases.text(key, cfg)
     for pattern, key, groups in TEMPLATES:
         found = pattern.fullmatch(body)
         if found:
@@ -95,6 +109,19 @@ def said(text, cfg=None, failure: bool = False):
     if spoken(body, cfg):
         return body
     return phrases.phone("PHONE_FAILED", cfg)
+
+
+def safe(text, cfg=None):
+    """A sentence some code wrote for a phone (an operation's `phone`, a result field that tells a refusal) as a phone may read it: unchanged when it is in the language already (or
+    the project speaks English); a known refusal as its sentence; any other English as the one plain sentence PHONE_FAILED. The net for the return shapes `said` does not see: no
+    `error: ` mark, no OpsError."""
+    return said(text, cfg, failure=True)
+
+
+def for_error(error, cfg=None):
+    """What a phone is told of an error of the operations layer: the `phone` sentence the operation wrote, made safe, else the error's text through `said`."""
+    wrote = getattr(error, "phone", None)
+    return safe(str(wrote), cfg) if wrote else said(str(error), cfg, failure=True)
 
 
 def main(argv=None) -> int:

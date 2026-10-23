@@ -19,12 +19,12 @@ phrases = st.load("phrases")
 nt = st.load("natural_time")
 
 R = {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read"}      # NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
+     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research"}      # NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
 N = {"remind", "reminder-forget", "reminder-restore"}
 W = {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"}
 D = {"approve", "reject", "release", "answer", "go-ahead"}
 E = {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
-     "file-create", "file-replace", "file-save"}
+     "file-create", "file-replace", "file-save", "file-trash"}
 WORK = {"say", "request", "route", "ask"}
 CLASS_SET = {"R", "N", "W", "D", "E", "G", "work"}
 OPS = {row["name"] for row in operations.OPERATIONS}
@@ -85,10 +85,16 @@ def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
         assert natural.class_of(name) == ("R" if name == "sources" else "G"), name
     for name in ("approve", "reject", "release", "answer", "go-ahead"):
         assert natural.class_of(name) == "D"
-    for name in R:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
+    for name in R - {"research"}:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
         row = operations.by_name(name)
         assert row["model"] is False, name
         assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files")), name
+    # R2-F1: `research` is the one read that calls a model (a web search run by the research skill). It changes nothing and reads nothing of the person's, and it has a group of its own,
+    # in no default policy, so that no sender gets it from a group that was granted for another reason.
+    row = operations.by_name("research")
+    assert row["model"] is True and row["channels"] == ("terminal", "messaging")
+    assert operations.GROUPS["research"] == {"operations": ("research",), "kind": None}
+    assert [g for g, spec in operations.GROUPS.items() if "research" in spec["operations"]] == ["research"]
     for name, cls in natural.CLASSES.items():      # an operation that is only the terminal's is never run from a line
         if operations.by_name(name)["channels"] == ("terminal",):
             assert cls == "G", name

@@ -48,8 +48,8 @@ ON_SYSTEM_PYTHON = [
     # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.
     "runtime/messaging.py", "runtime/messaging_bridge.py", "runtime/messaging_cards.py", "runtime/messaging_inbound.py",
     "runtime/messaging_ledger.py", "runtime/messaging_provider.py", "runtime/messaging_guard.py", "runtime/messaging_outcome.py", "runtime/messaging_failure.py",
-    # The words that decide a decision card (S2, limit L64) and the greeting forms (S5): pure readings of one line, read by the bridge.
-    "runtime/card_words.py", "runtime/greeting.py",
+    # The words that decide a decision card (S2, limit L64), the greeting forms (S5) and the words that choose the project (S20): pure readings of one line, read by the bridge.
+    "runtime/card_words.py", "runtime/greeting.py", "runtime/command_words.py",
     # S10: the plain sentence of a refusal on a phone, and the typing indicator while a reply is prepared (both read by the bridge)
     "runtime/phone_refusal.py", "runtime/messaging_typing.py", "runtime/messaging_file.py", "runtime/send_scan.py", "runtime/phone_errors.py", "runtime/phone_delete.py", "runtime/messaging_pending.py", "runtime/ops_question.py", "runtime/messaging_ack.py", "runtime/line_stage.py",
     # What the two shells share (stage 9, WP-9.9): the job registry, the status words, the project list.
@@ -63,6 +63,7 @@ ON_SYSTEM_PYTHON = [
     "runtime/sources.py", "runtime/sources_onedrive.py", "runtime/sources_mail.py", "runtime/snapshot_text.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # References to one item of a mail or calendar snapshot (SNAP-IDX): read through the index of the newest version.
     "runtime/item_refs.py",
+    "runtime/items_mail.py",
     # Files sent through a messaging app (ATT-1): the limits and folders of the hold, and the operations over it.
     "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",
     # The start of a write to the person's own accounts (FND): the one function an operation of the family calls.
@@ -83,7 +84,7 @@ ON_SYSTEM_PYTHON = [
     "runtime/ops_natural.py", "runtime/source_resolve.py", "runtime/drafts.py",
     # Natural writes (NR-5): the pure families and the card-opening path.
     "runtime/natural_writes.py", "runtime/natural_writes_calendar.py", "runtime/natural_writes_files.py", "runtime/ops_natural_writes.py",
-    "runtime/ops_natural_calendar.py", "runtime/ops_natural_files.py", "runtime/ops_items.py", "runtime/ops_file_read.py",
+    "runtime/ops_natural_calendar.py", "runtime/ops_natural_files.py", "runtime/ops_items.py", "runtime/ops_file_read.py", "runtime/ops_research.py", "runtime/research_reply.py", "runtime/research_guard.py", "runtime/ops_file_trash.py",
     # A mail write asked in words (NR-5b): the closed forms of the mail family (pure) and the resolution of what they read.
     "runtime/natural_writes_mail.py", "runtime/ops_natural_mail.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state

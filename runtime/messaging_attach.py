@@ -44,6 +44,7 @@ import messaging_cards as cards  # noqa: E402
 import messaging_guard as guard  # noqa: E402  (what a phone never reads, limit L62)
 import messaging_provider as provider  # noqa: E402
 import natural_writes  # noqa: E402  (a caption that asks to save the file: package NR-5)
+import phone_errors  # noqa: E402  (what an English sentence becomes on a phone that does not speak English)
 import phrases  # noqa: E402
 
 CHANNEL = "messaging"
@@ -70,12 +71,12 @@ class Attachments:
         said = getattr(error, "phone", None)
         if said:
             self.bridge.log(f"a machine problem was told to a phone ({error.__class__.__name__})")
-            return phrases.localize(said, cfg)
+            return phone_errors.safe(phrases.localize(said, cfg), cfg)
         text = str(error)
         if PATH.search(text) or guard.find(text) or getattr(error, "code", 1) == 3:
             self.bridge.log(f"a machine problem was told to a phone ({error.__class__.__name__})")
             return phrases.text("ATT_MACHINE", cfg)
-        return phrases.localize(text, cfg)
+        return phone_errors.safe(phrases.localize(text, cfg), cfg)      # a message no table knows is the plain sentence in a language that is not English (S14b)
 
     def said(self, text: str, project) -> str:
         """The reply of an operation that adds or discards a file (one sentence, then a `Note:` line for each warning of the import) in the project's language."""

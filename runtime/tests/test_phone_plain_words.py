@@ -263,8 +263,8 @@ HELP_PT = (  # validate: allow english-only -- the Portuguese help under test
     "Lembretes\n/remind <hora> <texto> \u2014 um lembrete enviado a você uma vez (15:00, 2026-10-20 09:30 ou in 2h)\n/reminders \u2014 os lembretes que esperam\n"  # validate: allow english-only -- the Portuguese text under test
     "/forget <n> \u2014 cancela um lembrete\n\n"
     "Projeto\n/project [nome] \u2014 escolhe o projeto para onde vão suas mensagens\n/help \u2014 esta lista\n\n"  # validate: allow english-only -- the Portuguese text under test
-    "Você também pode pedir com as suas palavras. Os comandos ativos dependem das suas permissões.")  # validate: allow english-only -- the Portuguese text under test
-HELP_EN_LAST = "You can also ask in your own words. Which of these are active depends on your permissions."
+    "Todo comando acima também pode ser pedido com as suas palavras. Os comandos ativos dependem das suas permissões.")  # validate: allow english-only -- the Portuguese text under test
+HELP_EN_LAST = "Every command above can also be asked for in your own words. Which of these are active depends on your permissions."
 
 
 def padded(text: str) -> list:
@@ -295,3 +295,121 @@ def test_the_page_and_the_terminal_keep_their_padded_list():
 def test_vacuity_the_old_padded_help_is_noticed():
     old = "Comandos:\n/pending            o que espera por você\n/approve <id>       aprova o que o último card de <id> mostrou\n"  # validate: allow english-only -- the old help of the maintainer's screen
     assert len(padded(old)) == 2 and padded(HELP_PT) == []
+
+
+# --- the sweep of every refusal the calendar, mail, files and sources operations can return (S14b) ----------------------------------------------------------
+
+import ast  # noqa: E402
+import string  # noqa: E402
+
+messaging_failure = st.load("messaging_failure")
+
+SWEEP_FILES = ["ops_calendar", "calendar_document", "step_calendar_event", "effect_calendar", "ops_mail_send", "ops_mailbox", "mailbox_document", "step_mailbox", "effect_mailbox",
+               "step_send_email", "effect_send", "mail_compose", "ops_files", "files_document", "step_files", "effect_files", "ops_sources", "sources", "sources_mail",
+               "sources_onedrive", "source_resolve", "ops_natural_calendar", "ops_natural_files", "ops_natural_mail", "account_start", "event_lookup", "ops_file_read"]
+PT = {"language": "pt-BR"}
+
+
+def _text(node):
+    """The text of a string node; an f-string with each field as `x`; None for anything else."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(part.value if isinstance(part, ast.Constant) else "x" for part in node.values)
+    return None
+
+
+def refusals() -> list:
+    """[(shape, text, file)] read from the sources as text: the message of every `raise OpsError(...)`, `_usage(...)`, `EffectError(...)`, the `next` (4th) argument of every
+    `StepFailure(...)`, the text of every `return <int>, "..."` of an effect (the writer's exit reasons) and the value of a dict key `error`, `refused`, `reason` or `why`."""
+    found = []
+    for name in SWEEP_FILES:
+        path = st.RUNTIME / f"{name}.py"
+        if not path.is_file():
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call):
+                callee = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+                if callee in ("OpsError", "_usage", "EffectError") and node.args and _text(node.args[0]):
+                    found.append(("ops", _text(node.args[0]), name))
+                elif callee == "StepFailure" and len(node.args) >= 4 and _text(node.args[3]):
+                    found.append(("step", _text(node.args[3]), name))
+            elif isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple) and len(node.value.elts) == 2:
+                code, text = node.value.elts
+                if isinstance(code, ast.Constant) and isinstance(code.value, int) and _text(text):
+                    found.append(("effect", _text(text), name))
+            elif isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if isinstance(key, ast.Constant) and key.value in ("error", "refused", "reason", "why") and _text(value):
+                        found.append(("field", _text(value), name))
+    return [(shape, text, name) for shape, text, name in found if len(re.findall(r"[A-Za-z]{3,}", text)) >= 3]
+
+
+def _table_matcher():
+    parts = []
+    for sentence in phrases.TABLE["pt-BR"].values():
+        made = "".join(re.escape(lit) + (".+?" if field is not None else "") for lit, field, _spec, _conv in string.Formatter().parse(sentence))
+        if made:
+            parts.append(made)
+    return re.compile("|".join(parts), re.S)
+
+
+def on_a_portuguese_phone(shape: str, text: str) -> str:
+    """What the real net makes of one refusal on a Portuguese phone, by the shape it comes back in."""
+    if shape == "step":
+        return messaging_failure.from_step("calendar-event", "microsoft", "not_available", "operation", None, PT, said=text)
+    if shape == "effect":
+        return messaging_failure.from_error(ops.OpsError(text, 1), PT, word="calendar", account="microsoft")
+    if shape == "field":
+        return phone_errors.safe(text, PT)
+    return phone_errors.said("error: " + text, PT)
+
+
+def leaks(items, matcher=None) -> list:
+    """The refusals that reach a Portuguese phone as English: not a sentence of the phrase table, and not the generic one."""
+    matcher = matcher or _table_matcher()
+    return [(shape, text, name) for shape, text, name in items if not matcher.fullmatch(on_a_portuguese_phone(shape, text))]
+
+
+def test_no_refusal_of_the_calendar_mail_files_and_sources_operations_reaches_a_portuguese_phone_as_raw_english():
+    items = refusals()
+    assert len(items) > 150, "the scan reads the sources: a rename that hides the raises would make the sweep vacuous"
+    assert {shape for shape, _, _ in items} >= {"ops", "step", "effect"} and {"step_calendar_event", "effect_calendar", "calendar_document"} <= {n for _, _, n in items}
+    assert leaks(items) == []
+
+
+def test_the_outlook_removal_refusal_is_raised_nowhere_since_s21():
+    assert [i for i in refusals() if "Outlook calendar is not available" in i[1]] == [], "removing an Outlook event is on (S21): no source raises the refusal any more"
+
+
+def test_vacuity_a_net_that_returns_the_text_is_noticed_by_the_sweep(monkeypatch):
+    items = [("ops", "the title is not a string", "x")]
+    assert leaks(items) == []
+    monkeypatch.setattr(phone_errors, "safe", lambda text, cfg=None: text)
+    monkeypatch.setattr(messaging_failure, "phone_errors", phone_errors)
+    monkeypatch.setattr(phone_errors, "said", lambda text, cfg=None, failure=False: text)
+    assert leaks([("field", "the title is not a string", "x")]) != [], "a net that passes the English through is a leak"
+
+
+def test_a_refusal_a_result_carries_is_told_in_the_language_on_a_phone_and_kept_on_the_page():
+    ops_natural = st.load("ops_natural")
+    out = {"refused": "the file is too large for this account", "status": "held"}
+    phone = ops_natural._render("task", out, PT, "messaging")
+    assert phone.splitlines()[0] == "Não consegui concluir isso. Tente de novo; se continuar falhando, veja o que aconteceu na página da plataforma." and phone.splitlines()[1] == "status: held"  # validate: allow english-only -- the Portuguese sentence under test
+    assert ops_natural._render("task", out, PT, "page").splitlines()[0] == "refused: the file is too large for this account"
+    assert ops_natural._render("task", out, {}, "messaging").splitlines()[0] == "refused: the file is too large for this account", "an English phone keeps the precise text"
+
+
+FILE_SENTENCES = {"pt-BR": "Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive.", None: "I cannot delete files from a message yet. You can delete it in Google Drive or OneDrive."}  # validate: allow english-only -- the Portuguese sentence under test
+
+
+@pytest.mark.parametrize("language", ["pt-BR", None])
+def test_the_bridge_answers_a_delete_a_file_line_at_once_before_any_queue_or_model(world, language):
+    if language:
+        world.config["language"] = language
+    for line in ("Remova o arquivo openhora-mark.png do drive", "Remova o arquivo openhora-mark do drive em /openhora"):  # validate: allow english-only -- the live lines under test
+        world.say(line)
+        assert world.texts()[-1] == FILE_SENTENCES[language], line
+    assert world.calls("say") == [], "no operation of the conversation was called"
+    world.say("Remova o evento de amanhã")  # validate: allow english-only -- the line under test
+    assert wait_for(lambda: world.calls("say")), "an event line goes on to the conversation as before"

@@ -142,7 +142,7 @@ def test_the_served_catalog_is_no_longer_the_recorded_one_and_the_gate_does_not_
     assert interpreter.SERVED_SHA256 != RECORDED_CATALOG_SHA256
     recorded = {row["op"] for row in json.loads(RECORDED_CATALOG.read_text(encoding="utf-8"))["ops"]}
     served = {row["op"] for row in interpreter.SERVED["ops"]}
-    assert recorded < served and served - recorded == {"file-read"}
+    assert recorded < served and served - recorded == {"file-read", "research", "file-trash"}
 
 
 def test_vacuity_a_recorded_copy_that_lost_an_operation_changes_the_replay(monkeypatch, tmp_path, recorded_catalog):

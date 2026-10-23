@@ -90,23 +90,28 @@ def routed(ctx: dict, skill: str) -> tuple:
 
 
 def execute(ctx: dict, skill: str, meta: dict, keys, routing: dict, prompt: str, *, platforms=(), timeout=None, dest: str,
-            prepared_dir: str, max_cost, sourced=(), around=None) -> dict:
+            prepared_dir: str, max_cost, sourced=(), around=None, open_web: bool = False) -> dict:
     """The one run both callers make: the copy that holds the artifacts the skill declares (and, for `ask`, `sourced`: the copies of
     the sources code selected, [(path, relative path)] already written under `prepared_dir`), then one attempt in the facade's session,
     never on the open network, within `timeout` seconds, in the claimed folder `dest`. Returns lab.run_skill's result. The caller
     owns `prepared_dir` and removes it (`ask` still reads the copies after the run). `around` is a context manager that is entered inside
-    the lab's session (`ask` gives the watcher that ends the run when its request is cancelled). A LabError is OpsError 3 with its reason
-    and the empty folder claimed for the run goes."""
+    the lab's session (`ask` gives the watcher that ends the run when its request is cancelled). `open_web` (slice R2-F1, the web research of
+    runtime/ops_research.py) is the one other mode: the run is on the open network, the adapter's --allow-web, and NO file of the project enters the
+    copy (a run that can reach the whole web sees none of the project's: not the state file, not an earlier brief); the caller has checked that the
+    routed pair was measured with the web (routing["web"]). A LabError is OpsError 3 with its reason and the empty folder claimed for the run goes."""
     cfg = ctx["cfg"]
-    try:
-        # web=True here is the copy's form, "the artifacts the skill declares" (L3); the run itself is web=False below.
-        entered = workcopy.entering(cfg["project"], meta, web=True, cfg=cfg, settings_names=lab.settings_names(),
-                                    prepared_dir=prepared_dir, sourced=sourced)
-    except workcopy.CopyError as e:
-        raise core.OpsError(f"the copy could not be built: {e}", 1) from None
+    if open_web:
+        entered = {"files": []}      # nothing of the project enters a run on the open network (R2-F1)
+    else:
+        try:
+            # web=True here is the copy's form, "the artifacts the skill declares" (L3); the run itself is web=False below.
+            entered = workcopy.entering(cfg["project"], meta, web=True, cfg=cfg, settings_names=lab.settings_names(),
+                                        prepared_dir=prepared_dir, sourced=sourced)
+        except workcopy.CopyError as e:
+            raise core.OpsError(f"the copy could not be built: {e}", 1) from None
     try:
         with core._LAB_GUARD, lab.session(), _ops()._key_in_environment(routing, keys), around or contextlib.nullcontext():  # the lab's process-wide session: one at a time
-            return lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
+            return lab.run_skill(skill, prompt, entered["files"], dest, web=bool(open_web), model=routing["model"],
                                  timeout=timeout, retries=0, platforms=list(platforms or ()), max_cost=max_cost)
     except lab.LabError as e:
         with contextlib.suppress(OSError):

@@ -11,6 +11,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -50,6 +51,17 @@ def google_base(native=False):
     return base
 
 
+def trash_base(account="google", **over):
+    """The base of a trash: the file as the search found it and the runtime read it, for each service."""
+    if account == "google":
+        base = {"version": "3", "modified": "2026-10-10T09:00:00.000Z", "mime": "image/png", "parent": "Sub_ID_0001", "root": "Folder_ID_01", "path": "Arquivos \u203a openhora",
+                "size": 5120, "exact": True}
+    else:
+        base = {"etag": '"{A-1},3"', "ctag": '"c:{A-1},3"', "size": 5120, "modified": "2026-10-10T09:00:00Z", "parent": "01FOLDER0000!101", "root": "/Documents/openhora",
+                "path": "openhora", "exact": False}
+    return {**base, **over}
+
+
 def make(operation="create", account="google", **over):
     """A document of each shape, by name."""
     folder = {"kind": "folder", "label": "default", "id": "Folder_ID_01" if account == "google" else "01FOLDER0000!101"}
@@ -59,6 +71,9 @@ def make(operation="create", account="google", **over):
         parts.update(target={"kind": "file", "label": "cv", "id": "File_ID_0001" if account == "google" else "b!FakeDrive_1/01FILE000001!102"}, name="CV 2026.md",
                      base=google_base() if account == "google" else {"etag": '"{A-1},3"', "ctag": '"c:{A-1},3"', "size": 9, "modified": "2026-10-10T09:00:00Z",
                                                                       "source_version": '"c:{A-1},3"'})
+    if operation == "trash":
+        parts.update(target={"kind": "file", "label": "default", "id": "File_ID_0001" if account == "google" else "b!FakeDrive_1/01FILE000001!102"}, name="openhora-mark.png",
+                     content=None, base=trash_base(account))
     if operation == "save":
         parts.update(name="Contract.pdf", content={"kind": "held", "bytes": 28, "sha256": sha(b"%PDF-1.4 the signed contract"), "media_type": "application/pdf",
                                                     "text": None, "path": None, "attachment": 5, "gdoc": False})
@@ -76,6 +91,9 @@ VARIANTS = {
     "microsoft create path": lambda: make(account="microsoft", target={"kind": "folder", "label": "docs", "id": "/Documents/openhora"}),
     "microsoft save": lambda: make("save", account="microsoft"),
     "microsoft replace": lambda: make("replace", account="microsoft"),
+    "google trash": lambda: make("trash"),
+    "microsoft trash": lambda: make("trash", account="microsoft"),
+    "google trash of a file of unknown size": lambda: make("trash", base=trash_base(size=None)),
 }
 
 
@@ -89,10 +107,13 @@ def test_every_shape_of_document_is_in_its_form_and_derives_its_own_key_and_dry_
     assert doc["idempotency_key"] == fd.key_of(doc) and doc["dry_run_sha256"] == fd.dry_run_sha256(doc)
     assert fd.IMPLEMENTATION[doc["account"]] == doc["implementation"]
     other = copy.deepcopy(doc)
-    other["content"]["sha256"] = sha("another")
+    if doc["content"] is None:
+        other["base"]["modified"] = "2026-10-11T09:00:00.000Z"      # a trash has no content: the key and the dry run derive from the base
+    else:
+        other["content"]["sha256"] = sha("another")
     with pytest.raises(effects.EffectError):
         fd.check(other)       # the key and the dry run derive from the content: a document with another hash is no document
-    assert fd.describe(doc) and fd.summary(doc)["content_sha256"] == doc["content"]["sha256"] and "text" not in json.dumps(fd.summary(doc))
+    assert fd.describe(doc) and fd.summary(doc)["content_sha256"] == (doc["content"] or {}).get("sha256") and "text" not in json.dumps(fd.summary(doc))
 
 
 @pytest.mark.parametrize("name", sorted(VARIANTS))
@@ -255,8 +276,11 @@ def test_the_requests_hold_every_id_percent_encoded_and_a_file_name_escaped_in_t
     assert fd.requests(path)[0]["path"] == "/me/drive/root:/Documents/My%20folder" and fd.requests(path)[1]["path"] == "/me/drive/root:/Documents/My%20folder/A.md:/content"
     replace = make("replace", account="microsoft")
     assert fd.requests(replace)[0]["path"] == "/drives/b%21FakeDrive_1/items/01FILE000001%21102" and fd.requests(replace)[1]["if_match"] == '"{A-1},3"'
-    assert all(step["method"] in ("GET", "POST", "PUT", "PATCH") for name in VARIANTS for step in fd.requests(VARIANTS[name]()))
-    assert not any(step["method"] == "DELETE" for name in VARIANTS for step in fd.requests(VARIANTS[name]())), "no variant of any write asks for a removal"
+    assert all(step["method"] in ("GET", "POST", "PUT", "PATCH", "DELETE") for name in VARIANTS for step in fd.requests(VARIANTS[name]()))
+    removals = [(name, step) for name in VARIANTS for step in fd.requests(VARIANTS[name]()) if step["method"] == "DELETE"]
+    assert [name for name, _ in removals] == ["microsoft trash"], "only the trash of a OneDrive file asks for a removal (Graph moves the item to the recycle bin), and no variant of any other write does"
+    assert re.fullmatch(r"/drives/[^/]+/items/[^/]+", removals[0][1]["path"]) and "permanent" not in json.dumps(removals[0][1]).lower()
+    assert not any("trashed" in json.dumps(step["body"]) for name in VARIANTS if "trash" not in name for step in fd.requests(VARIANTS[name]())), "no other write sets trashed"
 
 
 def test_the_card_of_every_shape_is_valid_translatable_and_ends_with_the_hash_and_the_command():
@@ -264,7 +288,8 @@ def test_the_card_of_every_shape_is_valid_translatable_and_ends_with_the_hash_an
         doc = VARIANTS[name]()
         lines = fd.card_lines(doc, "a" * 64)
         assert phrases.card_valid(lines), name
-        assert lines[0][0].startswith("CARD_FILE_CODE_") and lines[1][0] == "CARD_ACCOUNT" and lines[-2][0] == "CARD_FILE_HASH" and lines[-1][0] == "CARD_FILE_APPROVE"
+        head = 1 if lines[0][0] == "CARD_FILE_FOUND" else 0      # a trash whose name was not the exact one asks "is this the one?" first
+        assert lines[head][0].startswith("CARD_FILE_CODE_") and lines[head + 1][0] == "CARD_ACCOUNT" and lines[-2][0] == "CARD_FILE_HASH" and lines[-1][0] == "CARD_FILE_APPROVE"
         assert fd.body(doc, "a" * 64) == phrases.card_text(lines) and "a" * 64 in fd.body(doc, "a" * 64)
         assert phrases.card_text(lines, {"language": "pt-BR"}) != phrases.card_text(lines)
         assert fd.title(doc) == phrases.en(fd.TITLE_KEY[doc["operation"]]) and len(fd.title(doc)) <= 60
@@ -368,3 +393,107 @@ def test_the_step_kind_of_the_files_imports_no_module_that_calls_a_provider_and_
     tree = ast.parse((st.RUNTIME / "step_files.py").read_text(encoding="utf-8"))
     imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
     assert "effect_files" not in imported and "ops_step_seams" not in imported and "effects" not in imported
+
+
+# --- the trash (slice R2-A) ----------------------------------------------------------------------------------------------------------------
+
+
+def test_a_trash_has_no_content_the_requests_of_each_service_and_the_verb_with_no_content_flags():
+    google, microsoft = make("trash"), make("trash", account="microsoft")
+    assert google["content"] is None and microsoft["content"] is None
+    path = "/drive/v3/files/File_ID_0001"
+    assert fd.requests(google) == [{"method": "GET", "path": path, "query": {"fields": fd.DRIVE_FILE_FIELDS}, "body": None},
+                                   {"method": "PATCH", "path": path, "query": {"fields": fd.DRIVE_FILE_FIELDS}, "body": {"trashed": True}}]
+    item = "/drives/b%21FakeDrive_1/items/01FILE000001%21102"
+    assert fd.requests(microsoft) == [{"method": "GET", "path": item, "query": {"$select": fd.ONEDRIVE_ITEM_FIELDS}, "body": None},
+                                      {"method": "DELETE", "path": item, "query": {}, "if_match": '"{A-1},3"', "body": None}]
+    assert fd.provider_args(google) == ("trash", ["--id", "File_ID_0001", "--base-version", "3", "--base-modified", "2026-10-10T09:00:00.000Z", "--base-mime", "image/png",
+                                                  "--base-parent", "Sub_ID_0001", "--idempotency-key", google["idempotency_key"], "--account", "pat@example.com"])
+    assert fd.provider_args(microsoft) == ("trash", ["--id", "b!FakeDrive_1/01FILE000001!102", "--base-etag", '"{A-1},3"', "--base-ctag", '"c:{A-1},3"', "--base-size", "5120",
+                                                     "--base-parent", "01FOLDER0000!101", "--idempotency-key", microsoft["idempotency_key"], "--account", "pat@example.com"])
+    assert fd.provider_args(google)[0] == "trash" and "--content-file" not in fd.provider_args(google)[1] and fd.meta_args(google) == ["--id", "File_ID_0001", "--account", "pat@example.com"]
+
+
+def test_the_key_of_a_trash_depends_on_the_file_the_folder_and_the_base_and_on_nothing_else():
+    base = make("trash")
+    assert make("trash")["idempotency_key"] == base["idempotency_key"]
+    assert make("trash", task_id=8)["idempotency_key"] != base["idempotency_key"]
+    assert make("trash", base=trash_base(parent="Sub_ID_0002"))["idempotency_key"] != base["idempotency_key"]
+    assert make("trash", base=trash_base(version="4"))["idempotency_key"] != base["idempotency_key"]
+    assert make("trash", base=trash_base(exact=False))["idempotency_key"] != base["idempotency_key"], "the first line of the card is covered by the hash"
+    assert make("trash", name="other.png")["idempotency_key"] != base["idempotency_key"]
+
+
+@pytest.mark.parametrize("account, key, value", [
+    ("google", "root", "has space"), ("google", "path", ""), ("google", "path", "a\u202eb"), ("google", "exact", "yes"), ("google", "size", -1), ("google", "size", "5120"),
+    ("google", "parent", "a/b"), ("google", "mime", fd.FOLDER_MIME), ("google", "version", ""), ("microsoft", "etag", "bad etag"), ("microsoft", "size", None),
+    ("microsoft", "parent", "a/b"), ("microsoft", "root", "not a folder")])
+def test_a_trash_whose_base_is_out_of_its_form_is_refused(account, key, value):
+    with pytest.raises(effects.EffectError):
+        make("trash", account=account, base=trash_base(account, **{key: value}))
+
+
+def test_a_trash_takes_no_content_and_no_other_operation_takes_none():
+    with pytest.raises(effects.EffectError):
+        make("trash", content=text_content())
+    with pytest.raises(effects.EffectError):
+        make("create", content=None)
+    with pytest.raises(effects.EffectError):
+        make("trash", base=None)
+    with pytest.raises(effects.EffectError):
+        make("trash", target={"kind": "folder", "label": "default", "id": "Folder_ID_01"})
+
+
+def test_the_unchanged_check_of_a_trash_names_what_moved_the_folder_included():
+    doc = make("trash")
+    meta = {"version": "3", "modified": "2026-10-10T09:00:00.000Z", "mime_type": "image/png", "parents": ["Sub_ID_0001"], "in_trash": False, "folder": False, "owned": True}
+    assert fd.unchanged(doc, meta) == ""
+    assert fd.unchanged(doc, dict(meta, parents=["Other_ID_0001"])) == "folder"
+    assert fd.unchanged(doc, dict(meta, version="4", modified="2026-10-11T09:00:00.000Z")) == "version, modified time"
+    assert "in the trash" in fd.unchanged(doc, dict(meta, in_trash=True)) and "not owned" in fd.unchanged(doc, dict(meta, owned=False))
+    ms = make("trash", account="microsoft")
+    item = {"etag": '"{A-1},3"', "ctag": '"c:{A-1},3"', "size": 5120, "parent": "01FOLDER0000!101", "writable": True, "owned": True}
+    assert fd.unchanged(ms, item) == "" and fd.unchanged(ms, dict(item, parent="01OTHER00000!1")) == "folder" and fd.unchanged(ms, dict(item, etag='"{A-1},4"')) == "eTag"
+
+
+def test_the_card_of_a_trash_asks_is_this_the_one_only_when_the_name_was_not_the_exact_one_and_says_where_it_goes():
+    exact, inexact = make("trash"), make("trash", account="microsoft")
+    digest = "a" * 64
+    lines = [key for key, _ in fd.card_lines(exact, digest)]
+    assert lines[0] == "CARD_FILE_CODE_TRASH" and "CARD_FILE_FOUND" not in lines and "CARD_FILE_TRASH_DRIVE" in lines and "CARD_FILE_TRASH_ONEDRIVE" not in lines
+    other = [key for key, _ in fd.card_lines(inexact, digest)]
+    assert other[0] == "CARD_FILE_FOUND" and "CARD_FILE_TRASH_ONEDRIVE" in other
+    assert fd.card_lines(inexact, digest)[0][1] == {"name": "openhora-mark.png", "folder": "openhora"}
+    assert "CARD_FILE_TRASH_SIZE" not in [key for key, _ in fd.card_lines(make("trash", base=trash_base(size=None)), digest)]
+    text = phrases.card_text(fd.card_lines(exact, digest))
+    assert "Goes to the Google Drive trash (recoverable for about 30 days)" in text and "delet" not in text.lower()
+    assert fd.title(exact) == "Files: move a file to the trash"
+
+
+def test_the_arguments_of_a_trash_are_closed_and_the_id_is_the_services():
+    assert step_files.check({"operation": "trash", "account": "google", "id": "File_ID_0001", "folder": "default", "exact": True}) == {
+        "operation": "trash", "account": "google", "id": "File_ID_0001", "folder": "default", "exact": True}
+    assert step_files.check({"operation": "trash", "account": "microsoft", "id": "b!Drive_1/01FILE000001!102", "folder": "docs", "exact": False})["id"] == "b!Drive_1/01FILE000001!102"
+    for args, field in (({"operation": "trash", "account": "google", "folder": "default", "exact": True}, "id"),
+                        ({"operation": "trash", "account": "google", "id": "a/b", "folder": "default", "exact": True}, "id"),
+                        ({"operation": "trash", "account": "microsoft", "id": "onlyone", "folder": "default", "exact": True}, "id"),
+                        ({"operation": "trash", "account": "microsoft", "id": "../x", "folder": "default", "exact": True}, "id"),
+                        ({"operation": "trash", "account": "google", "id": "File_ID_0001", "exact": True}, "folder"),
+                        ({"operation": "trash", "account": "google", "id": "File_ID_0001", "folder": "Elsewhere", "exact": True}, "folder"),
+                        ({"operation": "trash", "account": "google", "id": "File_ID_0001", "folder": "default"}, "exact"),
+                        ({"operation": "trash", "account": "google", "id": "File_ID_0001", "folder": "default", "exact": "yes"}, "exact"),
+                        ({"operation": "trash", "account": "google", "id": "File_ID_0001", "folder": "default", "exact": True, "name": "x.md"}, "name"),
+                        ({"operation": "trash", "account": "google", "id": "File_ID_0001", "folder": "default", "exact": True, "content": "x"}, "content"),
+                        ({"operation": "create", "account": "google", "name": "a.md", "content": "x", "id": "File_ID_0001"}, "id")):
+        failure = bad(args)
+        assert failure.code == "bad_args" and failure.field == field, args
+
+
+def test_the_file_grant_service_of_a_step_kind_has_one_method_and_it_is_a_read():
+    assert {name for name in dir(seams.FileGrant) if not name.startswith("_")} == {"locate"}
+
+
+def test_an_effect_of_a_trash_is_on_a_card_and_holds_no_attachment():
+    doc = make("trash")
+    assert effect_files.on_cards(doc) is True and effect_files.held_attachment(doc) is None
+    assert effect_files.on_cards(make("replace")) is True and effect_files.on_cards(dict(make("replace"), content=None)) is False

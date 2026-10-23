@@ -143,7 +143,7 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
-                     "sweep_orphan_containers", "language", "outbox", "policies", "accounts")
+                     "sweep_orphan_containers", "language", "outbox", "policies", "accounts", "research")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -234,6 +234,7 @@ def load(project: str) -> dict:
     if senders:
         out["channels"][operations.SENDERS_KEY] = senders   # the groups of each listed sender whose entry names a profile (operations.effective_groups)
     out["max_running"] = _max_running(raw)
+    out["research"] = _research(raw.get("research"))
     out["run_retention_days"] = _bounded(raw, "run_retention_days", RUN_RETENTION_DEFAULT, 1, RUN_RETENTION_MAX)
     out["source_versions_kept"] = _bounded(raw, "source_versions_kept", SOURCE_VERSIONS_DEFAULT, SOURCE_VERSIONS_MIN, SOURCE_VERSIONS_MAX)
     sweep = raw.get("sweep_orphan_containers", True)
@@ -272,6 +273,33 @@ def _max_running(raw: dict) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_RUNNING_CEILING:
         raise ConfigError(f"runtime.json max_running must be an integer from 1 to {MAX_RUNNING_CEILING}")
     return value
+
+
+# The key "research" (slice R2-F1, runtime/ops_research.py): the bounds of each web research run, all optional. An object with any of three keys; absent keys take the default.
+RESEARCH_DEFAULTS = {"max_cost_usd": 0.25, "timeout_seconds": 300, "max_per_day": 10}
+RESEARCH_BOUNDS = {"max_cost_usd": (0.01, 5.0), "timeout_seconds": (30, 900), "max_per_day": (1, 100)}   # the dollars one run may spend, the seconds one run may last, the runs in a local day
+
+
+def _research(value) -> dict:
+    """The key "research": {"max_cost_usd", "timeout_seconds", "max_per_day"}, each from its bounds; absent or `{}` gives the defaults. A key it does not know is refused."""
+    if value is None:
+        return dict(RESEARCH_DEFAULTS)
+    if not isinstance(value, dict):
+        raise ConfigError("runtime.json research must be an object")
+    unknown = sorted(set(value) - set(RESEARCH_DEFAULTS))
+    if unknown:
+        raise ConfigError(f"runtime.json research has an unknown key {unknown[0]!r}; the keys are {', '.join(RESEARCH_DEFAULTS)}")
+    out = dict(RESEARCH_DEFAULTS)
+    for key, (low, high) in RESEARCH_BOUNDS.items():
+        if key not in value:
+            continue
+        given = value[key]
+        number = isinstance(given, (int, float)) and not isinstance(given, bool) and math.isfinite(given)
+        whole = key != "max_cost_usd"
+        if not number or (whole and not isinstance(given, int)) or not low <= given <= high:
+            raise ConfigError(f"runtime.json research.{key} must be {'an integer' if whole else 'a number'} from {low} to {high}")
+        out[key] = given
+    return out
 
 
 POLICY_CHANNELS = operations.POLICY_CHANNELS  # the channels a policy narrows: page, mcp and messaging (chat and the terminal never)
@@ -356,6 +384,9 @@ def _check_assigned(where: str, channel: str, groups: list, profile: str | None,
     if "send-files" in groups and "read-files" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}'send-files' needs 'read-files' beside it "
                           "(it sends the file that reading files finds, so a policy that only sends is refused)")
+    if "files-trash" in groups and "read-files" not in groups:
+        raise ConfigError(f"runtime.json {where}: {label}'files-trash' needs 'read-files' beside it "
+                          "(it finds the file by its name and lists names, as reading files does, so a policy that only trashes is refused)")
     if channel in operations.MUST_READ and "read" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}must list the group 'read' (the {channel} reads what it shows)")
 

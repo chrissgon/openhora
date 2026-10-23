@@ -148,10 +148,10 @@ def test_the_mcp_mode_never_opens_a_write_from_a_line(world, clock, spy):
 
 def test_a_refusal_of_the_start_is_the_reply_and_leaves_no_request_behind(world, clock, monkeypatch):
     policy(world)
-    seed_graph(world)
+    seed_graph(world, attendees=[{"emailAddress": {"address": "guest@example.org"}}])      # a meeting: the start of a removal refuses it (an Outlook removal itself is on since S21)
     install_item_refs(world, monkeypatch, {"agenda#1": {"id": GRAPH_SEEDED, "calendar": "default", "account": "microsoft"}})
     out = say(world, "cancela o evento 1 no outlook")
-    assert out["reply"].startswith("error: "), out["reply"]
+    assert out["reply"].startswith("error: ") and "other attendees" in out["reply"], out["reply"]
     tasks, pending = rows(world)
     assert pending == [] and {t["state"] for t in tasks} <= {"cancelled"}
     assert not [r for r in world["graph"].graph_requests() if r["method"] != "GET"]
@@ -410,10 +410,19 @@ def test_a_date_that_does_not_exist_is_asked_again_with_a_plain_sentence_and_the
 
 def test_a_change_line_that_is_no_change_form_is_answered_by_number_and_never_becomes_a_new_event(world, clock, spy):
     policy(world)
-    for line in ("remarca o dentista para quinta às 10h", "remarca o evento 2 para quinta às 10h na sala", "reschedule the dentist to Thursday 10am"):
+    for line in ("remarca o evento 2 para quinta às 10h na sala", "remarca o evento 0 para quinta às 10h"):          # a typed number form that is not one: the hint says how to name it
         out = phone(world, line)
         assert out["asked"] is False and out["reply"] == phrases.text("NW_CHANGE_BY_NUMBER", None) and spy == [] and drafts.count() == 0
     assert "event 2" in phrases.text("NW_CHANGE_BY_NUMBER", None)
+
+
+def test_a_change_line_with_the_name_of_the_event_is_looked_up_by_name_never_hinted_and_never_a_new_event(world, clock, spy):
+    """Slice S16b: "remarca o dentista para quinta às 10h" names the event, not its number. A sender who may not read a snapshot is told so, and nothing of the calendar is named."""
+    policy(world)
+    for line in ("remarca o dentista para quinta às 10h", "reschedule the dentist to Thursday 10am"):
+        out = phone(world, line)
+        assert out["asked"] is False and out["reply"] == phrases.text("NW_REF_NOT_READABLE", None) and spy == [] and drafts.count() == 0, (line, out["reply"])
+        assert out["reply"] != phrases.text("NW_CHANGE_BY_NUMBER", None), "vacuity: it is not the hint"
 
 
 def test_a_zone_with_a_clock_change_the_hour_that_does_not_exist_is_refused_in_a_sentence_and_the_hour_that_happens_twice_is_its_first_time(world, monkeypatch, spy):

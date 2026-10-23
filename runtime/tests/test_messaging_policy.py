@@ -25,7 +25,7 @@ ON_MESSAGING = ["status", "progress", "pending", "task", "agents", "costs", "ski
                 "release", "approve", "reject", "retry", "cancel", "stop-task", "ask", "sources", "instructions", "routines", "routine-create", "routine-change", "routine-pause",
                 "routine-cancel", "attachments", "items", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore",
                 "event-create", "event-change", "event-cancel",
-                "file-create", "file-replace", "file-save", "file-read",
+                "file-create", "file-replace", "file-save", "file-trash", "file-read", "research",
                 "mail-send", "mail-reply",
                 "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"]
 ALL_GROUPS = list(operations.GROUPS)
@@ -93,7 +93,7 @@ def test_permitted_follows_the_groups_the_ceiling_and_the_closed_default():
     assert not operations.permitted("set-mode", "messaging", {"messaging": ALL_GROUPS}) and not operations.permitted("nothing", "messaging", None)
     # the closed default: read, talk, answer
     for name in rows:
-        expected = name in ON_MESSAGING and name not in ("release", "approve", "reject", "retry", "cancel", "stop-task", "ask", "sources", "routine-create", "routine-change", "attachments", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore", "event-create", "event-change", "event-cancel", "file-create", "file-replace", "file-save", "file-read", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash")  # the calendar writes are in no default policy (W1); reminders are in no default policy (RM-1); an answer from the full text of the sources is turned on by a group, never by default (AQ-1); files from a messaging app are taken only on the group add-sources (ATT-1); a routine is made and changed only on a grant (P6b); # the catalog holds the person's data: its group is turned on, never by default
+        expected = name in ON_MESSAGING and name not in ("release", "approve", "reject", "retry", "cancel", "stop-task", "ask", "sources", "routine-create", "routine-change", "attachments", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore", "event-create", "event-change", "event-cancel", "file-create", "file-replace", "file-save", "file-trash", "file-read", "research", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash")  # the calendar writes are in no default policy (W1); reminders are in no default policy (RM-1); an answer from the full text of the sources is turned on by a group, never by default (AQ-1); files from a messaging app are taken only on the group add-sources (ATT-1); a routine is made and changed only on a grant (P6b); # the catalog holds the person's data: its group is turned on, never by default
         assert operations.permitted(name, "messaging", None) is expected, name
         assert operations.permitted(name, "messaging", {}, "plan") is expected, name
     assert operations.permitted("approve", "messaging", {"messaging": []}) is False

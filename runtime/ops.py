@@ -2707,6 +2707,10 @@ from ops_items import items  # noqa: E402,F401
 from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 # The text of a file found by its name in the folders the project lists for the person's accounts (runtime/ops_file_read.py, slice S8).
 from ops_file_read import file_read  # noqa: E402,F401
+# A question of general information answered by a web search, one run of the research skill with web access (runtime/ops_research.py, slice R2-F1).
+from ops_research import research  # noqa: E402,F401
+# Move a file found by its name to the service's trash, behind a card (runtime/ops_file_trash.py, slice R2-A).
+from ops_file_trash import file_trash  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.
 from ops_mail_send import mail_reply, mail_send  # noqa: E402,F401
 # A waiting card changed by words (runtime/ops_card_revise.py, slice S13): the check and the change; the change opens a new card and sends nothing.

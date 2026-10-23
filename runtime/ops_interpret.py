@@ -29,6 +29,10 @@ the model wrote in this call is ever shown, and nothing here approves, sends or 
 by the maintainer's decision of 2026-10-20 (slice S7): a new e-mail (`mail-send`, `mail-draft` with no message) opens its card through the seed of `mail_compose.seed`, and the
 text on that card may be worded by a second call (runtime/mail_compose.py), validated by code, with the person's own words as the fallback.
 
+A decision the model names (slice S20). The catalog lists `approve`, `reject`, `release`, `answer` and `go-ahead` as refused; the model names one and never gives its number, and code reads the number
+from the line (`natural.decision_numbers`: the one whole number written in it, none in a line that says a date or a time). `reject` and `release` are then the typed commands (`ops_natural.run` hands
+the bridge the typed line), `approve` sends the decision's card again and approves nothing, and `answer` and `go-ahead` have words of their own. No operation was added to the catalog.
+
 The call. The route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again in `_daily_call`, so a route of any other kind
 cannot be called from here; the entry that enables the interpreter names the route and the hashes it was decided on (runtime/interpreter_enable.py).
 
@@ -218,27 +222,42 @@ def _event_slots_fixed(obj: dict, line: str):
     return out
 
 
+def _by_verb(line: str, strict: dict, now, zone: str, allowed, frame, obj) -> dict:
+    """The decision for a line that asks to change or cancel an event by its name when the model's answer cannot be believed (slices S16b): the operation is the one the line's own
+    leading verb names, the time is what the time engine reads without doubt (`event_lookup._code_time`), and the event is found by the closest name afterwards. It applies only when ALL
+    hold: (a) the model's answer is garbage (nothing parses), or a clarify of the slot `event`; (b) the line names no other object (a mail, a file, a reminder, a routine, a task, a
+    folder, a request, an address) and is no question, no condition and no two verbs; (c) a verb that changes or cancels leads the line. A model that named an operation (an event
+    one of the other kind is never swapped, and a refused op of another family stays refused) or asked about another slot keeps its refusal."""
+    op = event_lookup.verb_op(line)          # (c)
+    if op is None or event_lookup.names_other_object(line) or event_lookup.asks_again(line):          # (b)
+        return strict
+    if obj is not None and not (obj.get("kind") == "clarify" and obj.get("slot") == "event"):          # (a)
+        return strict
+    again = interpreter.check({"v": 1, "kind": "op", "op": op, "slots": {}}, line, frame, interpreter.SERVED, now, zone, allowed)
+    if again.get("kind") == "op" and op == "event-change":
+        again = dict(again, time=event_lookup._code_time(line, now))
+    return again if again.get("kind") in ("op", "refuse_policy") else strict
+
+
 def lenient(line: str, text, strict: dict, now, zone: str, allowed, frame=None) -> dict:
-    """`strict`, the decision `decide` gave, or the decision for the line read as the event it describes (slice S16). Only a refused decision about an event to change or cancel is
-    read again, and only when the line's leading verb names the same operation as the model's (`event_lookup.verb_op`): an op object whose `event` slot is not a number of the line (or, for a removal, that has a slot the operation lacks) is checked again without those slots; a model that
-    only asks for the slot `event` gets the operation the line's leading verb names. The event is always found from the person's own words by code afterwards, never from the model's."""
+    """`strict`, the decision `decide` gave, or the decision for the line read as the event it describes (slices S16, S16b). Only a refused decision is read again, and only for a
+    line whose leading verb asks to change or cancel an event (`event_lookup.verb_op`) and that names no other object, is no question, carries no condition and has one such verb.
+    When the model named the same operation as that verb, an op object whose `event` slot is not a number of the line (or, for a removal, that has a slot the operation lacks) is
+    checked again without those slots. A model that named the other event operation, or any other operation, keeps the refusal: it is never swapped for the verb's. Garbage, or a
+    clarify of the slot `event`, gets the operation of the verb and the event is found by the name in the line (`_by_verb`). The event is always found from the person's own words
+    by code afterwards, never from the model's."""
     if strict.get("kind") != "clarify" or strict.get("why") not in ("invalid", "model"):
         return strict
     obj, _, _ = interpreter.parse(text)
-    if obj is None:
-        return strict
-    if obj.get("kind") == "op" and obj.get("op") in event_lookup.OPS:
-        if event_lookup.verb_op(line) != obj["op"]:
-            return strict          # the model's op is believed only when the line's own leading verb says the same: "do not remove ..." or "move ..." answered with a removal stays refused
+    if obj is not None and obj.get("kind") == "op":
+        if obj.get("op") not in event_lookup.OPS or event_lookup.verb_op(line) != obj["op"] or event_lookup.names_other_object(line) or event_lookup.asks_again(line):
+            return strict
         fixed = _event_slots_fixed(obj, line)
-    elif obj.get("kind") == "clarify" and obj.get("slot") == "event" and (op := event_lookup.verb_op(line)) is not None:
-        fixed = {"v": obj["v"], "kind": "op", "op": op, "slots": {}}
-    else:
-        return strict
-    if fixed is None:
-        return strict
-    again = interpreter.check(fixed, line, frame, interpreter.SERVED, now, zone, allowed)
-    return again if again.get("kind") in ("op", "refuse_policy") else strict
+        if fixed is None:
+            return strict
+        again = interpreter.check(fixed, line, frame, interpreter.SERVED, now, zone, allowed)
+        return again if again.get("kind") in ("op", "refuse_policy") else strict
+    return _by_verb(line, strict, now, zone, allowed, frame, obj)
 
 
 def router_frame(age_s):
@@ -333,12 +352,31 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
         elif op in event_lookup.OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES:
             opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, writes, ops_natural._clock())
+        elif op == "file-trash":          # R2-A: the file is found by the words of the line, by the search of `file-read`, and its card opens (runtime/ops_file_trash.py)
+            opened = importlib.import_module("ops_file_trash").reply(project, ctx, decision["args"], said, CHANNEL, sender, extras)
         else:
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
         return _said(opened if opened is not None else _cannot(ctx, op), extras)
     when = time_["local"].replace("T", " ") if time_ else None
     reply = ops_natural.run(project, ctx, op, decision["args"], said, CHANNEL, sender, extras, when=when, routed=True)
     return _said(reply, extras)
+
+
+DECIDED = ("approve", "reject", "release")      # the decisions a line names by a number written in it (slice S20); `answer` and `go-ahead` have words of their own
+
+
+def _decided(project: str, ctx: dict, op: str, said: str, sender, extras: dict) -> tuple:
+    """The reply for a decision the model named (slice S20). The number is the one number WRITTEN in the line, read by code (never the model's); a line with none, or with two,
+    asks which. `reject` and `release` are run as their typed lines are, `approve` sends the decision's card again and approves nothing (all of it is `ops_natural.run`, which
+    asks the policy as the typed command is asked); an `answer` is a reply to the question, and `go-ahead` is not done from a message."""
+    if op not in DECIDED:
+        if op == "answer":
+            return _said(phrases.text("IX_ANSWER_ON_QUESTION", ctx["cfg"]), extras)
+        return _said(ops_natural.phone_sentence(ctx, op), extras)
+    numbers = natural.decision_numbers(said)
+    if len(numbers) != 1:
+        return _said(phrases.text("NAT_WHICH_DECISION", ctx["cfg"]), extras)
+    return _said(ops_natural.run(project, ctx, op, {"pending_id": numbers[0]}, said, CHANNEL, sender, extras, routed=True), extras)
 
 
 def turn(project: str, ctx: dict, said: str, sender, extras: dict):
@@ -372,7 +410,7 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     if kind == "refuse" and decision.get("class") != "D":
         return _said(ops_natural.phone_sentence(ctx, decision["op"]), extras)
     if kind == "refuse":
-        return _said(phrases.text("IX_USE_CARD", cfg), extras)
+        return _decided(project, ctx, decision["op"], said, sender, extras)
     if kind == "refuse_policy":
         return _said(_refusal(ctx, decision["op"], sender), extras)
     key = WHY_SENTENCE.get(decision.get("why")) if kind == "clarify" else None

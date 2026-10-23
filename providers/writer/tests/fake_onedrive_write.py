@@ -42,6 +42,7 @@ class FakeOneDriveWrite:
     def __init__(self):
         self.requests, self.token_forms, self.violations, self.uploads = [], [], [], []
         self.items = {}
+        self.bin = {}          # R2-A: the items a DELETE moved to the recycle bin (nothing is ever removed for good)
         self.sessions = {}
         self.clock = 0
         self.counter = 0
@@ -147,7 +148,15 @@ class FakeOneDriveWrite:
                 owner.violate(self, self._entry(self._read()))
 
             def do_DELETE(self):  # noqa: N802
-                owner.violate(self, self._entry(self._read()))
+                entry = self._entry(self._read())
+                with owner.lock:
+                    owner.requests.append(entry)
+                if not entry["bearer"]:
+                    return self.error(401, "InvalidAuthenticationToken", "no bearer token")
+                found = re.fullmatch(r"/v1\.0/drives/([^/]+)/items/([^/]+)", entry["path"])
+                if found:      # R2-A: the item goes to the recycle bin (Graph does not delete it for good on this call)
+                    return owner.write(self, entry, "DELETE", lambda: owner.trash(found.group(1), found.group(2), entry))
+                owner.violate(self, entry)
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True
@@ -287,6 +296,15 @@ class FakeOneDriveWrite:
         self.items[ident] = {"id": ident, "name": name, "parent": parent, "folder": False, "content": entry["body"], "n": 1, "mime": entry["content_type"],
                              "created": stamp, "modified": stamp}
         return 201, self.resource(self.items[ident])
+
+    def trash(self, drive, ident, entry):
+        item = self.items.get(ident)
+        if drive != DRIVE or item is None:
+            return 404, {"error": {"code": "itemNotFound", "message": "not found"}}
+        if entry["if_match"] is not None and entry["if_match"] != self.etag(item):
+            return 412, {"error": {"code": "preconditionFailed", "message": "The request cannot be completed because the resource has changed."}}
+        self.bin[ident] = self.items.pop(ident)
+        return 204, b""
 
     def session(self, drive, ident, entry):
         item = self.items.get(ident)

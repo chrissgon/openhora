@@ -3,8 +3,9 @@
 # requires-python = ">=3.10"
 # dependencies = ["keyring==25.7.0"]
 # ///
-"""Writer provider on OneDrive (class writer:files, package W4a): create a file in a folder of the person's OneDrive, and write a new version of a file
-they have, after the runtime showed them the exact content and they approved its hash. Nothing here is called by a skill or a step: only the runtime's
+"""Writer provider on OneDrive (class writer:files, package W4a): create a file in a folder of the person's OneDrive, write a new version of a file
+they have, and (slice R2-A) move a file in their own drive to the recycle bin, after the runtime showed them the exact content or the exact file and they approved
+its hash. Nothing here is called by a skill or a step: only the runtime's
 effect module for the word `files` (runtime/effect_files.py) starts it, and a read-only seam (`file-meta`) before that.
 
 What it never does (limits L57 and L58): it never deletes an item, never moves, renames or shares one, and never writes to an item or a folder it was
@@ -20,6 +21,8 @@ Usage:
         --bytes <n> --sha256 <hex> --idempotency-key <key> --account <address> (--dry-run | --confirmed)
   uv run providers/writer/onedrive.py replace --id <drive id>/<item id> --media-type <type> --content-file <abs path> --bytes <n> --sha256 <hex>
         --base-etag <eTag> --base-ctag <cTag> --base-size <n> --idempotency-key <key> --account <address> (--dry-run | --confirmed)
+  uv run providers/writer/onedrive.py trash --id <drive id>/<item id> --base-etag <eTag> --base-ctag <cTag> --base-size <n> --base-parent <folder item id>
+        --idempotency-key <key> --account <address> (--dry-run | --confirmed)
 
   --account   the address of the account the document names. Every verb but --check reads it and compares it with the account of the token record: another
               account's token reads and writes nothing (exit 1).
@@ -36,6 +39,11 @@ Usage:
               and its eTag, cTag and size must be the base. OneDrive keeps the earlier version in the file's version history (retention is the
               service's own setting). The upload address Graph names is a bearer credential: it must be https and on a host of the closed list
               (api.onedrive.com, 1drv.com, sharepoint.com; to verify live), is called with no Authorization header, and is never printed.
+  trash       move ONE file in the account's own drive to the recycle bin (R2-A). The item is read again first: its eTag, cTag, size and parent folder must
+              be the base the runtime read and it must be a file, else exit 1 `changed:` and nothing is changed. Then one `DELETE` with `If-Match: <eTag>`
+              (412 is `changed:`). Graph's documentation says this moves the item to the recycle bin instead of deleting it for good (to verify live; how long
+              the bin keeps it is the service's own setting). A lost answer is found again: a key an earlier attempt left pending, and an item Graph no longer
+              finds, is the earlier attempt's own and is answered `replayed`.
 
 The dry run (`--dry-run`) reads no credential, opens no connection and prints {"dry_run": true, "requests": [...], "would_sha256", "ledger"}: the
 exact list of requests `--confirmed` sends, in order, and the sha256 of its canonical text. `--confirmed` sends exactly that list.
@@ -85,8 +93,9 @@ ID_PART = re.compile(r"[A-Za-z0-9!._-]{1,200}")
 ETAG = re.compile(r'[A-Za-z0-9{}",=_:-]{1,200}')
 CLOCK_SLACK = datetime.timedelta(seconds=90)      # between this machine's clock and the service's, when a lost answer is looked for
 
-# Limit L58: the only requests this writer sends. A segment is percent-encoded, holds no `/` or `:` and is not only dots. There is no DELETE, no move
-# or rename (PATCH), no copy, no permission or sharing call, and no call on the recycle bin.
+# Limit L58: the only requests this writer sends. A segment is percent-encoded, holds no `/` or `:` and is not only dots. The one DELETE is the item's own
+# (Graph moves it to the recycle bin; the call that deletes for good is a different one and is not here), and there is no move or rename
+# (PATCH), no copy, no permission or sharing call, and no call on the recycle bin.
 SEG = r"(?!\.+(?:[/:]|$))[A-Za-z0-9_%.~=-]{1,600}"
 ALLOWED = (
     ("GET", r"/me/drive"),
@@ -98,7 +107,9 @@ ALLOWED = (
     ("PUT", r"/me/drive/root:(/" + SEG + r")+:/content"),
     ("POST", r"/drives/" + SEG + r"/items/" + SEG + r"/createUploadSession"),
     ("PUT", UPLOAD_PATH),
+    ("DELETE", r"/drives/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}/items/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}"),   # the item's own path: an id segment is percent-encoded, holds no `/`, `:` or `?`, and is never only dots or %2E (no `..`, no `root:`)
 )
+REMOVE = ALLOWED[-1]
 
 
 def _load(name: str, candidates):
@@ -336,6 +347,12 @@ def plan_replace(drive: str, item: str, media_type: str, count: int, sha: str, e
     ]
 
 
+def plan_trash(drive: str, item: str, etag: str) -> list:
+    base = item_path(drive, item)
+    return [{"method": "GET", "path": base, "query": {"$select": ITEM_FIELDS}, "body": None},
+            {"method": REMOVE[0], "path": base, "query": {}, "if_match": etag, "body": None}]
+
+
 # --- what the service says an item is ------------------------------------------------------------------------------------------------------
 
 
@@ -369,7 +386,8 @@ def described(meta: dict) -> dict:
             "ctag": str(meta.get("cTag") or ""), "size": size if isinstance(size, int) and not isinstance(size, bool) and size >= 0 else None,
             "modified": str(meta.get("lastModifiedDateTime") or ""), "created": str(meta.get("createdDateTime") or ""), "mime_type": mime, "kind": kind,
             "sha1": sha1.lower() if sha1 else None, "sha256": sha256.lower() if sha256 else None, "drive": drive,
-            "writable": writable, "reason": reason}
+            "writable": writable, "reason": reason,
+            "parent": parent.get("id") if isinstance(parent.get("id"), str) and ID_PART.fullmatch(parent["id"]) else None}
 
 
 def content_matches(item: dict, data: bytes):
@@ -575,6 +593,53 @@ def cmd_replace(a) -> int:
     return emit(out)
 
 
+def cmd_trash(a) -> int:
+    drive, item = split_id(a.id)
+    key = common.check_key(a.idempotency_key)
+    etag, ctag = check_etag(a.base_etag, "--base-etag"), check_etag(a.base_ctag, "--base-ctag")
+    if not a.base_size or not a.base_size.isdigit() or not a.base_parent or not ID_PART.fullmatch(a.base_parent):
+        raise WriterError("--base-size and --base-parent state the item as the runtime read it", EXIT_USAGE)
+    steps = plan_trash(drive, item, etag)
+    if a.dry_run:
+        return dry_run(steps, key)
+    ledger = common.Ledger(IMPLEMENTATION)
+    claim = ledger.claim(key, common.would_sha256(steps))
+    if claim["state"] == "done":
+        return emit({**claim["result"], "replayed": True})
+    try:
+        session = open_session(check_account_flag(a.account))
+        status, headers, body = send(session, steps[0])
+        if status == 404 and claim["state"] == "pending":      # an earlier attempt of this very approval landed and its answer was lost: Graph no longer finds the item
+            out = {"written": True, "replayed": True, "id": f"{drive}/{item}", "moved_to_trash": True}
+            ledger.done(key, out)
+            return emit(out)
+        if status != 200:
+            raise failure(session, status, headers, body, "driveItem get")
+        current = described(as_object(body, "driveItem get"))
+        own = read_json(session, {"method": "GET", "path": "/me/drive", "query": {"$select": "id"}}, "drive get").get("id")
+        if not current["writable"] or not (isinstance(own, str) and own.casefold() == drive.casefold()):
+            raise WriterError("changed: the item is no longer a file in the account's own drive" + (f" ({current['reason']})" if current["reason"] else "") + ": nothing was changed")
+        moved = [field for field, now, then in (("eTag", current["etag"], etag), ("cTag", current["ctag"], ctag), ("size", str(current["size"]), a.base_size),
+                                                ("folder", current["parent"], a.base_parent)) if now != then]
+        if moved:
+            raise WriterError("changed: the file is not the one the runtime read (" + ", ".join(moved) + "): nothing was changed")
+        try:
+            status, headers, answer = send(session, steps[1], None, {"If-Match": etag})
+        except WriterError as e:
+            raise unknown_after(e) from None
+        if status == 412:
+            raise WriterError("changed: the file moved after the runtime read it (Graph answered 412): nothing was changed")
+        if status not in (200, 204):
+            raise unknown_after(failure(session, status, headers, answer, "driveItem remove"))
+        out = {"written": True, "replayed": False, "id": f"{drive}/{item}", "moved_to_trash": True}
+    except WriterError as e:
+        if e.code != EXIT_UNKNOWN and claim["state"] == "new":
+            ledger.release(key)
+        raise
+    ledger.done(key, out)
+    return emit(out)
+
+
 # --- the command line --------------------------------------------------------------------------------------------------------------------
 
 
@@ -585,9 +650,9 @@ class Parser(argparse.ArgumentParser):
 
 def build_parser() -> Parser:
     p = Parser(prog="onedrive.py", add_help=False)
-    p.add_argument("verb", nargs="?", choices=["file-meta", "create", "replace"])
+    p.add_argument("verb", nargs="?", choices=["file-meta", "create", "replace", "trash"])
     p.add_argument("--check", action="store_true")
-    for flag in ("account", "id", "folder", "name", "media-type", "content-file", "bytes", "sha256", "idempotency-key", "base-etag", "base-ctag", "base-size"):
+    for flag in ("account", "id", "folder", "name", "media-type", "content-file", "bytes", "sha256", "idempotency-key", "base-etag", "base-ctag", "base-size", "base-parent"):
         p.add_argument("--" + flag)
     for flag in ("dry-run", "confirmed"):
         p.add_argument("--" + flag, action="store_true")
@@ -609,6 +674,13 @@ def main(argv=None) -> int:
             raise WriterError("give a verb or --check; see --help", EXIT_USAGE)
         if a.verb == "file-meta" and a.account is None:
             raise WriterError("--account is required", EXIT_USAGE)
+        if a.verb == "trash":
+            if a.account is None and not a.dry_run:
+                raise WriterError("--account is required with --confirmed", EXIT_USAGE)
+            if a.dry_run == a.confirmed:
+                raise WriterError("give exactly one of --dry-run and --confirmed", EXIT_USAGE)
+            if a.idempotency_key is None or a.id is None:
+                raise WriterError("--id and --idempotency-key are required", EXIT_USAGE)
         if a.verb in ("create", "replace"):
             if a.account is None and not a.dry_run:
                 raise WriterError("--account is required with --confirmed", EXIT_USAGE)
@@ -619,7 +691,7 @@ def main(argv=None) -> int:
             for flag in ("media_type", "bytes", "sha256", "idempotency_key"):
                 if getattr(a, flag) is None:
                     raise WriterError(f"--{flag.replace('_', '-')} is required", EXIT_USAGE)
-        return {"file-meta": cmd_file_meta, "create": cmd_create, "replace": cmd_replace}[a.verb](a)
+        return {"file-meta": cmd_file_meta, "create": cmd_create, "replace": cmd_replace, "trash": cmd_trash}[a.verb](a)
     except WriterError as e:
         print(f"error: {e}", file=sys.stderr)
         return e.code

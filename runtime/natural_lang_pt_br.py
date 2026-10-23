@@ -135,7 +135,8 @@ TABLE = {
     # sem acento, cada sequencia de outros caracteres um espaco) e nao tem cauda aberta; `{n}` e o inteiro escrito na linha, o unico argumento que uma forma da
     "requests": {
         "forms": {
-            "pending": [r"pendencias?( para mim)?", r"minhas pendencias", r"o que (tenho|preciso|devo) (para|de) (aprovar|decidir|responder)", r"o que espera (por|de) mim"],
+            "pending": [r"pendencias?( para mim)?", r"minhas pendencias", r"o que (tenho|preciso|devo) (para|de) (aprovar|decidir|responder)", r"o que espera (por|de) mim",
+                        r"(mostra|mostre|lista|liste|ver|veja)( as| minhas| as minhas)? pendencias"],
             "sources": [r"(quais|que) (arquivos|documentos|fontes|planilhas) (voce|vc) tem", r"(quais|que)( sao)?( os| as| meus| minhas)? (arquivos|documentos|fontes)( (que )?(voce|vc) (tem|conhece))?",
                         r"(lista|liste|mostra|mostre)( os| as| meus| minhas)? (arquivos|documentos|fontes)"],
             "attachments": [r"(quais|que) (arquivos|anexos) (eu )?(mandei|enviei)", r"(meus )?anexos( pendentes)?"],
@@ -150,7 +151,8 @@ TABLE = {
             "task": [r"(?:(?:como esta|me fala d[oa]|status d[oa])(?: (?:a|o))? )?tarefa(?: (?:numero|n|id))? {n}"],
             "commands": [r"ajuda", r"(que|quais) (comandos|coisas) (voce|vc) (tem|sabe fazer|faz|entende)", r"o que (voce|vc) (sabe|consegue|pode) fazer",
                          r"como (eu )?(uso|usar)( isso| voce)?"],
-            "reject": [r"(rejeita|rejeite|rejeitar|recusa|recuse|recusar)(?: (?:o|a|esse|essa))?(?: (?:plano|pedido|entrega|decisao|pendencia|aceite))?(?: (?:numero|n|id))? {n}"],
+            "reject": [r"(rejeita|rejeite|rejeitar|recusa|recuse|recusar)(?: (?:o|a|esse|essa))?(?: (?:plano|pedido|entrega|decisao|pendencia|aceite|pergunta|duvida))?(?: (?:numero|n|id))? {n}",
+                       r"(dispensa|dispense|dispensar|descarta|descarte|descartar)(?: (?:a|essa))? (?:pergunta|duvida)(?: (?:numero|n|id))? {n}"],
             "approve": [r"(aprova|aprove|aprovar|aceita|aceite)(?: (?:o|a|esse|essa))?(?: (?:plano|pedido|entrega|decisao|pendencia|aceite))?(?: (?:numero|n|id))? {n}"],
             "release": [r"(libera|libere|liberar)(?: (?:o|a|essa|esse))?(?: (?:plano|pedido|entrega|decisao))?(?: (?:numero|n|id))? {n}"],
             "go-ahead": [r"(siga|prossiga|prosseguir)(?: (?:com|em))?(?: (?:a|essa))? tarefa(?: (?:numero|n|id))? {n}", r"siga em frente com a tarefa(?: (?:numero|n|id))? {n}"],
@@ -185,7 +187,12 @@ TABLE = {
             "verdict": [r"(registra|registre) (um )?veredito"],
             "proof": [r"(mostra|mostre)( a)? prova"],
             "items": [r"(meus|minhas) (e mails|emails|eventos|compromissos)", r"(lista|liste|mostra|mostre)( os| as| meus| minhas)? (e mails|emails|eventos|compromissos)",
-                      r"(quais|que) (e mails|emails|eventos|compromissos)( eu tenho| chegaram| tenho)?"],
+                      r"(quais|que) (e mails|emails|eventos|compromissos)( eu tenho| chegaram| tenho)?",
+                      # slice S4b: the calendar read in words; the nouns are those of `writes.calendar.nouns_plural` (so `items_kind` says calendar); a day word is allowed and read by nobody
+                      r"(minha|meu|minhas|meus) (agenda|calendario|compromissos)( (de |para )?(hoje|amanha))?",
+                      r"(me )?(lista|liste|mostra|mostre|veja|ver)( a| minha| meu| o)? (agenda|calendario|compromissos)( (de |para )?(hoje|amanha))?",
+                      r"o que (eu )?(tenho|tem|ha) (na|no)( minha| meu)? (agenda|calendario)( (de |para )?(hoje|amanha))?",
+                      r"(quais|que) compromissos (eu )?tenho( (de |para )?(hoje|amanha))?"],
             "mail-send": [r"(manda|mande|mandar|envia|envie|enviar)( um| uma| o| a)? (e mail|email)"],
             "mail-reply": [r"(responde|responda|responder)( ao| a| o)? (e mail|email)"],
             "mail-draft": [r"(rascunha|rascunhe)( um| uma| o| a)? (e mail|email)"],

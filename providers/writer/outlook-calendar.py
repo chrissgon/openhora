@@ -3,18 +3,20 @@
 # requires-python = ">=3.10"
 # dependencies = ["keyring==25.7.0"]
 # ///
-"""Calendar writer for Outlook (Microsoft 365 and outlook.com): an implementation of the class writer:calendar (package W1, SPEC-SECRETARY-WRITES). It creates
-and changes one event of one calendar of the person's own Microsoft account through Microsoft Graph, and reads one event back. It is called only by the effect
-module runtime/effect_calendar.py (the two write verbs, after the person approved the exact request) and by one read-only seam of the runtime (`event-get`, and
-the dry run of the others); never by a skill, a run or a handler. No attendee is ever sent. THIS WRITER HAS NO VERB THAT REMOVES AN EVENT: Microsoft does not say
-where a removed event goes (the page of the removal call), and nothing here removes one until the live check of SPEC-SECRETARY-WRITES Q12 shows that a removed event
-can be restored from Deleted Items. A verb it does not have exits 2.
+"""Calendar writer for Outlook (Microsoft 365 and outlook.com): an implementation of the class writer:calendar (package W1, SPEC-SECRETARY-WRITES; the removal,
+slice S21). It creates, changes and removes one event of one calendar of the person's own Microsoft account through Microsoft Graph, and reads one event back. It is
+called only by the effect module runtime/effect_calendar.py (the write verbs, after the person approved the exact request) and by one read-only seam of the runtime
+(`event-get`, and the dry run of the others); never by a skill, a run or a handler. No attendee is ever sent. THE REMOVAL (`event-delete`) IS ONE DELETE, AND IT MAY NOT
+BE UNDONE: Microsoft does not say where a removed event goes (the page of the removal call), and nobody has checked that it lands in Deleted Items. The maintainer chose
+the plain removal on 2026-10-22 (it reverses Q12 of SPEC-SECRETARY-WRITES: docs/decisions.md), so the card the person approves says that Outlook may keep no copy.
 
 Sources (Microsoft's own documentation, accessed 2026-10-18; what is not read there is listed under "To verify" in providers/writer/README.md):
 - Create event (POST /me/calendar/events and /me/calendars/{id}/events; "Graph sends invitations to all attendees", which this writer never sets), update event
   (PATCH /me/events/{id}; only the properties in the body change; there is no documented If-Match) and the event resource (changeKey, isOrganizer, attendees, type,
   seriesMasterId, isReminderOn, reminderMinutesBeforeStart, body, location, start, end, isAllDay): https://learn.microsoft.com/en-us/graph/api/user-post-events,
   https://learn.microsoft.com/en-us/graph/api/event-update and https://learn.microsoft.com/en-us/graph/api/resources/event
+- Delete event (DELETE /me/events/{id} and /me/calendars/{id}/events/{id}; 204 No Content; the page says nothing of where the event goes, and there is no documented
+  If-Match): https://learn.microsoft.com/en-us/graph/api/event-delete
 - Extended properties (singleValueExtendedProperties on create and update, and a $filter on them): https://learn.microsoft.com/en-us/graph/api/resources/extended-properties-overview
 - Permissions reference (Calendars.ReadWrite): https://learn.microsoft.com/en-us/graph/permissions-reference
 
@@ -24,6 +26,7 @@ Usage:
   uv run providers/writer/outlook-calendar.py event-get --calendar <default|id> --event <id>
   uv run providers/writer/outlook-calendar.py event-create --calendar <default|id> --spec-file <file> --idempotency-key <key> (--dry-run | --confirmed)
   uv run providers/writer/outlook-calendar.py event-patch --calendar <default|id> --event <id> --base-etag <changeKey> --spec-file <file> --idempotency-key <key> (--dry-run | --confirmed)
+  uv run providers/writer/outlook-calendar.py event-delete --calendar <default|id> --event <id> --base-etag <changeKey> --idempotency-key <key> (--dry-run | --confirmed)
 
   --check        refreshes the access token, checks that the account token carries the platform's whole set of permissions, and reads one entry of the calendar list;
                  prints {"ok": true, "record", "scope", "tenant", "obtained_at", "rotation"}. Exit 3 when there is no authorization or the set is not the platform's.
@@ -34,6 +37,10 @@ Usage:
   event-create   creates the event the spec describes: {"done": true, "replayed", "event_id", "etag"}.
   event-patch    changes only the parts the spec lists, only if the event still has the changeKey `--base-etag` (Graph documents no If-Match, so the writer reads
                  the event again right before the PATCH and compares): {"done": true, "replayed", "event_id", "etag"}.
+  event-delete   removes the event with one DELETE, only if it still has the changeKey `--base-etag` (the writer reads the event again right before and compares) and
+                 only if it is the person's alone: organised by them, with no other attendee, not a series (else exit 1, `not eligible:`; nobody is ever told, and a
+                 meeting or a series is not removed here). Where the removed event goes is NOT VERIFIED: it may not be recoverable. {"done": true, "replayed", "event_id", "etag": null}.
+                 An event that is gone after an answer was lost counts as removed (`replayed`).
   --dry-run      reads no credential, opens no connection and prints {"dry_run": true, "would": {"method", "path", "query", "headers", "body"}, "would_sha256",
                  "ledger"}: the exact request `--confirmed` sends, and its hash.
   --confirmed    sends exactly that request. The key is recorded `pending` in the ledger first and `done` after the answer; a key that is `done` is not sent again
@@ -41,7 +48,7 @@ Usage:
                  carries) before anything is sent.
 
 The spec (a file, never a flag: it holds the person's words): the whole event for event-create, {"title", "all_day", "start_at", "end_at", "location",
-"reminder_minutes", "notes"}; for event-patch the parts to change, the three times together. `start_at` and `end_at` are an instant with its offset (sent to Graph
+"reminder_minutes", "notes"}; for event-patch the parts to change, the three times together. event-delete takes no spec. `start_at` and `end_at` are an instant with its offset (sent to Graph
 in UTC), or, for an all-day event, the first day and the day after the last.
 
 Credentials (never from a flag or a file; contracts/secrets.md):
@@ -53,10 +60,10 @@ Test overrides (tests only, loopback URLs only, both set together; the secret st
   WRITER_CALENDAR_OUTLOOK_API_BASE    replaces https://graph.microsoft.com/v1.0
   WRITER_CALENDAR_OUTLOOK_TOKEN_URL   replaces https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token
 
-Limits. The request function sends only the methods and paths of ALLOWED, and refuses anything else (limits L57, L58); there is no removal in it. No redirect is
+Limits. The request function sends only the methods and paths of ALLOWED, and refuses anything else (limits L57, L58); its one removal is the event's. No redirect is
 followed. A verb never retries: a 429, or a 503 on a read, is reported with its Retry-After and nothing is changed; a 503 or another server error on a write is exit 4 (it may have landed) and the key stays pending. Every request has a 60-second timeout. Prints one JSON object
 on stdout; diagnostics on stderr. Exit codes: 0 ok, 1 refused with nothing changed (the service said no, or the event changed since it was read: the message starts
-with `changed:`), 2 usage (a bad flag, id or spec, a verb this writer does not have), 3 not configured, 4 unknown (the request may have landed: send the same key again).
+with `changed:`; or the event is not the person's alone: it starts with `not eligible:`), 2 usage (a bad flag, id or spec, a verb this writer does not have), 3 not configured, 4 unknown (the request may have landed: send the same key again).
 """
 from __future__ import annotations
 
@@ -92,16 +99,20 @@ EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_NOT_CONFIGURED, EXIT_UNKNOWN = (_calenda
 SERVES = "writer:calendar"
 IMPLEMENTATION = "outlook-calendar"
 # The only requests this writer sends (limits L57 and L58): a method and a full-match pattern of the path, as the request function sees it (ids are percent-encoded).
+# An id in a path is what the builders let through, percent-encoded as they send it: letters, digits, `_` and `-`, and the encodings of `=` (%3D) and, for an event, `+`
+# (%2B). No dot, so `.` and `..` are not a segment, and no `/`, so a path cannot leave the calendar's events (L57: this is the guard of the one removal).
 ALLOWED = (("GET", r"/me/calendars"),
            ("GET", r"/me/calendar/events"),
-           ("GET", r"/me/calendars/[^/]+/events"),
-           ("GET", r"/me/calendar/events/[^/]+"),
-           ("GET", r"/me/calendars/[^/]+/events/[^/]+"),
+           ("GET", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events"),
+           ("GET", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+           ("GET", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
            ("POST", r"/me/calendar/events"),
-           ("POST", r"/me/calendars/[^/]+/events"),
-           ("PATCH", r"/me/calendar/events/[^/]+"),
-           ("PATCH", r"/me/calendars/[^/]+/events/[^/]+"))
-(LIST_CALENDARS, LIST_DEFAULT, LIST_IN, GET_DEFAULT, GET_IN, POST_DEFAULT, POST_IN, PATCH_DEFAULT, PATCH_IN) = ALLOWED
+           ("POST", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events"),
+           ("PATCH", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+           ("PATCH", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+           ("DELETE", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+           ("DELETE", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"))
+(LIST_CALENDARS, LIST_DEFAULT, LIST_IN, GET_DEFAULT, GET_IN, POST_DEFAULT, POST_IN, PATCH_DEFAULT, PATCH_IN, REMOVE_DEFAULT, REMOVE_IN) = ALLOWED
 KEY_PROPERTY = "String {c1a7e5d2-9b34-4f68-8a1e-3d5f7b2c9e40} Name openhora_key"   # the private property every request writes: a lost answer is looked up by it
 PROFILE = msgraph.account_profile(
     run_hint="uv run <workbench>/providers/writer/outlook-calendar.py", env_prefix="WRITER_CALENDAR_OUTLOOK", user_agent="openhora-writer-calendar-outlook",
@@ -275,10 +286,13 @@ def build(verb: str, args) -> dict:
     if verb == "event-create":
         spec = _calendar.read_spec(args.spec_file, "create")
         entry, path, body = entry_for("POST", calendar, False), events_path(calendar), body_of(spec, key, True)
-    else:
+    elif verb == "event-patch":
         spec = _calendar.read_spec(args.spec_file, "change")
         base_etag(args.base_etag)
         entry, path, body = entry_for("PATCH", calendar, True), events_path(calendar, event_id(args.event)), body_of(spec, key, False)
+    else:
+        base_etag(args.base_etag)
+        entry, path, body = REMOVE_DEFAULT if calendar == "default" else REMOVE_IN, events_path(calendar, event_id(args.event)), None
     return {"entry": entry, "method": entry[0], "path": path, "query": {}, "headers": {}, "body": body}
 
 
@@ -304,6 +318,25 @@ def graph_moment(value, all_day: bool):
     return f"{found.group(1)}T{found.group(2)}Z"
 
 
+def attendees_other(item, own_address) -> list:
+    """The attendees of an event who are not the person."""
+    attendees = item.get("attendees") if isinstance(item.get("attendees"), list) else []
+    mine = (own_address or "").casefold()
+    return [a for a in attendees if not (isinstance(a, dict) and mine and str(((a.get("emailAddress") or {}).get("address")) or "").casefold() == mine)]
+
+
+def not_eligible(item, own_address):
+    """Why an event may not be removed here, or None: it is the person's alone when they organise it, nobody else is an attendee and it is not a series (Q3).
+    A meeting would tell other people and a series would take every occurrence, so neither is removed; an unknown organiser is not the person."""
+    if item.get("isOrganizer") is not True:
+        return "the event is organised by someone else"
+    if attendees_other(item, own_address):
+        return "the event has other attendees"
+    if item.get("type") in RECURRING_TYPES or item.get("seriesMasterId"):
+        return "the event is part of a series"
+    return None
+
+
 def read_event(item, own_address) -> dict:
     """The event as `event-get` prints it. WriterError (exit 1) when it is not in a form this writer understands."""
     if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not _calendar.EVENT_ID.fullmatch(item["id"]):
@@ -312,9 +345,7 @@ def read_event(item, own_address) -> dict:
     start, end = graph_moment(item.get("start"), all_day), graph_moment(item.get("end"), all_day)
     if start is None or end is None:
         raise WriterError("Graph answered an event whose times this writer does not understand (another time zone than UTC, or no time)")
-    attendees = item.get("attendees") if isinstance(item.get("attendees"), list) else []
-    mine = (own_address or "").casefold()
-    others = [a for a in attendees if not (isinstance(a, dict) and mine and str(((a.get("emailAddress") or {}).get("address")) or "").casefold() == mine)]
+    others = attendees_other(item, own_address)
     body = item.get("body") if isinstance(item.get("body"), dict) else {}
     notes = str(body.get("content") or "").replace("\r\n", "\n").replace("\r", "\n")
     key = item.get("changeKey")
@@ -390,6 +421,9 @@ def landed(session: Session, verb: str, args, key: str):
             raise failure(session, status, headers, body, "GET events")
         items = (json_body(body) or {}).get("value") or []
         return {"event_id": items[0].get("id"), "etag": items[0].get("changeKey")} if items and isinstance(items[0], dict) else None
+    if verb == "event-delete":      # removed: the event is gone (or cancelled). Not gone: the removal was not made, and the request is sent again.
+        gone = fetch_event(session, calendar, event_id(args.event)) is None
+        return {"event_id": args.event, "etag": None} if gone else None
     status, headers, body = request(entry_for("GET", calendar, True), session, events_path(calendar, event_id(args.event)),
                                     {"$select": "id,changeKey,isCancelled", "$expand": f"singleValueExtendedProperties($filter=id eq '{KEY_PROPERTY}')"}, {})
     if status == 404:
@@ -405,7 +439,7 @@ def write(verb: str, args) -> int:
     built = build(verb, args)
     would, key = would_of(built), args.idempotency_key
     digest = _calendar.sha(_calendar.canonical(would))
-    operation = "create" if verb == "event-create" else "change"
+    operation = {"event-create": "create", "event-patch": "change", "event-delete": "cancel"}[verb]
     if args.dry_run:
         peeked = _calendar.ledger_peek(IMPLEMENTATION, key)
         return emit({"dry_run": True, "would": would, "would_sha256": digest, "ledger": (peeked or {}).get("status", "absent")})
@@ -429,23 +463,25 @@ def write(verb: str, args) -> int:
             _record_done(key, found)
             return emit({"done": True, "replayed": True, **found})
     try:
-        if verb == "event-patch":      # Graph documents no If-Match: read the event again right before the change and compare its changeKey
+        if verb in ("event-patch", "event-delete"):      # Graph documents no If-Match: read the event again right before the change and compare its changeKey
             item = fetch_event(session, calendar_id(args.calendar), event_id(args.event))
             if item is None or item.get("changeKey") != args.base_etag:
                 raise WriterError("changed: the event is not as it was read (it is gone, or its changeKey moved)", EXIT_REFUSED)
+            if verb == "event-delete" and (why := not_eligible(item, session.record.get("account"))):
+                raise WriterError(f"not eligible: {why}; nothing was removed", EXIT_REFUSED)
         status, headers, body = request(built["entry"], session, built["path"], built["query"], built["headers"], built["body"], write=True)
     except Lost:
         raise          # the key stays pending: sending it again looks in the calendar first
     except BaseException:
         _calendar.settle(IMPLEMENTATION, key, "released")      # nothing was sent (and, for a key an earlier attempt left pending, the calendar was looked up: it did not land)
         raise
-    if status not in (200, 201):
+    if status not in (200, 201, 204):
         problem = failure(session, status, headers, body, f"{built['method']} event")
         if not isinstance(problem, Lost):
             _calendar.settle(IMPLEMENTATION, key, "released")      # Graph said no: nothing changed, the key is free
         raise problem
     answer = json_body(body) or {}
-    done = {"event_id": answer.get("id") or getattr(args, "event", None), "etag": answer.get("changeKey")}
+    done = {"event_id": answer.get("id") or getattr(args, "event", None), "etag": answer.get("changeKey")}      # a removal answers 204: no body
     _record_done(key, done)
     return emit({"done": True, "replayed": False, **done})
 
@@ -459,10 +495,11 @@ def _record_done(key: str, facts: dict) -> None:
         log(f"warning: the request landed, and the ledger could not record it ({one_line(exc, 200)}): the key {key} stays pending")
 
 
-VERBS = ("event-get", "event-create", "event-patch")
+VERBS = ("event-get", "event-create", "event-patch", "event-delete")
 FLAG_NAMES = {"calendar": "--calendar", "event": "--event", "base_etag": "--base-etag", "spec_file": "--spec-file", "idempotency_key": "--idempotency-key"}
 VERB_FLAGS = {"event-get": {"calendar", "event"}, "event-create": {"calendar", "spec_file", "idempotency_key"},
-              "event-patch": {"calendar", "event", "base_etag", "spec_file", "idempotency_key"}, None: set()}
+              "event-patch": {"calendar", "event", "base_etag", "spec_file", "idempotency_key"},
+              "event-delete": {"calendar", "event", "base_etag", "idempotency_key"}, None: set()}
 
 
 def check_flags(args) -> None:
@@ -472,7 +509,7 @@ def check_flags(args) -> None:
     if args.check:
         return
     if not args.verb:
-        raise WriterError("give a verb (event-get, event-create, event-patch) or --check; see --help", EXIT_USAGE)
+        raise WriterError("give a verb (event-get, event-create, event-patch, event-delete) or --check; see --help", EXIT_USAGE)
     wanted = VERB_FLAGS[args.verb]
     extra = [flag for dest, flag in FLAG_NAMES.items() if getattr(args, dest) is not None and dest not in wanted]
     if extra:
@@ -486,17 +523,8 @@ def check_flags(args) -> None:
         raise WriterError("event-get is a read: it takes neither --dry-run nor --confirmed", EXIT_USAGE)
 
 
-class Parser(argparse.ArgumentParser):
-    """The parser, with one sentence added to the refusal of a verb it does not have: there is no verb that removes an event."""
-
-    def error(self, message):
-        if "invalid choice" in message:
-            message += " (this writer has no verb that removes an event: removing an event from an Outlook calendar is not available yet)"
-        super().error(message)
-
-
 def build_parser() -> argparse.ArgumentParser:
-    parser = Parser(prog="outlook-calendar.py", description=__doc__.split("\n\n")[0], epilog=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(prog="outlook-calendar.py", description=__doc__.split("\n\n")[0], epilog=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("verb", nargs="?", choices=list(VERBS), help="the action to run")
     parser.add_argument("--check", action="store_true", help="refresh a token, check its scope and read one calendar entry; prints no secret")
     parser.add_argument("--calendar", help="`default`, or the calendar id")

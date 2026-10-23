@@ -74,7 +74,7 @@ FAMILIES = {
 }
 OP_FAMILY = {"event-create": "calendar", "event-change": "calendar", "event-cancel": "calendar",
              "mail-send": "mail", "mail-reply": "mail", "mail-draft": "mail", "mail-archive": "mail", "mail-move": "mail", "mail-mark": "mail", "mail-trash": "mail",
-             "file-create": "files", "file-replace": "files", "file-save": "files"}      # the family of each write operation (the router's hint names an operation)
+             "file-create": "files", "file-replace": "files", "file-save": "files", "file-trash": "files"}      # the family of each write operation (the router's hint names an operation)
 
 LINE_WORDS_MAX = 120          # a longer line is a request, not a form
 SPAN_MAX = {"title": 200, "subject": 200, "body": 4000, "content": 65536, "name": 120}      # characters of a text slot read from a line

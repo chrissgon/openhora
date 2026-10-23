@@ -187,7 +187,7 @@ def test_none_and_a_refusal_say_their_sentences_and_the_question_stays_open(rig)
     rig.says["text"] = text("none")
     assert say(rig, "owner", "thank you, that is all")["reply"] == NONE_SENTENCE and bound(rig) == pending_id
     rig.says["text"] = text("op", op="approve", slots={})
-    assert say(rig, "owner", "aprueba el plan")["reply"] == "A decision is made on its card: use the buttons of the card." and bound(rig) == pending_id
+    assert say(rig, "owner", "aprueba el plan")["reply"] == "Which decision? Say its number in the same line." and bound(rig) == pending_id      # S20: a decision is named by its number
     assert rig.spy == []
 
 
@@ -220,9 +220,9 @@ def test_a_line_code_recognises_is_never_the_answer_for_a_sender_the_interpreter
     rig.says["text"] = text("answer", answers_item="i1")
     out = say(rig, "owner", f"cancel request {other}")
     assert rig.calls == [] and rig.spy == [], "code took the line: no model call, no route"
-    assert out["reply"] == f"This changes something, so it is done by its command, not by a line of words. Send: /cancel {other}", "code's own sentence for a gated act"
+    assert out["typed"] == f"/cancel {other}" and json.loads(out["reply"])["request"] == other, "code's own act (S20): the typed /cancel, and its result"
     states = {r["id"]: r["state"] for r in ops.status(rig.world["path"])["requests"]}
-    assert states[old] == "requested" and bound(rig) == pending_id and ops.pending(rig.world["path"], pending_id)["status"] == "open", "the question was not answered"
+    assert states[other] == "cancelled" and states[old] == "requested" and bound(rig) == pending_id and ops.pending(rig.world["path"], pending_id)["status"] == "open", "the question was not answered"
     drafts.put("messaging", OWNER_KEY, {"need": "forget", "how": "command", "ids": [1]}, "remind")      # the sender has a draft (a reminder to forget, waiting for its yes): a line that answers it is code's too
     ctx = ops_core.context(rig.world["path"])
     assert ops_natural.recognises(ctx, "yes", "messaging", OWNER_KEY) is True

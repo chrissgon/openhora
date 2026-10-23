@@ -3,8 +3,8 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The step kind `file-write`: put a file in the person's own Drive or OneDrive, as an external effect the person approves (package W4a). The kind prepares; it
-never writes. Two steps, as in an e-mail:
+"""The step kind `file-write`: put a file in the person's own Drive or OneDrive, or move one to the service's trash, as an external effect the person approves (package
+W4a, slice R2-A). The kind prepares; it never writes. Two steps, as in an e-mail:
 
   prepare   checks the arguments, takes the account's address and (for a new file) the folder from the project's accepted `accounts` (limit L55: only what the
             file lists is a target), reads what the service holds through the read-only seam (a folder and whether the name is taken; or the file to replace, its
@@ -24,6 +24,10 @@ Arguments (checked when the task is planned, so the plan's hash covers exactly w
    "content": "<text>" | "from": "docs/<path>", ["folder": "<a name the project lists under accounts.<account>.folders>"]}   a NEW file: it never replaces one
   {"operation": "replace", "account": ..., "file": "<a source id of a file of that account>", "content": "<text>" | "from": "docs/<path>"}   a new revision
   {"operation": "save", "account": ..., "attachment": <a held file's number>, ["name": "<name>"], ["folder": "<name>"]}   the file a sender sent
+  {"operation": "trash", "account": ..., "id": "<the file's id>", "folder": "<the name the project lists for the granted folder it is under>", "exact": true|false}   a file
+      of the granted folders moved to the service's trash: `prepare` asks the grant again (the file must be found under that folder by the walk of the search), reads the file
+      (it must be a file the account owns), and writes the document with the file's folder by real names, its size and last change; `exact` says the name given was the file's
+      whole name (the card asks "is this the one?" when it is not). The id is the search's, never the person's: the card shows the file by its name.
 
 The text is at most 64 KiB; a file of the project at most 25 MiB. The sender of a saved file is never an argument: it is in the store alone (limit L48).
 
@@ -48,7 +52,7 @@ import phrases  # noqa: E402
 import steps  # noqa: E402
 import workcopy  # noqa: E402  (the credential formats: a text that holds one is refused before the service is asked anything)
 
-KEYS = ("operation", "account", "folder", "name", "content", "from", "file", "attachment")
+KEYS = ("operation", "account", "folder", "name", "content", "from", "file", "attachment", "id", "exact")
 SERVICE_CODES = {"not_configured": "not_configured", "provider_failed": "provider_failed", "refused": "refused", "gone": "gone"}
 GATE_STEP = "approve"
 SOURCE_TYPE = {"google": "drive", "microsoft": "onedrive"}
@@ -78,11 +82,22 @@ def check(args) -> dict:
     if account not in fd.IMPLEMENTATION:
         raise _bad("account", "the account is google or microsoft")
     allowed = {"create": {"operation", "account", "folder", "name", "content", "from"}, "replace": {"operation", "account", "file", "content", "from"},
-               "save": {"operation", "account", "attachment", "name", "folder"}}[operation]
+               "save": {"operation", "account", "attachment", "name", "folder"}, "trash": {"operation", "account", "id", "folder", "exact"}}[operation]
     extra = sorted(set(args) - allowed)
     if extra:
         raise _bad(extra[0], f"a {operation} does not take {extra[0]}")
     out = {"operation": operation, "account": account}
+    if operation == "trash":
+        ident = args.get("id")
+        parts = ident.split("/") if isinstance(ident, str) else []
+        ok = bool(parts) and (fd.DRIVE_ID.fullmatch(ident) if account == "google" else len(parts) == 2 and all(fd.MS_ITEM_PART.fullmatch(p) and set(p) != {"."} for p in parts))
+        if not ok:
+            raise _bad("id", "give the id of a file the search found")
+        if not isinstance(args.get("folder"), str) or not FOLDER_NAME.fullmatch(args["folder"]):
+            raise _bad("folder", "give a name the project lists under accounts.<account>.folders")
+        if not isinstance(args.get("exact"), bool):
+            raise _bad("exact", "say whether the name given was the file's whole name")
+        return {**out, "id": ident, "folder": args["folder"], "exact": args["exact"]}
     if operation != "save":
         has_text, has_file = args.get("content") is not None, args.get("from") is not None
         if has_text == has_file:
@@ -250,12 +265,54 @@ def _target_media(account: str, meta: dict) -> tuple:
     return media, ext, base, str(meta.get("ctag") or "")
 
 
+def _prepare_trash(ctx: steps.Context, state: dict, accounts, reader, address: str, read_at: str) -> dict:
+    """The document of a trash: the grant asked again, the file read, nothing else. Every refusal is a closed code of the step with a sentence of this table."""
+    args = ctx.args
+    account, alias = args["account"], args["folder"]
+    root = _target(accounts, account, alias)
+    found = _asked(_service(ctx, "file_grant").locate, account, root, args["id"], field="file", provider=fd.IMPLEMENTATION[account],
+                   next="the folders could not be looked through: check that the account is authorized, then start this task again")
+    if found == "unproven":
+        raise steps.StepFailure("not_proven", "file", "", phrases.en("ACCT_TRASH_UNPROVEN"))
+    if not isinstance(found, dict):
+        raise steps.StepFailure("not_granted", "file", "", phrases.en("ACCT_TRASH_NOT_GRANTED"))
+    meta = _asked(reader.meta, account, ["--id", args["id"]], field="file", provider=fd.IMPLEMENTATION[account],
+                  next="the file could not be read: check that the account is authorized, then start this task again")
+    if meta.get("owned") is not True:
+        raise steps.StepFailure("not_owned", "file", "", phrases.en("ACCT_TRASH_NOT_OWNED").format(service=fd.SERVICE_NAME[account]))
+    if account == "google":
+        parents = meta.get("parents") if isinstance(meta.get("parents"), list) else []
+        if meta.get("in_trash") or meta.get("folder") or len(parents) != 1 or not meta.get("version") or not meta.get("modified") or not meta.get("mime_type"):
+            raise steps.StepFailure("not_a_file", "file", "", phrases.en("ACCT_TRASH_NOT_FILE").format(reason="it is in the trash, is a folder, or has no single folder"))
+        base = {"version": str(meta["version"]), "modified": str(meta["modified"]), "mime": str(meta["mime_type"]), "parent": parents[0]}
+        size = meta.get("size") if isinstance(meta.get("size"), int) and not isinstance(meta.get("size"), bool) else None
+    else:
+        if meta.get("kind") != "file" or meta.get("writable") is not True or not isinstance(meta.get("parent"), str) or not isinstance(meta.get("size"), int):
+            raise steps.StepFailure("not_a_file", "file", "", phrases.en("ACCT_TRASH_NOT_FILE").format(reason=fd.clean_display(meta.get("reason") or meta.get("kind"), 80)))
+        base = {"etag": str(meta.get("etag") or ""), "ctag": str(meta.get("ctag") or ""), "modified": str(meta.get("modified") or ""), "parent": meta["parent"]}
+        size = meta["size"]
+    base.update(root=root, path=fd.clean_display(found["folder"], 400), size=size, exact=args["exact"])
+    name = fd.clean_display(meta.get("name")) or fd.clean_display(found.get("name"))
+    target = {"kind": "file", "label": alias, "id": args["id"]}
+    if state.get("pinned_target") not in (None, target["id"]):
+        raise steps.StepFailure("target_changed", "file", "", phrases.en("ACCT_FILE_RETARGET"))
+    try:
+        doc = fd.document(task_id=ctx.task_id, operation="trash", account=account, address=address, target=target, name=name, content=None, base=base, read_at=read_at)
+    except Exception as e:      # an EffectError of the document: its reason names a limit, never the name
+        raise steps.StepFailure("content_refused", "file", "", str(getattr(e, "reason", ""))[:200]) from None
+    written = _asked(_service(ctx, "effect_files").write, ctx.task_id, int(state.get("cycle", 0)), doc)
+    state["pinned_target"] = target["id"]
+    return {"effect_sha256": written, "operation": "trash", "bytes": 0}
+
+
 def _prepare(ctx: steps.Context, state: dict) -> dict:
     args = ctx.args
     operation, account = args["operation"], args["account"]
     accounts, reader = _service(ctx, "accounts"), _service(ctx, "files_read")
     address = _asked(accounts.address, account, field="account", next=phrases.en("ACCT_NOT_CONFIGURED").format(account=account))
     read_at = _stamp(ctx.now())
+    if operation == "trash":
+        return _prepare_trash(ctx, state, accounts, reader, address, read_at)
     name, base, gdoc = None, None, False
     if operation == "replace":
         source = _asked(_service(ctx, "file_source").lookup, args["file"], field="file")

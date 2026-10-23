@@ -920,7 +920,7 @@ CLASSES = {
     # R: reads
     "status": "R", "progress": "R", "pending": "R", "task": "R", "agents": "R", "skills": "R", "costs": "R", "artifacts": "R", "artifact": "R",
     "instructions": "R", "routines": "R", "sources": "R", "attachments": "R", "reminders": "R", "flows": "R", "flow-check": "R",
-    "connections": "R", "commands": "R", "items": "R", "file-read": "R",
+    "connections": "R", "commands": "R", "items": "R", "file-read": "R", "research": "R",
     # N: a notice and the person's own writes
     "remind": "N", "reminder-forget": "N", "reminder-restore": "N",
     # W: confirmed writes
@@ -930,7 +930,7 @@ CLASSES = {
     "approve": "D", "reject": "D", "release": "D", "answer": "D", "go-ahead": "D",
     # E: effects on the person's own accounts, each ending in a card
     "event-create": "E", "event-change": "E", "event-cancel": "E", "mail-send": "E", "mail-reply": "E", "mail-draft": "E", "mail-archive": "E", "mail-move": "E",
-    "mail-mark": "E", "mail-trash": "E", "file-create": "E", "file-replace": "E", "file-save": "E",
+    "mail-mark": "E", "mail-trash": "E", "file-create": "E", "file-replace": "E", "file-save": "E", "file-trash": "E",
     # G: gated elsewhere
     "give-consent": "G", "set-mode": "G", "set-model": "G", "config": "G", "accept-config": "G", "routine-approve": "G", "routine-resume": "G",
     "instructions-set": "G", "instructions-add": "G", "source-add": "G", "source-import": "G", "source-refresh": "G", "source-describe": "G",
@@ -970,6 +970,7 @@ NATURAL = {
     "commands": {"slots": {}, "what": "what can be asked and the commands"},
     "items": {"slots": {}, "what": "the numbered messages and events of the mail and calendar snapshots"},
     "file-read": {"slots": {"file": ["span", "file"], "service": ["word", "account"]}, "what": "show the text of a file of the person's own Drive or OneDrive, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive)"},
+    "research": {"slots": {"question": ["span", "question"]}, "what": "answer a question of general information that is not about the person's own files, mail, calendar or sources (the weather, a price or quote, the news, a fact) from a web search (the question is the span: all the words that say what to find out, with the place and the day)"},
     "remind": {"slots": {"text": ["span", "text"], "when": ["when", "when"]}, "what": "a reminder sent back once at a time"},
     "reminder-forget": {"slots": {"id": ["int", "reminder_id"]}, "what": "cancel a reminder that waits"},
     "reminder-restore": {"slots": {"id": ["int", "reminder_id"]}, "what": "bring back a reminder cancelled a moment ago"},
@@ -1000,6 +1001,7 @@ NATURAL = {
     "file-create": {"slots": {"name": ["word", "file_name"], "content": ["span", "content"], "folder": ["word", "folder"]}, "what": "a card that creates a file in the person's own drive"},
     "file-replace": {"slots": {"file": ["span", "file"], "content": ["span", "content"]}, "what": "a card that writes a new revision of a file that is a source"},
     "file-save": {"slots": {"attachment": ["int", "attachment"], "folder": ["word", "folder"]}, "what": "a card that saves a file someone sent"},
+    "file-trash": {"slots": {"file": ["span", "file"], "service": ["word", "account"], "folder": ["span", "folder"]}, "what": "a card that moves a file of the person's own Drive or OneDrive to the trash, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive; the folder only when the line names one)"},
     "give-consent": {"slots": {}, "what": "the consent an autonomous agent needs"},
     "set-mode": {"slots": {}, "what": "move an agent's autonomy mode"},
     "set-model": {"slots": {}, "what": "fix an agent to a model"},
@@ -1179,6 +1181,8 @@ def match(line: str, languages=None):
         return None
     op, hit = found[0]
     args = {}
+    if "n" in hit.groupdict() and hit.group("n") is not None and not plain_number(line, int(hit.group("n"))):
+        return None      # "rejeite 25%": a percentage, an amount: not the number of anything (slice S20, review round)
     if "n" in hit.groupdict() and hit.group("n") is not None:
         slot = next((v for v in NATURAL[op]["slots"].values() if v[0] == "int"), None)
         if slot is None:
@@ -1225,6 +1229,43 @@ def confirm_kind(said, languages=None):
 
 def _numbers(line: str) -> set:
     return {int(n) for n in re.findall(r"[0-9]+", unicodedata.normalize("NFKC", line)) if len(n) <= 9}
+
+
+# The words a number is counted in, or a time or a quantity is told in (folded, the six languages): "3 dias atras", "ha 2 horas", "em 2 semanas", "3 days ago", "25 euros", "10 kg". A
+# number followed by one of them is a quantity or a relative time, never the number of a decision (slice S20, review round).
+MEASURES = frozenset((
+    "dia dias hora horas minuto minutos segundo segundos semana semanas mes meses ano anos vez vezes real reais dolar dolares euro euros porcento "
+    "day days hour hours hr hrs minute minutes min mins second seconds sec secs week weeks month months year years time times dollar dollars percent pct usd brl eur gbp "
+    "ano jour jours heure heures semaine semaines mois an ans annee annees fois tag tage tagen stunde stunden minuten sekunden woche wochen monat monate monaten jahr jahre jahren mal "
+    "giorno giorni ora ore settimana settimane mese mesi anno anni volte kg km mg cm mm ml metros metres meters m g l x").split())
+CURRENCY_BEFORE = ("$", "\u20ac", "\u00a3", "\u00a5", "r$", "us$")
+CURRENCY_OR_MARK_AFTER = ("%", "\u2030", "\u00b0", "\u20ac", "$", "\u00a3", "\u00a5")
+
+
+def decision_numbers(said: str) -> list:
+    """The numbers of a line that can name a decision (slice S20): a whole word of digits ("25", "#25"), with its edge marks off, in a line that holds no date or time. A number glued
+    to a letter or a mark ("25h", "12:30", "10/25", "2026-10-22", "25%") is a time, a date or a quantity, never a decision; so is a number a unit follows or a currency stands by
+    ("3 dias atras", "ha 2 horas", "em 2 semanas", "3 days ago", "25 euros"), and so is every number of a line that says a date or a time ("rejeite 25 de outubro")."""
+    if nt.find(said)["hits"]:
+        return []
+    words = [word.strip(".,;:!?()[]\"'") for word in unicodedata.normalize("NFKC", said).split()]
+    found = []
+    for at, word in enumerate(words):
+        if not re.fullmatch(r"#?[0-9]{1,9}", word):
+            continue
+        after = ascii_normal(words[at + 1]) if at + 1 < len(words) else ""
+        before = words[at - 1].lower() if at else ""
+        if after.split(" ")[0] in MEASURES or (at + 1 < len(words) and words[at + 1].lstrip().startswith(CURRENCY_OR_MARK_AFTER)) or before.endswith(CURRENCY_BEFORE):
+            continue
+        found.append(int(word.lstrip("#")))
+    return found
+
+
+def plain_number(line: str, n: int) -> bool:
+    """Whether the number `n` of a line is written as a plain number: not a percentage, not an amount of money, not a degree ("rejeite 25%", "rejeite $25", "rejeite 25 euros")."""
+    raw = unicodedata.normalize("NFKC", line).lower()
+    digits = re.escape(str(n))
+    return not re.search(rf"(?<![0-9]){digits}\s*[%\u2030\u00b0\u20ac\u00a3\u00a5$]|[$\u20ac\u00a3\u00a5]\s*{digits}(?![0-9])|r\$\s*{digits}(?![0-9])", raw)
 
 
 def check_operation(name, slots: dict, when, line) -> dict:

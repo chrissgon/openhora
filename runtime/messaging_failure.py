@@ -23,6 +23,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import phone_errors  # noqa: E402  (what an English sentence becomes on a phone that does not speak English)
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language)
 
 SERVICE_OF_KIND = {"file-write": "FILES", "mailbox-change": "MAIL", "send-email": "MAIL"}      # the step kinds whose service is Drive/OneDrive or Gmail/Outlook
@@ -75,8 +76,8 @@ def from_step(kind, account, code, field, folder, cfg, said=None) -> str:
         return phrases.text("FAIL_NAME_TAKEN", cfg)
     if code in ("file_too_large", "too_large"):
         return phrases.text("FAIL_TOO_LARGE", cfg)
-    if said:      # a code that is about the request itself (a day that does not exist, a file of another type): the step's own sentence for the person, localized
-        return phrases.localize(said, cfg)
+    if said:      # a code that is about the request itself (a day that does not exist, a file of another type): the step's own sentence for the person, localized; an English sentence no table knows is the plain one (S14b)
+        return phone_errors.safe(phrases.localize(said, cfg), cfg)
     return phrases.phone("FAIL_NOT_DONE", cfg)
 
 
