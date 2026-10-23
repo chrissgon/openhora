@@ -342,7 +342,7 @@ def test_a_failed_run_counts_for_the_day(research):
     research["run"].mode = "adapter"
     phone(research, LINE_1)
     research["run"].mode = "ok"
-    assert phone(research, LINE_1).startswith("Já fiz 1 pesquisas hoje")  # validate: allow english-only -- the Portuguese sentence under test
+    assert phone(research, LINE_1) == "Já fiz 1 pesquisa hoje, que é o limite do dia."  # validate: allow english-only -- the Portuguese sentence under test
     assert len(research["run"].calls) == 1
 
 
@@ -461,12 +461,49 @@ def test_a_file_request_is_a_file_read_and_runs_no_research(research):
     assert research["run"].calls == [] and runs(research) == []
 
 
-def test_vacuity_a_model_that_says_research_for_the_agenda_line_does_run_research(research):
-    """The code does not read meaning: the protection of a person's own data is the catalog's words (the corpus has no item of `research` yet: PENDING_CORPUS) and the group. A model
-    that names `research` for a line is believed when the span is the line's, so the oracle above is what tells the two apart."""
-    research["answer"]["text"] = op("research", {"question": "mostra minha agenda"})
-    phone(research, "mostra minha agenda")
+@pytest.mark.parametrize("line", ["mostra minha agenda", "liste meus emails", "quais sao meus arquivos de marco?", "what is on my calendar tomorrow", "lis mes e-mails de ce matin", "zeig mir meinen Kalender"])  # validate: allow english-only -- lines under test
+def test_a_question_about_the_persons_own_calendar_mail_or_files_does_not_run_research_even_when_the_model_says_so(research, line):
+    research["answer"]["text"] = op("research", {"question": line})
+    assert phone(research, line) in (NO_QUESTION, MAIL_NONE)      # a form of code claims "liste meus emails" before the model is asked; every other line is refused by the guard
+    assert research["run"].calls == [] and runs(research) == [] and st.calls(research["adapter"]) == []
+    assert ops.research(research["path"], line, channel="terminal")["status"] == "personal" and research["run"].calls == []
+
+
+@pytest.mark.parametrize("line", ["Qual a agenda cultural de Sao Paulo neste fim de semana?", "Quanto custa uma pasta de dente em Sao Paulo?", "what is the calendar of public holidays in Brazil"])
+def test_vacuity_the_bare_noun_is_a_general_question_and_runs_research(research, line):
+    research["answer"]["text"] = op("research", {"question": line})
+    assert phone(research, line) == ANSWER_TEXT
     assert len(research["run"].calls) == 1
+
+
+def test_a_possessive_in_the_line_stops_a_span_that_leaves_it_out(research):
+    research["answer"]["text"] = op("research", {"question": "agenda de amanha"})
+    assert phone(research, "mostra a minha agenda de amanha") == NO_QUESTION and research["run"].calls == []
+
+
+BUSY = "Já estou pesquisando outra pergunta; tente de novo em instantes."  # validate: allow english-only -- the Portuguese sentence under test
+
+
+def test_a_line_that_meets_a_run_in_progress_gets_the_research_busy_sentence(research):
+    """`say` refuses a line while the router holds the lock; this is the race after it, when another conversation model call takes the lock between the check and the run."""
+    ctx = ops_core.context(research["path"])
+    extras = {}
+    with ops_core._route_lock(ctx["cfg"]):
+        assert ops_research.reply(research["path"], ctx, {"question": LINE_1}, LINE_1, "messaging", ASKER_KEY, extras) == BUSY
+    assert research["run"].calls == [] and extras["stored"] == STORED
+    assert ops_research.reply(research["path"], ctx, {"question": LINE_1}, LINE_1, "messaging", ASKER_KEY, {}) == ANSWER_TEXT      # vacuity: the lock released, the same line runs
+
+
+def test_only_research_runs_count_for_the_day(research, monkeypatch):
+    """A task of a flow or of an agent that runs the same skill is not a research run: only a run on a request counts."""
+    set_limits(research, max_per_day=1)
+    ctx = ops_core.context(research["path"])
+    rows = [{"skill": "core-research", "task_id": 7, "request_id": 3, "agent": "marketing"}, {"skill": "core-research", "task_id": 9, "request_id": 9, "agent": None},
+            {"skill": "demo-answers", "task_id": 11, "request_id": 11, "agent": None}]
+    monkeypatch.setattr(ctx["store"], "runs_since", lambda conn, since, **kw: rows[:1])
+    assert ops_research._today(dict(ctx, store=ctx["store"])) == 0      # an agent task of the skill
+    monkeypatch.setattr(ctx["store"], "runs_since", lambda conn, since, **kw: rows)
+    assert ops_research._today(ctx) == 1      # the one on a request, of the skill
 
 
 def test_the_catalog_serves_research_as_a_read_with_a_span_and_the_other_reads_keep_their_words():
@@ -518,11 +555,31 @@ def test_the_copy_of_the_run_holds_no_file_of_the_project(research):
     assert research["run"].calls[0]["files"] == [] and MARK not in research["run"].calls[0]["prompt"]
 
 
-def test_the_standing_instructions_of_the_project_reach_the_run_as_they_reach_every_model_run(research):
+PRIVATE = "My name is Ana Example; my bank is Banco Exemplo. ZEBRA-INSTRUCTION-3318"
+
+
+def test_the_standing_instructions_of_the_project_never_reach_a_run_on_the_open_network(research):
+    """A page the run reads could ask it to fetch a URL that carries what it was given: the run is given the question and a fixed task text, nothing of the project."""
     instructions = Path(research["path"]) / "docs" / "workbench" / "instructions.md"
-    instructions.write_text("- Answer in short sentences.\n", encoding="utf-8")
+    instructions.write_text(f"- {PRIVATE}\n", encoding="utf-8")
     phone(research, LINE_1)
-    assert "Answer in short sentences." in research["run"].calls[0]["prompt"]
+    ops.research(research["path"], LINE_1, channel="terminal")
+    assert len(research["run"].calls) == 2
+    for call in research["run"].calls:
+        assert "ZEBRA-INSTRUCTION-3318" not in call["prompt"] and "Banco Exemplo" not in call["prompt"] and "Ana Example" not in call["prompt"]
+        assert call["files"] == [] and call["prompt"] == ops_core_prompt(LINE_1)
+
+
+def ops_core_prompt(question):
+    return ops.task_prompt(question, ops_research.TASK_TEXT, [])
+
+
+def test_vacuity_a_run_off_the_open_network_does_get_the_instructions(research):
+    """The planted fault: the prompt is wrapped as every other model run's is. The oracle above then sees the marker, so it can see it."""
+    instructions = Path(research["path"]) / "docs" / "workbench" / "instructions.md"
+    instructions.write_text(f"- {PRIVATE}\n", encoding="utf-8")
+    wrapped = st.load("ops_instructions").contained_prompt(research["path"], ops_core_prompt(LINE_1))
+    assert "ZEBRA-INSTRUCTION-3318" in wrapped
 
 
 def test_a_sender_removed_while_the_run_goes_gets_nothing(research, monkeypatch):

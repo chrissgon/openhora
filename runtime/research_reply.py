@@ -30,6 +30,7 @@ import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import card_words  # noqa: E402  (the same folder: the closed list of the words that decide a card)
 import phrases  # noqa: E402  (the same folder)
 
 BRIEF_DIR = ("docs", "workbench", "research")
@@ -40,7 +41,7 @@ LINK_MAX = 120                  # characters of a link as it is shown
 CLAIM_MAX = 400                 # characters of one claim
 TRACKING = re.compile(r"(?:utm_[a-z0-9_]+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|igshid|ref_src|ref_url)", re.I)
 URL = re.compile(r"https?://[^\s<>\"'`)\]]+", re.I)
-UNSAFE_URL = re.compile(r"[\s\x00-\x1f\x7f<>\"'`\\^{}|]")
+UNSAFE_URL = re.compile(r"[^\x21-\x7e]|[<>\"'`\\^{}|]")      # anything but printable ASCII (a space, a control, a bidi override, any Unicode format character) and the characters a chat or a URL cannot carry
 LOCAL_SUFFIXES = (".local", ".localhost", ".internal", ".lan", ".home", ".corp", ".intranet")
 # What a chat is never shown: a path of the project, the skill, a file of the brief, a code span, the workbench.
 NOT_FOR_A_CHAT = re.compile(r"docs/|core-research|SKILL\.md|\.md\b|\.json\b|workbench|check_brief|```|Instructions found in external content", re.I)
@@ -49,6 +50,9 @@ CONFIDENCE = re.compile(r"[—–-]+\s*confidence:\s*(high|medium|low)\b[^\n]*$"
 CITE = re.compile(r"\[(\d{1,3})(?:\s+single-source)?\]")
 KIND_TAG = re.compile(r"\((fact|estimate|opinion)\)", re.I)
 CAPABILITY = re.compile(r"Search capability:\s*([A-Za-z]+)", re.I)
+# What would read as a decision of the person's, or as a card, in a chat: a slash line, a whole card word (runtime/card_words.py, "sim", "approve"...), a card's number or hash, a command of
+# the decisions anywhere in the line. A claim of that shape is dropped, never sent.
+CARD_LIKE = re.compile(r"^\s*#\d+|(?:^|\s)/(?:approve|reject|release|answer|go-ahead|cancel|retry|stop-task|set-mode|pending|add|discard)\b|\b[0-9a-f]{64}\b", re.I)
 NOTHING_NEW = re.compile(r"^-?\s*Nothing established\b", re.I)
 ASKS = re.compile(r"Nothing was written and nothing was searched", re.I)
 
@@ -172,7 +176,7 @@ def _claim(line: str):
     text = URL.sub("", text)
     text = re.sub(r"`+|\*{1,3}|__", "", text)      # code spans, bold and italics (an underscore inside a word stays)
     text = re.sub(r"\s+", " ", text).strip().rstrip(" —–-,;:")
-    if not text or NOT_FOR_A_CHAT.search(text) or NOTHING_NEW.match(text):
+    if not text or NOT_FOR_A_CHAT.search(text) or NOTHING_NEW.match(text) or text.startswith("/") or CARD_LIKE.search(text) or card_words.card_word(text) is not None:
         return None
     if len(text) > CLAIM_MAX:
         text = text[:CLAIM_MAX - 1].rstrip() + "…"

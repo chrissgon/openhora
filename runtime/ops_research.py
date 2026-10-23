@@ -19,12 +19,13 @@ and no plan is made. What code decides, in this order, before anything runs:
   3. The routing, by the rule of every conversation run (runtime/ops_models.py): the project's default model, else `auto` (the cheapest pair on which the skill is `reliable`, else the
      reference model). The web is allowed only when the chosen pair was MEASURED with the web (the proof's `web`): a pair that was not runs nothing and the reply says there is no web
      (RS_NO_WEB). Proof decides what a model may be asked to do; it is never traded for an answer.
+  3b. The question: one that holds a possessive form of a source of the project ("minha agenda", "my e-mails", runtime/research_guard.py) is not run: the sentence that asks again.
   4. The bounds, from the configuration's key `research` (runtime/project_config.py): at most `max_per_day` runs in a local day (counted from the store, whatever their end), and, per
      run, `max_cost_usd` (the adapter's --max-cost-usd) and `timeout_seconds`. The route lock (one conversation model call per project) is held for the run.
 
 The run (ops_contained.execute with open_web): the open network, the adapter's --allow-web, one attempt, and NO file of the project in the copy, so the run sees nothing of the project; its
-prompt is the question in the person's words, a task text that names the consumer (the chat) and the person's standing instructions when the project has them (as every model run does).
-Nothing it writes comes back. Its brief is read from the copy (runtime/research_reply.py) to write the reply: a few plain lines, the sources as short links, cut to the limit of a
+prompt is the question in the person's words and a fixed task text that names the consumer (the chat): NOT the person's standing instructions either, because a page the run reads could
+ask it to send them out (a run on the open network gets nothing of the project, in its files or in its prompt). Nothing it writes comes back. Its brief is read from the copy (runtime/research_reply.py) to write the reply: a few plain lines, the sources as short links, cut to the limit of a
 message, with no skill, flow or file name and no code fence; a run that is not proven says so in one sentence. A failure (no web, a timeout, the cost cap, any other) is one plain sentence.
 
 What is kept (limits L50 and L63): the question is the person's line, which the interpreter stores as a neutral word; the reply is stored as a neutral word too (RS_STORED), so the
@@ -54,8 +55,8 @@ import ops_actor  # noqa: E402
 import ops_cancel  # noqa: E402
 import ops_contained  # noqa: E402
 import ops_core as core  # noqa: E402
-import ops_instructions  # noqa: E402
 import phrases  # noqa: E402
+import research_guard  # noqa: E402
 import research_reply  # noqa: E402
 import skill_meta  # noqa: E402
 import workcopy  # noqa: E402
@@ -125,7 +126,7 @@ def _today(ctx: dict) -> int:
     """How many research runs were started today (local day), whatever their end."""
     store = ctx["store"]
     rows = core._stored(ctx, store.runs_since, _ops()._midnight_utc())
-    return sum(1 for row in rows if row.get("skill") == SKILL)
+    return sum(1 for row in rows if row.get("skill") == SKILL and row.get("task_id") == row.get("request_id"))      # a run on a REQUEST: a task of a flow or of an agent that runs the same skill is not counted
 
 
 def _links(parsed: dict, shown: str) -> list:
@@ -143,11 +144,13 @@ def _failure_word(result: dict, cap: float) -> str:
     return "RS_FAILED"
 
 
-def _research(project: str, ctx: dict, question: str, channel, sender) -> dict:
+def _research(project: str, ctx: dict, question: str, channel, sender, line=None) -> dict:
     cfg, store = ctx["cfg"], ctx["store"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     limits = cfg["research"]
     limit = PHONE_MAX if channel == "messaging" else OTHER_MAX
+    if research_guard.personal(question, line):      # about the person's own calendar, mail or files: not for a web search, whatever the model said
+        return _outcome(t("IX_ASK_AGAIN"), "personal")
     try:
         _scope()
     except core.OpsError:
@@ -161,8 +164,8 @@ def _research(project: str, ctx: dict, question: str, channel, sender) -> dict:
         return _outcome(t("RS_NO_WEB"), "no-web")
     try:
         identity = lab.skill_identity(SKILL)
-        prompt = ops_instructions.contained_prompt(cfg["project"], _ops().task_prompt(question, TASK_TEXT, []))
-    except (lab.LabError, core.OpsError):
+        prompt = _ops().task_prompt(question, TASK_TEXT, [])      # the question and the fixed task text: no standing instructions and nothing else of the project (the run is on the open network)
+    except lab.LabError:
         return _outcome(t("RS_FAILED"), "failed")
     with core._route_lock(cfg):      # RunBusy: one conversation model call per project at a time
         importlib.import_module("ops_runs")._recover(ctx, holding_route=True)
@@ -172,7 +175,7 @@ def _research(project: str, ctx: dict, question: str, channel, sender) -> dict:
             with core._claim_lock(cfg):      # the day's count and the run row are one step
                 made = _today(ctx)
                 if made >= limits["max_per_day"]:
-                    return _outcome(t("RS_LIMIT", count=made), "limit")
+                    return _outcome(t("RS_LIMIT_ONE") if made == 1 else t("RS_LIMIT", count=made), "limit")
                 started = core._stored(ctx, store.answer_run_start, skill=SKILL, model=routing["model"], adapter=routing["adapter"],
                                        skill_version=identity["version"], skill_sha256=identity["content_sha256"],
                                        billing=routing["billing"] or "unknown", autonomy=routing["autonomy"], title=store.ANSWER_TITLE, text=NEUTRAL, web=True)
@@ -259,9 +262,9 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     if not isinstance(wanted, str) or not natural.normal(wanted) or natural.normal(wanted) not in natural.normal(said) or len(wanted.strip()) > QUESTION_MAX:
         return phrases.text("IX_ASK_AGAIN", cfg)
     try:
-        return _research(project, ctx, wanted.strip(), channel, sender)["reply"]
+        return _research(project, ctx, wanted.strip(), channel, sender, said)["reply"]
     except core.RunBusy:
-        return phrases.text("RUN_BUSY", cfg)
+        return phrases.text("RS_BUSY", cfg)
     except core.OpsError as e:
         return phrases.text("RS_FAILED", cfg) if channel == "messaging" else "error: " + phrases.localize(str(e), cfg)
 

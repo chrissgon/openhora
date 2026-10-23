@@ -6,7 +6,7 @@ with a second file that carries the same words; a folder and a file outside the 
 model's text, the reply, the calls the providers saw. No network, no model, no secret store; every name, folder and text is invented.
 
   the live line ("...do google drive"): found in the subfolder without naming it, the account words narrow and do not ask again (the cause of the ask-again is the check of the slot)
-  a part of the name finds it; two matches: a numbered list with folder path and account, and "o 2" right after picks one; the list lasts one line
+  a part of the name finds it; two matches: a numbered list with folder path and account, and "o 1" right after picks one; the list lasts one line
   a folder named in the line narrows the search; a folder that is not under a granted folder is refused in one sentence
   a same-named file outside the granted folders is never returned (the planted fault is seen); the search cut (depth, items, time) says so
   what is kept: no text, name or folder in the conversation or the project's files; a sender without `read-files` gets the refusal and no provider call
@@ -36,18 +36,18 @@ interpreter = st.load("interpreter")
 
 AGAIN = "Não tive certeza do que você quis dizer, então não fiz nada. Pode dizer de outro jeito?"  # validate: allow english-only -- the Portuguese sentence or name under test
 DOC = f"# Atividades da semana\n\nSegunda: ensaio do coral.\nQuarta: visita as familias. {SECRET_MARK}\n"
-GOOGLE_HEAD = f"{WANTED} (Google Drive, pasta default › openhora):\n\n"
+GOOGLE_HEAD = f"{WANTED} (Google Drive, pasta Arquivos › openhora):\n\n"
 GOOGLE_TEXT = GOOGLE_HEAD + DOC.strip()
-ONEDRIVE_TEXT = "First sin activities list.txt (OneDrive, pasta default › Igreja):\n\nAna\nBeto"
+ONEDRIVE_TEXT = "First sin activities list.txt (OneDrive, pasta Documentos › Igreja):\n\nAna\nBeto"
 NONE_SUB = ("Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas e nas pastas dentro delas: "  # validate: allow english-only -- the Portuguese sentence or name under test
-            "default (Google Drive), contratos (Google Drive), default (OneDrive).")
+            "Arquivos (Google Drive), Contratos 2026 (Google Drive), Documentos (OneDrive).")
 CUT = " Parei de procurar antes do fim (as pastas são mais fundas ou maiores do que procuro de uma vez), então o arquivo pode estar mais adiante."  # validate: allow english-only -- the Portuguese sentence or name under test
 NO_FOLDER = ("Não encontrei essa pasta dentro das pastas configuradas para as suas contas, e não procuro fora delas: "  # validate: allow english-only -- the Portuguese sentence or name under test
-             "default (Google Drive), contratos (Google Drive), default (OneDrive).")
+             "Arquivos (Google Drive), Contratos 2026 (Google Drive), Documentos (OneDrive).")
 INCOMPLETE = "Não olhei tudo (as pastas são mais fundas ou maiores do que procuro de uma vez, ou alguma não respondeu), então outro arquivo pode combinar também."  # validate: allow english-only -- the Portuguese sentence or name under test
 LIST_HEAD = 'Encontrei 2 arquivos que combinam. Qual deles? Diga o número, por exemplo "o 2".'  # validate: allow english-only -- the Portuguese sentence or name under test
-LIST_TWO = (LIST_HEAD + "\n1. First sin activities list.txt - pasta default › Igreja, OneDrive"
-            f"\n2. {WANTED} - pasta default › openhora, Google Drive")
+LIST_TWO = (LIST_HEAD + f"\n1. {WANTED} - pasta Arquivos › openhora, Google Drive"
+            "\n2. First sin activities list.txt - pasta Documentos › Igreja, OneDrive")
 
 
 @pytest.fixture
@@ -217,16 +217,16 @@ def test_two_matches_are_a_numbered_list_with_folder_path_and_account_and_o_2_pi
     assert tree["drives"].reads() == []
     asked = []
     monkeypatch.setattr(interpreter_route, "complete", lambda *a, **kw: asked.append(1) or {"ok": False})
-    assert phone(tree, "o 2") == GOOGLE_TEXT
+    assert phone(tree, "o 1") == GOOGLE_TEXT
     assert tree["drives"].reads() == [("google", "gdoc0000000001")]
     assert asked == [], "a pick is read by code: the model is never asked"
     assert ops_file_read._LISTS == {}, "a pick is used once"
 
 
-def test_o_1_picks_the_first_of_the_list(tree):
+def test_a_second_number_picks_the_second_entry(tree):
     says(tree, "first sin activities")
     phone(tree, "Me traga o arquivo first sin activities")
-    assert phone(tree, "o 1") == ONEDRIVE_TEXT
+    assert phone(tree, "o 2") == ONEDRIVE_TEXT
     assert tree["drives"].reads() == [("microsoft", "drv1/it!3")]
 
 
@@ -242,7 +242,7 @@ def test_the_list_lasts_one_line(tree, other):
     says(tree, "first sin activities")
     phone(tree, "Me traga o arquivo first sin activities")
     phone(tree, other)
-    assert phone(tree, "o 2") == AGAIN
+    assert phone(tree, "o 1") == AGAIN
     assert tree["drives"].reads() == []
 
 
@@ -252,14 +252,14 @@ def test_vacuity_a_list_that_did_not_end_with_the_next_line_would_pick_a_file_la
     says(tree, "first sin activities")
     phone(tree, "Me traga o arquivo first sin activities")
     phone(tree, "/status")          # a command never reaches the reading of plain lines, so only `begin_turn` can end the list
-    assert phone(tree, "o 2") == GOOGLE_TEXT
+    assert phone(tree, "o 1") == GOOGLE_TEXT
 
 
 def test_a_sender_who_lost_the_group_since_the_list_gets_the_refusal_and_nothing_is_read(tree):
     says(tree, "first sin activities")
     phone(tree, "Me traga o arquivo first sin activities")
     accept(tree["path"], policies=dict(FILE_PROFILES, reader=["read", "talk", "interpret"]), messaging={"senders": FILE_SENDERS}, accounts=ACCOUNTS, language="pt-BR")
-    assert phone(tree, "o 2") == PLAIN_REFUSAL_PT
+    assert phone(tree, "o 1") == PLAIN_REFUSAL_PT
     assert tree["drives"].reads() == []
 
 
@@ -274,7 +274,7 @@ def test_a_sender_without_read_files_gets_the_refusal_and_no_provider_is_called(
 
 @pytest.mark.parametrize("tail, text", [
     ("da pasta /openhora", GOOGLE_TEXT), ("na pasta Igreja", ONEDRIVE_TEXT), ("da pasta openhora do google drive", GOOGLE_TEXT), ("in the folder openhora", GOOGLE_TEXT),
-    ("da pasta default › Igreja", ONEDRIVE_TEXT)])
+    ("da pasta Documentos › Igreja", ONEDRIVE_TEXT)])
 def test_a_folder_named_in_the_line_narrows_the_search_to_it_and_what_is_under_it(tree, tail, text):
     says(tree, "first sin activities")
     assert phone(tree, f"Me traga o arquivo first sin activities {tail}") == text
@@ -283,17 +283,6 @@ def test_a_folder_named_in_the_line_narrows_the_search_to_it_and_what_is_under_i
 def test_a_folder_name_that_two_folders_share_lists_the_files_of_both(tree):
     says(tree, "first sin activities")
     assert phone(tree, "Me traga o arquivo first sin activities na pasta default") == LIST_TWO
-
-
-@pytest.mark.parametrize("line", ["Me traga o arquivo first sin activities da pasta Particular", f"Me traga o arquivo {WANTED} da pasta Particular",
-                                  "Me traga o arquivo first sin activities da pasta /openhora/inexistente"])
-def test_a_folder_that_is_not_under_a_granted_folder_is_refused_in_one_sentence_and_nothing_is_read(tree, line):
-    says(tree, line.split("arquivo ", 1)[1].split(" da pasta")[0])
-    reply = phone(tree, line)
-    assert reply == NO_FOLDER
-    assert tree["drives"].reads() == []
-    assert ("google", "OUTSIDEFOLDER0001") not in tree["drives"].listed() and ("microsoft", "/Particular") not in tree["drives"].listed()
-    assert "Particular" not in reply and "inexistente" not in reply
 
 
 def test_a_span_that_ends_with_the_folder_phrase_is_read_as_a_name_and_a_folder(tree):
@@ -320,9 +309,9 @@ def test_vacuity_a_walk_that_also_started_from_an_unconfigured_folder_would_retu
     tree["drives"].folders[("google", "gdir_openhora")] = [item("gdir_2026", "2026", kind="folder")]
     real = ops_file_read._walk
 
-    def wrong(cfg, account=None):
+    def wrong(cfg, account=None, names_only=False):
         cfg = dict(cfg, accounts={**cfg["accounts"], "google": {**cfg["accounts"]["google"], "folders": {"default": "OUTSIDEFOLDER0001"}}})
-        return real(cfg, account)
+        return real(cfg, account, names_only)
     monkeypatch.setattr(ops_file_read, "_walk", wrong)
     says(tree, WANTED)
     assert phone(tree, f"Me traga o conteudo do arquivo {WANTED}") != NONE_SUB
@@ -344,7 +333,7 @@ def chain(world, depth, file_at):
 def test_a_file_five_levels_below_a_granted_folder_is_found_and_one_six_levels_below_is_not_and_the_reply_says_it_was_cut(tree):
     says(tree, "TARGET")
     chain(tree, 7, 5)
-    assert phone(tree, "Me traga o arquivo TARGET") == "TARGET.txt (Google Drive, pasta default › n1 › n2 › n3 › n4 › n5):\n\nfound at the bottom\n\n" + INCOMPLETE      # n6 was found and not listed: a second file may be there
+    assert phone(tree, "Me traga o arquivo TARGET") == "TARGET.txt (Google Drive, pasta Arquivos › n1 › n2 › n3 › n4 › n5):\n\nfound at the bottom\n\n" + INCOMPLETE      # n6 was found and not listed: a second file may be there
     chain(tree, 7, 6)
     assert phone(tree, "Me traga o arquivo TARGET") == NONE_SUB + CUT
     assert ("google", "gn7") not in tree["drives"].listed() and ("google", "gn6") not in tree["drives"].listed()
@@ -356,7 +345,7 @@ def test_a_walk_that_listed_more_items_than_the_cap_stops_and_says_so(tree, monk
     assert phone(tree, "Mostre o arquivo relatorio anual") == NONE_SUB + CUT
     assert ("google", "gdir_openhora") not in tree["drives"].listed(), "the roots were listed (the cap is checked between listings), the subfolders were not"
     monkeypatch.setattr(ops_file_read, "MAX_ITEMS", 2000)
-    assert phone(tree, "Mostre o arquivo relatorio anual").startswith("Relatorio anual.txt (Google Drive, pasta default › openhora › 2026):")
+    assert phone(tree, "Mostre o arquivo relatorio anual").startswith("Relatorio anual.txt (Google Drive, pasta Arquivos › openhora › 2026):")
 
 
 def test_a_walk_that_took_more_than_ten_seconds_stops_and_says_so(tree, monkeypatch):
@@ -388,7 +377,7 @@ def test_a_folder_that_lists_in_part_or_fails_makes_the_none_sentence_say_so(tre
 def test_nothing_of_the_file_the_subfolder_or_the_list_is_kept_beyond_the_reply(tree, caplog, capsys):
     says(tree, "first sin activities")
     phone(tree, "Me traga o arquivo first sin activities")
-    assert phone(tree, "o 2") == GOOGLE_TEXT
+    assert phone(tree, "o 1") == GOOGLE_TEXT
     rows = stored(tree)
     everything = json.dumps(rows, ensure_ascii=False)
     for piece in (SECRET_MARK, WANTED, "Igreja", "openhora", "Atividades", "first sin activities"):
@@ -411,27 +400,27 @@ def test_nothing_of_the_file_the_subfolder_or_the_list_is_kept_beyond_the_reply(
 
 REVOKED = {"google": {"address": "ana@mail.example", "folders": {"contratos": "GDRIVEFOLDER0002"}}, "microsoft": ACCOUNTS["microsoft"]}
 NO_FOLDER_NOW = ("Não encontrei essa pasta dentro das pastas configuradas para as suas contas, e não procuro fora delas: "  # validate: allow english-only -- the Portuguese sentence or name under test
-                 "contratos (Google Drive), default (OneDrive).")
+                 "Google Drive, OneDrive.")
 
 
 def revoke(world):
     accept(world["path"], policies=FILE_PROFILES, messaging={"senders": FILE_SENDERS}, accounts=REVOKED, language="pt-BR")
 
 
-def test_o_2_after_the_configured_folder_was_removed_reads_nothing_and_says_the_folder_is_not_one_of_yours(tree):
+def test_the_pick_after_the_configured_folder_was_removed_reads_nothing_and_says_the_folder_is_not_one_of_yours(tree):
     says(tree, "first sin activities")
     assert phone(tree, "Me traga o arquivo first sin activities") == LIST_TWO
     revoke(tree)          # Google's folder "default" is no longer configured: the file #2 was found under it
-    assert phone(tree, "o 2") == NO_FOLDER_NOW
+    assert phone(tree, "o 1") == NO_FOLDER_NOW
     assert tree["drives"].reads() == []
     assert ops_file_read._LISTS == {}
 
 
-def test_o_1_still_reads_when_the_folder_of_that_file_is_still_configured(tree):
+def test_the_other_entry_still_reads_when_the_folder_of_that_file_is_still_configured(tree):
     says(tree, "first sin activities")
     phone(tree, "Me traga o arquivo first sin activities")
     revoke(tree)
-    assert phone(tree, "o 1") == ONEDRIVE_TEXT
+    assert phone(tree, "o 2") == ONEDRIVE_TEXT
     assert tree["drives"].reads() == [("microsoft", "drv1/it!3")]
 
 
@@ -442,7 +431,7 @@ def test_vacuity_a_pick_that_trusted_the_held_list_would_read_the_removed_folder
     phone(tree, "Me traga o arquivo first sin activities")
     revoke(tree)
     monkeypatch.setattr(ops_file_read.project_config, "account_entry", lambda cfg, service: stale["accounts"].get(service))
-    assert phone(tree, "o 2") == GOOGLE_TEXT
+    assert phone(tree, "o 1") == GOOGLE_TEXT
     assert tree["drives"].reads() == [("google", "gdoc0000000001")]
 
 
@@ -456,7 +445,7 @@ def test_a_list_made_while_a_folder_failed_says_so_and_the_pick_carries_the_same
     monkeypatch.setattr(ops_file_read, "provider_call", failing)
     says(tree, "first sin activities")
     assert phone(tree, "Me traga o arquivo first sin activities") == LIST_TWO + "\n" + INCOMPLETE
-    assert phone(tree, "o 2") == GOOGLE_TEXT + "\n\n" + INCOMPLETE
+    assert phone(tree, "o 1") == GOOGLE_TEXT + "\n\n" + INCOMPLETE
 
 
 def test_a_single_match_found_while_a_listing_was_in_part_says_another_file_may_fit(tree):
@@ -490,7 +479,7 @@ def test_each_listing_is_asked_with_at_most_the_time_left(tree, monkeypatch):
     monkeypatch.setattr(ops_file_read, "clock", lambda: next(seconds))
     asked = []
     real = tree["drives"].__call__
-    monkeypatch.setattr(ops_file_read, "provider_call", lambda cls, verb, args, **kw: asked.append(kw["timeout"]) or real(cls, verb, args, **kw))
+    monkeypatch.setattr(ops_file_read, "provider_call", lambda cls, verb, args, **kw: (asked.append(kw["timeout"]) if verb == "children" else None) or real(cls, verb, args, **kw))
     says(tree, "relatorio anual")
     assert phone(tree, "Mostre o arquivo relatorio anual") == NONE_SUB + CUT
     assert asked == [4, 4, 4] or asked == [4.0, 4.0, 4.0], asked
@@ -520,7 +509,7 @@ def test_a_provider_that_does_not_answer_is_given_up_when_the_ten_seconds_are_sp
         elapsed_all = time.monotonic() - started
     finally:
         release.set()
-    assert reply.startswith(NONE_SUB) and reply.endswith(CUT) and "não responderam" in reply  # validate: allow english-only -- the Portuguese sentence or name under test
+    assert reply.startswith(NONE_SUB.replace("Arquivos (Google Drive)", "Google Drive")) and reply.endswith(CUT) and "não responderam" in reply          # the silent folder's name is the service's own  # validate: allow english-only -- the Portuguese sentence or name under test
     assert nothing == "Não consegui olhar as suas pastas agora. Tente de novo em alguns minutos."  # validate: allow english-only -- the Portuguese sentence or name under test
     assert elapsed < 3 and elapsed_all < 3, "the answer does not wait for a provider that is silent"
 
@@ -530,6 +519,165 @@ def test_outside_a_messaging_app_a_list_asks_for_the_full_name_and_keeps_no_list
     extras = {}
     reply = ops_file_read.reply(tree["path"], ctx, {"file": "first sin activities"}, "Me traga o arquivo first sin activities", "page", None, extras)
     assert reply == ("Encontrei 2 arquivos que combinam. Qual deles? Escreva o nome completo, ou diga a pasta ou a conta em que ele está."  # validate: allow english-only -- the Portuguese sentence or name under test
-                     "\n1. First sin activities list.txt - pasta default › Igreja, OneDrive"
-                     f"\n2. {WANTED} - pasta default › openhora, Google Drive")
-    assert "número" not in reply and "o 2" not in reply and ops_file_read._LISTS == {}  # validate: allow english-only -- the Portuguese sentence or name under test
+                     f"\n1. {WANTED} - pasta Arquivos › openhora, Google Drive"
+                     "\n2. First sin activities list.txt - pasta Documentos › Igreja, OneDrive")
+    assert "número" not in reply and "o 1" not in reply and ops_file_read._LISTS == {}  # validate: allow english-only -- the Portuguese sentence or name under test
+
+
+# --- S17b: the folder as the person sees it ----------------------------------------------------------------------------------------------------
+
+
+NOTE_OPENHORA = ' Não achei a pasta "{folder}"; procurei em todas as suas pastas.'.strip()  # validate: allow english-only -- the Portuguese sentence or name under test
+OPENHORA_TEXT = f"{WANTED} (Google Drive, pasta Arquivos › openhora):\n\n" + DOC.strip()
+MARK_TEXT = "openhora-mark.txt (Google Drive, pasta Arquivos › openhora):\n\nmarca do coral"
+
+
+@pytest.fixture
+def real(tree):
+    """The tree plus a second file in the subfolder "openhora"; the configured Google folder is called "default" in the configuration and "Arquivos" in the Drive."""
+    tree["drives"].folders[("google", "gdir_openhora")] = tree["drives"].folders[("google", "gdir_openhora")] + [item("gmark00000000001", "openhora-mark.txt")]
+    tree["drives"].files[("google", "gmark00000000001")] = "marca do coral".encode("utf-8")
+    return tree
+
+
+@pytest.mark.parametrize("span, tail, text", [
+    (WANTED, "da pasta /openhora", OPENHORA_TEXT), (WANTED, "da pasta openhora", OPENHORA_TEXT), (WANTED, "da pasta /OPENHORÁ", OPENHORA_TEXT),  # validate: allow english-only -- the Portuguese sentence or name under test
+    ("openhora-mark", "da pasta /openhora", MARK_TEXT), ("openhora-mark", "na pasta openhora", MARK_TEXT), (WANTED, "in the folder /openhora", OPENHORA_TEXT),
+    ("Relatorio anual", "da pasta /openhora/2026", "Relatorio anual.txt (Google Drive, pasta Arquivos › openhora › 2026):\n\nanual"),
+    ("Relatorio anual", "da pasta 2026", "Relatorio anual.txt (Google Drive, pasta Arquivos › openhora › 2026):\n\nanual"),
+    ("Relatorio anual", "da pasta /openhora/2026 do google drive", "Relatorio anual.txt (Google Drive, pasta Arquivos › openhora › 2026):\n\nanual")])
+def test_the_folder_the_person_sees_is_matched_from_any_folder_without_the_alias_and_the_file_is_read(real, span, tail, text):
+    says(real, span)
+    assert phone(real, f"Me traga o arquivo {span} {tail}") == text
+
+
+@pytest.mark.parametrize("tail", ["da pasta /Arquivos", "da pasta default", "na pasta /default/openhora", "na pasta Arquivos/openhora"])
+def test_the_real_name_of_the_configured_folder_and_its_alias_also_match(real, tail):
+    says(real, WANTED)
+    assert phone(real, f"Me traga o arquivo {WANTED} {tail}") == OPENHORA_TEXT
+
+
+def test_the_configured_folder_may_be_the_one_the_person_calls_openhora_itself(real):
+    """The live case: the folder configured as "default" is the Drive folder that is called openhora, and the person types /openhora, a name the configuration never held."""
+    real["drives"].names[("google", "GDRIVEFOLDER0001")] = "openhora"
+    real["drives"].folders[("google", "GDRIVEFOLDER0001")] = [item("gmark00000000001", "openhora-mark.txt"), item("gdoc0000000001", WANTED)]
+    says(real, "openhora-mark")
+    assert phone(real, "Me traga o arquivo openhora-mark da pasta /openhora") == "openhora-mark.txt (Google Drive, pasta openhora):\n\nmarca do coral"
+    says(real, WANTED)
+    assert phone(real, f"Me traga o arquivo {WANTED} da pasta openhora") == f"{WANTED} (Google Drive, pasta openhora):\n\n" + DOC.strip()
+
+
+def test_vacuity_a_match_through_the_alias_alone_would_refuse_or_note_the_live_lines_and_be_seen(real, monkeypatch):
+    """The planted fault: a named folder is matched only through "<alias> > ..." (the S17 rule). The live line then finds the file anywhere and says it did not find the folder."""
+    monkeypatch.setattr(ops_file_read, "_named_dirs", lambda tree, folder: [])
+    says(real, WANTED)
+    reply = phone(real, f"Me traga o arquivo {WANTED} da pasta /openhora")
+    assert reply == OPENHORA_TEXT + "\n\n" + NOTE_OPENHORA.format(folder="openhora") and reply != OPENHORA_TEXT
+
+
+@pytest.mark.parametrize("tail, shown", [("da pasta /inexistente", "inexistente"), ("da pasta inexistente", "inexistente"), ("da pasta /openhora/inexistente", "openhora/inexistente"),
+                                         ("da pasta /2026/openhora", "2026/openhora"), ("da pasta Particular", "Particular")])
+def test_a_folder_that_is_not_there_gives_the_file_found_anywhere_and_one_note(real, tail, shown):
+    says(real, WANTED)
+    assert phone(real, f"Me traga o arquivo {WANTED} {tail}") == OPENHORA_TEXT + "\n\n" + NOTE_OPENHORA.format(folder=shown)
+
+
+def test_a_folder_that_is_not_there_and_a_file_that_is_not_either_gives_the_none_found_sentence_with_the_real_names(real):
+    says(real, "relatorio inexistente")
+    assert phone(real, "Mostre o arquivo relatorio inexistente da pasta /nada") == NONE_SUB
+
+
+def test_vacuity_a_folder_that_matched_everything_would_give_no_note_and_be_seen(real, monkeypatch):
+    """The planted fault: an unknown folder means every folder. The note the oracle above wants is then missing."""
+    monkeypatch.setattr(ops_file_read, "_named_dirs", lambda tree, folder: list(tree["dirs"]))
+    says(real, WANTED)
+    assert phone(real, f"Me traga o arquivo {WANTED} da pasta /inexistente") == OPENHORA_TEXT
+
+
+PROBES = ["da pasta ..", "da pasta ../Particular", "da pasta /openhora/../..", "da pasta /", "da pasta ~", "da pasta ~/Documentos", "da pasta 1AbCdEfGhIjKlMnOpQrStUvWxYz0123456",
+          "na pasta OUTSIDEFOLDER0001DRIVEID00", "da pasta /1AbCdEfGhIjKlMnOpQrStUvWxYz0123456/x"]
+
+
+@pytest.mark.parametrize("tail", PROBES)
+def test_a_path_that_points_outside_the_granted_folders_is_refused_by_the_real_names_and_nothing_is_listed_or_read(real, tail):
+    says(real, WANTED)
+    reply = phone(real, f"Me traga o arquivo {WANTED} {tail}")
+    assert reply == NO_FOLDER
+    assert real["drives"].listed() == [] and real["drives"].reads() == []
+    assert "default" not in reply and "OUTSIDE" not in reply and "Particular" not in reply
+
+
+def test_vacuity_a_line_with_dots_that_was_searched_like_any_name_would_find_the_file_and_be_seen(real, monkeypatch):
+    """The planted fault: nothing is "outside". The oracle above (refused, nothing listed) then fails, so it can fail."""
+    monkeypatch.setattr(ops_file_read, "_outside", lambda raw: False)
+    says(real, WANTED)
+    assert phone(real, f"Me traga o arquivo {WANTED} da pasta ../Particular") == OPENHORA_TEXT + "\n\n" + NOTE_OPENHORA.format(folder="../Particular")
+    assert real["drives"].listed() != []
+
+
+def test_a_same_named_file_outside_the_grant_is_never_returned_whatever_folder_is_named(real):
+    real["drives"].folders[("google", "gdir_openhora")] = [item("gdir_2026", "2026", kind="folder")]
+    for tail in ("", "da pasta Particular", "da pasta /openhora", "da pasta ../Particular"):
+        says(real, WANTED)
+        reply = phone(real, f"Me traga o arquivo {WANTED} {tail}".strip())
+        assert reply in (NONE_SUB, NO_FOLDER), reply
+    assert real["drives"].reads() == []
+    assert ("google", "OUTSIDEFOLDER0001") not in real["drives"].listed() and ("microsoft", "/Particular") not in real["drives"].listed()
+
+
+def conversations(world):
+    """Every reply the phone gives to the lines below, joined: found, listed, picked, none, refused, a folder not there."""
+    out = []
+    says(world, "first sin activities")
+    out += [phone(world, "Me traga o arquivo first sin activities"), phone(world, "o 2"), phone(world, "Me traga o arquivo first sin activities na pasta Igreja")]
+    says(world, WANTED)
+    out += [phone(world, f"Me traga o arquivo {WANTED} da pasta /openhora"), phone(world, f"Me traga o arquivo {WANTED} da pasta /nada"), phone(world, f"Me traga o arquivo {WANTED} da pasta ..")]
+    says(world, "relatorio inexistente")
+    out.append(phone(world, "Mostre o arquivo relatorio inexistente"))
+    return out
+
+
+def test_no_reply_shows_the_alias_of_a_configured_folder(real):
+    replies = conversations(real)
+    assert all(r for r in replies) and len(replies) == 7
+    for r in replies:
+        assert "default" not in r, r
+        assert "contratos" not in r and "GDRIVEFOLDER" not in r, r
+
+
+def test_vacuity_a_walk_that_named_the_folders_by_their_alias_would_show_it_and_be_seen(real, monkeypatch):
+    """The planted fault: the first name of every path is the alias. The oracle above then fails."""
+    real_walk = ops_file_read._walk
+
+    def aliased(cfg, account=None, names_only=False):
+        out = real_walk(cfg, account, names_only)
+        for key, info in out["info"].items():
+            info["lead"] = info["alias"]
+        out["files"] = [dict(f, path=(out["info"][(f["service"], f["root"])]["alias"],) + f["path"][1:]) for f in out["files"]]
+        out["roots"] = [(service, out["info"][(service, root)]["alias"]) for (service, root) in out["info"]]
+        return out
+    monkeypatch.setattr(ops_file_read, "_walk", aliased)
+    assert any("default" in r for r in conversations(real))
+
+
+def test_a_name_the_provider_could_not_give_is_the_services_own_name_and_the_drive_root_is_my_drive(real):
+    real["drives"].names.clear()
+    says(real, WANTED, "google drive")
+    assert phone(real, f"Me traga o arquivo {WANTED} do google drive") == f"{WANTED} (Google Drive, pasta Google Drive › openhora):\n\n" + DOC.strip()
+    accept(real["path"], policies=FILE_PROFILES, messaging={"senders": FILE_SENDERS}, accounts={"google": {"address": "ana@mail.example", "folders": {"default": "root"}},
+                                                                                           "microsoft": ACCOUNTS["microsoft"]}, language="pt-BR")
+    real["drives"].folders[("google", "root")] = [item("gdoc0000000001", WANTED)]
+    assert phone(real, f"Me traga o arquivo {WANTED} do google drive") == f"{WANTED} (Google Drive, pasta Meu Drive):\n\n" + DOC.strip()
+
+
+def test_the_real_names_are_read_once_for_each_google_folder_in_a_search(real):
+    says(real, "relatorio inexistente")
+    phone(real, "Mostre o arquivo relatorio inexistente")
+    stats = [a for s, v, a in real["drives"].calls if v == "stat"]
+    assert sorted(stats) == [("--id", "GDRIVEFOLDER0001"), ("--id", "GDRIVEFOLDER0002")]
+
+
+def test_the_plain_text_file_is_returned_as_text_as_before(real):
+    says(real, WANTED)
+    reply = phone(real, f"Me traga o arquivo {WANTED} da pasta /openhora")
+    assert reply == OPENHORA_TEXT and SECRET_MARK in reply

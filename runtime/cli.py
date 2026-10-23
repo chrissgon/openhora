@@ -367,8 +367,8 @@ file-read  shows the text of a file of your Google Drive or OneDrive, found by i
           searched. Nothing is written, registered or sent to a model. From a messaging app the sender needs the group read-files.
 research  answers a question of general information (the weather, a price or quote, the news, a fact) from a web search: one run of the research skill with web access, chosen by
           code, bounded by the project's runtime.json key `research` (max_cost_usd per run, timeout_seconds per run, max_per_day runs in a local day; the defaults are 0.25, 300
-          and 10). The question is sent to a web search service and to the model that runs the research; no file of the project is. The reply is the answer in plain words
-          with its sources as links; nothing of the question or the answer is kept. From a messaging app the sender needs the group research.
+          and 10). The question is sent to a web search service and to the model that runs the research; no file of the project and none of your standing instructions are. A question that holds "my calendar", "my e-mails", "my files" or the like does not run. The reply is the answer in plain words
+          with its sources as links, and is not stored (the conversation holds a neutral word); the run folder keeps the prompt, which holds the question, and the brief for run_retention_days, outside git. From a messaging app the sender needs the group research.
 file-save  prepares the saving of a file someone sent through a messaging app (--attachment is the number of a held file, see attachments), named as it was
           sent or by --name, in a folder the project lists (--folder), and stops at its card, which names the file, its size and its hash. The held file stays held.
           No model.
