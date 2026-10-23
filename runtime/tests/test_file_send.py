@@ -48,7 +48,12 @@ LIMITS = {"max_bytes": 20971520, "photo_max_bytes": 10485760, "photo_types": ["p
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64 + b"coral"
 PDF = b"%PDF-1.7 a report about the choir budget"
 KEY_BLOCK = b"notes\n-----BEGIN PRIV" + b"ATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIV" + b"ATE KEY-----\n"
-SENT_TEXT = "Aqui está Foto do coral.png (OneDrive, pasta Documentos)."  # validate: allow english-only -- the Portuguese sentence or name under test
+SENT_TEXT = "Aqui está o arquivo Foto do coral.png (OneDrive, pasta Documentos)."  # validate: allow english-only -- the Portuguese sentence or name under test
+def caption(name, account, folder=None):
+    """The one short sentence a file goes with (S18b): the file's name, the account and the folder as the person sees it; with no folder only the account."""
+    return f"Aqui está o arquivo {name} ({account}, pasta {folder})." if folder else f"Aqui está o arquivo {name} ({account})."  # validate: allow english-only -- the Portuguese sentence or name under test
+
+
 WITHHELD = "Encontrei {name} ({account}), mas não envio por aqui: o arquivo parece conter uma senha ou uma chave."  # validate: allow english-only -- the Portuguese sentence or name under test
 TOO_BIG = "Encontrei {name} ({account}), mas ele é grande demais para eu enviar por aqui."  # validate: allow english-only -- the Portuguese sentence or name under test
 NOT_SENT_KIND = "Encontrei {name} ({account}), mas não consigo enviar esse tipo de arquivo por aqui."  # validate: allow english-only -- the Portuguese sentence or name under test
@@ -88,13 +93,14 @@ def ask(world, line, span, key=SENDER_KEY, limits=LIMITS, service=None):
 # --- with the group ----------------------------------------------------------------------------------------------------------------------------
 
 
-def assert_text_file_comes_as_document_with_preview(result):
-    assert result["reply"] == HEAD + ACTIVITIES.strip()
+def assert_text_file_comes_as_document_with_caption(result):
+    assert result["reply"] == caption(WANTED, "OneDrive", "Documentos")
     assert result["attachment"] == {"name": WANTED + ".txt", "kind": "document", "data": ACTIVITIES.encode("utf-8")}
+    assert "ensaio" not in result["reply"] and "Atividades" not in result["reply"], "no preview of the text (S18b)"
 
 
-def test_a_text_file_comes_as_a_document_and_keeps_its_preview_as_the_message_text(sending):
-    assert_text_file_comes_as_document_with_preview(ask(sending, LINE_1, WANTED))
+def test_a_text_file_comes_as_a_document_with_one_short_caption_and_no_preview(sending):
+    assert_text_file_comes_as_document_with_caption(ask(sending, LINE_1, WANTED))
     assert sending["drives"].reads() == [("microsoft", "drv1/it!1")]
 
 
@@ -106,10 +112,10 @@ def test_a_text_file_in_a_subfolder_named_as_the_person_sees_it_comes_as_text_an
     made.files[("google", "gmark00000000001")] = "marca do coral".encode("utf-8")
     line = "Me traga o arquivo openhora-mark da pasta /openhora"
     result = ask(sending, line, "openhora-mark")
-    assert result["reply"] == "openhora-mark.txt (Google Drive, pasta Arquivos › openhora):\n\nmarca do coral"
+    assert result["reply"] == caption("openhora-mark.txt", "Google Drive", "Arquivos › openhora")
     assert result["attachment"] == {"name": "openhora-mark.txt", "kind": "document", "data": "marca do coral".encode("utf-8")}
-    plain = ask(sending, line, "openhora-mark", key=READER_KEY)          # without `send-files`: the same text and no file
-    assert plain["reply"] == result["reply"] and "attachment" not in plain
+    plain = ask(sending, line, "openhora-mark", key=READER_KEY)          # without `send-files`: the text as before and no file
+    assert plain["reply"] == "openhora-mark.txt (Google Drive, pasta Arquivos › openhora):\n\nmarca do coral" and "attachment" not in plain
 
 
 def test_vacuity_a_file_sent_as_a_photo_or_without_its_preview_would_be_seen(sending, monkeypatch):
@@ -133,9 +139,9 @@ def test_vacuity_an_image_over_the_photo_limit_is_a_document_and_a_type_the_app_
     assert ask(sending, "Me traga a foto do coral", "Foto do coral.png", limits=no_photos)["attachment"]["kind"] == "document"
 
 
-def test_a_pdf_comes_as_a_document_and_its_converted_text_is_the_preview(sending):
+def test_a_pdf_comes_as_a_document_with_one_caption_and_its_converted_text_is_not_shown(sending):
     result = ask(sending, "Me traga o relatorio do coral", "Relatorio do coral.pdf")
-    assert result["reply"] == "Relatorio do coral.pdf (Google Drive, pasta Arquivos):\n\nRelatorio do coral\n\nTotal: 10 vozes."
+    assert result["reply"] == caption("Relatorio do coral.pdf", "Google Drive", "Arquivos")
     assert result["attachment"] == {"name": "Relatorio do coral.pdf", "kind": "document", "data": PDF}
 
 
@@ -146,14 +152,14 @@ def test_a_google_doc_exported_as_markdown_gets_an_ending_and_is_a_document(send
     made.files[("google", "gdoc0000000001")] = b"# Ata\n\nPresentes: 10.\n"
     made.markdown.add(("google", "gdoc0000000001"))
     result = ask(sending, "Me traga o arquivo Ata do coral", "Ata do coral")
-    assert result["reply"] == "Ata do coral (Google Drive, pasta Contratos 2026):\n\n# Ata\n\nPresentes: 10."
+    assert result["reply"] == caption("Ata do coral", "Google Drive", "Contratos 2026")
     assert result["attachment"] == {"name": "Ata do coral.md", "kind": "document", "data": b"# Ata\n\nPresentes: 10.\n"}
 
 
-def test_a_file_with_no_text_to_scan_is_sent_as_it_is_and_says_so_in_one_sentence(sending):
+def test_a_file_with_no_text_to_scan_is_sent_as_it_is_with_the_same_caption(sending):
     sending["converted"]["text"] = "  \n"
     result = ask(sending, "Me traga o relatorio do coral", "Relatorio do coral.pdf")
-    assert result["reply"] == "Aqui está Relatorio do coral.pdf (Google Drive, pasta Arquivos)."  # validate: allow english-only -- the Portuguese sentence or name under test
+    assert result["reply"] == caption("Relatorio do coral.pdf", "Google Drive", "Arquivos")
     assert result["attachment"] == {"name": "Relatorio do coral.pdf", "kind": "document", "data": PDF}
 
 
@@ -255,16 +261,16 @@ def test_vacuity_a_scan_that_found_nothing_would_send_the_credential(sending, mo
     sending["drives"].files[("microsoft", "drv1/it!1")] = KEY_BLOCK
     monkeypatch.setattr(ops_file_read.sources._workcopy(), "scan", lambda data: None)
     result = ask(sending, LINE_1, WANTED)
-    assert result["attachment"]["data"] == KEY_BLOCK and "MIIEvQ" in result["reply"]
+    assert result["attachment"]["data"] == KEY_BLOCK
 
 
 # --- the limits ----------------------------------------------------------------------------------------------------------------------------------
 
 
-def test_a_text_file_over_the_limit_gets_the_sentence_after_its_preview_and_no_file(sending):
+def test_a_text_file_over_the_limit_gets_the_sentence_alone_and_neither_the_file_nor_the_preview(sending):
     result = ask(sending, LINE_1, WANTED, limits=dict(LIMITS, max_bytes=10))
-    assert result["reply"] == HEAD + ACTIVITIES.strip() + "\n\n" + TOO_BIG.format(name=WANTED, account="OneDrive")
-    assert "attachment" not in result
+    assert result["reply"] == TOO_BIG.format(name=WANTED, account="OneDrive")
+    assert "attachment" not in result and "ensaio" not in result["reply"]
 
 
 def test_an_image_over_the_limit_gets_the_sentence_alone(sending):
@@ -317,10 +323,10 @@ def pick(world, number=2, key=SENDER_KEY, limits=LIMITS):
     return ops.say(world["path"], f"o {number}", channel="messaging", sender=key, **({"can_send": limits} if limits is not None else {}))
 
 
-def test_a_pick_after_a_list_sends_the_file_it_names_as_a_document_with_its_preview(two):
+def test_a_pick_after_a_list_sends_the_file_it_names_as_a_document_with_its_caption(two):
     assert ask(two, "Me traga o arquivo Plano do coral", "Plano do coral")["reply"] == LIST
     picked = pick(two)
-    assert picked["reply"] == "Plano do coral.txt (OneDrive, pasta Documentos):\n\nPlano do OneDrive."
+    assert picked["reply"] == caption("Plano do coral.txt", "OneDrive", "Documentos")
     assert picked["attachment"] == {"name": "Plano do coral.txt", "kind": "document", "data": b"Plano do OneDrive.\n"}
 
 
@@ -418,7 +424,7 @@ def test_vacuity_a_staging_that_forgot_to_remove_would_leave_the_bytes(tmp_path,
 def test_nothing_of_the_file_is_kept_in_the_conversation_the_store_the_log_the_output_or_the_data_folder(sending, caplog, capsys):
     sending["drives"].files[("microsoft", "drv1/it!5")] = PNG + b"UNIQUE-IMAGE-BYTES-18"
     result = ask(sending, LINE_1, WANTED)
-    assert SECRET_MARK in result["reply"] and SECRET_MARK.encode() in result["attachment"]["data"]
+    assert SECRET_MARK not in result["reply"] and SECRET_MARK.encode() in result["attachment"]["data"]
     ask(sending, "Me traga a foto do coral", "Foto do coral.png")
     rows = stored(sending)
     assert [r["text"] for r in rows if r["role"] == "assistant"][-2:] == ["(mostrado onde foi pedido)", "(mostrado onde foi pedido)"]
@@ -442,5 +448,5 @@ def test_nothing_of_the_file_is_kept_in_the_conversation_the_store_the_log_the_o
 
 def test_vacuity_a_store_that_kept_the_reply_would_show_the_mark(sending):
     """The oracle above looks for the file's words in the store; the reply that was SENT does hold them, so the check can fail."""
-    result = ask(sending, LINE_1, WANTED)
+    result = ask(sending, LINE_1, WANTED, key=READER_KEY)          # the reader has no `send-files`: the text is in the reply
     assert SECRET_MARK in result["reply"] and SECRET_MARK in json.dumps(result["reply"]), "the reply carries the words; the store must not"

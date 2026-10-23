@@ -519,7 +519,7 @@ class Bridge(shell_kit.Jobs):
                         failed = getattr(sent, "document_failed", False)      # the text went out and the file did not (the provider says so)
                     except provider.MessengerError as e:
                         if e.kind == "usage":
-                            sent, failed = self.deliver(chat, message, guard), True      # the provider refused the file before it sent anything: the text goes alone
+                            sent, failed = None, True      # the provider refused the file before it sent anything: only the sentence goes (S18b: the caption promised a file)
                         elif e.kind == "timeout":
                             self.log("a reply with a file ran over the time of the send")      # the text may have gone out already: it is NOT sent again (a second copy), and the person is told about the file
                             sent, failed = None, True
@@ -1617,10 +1617,10 @@ class Bridge(shell_kit.Jobs):
                 attached, why = self.file_to_send(project, chat, result.get("attachment"))
                 if why == "read":      # the right to read files is gone since the search: neither the file nor the text found is sent, and the reply says that the right changed
                     said = self.t("FS_RIGHT_CHANGED", project=project)
-                elif why == "right":      # the right to receive files is gone: the text that was found goes, the file stays home, and the reply says that the right changed
-                    said = said + "\n\n" + self.t("FS_RIGHT_CHANGED", project=project)
+                elif why == "right":      # the right to receive files is gone: the file stays home and the reply says that the right changed (S18b: no caption that promises a file, no preview)
+                    said = self.t("FS_RIGHT_CHANGED", project=project)
                 elif why:      # the app cannot carry the file now
-                    said = said + "\n\n" + self.t("FS_NOT_SENT", project=project)
+                    said = self.t("FS_NOT_SENT", project=project)
                 if self.reply(chat, said, project, guard=converted, attachment=attached) is True and result.get("pending_id") is not None:
                     self.note_asked(project, chat, result["pending_id"], getattr(self.scope, "replied", None))      # the router's question reached this chat as the reply: its notice would be the same question twice
             except Refused as e:
