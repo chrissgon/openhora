@@ -8,7 +8,8 @@ question again. Three rules, tested here with the REAL operations layer on the c
      pending_items.ROUTER_WINDOW (one hour, a constant); older, the next plain line is a new request and the old request is NOT cancelled by code (S4, decision 229 (1)); the
      other channels keep the question until it is answered or cancelled; the binding itself (another sender, a restart) is tested in test_router_binding.py;
   2. even within the window, a line that code recognises as a request of its own (a write to the person's accounts, a reminder, a cancel...) is a NEW line, never the answer;
-     a read such as "progress" and a plain sentence may still be the answer;
+     a tier-1 read ("liste meus emails", "what files do you have?") is one too (slice S4b: it was the live bug, tested in test_request_not_answer.py); only a question about the
+     state such as "progress" and a plain sentence may still be the answer;
   3. when a line is taken as the answer, the reply says so in the project's language ("I took that as the answer to question #2.") and the footer is a plain phrase, not "/new".
 
 Offline, no model, no network; every name is invented.
@@ -39,7 +40,7 @@ ANSWER = "an event, 13:00, the Linden clinic, Aurora calendar"
 UNRELATED = "Salvar no drive"      # the line of the live case: since ATT-3 a save form that code reads as a request of its own, never the answer
 PLAIN = "tell me something else about the project today"      # a plain sentence no form of code reads: only the window decides
 WRITE = "marca dentista quinta às 10h no google"      # validate: allow english-only -- a line the person types in Portuguese
-READ = "what files do you have?"      # a tier-1 read: a form of code, not a request
+READ = "what files do you have?"      # a tier-1 read: a form of code, and since S4b a request of its own
 REMINDER = "me lembra amanhã às 9 de regar as plantas"      # validate: allow english-only -- a line the person types in Portuguese
 
 
@@ -118,7 +119,7 @@ def test_after_the_window_the_next_plain_line_is_a_new_request_and_the_old_reque
     question = ask(phone)
     old = question["task_id"]
     texts_before = len(phone.texts(OWNER))
-    wall.later(3600 + 1)
+    wall.later(3600 + 30)      # not +1: the stand-in clock starts when the fixture is built, the question is asked a moment later by the real clock, and on a loaded machine that moment is seconds
     reply(phone.tree, FLOW, "router-reply.md")
     phone.say(OWNER, "a plain line about something else entirely")
     said = phone.texts(OWNER)[texts_before:]
@@ -214,18 +215,18 @@ def test_within_the_window_a_line_that_code_recognises_as_a_request_is_new_and_t
     assert [q["id"] for q in open_questions(phone)] == [question["id"]], "the router's question is still waiting for its answer"
 
 
-def test_a_reminder_line_and_a_write_line_are_requests_and_a_plain_sentence_and_a_read_are_not():
+def test_a_reminder_line_a_write_line_and_a_read_are_requests_and_a_plain_sentence_and_a_state_question_are_not():
     ctx = {"cfg": {"language": "en"}}
-    for line in (WRITE, REMINDER, "cancel request 3", "stop task 5", "add file 3"):
+    for line in (WRITE, REMINDER, "cancel request 3", "stop task 5", "add file 3", READ, "list my emails", "show the agents"):
         assert ops_natural.recognises(ctx, line, "messaging", "telegram:1") is True, line
-    for line in (ANSWER, "yes, an event", "the second one", "progress", "status", "what is running"):
+    for line in (ANSWER, "yes, an event", "the second one", "progress", "status", "what is running"):      # the state questions are the one thing of code's lists that stays an answer (S4b, decision)
         assert ops_natural.recognises(ctx, line, "messaging", "telegram:1") is False, line
 
 
 def test_the_stale_question_is_also_dropped_for_a_state_question_and_the_natural_peek(phone, wall):
     """Decision 229 (1): once the hour is out, the asker's phone has no question open for the state and the natural peek; nothing is cancelled."""
     question = ask(phone)
-    wall.later(3600 + 5)
+    wall.later(3600 + 30)
     ctx = ops_core.context(phone.path)
     assert ops_say.asks_state(ctx, "status", "messaging", f"telegram:{OWNER}") is True, "no question is open for the phone any more: the state is answered"
     assert ops_say.asks_state(ctx, "status", "page") is False, "but it is for the page"
@@ -247,12 +248,13 @@ def test_the_live_case_a_question_from_yesterday_is_not_the_answer_to_a_line_of_
     assert states(phone)[question["task_id"]] == "requested" and ops.pending(phone.path, question["id"])["status"] == "open", "left as it was"
 
 
-def test_a_read_with_a_question_open_is_not_handled_by_code_so_it_takes_the_route_lock_as_the_answer_it_may_be(phone, wall):
-    """Decision 229 (1): the asker's open question is the one that counts, within the hour."""
+def test_a_read_with_a_question_open_is_handled_by_code_so_it_takes_no_route_lock_and_is_never_the_answer(phone, wall):
+    """Slice S4b: the asker's open question no longer makes a tier-1 read the one-word answer it may be; a request of its own takes no route lock."""
     ask(phone)
     ctx = ops_core.context(phone.path)
-    assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{OWNER}") is False, "the one-word answer reaches the router, as it always did"
+    assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{OWNER}") is True, "code serves the read: it was the live bug that the router took it"
     assert ops_say.asks_natural(ctx, WRITE, "messaging", f"telegram:{OWNER}") is True, "a request of its own takes no route lock"
     assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{STAFF}") is True, "another listed sender has no question: a read is a read"
+    assert ops_say.asks_state(ctx, "progress", "messaging", f"telegram:{OWNER}") is False, "but a state question is still the one-word answer of an open question"
     wall.later(3600 + 1)
     assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{OWNER}") is True, "and once the question is stale a read is a read"

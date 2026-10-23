@@ -156,12 +156,9 @@ def peek(ctx: dict, said: str, channel, sender) -> bool:
 
 
 def recognises(ctx: dict, said: str, channel, sender) -> bool:
-    """Whether a plain line is a request or an answer that code recognises as its own: a tier-1 form that is not a read, a reminder, a write to the person's accounts (a
-    save of a file included), or the answer to this sender's live draft. Such a line is NEW, never the answer to a question the router left open (package LIVE-2);
-    a read ("progress") may still be the one-word answer to it. Reads, changes nothing."""
-    found = natural.match(said)
-    if found is not None:
-        return natural.class_of(found["op"]) != "R"
+    """Whether a plain line is a request of its own that code recognises: any tier-1 form (a list or any other read included, S4b), a reminder, a write to the person's accounts (a
+    save of a file included), or the answer to this sender's live draft. Such a line is NEW, never the answer to a question the router left open (package LIVE-2, slice S4b);
+    only a question about the state ("progress"), a plain sentence and a reply to the question's own message may be the answer. Reads, changes nothing."""
     return peek(ctx, said, channel, sender) or natural.candidate(said) is not None
 
 
