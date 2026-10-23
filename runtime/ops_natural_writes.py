@@ -385,9 +385,11 @@ def open_line(project: str, ctx: dict, said: str, channel, sender, extras: dict,
     if refused:
         extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
         return refused
-    if reading.get("say"):          # a form that is no write form but that NR-1 would have taken for a new event: the sentence only (a change is asked by number)
+    if reading.get("say"):          # a form that is no write form but that NR-1 would have taken for a new event: the sentence only (a typed number form with a number that is not one)
         extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
         return _t(ctx, reading["say"])
+    if reading.get("by_name"):          # a change with no number in the line (slice S16b): the event is found by its name, the card that follows is the question
+        return importlib.import_module("event_lookup").by_name(project, ctx, said, sender, extras, importlib.import_module("ops_natural_writes"), _now())
     line_stage.publish("card")      # S19: the card of the exact content is being prepared (a later stage, the e-mail's wording, replaces it)
     state = new_state(ctx, reading, said)
     return advance(project, ctx, state, channel, sender, extras)
