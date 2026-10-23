@@ -11,6 +11,10 @@ the interpreter's (runtime/ops_interpret.py). `/project [name]` has none: it is 
                           ("muda de projeto"), {"name": <the words after the lead phrase>, "weak": False | True} for a line that changes it ("muda para o projeto northwind"; `weak`: the lead
                           may begin a request about something else, so the bridge takes the line only when the name is a project of the sender), else None
   resolve(name, projects) the exact name of the listed project whose name or id is `name` once both are folded (case, accents, punctuation), else None
+  vet(line, op, number)   None when a decision or an act that a MODEL or the router chose is also what the person's line says, else "number" or "again" (slice S20, review round): the
+                          line holds that one number and no other (`natural.decision_numbers`), its leading verb is one of the closed verbs of that operation in the six languages,
+                          the object it names is the operation's own (a request, a task, a file, a routine, a decision), and nothing in it is a negation, a condition, a time word or a
+                          question. The tier-1 forms are closed phrases that satisfy this by their shape; a model's reading is believed only when code can say the same
 
 The lists are closed phrases in the six languages the interpreter reads (pt-BR, en, es, fr, de, it), folded the way tier 1 folds a line (`natural.ascii_normal`). A line is a form
 only when it is, whole, polite words, one lead phrase and then at most `NAME_WORDS` words of a name; a longer tail is a request ("usa o projeto como base para planejar a feira") and
@@ -120,6 +124,71 @@ def resolve(name, projects):
         if flat in (natural.ascii_normal(found), natural.ascii_normal(ident)):
             return found
     return None
+
+
+# --- a decision or an act that a model chose (slice S20, review round) ------------------------------------------------------------------------------------
+
+# The leading verbs of each operation, folded (no accent, lower case), in the six languages of the interpreter. A line is read as the operation only when its FIRST word after the
+# polite words is one of these: "devo cancelar o 2" and "se der erro, para a tarefa 3" begin with something else.
+VERBS = {
+    "reject": "rejeite rejeita rejeitar recuse recusa recusar dispense dispensa dispensar descarte descarta descartar reject decline dismiss discard rechaza rechace rechazar descarta "
+              "descartar ignora rejette rejeter refuse refuser ecarte lehne lehn ablehnen verwirf weise respingi respingere rifiuta rifiutare scarta scartare",
+    "release": "libera libere liberar release libera liberar libere liberer libere gib gebe freigeben rilascia rilasciare",
+    "approve": "aprova aprove aprovar aceita aceite aceitar approve accept aprueba apruebe aprobar acepta approuve approuver accepte genehmige genehmigen akzeptiere approva approvare accetta",
+    "cancel": "cancela cancele cancelar cancel anula anule anular cancela annule annuler storniere stornieren annulla annullare cancella",
+    "stop-task": "para pare parar interrompe interrompa interromper stop halt deten detene detener arrete arreter stoppe stoppen halte ferma fermare interrompi",
+    "retry": "tenta tente tentar refaz refaca refazer retry try reintenta reintenta reintentar intenta reessaie reessayer reessayez wiederhole versuche riprova riprovare ritenta",
+    "attachment-add": "adiciona adicione adicionar acrescenta add anade agrega agregar ajoute ajouter fuge fuege aggiungi aggiungere",
+    "attachment-discard": "descarta descarte descartar apaga apague discard delete elimina elimine borra jette jeter supprime verwirf verwerfe loesche scarta scartare",
+    "routine-pause": "pausa pause pausar suspende suspenda suspend pon mets met suspendre pausiere pausieren metti sospendi",
+    "routine-cancel": "cancela cancele cancelar cancel anula annule storniere annulla cancella",
+}
+# The object each act is about; a decision is named by its number alone.
+OBJECT = {"cancel": "request", "stop-task": "task", "retry": "task", "attachment-add": "file", "attachment-discard": "file", "routine-pause": "routine", "routine-cancel": "routine"}
+NOUNS = {
+    "request": "pedido pedidos solicitacao solicitacoes request requests solicitud solicitudes demande demandes anfrage anfragen richiesta richieste",
+    "task": "tarefa tarefas task tasks tarea tareas tache taches aufgabe aufgaben compito compiti",
+    "file": "arquivo arquivos anexo anexos file files attachment attachments archivo archivos adjunto adjuntos fichier fichiers piece datei dateien anhang anhange file allegato allegati documento",
+    "routine": "rotina rotinas routine routines rutina rutinas routinen",
+    "event": "evento eventos reuniao reunioes compromisso compromissos event events meeting meetings appointment appointments reunion cita citas evenement evenements rendez termin termine ereignis riunione appuntamento",
+    "reminder": "lembrete lembretes reminder reminders recordatorio recordatorios rappel rappels erinnerung erinnerungen promemoria",
+    "mail": "email emails mail mails mensagem mensagens message messages mensaje mensajes correo correos correio courriel courriels nachricht nachrichten messaggio messaggi posta",
+}
+NEGATION = set("nao no not never nunca jamais sem nem sin ni nicht kein keine keinen nie niemals ne pas non mai nessun nessuna dont cannot cant wont without evita evite evitar".split())
+CONTRACTION = set("don doesn didn won can couldn shouldn wouldn isn aren mustn needn".split())      # "don't" is "don t" once folded
+CONDITION = set("se caso qualora si if unless falls wenn sofern cas quando when whenever once after before depois antes apos avant apres nachdem vorher dopo prima cuando despues "
+                "enquanto while until ate".split())      # a condition or a time: the act is not asked now
+LINE_WORDS_MAX = 14      # a longer line is a request, not a command
+
+
+def _bag(text: str) -> set:
+    return set(text.split())
+
+
+def names(line, op) -> bool:
+    """Whether the whole line is the plain command `op` (see `vet`): leading verb, the operation's own object, and none of a negation, a condition, a time word or a question."""
+    if not isinstance(line, str) or op not in VERBS or "?" in line or "\uff1f" in line or "@" in line:
+        return False
+    flat = _trim(natural.ascii_normal(line))
+    words = flat.split()
+    if not words or len(words) > LINE_WORDS_MAX or words[0] not in _bag(VERBS[op]):
+        return False
+    rest = words[1:]
+    if (_bag(" ".join(NEGATION)) & set(words)) or (CONDITION & set(words)) or any(a in CONTRACTION and b == "t" for a, b in zip(words, words[1:])):
+        return False
+    wanted = OBJECT.get(op)
+    others = [kind for kind in NOUNS if kind != wanted]
+    if wanted is not None and not (_bag(NOUNS[wanted]) & set(rest)):
+        return False
+    return not any(_bag(NOUNS[kind]) & set(rest) for kind in others if not (wanted is None and kind == "request"))
+
+
+def vet(line, op, number):
+    """None when the decision or act `op` on `number` that a model or the router chose is what the person's line plainly says; "number" when the line does not hold that one number
+    (none, another, or two); "again" when the line is not the plain command (see the module's text). Pure."""
+    if not isinstance(number, int) or isinstance(number, bool) or natural.decision_numbers(line if isinstance(line, str) else "") != [number]:
+        return "number"
+    return None if names(line, op) else "again"
 
 
 def main(argv=None) -> int:

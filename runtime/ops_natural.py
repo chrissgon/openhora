@@ -44,6 +44,7 @@ import sys
 import time
 import unicodedata
 
+import command_words
 import drafts
 import line_stage
 import messaging_guard as guard
@@ -69,7 +70,10 @@ TYPED = {"pending": ("/pending", None, True), "attachments": ("/attachments", No
          "cancel": ("/cancel {n}", "request_id", False), "stop-task": ("/stop-task {n}", "task_id", False), "retry": ("/retry {n}", "task_id", False),
          "attachment-add": ("/add {n}", "attachment_id", True), "attachment-discard": ("/discard {n}", "attachment_id", True),
          "reject": ("/reject {n}", "pending_id", True), "release": ("/release {n}", "pending_id", True)}
-ROUTINE_BRAKES = {"routine-pause": "CMD_ROUTINE_PAUSED", "routine-cancel": "CMD_ROUTINE_CANCELLED"}      # S20: no typed form on a phone; the call is the operation's own, after the same policy check
+ROUTINE_BRAKES = {"routine-pause": "CMD_ROUTINE_PAUSED"}      # S20: no typed form on a phone; the call is the operation's own, after the same policy check. `routine-cancel` is final, so it is not done from words: PHONE_ROUTINE_CANCEL
+# The parameter that names the decision or the act in the arguments of a call, for every operation that a model or the router may choose and that is vetted against the line (command_words.vet)
+VETTED = {"approve": "pending_id", "reject": "pending_id", "release": "pending_id", "cancel": "request_id", "stop-task": "task_id", "retry": "task_id",
+          "attachment-add": "attachment_id", "attachment-discard": "attachment_id", "routine-pause": "routine_id"}
 
 
 def _ops():
@@ -300,12 +304,20 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         refused = operations.refusal("pending", where, policy, sender=sender)
         if refused:
             return phone_refusal.said(refused, channel, cfg)
+    if channel == "messaging" and routed and name in VETTED:      # S20 (review round): a decision or an act that a MODEL or the router chose is believed only when the line says the same
+        problem = command_words.vet(said, name, args.get(VETTED[name]))
+        if problem == "number":
+            return phrases.text("NAT_WHICH_DECISION" if cls == "D" else "NAT_ASK_ID", cfg)
+        if problem:
+            return phrases.text("IX_ASK_AGAIN", cfg)
     if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here
         done = _typed(project, ctx, name, args, sender, extras, row)
         if done is not None:
             return done
     if name == "file-read":      # S8: the text of a file found by its name; code writes the reply and the conversation keeps a neutral word (runtime/ops_file_read.py)
         return importlib.import_module("ops_file_read").reply(project, ctx, args, said, channel, sender, extras)
+    if name == "research":      # R2-F1: a question of general information answered by a web search; code runs the research skill, writes the reply and the conversation keeps a neutral word (runtime/ops_research.py)
+        return importlib.import_module("ops_research").reply(project, ctx, args, said, channel, sender, extras)
     if cls == "R":
         if "mcp" not in row["channels"] or keeps_private(ctx, name, channel, sender):      # the MCP mode reads the conversation: what it could not read itself (reminders, files people sent, the private lines of a card drawn for a holder of ask-mail) is stored as a neutral word (limits L50, L51)
             extras["stored"] = t("NAT_READ_REPLY")
@@ -594,6 +606,8 @@ def _typed(project: str, ctx: dict, name: str, args: dict, sender, extras: dict,
     """The reply of a command that has a typed form (TYPED) or a routine's brake, on a messaging app; None for any other operation or a read that carries an argument the
     typed command has no word for (`/pending 5` is the list on a phone; "pending decision 5 whole" is the read)."""
     cfg = ctx["cfg"]
+    if name == "routine-cancel":      # final: not done from words (the page, or the terminal's command, does it)
+        return phrases.phone("PHONE_ROUTINE_CANCEL", cfg)
     if name in ROUTINE_BRAKES:
         number = args.get("routine_id")
         if number is None:
@@ -645,6 +659,7 @@ def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, e
         if name in ("reject", "release"):
             return hand_over(project, ctx, TYPED[name][0].format(n=number), True, sender, extras)
         extras["resend"] = number      # the bridge sends the decision's card again, to this chat, under the rules of any card; it says so only when it did
+        extras["resend_forced"] = True      # S20: the sentence says the card was sent again, so it is sent again whatever was sent before (the bridge's flood rule is for lines nobody asked twice)
         return t("NAT_DECISION_CARD", id=number)
     return t("NAT_DECISION_TYPED", command=command)
 

@@ -982,6 +982,24 @@ class Bridge(shell_kit.Jobs):
 
     # --- the project the lines go to, said in words (S20) -----------------------------------------------------------------------
 
+    def typed_line(self, project: dict, chat: str, typed: str) -> None:
+        """The typed line that a command in words stands for (S20), done for THIS line's project and chat, as the typed line is: `/reject`, `/release`, `/add`, `/discard`, `/pending`. It is
+        not read again as a new update (that would choose the project again and meet the reminders' questions again, and a `/project X` said meanwhile would move the act): the
+        kind is dispatched here. A platform whose acts are replies (e-mail) needs the reply to the card, which a line in words is not."""
+        intent = inbound.parse({"text": typed})
+        kind = intent["kind"]
+        if kind in ("reject", "release"):
+            if self.messenger.capabilities().get("actions_need_reply"):
+                self.reply(chat, self.t("REPLY_TO_CARD", project=project), project)
+                return
+            self.act(project, chat, kind, intent["id"], note=intent.get("note"))
+        elif kind in ("add", "discard"):
+            self.attach.typed(project, chat, kind, intent["id"])
+        elif kind == "pending":
+            self.listing(project, chat)
+        else:
+            self.log("a typed line handed over by the operations layer was not one the bridge answers itself")
+
     def project_line(self, intent: dict, kind: str, listed: list, sender: str, chat: str) -> bool:
         """A plain line that is, whole, a form of runtime/command_words.py ("muda para o projeto northwind", "which project am I using"): True when it was taken, and then it did what the
         typed `/project [name]` does (`choose`: the same projects, the same sentences). The name is looked for among the projects THIS sender is listed in; a name that is none gets the
@@ -1577,13 +1595,13 @@ class Bridge(shell_kit.Jobs):
                     self.ack_end(acked)
                 typed = result.get("typed")
                 if typed and not result.get("reply"):      # a command asked for in words that the bridge answers itself (S20): it does what it does for the typed line
-                    self.handle({"sender": chat, "chat": chat, "private": True, "text": typed})
+                    self.typed_line(project, chat, typed)
                     return
                 raw = result.get("reply") or self.t("NO_REPLY", project=project)
                 said = self.command_sentence(project, typed or text, raw)
                 converted = said is not raw      # a sentence made from a command's result carries a text of the operations layer (a held task's reason): it passes the net of `messaging_guard`
                 carded = result.get("resend") is not None
-                if carded and not self.resend(project, chat, result["resend"]):      # a decision named in words (NR-2): its card goes out again
+                if carded and not self.resend(project, chat, result["resend"], force=bool(result.get("resend_forced"))):      # a decision named in words (NR-2): its card goes out again
                     said, carded = self.t("NAT_DECISION_NO_CARD", project=project), False      # and the sentence says so only when a card is there
                 else:
                     said = self.without_card_line(said, result.get("resend"), project) or ("" if result.get("resend") is not None else said)

@@ -305,8 +305,11 @@ def _change(line: "nw.Line", tables: list, now):
     if form is not None:
         return form
     named = natural.candidate(line.text, tables)
-    if named and named["op"] == "remind":          # not a change form, and a line that NR-1 would take for a reminder and then for a NEW event: a change is asked by number
-        return {"op": "event-change", "say": "NW_CHANGE_BY_NUMBER", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
+    if named and named["op"] == "remind":          # not a change form, and a line that NR-1 would take for a reminder and then for a NEW event
+        if _noun_at(line, verb, tables) is not None:          # "remarca o evento 0 para as 10h": a typed number form whose number is not one: the hint says how to name it
+            return {"op": "event-change", "say": "NW_CHANGE_BY_NUMBER", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
+        # "mude o corte de cabelo para as 10h": the person names the event, not its number (slice S16b): the line is the lookup by name's (runtime/event_lookup.py `by_name`)
+        return {"op": "event-change", "by_name": True, "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
     return None
 
 

@@ -308,12 +308,12 @@ def spy_all(monkeypatch):
     return seen
 
 
-RUNS_FROM_WORDS = ("cancel", "stop-task", "retry", "routine-pause", "routine-cancel")      # S20 (limit L54, amended): on a messaging app, and only there, the acts that take a brake or a retry run when named in words, after the policy check
+RUNS_FROM_WORDS = ("cancel", "stop-task", "retry", "routine-pause")      # S20 (limit L54, amended): on a messaging app, and only there, the acts that take a brake or a retry run when named in words, after the policy check
 
 
 def test_limit_54_a_decision_a_gated_act_a_write_and_an_effect_on_an_account_named_by_a_line_run_nothing_on_any_channel(world, monkeypatch):
     """The walk of the table: every operation of class D, G, W or E, named on every channel, as an operation with every argument its
-    row has. Nothing is called, except that a decision reads `pending` to know whether its card exists, and (S20) that on a messaging app the five acts of RUNS_FROM_WORDS call
+    row has. Nothing is called, except that a decision reads `pending` to know whether its card exists, and (S20) that on a messaging app the four acts of RUNS_FROM_WORDS call
     their own operation, once. No approval is ever called, whatever the class and the channel."""
     with_senders(world)
     spied = spy_all(monkeypatch)

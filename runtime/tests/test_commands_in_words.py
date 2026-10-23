@@ -34,6 +34,7 @@ shell_kit = st.load("shell_kit")
 ops_interpret = st.load("ops_interpret")
 interpreter_route = st.load("interpreter_route")
 natural = st.load("natural")
+command_words = st.load("command_words")
 ops_natural = st.load("ops_natural")
 
 ZONE = "America/Sao_Paulo"
@@ -48,12 +49,14 @@ SAY = {
            "no_decision": "There is no open decision #{id}.", "which": "Which decision? Say its number in the same line.",
            "refusal": PLAIN_REFUSAL, "approved": "Approved #{id}.",
            "card": ('A decision is approved from its card, never from a line of words: I sent the card of #{id} again so that you see exactly what you approve; '
-                    'approve it with its button, or by saying "approve" right after it.'), "no_card": "Act on the card sent to you (send /pending).", "no_card_sent": ("A decision is made from its card, never from a line of words, and its card could not be sent now. Send /pending.")},
+                    'approve it with its button, or by saying "approve" right after it.'), "no_card": "Act on the card sent to you (send /pending).", "again": "I was not sure what you meant, so I did nothing. Can you say it another way?", "which_number": "Which number? Say it again with the number in the line.",
+           "no_card_sent": ("A decision is made from its card, never from a line of words, and its card could not be sent now. Send /pending.")},
     "pt-BR": {"dismissed": "Pergunta #{id} dispensada.", "rejected": "#{id} rejeitada.", "released": "#{id} liberada.", "cancelled": "Pedido {id} cancelado.",
               "stopped": "Tarefa {id} parada.", "retried": "A tarefa {id} está pronta para rodar de novo.", "paused": "Rotina {id} pausada.",  # validate: allow english-only -- the Portuguese sentences under test
               "routine_cancelled": "Rotina {id} cancelada.", "no_decision": "Não há decisão aberta #{id}.", "which": "Qual decisão? Diga o número dela na mesma frase.",  # validate: allow english-only -- the Portuguese sentences under test
               "card": ('Uma decisão se aprova pelo card, nunca por uma frase: enviei de novo o card de #{id} para você ver exatamente o que aprova; '  # validate: allow english-only -- the Portuguese sentences under test
                        'aprove pelo botão dele, ou dizendo "aprovo" logo depois.'), "no_card": "Use o card que foi enviado a você (envie /pending).", "refusal": PLAIN_REFUSAL_PT, "approved": "#{id} aprovada.",  # validate: allow english-only -- the Portuguese sentences under test
+              "again": "Não tive certeza do que você quis dizer, então não fiz nada. Pode dizer de outro jeito?", "which_number": "Qual número? Diga de novo com o número na mensagem.",  # validate: allow english-only -- the Portuguese sentences under test
               "no_card_sent": "Uma decisão é tomada pelo card, nunca por uma frase, e o card não pôde ser enviado agora. Envie /pending."},  # validate: allow english-only -- the Portuguese sentences under test
 }
 
@@ -178,8 +181,8 @@ def test_the_line_of_the_live_test_in_portuguese_dismisses_question_25_when_the_
     line = f"rejeite a pergunta {target}"
     assert rig.line(OWNER, line, op("reject")) == [say(rig, "dismissed").format(id=target)] and status_of(rig, target) != "open"
     rig.asked.clear()
-    assert rig.line(OWNER, "ignore a pergunta que fiz, já pode dispensar a " + str(questions[0]), op("reject")) == [say(rig, "dismissed").format(id=questions[0])]
-    assert len(rig.asked) == 1, "this one is not a closed form: the model named the operation, code read the number"
+    assert rig.line(OWNER, "por favor, dispense a pergunta " + str(questions[0]), op("reject")) == [say(rig, "dismissed").format(id=questions[0])]  # validate: allow english-only -- the Portuguese line under test
+    assert len(rig.asked) == 1, "this one is not a closed form: the model named the operation, code read the number, and the line's own verb says the same"
 
 
 @pytest.mark.parametrize("english,portuguese", [("reject plan {id}", "rejeite o plano {id}"), ("decline the decision number {id}", "recuse a decisao numero {id}")])
@@ -283,14 +286,25 @@ def test_a_task_is_stopped_or_retried_by_words_with_the_call_the_typed_command_m
     assert calls == [(7, "messaging", KEY["owner"])] * 2, "the same call, the same channel and sender"
 
 
-@pytest.mark.parametrize("function,english,portuguese,key", [("routine_pause", "pause routine {id}", "pausa a rotina {id}", "paused"),
-                                                              ("routine_cancel", "cancel routine {id}", "cancela a rotina {id}", "routine_cancelled")])
-def test_a_routine_is_paused_or_cancelled_by_words_after_the_same_policy_check(rig, function, english, portuguese, key):
+@pytest.mark.parametrize("english,portuguese", [("pause routine {id}", "pausa a rotina {id}"), ("pause the routine number {id}, please", "pause a rotina numero {id}, por favor")])
+def test_a_routine_is_paused_by_words_after_the_same_policy_check_and_the_actor_is_recorded(rig, english, portuguese):
     calls = []
-    rig.monkeypatch.setattr(ops, function, lambda project, routine_id: calls.append(routine_id) or {"routine": routine_id})
+    rig.monkeypatch.setattr(ops, "routine_pause", lambda project, routine_id, channel=None, sender=None: calls.append((routine_id, channel, sender)) or {"routine": routine_id})
     words = (english if rig.language == "en" else portuguese).format(id=4)
-    assert rig.line(BARE, words) == [say(rig, "refusal")] and calls == []
-    assert rig.line(OWNER, words) == [say(rig, key).format(id=4)] and calls == [4]
+    assert rig.line(BARE, words, op("routine-pause", {"id": "4"})) == [say(rig, "refusal")] and calls == []
+    assert rig.line(OWNER, words, op("routine-pause", {"id": "4"})) == [say(rig, "paused").format(id=4)] and calls == [(4, "messaging", KEY["owner"])]
+
+
+@pytest.mark.parametrize("english,portuguese", [("cancel routine {id}", "cancela a rotina {id}"), ("cancel the routine {id} for good", "cancele a rotina {id} de vez")])
+def test_a_routine_is_never_cancelled_by_words_the_reply_says_to_pause_it_here_and_cancel_it_on_the_page(rig, english, portuguese):
+    calls = []
+    rig.monkeypatch.setattr(ops, "routine_cancel", lambda project, routine_id: calls.append(routine_id) or {})
+    rig.monkeypatch.setattr(ops, "routine_pause", lambda project, routine_id, channel=None, sender=None: calls.append(("pause", routine_id)) or {})
+    page = ('To stop a routine for now, say "pause routine" and its number. A routine is cancelled for good on the platform\'s page.' if rig.language == "en" else
+            'Para parar uma rotina por enquanto, diga "pausa a rotina" e o número dela. Uma rotina se cancela de vez na página da plataforma.')  # validate: allow english-only -- the Portuguese sentence under test
+    words = (english if rig.language == "en" else portuguese).format(id=4)
+    assert rig.line(OWNER, words, op("routine-cancel", {"id": "4"})) == [page] and calls == []
+    assert rig.line(BARE, words, op("routine-cancel", {"id": "4"})) == [say(rig, "refusal")] and calls == []
 
 
 @pytest.mark.parametrize("english,portuguese,word", [("add file {id}", "adiciona o arquivo {id}", "add"), ("discard attachment {id}", "descarta o arquivo {id}", "discard")])
@@ -385,7 +399,7 @@ def test_vacuity_without_the_hand_off_the_question_stays_open_and_the_check_of_t
 
 
 def test_vacuity_an_approval_handed_over_as_the_typed_approve_is_noticed_by_the_check_that_nothing_was_approved(rig, monkeypatch):
-    """The fault: `approve` is handed over like `reject`. The plan is then approved by words, and `status_of(plan) == "open"` (the check of the real tests) fails."""
+    """The fault: `approve` is handed over like `reject` and the bridge does it. The plan is then approved by words, and `status_of(plan) == "open"` (the check of the real tests) fails."""
     plan = make_plan(rig)
     real = ops_natural._decision
 
@@ -394,5 +408,109 @@ def test_vacuity_an_approval_handed_over_as_the_typed_approve_is_noticed_by_the_
             return ops_natural.hand_over(project, ctx, f"/approve {args['pending_id']}", True, sender, extras)
         return real(project, ctx, name, args, channel, sender, extras)
     monkeypatch.setattr(ops_natural, "_decision", planted)
+    monkeypatch.setattr(bridge.Bridge, "typed_line", lambda self, project, chat, typed: self.act(project, chat, "approve", int(typed.split()[1])))
     rig.line(OWNER, f"approve {plan}" if rig.language == "en" else f"aprova o {plan}")
     assert status_of(rig, plan) != "open", "the planted fault approves; the real test asserts the opposite"
+
+
+# --- a decision or an act that a MODEL chose is believed only when the line says the same (review round) -----------------------------------------------------
+
+
+def make_request(rig) -> int:
+    return ops.request(rig.project["path"], "Invented request " + str(time.monotonic()))["request"]
+
+
+def request_state(rig, number) -> str:
+    return {r["id"]: r["state"] for r in ops.status(rig.project["path"])["requests"]}[number]
+
+
+def probes(rig, lines):
+    """The lines, in the language of the project's example (the test's own literals)."""
+    return lines["en"] if rig.language == "en" else lines["pt-BR"]
+
+
+CANCEL_PROBES = {"en": ["no need to cancel the request {id}", "should I cancel the request {id}?", "if it fails, cancel the request {id}", "cancel the request {id} tomorrow", "cancel request {id} and then {id}"],
+                 "pt-BR": ["não precisa cancelar o pedido {id}", "devo cancelar o pedido {id}?", "se der erro, cancela o pedido {id}", "cancele o pedido {id} depois do almoço",  # validate: allow english-only -- the Portuguese lines under test
+                           "cancele o pedido {id} e o {id}"]}  # validate: allow english-only -- the Portuguese lines under test
+
+
+def test_a_cancel_the_model_chose_is_not_done_when_the_line_negates_asks_conditions_or_names_two_numbers(rig):
+    request = make_request(rig)
+    for line in probes(rig, CANCEL_PROBES):
+        said = rig.line(OWNER, line.format(id=request), op("cancel", {"id": str(request)}))
+        assert said == [say(rig, "again")] or said == [say(rig, "which_number")], line
+        assert request_state(rig, request) != "cancelled", line
+    assert len(rig.asked) == 1
+
+
+def test_a_cancel_the_model_chose_for_an_object_that_is_not_a_request_is_not_done(rig):
+    request = make_request(rig)
+    for line in (f"cancel task {request}", f"cancel the event {request}", f"cancela o {request}"):
+        rig.line(OWNER, line, op("cancel", {"id": str(request)}))
+        assert request_state(rig, request) != "cancelled", line
+
+
+STOP_PROBES = {"en": ["if it fails, stop task {id}", "don't stop task {id}", "stop task {id} of 2", "should I stop task {id}?", "never stop the task {id}"],
+               "pt-BR": ["se der erro, para a tarefa {id}", "não pare a tarefa {id}", "pare a tarefa {id} de 2", "devo parar a tarefa {id}?", "nunca pare a tarefa {id}"]}  # validate: allow english-only -- the Portuguese lines under test
+
+
+def test_a_stop_the_model_chose_is_not_done_for_a_condition_a_negation_a_second_number_or_a_question(rig):
+    calls = []
+    rig.monkeypatch.setattr(ops, "stop_task", lambda project, task_id, channel=None, sender=None: calls.append(task_id) or {"task": task_id, "already": False})
+    for line in probes(rig, STOP_PROBES):
+        rig.line(OWNER, line.format(id=3), op("stop-task", {"id": "3"}))
+        assert calls == [], line
+
+
+def test_the_same_acts_are_done_when_the_line_says_them_plainly_though_no_closed_form_takes_the_line(rig):
+    request = make_request(rig)
+    stopped, retried = [], []
+    rig.monkeypatch.setattr(ops, "stop_task", lambda project, task_id, channel=None, sender=None: stopped.append(task_id) or {"task": task_id, "already": False})
+    rig.monkeypatch.setattr(ops, "retry", lambda project, task_id, channel=None, sender=None: retried.append(task_id) or {"task_id": task_id})
+    cancel, stop, retry = (("please cancel the request number {id}", "please stop task {id}", "please retry the task {id}") if rig.language == "en" else
+                           ("por favor, cancele a solicitação número {id}", "por favor, pare a tarefa {id}", "por favor, tente a tarefa {id} de novo"))  # validate: allow english-only -- the Portuguese lines under test
+    assert rig.line(OWNER, cancel.format(id=request), op("cancel", {"id": str(request)})) == [say(rig, "cancelled").format(id=request)] and request_state(rig, request) == "cancelled"
+    assert rig.line(OWNER, stop.format(id=3), op("stop-task", {"id": "3"})) == [say(rig, "stopped").format(id=3)] and stopped == [3]
+    assert rig.line(OWNER, retry.format(id=3), op("retry", {"id": "3"})) == [say(rig, "retried").format(id=3)] and retried == [3]
+
+
+def test_a_routine_pause_the_model_chose_is_not_done_for_a_negation_or_a_condition(rig):
+    calls = []
+    rig.monkeypatch.setattr(ops, "routine_pause", lambda project, routine_id, channel=None, sender=None: calls.append(routine_id) or {})
+    for line in (("don't pause routine 4", "pause routine 4 if it runs late", "should I pause routine 4?") if rig.language == "en" else
+                 ("não pause a rotina 4", "pause a rotina 4 se atrasar", "devo pausar a rotina 4?")):  # validate: allow english-only -- the Portuguese lines under test
+        rig.line(OWNER, line, op("routine-pause", {"id": "4"}))
+        assert calls == [], line
+
+
+DECISION_PROBES = {"en": ["don't reject question {id}", "reject the question from 3 days ago", "reject the question 2 hours ago", "if it is late, reject question {id}",
+                          "should I reject question {id}?", "reject 25%"],
+                   "pt-BR": ["não rejeite a pergunta {id}", "rejeite a pergunta de 3 dias atrás", "rejeite a pergunta há 2 horas",  # validate: allow english-only -- the Portuguese lines under test
+                             "se estiver atrasada, rejeite a pergunta {id}", "devo rejeitar a pergunta {id}?", "rejeite 25%"]}  # validate: allow english-only -- the Portuguese lines under test
+
+
+def test_a_rejection_the_model_chose_is_not_done_for_a_negation_a_relative_time_a_condition_a_question_or_a_percentage(rig):
+    question = make_question(rig)
+    for line in probes(rig, DECISION_PROBES):
+        said = rig.line(OWNER, line.format(id=question), op("reject"))
+        assert said in ([say(rig, "again")], [say(rig, "which")]), (line, said)
+        assert status_of(rig, question) == "open", line
+
+
+def test_vacuity_without_the_check_of_the_line_the_negated_cancel_and_the_negated_rejection_are_done(rig, monkeypatch):
+    """The fault: the vetting of the model's reading is gone (the first S20 version). The same probes then act, and the checks above would have failed."""
+    request, question = make_request(rig), make_question(rig)
+    monkeypatch.setattr(command_words, "vet", lambda line, op_, number: None)
+    cancel, reject = (("no need to cancel the request {id}", "don't reject question {id}") if rig.language == "en" else
+                      ("não precisa cancelar o pedido {id}", "não rejeite a pergunta {id}"))  # validate: allow english-only -- the Portuguese lines under test
+    rig.line(OWNER, cancel.format(id=request), op("cancel", {"id": str(request)}))
+    rig.line(OWNER, reject.format(id=question), op("reject"))
+    assert request_state(rig, request) == "cancelled" and status_of(rig, question) != "open"
+
+
+def test_a_percentage_a_price_or_a_quantity_is_not_the_number_of_a_decision_in_a_closed_form_or_in_a_line():
+    for line in ("rejeite 25%", "rejeite $25", "reject 25 euros", "rejeite R$ 25", "reject 25 %"):
+        assert natural.match(line) is None, line
+    assert natural.match("rejeite a pergunta 25")["args"] == {"pending_id": 25}
+    for line, wanted in (("rejeite a pergunta de 3 dias atrás", []), ("há 2 horas rejeite a 1", [1]), ("reject question 5 3 days ago", [5]), ("em 2 semanas", []), ("reject 3 times", [])):
+        assert natural.decision_numbers(line) == wanted, line

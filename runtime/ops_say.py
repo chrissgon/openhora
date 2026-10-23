@@ -200,7 +200,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
                  text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=extras.get("task_id", request_id), run_id=extras.get("run_id", run_id))
     return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
-            **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {}),
+            **({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {}), **({"resend_forced": True} if extras.get("resend_forced") else {}),
             **({"typed": extras["typed"]} if channel == "messaging" and "typed" in extras else {}),
             **({"attachment": extras["attachment"]} if channel == "messaging" and "attachment" in extras else {})}
 

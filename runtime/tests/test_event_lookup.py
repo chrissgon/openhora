@@ -147,13 +147,12 @@ def test_the_list_of_a_change_asks_for_the_number_and_the_new_time_in_english_to
 
 
 @pytest.mark.parametrize("line, sentence", [
-    ("Cancela o corte", "Não encontrei esse evento na sua agenda nos próximos 30 dias."),      # a part of a title is not the event  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Cancela a consulta", "Não encontrei esse evento na sua agenda nos próximos 30 dias."),      # nor is the first word of a longer title  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Cancela a aula de natação", "Não encontrei esse evento na sua agenda nos próximos 30 dias."),  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Remova o corte de cabelo de hoje", "Não encontrei esse evento na sua agenda nesse dia."),      # the haircuts are tomorrow and the day after  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Remova o Dentist pra amanha", "Não encontrei esse evento na sua agenda nesse dia."),      # the dentist is today  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Remova o corte de cabelo dia 24", "Não encontrei esse evento na sua agenda nesse dia."),  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Remova o yoga de sexta", "Não encontrei esse evento na sua agenda nos próximos 30 dias."),      # a weekday: the yoga is on a Thursday  # validate: allow english-only -- the Portuguese line or sentence under test
+    ("Cancela a consulta", "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos."),      # nor is the first word of a longer title  # validate: allow english-only -- the Portuguese line or sentence under test
+    ("Cancela a aula de natação", "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos."),  # validate: allow english-only -- the Portuguese line or sentence under test
+    ("Remova o corte de cabelo de hoje", "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."),      # the haircuts are tomorrow and the day after  # validate: allow english-only -- the Portuguese line or sentence under test
+    ("Remova o Dentist pra amanha", "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."),      # the dentist is today  # validate: allow english-only -- the Portuguese line or sentence under test
+    ("Remova o corte de cabelo dia 24", "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."),  # validate: allow english-only -- the Portuguese line or sentence under test
+    ("Remova o yoga de sexta", "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos."),      # a weekday: the yoga is on a Thursday  # validate: allow english-only -- the Portuguese line or sentence under test
 ])      # validate: allow english-only -- the Portuguese line or sentence under test
 def test_a_title_that_only_partly_fits_or_falls_on_another_day_is_not_that_event(world, monkeypatch, line, sentence):
     build(world, monkeypatch)
@@ -163,7 +162,7 @@ def test_a_title_that_only_partly_fits_or_falls_on_another_day_is_not_that_event
 
 def test_the_not_found_sentence_in_english(world, monkeypatch):
     build(world, monkeypatch, language="en")
-    assert carry(world, "Cancel the swimming class", CANCEL)[0] == "I did not find that event in your calendar in the next 30 days."
+    assert carry(world, "Cancel the swimming class", CANCEL)[0] == "I did not find an event with a similar name in the next 30 days. Ask for your calendar to see the events."
 
 
 def test_a_day_the_words_name_narrows_the_list_to_that_day_and_a_weekday_to_its_dates(world, monkeypatch):
@@ -237,7 +236,7 @@ def test_a_second_miss_makes_exactly_one_provider_read_and_says_not_found(world,
     build(world, monkeypatch)
     before = len(calendar_reads(world))
     reply, extras = carry(world, "Cancela a aula de natação", CANCEL)      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert reply == "Não encontrei esse evento na sua agenda nos próximos 30 dias." and "resend" not in extras      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert reply == "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos." and "resend" not in extras      # validate: allow english-only -- the Portuguese line or sentence under test
     assert len(calendar_reads(world)) - before == 1, "one read for the line, never a loop"
     carry(world, "Cancela a aula de natação", CANCEL)      # validate: allow english-only -- the Portuguese line or sentence under test
     assert len(calendar_reads(world)) - before == 2, "one more for the next line, and only one"
@@ -263,7 +262,7 @@ def test_a_failed_refresh_is_the_not_found_sentence_and_nothing_else(world, monk
     add_new_event(world)
     world["snaps"].providers.fail = tsm.Failure(reason="the provider said ZEBRA-SECRET")
     reply, extras = carry(world, "Cancela a reuniao com a Bia", CANCEL)
-    assert reply == "Não encontrei esse evento na sua agenda nos próximos 30 dias." and "resend" not in extras      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert reply == "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos." and "resend" not in extras      # validate: allow english-only -- the Portuguese line or sentence under test
     assert "ZEBRA" not in reply + " ".join(capfd.readouterr())
 
 
@@ -280,12 +279,12 @@ def test_a_stale_snapshot_that_cannot_be_read_again_is_the_not_found_sentence(wo
     build(world, monkeypatch)
     world["snaps"].later(hours=30)
     world["snaps"].providers.fail = tsm.Failure()
-    assert carry(world, LIVE, CANCEL)[0] == "Não encontrei esse evento na sua agenda nesse dia."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert carry(world, LIVE, CANCEL)[0] == "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."      # validate: allow english-only -- the Portuguese line or sentence under test
 
 
 def test_a_cancelled_event_is_never_found(world, monkeypatch):
     build(world, monkeypatch, events=[("22", "13:00", "14:00", "corte de cabelo", "evgone", {"status": "cancelled"}), ("22", "18:00", "19:00", "Yoga", "evyoga")])
-    assert carry(world, LIVE, CANCEL)[0] == "Não encontrei esse evento na sua agenda nesse dia."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert carry(world, LIVE, CANCEL)[0] == "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."      # validate: allow english-only -- the Portuguese line or sentence under test
     assert carry(world, "Cancela o yoga", CANCEL)[0] == "O card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test, and the control: a live event is found
 
 
@@ -293,7 +292,7 @@ def test_a_rename_does_not_match_the_new_title_as_the_event_to_change(world, mon
     build(world, monkeypatch, events=[("22", "10:00", "11:00", "Planejamento", "evplan")])
     text = op_text("event-change", {"title": "Planejamento trimestral"})
     reply, extras = carry(world, "Renomeia a reunião para Planejamento trimestral", text)      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert reply == "Não encontrei esse evento na sua agenda nos próximos 30 dias." and "resend" not in extras and rows(world) == ([], [])      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert reply == "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos." and "resend" not in extras and rows(world) == ([], [])      # validate: allow english-only -- the Portuguese line or sentence under test
     # control: when the old title is in the line, the same title span renames that event
     _, extras = carry(world, "Renomeia o planejamento para Planejamento trimestral", text)
     lines = card(world, extras)["body"].splitlines()
@@ -322,7 +321,7 @@ def test_a_word_of_the_day_or_a_yes_is_not_the_title_of_an_event(world, monkeypa
     build(world, monkeypatch, events=[("23", "09:00", "10:00", "Dia", "evdia"), ("23", "11:00", "12:00", "Sim", "evsim")])
     for line in ("cancela o dentista dia 23", "sim, cancela o dentista", "cancela o dentista, ok"):
         reply, extras = carry(world, line, CANCEL)
-        assert reply.startswith("Não encontrei esse evento") and "resend" not in extras, line      # validate: allow english-only -- the Portuguese line or sentence under test
+        assert reply.startswith("Não encontrei nenhum evento com nome parecido") and "resend" not in extras, line      # validate: allow english-only -- the Portuguese line or sentence under test
 
 
 # --- the pure rule: which events a line names ------------------------------------------------------------------------------------------------------
@@ -339,13 +338,17 @@ def titles(found):
     return [r["title"] for r in found]
 
 
-def test_the_title_is_whole_words_of_the_line_folded_for_case_and_accents():
+def test_the_title_is_the_closest_name_of_the_line_folded_for_case_and_accents():
     rows_ = [row("2026-10-22", "Café com Ana"), row("2026-10-22", "Consulta"), row("2026-10-22", "A")]
-    assert titles(event_lookup.candidates(rows_, "cancela o CAFE COM ana", "none", None, TODAY)) == ["Café com Ana"]
-    assert titles(event_lookup.candidates(rows_, "cancela as consultas", "none", None, TODAY)) == [], "a longer word is not the word"
+    got = event_lookup.candidates(rows_, "cancela o CAFE COM ana", "none", None, TODAY)
+    assert titles(got) == ["Café com Ana"] and got[0]["exact"] is True
+    got = event_lookup.candidates(rows_, "cancela as consultas", "none", None, TODAY)
+    assert titles(got) == ["Consulta"] and got[0]["exact"] is False, "a word one edit away is the word, and the match is not exact"
     assert titles(event_lookup.candidates(rows_, "cancela a consulta", "none", None, TODAY)) == ["Consulta"]
-    assert titles(event_lookup.candidates(rows_, "cancela a reunião", "none", None, TODAY)) == [], "a title of one letter names nothing"  # validate: allow english-only -- the Portuguese line or sentence under test
-    assert titles(event_lookup.candidates(rows_, "cancela o café", "none", None, TODAY)) == [], "a part of a title is not the title"
+    assert titles(event_lookup.candidates(rows_, "cancela a reunião", "none", None, TODAY)) == [], "a title of one letter names nothing, and an unrelated word names nothing"  # validate: allow english-only -- the Portuguese line or sentence under test
+    got = event_lookup.candidates(rows_, "cancela o café", "none", None, TODAY)
+    assert titles(got) == ["Café com Ana"] and got[0]["exact"] is False, "a part of a title is a near name, not the exact one"
+    assert titles(event_lookup.candidates(rows_, "cancela o cafe zzz yyy", "none", None, TODAY)) == [], "vacuity: unmatched words of the line weigh against it (2 of 5 is under the half)"
 
 
 def test_a_title_inside_a_longer_title_that_also_fits_is_dropped():

@@ -226,3 +226,85 @@ def test_a_line_with_a_number_that_is_no_decision_does_not_become_one(world, lin
     world.say(line)
     silence(world)
     assert world.calls("reject") == [] and world.calls("release") == [] and approvals(world) == []
+
+
+# --- review round: the act stays with the line's own project, the card is sent again when the sentence says so, and a list keeps its positions ------------------------------
+
+
+def test_a_project_chosen_meanwhile_does_not_move_the_act_of_a_line_that_was_already_read(world):
+    second_project(world)
+    world.items[5] = decision("plan", 5)
+    world.bridge.tick()
+    world.fake.calls.clear()
+    first, other = world.projects[0], world.projects[1]
+
+    def answer(project, **kw):
+        world.bridge.chosen[SENDER] = other["id"]      # a /project said while the line was being read
+        return {"reply": "", "request_id": None, "pending_id": None, "ran": False, "queued": False, "typed": "/reject 5"}
+    world.fake.answers["say"] = answer
+    world.say("rejeite o plano 5")
+    assert wait_for(lambda: world.calls("reject"))
+    assert [c[1] for c in world.calls("reject")] == [first["path"]], "the act is done for the project the line was read for"
+
+
+def test_the_typed_line_of_a_platform_whose_acts_are_replies_asks_for_the_card_and_does_nothing(world, monkeypatch):
+    world.items[5] = decision("plan", 5)
+    world.bridge.tick()
+    monkeypatch.setattr(world.bridge.messenger, "capabilities", lambda: dict(world.bridge.messenger.__class__.capabilities(world.bridge.messenger), actions_need_reply=True))
+    hands_over(world, "/reject 5")
+    world.say("rejeite o plano 5")
+    assert wait_for(lambda: world.texts()[-1] == "Reply to the card of this decision to act on it.") and rejections(world) == []
+
+
+def cards_sent(world, number):
+    return [s for s in world.sent() if s["message"]["actions"] and f"#{number}" in s["message"]["text"]]
+
+
+def resend_after(world, forced):
+    world.items[5] = decision("plan", 5)
+    world.bridge.tick()
+    assert len(cards_sent(world, 5)) == 1
+    world.bridge.resent[(world.projects[0]["id"], SENDER, 5)] = world.bridge.monotonic()      # a card sent again a moment ago
+    world.fake.answers["say"] = lambda project, **kw: {"reply": "The card is above.", "request_id": None, "pending_id": None, "ran": False, "queued": False, "resend": 5,
+                                                       **({"resend_forced": True} if forced else {})}
+    world.say("aprova o 5")
+    assert wait_for(lambda: world.texts()[-1] == "The card is above.")
+    return len(cards_sent(world, 5))
+
+
+def test_a_sentence_that_says_the_card_was_sent_again_is_said_only_after_it_was_sent_again_even_within_the_flood_rule(world):
+    assert resend_after(world, forced=True) == 2
+
+
+def test_vacuity_a_resend_that_is_not_asked_for_by_the_sentence_keeps_the_flood_rule(world):
+    assert resend_after(world, forced=False) == 1, "the other flows of the bridge keep the rule: a line repeated within a minute is not a flood"
+
+
+def test_after_a_list_a_position_with_a_word_still_chooses_from_the_list_and_the_card_sentence_is_not_said(world):
+    world.items[1] = decision("plan", 1, plan_sha256="a" * 64)
+    world.items[2] = decision("plan", 2, plan_sha256="b" * 64)
+    world.bridge.tick()
+    world.say("sim")      # two cards: the numbered list
+    assert wait_for(lambda: world.texts()[-1].startswith("More than one decision waits"))
+    world.fake.calls.clear()
+    world.say("aprova o 2")
+    assert wait_for(lambda: approvals(world) == [(2, "b" * 64)]) and world.calls("say") == []
+    assert not any("sent the card" in text for text in silence(world))
+
+
+def test_vacuity_a_typed_line_run_back_through_handle_chooses_the_project_again_and_the_check_sees_it(world, monkeypatch):
+    bridge_class = type(world.bridge)
+    second_project(world)
+    world.items[5] = decision("plan", 5)
+    world.bridge.tick()
+    world.fake.calls.clear()
+    other = world.projects[1]
+    monkeypatch.setattr(bridge_class, "typed_line", lambda self, project, chat, typed: self.handle({"sender": chat, "chat": chat, "private": True, "text": typed}))
+
+    def answer(project, **kw):
+        world.bridge.chosen[SENDER] = other["id"]
+        return {"reply": "", "request_id": None, "pending_id": None, "ran": False, "queued": False, "typed": "/reject 5"}
+    world.fake.answers["say"] = answer
+    world.say("rejeite o plano 5")
+    assert wait_for(lambda: world.calls("reject")) or True
+    assert [c[1] for c in world.calls("reject")] != [world.projects[0]["path"]], "the old way moved the act to the project chosen meanwhile (or lost it)"
