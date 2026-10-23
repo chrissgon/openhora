@@ -344,6 +344,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `file-replace` | `--account` `--file` `[--content]` `[--content-file]` `[--from]` | `file_replace` |
 | `file-save` | `--account` `--attachment` `[--name]` `[--folder]` | `file_save` |
 | `file-read` | `--file` `[--account]` | `file_read` |
+| `research` | `--question` | `research` |
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
 | `instructions-add` | `--line` `--base-sha256` | `instructions_add` |

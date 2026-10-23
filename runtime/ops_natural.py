@@ -291,6 +291,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
             return phone_refusal.said(refused, channel, cfg)
     if name == "file-read":      # S8: the text of a file found by its name; code writes the reply and the conversation keeps a neutral word (runtime/ops_file_read.py)
         return importlib.import_module("ops_file_read").reply(project, ctx, args, said, channel, sender, extras)
+    if name == "research":      # R2-F1: a question of general information answered by a web search; code runs the research skill, writes the reply and the conversation keeps a neutral word (runtime/ops_research.py)
+        return importlib.import_module("ops_research").reply(project, ctx, args, said, channel, sender, extras)
     if cls == "R":
         if "mcp" not in row["channels"] or keeps_private(ctx, name, channel, sender):      # the MCP mode reads the conversation: what it could not read itself (reminders, files people sent, the private lines of a card drawn for a holder of ask-mail) is stored as a neutral word (limits L50, L51)
             extras["stored"] = t("NAT_READ_REPLY")
