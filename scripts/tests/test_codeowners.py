@@ -1,5 +1,5 @@
 """The code owners file covers what decides what a run measures and what moves a skill's standing (the
-reliability model, section 8; item B11 of docs/architecture/final-plan-2026-10-02.md), and every pattern in it
+reliability model, section 8; item B11 of the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md), and every pattern in it
 matches something of the repository.
 
 Run: uv run --with pytest pytest scripts/tests/test_codeowners.py
@@ -15,9 +15,11 @@ CODEOWNERS = REPO / ".github" / "CODEOWNERS"
 REQUIRED = ["/evals/", "/adapters/claude-code/run-prompt.sh", "/adapters/claude-code/adapter.json",
             "/adapters/agents-dir/run-prompt.sh", "/adapters/agents-dir/adapter.json", "/adapters/claude-code/eval.json",
             "/adapters/agents-dir/eval.json", "/adapters/*/install.sh",
-            "/scripts/stage_skills.py", "/scripts/redact.py", "/scripts/test_dirs.py", "/scripts/evidence.py",
+            "/scripts/stage_skills.py", "/scripts/redact.py", "/scripts/test_dirs.py", "/scripts/evidence.py", "/scripts/image_lock.py",
+            "/.github/workflows/community-eval.yml", "/.github/workflows/community-verify.yml",
+            "/scripts/verify_community.py", "/scripts/community_pack.py",
             "/.security-scan-allow", "/shared/", "/skills/*/evals/evidence/", "/skills/*/evals/versions.jsonl",
-            "/skills/*/evals/result.json", "/AGENTS.md", "/scripts/validate.py", "/.github/", "/runtime/", "/interface/", "/flows/", "/skills/*/evals/runtime-manifest.json"]
+            "/AGENTS.md", "/scripts/validate.py", "/.github/", "/runtime/", "/interface/", "/flows/", "/skills/*/evals/runtime-manifest.json"]
 
 
 def patterns():

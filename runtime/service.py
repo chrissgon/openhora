@@ -154,7 +154,11 @@ name a channel). The route of set-mode may narrow autonomy and never widen it: a
 (stopped < supervised < milestones < autonomous < autonomous-with-policy) is accepted by code at once, a move up leaves
 the configuration unaccepted (every route then answers 412 with the command that accepts it, in the terminal). The route takes
 the mode and nothing else: `accept` is the terminal's (set-mode --accept), so a body that carries it is a 400, and the operation
-refuses it from any channel but the terminal besides.
+refuses it from any channel but the terminal besides. The route of set-model is the same: a model id, auto or default; fixing a
+model on an agent in an autonomous mode is the person's consent and carries `consent`, which only the terminal gives there (it is
+distinct from `accept`, and both are refused in a body). The page gives that consent on its own route, give-consent: the model,
+the mode, the hash of the configuration it read and the sha256 of the warning it showed; the operation checks all four and
+records that consent only (messaging and the MCP mode have no such operation).
 
 When it stops (SIGINT or SIGTERM) it ends the runs a job started (ops.stop_runs) and does not exit before that returns;
 a second signal while it stops is ignored.
@@ -253,6 +257,15 @@ WORDS = {
     "internal": shell_kit.INTERNAL,
 }
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+FAULT_MAX = 300         # characters of an error that the log keeps
+WHOLE_MAX = 6000        # characters of the refusal "the configuration is not accepted" that the log keeps: a path, two hashes, the widening lines and the command, never a line or a secret
+
+
+def fault_text(error) -> str:
+    """An error as the log shows it: one line, cut at FAULT_MAX characters, except the refusal of a configuration that is not accepted (ops_core.NotAccepted, code 3), which is kept
+    whole up to WHOLE_MAX: cut at 300 it lost the end of the command (S12)."""
+    text = CONTROL.sub(" ", str(error))
+    return text[:WHOLE_MAX] if type(error).__name__ == "NotAccepted" and getattr(error, "code", None) == 3 else text[:FAULT_MAX]
 
 
 class Usage(Exception):
@@ -283,15 +296,32 @@ ROUTES = (
     _route("POST", "/projects/{p}/pending/{id}/approve", "approve", bind={"pending_id": "id"}),
     _route("POST", "/projects/{p}/pending/{id}/reject", "reject", bind={"pending_id": "id"}),
     _route("GET", "/projects/{p}/flows", "flows", take=()),
+    _route("GET", "/projects/{p}/flows/{name}/check", "flow-check", bind={"flow": "name"}, take=()),
+    _route("POST", "/projects/{p}/flows", "flow-save"),
+    _route("GET", "/projects/{p}/routines", "routines", take=("routine_id",)),
+    _route("POST", "/projects/{p}/routines", "routine-create"),
+    _route("POST", "/projects/{p}/routines/{id}/change", "routine-change", bind={"routine_id": "id"}),
+    _route("POST", "/projects/{p}/routines/{id}/approve", "routine-approve", bind={"routine_id": "id"}),
+    _route("POST", "/projects/{p}/routines/{id}/pause", "routine-pause", bind={"routine_id": "id"}),
+    _route("POST", "/projects/{p}/routines/{id}/resume", "routine-resume", bind={"routine_id": "id"}),
+    _route("POST", "/projects/{p}/routines/{id}/cancel", "routine-cancel", bind={"routine_id": "id"}),
+    _route("GET", "/projects/{p}/instructions", "instructions", take=()),
+    _route("POST", "/projects/{p}/instructions", "instructions-set"),
+    _route("POST", "/projects/{p}/instructions/add", "instructions-add"),
+    _route("POST", "/projects/{p}/requests/{id}/files", "stage-file", bind={"request_id": "id"}, hidden=("file",), upload=True),
     _route("POST", "/projects/{p}/requests", "request"),
     _route("POST", "/projects/{p}/requests/{id}/route", "route", bind={"request_id": "id"}),
     _route("POST", "/projects/{p}/requests/{id}/cancel", "cancel", bind={"request_id": "id"}),
     _route("GET", "/projects/{p}/tasks/{id}", "task", bind={"task_id": "id"}, take=()),
     _route("POST", "/projects/{p}/tasks/{id}/retry", "retry", bind={"task_id": "id"}),
+    _route("POST", "/projects/{p}/tasks/{id}/stop", "stop-task", bind={"task_id": "id"}),
     _route("POST", "/projects/{p}/tasks/{id}/go-ahead", "go-ahead", bind={"task_id": "id"}),
     _route("POST", "/projects/{p}/tasks/{id}/files", "hand-over", bind={"task_id": "id"}, hidden=("file",), upload=True),
     _route("POST", "/projects/{p}/runs/{id}/verdict", "verdict", bind={"run_id": "id"}),
     _route("POST", "/projects/{p}/agents/{name}/mode", "set-mode", bind={"agent": "name"}, take=("mode",)),
+    _route("POST", "/projects/{p}/agents/{name}/model", "set-model", bind={"agent": "name"}, take=("model",)),
+    _route("POST", "/projects/{p}/agents/{name}/consent", "give-consent", bind={"agent": "name"},
+           take=("model", "mode", "config_sha256", "warning_sha256")),
     _route("GET", "/projects/{p}/progress", "progress"),
     _route("GET", "/projects/{p}/agents", "agents", take=()),
     _route("GET", "/projects/{p}/conversation", "conversation", take=("conversation", "after")),
@@ -305,7 +335,40 @@ ROUTES = (
     _route("GET", "/projects/{p}/commands", "commands", take=()),
     _route("GET", "/versions", own="versions"),
     _route("POST", "/projects/{p}/conversation", "say"),
+    _route("POST", "/projects/{p}/ask", "ask"),
     _route("POST", "/projects/{p}/sync", "sync"),
+    _route("GET", "/projects/{p}/sources", "sources", take=()),
+    _route("POST", "/projects/{p}/sources", "source-add"),
+    _route("POST", "/projects/{p}/sources/{name}/files", "source-import", bind={"source_id": "name"},
+           hidden=("file", "url", "origin", "description"), upload=True),
+    _route("POST", "/projects/{p}/sources/{name}/import", "source-import", bind={"source_id": "name"}, take=("url", "origin", "description"),
+           hidden=("file",)),
+    _route("POST", "/projects/{p}/sources/{name}/refresh", "source-refresh", bind={"source_id": "name"}, take=(), hidden=("file",)),
+    _route("POST", "/projects/{p}/sources/{name}/refresh/files", "source-refresh", bind={"source_id": "name"}, hidden=("file",), upload=True),
+    _route("POST", "/projects/{p}/sources/{name}/description", "source-describe", bind={"source_id": "name"}, take=("description",)),
+    _route("GET", "/projects/{p}/attachments", "attachments", take=()),
+    _route("GET", "/projects/{p}/items", "items", take=("source",)),
+    _route("POST", "/projects/{p}/attachments/{id}/add", "attachment-add", bind={"attachment_id": "id"}),
+    _route("POST", "/projects/{p}/attachments/{id}/discard", "attachment-discard", bind={"attachment_id": "id"}),
+    _route("GET", "/projects/{p}/reminders", "reminders", take=()),
+    _route("POST", "/projects/{p}/reminders", "remind"),
+    _route("POST", "/projects/{p}/reminders/{id}/forget", "reminder-forget", bind={"reminder_id": "id"}),
+    _route("POST", "/projects/{p}/reminders/{id}/restore", "reminder-restore", bind={"reminder_id": "id"}),
+    _route("POST", "/projects/{p}/events", "event-create"),
+    _route("POST", "/projects/{p}/events/change", "event-change"),
+    _route("POST", "/projects/{p}/events/cancel", "event-cancel"),
+    _route("POST", "/projects/{p}/files", "file-create", take=("account", "file_name", "content", "from_path", "folder")),      # W4a: each only prepares a card
+    _route("POST", "/projects/{p}/files/replace", "file-replace", take=("account", "file", "content", "from_path")),
+    _route("POST", "/projects/{p}/files/save", "file-save", take=("account", "attachment", "file_name", "folder")),
+    _route("POST", "/projects/{p}/files/trash", "file-trash", take=("file", "account", "folder")),      # R2-A: prepares the card of a file found by its name; a POST so that a name is never in a URL
+    _route("POST", "/projects/{p}/files/read", "file-read", take=("file", "account")),      # S8: the text of a file found by its name in the configured folders; a POST so that a name is never in a URL
+    _route("POST", "/projects/{p}/mail/send", "mail-send"),
+    _route("POST", "/projects/{p}/mail/reply", "mail-reply"),
+    _route("POST", "/projects/{p}/mail/draft", "mail-draft"),
+    _route("POST", "/projects/{p}/mail/archive", "mail-archive"),
+    _route("POST", "/projects/{p}/mail/move", "mail-move"),
+    _route("POST", "/projects/{p}/mail/mark", "mail-mark"),
+    _route("POST", "/projects/{p}/mail/trash", "mail-trash"),
     _route("POST", "/projects/{p}/dispatch", "dispatch", take=()),
     _route("GET", "/jobs/{id}", own="job"),
 )
@@ -596,7 +659,7 @@ def dispatch_loop(service: Service, every: float, stop, op: str = "dispatch") ->
             except busy:
                 continue
             except Exception as e:  # the loop survives whatever one round raises
-                text = f"{op} of {project['id']}: {type(e).__name__}: {CONTROL.sub(' ', str(e))[:300]}"
+                text = f"{op} of {project['id']}: {type(e).__name__}: {fault_text(e)}"
                 if last.get((op, project["id"])) != text:
                     service.log(text)
                 last[(op, project["id"])] = text
@@ -676,7 +739,10 @@ def _policy_refusal(service: Service, project: dict, row: dict, route: dict, par
     if row["name"] == "approve":
         args = arguments(row, route, params, given, from_query)
         go_ahead = bool(args.get("go_ahead"))
-        kind = service.ops.pending(project["path"], pending_id=args["pending_id"])["kind"]
+        decision = service.ops.pending(project["path"], pending_id=args["pending_id"])
+        kind = decision["kind"]
+        if kind == "effect" and decision.get("effect_word"):
+            kind = "effect:" + decision["effect_word"]    # POL-1: the policy covers an effect by its word
     refused = operations.refusal(row["name"], "page", found.get("channels"), kind, go_ahead)
     if refused:
         raise service.ops.OpsError(refused, 1)
@@ -693,7 +759,13 @@ def _permissions(service: Service, entry: dict):
         return None
     if not found.get("accepted"):
         return None
-    return {"channel": "page", "allowed": service.ops.operations.permissions("page", found.get("channels"))}
+    out = {"channel": "page", "allowed": service.ops.operations.permissions("page", found.get("channels"))}
+    table = service.ops.operations
+    grants = [{"channel": c, "group": g, "text": table.GRANT_TEXT.get(f"{c}:{g}", g)} for c, g in table.grants(found.get("channels"))]
+    held = {(g["channel"], g["group"]) for g in grants}
+    grants += [{"channel": "messaging", "group": g, "text": table.GRANT_TEXT.get(f"messaging:{g}", g) + " (to a listed sender whose profile lists it)"}
+               for g in dict.fromkeys(g for _, g in table.sender_grants(found.get("channels"))) if ("messaging", g) not in held]   # POL-2: a sender's profile widens too; the page names the group, never the sender
+    return {**out, "grants": grants} if grants else out     # POL-1: what the project widened (for the line the page shows); the key is there only when something is
 
 
 def _shown_commands(service: Service, project: dict, result: dict) -> dict:
@@ -949,7 +1021,7 @@ def check_projects(ops_module, projects, dispatch_every, log) -> None:
         try:
             report = ops_module.service_check(project["path"], dispatch_every=dispatch_every or 0)
         except Exception as e:  # a check that fails never stops the service
-            log(f"service check of {project['name']}: {type(e).__name__}: {CONTROL.sub(' ', str(e))[:300]}")
+            log(f"service check of {project['name']}: {type(e).__name__}: {fault_text(e)}")
             continue
         if not isinstance(report, dict):
             continue

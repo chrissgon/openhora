@@ -13,6 +13,7 @@ import { createProjectsPanel } from "./views/city-projects.js";
 import { projectsOf, readableProject } from "./views/city-projects-model.js";
 import { initMode } from "./mode.js";
 import * as model from "./model.js";
+import { grantsText } from "./permissions.js";
 import * as router from "./router.js";
 import { clearToken, getToken, setToken } from "./token.js";
 import { coalesce, createWatcher } from "./watch.js";
@@ -275,6 +276,7 @@ function render() {
       id: p.id, name: p.name, accepted: Boolean(p.config && p.config.accepted),
       badge: snapshot.details[p.id] && snapshot.details[p.id].status ? (snapshot.details[p.id].status.pending || []).length : (p.open_pending || 0),
       sub: model.projectSub(snapshot, p.id),
+      grants: grantsText(p),      // POL-1: one line of what the project's configuration widens, no control (changed in the terminal)
     })),
     selectedId: chosen,
     heading: route.screen === "city" ? "Projects · choose the one the tracking bar follows" : "Projects · open the same screen in",

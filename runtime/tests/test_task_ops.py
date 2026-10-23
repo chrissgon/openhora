@@ -281,7 +281,7 @@ def test_the_configuration_is_read_with_its_hash_and_unknown_keys_are_ignored(tm
     project = tmp_path / "project"
     (project / "docs" / "workbench").mkdir(parents=True)
     text = json.dumps({"workbench": str(tmp_path / "wb"), "data_dir": str(tmp_path / "data"), "store_db": str(tmp_path / "s.sqlite"),
-                       "agent": "social-manager", "area_agents": {}})
+                       "sources_dir": str(tmp_path / "sources"), "agent": "social-manager", "area_agents": {}})
     (project / "docs" / "workbench" / "runtime.json").write_text(text)
     cfg = ops.project_config.load(str(project))
     assert cfg["sha256"] == hashlib.sha256(text.encode()).hexdigest() and cfg["raw"]["agent"] == "social-manager"
@@ -475,8 +475,8 @@ def test_the_config_operation_reports_the_hash_and_whether_it_was_accepted_and_n
     digest = ops.project_config.load(path)["sha256"]
     before = ops.config(path)
     assert before == {"path": os.path.join(path, "docs", "workbench", "runtime.json"), "sha256": digest, "accepted": False,
-                      "data_dir": str(built["data"]), "messaging": {"senders": {}, "notices": "text", "page_url": None},
-                      "channels": {}}
+                      "data_dir": str(built["data"]), "messaging": {"senders": {}, "sender_profiles": {}, "notices": "text", "page_url": None},
+                      "channels": {}, "policies": {}, "channel_profiles": {}, "language": None, "grants": [], "widening": [], "widening_sha256": None, "warnings": []}   # POL-1: the answer also carries the grants of the file, what they widen, its hash and the warnings
     with pytest.raises(ops.OpsError) as refused:
         ops.pending(path)
     assert refused.value.code == 3

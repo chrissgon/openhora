@@ -23,7 +23,15 @@ Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt):
   whoami [--seconds 120]              print, in the terminal, the phone digits and the business-scoped user id of whoever
                                       writes to the number meanwhile; refuses while a bridge runs
   listen --platform whatsapp-twilio   the long-lived verb (the protocol of providers/messenger/README.md)
-  receive, send, ack                  exit 2: whatsapp-twilio works only in listen mode
+  receive, send, ack, fetch-attachment
+                                      exit 2: whatsapp-twilio works only in listen mode (a file a sender sent is fetched by the
+                                      listen op `fetch` of the protocol, never by a one-shot verb)
+
+Files a sender sends (ATT-3): `NumMedia`, `MediaUrlN` and `MediaContentTypeN` become an update with `attachments` (ref = `<MM...>:<ME...>`, parsed
+from the address by a full-match pattern for this account; no name, no size; the body is the caption). The op `fetch` rebuilds the address from
+the two ids and the settings' account, requests it with the Restricted API key (HTTP-Basic) at api.twilio.com only, follows one redirect and only
+to Twilio's media host (MEDIA_HOSTS, an exact list) with the key left out, counts the bytes while they stream and writes `<out>/content` (O_EXCL,
+O_NOFOLLOW, 0600). The Restricted API key must be allowed to read media (contracts/secrets.md).
 
 Secrets (read only through providers/secrets/resolver.py, never in an argument, a log, an output or an exception):
   MESSENGER_WHATSAPP_TWILIO_API_KEY_SID     the SID of a Restricted API key (store username messenger-whatsapp-twilio-api-key-sid)
@@ -53,6 +61,7 @@ import base64
 import collections
 import hashlib
 import hmac
+import http.client
 import importlib.util
 import json
 import os
@@ -119,6 +128,12 @@ TWILIO_TIMEOUT = 10.0
 SENT_KEEP = 2 * 86400
 CODE_WINDOW, CODE_RATE, CODE_CREDENTIALS, CODE_VARIABLES = 63016, 63018, 20003, 21656
 NOT_LISTEN = "whatsapp-twilio works only in listen mode"
+MEDIA_HOSTS = ("media.twiliocdn.com", "mms.twiliocdn.com")   # Twilio's media hosts, an exact list (never a suffix); the redirect of the API goes here, without the key
+MEDIA_URL = re.compile(r"https://api\.twilio\.com/2010-04-01/Accounts/(AC[0-9a-f]{32})/Messages/(MM[0-9a-f]{32})/Media/(ME[0-9a-f]{32})")
+MEDIA_REF = re.compile(r"(MM[0-9a-f]{32}):(ME[0-9a-f]{32})")      # the ref of an attachment: <message SID>:<media SID>
+MEDIA_MAX_COUNT = 10                             # NumMedia over this drops the message
+REDIRECTS = (301, 302, 303, 307, 308)
+CODE_NOT_ALLOWED = 20403                          # the key is not allowed to read what it asked for
 meta.KNOWN_LABELS.update((SECRET_KEY_SID, SECRET_KEY_SECRET, SECRET_AUTH, *KEYRING_USERNAMES.values()))   # not secrets: they tell the person what to store
 CUT_LIMIT = TEXT_LIMIT
 
@@ -206,7 +221,8 @@ def capabilities(settings=None) -> dict:
     folds the actions into typed commands. The provider splits nothing: the bridge cuts a card to max_text and splits replies."""
     on = bool(settings and settings.get("buttons"))
     return {"max_text": TEXT_LIMIT, "buttons": on, "max_buttons": 3 if on else 0, "max_button_label": 20 if on else 0,
-            "lists": False, "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": False, "listen": True}
+            "lists": False, "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": False, "listen": True,
+            "attachments": True, "max_attachment_bytes": 16777216}     # 16 MiB: what Twilio's WhatsApp media allows for one file (to confirm in the live test)
 
 
 def saved_settings():
@@ -285,18 +301,105 @@ class RefuseRedirect(urllib.request.HTTPRedirectHandler):
 OPENER = urllib.request.build_opener(RefuseRedirect)
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow no redirect: urllib then raises the HTTPError of the 3xx answer, with its Location header, for the caller to check against the list of
+    media hosts (the one redirect a media fetch follows is followed by the caller, with the key left out)."""
+
+    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+        return None
+
+
+MEDIA_OPENER = urllib.request.build_opener(NoRedirect)
+
+
 class Twilio:
     """The Messages API with the standard library, as the Restricted API key. Every failure is a TwilioError built from numbers."""
 
-    def __init__(self, key_sid: str, key_secret: str, account_sid: str, opener=None, base: str = API_BASE):
+    def __init__(self, key_sid: str, key_secret: str, account_sid: str, opener=None, base: str = API_BASE, media_opener=None):
         self.key_sid, self.key_secret, self.account, self.opener, self.base = key_sid, key_secret, account_sid, opener or OPENER, base
+        self.media_opener = media_opener or MEDIA_OPENER
+
+    def basic(self) -> str:
+        return "Basic " + base64.b64encode(f"{self.key_sid}:{self.key_secret}".encode("utf-8")).decode("ascii")
+
+    def fetch_media(self, ref, out_dir, max_bytes: int) -> dict:
+        """Fetch the medium `ref` (`<MM...>:<ME...>`) into `<out_dir>/content`, at most `max_bytes`: {"bytes", "sha256"}. The address is rebuilt from the
+        two ids, this account and the fixed base, and requested with the key (HTTP Basic). Twilio answers with a redirect to its media host: one is
+        followed, only to MEDIA_HOSTS and with the key left out; any other redirect, or a second, is refused. A medium Twilio no longer has is a
+        ProviderError of kind `gone`."""
+        found = MEDIA_REF.fullmatch(ref) if isinstance(ref, str) else None
+        if found is None:
+            raise ProviderError("the reference is not the pair of a Twilio message SID and media SID", EXIT_USAGE, "usage")
+        end = time.monotonic() + FETCH_DEADLINE
+        url = f"{self.base}/Accounts/{self.account}/Messages/{found.group(1)}/Media/{found.group(2)}"
+        try:
+            try:
+                response = self.media_opener.open(self.media_request(url, {"Authorization": self.basic()}), timeout=FETCH_CONNECT)
+            except urllib.error.HTTPError as e:
+                if e.code not in REDIRECTS:
+                    raise
+                location = e.headers.get("Location") if e.headers is not None and hasattr(e.headers, "get") else None
+                e.close()
+                target = url_on_hosts(location, MEDIA_HOSTS)
+                if target is None:
+                    raise ProviderError("Twilio redirected the medium to a host that is not its media host", EXIT_SERVICE, "failed") from None
+                return self.stream_from(target, out_dir, max_bytes, end)
+            with response:
+                return save_stream(response, out_dir, max_bytes, None, end)
+        except ProviderError:
+            raise
+        except urllib.error.HTTPError as e:
+            raise self.status_error(e, first=True) from None
+        except urllib.error.URLError as e:
+            raise TwilioError(0, None, f"Twilio could not be reached ({type(getattr(e, 'reason', e)).__name__})") from None
+        except (OSError, ValueError, http.client.HTTPException) as e:
+            raise TwilioError(0, None, f"the call to Twilio failed ({type(e).__name__})") from None
+
+    @staticmethod
+    def media_request(url: str, headers: dict):
+        return urllib.request.Request(url, method="GET", headers={"Accept": "*/*", **headers})
+
+    def stream_from(self, url: str, out_dir, max_bytes: int, end: float) -> dict:
+        """The second request of a media fetch: the redirect's target, with no credential, no redirect followed."""
+        try:
+            with self.media_opener.open(self.media_request(url, {}), timeout=FETCH_CONNECT) as response:
+                return save_stream(response, out_dir, max_bytes, None, end)
+        except ProviderError:
+            raise
+        except urllib.error.HTTPError as e:
+            raise self.status_error(e, first=False) from None
+        except urllib.error.URLError as e:
+            raise ProviderError(f"Twilio's media host could not be reached ({type(getattr(e, 'reason', e)).__name__})", EXIT_SERVICE, "failed") from None
+        except (OSError, ValueError, http.client.HTTPException) as e:
+            raise ProviderError(f"the call to Twilio's media host failed ({type(e).__name__})", EXIT_SERVICE, "failed") from None
+
+    @staticmethod
+    def status_error(e, first: bool):
+        """The error for an HTTP error answer of a media fetch, from numbers only. 404 and 410 are a medium Twilio no longer serves."""
+        status = e.code
+        code = None
+        if first:
+            try:
+                parsed = json.loads(e.read(65536).decode("utf-8"))
+                found = parsed.get("code") if isinstance(parsed, dict) else None
+                code = found if type(found) is int else None
+            except Exception:  # an unreadable body is only a missing code
+                pass
+        e.close()
+        if status in (404, 410):
+            return ProviderError("Twilio no longer serves that file", EXIT_SERVICE, "gone")
+        if not first:
+            return ProviderError(f"Twilio's media host answered {status}", EXIT_SERVICE, "failed")
+        if status in (401, 403) or code in (CODE_NOT_ALLOWED, CODE_CREDENTIALS):
+            # a failure of this fetch, not a stop of the provider: a key that was really revoked is caught by the next send
+            return ProviderError(f"Twilio answered {status}: the API key may lack the permission to read media", EXIT_SERVICE, "failed")
+        return TwilioError(status, code)
 
     def post_message(self, fields: dict) -> str:
         """POST a form to Messages.json; the SID of the message Twilio accepted."""
-        token = base64.b64encode(f"{self.key_sid}:{self.key_secret}".encode("utf-8")).decode("ascii")
         request = urllib.request.Request(
             f"{self.base}/Accounts/{self.account}/Messages.json", data=urllib.parse.urlencode(fields).encode("utf-8"), method="POST",
-            headers={"Authorization": f"Basic {token}", "Accept": "application/json",
+            headers={"Authorization": self.basic(), "Accept": "application/json",
                      "Content-Type": "application/x-www-form-urlencoded"})
         try:
             with self.opener.open(request, timeout=TWILIO_TIMEOUT) as response:
@@ -314,7 +417,7 @@ class Twilio:
             raise
         except urllib.error.URLError as e:
             raise TwilioError(0, None, f"Twilio could not be reached ({type(getattr(e, 'reason', e)).__name__})") from None
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError, http.client.HTTPException) as e:
             raise TwilioError(0, None, f"the call to Twilio failed ({type(e).__name__})") from None
         try:
             parsed = json.loads(answer.decode("utf-8")) if answer else {}
@@ -592,9 +695,16 @@ class Webhook(meta.HookBase):
         sid = fields.get("MessageSid")
         if not isinstance(sid, str) or not MESSAGE_SID.fullmatch(sid) or self.store.is_seen(sid):
             return
-        text = action = reply_to = None
+        text = action = reply_to = attachments = None
         payload = fields.get("ButtonPayload")
-        if payload:
+        if not payload and not fields.get("ButtonText") and self.media_count(fields):
+            attachments = self.media_of(fields)
+            if attachments is None:
+                self.note("media", "webhook: a message with media this provider could not read was ignored")
+                return
+            body = fields.get("Body")
+            text = body if isinstance(body, str) and body.strip() else None      # the caption; the bridge reads only an exact @<id> of it
+        elif payload:
             # a tap: only the action (or the template's "See decisions" as /pending); Twilio also puts the title in Body, never read
             if payload == self.settings["template_button_id"]:
                 text = "/pending"
@@ -614,9 +724,38 @@ class Webhook(meta.HookBase):
         if text != "/pending" and isinstance(replied, str) and MESSAGE_SID.fullmatch(replied):
             reply_to = self.alias(replied)
         self.store.note_inbound(chat, self.clock())      # Twilio sends no message time: the time of receipt (before the update, so the reply finds the window open)
-        self.emit({"update_id": sid, "sender": chat, "chat": chat, "private": True, "text": text, "action": action,
-                   "action_ref": None, "reply_to": reply_to}, uid)
+        update = {"update_id": sid, "sender": chat, "chat": chat, "private": True, "text": text, "action": action,
+                  "action_ref": None, "reply_to": reply_to}
+        if attachments:
+            update["attachments"] = attachments
+        if action is None and meta.forwarded_field(fields):
+            update["forwarded"] = True      # the key is there only for a forward (providers/messenger/README.md); a tap is never one
+        self.emit(update, uid)
         self.store.mark_seen(sid)
+
+    @staticmethod
+    def media_count(fields) -> int:
+        """NumMedia as a number: 0 when it is absent or not a plain number (the message is then read as it always was, by its Body)."""
+        value = fields.get("NumMedia")
+        return int(value) if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= 4 else 0
+
+    def media_of(self, fields):
+        """The attachments of a message with media, or None when any of them cannot be read: the whole message is then dropped, since an update that
+        showed only some of the files would hide the rest. Each address must be exactly Twilio's media address for this account (MEDIA_URL); the
+        ref is the message SID and the media SID in it; there is no name and no size; the type is the declared content type, mapped for the kinds
+        the bridge refuses before it downloads."""
+        count = self.media_count(fields)
+        if not 1 <= count <= MEDIA_MAX_COUNT:
+            return None
+        found = []
+        for n in range(count):
+            url = fields.get(f"MediaUrl{n}")
+            parts = MEDIA_URL.fullmatch(url) if isinstance(url, str) else None
+            if parts is None or parts.group(1) != self.settings["account_sid"] or parts.group(2) != fields.get("MessageSid"):
+                return None      # the address must be of this account and of this very message
+            found.append({"ref": f"{parts.group(2)}:{parts.group(3)}", "name": None, "size": None,
+                          "type": type_for_mime(fields.get(f"MediaContentType{n}"))})
+        return found
 
 
 class Fields:
@@ -644,6 +783,7 @@ class Listener(meta.Listener):
     refused_reason = "Twilio refused the API key"
     refused_fatal = "Twilio refused the API key: check the key, its permissions and the account, then store it again"
     rate_codes = (CODE_RATE,)
+    can_fetch = True
 
     def __init__(self, settings: dict, secrets: dict, store, *, api=None, **options):
         super().__init__(settings, secrets, store, max_body=MAX_FORM_BODY, **options)
@@ -652,6 +792,9 @@ class Listener(meta.Listener):
 
     def check(self, message) -> dict:
         return check_message(message, self.settings)
+
+    def fetch(self, ref, out_dir, max_bytes: int) -> dict:
+        return self.api.fetch_media(ref, out_dir, max_bytes)
 
     def make_hook(self):
         return Webhook(self.settings, self.secrets, self.store, self.emit, late=lambda sid: self.requests.put(("late", sid)),
@@ -814,10 +957,10 @@ def build_parser() -> argparse.ArgumentParser:
     who = sub.add_parser("whoami")
     who.add_argument("--seconds", type=int, default=120)
     who.set_defaults(func=cmd_whoami)
-    for name in ("receive", "send", "ack"):
+    for name in ("receive", "send", "ack", "fetch-attachment"):
         one = sub.add_parser(name)
         one.set_defaults(func=cmd_one_shot)
-        for flag in ("--offset", "--timeout", "--chat", "--message-file", "--action-ref"):
+        for flag in ("--offset", "--timeout", "--chat", "--message-file", "--action-ref", "--ref", "--out", "--max-bytes"):
             one.add_argument(flag)
     for parser in sub.choices.values():
         parser.add_argument("--platform", default="whatsapp-twilio", choices=PLATFORMS)

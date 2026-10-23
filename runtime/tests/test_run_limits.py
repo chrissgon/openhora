@@ -296,7 +296,7 @@ def test_limit_07_the_destination_of_each_returned_file_comes_from_the_path_rule
     created = [rel for rel in left if rel != "docs/workbench/state.md"]
     result = finished(tree, left, created=created, modified=["docs/workbench/state.md"])
     base = base_of(tree, *left)
-    returned, kept, _ = workcopy.returning(str(project), result, base, state, "demo-writes")
+    returned, kept, _ = workcopy.returning(str(project), result, base, state, "demo-writes", cfg={})
     assert returned == [{"path": ".workbench-local/notes/run.json", "class": "machine"},
                         {"path": "docs/business/icp.lint.json", "class": "machine"},
                         {"path": "docs/business/icp.md", "class": "document"},
@@ -310,7 +310,7 @@ def test_limit_07_the_destination_of_each_returned_file_comes_from_the_path_rule
     (project / "docs" / "workbench" / "state.md").write_text(state, encoding="utf-8")
     bound = manifest.bound_among(known, created)
     assert bound == ["docs/business/icp.md"]
-    returned, _, _ = workcopy.returning(str(project), result, base, state, "demo-writes", bound=bound)
+    returned, _, _ = workcopy.returning(str(project), result, base, state, "demo-writes", bound=bound, cfg={})
     assert {"path": "docs/business/icp.md", "class": "machine"} in returned
 
 
@@ -323,7 +323,7 @@ def test_limit_08_only_a_regular_file_with_its_real_path_inside_the_copy_comes_b
     os.symlink(outside, cwd / "docs" / "business" / "out.md")
     os.symlink(cwd / "docs" / "business" / "real.md", cwd / "docs" / "business" / "in.md")
     result["changes"]["created"] = ["docs/business/in.md", "docs/business/out.md"]
-    returned, kept, _ = workcopy.returning(str(project), result, {}, None, "demo-writes")
+    returned, kept, _ = workcopy.returning(str(project), result, {}, None, "demo-writes", cfg={})
     assert returned == []
     assert {item["path"]: item["reason"] for item in kept} == {
         "docs/business/in.md": "not a regular file inside the copy",
@@ -383,7 +383,7 @@ def test_limit_12_what_comes_back_never_overwrites_what_changed_at_the_origin(tr
             "docs/business/new.md": "by the run\n"}
     result = finished(tree, left, created=["docs/business/new.md"],
                       modified=["docs/business/changed.md", "docs/business/same.md"])
-    returned, kept, _ = workcopy.returning(str(project), result, base, None, "demo-writes")
+    returned, kept, _ = workcopy.returning(str(project), result, base, None, "demo-writes", cfg={})
     assert returned == [{"path": "docs/business/same.md", "class": "document"}]
     reason = "the project's file changed while the run was in progress"
     assert {item["path"]: item["reason"] for item in kept} == {"docs/business/changed.md": reason,
@@ -430,7 +430,7 @@ def test_limit_18_a_document_bound_to_an_approval_by_hash_is_a_machine_file(tree
     bound = manifest.bound_among(manifest.load(str(tree["tree"]), "demo-writes"), [rel])
     assert bound == [rel]
     # It comes back as a machine file, stays one when the project versions it, and is never mirrored as a document.
-    returned, kept, _ = workcopy.returning(str(project), result, base_of(tree, rel), None, "demo-writes", bound=bound)
+    returned, kept, _ = workcopy.returning(str(project), result, base_of(tree, rel), None, "demo-writes", bound=bound, cfg={})
     assert returned == [{"path": rel, "class": "machine"}] and kept == []
     assert path_rule.classify(rel, {"bound": bound, "versioned": [rel]}) == "machine"
     assert documents.entry_for(str(tree["tree"]), rel) is None
@@ -473,7 +473,7 @@ def test_nothing_is_deleted_in_the_project_because_a_run_deleted_it(tree):
     project = tree["project"]
     write(project, "docs/business/old.md", "kept\n")
     result = finished(tree, {}, deleted=["docs/business/old.md"])
-    returned, kept, _ = workcopy.returning(str(project), result, base_of(tree, "docs/business/old.md"), None, "demo-writes")
+    returned, kept, _ = workcopy.returning(str(project), result, base_of(tree, "docs/business/old.md"), None, "demo-writes", cfg={})
     assert returned == [] and kept == [{"path": "docs/business/old.md", "class": "document",
                                         "reason": "the run deleted it; the project's file is left as it is"}]
     assert (project / "docs" / "business" / "old.md").read_text() == "kept\n"
@@ -515,7 +515,7 @@ def test_every_limit_built_so_far_has_a_test_named_after_it():
     # test named after it is defined once in the runtime's and the store's tests, and every such test is one its row names
     # (L15 has two: the exact content, and a class of targets resolved from a recorded fact).
     rows = limits_table()
-    assert sorted(rows) == list(range(1, 21))
+    assert sorted(rows) == list(range(1, 55)) + [55, 56, 57, 58, 59, 60, 61, 62, 63, 64]   # L64: a word decides a decision card only as its button would and only when every condition holds (S2), test_messaging_card_words.py;   # L60: an e-mail from the person's own account goes only to the recipients of the approved document, and a reply only to the sender of the message answered (W2), test_send_own_account.py; L56: a change only to the item as it was read (W1), test_calendar_write.py and test_files_write.py; L55, L57 and L58: the writes to the person's own accounts (FND), test_account_start.py, test_project_accounts.py and test_limits_account_writes.py; L52 and L53: a mail or calendar source is read only by its snapshot, and a snapshot over 26 hours old is never given to a task that starts on its own (RT-1), test_sources_mail.py; L51: a reminder is a notice to the sender who set it and never an effect (RM-1), test_messaging_reminders.py; L49 and L50: the answer from sources (AQ-1); L47: a file a messaging app brought is fetched only by the reference the provider handed over, into the bridge's folder, after the sender's policy took files (ATT-1b), test_messaging_attach.py; L48: a file a messaging app brought is held in the data folder and nowhere else, and the sender's id is in the store alone (ATT-1), test_attachments.py; L47 is the fetch of such a file (ATT-1b); L46: an act from a messaging app is checked against the profile of the sender who acted, when they act, in the chat of its card (POL-2), test_sender_profiles_bridge.py; L45: an e-mail update is served only after the receiving server's own authentication, and an e-mail action only in reply to its card (EMAIL-CHANNEL), test_channel_email_reply.py; L44: an effect is approved off the terminal and the page only for a granted word, from a whole card and with its own hash (POL-1), test_channel_grants.py; L34 to L38: a project script (P9), test_script_limits.py; L41: a cancel and a stop (CANCEL-BOARD), test_cancel_running.py; L43: a post is published only with the approval of its exact text's hash, once, under the publishing skill's key (PUBLISH-EFFECT), test_publish_post.py; L42: an e-mail is sent only to the recipients of the document approved by its hash (EMAIL-SEND), test_send_email.py; L40: the person's standing instructions are written only by the person (INSTRUCTIONS), test_instructions.py; L39: a password manager's tool never in a run (S16), test_password_manager_limit.py; L21 to L27: the guardrails of the sources folder (P4), tested in test_sources_limits.py; L28 and L29: the lease and upkeep (P-OPS), test_lease.py and test_upkeep.py; L30 to L32: the outputs (P8); L33: a routine with a networked script or under a standing policy is made only in the terminal or on the page (P6b), test_routines_limit.py   # and L59: the account token stays in provider processes (ACCT-G, ACCT-M), test_account_token_limit.py
     defined = {}
     for test_file in sorted((st.REPO / "runtime" / "tests").glob("test_*.py")) + sorted(
             (st.REPO / "providers" / "store" / "tests").glob("test_*.py")):
@@ -534,7 +534,7 @@ def test_every_limit_built_so_far_has_a_test_named_after_it():
     numbered = {n for n in defined if n.startswith("test_limit_")}
     assert numbered == {name for names in named.values() for name in names} and all(len(defined[n]) == 1 for n in numbered)
     # Every limit is built; L20 alone has no test named after it: the project's protected paths guard it.
-    assert sorted(named) == list(range(1, 20))
+    assert sorted(named) == list(range(1, 20)) + list(range(21, 55)) + [55, 56, 57, 58, 59, 60, 61, 62, 63, 64]
 
 
 def test_the_prepared_folder_of_a_run_is_removed_after_it(tree):

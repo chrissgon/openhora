@@ -1,0 +1,26 @@
+{
+ "epochs": [
+  {
+   "catalog_sha256": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d",
+   "date": "2026-10-20",
+   "state": "retired"
+  },
+  {
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "date": "2026-10-21",
+   "state": "retired"
+  },
+  {
+   "catalog_sha256": "fd05b3d27bf994935dae860053652fdeeae10a90e23bb1bc75aa8c29081eedc7",
+   "date": "2026-10-22",
+   "state": "retired"
+  },
+  {
+   "catalog_sha256": "90877edd84f53f4c91ce546a94e96bd42ddfeb7959c075d75d216c44a665a212",
+   "date": "2026-10-22",
+   "state": "served"
+  }
+ ],
+ "served": "90877edd84f53f4c91ce546a94e96bd42ddfeb7959c075d75d216c44a665a212",
+ "v": 1
+}

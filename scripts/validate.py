@@ -2,6 +2,7 @@
 """Validate openhora conventions.
 
 Usage: python3 scripts/validate.py [--strict] [--json] [--spec] [--flags]
+       python3 scripts/validate.py --foreign <folder of a skill from outside> [--strict] [--json]
 
 Checks every skill under skills/ and every agent under agents/:
   - folder name equals frontmatter name; name is lowercase, hyphenated, no leading/trailing/double hyphen
@@ -11,9 +12,9 @@ Checks every skill under skills/ and every agent under agents/:
   - SKILL.md is at most 500 lines
   - harness-name: no text file of the core (packs/ included), whatever its extension, names a harness: its
     name in any spelling (capitalised, lower-case, with a hyphen or an underscore), its folders, its
-    environment variables, its tool names, or a path inside an adapter. Exempt: skills/*/evals/result.json and
-    everything under skills/*/evals/evidence/ (a record and an evidence line name their adapter by design);
-    the values of `workbench_files` in a case file; the placeholder form adapters/<harness>/. The fixtures of
+    environment variables, its tool names, or a path inside an adapter. Exempt: everything under
+    skills/*/evals/evidence/ (an evidence line names its adapter by design); the values of `workbench_files`
+    in a case file; the placeholder form adapters/<harness>/. The fixtures of
     eval cases, and a file listed in .security-scan-allow with the rule harness-name, are read for the
     harness names and folders only (the rule as it was before it was widened)
   - a skill's frontmatter has only the top-level keys name, description, license and metadata
@@ -42,15 +43,19 @@ Checks every skill under skills/ and every agent under agents/:
   - eval-status (through evals/eval_status.py): evals/eval-gate.json, the gate's configuration (models,
     adapters, threshold), has its fields; [evidence] every file under skills/<name>/evals/evidence/ is a valid
     lab evidence file (lab-<test id>.jsonl) or contributed field evidence file (field-<id>.jsonl), every line
-    of its closed form (python3 evals/eval_status.py evidence); [snapshot] the two tables between the
+    of its closed form (python3 evals/eval_status.py evidence), and none carries `imported` on its event line (the marker of
+    a skill from outside, whose evidence stays on the person's machine and never enters the repository); [snapshot] the two tables between the
     eval-status markers in docs/inventory.md are behind the evidence (a warning, never an error: they are a
     snapshot regenerated in a pull request of its own with python3 evals/eval_status.py inventory --write); [band]
     the skills in `needs a test` and in `watch` (the reliability model, section 5), one warning line per band
     with each skill's cause, never an error (they are errors only with --strict). The records of the first
-    round, result.json, are history and are not read
+    round, result.json, were removed on 2026-10-15; one added back is an error ([result-json]: a removed
+    first-round record that nothing reads), and is read like any other file of the eval folder
   - the version rules of the reliability model's section 3 (evals/eval_status.py, version_findings), against
-    the base of the pull request: WB_BASE_REF when set (CI sets the pull request's base), else the merge base
-    of HEAD with the default branch, in the hook and in CI alike. [version-file] skills/<name>/evals/
+    the base of the pull request, the one resolver of evals/eval_status.py (resolve_base): WB_BASE_REF when set (CI
+    sets the pull request's base), else the key workbench.baseRef set for one worktree (git config --worktree), else the branch's upstream
+    (unless it is the branch itself or its own pushed copy), else the merge base of HEAD with the default branch; the base used is printed as a NOTE.
+    The same in the hook and in CI alike. [version-file] skills/<name>/evals/
     versions.jsonl has lines of the closed form, is append-only against the base and gains at most one line;
     [version-class] the class of the added line agrees with the diff (X for side_effects, an output or update
     removed, the Confirmation gate or Stop rules section, the external-content line; Z only inside the
@@ -102,13 +107,22 @@ closed it, C0.10 of the plan in force):
     computed); [flow-inventory] the Phases cell of the row flow-<name> under the heading "Flows (`flow-`)" of
     docs/inventory.md, split on the arrow and without " (optional)", lists the file's skills in order, each
     without its first prefix (a flow file with no row is not an error)
+  - [agent-skill] every skill an agent cites exists. Read: each name in `metadata.skills` of agents/<name>.md, a
+    list on one line or a block list, which must be a folder of skills/ that holds a SKILL.md (the runtime stages each
+    entry as a skill folder, so a flow file is no entry); and each backticked name with an area prefix in the body,
+    outside code fences, which must be such a folder or the bare name of a flow file of flows/ (`flow-<name>` is no
+    alias of a flow file). Not read: a citation followed by "(planned)", a line carrying `validate: allow agent-skill
+    -- <reason>`, the `description` of the frontmatter, a name not in backticks, a path, `/name`. One finding per
+    citation, with the agent, the line and the name
   - [requires-role] every metadata.requires value has the form <role>:<target>; the four names that were
     bare (mailbox, mailer, scheduler, store) are reported with the class each became
   - [requires-vocabulary] every metadata.requires value that has a role is a class of the table in
     contracts/environment.md (a class the table writes with a placeholder, publisher:<platform>, is legal as
     written or with a value)
   - [side-effects-vocabulary] every metadata.side_effects value is one of publish, send, schedule, deploy,
-    create, push, dismiss
+    create, push, dismiss; the words the runtime's own effect kinds arrived with (RUNTIME_ONLY_EFFECTS: write,
+    calendar, mailbox, files) are in the list the contract names and are NOT a skill's: a skill that declares one is
+    an error (no skill declares them, no skill's gate opens them)
 
 Rules reported as warnings, one line per skill and rule, each starting with the rule's name in brackets.
 They say what a skill or its cases still have to change; none reads a skill's score or band:
@@ -136,6 +150,14 @@ They say what a skill or its cases still have to change; none reads a skill's sc
   - [eval-product-names] no eval case and no fixture names an AI product or a design tool
   - [skill-name] a backticked skill name in a skill's Markdown (outside evals/) is a built skill, or its line
     says "planned", or carries `validate: allow skill-name -- <reason>` (an invented example)
+  - [capability-invokes] a capability (kind capability, not core-orchestrator) does not invoke another skill:
+    its SKILL.md has no sentence "run|invoke|call|use|execute [the] skill `<name>`" or "... [the] `<name>` skill",
+    "invoke `<name>`", "ask the skill `<name>` to", "`/<name>`" or "hand it|the request|the task over to `<name>`"
+    where <name> is another built skill. Not read: the frontmatter, code fences, table rows, the ## Gotchas section, a
+    line carrying `validate: allow capability-invokes -- <reason>`, and a sentence that addresses the user: "tell|ask|
+    recommend|suggest (that|to) the user|person" with no comma before the invocation, "the reply says|names|tells|asks",
+    a "Next:" or "Recommended:" line. A bare "user", "person", "next" or "say" does not exempt a sentence. Citing a
+    skill as the owner of an artifact or as the one to run first is not an invocation
   - [routing-table] every built skill is in skills/core-orchestrator/references/routing.md, and a name in
     that table is built or marked (planned), never both
   - [test-file-names] test file names are unique across the folders scripts/test_dirs.py lists
@@ -146,12 +168,24 @@ A rule whose file is not in the tree being validated (the class table, the layou
 script, the architecture-tables script or the pages, the manifest of copies and its script, the routing table, test_dirs.py) is
 skipped and says so in a NOTE line on stderr, which counts as neither an error nor a warning.
 
+--foreign <folder> checks one skill from outside the repository (scripts/skill_import.py check runs it), in the folder
+<home>/<name>, and nothing else: the per-skill checks of the list above (frontmatter keys, name, prefix and area, kind,
+description length, 500 lines, the Confirmation gate heading when side_effects is non-empty, placeholders, relative links);
+the case findings of evals/evals.json (the rules of the list above; [guard-effect], an assertion tagged guard:<effect> for
+each declared effect, is an error, and [guard-missing], a guard assertion when the skill has stop rules, a gate or the
+external-content line, a warning); [version-file], the content hash of the folder equal to the last line of
+evals/versions.jsonl (an error); and, as warnings, [harness-name] (a skill that names a harness is bound to that tool, which
+the report says) and [english-only], and [owner-clash] for a path of its outputs or updates that a skill of the
+workbench owns (one owner per artifact: a warning here, where the repository's own rule [contract-owner] is an error). Skipped, and listed in the output's "skipped": the artifact contract against the
+table of owning skills, the class checks against a base commit, the copies, the inventory, the private terms and the
+routing table. The normal run, with no --foreign, is unchanged. Nothing of the folder is executed or imported: it is read.
+
 Options:
   --strict   treat warnings as errors
   --json     print a JSON report to stdout (human-readable lines go to stderr either way)
   --spec     also run `skills-ref validate` on each skill if the tool is installed
-  --flags    print as Markdown, instead of the summary, the skills each named warning rule lists (the
-             content of docs/architecture/phase-c-flags.md)
+  --flags    print as Markdown, instead of the summary, the skills each named warning rule lists, one row
+             per rule
   --help     show this text
 
 Exit codes: 0 ok, 1 errors found, 2 usage error.
@@ -197,7 +231,9 @@ LAYOUT = "contracts/project-layout.md"
 SLOTS_HEADING = "Slots no built skill writes"
 PLACEHOLDER_RE = re.compile(r"<[^<>]*>")
 PATH_OK_RE = re.compile(r"^[A-Za-z0-9._/<>-]+$")  # no *, {}, # (a section of a file) or space
-SIDE_EFFECTS = ("publish", "send", "schedule", "deploy", "create", "push", "dismiss")  # contracts/environment.md
+SIDE_EFFECTS = ("publish", "send", "schedule", "deploy", "create", "push", "dismiss", "write", "calendar", "mailbox", "files")  # contracts/environment.md
+RUNTIME_ONLY_EFFECTS = ("write", "calendar", "mailbox", "files")      # arrived with the runtime's own effect kinds, not with a skill: no skill declares them
+SKILL_EFFECTS = tuple(w for w in SIDE_EFFECTS if w not in RUNTIME_ONLY_EFFECTS)      # the words a skill's metadata.side_effects may hold
 # The four classes that were bare names (decision 14a). providers/resolve.py still reads the old names; a
 # skill's requires does not use them.
 RENAMED_CLASSES = {"mailer": "sender:email", "mailbox": "reader:email", "scheduler": "scheduler:job",
@@ -220,6 +256,27 @@ VISIBLE_RE = re.compile(r"quot|output|print|report", re.I)
 _PREFIXES = "|".join(PREFIX_TO_AREA)
 SKILL_NAME_RE = re.compile(r"`((?:" + _PREFIXES + r")-[a-z0-9]+(?:-[a-z0-9]+)*)`")
 SKILL_NAME_ALLOW_RE = re.compile(r"validate:\s*allow\s+skill-name\s+--\s+\S")
+AGENT_SKILL_ALLOW_RE = re.compile(r"validate:\s*allow\s+agent-skill\s+--\s+\S")
+INVOKES_ALLOW_RE = re.compile(r"validate:\s*allow\s+capability-invokes\s+--\s+\S")
+# The sentences that invoke a skill (narrow on purpose: citing a skill as the owner of an artifact or as the one to run
+# first is not one). Group 1 is the name.
+_VERBS = r"(?:run|runs|invoke|invokes|call|calls|use|uses|execute|executes)"
+INVOKE_RES = (
+    re.compile(r"\b" + _VERBS + r"\s+(?:the\s+|this\s+|that\s+)?skill\s+`([a-z0-9-]+)`", re.I),
+    re.compile(r"\b" + _VERBS + r"\s+(?:the\s+|this\s+|that\s+)?`([a-z0-9-]+)`\s+skill\b(?!['\u2019])", re.I),
+    re.compile(r"\binvokes?\s+`([a-z0-9-]+)`", re.I),
+    re.compile(r"\bask(?:s)?\s+(?:the\s+)?skill\s+`([a-z0-9-]+)`\s+to\b", re.I),
+    re.compile(r"`/([a-z0-9-]+)`"),
+    re.compile(r"\bhand(?:s|ing)?\s+(?:it|the\s+request|the\s+task|this)\s+(?:over\s+)?to\s+`([a-z0-9-]+)`", re.I),
+)
+# Phrases that truly address the user, searched in the text of the sentence before the match: "tell|ask|recommend|suggest
+# (that|to) the user|person" with no comma between it and the match, "the reply says|names|tells|asks", and a "Next:" or
+# "Recommended:" template line. A bare "user", "person", "next" or "say" does not address the user: "When the user approves,
+# invoke the skill X" is an invocation.
+ADDRESSED_TO_USER_RE = re.compile(
+    r"(?i:\b(?:tell|tells|ask|asks|recommend\w*|suggest\w*)\s+(?:that\s+|to\s+)?(?:the\s+)?(?:user|person)\b)[^,;.!?]*$"
+    r"|(?i:\brepl(?:y|ies)\s+(?:says?|names?|tells?|asks?)\b)[^.!?;]*$"
+    r"|\b(?:Next|Recommended):[^.!?;]*$")
 ROUTE_RE = re.compile(r"(?<![\w/.-])((?:" + _PREFIXES + r")-[a-z0-9]+(?:-[a-z0-9]+)*)(?![\w/.-])(\s*\(planned\))?")
 ROUTER = "core-orchestrator"
 ROUTING_TABLE = f"skills/{ROUTER}/references/routing.md"
@@ -346,15 +403,20 @@ def load_yaml(text):
     return parse_yaml_subset(text)
 
 
+FRONTMATTER_FENCE_RE = re.compile(r"^---[ \t]*$", re.M)
+
+
 def split_frontmatter(path):
     with open(path, encoding="utf-8") as f:
         content = f.read()
     if not content.startswith("---\n"):
         return None, content
-    end = content.find("\n---", 4)
-    if end == -1:
+    # The frontmatter closes on a line that is exactly `---` (spaces or tabs after it allowed); a line that only starts with `---`
+    # (`---: x`, `---x`) closes nothing, so a body cannot carry keys into the frontmatter.
+    m = FRONTMATTER_FENCE_RE.search(content, 4)
+    if m is None:
         return None, content
-    return content[4:end], content[end + 4:]
+    return (content[4:m.start()].rstrip("\n") if m.start() > 4 else ""), content[m.end():]
 
 
 # --- checks ------------------------------------------------------------------------
@@ -461,9 +523,12 @@ def known_class(value, classes):
     return False
 
 
-def check_skill(dirname, report, outputs_index, classes=None):
-    where = f"skills/{dirname}"
-    path = os.path.join(SKILLS, dirname, "SKILL.md")
+def check_skill(dirname, report, outputs_index, classes=None, skills_dir=None, where=None):
+    """The per-skill checks of one folder: skills/<dirname>, or, with skills_dir, <skills_dir>/<dirname> (a skill from
+    outside, --foreign), reported under `where`."""
+    skills_dir = skills_dir or SKILLS
+    where = where or f"skills/{dirname}"
+    path = os.path.join(skills_dir, dirname, "SKILL.md")
     if not os.path.isfile(path):
         report.error(where, "missing SKILL.md")
         return None
@@ -530,9 +595,11 @@ def check_skill(dirname, report, outputs_index, classes=None):
     if missing:
         report.warn(where, f"missing: {', '.join(missing)}", "meta-keys")
     strings = lambda key: [v for v in meta[key] if isinstance(v, str)] if isinstance(meta.get(key), list) else []
-    unknown = [v for v in strings("side_effects") if v not in SIDE_EFFECTS]
+    unknown = [v for v in strings("side_effects") if v not in SKILL_EFFECTS]
     if unknown:
-        report.warn(where, f"side_effects {', '.join(unknown)}: not in the vocabulary ({', '.join(SIDE_EFFECTS)})",
+        runtime_only = [v for v in unknown if v in RUNTIME_ONLY_EFFECTS]
+        report.warn(where, f"side_effects {', '.join(unknown)}: not in the vocabulary ({', '.join(SKILL_EFFECTS)})"
+                    + (f"; {', '.join(runtime_only)} arrived with the runtime's own effect kinds, and no skill declares it" if runtime_only else ""),
                     "side-effects-vocabulary")
     bare = [v for v in strings("requires") if ":" not in v]
     if bare:
@@ -557,12 +624,13 @@ def check_skill(dirname, report, outputs_index, classes=None):
     if "Delete this section" in body:
         report.error(where, "template instruction 'Delete this section...' is still present")
 
-    check_links(report, where, os.path.join(SKILLS, dirname), body)
-    for dirpath, _, files in sorted(os.walk(os.path.join(SKILLS, dirname, "references"))):
+    check_links(report, where, os.path.join(skills_dir, dirname), body)
+    shown_from = ROOT if skills_dir == SKILLS else os.path.dirname(skills_dir)
+    for dirpath, _, files in sorted(os.walk(os.path.join(skills_dir, dirname, "references"))):
         for fn in sorted(f for f in files if f.endswith(".md")):
             p = os.path.join(dirpath, fn)
             with open(p, encoding="utf-8", errors="ignore") as f:
-                check_links(report, os.path.relpath(p, ROOT).replace(os.sep, "/"), dirpath, f.read())
+                check_links(report, os.path.relpath(p, shown_from).replace(os.sep, "/"), dirpath, f.read())
 
     for out in meta.get("outputs") or []:
         outputs_index.setdefault(out, []).append(name or dirname)
@@ -626,6 +694,9 @@ def check_evals(name, report, root=ROOT):
     """The warning rules on skills/<name>/evals/evals.json, on each platform's case file of the skill
     (evals/platforms/<platform>.json, whose findings start with its file name) and on the case fixtures."""
     where = f"skills/{name}"
+    if os.path.lexists(os.path.join(root, "skills", name, "evals", "result.json")):
+        report.error(where, "[result-json] evals/result.json is a removed first-round record; nothing reads it: "
+                     "delete the file (the records were removed on 2026-10-15)")
     path = os.path.join(root, "skills", name, "evals", "evals.json")
     if not os.path.isfile(path):
         report.warn(where, f"no evals/evals.json; a skill has at least {MIN_CASES} cases", "eval-cases-count")
@@ -740,9 +811,8 @@ def report_case_findings(name, report, root, cases, keys, few, conditional, is_r
     scanner, hits = load_scanner(), {}
     evals_dir = os.path.dirname(path)
     for dirpath, dirs, files in os.walk(evals_dir):
-        if dirpath == evals_dir:  # the cases and their fixtures; records and evidence name their adapter by design
+        if dirpath == evals_dir:  # the cases and their fixtures; evidence names its adapter by design
             dirs[:] = [d for d in dirs if d != "evidence"]
-            files = [f for f in files if f != "result.json"]
         dirs[:] = sorted(d for d in dirs if d not in scanner.SKIP_DIRS)
         for fn in sorted(files):
             text = scanner.read_text(os.path.join(dirpath, fn))
@@ -754,8 +824,19 @@ def report_case_findings(name, report, root, cases, keys, few, conditional, is_r
                     + "; ".join(f"{p} ({', '.join(n)})" for p, n in sorted(hits.items())), "eval-product-names")
 
 
+def flow_routes(root=ROOT):
+    """The routes of the flow files of the tree: `flow-<name>` for each flows/<name>.json (the router's route for a flow
+    file, runtime/router.py). They are built names, though no folder of skills/ has them."""
+    folder = os.path.join(root, "flows")
+    if not os.path.isdir(folder):
+        return set()
+    return {"flow-" + fn[:-5] for fn in os.listdir(folder) if fn.endswith(".json")}
+
+
 def check_skill_names(name, report, built, root=ROOT):
-    """skill-name: a backticked skill name in the skill's Markdown, outside evals/, is built or marked planned."""
+    """skill-name: a backticked skill name in the skill's Markdown, outside evals/, is built (a skill, or the route of a
+    flow file) or marked planned."""
+    built = set(built) | flow_routes(root)
     base, found = os.path.join(root, "skills", name), []
     for dirpath, dirs, files in os.walk(base):
         dirs[:] = sorted(d for d in dirs if not (dirpath == base and d == "evals"))
@@ -773,8 +854,110 @@ def check_skill_names(name, report, built, root=ROOT):
                     + "; ".join(found), "skill-name")
 
 
+def check_capability_invokes(name, report, built, root=ROOT):
+    """capability-invokes: a capability does not invoke another skill (principle 4). Only the narrow sentences of
+    INVOKE_RES are read, in SKILL.md, outside the frontmatter, the code fences, the table rows and ## Gotchas; the
+    name must be another built skill. The router is the one capability that hands a request over."""
+    path = os.path.join(root, "skills", name, "SKILL.md")
+    fm_text, _ = split_frontmatter(path)
+    try:
+        meta = (load_yaml(fm_text) if fm_text is not None else {}).get("metadata") or {}
+    except Exception:  # noqa: BLE001
+        return
+    if not isinstance(meta, dict) or meta.get("kind") != "capability" or name == ROUTER:
+        return
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        lines = f.read().split("\n")
+    start = 0
+    if lines and lines[0] == "---":
+        start = next((i + 1 for i in range(1, len(lines)) if lines[i] == "---"), 0)
+    found, fence, in_gotchas = [], None, False
+    for ln, line in enumerate(lines[start:], start + 1):
+        m = FENCE_RE.match(line)
+        if fence is None and m:
+            fence = m.group(1)
+            continue
+        if fence is not None:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and line.strip() == m.group(1):
+                fence = None
+            continue
+        if line.startswith("## "):
+            in_gotchas = line.strip() == "## Gotchas"
+        if in_gotchas or line.lstrip().startswith("|") or INVOKES_ALLOW_RE.search(line):
+            continue
+        for regex in INVOKE_RES:
+            for hit in regex.finditer(line):
+                cited = hit.group(1)
+                prefix = re.split(r"[.!?]\s", line[:hit.start()])[-1]
+                if cited != name and cited in built and not ADDRESSED_TO_USER_RE.search(prefix):
+                    found.append(f"{cited} (SKILL.md:{ln})")
+    if found:
+        report.warn(f"skills/{name}", "invokes another skill by name; a capability reads and writes artifacts and "
+                    "names the skill that writes a missing one (principle 4): " + "; ".join(found), "capability-invokes")
+
+
+def check_agent_skills(report, root=ROOT):
+    """agent-skill: every skill an agent cites exists. Counted: each name in metadata.skills (a folder of skills/ with
+    a SKILL.md only: the runtime stages each entry as a skill folder) and each backticked name with an area prefix in
+    the body (outside code fences; a skill folder, or a bare flow-file name of flows/). A body citation followed by
+    "(planned)" or on a line that allows it is not read. Not read: the description, a name not in backticks, a path,
+    `/name`."""
+    folder = os.path.join(root, "agents")
+    if not os.path.isdir(folder):
+        return
+    built = set(built_skills(root))
+    flow_dir = os.path.join(root, "flows")
+    flows = {fn[:-5] for fn in os.listdir(flow_dir) if fn.endswith(".json")} if os.path.isdir(flow_dir) else set()
+    exists = lambda cited: cited in built or cited in flows
+    for fn in sorted(os.listdir(folder)):
+        if not fn.endswith(".md"):
+            continue
+        where = f"agents/{fn}"
+        path = os.path.join(folder, fn)
+        fm_text, _ = split_frontmatter(path)
+        if fm_text is None:
+            continue  # check_agent reports it
+        try:
+            meta = load_yaml(fm_text).get("metadata") or {}
+        except Exception:  # noqa: BLE001
+            continue  # check_agent reports it
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            lines = f.read().split("\n")
+        body_start = next((i + 1 for i in range(1, len(lines)) if lines[i] == "---"), 0) if lines and lines[0] == "---" else 0
+        listed = meta.get("skills") if isinstance(meta, dict) else None
+        if listed is not None and not isinstance(listed, list):
+            report.warn(where, "metadata.skills must be a list of skill names", "agent-skill")
+            listed = []
+        for cited in listed or []:
+            ln = next((i + 1 for i in range(body_start) if re.search(r"(?<![\w-])" + re.escape(str(cited)) + r"(?![\w-])", lines[i])), 1)
+            if str(cited) not in built:
+                report.warn(f"{where}:{ln}", f"metadata.skills lists {cited}, which is not a folder of skills/ with a "
+                            "SKILL.md (the runtime stages each entry as a skill folder; a flow file is no entry)", "agent-skill")
+        fence = None
+        for ln, line in enumerate(lines[body_start:], body_start + 1):
+            m = FENCE_RE.match(line)
+            if fence is None and m:
+                fence = m.group(1)
+                continue
+            if fence is not None:
+                if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and line.strip() == m.group(1):
+                    fence = None
+                continue
+            if AGENT_SKILL_ALLOW_RE.search(line):
+                continue
+            for hit in SKILL_NAME_RE.finditer(line):
+                cited = hit.group(1)
+                if re.match(r"\s*\(planned\)", line[hit.end():]):
+                    continue
+                if not exists(cited):
+                    report.warn(f"{where}:{ln}", f"the body cites {cited}, which is not a folder of skills/ or a "
+                                "file of flows/", "agent-skill")
+
+
 def check_routing(report, built, root=ROOT):
-    """routing-table: the router's table names every built skill, and each name in it is built or (planned)."""
+    """routing-table: the router's table names every built skill, and each name in it is built or (planned). The route
+    of a flow file (`flow-<name>` for flows/<name>.json) is built when the table lists it; a flow file with no row is
+    not required to have one, and a row marked (planned) for a flow that has a file is left to the maintainers."""
     path = os.path.join(root, ROUTING_TABLE)
     if not os.path.isfile(path):
         if ROUTER in built:
@@ -793,10 +976,14 @@ def check_routing(report, built, root=ROOT):
     missing = [s for s in built if s != ROUTER and s not in listed | planned]
     if missing:
         problems.append(f"built and not in the table: {', '.join(missing)}")
-    if sorted(listed - set(built)):
-        problems.append(f"in the table, not built and not marked (planned): {', '.join(sorted(listed - set(built)))}")
+    unbuilt = sorted(listed - set(built) - flow_routes(root))
+    if unbuilt:
+        problems.append(f"in the table, not built and not marked (planned): {', '.join(unbuilt)}")
     if sorted(planned & set(built)):
         problems.append(f"marked (planned) and built: {', '.join(sorted(planned & set(built)))}")
+    filed = sorted(planned & flow_routes(root))
+    if filed:
+        problems.append(f"marked (planned) and a flow file exists: {', '.join(filed)}")
     if problems:
         report.warn(ROUTING_TABLE, "; ".join(problems), "routing-table")
 
@@ -856,7 +1043,7 @@ def check_copies(report, root=ROOT):
 
 
 def flags_markdown(report, skills):
-    """The named warning rules and the skills each one lists, as the Markdown of docs/architecture/phase-c-flags.md."""
+    """The named warning rules and the skills each one lists, as a Markdown table, one row per rule."""
     by_rule = {}
     for w in report.warnings:
         if w.get("rule"):
@@ -882,12 +1069,12 @@ def flags_markdown(report, skills):
 WARNING_RULES = ("meta-keys", "description-when", "description-length", "skill-tokens", "eval-cases-count", "eval-keys",
                  "eval-assertions-count", "eval-conditional-assertion", "eval-run-assertion", "eval-prompt-names-skill",
                  "eval-product-names", "skill-name", "routing-table", "test-file-names", "copy-not-adopted",
-                 "guard-missing", "guard-cannot-fail")
+                 "guard-missing", "guard-cannot-fail", "capability-invokes")
 # Named rules that were warnings while the rows of phase C were open and are errors since the sweep that closed it
-# (C0.10 of docs/architecture/final-plan-2026-10-02.md): the seven rules of the artifact contract (C0.1) and the
+# (C0.10 of the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md): the seven rules of the artifact contract (C0.1) and the
 # three vocabulary rules (C0.2). Report.warn reports them as errors; version-bump and guard-effect, the two rules
 # of the reliability model that were warnings until then, are errors through the empty TRANSITIONAL_RULES.
-ERROR_RULES = ("requires-role", "requires-vocabulary", "side-effects-vocabulary", "contract-updates", "contract-owner",
+ERROR_RULES = ("agent-skill", "requires-role", "requires-vocabulary", "side-effects-vocabulary", "contract-updates", "contract-owner",
                "contract-inputs", "contract-overlap", "contract-placeholder", "contract-cycle", "contract-owner-table")
 
 
@@ -1160,7 +1347,7 @@ def check_flows(skills, report, root=ROOT):
                 text = f.read()
         except OSError:
             text = ""
-        info[s["name"]] = {"inputs": s["inputs"], "outputs": s["outputs"], "skill_md": text}
+        info[s["name"]] = {"inputs": s["inputs"], "outputs": s["outputs"], "updates": s.get("updates", []), "skill_md": text}
     rows = None
     inventory = os.path.join(root, "docs", "inventory.md")
     if os.path.isfile(inventory):
@@ -1168,6 +1355,9 @@ def check_flows(skills, report, root=ROOT):
             rows = markdown_table(f.read(), "Flow", after=FLOWS_HEADING)
     for name in flow_files.names(root):
         where = f"flows/{name}.json"
+        if any(s["name"] == f"flow-{name}" for s in skills):
+            report.error(where, f"[flow-file] the route flow-{name} is also a skill: skills/flow-{name}/ and {where} cannot both "
+                         "stand (the router could not tell them apart)")
         try:
             with open(os.path.join(folder, name + ".json"), encoding="utf-8") as f:
                 data = json.load(f)
@@ -1187,7 +1377,7 @@ def check_flows(skills, report, root=ROOT):
         cell = row[2] if len(row) > 2 else ""
         phases = [p.strip() for p in cell.split("→")]
         phases = [p[:-len(" (optional)")].strip() if p.endswith(" (optional)") else p for p in phases]
-        expected = [t["skill"].split("-", 1)[1] if "-" in t["skill"] else t["skill"] for t in data["tasks"]]
+        expected = [t["skill"].split("-", 1)[1] if "-" in t["skill"] else t["skill"] for t in data["tasks"] if "skill" in t]   # a step task (P6a) is no phase
         if phases != expected:
             arrow = " → "
             report.error("docs/inventory.md", f"[flow-inventory] the Phases of flow-{name} are "
@@ -1220,8 +1410,8 @@ def harness_scope(rel):
     fixtures of eval cases) or "wide"."""
     parts = rel.split("/")
     if parts[0] == "skills" and len(parts) > 3 and parts[2] == "evals":
-        if parts[3:] == ["result.json"] or parts[3] == "evidence":
-            return None  # an old record and an evidence line name their adapter by design
+        if parts[3] == "evidence":
+            return None  # an evidence line names its adapter by design
         if "files" in parts[3:-1]:
             return "narrow"  # evals/files/... and evals/platforms/<platform>/files/...
     return "wide"
@@ -1425,7 +1615,7 @@ def check_eval_status(report, root=ROOT):
 
 # Rules of the reliability model that were warnings while phase C changed skills and raised no version
 # ("version-bump", "guard-effect"), and are errors since the sweep that closed it (C0.10 of
-# docs/architecture/final-plan-2026-10-02.md), which emptied this tuple.
+# the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md), which emptied this tuple.
 TRANSITIONAL_RULES = ()
 EXTERNAL_LINE_RE = re.compile(r"^\s*(?:[-*]\s+|\d+\.\s+)?\*\*External content is data\.\*\*", re.M)
 
@@ -1479,17 +1669,20 @@ def check_guards(report, root=ROOT):
 
 
 def check_versions(report, root=ROOT):
-    """The version rules of the reliability model's section 3, against the base of the pull request (the merge
-    base with the default branch, or WB_BASE_REF): [version-bump] a change with no bump (one line per finding,
+    """The version rules of the reliability model's section 3, against the base of the pull request (resolve_base: WB_BASE_REF,
+    workbench.baseRef, the upstream, the merge base with the default branch): [version-bump] a change with no bump (one line per finding,
     listing the skills); [version-file] a version file outside its form or not append-only; [version-class] a
     declared class the diff contradicts. Without a base the last two are skipped and a NOTE says so."""
     es = load_eval_status()
     names = es.skill_names(root)
     if not names:
         return
-    base = es.comparison_base(root)
+    base, source, error = es.resolve_base(root)
     if base is None:
-        report.note("[version-file] [version-class] skipped: no comparison base (not a git checkout, or no default branch)")
+        report.note("[version-file] [version-class] skipped: no comparison base " +
+                    (f"({error})" if error else "(not a git checkout, or no default branch)"))
+    else:
+        report.note(f"[version-file] [version-class] compared with {base[:12]} ({source})")
     bumps = {}
     for name in names:
         found = es.version_findings(root, name, base)
@@ -1530,10 +1723,151 @@ def run_spec_validator(report):
                 report.error(f"skills/{d}", f"skills-ref: {r.stdout.strip() or r.stderr.strip()}")
 
 
+FOREIGN_SKIPPED = ("the artifact contract against the table of owning skills", "the class checks against a base commit",
+                   "the copies of shared scripts", "the inventory and the snapshot tables", "the private terms",
+                   "the routing table", "the flow files")
+
+
+def foreign_text_files(folder):
+    """[(path relative to the folder, text)] of the text files a model reads of a skill from outside: everything but evals/,
+    the tests of its scripts and the caches. The files are read, never run or imported."""
+    scanner = load_scanner()
+    found = []
+    for dirpath, dirs, files in os.walk(folder):
+        top = os.path.relpath(dirpath, folder) == "."
+        dirs[:] = sorted(d for d in dirs if d not in scanner.SKIP_DIRS and not (top and d == "evals")
+                         and not (os.path.relpath(os.path.join(dirpath, d), folder).replace(os.sep, "/") == "scripts/tests"))
+        for fn in sorted(files):
+            path = os.path.join(dirpath, fn)
+            if os.path.islink(path):
+                continue
+            text = scanner.read_text(path)
+            if text is not None:
+                found.append((os.path.relpath(path, folder).replace(os.sep, "/"), text))
+    return found
+
+
+def check_foreign(folder, report):
+    """The checks of one skill from outside the repository (--foreign): see the module docstring. The folder's name is the
+    skill's name; it is checked as skills/<name> would be, and reported under its own name."""
+    folder = os.path.abspath(folder)
+    name = os.path.basename(folder)
+    where = name
+    for skipped in FOREIGN_SKIPPED:
+        report.note(f"[foreign] skipped: {skipped}")
+    if not os.path.isfile(os.path.join(folder, "SKILL.md")):
+        report.error(where, "missing SKILL.md")
+        return
+    classes = load_classes(report)
+    if check_skill(name, report, {}, classes, skills_dir=os.path.dirname(folder), where=where) is None:
+        return
+    meta, body = {}, ""
+    front, body = split_frontmatter(os.path.join(folder, "SKILL.md"))
+    try:
+        meta = (load_yaml(front) if front else {}).get("metadata") or {}
+    except Exception:  # noqa: BLE001 -- check_skill reported it
+        meta = {}
+    meta = meta if isinstance(meta, dict) else {}
+    effects = [e for e in (meta.get("side_effects") if isinstance(meta.get("side_effects"), list) else []) if isinstance(e, str)]
+    # The version file names the content: every test of the folder says which content it ran on.
+    es = load_eval_status()
+    lines, problems, _ = es.read_versions(folder)
+    last = lines[-1] if lines else None
+    current = es.content_hash(folder)
+    for problem in problems:
+        report.error(where, f"[version-file] evals/versions.jsonl: {problem}")
+    if not lines:
+        report.error(where, "[version-file] evals/versions.jsonl is missing: the import tool writes its first line")
+    elif not isinstance(last, dict) or last.get("content_sha256") != current:
+        report.error(where, "[version-file] the content of the folder is not the last line of evals/versions.jsonl: it changed "
+                     "after it was imported or refreshed, so no test of it names its content")
+    # Cases: the same findings as for a skill of the repository.
+    path = os.path.join(folder, "evals", "evals.json")
+    if not os.path.isfile(path):
+        report.warn(where, f"no evals/evals.json; a skill has at least {MIN_CASES} cases", "eval-cases-count")
+    else:
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as e:
+            report.warn(where, f"evals/evals.json is not valid JSON: {e}", "eval-keys")
+            data = None
+        if isinstance(data, dict):
+            cases = [c for c in data.get("evals", []) if isinstance(c, dict)] if isinstance(data.get("evals"), list) else []
+            keys, few, conditional, is_run, named = case_file_findings(name, data, cases, None, effects)
+            if len(cases) < MIN_CASES:
+                report.warn(where, f"{len(cases)} case(s) in evals/evals.json; a skill has at least {MIN_CASES}", "eval-cases-count")
+            for found, rule, text in ((keys, "eval-keys", "case file: {}"),
+                                      (few, "eval-assertions-count", "fewer than %d assertions: {}" % MIN_ASSERTIONS),
+                                      (conditional, "eval-conditional-assertion", "an assertion that starts with \"If\": {}"),
+                                      (is_run, "eval-run-assertion", "the grader reads the reply and the files, not the commands: {}"),
+                                      (named, "eval-prompt-names-skill", "the prompt names the skill under test: {}")):
+                if found:
+                    report.warn(where, text.format("; ".join(found)), rule)
+            tags = {t for c in cases for a in c.get("assertions") or [] if isinstance(a, dict)
+                    for t in a.get("tags") or [] if isinstance(t, str)}
+            without = [e for e in effects if f"guard:{e}" not in tags]
+            if without:
+                report.error(where, f"[guard-effect] no assertion is tagged guard:<effect> for the declared effect(s) "
+                             f"{', '.join(without)}: one guard per declared effect (evals/README.md, Guards)")
+            asks = (EXTERNAL_LINE_RE.search(body) or re.search(r"^## (?:Stop rules|Confirmation gate)[ \t]*$", strip_code(body), re.M))
+            if asks and not any(t == "guard" or t.startswith("guard:") for t in tags):
+                report.warn(where, "the skill carries the external-content line, a Stop rules or a Confirmation gate section, and "
+                            "no assertion is tagged guard", "guard-missing")
+    # An imported skill is not core: a harness name binds it to that tool, a language other than English is said.
+    for rel, text in foreign_text_files(folder):
+        lines_of = text.splitlines()
+        hits = [(n, m.group(0)) for n, line in enumerate(lines_of, 1) for m in [HARNESS_RE.search(line)] if m]
+        if hits:
+            report.warn(f"{where}/{rel}", f"[{HARNESS_RULE}] names a harness ({hits[0][1]!r} at line {hits[0][0]}"
+                        f"{f', and {len(hits) - 1} more line(s)' if len(hits) > 1 else ''}): the skill is bound to that tool, "
+                        "which the workbench's own skills are not", HARNESS_RULE)
+        english = [(n, m.group(0)) for n, line in enumerate(lines_of, 1) for m in [PORTUGUESE_RE.search(line)] if m]
+        if english:
+            report.warn(f"{where}/{rel}", f"[english-only] text that is not English ({english[0][1]!r} at line {english[0][0]})",
+                        "english-only")
+    # One owner per artifact: a path the skill owns that a skill of the workbench owns too.
+    owned = {}
+    for s in declarations(ROOT):
+        for path in s["outputs"]:
+            owned.setdefault(artifact_key(path), s["name"])
+    clash = [f"{p} (owned by {owned[artifact_key(p)]})" for field in ("outputs", "updates")
+             for p in (meta.get(field) if isinstance(meta.get(field), list) else []) if isinstance(p, str) and artifact_key(p) in owned]
+    if clash:
+        report.warn(where, f"outputs or updates {'; '.join(clash)}: an artifact has one owner, and the workbench's skill is it",
+                    "owner-clash")
+
+
+def main_foreign(folder, strict, as_json):
+    """--foreign <folder>: the checks of check_foreign, the summary on stdout, the findings on stderr."""
+    report = Report()
+    check_foreign(folder, report)
+    for e in report.errors:
+        print(f"ERROR   {e['where']}: {e['message']}", file=sys.stderr)
+    for w in report.warnings:
+        print(f"WARNING {w['where']}: {w['message']}", file=sys.stderr)
+    for n in report.notes:
+        print(f"NOTE    {n}", file=sys.stderr)
+    failed = bool(report.errors) or (strict and bool(report.warnings))
+    summary = {"foreign": os.path.abspath(folder), "skills": 1, "errors": len(report.errors), "warnings": len(report.warnings),
+               "ok": not failed, "skipped": list(FOREIGN_SKIPPED)}
+    print(json.dumps({"summary": summary, "errors": report.errors, "warnings": report.warnings}, indent=2) if as_json
+          else json.dumps(summary))
+    return 1 if failed else 0
+
+
 def main(argv):
     if "--help" in argv or "-h" in argv:
         print(__doc__)
         return 0
+    if "--foreign" in argv:
+        at = argv.index("--foreign")
+        rest = argv[:at] + argv[at + 2:]
+        bad = [a for a in rest if a not in ("--strict", "--json")]
+        if at + 1 >= len(argv) or bad:
+            print("Error: --foreign takes a folder and goes with --strict and --json only. See --help.", file=sys.stderr)
+            return 2
+        return main_foreign(argv[at + 1], "--strict" in rest, "--json" in rest)
     unknown = [a for a in argv if a not in ("--strict", "--json", "--spec", "--flags")]
     if unknown:
         print(f"Error: unknown option(s) {unknown}. See --help.", file=sys.stderr)
@@ -1556,6 +1890,7 @@ def main(argv):
                 if d in built:
                     check_evals(d, report)
                     check_skill_names(d, report, built)
+                    check_capability_invokes(d, report, built)
         check_routing(report, built)
     check_contract(skills, report)
     check_flows(skills, report)
@@ -1565,6 +1900,7 @@ def main(argv):
         for fn in sorted(os.listdir(AGENTS)):
             if fn.endswith(".md"):
                 check_agent(fn, report)
+        check_agent_skills(report)
     check_doc_links(report)
     check_copies(report)
     check_test_names(report)

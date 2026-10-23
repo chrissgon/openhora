@@ -91,7 +91,7 @@ def test_the_tasks_tab_and_the_agent_tab_draw_the_same_actions_and_a_blocked_cur
     assert got["waiting"] == {"buttons": [], "link": "#/p/0123456789ab/floor/design/inbox/77", "text": "Open in the Inbox"}
     assert got["planned"]["buttons"] == ["Go ahead on task 14"] and got["planned"]["waits"] == ["waiting for #10: docs/brand/identity.md, written by task #10"]
     assert got["planned"]["sent"] == [["goAhead", "0123456789ab", 14, None]]
-    assert got["running"] == {"buttons": [], "actions": 0}
+    assert got["running"] == {"buttons": ["Stop task 15"], "actions": 1}, "R18: a running task has Stop task"
     d = got["drop"]
     assert d["line"] == "this file will be visible to a run with the open network" and d["hidden"] is False and d["order"] == ["wb-drop-line", "wb-file"] and d["input"] is False, \
         "A-30: the Agent tab's hand-over shows the web line above the chooser"
@@ -219,7 +219,7 @@ def test_the_agent_tab_shows_a_command_for_each_wider_mode_and_for_the_credentia
     assert c["codes"] == ["uv run --with keyring==25.7.0 keyring set openhora user-a"] and c["copies"] == 1, "the command is the service's field, verbatim, with its own Copy"
     assert c["sentences"] == ["KEY_A"], "the Copy block is named by the credential"
     assert c["details"][-1] == "KEY_B: no username registered", "a credential with no username gets its name and the sentence, never a command with <username>"
-    assert c["line"].startswith("Held: The reference model's credential is not set.")
+    assert c["line"].startswith("Held: The credential of the model is not set.")
     assert "The credential is in neither the environment nor the secret store" in c["text"], "the sentence stays as text"
     assert got["inline"] == {"codes": 0}, "nothing is taken out of a sentence"
     assert got["single"]["codes"] == ["python3 /ck/runtime/cli.py run-next --project /work/shop"], "a reason whose `next` is a command shows it as one"
@@ -430,7 +430,7 @@ def test_the_floors_models_say_how_long_a_task_has_run_the_board_is_the_r32_labe
 @needs_node
 def test_the_agent_tab_is_the_page_s_rows_a_select_of_wider_modes_the_current_card_and_the_dashed_box(tmp_path):
     got = run_node(tmp_path, STRUCTURE)["agent"]
-    assert got["order"] == ["wb-state-box", "wb-mode-row", "wb-mode-form", "wb-notice-card", "wb-result-box", "wb-wider-modes", "wb-agent-body"], "floor.html: state, mode, the two buttons, the standing line, the result, the wider modes, then the rest"
+    assert got["order"] == ["wb-state-box", "wb-mode-row", "wb-mode-form", "wb-notice-card", "wb-result-box", "wb-wider-modes", "wb-model-box", "wb-agent-body"], "floor.html: state, mode, the two buttons, the standing line, the result, the wider modes, the model, then the rest"
     assert got["state"] == "WorkingRunning for 12 min" and got["pips"] == 0 and got["plate"] == "supervised", "R-8, C-5: the word, no pips"
     names = [[m[0], m[1], m[2], m[3]] for m in got["meters"]]
     assert names == [["Runs today", "3 / 6", 1, None], ["Spend today", "$0.03 / $2.00", 1, "$0.03 recorded · up to $0.50 reserved"], ["Queued", "0", 0, None]], "R-36, R-6: name, figure, a track; Queued last with no track"

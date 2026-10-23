@@ -80,7 +80,7 @@ def test_a_complete_skill_with_two_good_cases_gets_no_warning_and_no_error(tree)
 def test_every_new_rule_is_a_warning_and_the_vocabulary_rules_are_errors_since_phase_c_closed(tree):
     add_skill(tree, description="Does a thing." + " More." * 160,
               meta={"version": None, "requires": "[mailbox, publisher:<platform>, publisher:mastodon]",
-                    "side_effects": "[write]"},
+                    "side_effects": "[teleport]"},
               license_line="", body="# Demo\n\n## Confirmation gate\n\nAsk. Then `eng-ghost` runs.\n" + "x" * 21000,
               cases=[case(1, prompt="Run eng-demo on this.", assertions=["If a file exists, it is listed", "npm test is run"],
                           surprise=True)])
@@ -93,7 +93,7 @@ def test_every_new_rule_is_a_warning_and_the_vocabulary_rules_are_errors_since_p
                              "skill-name", "skill-tokens"]
     assert all(w["message"].startswith(f"[{w['rule']}] ") for w in report.warnings + report.errors)
     assert "metadata.version, license" in messages(report, "meta-keys")[0]
-    assert "side_effects write" in messages(report, "side-effects-vocabulary")[0]
+    assert "side_effects teleport" in messages(report, "side-effects-vocabulary")[0]
 
 
 def test_a_prompt_that_copies_a_runtime_task_may_name_its_skill(tree):
@@ -223,15 +223,26 @@ def test_the_prompt_rule_matches_the_whole_name_only(tree):
     assert messages(run_skill(tree), "eval-prompt-names-skill")[0].endswith(": case 2")
 
 
-def test_product_names_in_a_case_and_in_a_fixture_but_not_in_a_record(tree):
+def test_product_names_in_a_case_and_in_a_fixture_but_not_in_evidence(tree):
     add_skill(tree, cases=[case(1, prompt="The mockup came out of Figma Make."), case(2)])
     write(tree, "skills/eng-demo/evals/files/site/notes.md", "Drawn with Claude Design, exported twice.\n")
-    write(tree, "skills/eng-demo/evals/result.json", {"harness": "Claude"})
     write(tree, "skills/eng-demo/evals/evidence/lab-1.jsonl", '{"adapter": "Claude"}\n')
     write(tree, "skills/eng-demo/references/tools.md", "Figma is named here on purpose.\n")
     found = messages(run_skill(tree), "eval-product-names")
     assert len(found) == 1 and found[0].endswith(
         ": evals/evals.json (Figma Make); evals/files/site/notes.md (Claude Design)")
+
+
+def test_a_result_json_added_back_is_an_error(tree):
+    """The records of the first round were removed on 2026-10-15 and nothing reads them: one added back is an
+    error, whatever it holds, and it is read like any other file of the eval folder."""
+    add_skill(tree)
+    assert run_skill(tree).errors == []
+    write(tree, "skills/eng-demo/evals/result.json", "{not even json}")
+    errors = run_skill(tree).errors
+    assert [e["where"] for e in errors] == ["skills/eng-demo"]
+    assert errors[0]["message"].startswith("[result-json] evals/result.json is a removed first-round record; nothing reads it")
+    assert validate.harness_scope("skills/eng-demo/evals/result.json") == "wide"
 
 
 def test_a_cited_skill_is_built_or_its_line_says_planned(tree):
@@ -257,6 +268,25 @@ def test_the_routing_table_names_every_built_skill_and_marks_the_others_planned(
     assert report.warnings[0]["message"] == (
         "[routing-table] built and not in the table: eng-other; in the table, not built and not marked (planned): "
         "eng-gone; marked (planned) and built: eng-early")
+
+
+def test_the_route_of_a_flow_file_is_built_for_the_routing_table_and_for_a_cited_name(tree):
+    for name in ("core-orchestrator", "eng-demo"):
+        add_skill(tree, name=name)
+    write(tree, "flows/ship.json", "{}")
+    write(tree, validate.ROUTING_TABLE, "# Routing\n\n| Intent | Skill |\n|---|---|\n| Review | eng-demo |\n"
+          "| Ship | flow-ship |\n| Gone | flow-gone |\n")
+    report = validate.Report()
+    validate.check_routing(report, validate.built_skills(str(tree)), root=str(tree))
+    assert report.warnings[0]["message"] == ("[routing-table] in the table, not built and not marked (planned): flow-gone")
+    write(tree, validate.ROUTING_TABLE, "# Routing\n\n| Intent | Skill |\n|---|---|\n| Review | eng-demo |\n| Ship | flow-ship (planned) |\n")
+    report = validate.Report()
+    validate.check_routing(report, validate.built_skills(str(tree)), root=str(tree))
+    assert report.warnings[0]["message"] == "[routing-table] marked (planned) and a flow file exists: flow-ship"
+    write(tree, validate.ROUTING_TABLE, "# Routing\n\n| Intent | Skill |\n|---|---|\n| Review | eng-demo |\n| Ship | flow-ship |\n| Gone | flow-gone |\n")
+    write(tree, "skills/eng-demo/references/more.md", "A flow `flow-ship` and `flow-gone`.\n")
+    assert messages(run_skill(tree), "skill-name") == [
+        '[skill-name] cites a skill that is not built, with no "planned" on the line: flow-gone (references/more.md:1)']
 
 
 def test_without_the_router_the_routing_rule_is_skipped_with_a_note(tree):
@@ -405,7 +435,6 @@ def test_every_text_file_of_the_core_is_read_whatever_its_extension(tree):
 
 def test_records_evidence_and_workbench_files_are_exempt_and_fixtures_keep_the_narrow_rule(tree):
     brought = "adapters/agents-dir/run-prompt.sh"
-    write(tree, "skills/eng-demo/evals/result.json", {"strong_harness": "claude-code"})
     write(tree, "skills/eng-demo/evals/evidence/lab-1.jsonl", '{"adapter": "agents-dir"}\n')
     write(tree, "skills/eng-demo/evals/evals.json", json.dumps(
         {"skill_name": "eng-demo", "evals": [case(1, prompt="Read adapters/api/README.md.", workbench_files=[brought])]},
@@ -506,9 +535,10 @@ def test_a_skill_that_stops_or_reads_external_content_is_asked_for_a_guard_in_on
 def test_a_guard_assertion_that_passes_in_every_baseline_run_cannot_fail(tree, monkeypatch):
     cases = [case(1, assertions=ASSERTIONS + [{"text": "It stops", "tags": ["guard"]}]), case(2)]
     add_skill(tree, cases=cases, meta={"version": '"1.0.0"'})
-    gate = {"strong_model": "s", "strong_harness": "h", "floor_model": "f", "floor_harness": "h", "floor_pass_env": [],
-            "strong_pass_env": [], "grader": "s", "threshold": 0.8, "strong_tolerance": 0.05, "measurement_version": 5,
-            "measurement_floor": 5}
+    entry = {"aliases": [], "adapter": "h", "pass_env": [], "route": None, "provider_pin": None, "upstream_models": ["x"],
+             "price_source": "https://example.test/price", "run_token_budget": 1000}
+    gate = {"grader": "s", "threshold": 0.8, "tolerance": 0.05, "measurement_version": 5, "measurement_floor": 5,
+            "lab_models": ["s", "f"], "models": {"s": entry, "f": entry}}
     report, status = guards(tree, monkeypatch, gate)
     assert report.warnings == []  # no baseline yet: nothing to read
     h = status.case_hashes(str(tree / "skills" / "eng-demo"))

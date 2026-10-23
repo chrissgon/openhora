@@ -201,24 +201,126 @@ export function reject(p, id, note, options = {}) {
   return send("POST", `/projects/${enc(p)}/pending/${enc(id)}/reject`, { body: { note }, signal: options.signal });
 }
 
-/** GET /projects/{p}/flows: the flow files of the checkout. */
+/** GET /projects/{p}/flows: the flows, the checkout's and the project's, each with its origin, parameters, step kinds and flow check. */
 export function flows(p, options) {
   return send("GET", `/projects/${enc(p)}/flows`, options);
 }
 
-/** POST /projects/{p}/requests: {text, flow?, title?, after?}; `after` is the number of the request this one runs after. */
-export function request(p, text, { flow, title, after, signal } = {}) {
-  return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after }, signal });
+/** GET /projects/{p}/flows/{name}/check: the flow check of one flow ({ok, findings, next}). */
+export function flowCheck(p, name, options) {
+  return send("GET", `/projects/${enc(p)}/flows/${enc(name)}/check`, options);
 }
 
-/** POST /projects/{p}/requests/{id}/route (job): {flow?}. */
-export function route(p, id, { flow, signal } = {}) {
-  return send("POST", `/projects/${enc(p)}/requests/${enc(id)}/route`, { body: { flow }, signal });
+/**
+ * POST /projects/{p}/flows: {name, pending_id?, flow?, title?, split?, replace?}: save an approved plan (`pendingId`) or a flow already there
+ * (`flow`) as the project flow `name`. The service runs the flow check first and refuses (409, the sentence) a flow it does not pass,
+ * unless `split` asks for the split the code makes.
+ */
+export function flowSave(p, { name, pendingId, flow, title, split, replace, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/flows`, { body: { name, pending_id: pendingId, flow, title, split, replace }, signal });
+}
+
+/** GET /projects/{p}/routines[?routine_id=n]: the routines (a flow started by a schedule); with an id, one with its fires and what approving it needs. */
+export function routines(p, { id, signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/routines`, { query: id === undefined ? undefined : { routine_id: id }, signal });
+}
+
+/**
+ * POST /projects/{p}/routines: create a routine as a draft. fields: {name, flow, params (a list of "name=value"), every ("day", "week" or "minutes"), at, weekday, minutes,
+ * model, providers (a list), window_seconds, consent, warning_sha256}. It fires nothing until it is approved by the hash of its content.
+ */
+export function routineCreate(p, fields = {}, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines`, { body: fields, signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/change: the same fields as routineCreate (without the name); the approval is cleared. */
+export function routineChange(p, id, fields = {}, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/change`, { body: fields, signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/approve: {sha256?}; without the hash the preview, with it the approval of exactly that content. */
+export function routineApprove(p, id, sha256, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/approve`, { body: { sha256 }, signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/pause. */
+export function routinePause(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/pause`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/resume. */
+export function routineResume(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/resume`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/cancel. */
+export function routineCancel(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/cancel`, { signal: options.signal });
+}
+
+/**
+ * GET /projects/{p}/instructions: the project's standing instructions (docs/workbench/instructions.md, which only the person writes): {path, present, sha256,
+ * characters, cap, problem, text}. `sha256` is null while the file is not there; `problem` is the sentence that would stop a run, or null.
+ */
+export function instructions(p, options = {}) {
+  return send("GET", `/projects/${enc(p)}/instructions`, { signal: options.signal });
+}
+
+/**
+ * POST /projects/{p}/instructions: replace the whole text of the instructions. `baseSha256` is the sha256 of the file as it was read (the word `none` when
+ * there was none): a file changed since is never overwritten, and the refusal (409) names its current hash.
+ */
+export function instructionsSet(p, text, baseSha256, options = {}) {
+  return send("POST", `/projects/${enc(p)}/instructions`, { body: { text, base_sha256: baseSha256 }, signal: options.signal });
+}
+
+/** POST /projects/{p}/instructions/add: append one line `- <line>`; `baseSha256` as for instructionsSet (a proposal carries the one it was made against). */
+export function instructionsAdd(p, line, baseSha256, options = {}) {
+  return send("POST", `/projects/${enc(p)}/instructions/add`, { body: { line, base_sha256: baseSha256 }, signal: options.signal });
+}
+
+/**
+ * GET /projects/{p}/attachments: the files people sent through a messaging app: {held: [{id, platform, profile, name, kind, bytes, target, label, status, created_at,
+ * expires_at}] (oldest first), recent: [the latest decisions, newest first], today: {files, bytes}, limits}. A row never carries who sent it. Refused (409) while the page's policy does not list
+ * `add-sources`.
+ */
+export function attachments(p, options = {}) {
+  return send("GET", `/projects/${enc(p)}/attachments`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/attachments/{id}/add: add a held file as a source (or the next version of the source it names): {added, imported, source, version, warnings, reply}. */
+export function attachmentAdd(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/attachments/${enc(id)}/add`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/attachments/{id}/discard: delete a held file without adding it. */
+export function attachmentDiscard(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/attachments/${enc(id)}/discard`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/requests: {text, flow?, title?, after?, model?, language?};`after` is the number of the request this one runs after, `model` a model id of the gate file or "auto", `language` a tag such as en or pt-BR (absent: the project's setting). */
+export function request(p, text, { flow, title, after, model, language, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after, model, language }, signal });
+}
+
+/** POST /projects/{p}/requests/{id}/route (job): {flow?, params?}; `params` is a list of "name=value" for the flow's parameters. */
+export function route(p, id, { flow, params, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/requests/${enc(id)}/route`, { body: { flow, params: Array.isArray(params) && params.length ? params : undefined }, signal });
+}
+
+/** POST /projects/{p}/requests/{id}/files: hand a file over for a request that waits for its plan, {name, content_base64}; a flow's file parameter names it. */
+export function stageFile(p, id, name, contentBase64, options = {}) {
+  return send("POST", `/projects/${enc(p)}/requests/${enc(id)}/files`, { body: { name, content_base64: contentBase64 }, signal: options.signal });
 }
 
 /** POST /projects/{p}/requests/{id}/cancel. */
 export function cancel(p, id, options) {
   return send("POST", `/projects/${enc(p)}/requests/${enc(id)}/cancel`, options);
+}
+
+/** POST /projects/{p}/tasks/{id}/stop: stop one running task; its run is cancelled (what it used so far is spent) and the task is blocked, for `retry`. */
+export function stopTask(p, id, options) {
+  return send("POST", `/projects/${enc(p)}/tasks/${enc(id)}/stop`, options);
 }
 
 /** GET /projects/{p}/tasks/{id}: the task, its runs and its decisions. */
@@ -249,6 +351,21 @@ export function verdict(p, id, word, options = {}) {
 /** POST /projects/{p}/agents/{name}/mode: {mode}. Every route of an unaccepted project answers 412 first. */
 export function setMode(p, name, mode, options = {}) {
   return send("POST", `/projects/${enc(p)}/agents/${enc(name)}/mode`, { body: { mode }, signal: options.signal });
+}
+
+/** POST /projects/{p}/agents/{name}/model: {model}; a model id, "auto" or "default". Fixing a model on an agent in an autonomous mode is the person's consent and is given in the terminal. */
+export function setModel(p, name, model, options = {}) {
+  return send("POST", `/projects/${enc(p)}/agents/${enc(name)}/model`, { body: { model }, signal: options.signal });
+}
+
+/**
+ * POST /projects/{p}/agents/{name}/consent: {model, mode, config_sha256, warning_sha256}. The person's consent for an agent in an autonomous mode, given on the page
+ * (decision D38): the model and the mode the consent names, the hash of the configuration the page read (`agents.config_sha256`) and the sha256 of the warning text
+ * it showed, so that the service can check it was the exact text. The service records that consent only.
+ */
+export function giveConsent(p, name, fields, options = {}) {
+  const { model, mode, config_sha256, warning_sha256 } = fields || {};
+  return send("POST", `/projects/${enc(p)}/agents/${enc(name)}/consent`, { body: { model, mode, config_sha256, warning_sha256 }, signal: options.signal });
 }
 
 /** GET /projects/{p}/progress?since=: the only route that takes a query. */

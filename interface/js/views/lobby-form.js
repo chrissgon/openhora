@@ -8,16 +8,25 @@
 import { h } from "../dom.js";
 import { withheldLine } from "../floor/widgets.js";
 import { icon } from "../frame/icons.js";
+import { LANGUAGE_HINT, chosenLanguage, languageOptions } from "../language.js";
+import { MODEL_HINT, modelOptions } from "../models.js";
 import { AFTER_FORM_HINT, AUTO_FLOW, FORM_HINT, afterOptions, flowOptions } from "./lobby-model.js";
+import { createParams } from "./lobby-params.js";
 
-/** Create the form. options: {onCreate({text, flow, title, after?}), onBack()}. Returns {el, setFlows(list), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
+/** Create the form. options: {onCreate({text, flow, title, after?, model?, language?, params?, files?}), onBack()}; params are the "name=value" of the chosen flow's parameters and files the [{param, file}] to hand over (P6a); language is a tag the person chose for the deliverables (absent: the project's setting). Returns {el, setFlows(list), setModels(list, defaultModel, recommended), setLanguage(tag), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
 export function createForm({ onCreate, onBack = () => {} }) {
   const textId = "wb-new-text";
   const flowId = "wb-new-flow";
   const titleId = "wb-new-title";
   const afterId = "wb-new-after";
+  const modelId = "wb-new-model";
+  const languageId = "wb-new-lang";
+  const otherId = "wb-new-lang-other";
   const text = h("textarea", { class: "pui-input wb-lobby-field wb-field-input", id: textId, rows: "3", autocomplete: "off" });
   const flow = h("select", { class: "pui-input wb-lobby-field wb-select", id: flowId }, h("option", { value: "", text: AUTO_FLOW }));
+  const model = h("select", { class: "pui-input wb-lobby-field wb-select", id: modelId, "aria-describedby": `${modelId}-hint` }, modelOptions([], null).map((o) => h("option", { value: o.value, text: o.label })));
+  const language = h("select", { class: "pui-input wb-lobby-field wb-select", id: languageId, "aria-describedby": `${languageId}-hint` }, languageOptions(null).map((o) => h("option", { value: o.value, text: o.label })));
+  const other = h("input", { class: "pui-input wb-lobby-field wb-field-input", id: otherId, type: "text", autocomplete: "off", placeholder: "or another tag, such as it or en-GB", "aria-label": "Another language tag", "aria-describedby": `${languageId}-hint` });
   const title = h("input", { class: "pui-input wb-lobby-field wb-field-input", id: titleId, type: "text", autocomplete: "off" });
   const after = h("select", { class: "pui-input wb-lobby-field wb-select", id: afterId, "aria-describedby": `${afterId}-hint` }, afterOptions([]).map((o) => h("option", { value: o.value, text: o.label })));
   const create = h("button", { class: "pui-btn pui-solid pui-theme", type: "submit", text: "Create request" });
@@ -26,11 +35,18 @@ export function createForm({ onCreate, onBack = () => {} }) {
   const back = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-newreq-back", type: "button" }, icon("chevron-left", 16), h("span", { text: "Back to the conversation" }));
   back.addEventListener("click", () => onBack());
   const flowField = h("label", { class: "pui-field-group wb-field", for: flowId }, h("span", { text: "Flow" }), flow);
+  const params = createParams();      // the chosen flow's parameters, when it declares some
+  let listed = [];                    // the flows the service listed (their parameters are read from here)
   const routeLine = h("div");      // the line under the form when the page may not route (js/permissions.js)
   let mayRoute = true;
   const body = h("form", { class: "wb-form-body" },
     h("label", { class: "pui-field-group wb-field", for: textId }, h("span", { text: "What do you want done?" }), text),
-    flowField,
+    flowField, params.el,
+    h("label", { class: "pui-field-group wb-field", for: modelId }, h("span", { text: "Model" }), model),
+    h("small", { class: "wb-card-hint wb-hint", id: `${modelId}-hint`, text: MODEL_HINT }),
+    h("label", { class: "pui-field-group wb-field", for: languageId }, h("span", { text: "Language" }), language),
+    h("div", { class: "pui-field-group wb-field" }, other),
+    h("small", { class: "wb-card-hint wb-hint", id: `${languageId}-hint`, text: LANGUAGE_HINT }),
     h("label", { class: "pui-field-group wb-field", for: titleId }, h("span", { text: "Title (optional)" }), title),
     h("label", { class: "pui-field-group wb-field", for: afterId }, h("span", { text: "After request (optional)" }), after),
     h("small", { class: "wb-card-hint wb-hint", id: `${afterId}-hint`, text: AFTER_FORM_HINT }),
@@ -43,10 +59,21 @@ export function createForm({ onCreate, onBack = () => {} }) {
   let state = { creating: false, error: "", disabled: false };
   let offered = "";      // the options of "After request" now drawn, as one string
 
+  flow.addEventListener("change", () => params.show(listed.find((f) => f && f.flow === flow.value) || null));
   body.addEventListener("submit", (event) => {
     event.preventDefault();
     if (creating) return;
-    onCreate({ text: text.value, flow: mayRoute ? flow.value : "", title: title.value, ...(after.value ? { after: after.value } : {}) });
+    const wanted = mayRoute && flow.value;
+    const picked = chosenLanguage(language.value, other.value);
+    const problem = picked.problem || (wanted ? params.problem() : "");
+    if (problem) {      // nothing is sent: the field says what it needs
+      state = { ...state, error: problem };
+      error.textContent = problem;
+      error.hidden = false;
+      return;
+    }
+    onCreate({ text: text.value, flow: wanted ? flow.value : "", title: title.value, ...(after.value ? { after: after.value } : {}), ...(model.value ? { model: model.value } : {}),
+      ...(picked.value ? { language: picked.value } : {}), ...(wanted && params.list().length ? { params: params.list() } : {}), ...(wanted && params.files().length ? { files: params.files() } : {}) });
   });
 
   return {
@@ -54,8 +81,24 @@ export function createForm({ onCreate, onBack = () => {} }) {
     /** The flows the service listed: the options after the first. A list that failed to load leaves the first alone. */
     setFlows(list) {
       const keep = flow.value;
+      listed = Array.isArray(list) ? list : [];
       flow.replaceChildren(...flowOptions(list).map((o) => h("option", { value: o.value, text: o.label })));
       flow.value = [...flow.options].some((o) => o.value === keep) ? keep : "";
+      if (flow.value !== keep || !params.el.children.length) params.show(listed.find((f) => f && f.flow === flow.value) || null);
+    },
+    /** The models of the service's `skills` read (`models`), the project's default and the model it recommends: the options of "Model"; the choice stays while the model is still offered, else it is the first option. */
+    setModels(list, defaultModel, recommended) {
+      const options = modelOptions(list, defaultModel, recommended);
+      const keep = model.value;
+      model.replaceChildren(...options.map((o) => h("option", { value: o.value, text: o.label })));
+      model.value = options.some((o) => o.value === keep) ? keep : "";
+    },
+    /** The project's `language` setting (the `skills` read's `language`, null when none is set): the first option names it; the choice stays while the tag is still listed. */
+    setLanguage(tag) {
+      const options = languageOptions(tag);
+      const keep = language.value;
+      language.replaceChildren(...options.map((o) => h("option", { value: o.value, text: o.label })));
+      language.value = options.some((o) => o.value === keep) ? keep : "";
     },
     /** The requests of the project (`status.requests`): the options of "After request"; the choice stays while that request is still offered, else it is None. */
     setRequests(list) {
@@ -72,13 +115,15 @@ export function createForm({ onCreate, onBack = () => {} }) {
       if (mayRoute === Boolean(on)) return;
       mayRoute = Boolean(on);
       flowField.hidden = !mayRoute;
+      params.el.hidden = !mayRoute || params.el.children.length === 0;
       routeLine.replaceChildren(...(mayRoute ? [] : [withheldLine(["route"])]));
     },
     /** Merge a state into the form's: {creating, error, disabled}; a key left out keeps its value. */
     set(partial) {
       state = { ...state, ...partial };
       creating = Boolean(state.creating);
-      for (const control of [text, flow, title, after, create]) control.disabled = creating || Boolean(state.disabled);
+      for (const control of [text, flow, model, language, other, title, after, create]) control.disabled = creating || Boolean(state.disabled);
+      params.disable(creating || Boolean(state.disabled));
       create.textContent = creating ? "Creating..." : "Create request";
       if (creating) create.setAttribute("aria-busy", "true");
       else create.removeAttribute("aria-busy");
@@ -97,6 +142,10 @@ export function createForm({ onCreate, onBack = () => {} }) {
       title.value = "";
       after.value = "";
       flow.value = "";
+      model.value = "";
+      language.value = "";
+      other.value = "";
+      params.show(null);
     },
     /** Show or hide the form (the screen swaps it with the thread and the composer). */
     open(on) {

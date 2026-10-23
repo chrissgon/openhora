@@ -258,7 +258,7 @@ def test_the_lab_names_how_many_attempts_began_on_an_exception_that_leaves_it(tr
 
 def test_a_failed_run_records_the_cost_and_tokens_its_attempts_reported_and_the_split_counts_them(tree, monkeypatch):
     path = request_ready(tree)
-    monkeypatch.setattr(ops_core, "_tier_billing", lambda *a, **k: "metered")   # a metered credential: its cost is billed
+    monkeypatch.setattr(ops_core, "_model_billing", lambda *a, **k: "metered")   # a metered credential: its cost is billed
     st.fail(tree["adapter"], "adapter", 9)   # every attempt fails after the adapter wrote timing.json (100 tokens, $0.01)
     out = ops.run_next(path)
     assert out["failure"]["kind"] == "adapter"
@@ -318,7 +318,7 @@ def test_reported_usage_reads_every_attempt_a_paused_one_included(tmp_path):
 
 def test_a_run_that_succeeds_after_failed_attempts_records_the_usage_of_every_attempt(tree, monkeypatch):
     path = request_ready(tree)
-    monkeypatch.setattr(ops_core, "_tier_billing", lambda *a, **k: "metered")
+    monkeypatch.setattr(ops_core, "_model_billing", lambda *a, **k: "metered")
     st.fail(tree["adapter"], "adapter", 2)      # attempts 1 and 2 fail after reporting (100 tokens, $0.01); attempt 3 answers
     out = ops.run_next(path)
     assert out["status"] == "ok"
@@ -330,7 +330,7 @@ def test_a_run_that_succeeds_after_failed_attempts_records_the_usage_of_every_at
 
 def test_a_run_that_succeeds_at_once_records_its_own_usage_as_before(tree, monkeypatch):
     path = request_ready(tree)
-    monkeypatch.setattr(ops_core, "_tier_billing", lambda *a, **k: "metered")
+    monkeypatch.setattr(ops_core, "_model_billing", lambda *a, **k: "metered")
     ops.run_next(path)
     ctx = ops_core.context(path)
     row = dict(ctx["conn"].execute("SELECT attempts, cost_usd, tokens FROM task_runs ORDER BY id DESC LIMIT 1").fetchone())
@@ -349,3 +349,20 @@ def test_a_refused_key_that_reported_tokens_keeps_its_reservation_end_to_end(tre
     assert (runs[0]["failure"], runs[0]["attempts"], runs[0]["tokens"]) == ("auth", 1, 100)
     assert autonomy.never_reached_the_model(runs[0]) is False
     assert autonomy.spend_split([dict(r, billing="metered") for r in runs], runs[0]["agent"], PER_RUN)["usd_reserved"] == PER_RUN
+
+
+def test_reported_usage_takes_the_tokens_from_the_key_proxys_count_when_the_run_has_one(tmp_path):
+    """The run's own timing.json is what the run wrote; the meter is what its key proxy counted. The cost stays the adapter's."""
+    import json
+    import os
+    dest = str(tmp_path / "run")
+    write_timing(dest, 100, 0.01)
+    write_timing(dest + "/failed-1", 100, 0.02)
+    for folder, counts in ((dest, (10, 20, 30, 40)), (dest + "/failed-1", (1, 2, 3, 4))):
+        with open(os.path.join(folder, "outputs", "meter.json"), "w") as f:
+            json.dump(dict(zip(("input", "output", "cache_read", "cache_write"), counts), unknown_responses=0), f)
+    got = lab.reported_usage(dest)
+    assert got["total_tokens"] == 110 and got["cost_usd"] == pytest.approx(0.03)  # 100 + 10: the counted tokens, not the reported 200
+    with open(os.path.join(dest, "outputs", "meter.json"), "w") as f:
+        json.dump({"input": 10, "output": 20, "cache_read": 30, "cache_write": 40, "unknown_responses": 3}, f)
+    assert lab.reported_usage(dest)["total_tokens"] == 110  # a lower bound, still the proxy's: never the run's own 200

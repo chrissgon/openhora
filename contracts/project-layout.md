@@ -10,6 +10,7 @@ Skills never keep state inside this repository. Everything they produce for a pr
     ├── workbench/
     │   ├── state.md              # phase, artifact status, decisions, open questions (schema: state.md)
     │   ├── runtime.json          # the agent runtime's configuration, written by the person who sets it up (schema: runtime.md)
+    │   ├── instructions.md       # the person's standing instructions for the project: plain Markdown, written only by the person, read into the prompt of every model run (runtime.md, "Standing instructions"; no skill declares it)
     │   ├── policies/<policy>.json # the bounds of a standing approval of the task runtime, written by the person (approve-policy binds its hash)
     │   ├── briefs/<topic>.md     # shared-understanding briefs written by core-clarify
     │   ├── critiques/<topic>.md  # adversarial reviews written by core-critique
@@ -71,6 +72,7 @@ An input that no skill owns is listed here, or the validator reports it. `Provid
 | `docs/business/idea-validation.md` | planned: biz-validate-idea |
 | `docs/marketing/launch-plan.md` | planned: mkt-launch-plan |
 | `docs/workbench/runtime.json` | user |
+| `docs/workbench/instructions.md` | user |
 | `docs/workbench/policies/<policy>.json` | user |
 
 ## Owning skills
@@ -136,7 +138,7 @@ Generated from the skills' frontmatter by `python3 scripts/owner_table.py`; neve
 | `docs/workbench/critiques/<topic>.md` | core-critique | - |
 | `docs/workbench/research/<topic>.check.json` | core-research | - |
 | `docs/workbench/research/<topic>.md` | core-research | - |
-| `docs/workbench/state.md` | core-project-init | biz-icp-positioning, biz-market-analysis, brand-guidelines, brand-identity, brand-name, brand-profile, brand-strategy, brand-voice, core-clarify, core-critique, core-orchestrator, core-research, design-brief, design-execute, design-handoff, design-system, design-ux-flows, eng-architecture, eng-codebase-map, eng-security-review, flow-fix-bug, mkt-content-plan, mkt-engage, mkt-messaging, mkt-publish, ops-branch-sync, ops-ci-pipeline, ops-pull-request, ops-repo-baseline, product-backlog, product-feature-spec, product-prd, product-roadmap |
+| `docs/workbench/state.md` | core-project-init | biz-icp-positioning, biz-market-analysis, brand-guidelines, brand-identity, brand-name, brand-profile, brand-strategy, brand-voice, core-clarify, core-critique, core-orchestrator, core-research, design-brief, design-execute, design-handoff, design-system, design-ux-flows, eng-architecture, eng-codebase-map, eng-security-review, mkt-content-plan, mkt-engage, mkt-messaging, mkt-publish, ops-branch-sync, ops-ci-pipeline, ops-pull-request, ops-repo-baseline, product-backlog, product-feature-spec, product-prd, product-roadmap |
 <!-- owner-table:end -->
 
 ## Rules
@@ -145,6 +147,7 @@ Generated from the skills' frontmatter by `python3 scripts/owner_table.py`; neve
 - A skill reads its `metadata.inputs` if they exist. If an input is missing, it says so and either asks the user for the information or names the skill that produces it, for the user to run. It never silently invents the content of a missing input.
 - Artifacts are Markdown unless the content is inherently structured (design tokens, eval datasets, a check script's report), in which case JSON or YAML sits next to a Markdown summary.
 - Every Markdown artifact starts with a short header that carries at least `- Owner:` (the owning skill), `- Status:` and `- Date:`. The status mirrored in `docs/workbench/state.md` is `draft`, `approved` or `skipped`; the header itself may carry a finer status that the owner's template defines.
+- Every Markdown artifact a skill writes under `docs/` also carries `- Language: <tag>` in its header (`Language: <tag>` where the header is not a list), placed after the `- Owner:` line, or after the first header line where a template has no Owner line. The tag is one language of two lower-case letters, optionally a hyphen and two upper-case letters (`en`, `pt-BR`). The project's language is the `language` key of `docs/workbench/runtime.json` (English when it is absent); a task's `Project language:` line gives that value to a run, and a `Language of this deliverable:` line is the request's own for that deliverable, new or updated. A new artifact is written in the language the request sets, else the task's language line, else the key, else English. A skill that updates an artifact keeps the language its `Language:` line names (with no such line, the language the file is written in), unless the request sets another; the language of the conversation never changes it. The header word `Language:`, file names, paths, ids, dates in ISO form, commands and code stay English, and so do the headings and labels a script reads, unless the skill says to translate them. The state file `docs/workbench/state.md` and the JSON and log outputs are not given the line, nor is a post file or a reply: the language of a post is its calendar slot's, and of a reply its comment's. Files that are the work itself (code, `README`, `SECURITY.md`, CI files) follow the project's own conventions.
 - Day-to-day engineering tasks (implementing a ticket, fixing a bug) create no artifact under `docs/` except a plan in `docs/engineering/plans/` and a review in `docs/engineering/reviews/`. Both are the working records of one task: they are not registered in the state file, and no skill removes them; whether they are kept once the task ships is the project's decision.
 - An artifact's template lives with the skill that owns the artifact: in the skill's `assets/` folder, or inline in its `SKILL.md` when it is short. A skill that writes into an artifact it does not own follows the owner's template and says so. `contracts/templates/` holds only a README.
 - Work data that must outlive a session and is not an artifact (an approved payload that runs later, a record of a use) goes to `.workbench-local/`, which git ignores; a skill checks that it is ignored before writing there (`contracts/environment.md`).

@@ -542,3 +542,29 @@ def test_the_state_is_pruned_once_a_day_while_running(tmp_path):
         assert json.load(open(r.folder + "/" + wc.SEEN)) == {} and json.load(open(r.folder + "/" + wc.IDENTITIES)) == {}
     finally:
         r.stop()
+
+
+# --- the document of a card an approval needs: its failure is told, not only logged (POL-1) -------------------------------------------
+
+
+def test_a_document_that_does_not_go_out_is_told_to_the_bridge_and_a_part_that_does_not_matter_is_not(tmp_path):
+    opener = Opener([("POST /109876543210001/media", lambda c: http_error(500))])
+    sender, _, _, _ = opened(tmp_path, opener=opener)
+    sent = sender.send(PERSON, plain("text", document={"name": "d.txt", "text": "x"}))
+    assert sent == "wamid.OUT1" and sent.document_failed is True, "the id is still the text's; the flag says the file did not arrive"
+    ok, _, _, _ = opened(tmp_path, folder="ok")
+    delivered = ok.send(PERSON, plain("text", document={"name": "d.txt", "text": "x"}))
+    assert delivered == "wamid.OUT1" and delivered.document_failed is False
+    buttons = Opener([("messages", lambda c: http_error(400, 131009) if c["body"]["type"] == "interactive" and c["body"]["interactive"]["body"]["text"] == wc.BUTTONS_LINE else None)])
+    sender, _, _, _ = opened(tmp_path, opener=buttons, folder="b")
+    assert sender.send(PERSON, card("y" * 2000)).document_failed is False, "a failed buttons message is not a failed document"
+
+
+def test_the_answer_of_a_send_carries_document_failed_only_when_the_document_did_not_go_out(rig):
+    r = rig(opener=Opener([("media", lambda c: http_error(500))]))
+    write_to_the_bot(r)
+    failed = r.ask(1, PERSON, plain("The plan", document={"name": "d.txt", "text": "whole"}))
+    assert failed["ok"] is True and failed["document_failed"] is True and isinstance(failed["message_id"], str)
+    plain_answer = r.ask(2, PERSON, plain("No file"))
+    assert plain_answer["ok"] is True and "document_failed" not in plain_answer
+    assert r.stop() == 0

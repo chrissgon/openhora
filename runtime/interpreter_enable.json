@@ -1,0 +1,111 @@
+{
+ "v": 1,
+ "entries": [
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-21",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "IX-3b go false (wrong_card Wilson upper: DeepSeek 5.59%, reference 2.29%, limit 2%); correct per item DeepSeek 84%, current pipeline 21%; actions without confirmation 0. The maintainer chose to proceed (DECISIONS 2026-10-21).",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-21",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "S8 adds the operation file-read (class R: the text of a file found by its name in the folders the project lists for the person's own accounts), so the served catalog changed; the prompt, the protocol and the route did not. The maintainer approved the slice on 2026-10-21 (translated from Portuguese): \"Yes: build S8, read a file by its name in the folders already configured for the account, before the release.\" Basis of the earlier entry unchanged: IX-3b go false, the maintainer chose to proceed. The replay gate keeps replaying the recorded answers against the catalog they were recorded with.",
+   "status_line": "enabled by maintainer decision 2026-10-21 (S8: file-read added to the catalog), below the gate"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-21",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Adds the e-mail compose prompt (runtime/mail_compose_prompt.txt) to the decisions above, which stand; this entry carries every current checkout hash (catalog with file-read, S8) so the interpreter stays on. The maintainer on 2026-10-20: \"para emails eu iria pedir para a IA criar um texto melhor escrito\". The model words a new e-mail from what the person described; the card shows the whole text and nothing is sent before the person approves it.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt pinned)",
+   "compose_prompt_sha256": "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Re-pins the e-mail compose prompt after the live test of 2026-10-22; every other hash stands, so the interpreter stays on. The prompt now asks for correct spelling and accents in subject and body and a body that ends with a courtesy sentence, not a bare closing formula; code accepts a corrected subject only as the same words in the same order. The maintainer: \"a IA deve verificar a ortografia do assunto do email\". The card shows the whole text; nothing is sent before the person approves it.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt re-pinned 2026-10-22)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Adds the e-mail revise prompt (runtime/mail_revise_prompt.txt) to the decisions above, which stand; this entry carries every current checkout hash, the compose prompt as re-pinned by the entry above, and the revise prompt's. The maintainer on 2026-10-22: \"Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível\". The model changes a waiting e-mail card as one line asks; code keeps the recipients and the account, refuses a new address or link, and the new card is approved by its own hash.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "0d8e9ef055270765d32a2abd7ec7beff75a51d0f468e8ed740b304ec0a0eba3c"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "fd05b3d27bf994935dae860053652fdeeae10a90e23bb1bc75aa8c29081eedc7",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "R2-F1 adds the operation research (class R: a question of general information answered by a web search by the research skill, behind the group research), so the served catalog changed; the prompt, the protocol, the route and the e-mail prompts did not. The maintainer on 2026-10-22 (translated from Portuguese): \"As for R2-F, wouldn't it just be pointing to a web research skill?\" and \"Yes: start R2-F1 (web research through core-research) now, in parallel.\" The earlier decisions stand; the replay gate replays the recorded answers against their own catalog.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned); research added to the catalog 2026-10-22 (R2-F1)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "0d8e9ef055270765d32a2abd7ec7beff75a51d0f468e8ed740b304ec0a0eba3c"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "fd05b3d27bf994935dae860053652fdeeae10a90e23bb1bc75aa8c29081eedc7",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Re-pins the e-mail revise prompt (runtime/mail_revise_prompt.txt) after the live test of 2026-10-22: a text after a colon and a line break is a text asked for, and an e-mail that already says what is asked is returned as it is. Every other hash stands (the catalog is the one of R2-F1), so the interpreter stays on. The maintainer: \"Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível\".",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned, revise prompt re-pinned 2026-10-22)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90877edd84f53f4c91ce546a94e96bd42ddfeb7959c075d75d216c44a665a212",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "R2-A adds the operation file-trash (class E: a card that moves a file of the person's own Drive or OneDrive to the service's trash) on top of the catalog with research, so the served catalog changed; every other pin stands and this entry carries them all, the revise pin of S13b included. The maintainer on 2026-10-22 (translated): \"Yes: start R2-A (move a file to the trash) as soon as S17b is in.\" Earlier basis unchanged: IX-3b go false, the maintainer chose to proceed. Nothing is moved before the person approves the card's hash.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned, revise prompt re-pinned 2026-10-22); file-trash added to the catalog 2026-10-22 (R2-A)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
+  }
+ ]
+}

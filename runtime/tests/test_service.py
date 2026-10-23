@@ -61,7 +61,12 @@ class Standin:
         self.job_stop = threading.Event()
         self.lock = threading.Lock()
 
+    # What the messaging bridge asks of the operations layer that is no row of the table (RM-1): nothing is due unless a test says so.
+    BRIDGE_ONLY = {"reminders_due": {"send": [], "missed": 0, "dropped": 0}, "reminders_sent": {"id": 0}, "reminders_retry": {"id": 0, "open": True}}
+
     def __getattr__(self, name):
+        if name in self.BRIDGE_ONLY:
+            return lambda project, *args, **kwargs: self.answers.get(name, self.BRIDGE_ONLY[name])
         if name not in {row["call"] for row in operations.OPERATIONS}:
             raise AttributeError(name)
 
@@ -183,7 +188,7 @@ def path_of(world, route):
 
 OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"]]
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands")  # the reads of the views
-READ_OPS = ("status", "pending", "flows", "task", "progress") + VIEW_READS
+READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments", "reminders", "items") + VIEW_READS
 
 
 # --- rule 1: the loopback address -----------------------------------------------------------------------------------
@@ -540,7 +545,9 @@ def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
         if row["model"] is not False:
             assert row.get("job") is True, row["name"]
     assert {r["name"] for r in operations.OPERATIONS if r.get("job")} == \
-        {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say"}
+        {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say", "ask",
+         "event-change", "event-cancel", "research",
+         "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"}
 
 
 def test_a_refused_operation_becomes_its_documented_status(world):
@@ -882,13 +889,13 @@ def test_the_read_routes_call_their_operations_with_the_query_they_take_and_refu
         assert world.fake.calls == []
     # conversation: both keys optional
     world.fake.calls.clear()
-    assert call(world, "GET", api(world, "/conversation"))[0] == 200 and last() == ("conversation", project, {})
+    assert call(world, "GET", api(world, "/conversation"))[0] == 200 and last() == ("conversation", project, {"channel": "page"})
     assert call(world, "GET", api(world, "/conversation?after=0"))[0] == 200
-    assert last() == ("conversation", project, {"after": 0})
+    assert last() == ("conversation", project, {"after": 0, "channel": "page"})
     assert call(world, "GET", api(world, "/conversation?after=42&conversation=project"))[0] == 200
-    assert last() == ("conversation", project, {"after": 42, "conversation": "project"})
+    assert last() == ("conversation", project, {"after": 42, "conversation": "project", "channel": "page"})
     assert call(world, "GET", api(world, "/conversation?conversation=other"))[0] == 200
-    assert last() == ("conversation", project, {"conversation": "other"})
+    assert last() == ("conversation", project, {"conversation": "other", "channel": "page"})
     # costs: since is text, the operation checks it
     assert call(world, "GET", api(world, "/costs"))[0] == 200 and last() == ("costs", project, {})
     assert call(world, "GET", api(world, "/costs?since=2026-10-01"))[0] == 200
@@ -965,8 +972,8 @@ def test_the_config_operation_never_refuses_an_unaccepted_configuration_and_the_
     digest = ops.project_config.load(real.path)["sha256"]
     found = ops.config(real.path)
     assert found == {"path": os.path.join(real.path, "docs", "workbench", "runtime.json"), "sha256": digest, "accepted": False,
-                     "data_dir": str(real.tree["data"]), "messaging": {"senders": {}, "notices": "text", "page_url": None},
-                     "channels": {}}
+                     "data_dir": str(real.tree["data"]), "messaging": {"senders": {}, "sender_profiles": {}, "notices": "text", "page_url": None},
+                     "channels": {}, "policies": {}, "channel_profiles": {}, "language": None, "grants": [], "widening": [], "widening_sha256": None, "warnings": []}   # POL-1: grants, widening, its hash, warnings
     with pytest.raises(ops.OpsError) as refused:
         ops.status(real.path)
     assert refused.value.code == 3 and digest in str(refused.value)

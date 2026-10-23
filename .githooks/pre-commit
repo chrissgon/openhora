@@ -3,18 +3,23 @@
 #
 # 1. scripts/validate.py: conventions and the security scan. It reads the working tree, not only
 #    what is staged, so a file with a finding blocks the commit even if it is not part of it. Its version
-#    rules read a change against the merge base of HEAD with the default branch, the same base CI passes
-#    (WB_BASE_REF), never against HEAD: an edit and its bump in two commits are read as one change.
+#    rules read a change against the base of the change, never against HEAD: an edit and its bump in two commits
+#    are read as one change. The base is WB_BASE_REF (CI passes the pull request's base), else the git config key
+#    workbench.baseRef set for one worktree, else the branch's upstream (unless it is the branch itself or its own
+#    pushed copy), else the merge base of HEAD with the default branch; the validator prints the one it used. A
+#    branch cut from an integration branch is read against it with: git config --worktree workbench.baseRef
+#    origin/<integration branch> (never without --worktree: the clone-wide config is shared by every worktree).
 # 2. scripts/security_scan.py --strict: a security warning (hidden text, a shell run on a built string,
 #    an unguarded recursive delete, an unpinned dependency...) blocks the commit like an error does.
-# 3. The tests of providers/<class>/, scripts/, evals/, runtime/ (also when a flow file under flows/ or a file
-#    under interface/ changed), shared/, an adapter or a skill's scripts/ (its scripts/tests/ folder, also when only a
-#    test changed) when the commit touches them; a provider
-#    class left without tests is refused. A commit that touches .githooks/, .github/, packs/, templates/
-#    or agents/ runs scripts/tests, where the tests of that wiring, of the installers and of the scaffold are.
-#    A commit that touches shared/ or a generated copy (shared/scripts/copies.json lists them) also runs
-#    scripts/tests, where the identity test of the copies is; the validator of step 1 already refuses an
-#    adopted copy that differs from its source.
+# 3. The SELECTED tests, not whole folders (docs/decisions.md, 2026-10-20): scripts/select_tests.py maps the staged files to the
+#    test files they can reach (a changed test; the tests that import or name a changed module, and those of the modules that
+#    re-export it; the tests that name a changed data file; the whole test folder of a conftest, a test kit or a file nothing
+#    references), plus a fixed set of fast guards that always run. Rules and their limits: the text at the top of that script.
+#    The whole suite does not run here: it runs at the end of a large delivery (a pull request into main, a push to main, a manual
+#    run, a pull request labelled full-suite: .github/workflows/checks.yml, the job tests in its whole-suite mode), where it catches what the selection
+#    cannot see (a dynamic import, a long call chain without an import edge). At most WB_TEST_SLOTS (default 3) test runs share a
+#    machine: scripts/test_slots.py makes the hook wait for a slot, at most WB_TEST_SLOT_WAIT seconds (default 3600), and fails with
+#    the message if none frees. A provider class left without tests is refused.
 #
 # Skipping the hook (git commit --no-verify) is the user's decision, never a skill's.
 set -euo pipefail
@@ -34,44 +39,43 @@ if ! out="$(python3 scripts/security_scan.py --strict 2>&1 >/dev/null)"; then
   fail "scripts/security_scan.py --strict found warnings (listed above). Fix them; an intended one is silenced on its line with 'security-scan: allow <rule> -- <reason>'."
 fi
 
-# NUL-separated so names with spaces or non-ASCII characters are not quoted; no rename detection,
-# so a file moved out of providers/, scripts/, evals/ or an adapter still counts for the folder it left.
-dirs=()
-copies="$(python3 scripts/sync_copies.py --destinations 2>/dev/null || true)"
-while IFS= read -r -d '' f; do
-  # A shared source, the manifest or a generated copy: the identity test of the copies is in scripts/tests.
-  if [[ "$f" == shared/* ]] || grep -qxF -- "$f" <<<"$copies"; then
-    if [[ " ${dirs[*]-} " != *" scripts/tests "* ]]; then dirs+=("scripts/tests"); fi
-  fi
-  case "$f" in
-    shared/*) d="shared/scripts/tests" ;;  # the tests of a shared script live at its source
-    providers/*/*) d="providers/$(echo "$f" | cut -d/ -f2)/tests" ;;
-    providers/*) d="scripts/tests" ;;  # providers/resolve.py: its tests are scripts/tests/test_provider_resolve.py
-    scripts/*) d="scripts/tests" ;;
-    .githooks/*|.github/*|packs/*|templates/*|agents/*) d="scripts/tests" ;;
-    evals/execution.py) d="evals/tests"  # the runtime's lab facade (runtime/lab.py) loads the execution kit
-      [[ " ${dirs[*]-} " != *" runtime/tests "* ]] && dirs+=("runtime/tests") ;;
-    evals/*) d="evals/tests" ;;
-    runtime/*|flows/*|interface/*) d="runtime/tests" ;;  # a flow file, a page of the interface: checked by the tests of the code that reads it
-    skills/*/evals/runtime-manifest.json) d="runtime/tests" ;;  # read by runtime/manifest.py, before any skills/* pattern
-    skills/*/scripts/*) d="skills/$(echo "$f" | cut -d/ -f2)/scripts/tests" ;;
-    adapters/*/*) d="adapters/$(echo "$f" | cut -d/ -f2)/tests" ;;
-    *) continue ;;
-  esac
-  if [[ ! -d "$d" ]]; then
-    # A provider acts on the outside world, so it cannot lose its tests (providers/CONTRACT.md).
-    # A class removed entirely has no folder left and is not checked.
-    [[ "$d" == providers/* && -d "$(dirname "$d")" ]] \
-      && fail "$(dirname "$d") has no tests; add offline tests in $d (providers/CONTRACT.md)."
-    continue
-  fi
-  [[ " ${dirs[*]-} " != *" $d "* ]] && dirs+=("$d")
-done < <(git diff --cached --name-only -z --no-renames --diff-filter=ACMRD)
+# NUL-separated so names with spaces or non-ASCII characters are not quoted; no rename detection, so a file moved out of a folder
+# still counts for the folder it left; deleted files are included (a removed module breaks the tests that name it).
+staged() { git diff --cached --name-only -z --no-renames --diff-filter=ACMRDT; }
 
-if [[ ${#dirs[@]} -gt 0 ]]; then
-  command -v uv >/dev/null || fail "uv is needed to run the tests in ${dirs[*]}: https://docs.astral.sh/uv/"
+# A provider acts on the outside world, so it cannot lose its tests (providers/CONTRACT.md). A class removed entirely has no
+# folder left and is not checked.
+while IFS= read -r -d '' f; do
+  case "$f" in
+    providers/*/*)
+      d="providers/$(echo "$f" | cut -d/ -f2)"
+      [[ -d "$d" && ! -d "$d/tests" ]] && fail "$d has no tests; add offline tests in $d/tests (providers/CONTRACT.md)."
+      ;;
+  esac
+done < <(staged)
+
+targets=()
+if [[ -n "$(staged | tr -d '\0')" ]]; then
+  selected="$(staged | python3 scripts/select_tests.py --files-from -)" \
+    || fail "scripts/select_tests.py could not choose the tests (message above)."
+  while IFS= read -r t; do
+    [[ -n "$t" ]] && targets+=("$t")
+  done <<<"$selected"
+fi
+
+if [[ ${#targets[@]} -gt 0 ]]; then
+  command -v uv >/dev/null || fail "uv is needed to run the tests: https://docs.astral.sh/uv/"
+  echo "pre-commit: running ${#targets[@]} selected test target(s); the whole suite runs at the end of a delivery (scripts/select_tests.py --explain tells why each was chosen)" >&2
+  started=$SECONDS
   # Same pin as .github/workflows/checks.yml. Git exports GIT_DIR and GIT_INDEX_FILE to hooks; tests that
-  # create their own repositories would otherwise read this one.
+  # create their own repositories would otherwise read this one. scripts/test_slots.py waits for one of the machine's test slots.
+  status=0
   env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX \
-    uv run --quiet --with pytest==9.1.1 pytest -q "${dirs[@]}" || fail "tests failed in ${dirs[*]}."
+    python3 scripts/test_slots.py -- uv run --quiet --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n auto "${targets[@]}" || status=$?
+  if [[ $status -eq 75 ]]; then
+    fail "no test slot became free (scripts/test_slots.py, message above); the tests have not run. Wait for the other runs and commit again."
+  elif [[ $status -ne 0 ]]; then
+    fail "the selected tests failed (${#targets[@]} target(s), $((SECONDS - started)) s)."
+  fi
+  echo "pre-commit: the selected tests passed in $((SECONDS - started)) s" >&2
 fi

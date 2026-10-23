@@ -55,7 +55,7 @@ __all__ = (
     # the adapter's data and what a run sees of the skills
     "adapter_eval", "harness_settings", "settings_in", "stage_run",
     # credentials by name, and the environment of a contained command
-    "resolve_pass_env", "contained_env", "credential_label",
+    "resolve_pass_env", "contained_env", "credential_label", "token_var",
     # the fresh folder of a run, and its way back
     "new_run_root", "return_run", "return_all_runs",
     # running: the fixture commit, the adapter, the stopping of what was started
@@ -71,9 +71,10 @@ __all__ = (
     # one command in the container of a run, with no model and no credential
     "run_group", "SETUP_TIMEOUT",
 )
-# The names of evals/eval_status.py the runtime reads: the gate file, a skill's identity and its standing.
+# The names of evals/eval_status.py the runtime reads: the gate file, a skill's identity, its standing, the lines that weigh (lab_view) and a case's context (case_context).
 STATUS_NAMES = ("load_gate", "event_config", "skill_version", "content_hash", "fingerprint_problem", "GATE_REL",
-                "all_status", "skill_evidence")
+                "all_status", "skill_evidence", "lab_view", "case_context", "model_entry", "model_id", "known_models",
+                "local_evidence_base", "local_evidence_files", "local_skill_evidence", "community_pool", "evidence_authors", "event_model_pairs")
 # Names of evals/measure.py this module re-exports, read on first use (a command that measures nothing runs
 # without that module).
 MEASURE_EXPORTS = ("early_end", "redaction_values")
@@ -84,6 +85,7 @@ ROOT = os.path.normpath(os.path.join(HERE, ".."))
 STATUS_SCRIPT = os.path.join(HERE, "eval_status.py")
 EXECUTOR_SCRIPT = os.path.join(HERE, "executor.py")  # where a run's commands execute: a container
 STAGE_SCRIPT = os.path.join(HERE, "..", "scripts", "stage_skills.py")  # what a run sees of the skills: staged copies
+LOCAL_MODELS_SCRIPT = os.path.join(HERE, "local_models.py")  # a model on the person's machine: its weights and its identity
 # "container" for every real run; the unit tests set "host" to drive stand-in adapters without docker.
 EXECUTOR = "container"  # content hash and the per-skill record
 
@@ -95,11 +97,28 @@ def die(msg, code=2):
     sys.exit(code)
 
 
+EXECUTOR_LOCK = threading.Lock()
+
+
 def load_executor():
-    """evals/executor.py as a module."""
+    """evals/executor.py as a module. Runs call it from several threads: the module is whole before any of them sees it
+    (it is registered after it ran, under a lock; registered before, a second thread took the half-made module and found
+    that it had no `read_meter`)."""
     name = "workbench_eval_executor"
+    with EXECUTOR_LOCK:
+        if name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(name, EXECUTOR_SCRIPT)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            sys.modules[name] = module
+    return sys.modules[name]
+
+
+def load_local_models():
+    """evals/local_models.py as a module."""
+    name = "workbench_eval_local_models"
     if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, EXECUTOR_SCRIPT)
+        spec = importlib.util.spec_from_file_location(name, LOCAL_MODELS_SCRIPT)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         spec.loader.exec_module(module)
@@ -277,8 +296,8 @@ def load_status():
 def resolve_pass_env(names):
     """Fill a --pass-env variable missing from the environment from the workbench's secret resolver
     (providers/secrets/resolver.py: the OS secret store), so a key kept there reaches the runs
-    without an export. The names come from the caller (the flags, and floor_pass_env and
-    strong_pass_env of the gate file, their one home): each is checked against the secrets the
+    without an export. The names come from the caller (the flags, and the "pass_env" and
+    "web_pass_env" of each model's entry in the gate file, their one home): each is checked against the secrets the
     adapters register in the "secrets" list of their adapter.json, and no name is taken from that
     registry. Only secrets whose registered readers include eval_run.py are filled; other names and
     values that are not found are left alone."""
@@ -310,9 +329,17 @@ def resolve_pass_env(names):
     return filled
 
 
-# Credentials in the environment would sign gh, npm or git hosts back in.
+# Credentials in the environment would sign gh, npm or git hosts back in; the password manager's whole OP_ family
+# (OP_SERVICE_ACCOUNT_TOKEN, OP_SESSION_*, OP_CONNECT_TOKEN, OP_CONNECT_HOST) would sign the manager in (limit L39).
 TOKEN_VARS = {"GH_TOKEN", "GITHUB_TOKEN", "VCS_GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
               "NPM_TOKEN", "NODE_AUTH_TOKEN"}
+TOKEN_PREFIXES = ("OP_",)
+
+
+def token_var(name):
+    """True for a variable that never reaches a model run: a token variable, or one of a prefix family."""
+    return name in TOKEN_VARS or name.startswith(TOKEN_PREFIXES)
+
 # The only variables a model run, a setup or the grader receives from the caller, besides --pass-env.
 ENV_ALLOW = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TMPDIR", "TZ",
              "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"}
@@ -450,7 +477,7 @@ def contained_env(run_dir, pass_env=()):
     for path in (npmrc, gitconfig):
         open(path, "w").close()
     env = {k: v for k, v in os.environ.items()
-           if (k in ENV_ALLOW or k.startswith("LC_") or k in pass_env) and k not in TOKEN_VARS}
+           if (k in ENV_ALLOW or k.startswith("LC_") or k in pass_env) and not token_var(k)}
     # Nothing tells the run where the repository is: PATH entries inside it go, an allowlisted variable that
     # points into it goes, and TMPDIR is the base the run folders are made in. A --pass-env variable is the
     # caller's own choice and stays as it is.
@@ -507,11 +534,21 @@ def stop_all_groups(grace=STOP_GRACE):
     """End every group still registered; no new one starts afterwards."""
     STOPPING.set()
     with GROUPS_LOCK:
-        pending, containers = list(GROUPS), list(CONTAINERS)
+        pending, containers, held, served = list(GROUPS), list(CONTAINERS), list(HELD), list(LOCAL_HELD)
     for name in containers:  # first, so that the work stops; their docker clients end with them
         try:
             load_executor().remove(name)
         except Exception:  # stopping goes on whatever one removal does
+            pass
+    for run_id in held:  # a run's key proxy and network go with its container (the run's own end releases them again: safe)
+        try:
+            load_executor().release(run_id)
+        except Exception:
+            pass
+    for run_id in served:  # a local model's server and network go with its run's container too
+        try:
+            load_executor().release_local(run_id)
+        except Exception:
             pass
     for pgid in pending:
         try:
@@ -529,37 +566,125 @@ def stop_all_groups(grace=STOP_GRACE):
 
 
 CONTAINERS = set()  # names of containers started and not yet ended; guarded by GROUPS_LOCK
+HELD = set()  # run ids whose key proxy and network are up and not yet released; guarded by GROUPS_LOCK
+LOCAL_HELD = set()  # run ids whose model server and network are up and not yet released; guarded by GROUPS_LOCK
+METER_POLL = 0.25  # how long the meter file must stay unchanged, after the run container is gone, before it is read
 
 
 def run_group(cmd, timeout, cwd=None, env=None, box=None):
     """subprocess.run for a command in a session of its own: its whole process group ends on a timeout
     (subprocess.TimeoutExpired is raised) and when the command returns, so nothing it started outlives it.
 
-    box = {"root", "runner", "pass", "network"} runs the command in a container (evals/executor.py): root is
+    box = {"root", "runner", "pass", "network", "model"} runs the command in a container (evals/executor.py): root is
     the run's folder, the only thing it can change; runner is the one run-prompt.sh the command starts, the
-    only file of the workbench the container sees. The container is removed by name when the command
-    returns, times out or the script is stopped, since ending the docker client does not end it. A command
-    passed the variable a key proxy holds starts that key proxy first (executor.held_route(), keyproxy()); when
-    it cannot start, the command fails as an infrastructure failure, before any container runs."""
-    container = None
-    if box is not None and EXECUTOR == "container":
-        executor = load_executor()
-        held = executor.held_route(box.get("pass") or (), env, box.get("network") or "none")
-        if held:
-            try:  # the key stays there; the run gets a placeholder and the proxy's address
-                executor.keyproxy(env=env, name=held)
-            except executor.ExecutorError as e:  # an infrastructure failure of this command, never a score
-                return subprocess.CompletedProcess(cmd, 1, "", f"Error: {e}\n")
-        cmd, container = executor.command(cmd, box["root"], cwd=cwd, env=env, runner=box.get("runner"),
-                                          pass_names=box.get("pass") or (), network=box.get("network") or "none")
-        cwd = None
+    only file of the workbench the container sees; model is the model it runs (an id or alias of the gate file's
+    list). The container is removed by name when the command returns, times out or the script is stopped, since
+    ending the docker client does not end it. A command passed the variable a key proxy holds gets a key proxy and
+    a network of its own first (executor.held_route(), hold()), both removed with the container on every way out,
+    and the proxy's count of the run's tokens is read when the run ends into box["meter"] (None when there is none,
+    which the key proxy not writing it or a command that holds no key both mean); when they cannot start, or the
+    model has no route, the command fails as an infrastructure failure, before any container runs.
+
+    box["local"] ({"alias", "weights", "stat", "context", "memory_gb", "accelerator", "cpus", "load_timeout_seconds"}) is a
+    local model's run: its weights are checked against the file's (device, inode, size, mtime) taken with their hash, then
+    a model server and an internal network of the run's own are started (executor.hold_local()) and the run is put on
+    that network only, with no key; both are removed with the container on every way out (executor.release_local())."""
+    container = held = run_id = meter_dir = None
+    started = served = False  # hold() / hold_local() was called: what it made is released, whatever fails after it
     try:
+        if box is not None and EXECUTOR == "container":
+            executor = load_executor()
+            box["meter"] = None
+            model, network = box.get("model"), box.get("network") or "none"
+            local = box.get("local") if network != "none" else None  # a local model: its server, not a key proxy
+            try:
+                route = None if local else executor.held_route(box.get("pass") or (), env, network, model)
+                run_id = executor.new_run_id()
+                if local:
+                    models = load_local_models()
+                    models.assert_unchanged(local["weights"], local["stat"])  # the file the id was hashed from, before each server
+                    with GROUPS_LOCK:
+                        LOCAL_HELD.add(run_id)  # before it starts: a stop in the meantime releases what hold_local() has made so far
+                    served = True
+                    loaded = executor.hold_local(run_id, {**local, "cpus": local.get("cpus") or executor.host_cpus(env)}, env)
+                    if isinstance(loaded, dict) and loaded.get("seconds") is not None:  # how long this run waited for its model to load
+                        print(f"MODEL SERVER {local['alias']} ready after {loaded['seconds']} s (run {run_id})", file=sys.stderr)
+                if route:  # the key stays there; the run gets a placeholder and its own proxy's address
+                    meter_dir = executor.meter_folder(temp_base())
+                    with GROUPS_LOCK:
+                        HELD.add(run_id)  # before it starts: a stop in the meantime releases what hold() has made so far
+                    started = True
+                    held = executor.hold(run_id, model, env, network, meter_dir=meter_dir)
+                cmd, container = executor.command(cmd, box["root"], cwd=cwd, env=env, runner=box.get("runner"),
+                                                  pass_names=box.get("pass") or (), network=network, model=model, run_id=run_id,
+                                                  **({"local": local} if local else {}))
+            except (executor.ExecutorError, load_local_models().LocalModelError) as e:  # an infrastructure failure of this command, never a score
+                return subprocess.CompletedProcess(cmd, 1, "", f"Error: {e}\n")
+            cwd = None
         return _run_group(cmd, timeout, cwd, env, container)
     finally:
-        if container:
-            load_executor().remove(container, env=env)
-            with GROUPS_LOCK:
-                CONTAINERS.discard(container)
+        # Everything from hold() to here is undone on every way out, an exception of anything after hold() included.
+        try:
+            if container:
+                load_executor().remove(container, env=env)
+                with GROUPS_LOCK:
+                    CONTAINERS.discard(container)
+        finally:
+            try:
+                if held:  # an answer still being read when the run ended is waited for: the proxy counts it when it is whole
+                    wait_idle(load_executor(), held["meter"], held["route"])
+            finally:
+                try:
+                    if started:
+                        try:
+                            load_executor().release(run_id, env=env)  # SIGTERM first: an answer still open is recorded as unknown
+                        except load_executor().ExecutorError:
+                            pass  # best effort: an orphan is found by its label (wb.eval.run=<run id>), and the first failure is the one reported
+                        finally:
+                            with GROUPS_LOCK:
+                                HELD.discard(run_id)
+                    if held:  # read last: it holds what the proxy wrote when it stopped
+                        box["meter"] = load_executor().read_meter(held["meter"])
+                finally:
+                    try:
+                        if served:  # the model server and the run's network: the run's container is gone, so the network is free
+                            try:
+                                load_executor().release_local(run_id, env=env)
+                            except load_executor().ExecutorError:
+                                pass  # best effort: an orphan is found by its label (wb.eval.run=<run id>)
+                            finally:
+                                with GROUPS_LOCK:
+                                    LOCAL_HELD.discard(run_id)
+                    finally:
+                        if meter_dir:
+                            shutil.rmtree(meter_dir, ignore_errors=True)
+
+
+def wait_idle(executor, path, route):
+    """Wait until the key proxy's meter file says no request is under way (it counts an answer before it says so), at
+    most the route's timeout: the run may have ended in the middle of a request, and the proxy reads that answer to its
+    end. Returns at once for a file that is not there or does not say."""
+    deadline = time.monotonic() + executor.route(name=route)["timeout_seconds"]
+    while True:
+        meter = executor.read_meter(path)
+        if not meter or not meter.get("in_flight") or time.monotonic() > deadline or STOPPING.is_set():
+            return  # (a stop does not wait: the proxy is stopped next, and records what it still holds as unknown)
+        time.sleep(METER_POLL)
+
+
+def write_meter(out_dir, box):
+    """Leave the run's meter in <out>/meter.json, or remove a file of that name: the run could have made one, and
+    only the key proxy's count is the run's meter. Called by the host after the run's container is gone."""
+    path = os.path.join(out_dir, "meter.json")
+    meter = (box or {}).get("meter")
+    try:
+        if os.path.lexists(path):
+            os.remove(path)
+        if meter:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(meter, f)
+    except OSError:
+        pass
 
 
 def _run_group(cmd, timeout, cwd, env, container):
@@ -590,7 +715,9 @@ def run_failure(runner, prompt_path, cwd, model, out, env=None, timeout=900, max
                 start_dir=None, box=None, no_tools=False):
     """Run the adapter once. Returns None when it exited 0, else why it failed: an infrastructure failure,
     never a score (the adapter exits non-zero when the provider or the harness fails, not when the answer is poor).
-    The adapter is told nothing about skills: the runner staged them in <cwd> before this call."""
+    The adapter is told nothing about skills: the runner staged them in <cwd> before this call.
+    The model also goes into the box, so that the executor starts the key proxy of that model; a run whose key proxy
+    counted its tokens leaves the count in <out>/meter.json (write_meter())."""
     cmd = ["bash", runner, "--prompt-file", prompt_path, "--cwd", cwd, "--model", model, "--out", out]
     if max_cost:
         cmd += ["--max-cost-usd", max_cost]
@@ -598,18 +725,25 @@ def run_failure(runner, prompt_path, cwd, model, out, env=None, timeout=900, max
         cmd += ["--allow-web"]
     if no_tools:  # a grading call: the model judges text and is given nothing to act with
         cmd += ["--no-tools"]
+    box = {**box, "model": model} if box is not None else None
+
+    def stopped():
+        return " (the key proxy stopped the run at its token budget)" if ((box or {}).get("meter") or {}).get("budget_reached") else ""
     try:
         # start_dir: the adapter's shell exports the folder it starts in as OLDPWD once it changes to <cwd>.
-        r = run_group(cmd, timeout, cwd=start_dir, env=env, box=box)
+        try:
+            r = run_group(cmd, timeout, cwd=start_dir, env=env, box=box)
+        finally:
+            write_meter(out, box)
     except subprocess.TimeoutExpired:
         with open(os.path.join(out, "error.log"), "w", encoding="utf-8") as f:
             f.write(f"stopped after --timeout {timeout}s\n")
-        return f"timeout: stopped after {timeout}s"
+        return f"timeout: stopped after {timeout}s" + stopped()
     if r.returncode != 0:
         with open(os.path.join(out, "error.log"), "w", encoding="utf-8") as f:
             f.write(r.stdout + "\n" + r.stderr)
         last = [line.strip() for line in (r.stderr or r.stdout).splitlines() if line.strip()]
-        return f"adapter exit {r.returncode}" + (f": {last[-1][:200]}" if last else "")
+        return f"adapter exit {r.returncode}" + (f": {last[-1][:200]}" if last else "") + stopped()
     return None
 
 
@@ -820,11 +954,15 @@ class Slot:
 
 
 class Slots:
-    """The places one model call holds: a place of the tier's web lock when it runs on the open network, then
-    a place of the total. Always taken in that order, so two calls never wait for each other."""
+    """The places one model call holds: a place of the model's web lock when it runs on the open network, then
+    a place of the total. Always taken in that order, so two calls never wait for each other. The web lock is named
+    after the model id (every character outside [A-Za-z0-9._-] becomes "_") and holds the number the control's
+    "web_jobs" gives that model, else its "web_jobs_default" (2)."""
 
-    def __init__(self, control, tier, web=False):
-        self.slots = ([Slot(f"web-{tier}", control["web_jobs"][tier])] if web else []) + [Slot("total", control["total_jobs"])]
+    def __init__(self, control, model, web=False):
+        name = re.sub(r"[^A-Za-z0-9._-]", "_", str(model))
+        jobs = (control.get("web_jobs") or {}).get(model, control.get("web_jobs_default", 2))
+        self.slots = ([Slot(f"web-{name}", jobs)] if web else []) + [Slot("total", control["total_jobs"])]
 
     def __enter__(self):
         taken = []

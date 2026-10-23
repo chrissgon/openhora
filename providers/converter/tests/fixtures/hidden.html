@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Harbour market notice</title>
+<style>
+.gone { display: none }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0) }
+#ghost { color: #fefefe }
+p.speck { font-size: 1px }
+.panel { background-color: #336699 }
+.panel .inner { color: #336699 }
+.matched { color: #336699 }
+@media print { .only-print { display: none } }
+</style>
+</head>
+<body>
+<h1>Harbour market notice</h1>
+<p>The market opens at nine on Saturday.</p>
+<p style="color: #333333; font-size: 12px">Ordinary text in a dark grey that anyone can read.</p>
+<div style="background: #000000; color: #ffffff"><b>Light text on a dark box is read by everyone.</b></div>
+<div class="gone"><p>One: this block is display none.</p><p>Two: still inside the same block.</p></div>
+<p style="display:none">Three: a paragraph with display none.</p>
+<span style="visibility: hidden">Four: visibility hidden.</span>
+<div hidden>Five: the hidden attribute.</div>
+<p style="font-size: 0">Six: font size zero.</p>
+<p class="speck">Seven: one pixel text.</p>
+<p style="opacity: 0">Eight: fully transparent.</p>
+<div class="sr-only">Nine: a box of one pixel, clipped.</div>
+<p style="position: absolute; left: -9999px">Ten: moved far off the page.</p>
+<p style="text-indent: -9999px">Eleven: indented off the page.</p>
+<p style="color: #ffffff">Twelve: white text on the default white page, with <b>bold words</b> inside.</p>
+<p id="ghost">Thirteen: almost white text.</p>
+<div class="panel"><span class="matched">Fourteen: colour matched to the panel.</span></div>
+<font color="white">Fifteen: an old font tag in white.</font>
+<table><tr><td bgcolor="#aa0000"><span style="color:#aa0000">Sixteen: a cell painted in the same red.</span></td></tr></table>
+<p class="only-print">Seventeen: only a print rule hides it, which is not read.</p>
+<script>var x = "Eighteen: a script is removed and never counted";</script>
+<p>Closing line, visible.</p>
+</body>
+</html>

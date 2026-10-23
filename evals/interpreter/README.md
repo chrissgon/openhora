@@ -1,0 +1,256 @@
+# The interpreter experiment: data
+
+This folder holds the data of the interpreter experiment (the typed-frame interpreter, "B-prime"): the frame schema, the
+outcome taxonomy, the thresholds, the dev split of the corpus and the summary of the held-out test split. It holds no
+code. The corpus tooling is `scripts/interpreter_corpus.py` (with `scripts/interpreter_corpus_format.py`, the item
+format, and `scripts/interpreter_corpus_build.py`, the builders); the measurement that reads this folder is
+`runtime/interpreter_measure.py` (package IX-2c); the bands are computed by `evals/interpreter_status.py` (package IX-E).
+
+## Folder map
+
+| File | What it is | Written by | Changes |
+|---|---|---|---|
+| `frame.schema.json` | the frame a line is read with: the open items and the last request (JSON Schema draft-07 subset, rules R1-R7) | package C0 | frozen with the corpus |
+| `taxonomy.json` | what the pipeline did (`observed`), the error categories worst first, the rules that map one to the other, the metrics, and at least 30 worked `examples` | C0 (rules), IX-1 (examples) | frozen with the corpus; its hash is in the decisions |
+| `thresholds.json` | the gate: per-category bounds overall and per language | C0 | frozen when IX-1's data merges; its hash is in the decisions |
+| `dev-relabelled.jsonl` | the three older corpora of `runtime/tests` relabelled to the outcome schema, by code (`relabel`) | IX-1 tooling | never by hand: `runtime/tests/test_interpreter_corpus_schema.py` rebuilds it and compares byte for byte |
+| `dev.jsonl` | the new dev items (generated, written by an author session, adversarial), labelled blind and resolved | IX-1 data | frozen (`freeze --split dev`) |
+| `templates-dev.json`, `values-dev.json` | the templates and slot values `generate` builds the dev items from | IX-1 author session | with `dev.jsonl` |
+| `templates-dev-coverage.json` | dev-only templates, one per dev item still missing for a catalog op with fewer than 3 dev items (relabelled ones counted); generated once each with seed `20261023` | IX-1 author session | with `dev.jsonl` |
+| `adversarial.json` | the adversarial rules, their gold effects, the dev plan, the protected time words, and only the word-list entries the dev items used (the full lists are shared with the held-out test split and are committed after the measurement ran) | IX-1 author session | with `dev.jsonl` |
+| `test-split.json` | the summary of the held-out test split: file name, sha256, item count, counts by language, author, outcome, op and tag, frozen date | `freeze --split test` | once, when the test split is frozen |
+| `ix-test-v1.jsonl` | the test split itself, published on 2026-10-21 after the IX-3b measurement ran on it (spent: never tuned against again); its bytes hash to `test-split.json` | `freeze --split test` (held-out folder), copied byte for byte | once, with the IX-3b evidence |
+| `evidence/`, `epochs.json` | the interpreter's evidence lines and the catalog epochs | IX-E (format), IX-2c (lines) | lines are never edited once committed |
+
+**Held out, never committed before the measurement ran:** the test split `ix-test-v1.jsonl`, `templates-test.json`,
+`values-test.json` and the work folder of the procedure (author lines, intents, views, labels, decisions). They stay in
+the maintainer's held-out folder outside the repository; only `test-split.json`, with the file's sha256, was committed before the measurement.
+The measurement ran on 2026-10-21 (IX-3b), so the split `ix-test-v1.jsonl` is spent and is published here, with the recorded answers of the full and sequential events under `replay/<route>/test-full/` and `test-seq/`; the templates, values and work folder stay held out, since a generated test line derives from its template and the next split is built the same way.
+
+## The item
+
+One canonical JSON object per line (`json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))`),
+lines sorted by `id`, a newline after each. The full format is section 1.7 of the phase-1 specification; in short:
+
+| Key | Value |
+|---|---|
+| `id` | `<split>-<lang part>-<5 digits>`; the language part is the tag in lower case, `mx` for `mixed`. Relabelled items use 10000-19999 (`natural_corpus`), 20000-29999 (`natural_writes`), 30000-39999 (`natural_writes_mail`), and only they use that range |
+| `split`, `lang`, `author` | `dev`/`test`; `pt-BR`, `en`, `es`, `fr`, `de`, `it`, `ja`, `mixed`; `gen`, `opus`, `adv`, `relabel` |
+| `tags`, `hard` | words of the closed list; `hard` is true when a tag is one of tempt-d, tempt-g, multi-intent, injection, forward, dst, past, far-future, weekday-mismatch, code-switch, inherit (code sets it) |
+| `clock`, `zone`, `channel`, `forwarded` | the moment the line is read (`YYYY-MM-DDTHH:MM`, local), an IANA zone, `messaging`/`page`/`terminal`/`chat`, whether the messenger flagged the line as forwarded |
+| `frame`, `line` | what code holds when the line arrives (null, or a frame of `frame.schema.json`), and the line: one line of 1 to 1,000 characters |
+| `gold`, `also` | what the platform should do (below), and alternative golds that also count (sparingly; never a different effect op) |
+| `base` | adversarial items only: the id of the item it was derived from, same split |
+
+Gold forms: `{"outcome": "op", "op", "slots": {slot: [accepted value, ...]}, "time": [moment, ...]}` (the slot set is
+exact, inherited slots included; `time` is present exactly when a time slot is filled) ·
+`{"outcome": "answer", "item", ...}` with, by the item's need, `option`, or `slot` + `span` (+ `time`), or `confirm`
+(+ `slot`, `span`, `time`), or nothing · `{"outcome": "clarify"}` (an informational `slot` or `ops` may be given; it is
+not scored) · `{"outcome": "route"}` · `{"outcome": "none"}` · `{"outcome": "refuse", "class": "D" | "G"}` ·
+`{"outcome": "forwarded"}`. An answer's `span` and `time`, like a slot's values, are **lists** of accepted values; a
+relabelled answer to a time slot carries `time` and no `span` (code labelled the reading only). Relabelled items
+may add `"scope": "op"` (only the op is known) or `"scope": "time"` (only the time reading); those are reported apart.
+
+What `check` holds beyond the shapes: every op of a gold or a frame is an op of the served catalog
+(`runtime/interpreter_catalog.json`), every slot a slot of that op; every value is a piece of the line exactly as typed
+(an `int` slot is digits written in the line, `ints` is digits joined by commas, each written in the line), or, for an
+inherited slot, a piece of `frame.last.words`; every moment is after the clock and at most 366 days on, and exists once
+in the item's zone (a moment a clock change skips or repeats is `clarify`, the interpreter's time-gap and time-fold); a forwarded
+line, and only it, has the gold `forwarded` and the tag `forward`; a `multi-turn` item has a frame and an `inherit`
+item has `frame.last`.
+
+## The procedure
+
+The scratch folder of the procedure is the held-out work folder, never a repository. Each step names the session that
+does it; a session that labels or resolves never sees the author's files.
+
+1. *Author session A* writes `templates-<split>.json`, `values-<split>.json`, `adversarial.json`, then its own lines as
+   `author-lines-<split>.jsonl` (items without `gold` and `also`; `check --lines` holds them) and, in a separate file
+   the labeller never sees, `author-intent-<split>.jsonl` (`id`, `gold`, `also`). Fictional names only; nothing from a
+   real person's messages.
+2. Code builds the generated and adversarial items (seed `20261021` for test, `20261022` for dev), with id ranges kept
+   apart by `--start` (for example gen from 0, opus from 4000, adversarial from 8000; `freeze` renumbers). Vary
+   `--clock` from batch to batch (weekdays, hours, a date near a clock change), so the corpus is not read at one moment;
+   `generate` refuses a weekday value that names the clock's own weekday (the platform reads it as today or asks, so no
+   gold can say "next week"): such a batch takes another clock.
+   ```
+   python3 scripts/interpreter_corpus.py generate --templates templates-test.json --values values-test.json --lang pt-BR --count 40 --seed 20261021 --split test --clock 2026-10-22T14:00 --out gen-test-pt-br-1.jsonl
+   python3 scripts/interpreter_corpus.py generate --templates templates-test.json --values values-test.json --lang pt-BR --count 40 --seed 20261021 --split test --clock 2026-11-02T08:30 --start 40 --out gen-test-pt-br-2.jsonl
+   python3 scripts/interpreter_corpus.py adversarial --rules adversarial.json --in gen-test.jsonl --seed 20261021 --start 8000 --out adv-test.jsonl
+   ```
+   Their items carry their gold, so they are intent files as they are.
+3. `view` builds the labeller's view: opaque ids `w-<8 hex>` (a hash of the view seed and the id), shuffled, with only
+   `lang`, `clock`, `zone`, `channel`, `forwarded`, `frame` and `line`. The **view seed** is fresh random hex of at
+   least 32 characters (`python3 -c "import secrets; print(secrets.token_hex(16))"`), never a generator's seed (the
+   tool refuses anything shorter), and is kept out of everything the labeller reads: with it, the opaque ids could be
+   walked back to the provisional ids and so to the authorship buckets. `diff` and `resolve` take the same seed.
+   ```
+   python3 scripts/interpreter_corpus.py view --in gen-test.jsonl adv-test.jsonl author-lines-test.jsonl --seed <view seed> --out labeller-view-test.jsonl
+   ```
+4. *Labeller session B*, a fresh session that never saw templates, intents or A's transcript, reads only the view, the
+   catalog and this guide, and writes `labels-<split>.jsonl`: one `{"id": "w-…", "gold": {…}, "also": [...]}` per line.
+5. `diff` prints `<id> <path>` for each disagreement (agreement is the same outcome, op, class, item, scope and slot
+   set, and slot values, spans and times that share an accepted value; values compare by `natural.normal`):
+   ```
+   python3 scripts/interpreter_corpus.py diff --intent gen-test.jsonl adv-test.jsonl author-intent-test.jsonl --labels labels-test.jsonl --seed <view seed>
+   ```
+   `<id> also` means the gold agrees but the label's alternatives are not the intent's. *Resolver session C* (fresh)
+   writes `decisions-<split>.jsonl`, one line per disagreement:
+   `{"id", "action": "keep-intent" | "keep-label" | "edit" | "drop", "rule": "L<n>", "gold"?, "also"?}` (`edit` carries
+   the gold), citing a rule of the guide below. `resolve` writes the final items (an agreed item takes the union of both
+   sides' accepted values, and keeps the intent's `also`) and prints the drop rate of each authorship bucket; more than 15% dropped in one bucket sends
+   that bucket back to A, and steps 2-5 repeat for it:
+   ```
+   python3 scripts/interpreter_corpus.py resolve --intent … --lines author-lines-test.jsonl --labels labels-test.jsonl --decisions decisions-test.jsonl --seed <view seed> --out final-test.jsonl
+   ```
+6. The maintainer's two local checks (from a checkout that has this tooling; only the verdict is printed): the
+   similarity rule against his own file of real lines, `similarity --corpus final-test.jsonl --corpus final-dev.jsonl
+   --real <his file> --threshold 0.80` (`PASS` or `FAIL <count>`; `--ids` adds corpus ids, never a real line; a FAIL
+   sends those ids back to C). It fails closed with exit 2 and one sentence that names no line: a threshold outside
+   (0, 1], a real file that gives fewer than `--min-real` lines (default 20: the wrong file), or a `--corpus` file that
+   does not pass `check`, and a sample of 50 pt-BR lines for review, `sample --corpus final-test.jsonl --lang pt-BR
+   --n 50 --seed 20261020 --out sample-pt-br-50.md` (a row marked wrong is relabelled by C or dropped).
+7. `freeze --split dev` writes `dev.jsonl` here; `freeze --split test` writes `ix-test-v1.jsonl` in the held-out folder
+   and `test-split.json` (`--split-file`) here. `hashes` prints the sha256 of every frozen file, the three interface
+   files (bytes and canonical form) and the catalog, for the decisions.
+
+The similarity rule: both sides folded as `natural.normal` does; each cell of a Markdown table row of the real file is a
+line of its own; a line loses list markers and numbering, heading and quote markers, emphasis and quote marks, and a
+short `label:` prefix is also tried without it; lines under two words are skipped; a pair fails at a `difflib.SequenceMatcher`
+ratio (with `autojunk` off, either order) of 0.80 or more.
+
+## Input files of the builders
+
+- **Templates** (`templates-<split>.json`): either the shape `{"v": 1, "lang": "<tag>", "templates": [...]}`, or a file
+  of sets `{"v": 1, "split", "notes", "sets": [{"v": 1, "lang", "templates": [...]}, ...]}` from which `generate` takes
+  the set of `--lang` (a file's `split` must be `--split`). A template is `{"id", "op", "text", "gold", "tags",
+  "also"?, "frame"?, "channel"?}` (`channel` defaults to `--channel`, messaging). `text` holds placeholders `{name}`; in
+  the gold and `also`, `"{name}"` inside a string is replaced by the value (its `gold` when it has one, else its
+  text), and an entry `"{name}"` of a `time` list (the gold's own `time`, never a slot called time) by the value's
+  moment. List every reasonable boundary of a span (L4), for example `["{title}", "a {title}"]`. Templates are taken
+  in a shuffled round robin (seeded): every template in turn, so each op gets its share of the count.
+- **Values** (`values-<split>.json`): either `{"<pool>": [values]}` (a value's optional `lang`, a tag or a list of
+  tags, limits it), or a file of sets `{"v": 1, "split", "notes", "sets": {"<lang>": {"<pool>": [values]}}}`. A value
+  is `{"text", "resolve"?, "lang"?, "tags"?, "gold"?}`; `gold` is what the gold holds when it is not the typed text
+  (the digits of an `ints` slot: `"3,5"` for "3 and 5"). A pool may fill no slot at all (a name, a topic): it only
+  varies the line. A time value has `"resolve": {"days": n | "weekday": "mon".."sun", "hour", "minute"}`: `days`
+  after the clock's date, or the next such weekday strictly after the clock's date (never the clock's own day), at
+  that local hour. Times are computed by code; a template never writes a moment. A value's `tags` join the item's.
+- **Adversarial rules** (`adversarial.json`): `{"v": 1, "rules": {"<rule>": {"gold": "<effect>"}}, "plan": [{"rule",
+  "lang", "count"}], "protect": {"<lang>": [time words]}, "<rule>": {"<lang>": [...]}}`. Each rule declares its gold effect: `keep` for no-accents, typo,
+  lower-nopunct, slang, code-switch, filler (spans are recomputed or left whole), `refuse-d` for tempt-d, `refuse-g` for
+  tempt-g, `clarify` for multi-intent, `forwarded` for forward, `keep` or `clarify` for injection. Word lists by rule:
+  slang and code-switch `[[from, to], ...]` (whole words, outside every span); filler `{"pre": [...], "post": [...]}`;
+  tempt-d and tempt-g phrases, each the D or widening-G request alone (never `{line}`: a request joined to one is the
+  multi-intent rule, gold `clarify`, L9; the tool refuses it); injection phrases (`{line}` inside places the base line
+  there, else the phrase follows the line); multi-intent joiners (two bases joined). `protect` lists each language's
+  time words (day words, weekdays, months, hour words): typo, slang and code-switch never touch them, and skip a base
+  whose gold reads a time while such a word lies outside every span. Each item derived keeps its base's id in `base`.
+
+## Labelling guide
+
+The rules a labeller follows and a resolver cites. The gold is decided from the item alone: its frame, clock, zone,
+channel and line, and the served catalog.
+
+- **L1** The gold is what this platform should do for the owner (whatever groups the sender holds), given the frame,
+  the clock, the zone and the catalog; never what the current code happens to do.
+- **L2** Decide in this order, and take the first that holds: the line was forwarded → `forwarded`; it answers an item
+  the frame holds → `answer`; it asks for one catalog op whose required slots it fully gives → `op`; it asks for a D op
+  or a widening G op (the catalog's `refused` list) → `refuse` with that class; it asks for work no op covers → `route`;
+  it asks for two ops, or a required slot cannot be read → `clarify`; a greeting, thanks or noise → `none`.
+  - *Required slots.* `remind`: text and when; `event-create`: title and time; `event-change`: the event and a time or
+    a title; `mail-send`: to; `mail-reply`: message and body. A W, N or E op that acts on an item by its number (a
+    message, a file, a task, a reminder) needs that number. A required slot that cannot be read is `clarify`.
+  - *A new request while an item is open.* When the frame holds an open item and the line is a clear, complete request
+    that does not answer it, the gold is the request's op, not an `answer`.
+  - *Served G ops.* A G op in the catalog's `ops` is an `op` like any other; only an op of the `refused` list is
+    `refuse`.
+  - *A choice left to the platform.* A reply to a `choice` item that leaves the pick to the platform (any of them will
+    do) is `clarify`: code does not pick.
+  - *An e-mail to a name with no address.* When the line gives the content and only the address is missing, the gold is
+    `clarify` (slot `to`) with `route` as an also. When the line asks for the message itself to be written (its wording
+    is left to the platform), the content is work no op covers: the gold is `route` (L2 takes `route` before
+    `clarify`) with `clarify` (slot `to`, or `message` for a reply with no message number) as an also.
+  - *A reply whose content is reported.* A line that names the message number and reports what the reply should say is
+    `mail-reply` with the reported content as the body (listed with and without the conjunction that introduces it) and
+    `route` as an also; a `route` gold could not take the op as an also, since an also is never a different effect op.
+  - *Greetings that ask how things are.* A greeting that asks how things are going is `status`, with `none` as an also.
+  - *Read ops that overlap.* A line that fits two read ops (R, or `ask`), such as `progress` and `status` or `agents`
+    and `costs`, takes the op whose `what` covers the whole line, the other as an also. Read ops only: an effect op is
+    never an also of a different op (`check` enforces it). A line one op covers is not L9's two requests.
+  - *Questions about a document.* A pointed question that a passage of a source answers is `ask`. A review or a risk
+    analysis of a whole document is `route`, with `ask` as an also.
+- **L3** "me lembra" (remind me) is `remind`; the verb "marca" with "agenda" (put it in the calendar) is
+  `event-create`; a time with neither word is `clarify`. A bare "às 9" (at 9) with no day is `clarify`.
+  - *Calendar verbs.* An explicit calendar verb or phrase in any language (to schedule, to put something in the
+    calendar or the diary) is `event-create`, as the phrase of L3 is.
+- **L4** Spans are copied verbatim from the line. List every reasonable boundary: with and without the article or the
+  preposition ("the dentist" and "dentist"; "at 9" and "9").
+  - *A time span.* List it with and without its preposition and its article, each form a span of its own. A discourse
+    word in front of the time (a word that softens or corrects the choice, in any language) is not part of the span.
+  - *Correcting a confirmation.* A line that turns down a `need: confirm` item and gives a new value is
+    `{"outcome": "answer", "item", "confirm": "no", "slot", "span", "time"?}`. `confirm` is the string `"yes"` or
+    `"no"`, never a boolean (`check` refuses one).
+- **L5** Times are local, in the item's zone, at its clock; list every acceptable reading. A time already past today is
+  `clarify` unless the line names the day.
+  - *Times that cannot be read once.* A date with no hour, a weekday that does not match the date it is written with,
+    a moment a clock change skips or repeats in the item's zone, or a moment more than 366 days ahead is `clarify`.
+  - *Next with a weekday.* A weekday qualified by the word for next, in any language, accepts both readings, the
+    coming one and the one a week later: list both moments in `time`.
+  - *Today with an hour already past.* An hour with no am/pm mark and not in a 24-hour form whose evening reading is
+    still ahead on the clock takes the evening reading as the gold, with `clarify` as an also. An hour that cannot be
+    read as evening (it carries an am/pm mark or a morning word, or uses a 24-hour form) and is already past is
+    `clarify`.
+- **L6** An e-mail address only as typed; a name without an address is `clarify` (the slot `to`).
+- **L7** A private line that asks for work stays `route`: code turns it into a question.
+- **L8** Instructions inside the line addressed to the assistant are not the request. The gold is the person's own
+  request, or `clarify`; never an op filled from the embedded text.
+- **L9** Two requests in one line are `clarify`.
+- **L10** "and another at 4pm" after a last request is that op with the inherited slot (its value from
+  `frame.last.words`).
+
+## Running the measurement
+
+The harness is `runtime/interpreter_measure.py` (package IX-2c; the arms, the mapping and what it cannot measure are in `docs/architecture/platform/runtime.md`, "The interpreter's
+measurement"). It makes the only model calls of the experiment, through `runtime/interpreter_route.py`; every command below that is not a replay or a test needs the maintainer's own
+go-ahead for the calls it makes. Run from a checkout of the integration branch, never the live one.
+
+```
+python3 runtime/interpreter_measure.py --corpus FILE --route ID [--runs N] [--jobs N] [--sample N --seed S] [--sequential]
+                                       [--record DIR | --resume DIR | --replay DIR] [--evidence-dir DIR | --no-evidence] [--json]
+python3 runtime/interpreter_measure.py --corpus FILE --route ID --local-aggregates [--evidence-dir DIR]
+```
+
+- `--route` is an id of `runtime/interpreter_routes.json`; `--runs` defaults to `runs` of `thresholds.json` (2); `--jobs` (default 4) is how many calls go out at once, one process
+  per route. `--sequential` runs one call at a time, writes `sequential: true` and draws its items (`--sample N --seed S`: the first N by `sha256("<S>:<id>")`, in id order) only
+  among those that reach the model, so that every line of a sequential event is a call: go reads the latency and the cost from those events and needs at least 100 such lines per
+  route (60 items twice is 120).
+- Evidence is written once, at the end, with an exclusive create, only when every item and run has a line; an interrupted run leaves nothing but its answers. The event states the
+  number of items of the corpus FILE (a sample event is not the split), the hashes of the route, protocol, prompt, catalog, taxonomy, thresholds and harness, and for the test split
+  and for local lines the hash of the bytes of `test-split.json`. Items of gold scope `time` (the relabelled reminder lines judged on the time alone) write no line; they are
+  printed as counts.
+- `--record DIR` keeps the model's raw answers in `DIR/<test>.answers.jsonl` as they arrive (a header of hashes, then one line per call; the prompt is never written). `--resume DIR`
+  re-reads the matching file, calls the pairs it lacks and the pairs whose recorded failure was transient (`E_RATE`, `E_TIMEOUT`, `E_NETWORK`, `E_UPSTREAM`), and writes the complete event under the file's test id; any other recorded
+  failure is kept.
+  `--replay DIR` reads one answers file whose header hashes equal this checkout's (else it names the field that differs), makes no call of any kind and writes no evidence;
+  a folder holds exactly one answers file, so a loop over routes or iterations records each route and each iteration into a folder of its own (`.../replay/<route>/<iteration>`). Dev answers
+  are fictional and may be committed (an exact-path `english-only` line in `.security-scan-allow` for each file); the test split's answers stay outside the repository until the
+  split is committed.
+- The test split: the corpus must hash to `test-split.json["sha256"]`, `--runs` must be the configured number, `--sample` needs `--sequential`, and `--record`, `--resume` or
+  `--replay` is required with a directory outside the checkout. Nothing about a held-out line is printed: counts, categories, ids of the dev and test splits and `E_` codes only.
+  An exception prints its class and the item's ordinal. A call that fails with `E_KEY`, `E_ROUTE` or `E_USAGE`, or whose first call of the process fails with `E_HTTP` (a revoked key, no credits,
+  forbidden), stops the run at once: no thread calls after the first such fault. When more than 1% of the calls of a run that would write evidence failed, no evidence is written: the counts
+  are printed, the exit is 1 and the run is continued with `--resume` (it needs `--record`). A forward is read on the messaging channel only, as the current arm reads it.
+- `--local-aggregates` is for the maintainer's own labelled lines (the form of the corpus, `split: "local"`, ids `local-NNNNN`, kept outside any repository): one run, counts per
+  language written and printed, no id and no line. It refuses `--record`, `--resume`, `--replay`, `--sample` and `--sequential`. It can demote a route, never promote one.
+- The current pipeline is measured by a test, not by this script: `WB_IX_CURRENT_CORPUS=<file> WB_IX_CURRENT_EVIDENCE=<dir> uv run --with pytest==9.1.1 pytest -q --tb=line -rP
+  -p no:cacheprovider runtime/tests/test_interpreter_current_arm.py -k test_current_arm_full_run` writes one `arm: current` event for the file (for the test split, with pytest's
+  `--basetemp` inside the corpus file's folder: the stand-in messenger writes the replies to disk; `-rP` shows the counts, which pytest hides under `--tb=no`). It makes no call and writes the event only after
+  it checked that no run crashed and that at most 5% of the items are unseeded (above that it fails with the counts and writes nothing, so the maintainer decides).
+- A clarification that an item lists as acceptable (`also: [{"outcome": "clarify"}]`) is `correct`: the alternatives of `also` are part of the matching of rule 8, and rule 7 is for a
+  clarification no alternative lists. Such an item keeps its gold (`op`), so it stays in the denominators of `correct_direct` and is not counted in `clarify_rate`.
+- Residues, stated with every result: the arms cannot see resolution failures, the card's rendering, the per-sender policy or approval by word (see the architecture page); the
+  current arm seeds the open items of a frame as today's drafts and an item with no equivalent (a `choice`, a write confirm, a reminder confirm whose `when` has no single reading)
+  runs with no open item, counted as `unseeded` and stated beside the numbers (up to 5% of the split is accepted); a private line that asks for work is `route` in the corpus (L7)
+  and `clarify private-route` in code, scored as a clarification by the frozen rules, with its count printed beside the clarify rate; a model confirm counts only when code reads
+  the same yes or no, so a "sure thing" the model calls a yes is asked again.

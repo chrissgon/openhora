@@ -105,7 +105,7 @@ def test_new_starts_another_request_whatever_is_open(tree):
 
 def test_a_command_calls_its_operation_once_and_no_model(tree, monkeypatch):
     calls = []
-    monkeypatch.setattr(ops, "release", lambda project, pending_id: calls.append(pending_id) or {"released": pending_id})
+    monkeypatch.setattr(ops, "release", lambda project, pending_id, **kw: calls.append(pending_id) or {"released": pending_id})   # POL-2: release takes the channel and the sender
     out = say(tree, "/release 7")
     assert calls == [7] and json.loads(out["reply"]) == {"released": 7} and out["ran"] is False
     assert "Waiting for you" in say(tree, "/progress 7d")["reply"]
@@ -161,8 +161,6 @@ def test_a_reply_of_the_model_is_never_read_as_a_command(tree):
 
 
 def test_the_planning_agent_at_its_cap_runs_nothing_and_says_why(tree, monkeypatch):
-    stand_in = lab.reference
-    monkeypatch.setattr(lab, "reference", lambda tier="strong": dict(stand_in(tier), model="m" if tier == "strong" else "fm"))
     configure(tree, {**AGENTS, "planning": {"pack": "planning", "max_runs_per_day": 1}})
     say(tree, "Which market first?")
     out = say(tree, "/new Who buys first?")

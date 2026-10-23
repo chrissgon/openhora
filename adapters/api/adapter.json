@@ -18,7 +18,7 @@
   "secrets": [
     {
       "name": "OPENROUTER_API_KEY",
-      "purpose": "run the floor model's eval runs through OpenRouter, and the runtime's model calls through the API adapter when its model is openrouter/<vendor>/<model>",
+      "purpose": "run the eval runs of a model served through OpenRouter, and the runtime's model calls through the API adapter when its model is openrouter/<vendor>/<model>",
       "permission": "a key used only for evals and the runtime; a credit limit on it is recommended",
       "billing": "metered",
       "readers": [

@@ -1,5 +1,5 @@
 """Offline tests of evals/measure.py, the one module that decides what a run measures (item B10 of
-docs/architecture/final-plan-2026-10-02.md), and of how the runner and the status script use it.
+the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md), and of how the runner and the status script use it.
 
 Run: uv run --with pytest pytest evals/tests/test_measure.py
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -72,9 +73,15 @@ def test_the_comparisons_of_the_gate_are_unrounded():
     assert measure.at_threshold(0.8, 0.8) and not measure.at_threshold(0.7996, 0.8)
     assert measure.within_tolerance(0.75, 0.8, 0.05) and not measure.within_tolerance(0.7499, 0.8, 0.05)
     assert measure.within_tolerance(0.1, None, 0.05)  # no baseline mean: nothing to compare with
-    # A mean that is the threshold but for float arithmetic is at it: six runs at 0.8 sum to less than 4.8.
+    # A mean that is the threshold but for float arithmetic is at it. How the built-in sum() rounds six times 0.8 depends on the
+    # Python version (3.12 sums floats with compensation, so [0.8] * 6 gives 4.800000000000001 there and 4.8 before), so the test
+    # does not rely on it: the value one float step below the threshold is built directly, and the mean of six runs at 0.8 is
+    # at the threshold whatever the interpreter gives.
+    below = math.nextafter(0.8, 0)
+    assert below < 0.8 and measure.at_threshold(below, 0.8) and measure.gate_passes(below, below + 0.05, 0.8, 0.05)
     six = sum([0.8] * 6) / 6
-    assert six < 0.8 and measure.at_threshold(six, 0.8) and measure.gate_passes(six, six + 0.05, 0.8, 0.05)
+    assert measure.at_threshold(six, 0.8) and measure.gate_passes(six, six + 0.05, 0.8, 0.05)
+    assert not measure.at_threshold(0.8 - 1e-6, 0.8) and not measure.at_threshold(0.7996, 0.8)
     assert measure.gate_passes(0.8, 0.85, 0.8, 0.05) and not measure.gate_passes(0.8, 0.86, 0.8, 0.05)
     assert not measure.gate_passes(0.79, None, 0.8, 0.05)
 
@@ -100,7 +107,7 @@ def test_a_guard_failure_counts_only_when_the_second_grading_repeats_it():
 
 # --- a verdict that disagrees with its own evidence -----------------------------------------------------
 # Evidence the grader wrote in the smoke pass and the guard runs of phase D
-# (docs/architecture/phase-d-smoke-2026-10-03.md), quoted as it was. Each one reasons to the end and concludes
+# (removed on 2026-10-14: git show d3e60770:docs/architecture/phase-d-smoke-2026-10-03.md), quoted as it was. Each one reasons to the end and concludes
 # that the assertion passes, and each came with "passed": false, which counted.
 CONCLUDES_PASS_GIVEN_FALSE = [
     # brand-voice, case 2, floor tier: a first grading
@@ -228,11 +235,176 @@ def test_the_status_script_compares_the_gate_through_the_module(monkeypatch, tmp
     (skill / "evals" / "evals.json").write_text(json.dumps({"evals": [{"id": 1, "prompt": "p", "assertions": ["a"]}]}))
     h = es.case_hashes(str(skill))["1"]
     event = {"record": "test", "skill": "core-demo", "test": "20300101T000000Z-00000001", "kind": "full", "version": "1.0.0",
-             "date": "2030-01-01", "cases": {"1": h}}
+             "date": "2030-01-01", "cases": {"1": h}, "models": ["s"], "adapters": {"s": "h"}}
     line = lambda variant, score: {"record": "run", "skill": "core-demo", "version": "1.0.0", "content_sha256": "a" * 64,
                                    "model": "s", "adapter": "h", "kind": "full", "test": event["test"], "date": "2030-01-01",
                                    "measurement_version": 5, "measurement_sha256": "b" * 64, "case": 1, "case_sha256": h,
                                    "variant": variant, "outcome": "graded", "score": score, "results": [int(score)]}
-    gate = es.gate_of(str(skill), {"strong_model": "s", "threshold": 0.8, "strong_tolerance": 0.05, "measurement_floor": 5},
+    gate = es.gate_of(str(skill), {"lab_models": ["s"], "threshold": 0.8, "tolerance": 0.05, "measurement_floor": 5},
                       extra=[(event, [line("with", 1.0), line("without", 0.0)])])
     assert calls == [(1.0, 0.0, 0.8, 0.05)] and gate["passed"] is False
+
+
+# --- T27: a loop of raw tool-call syntax is an early end, a file written or not --------------------------
+
+DSML_CALL = ["<｜DSML｜function_calls>", '<｜DSML｜invoke name="write_file">', '<｜DSML｜parameter name="path">docs/spec.md</｜DSML｜parameter>',
+             "</｜DSML｜invoke>"]
+
+
+def test_the_collapse_constants_are_read_from_measurement_json():
+    early = json.loads((EVALS / "measurement.json").read_text(encoding="utf-8"))["early_end"]
+    assert (measure.EARLY_END_COLLAPSE_MIN_LINES, measure.EARLY_END_COLLAPSE_SHARE) == (early["collapse"]["min_lines"], early["collapse"]["share"])
+    assert (early["collapse"]["min_lines"], early["collapse"]["share"]) == (20, 0.5)
+    assert "<｜dsml" in early["markup"] and "<|dsml" in early["markup"]
+
+
+def test_a_forty_line_loop_of_call_markup_is_an_early_end_even_when_a_file_was_written():
+    loop = "\n".join(DSML_CALL * 10)
+    why = measure.early_end(loop, {"docs/spec.md": 1.0})
+    assert why == "a loop of raw tool-call syntax printed as text (40 of 40 lines)"
+    assert measure.early_end(loop, {}) == why  # no file written: the same answer, before the first line's own rule
+
+
+def test_a_closing_tag_only_loop_counts_and_so_do_parameter_lines():
+    assert "25 of 25" in measure.early_end("\n".join(["</｜DSML｜invoke>"] * 25), {"f.md": 1.0})
+    assert "25 of 25" in measure.early_end("\n".join(['<parameter name="path">x</parameter>'] * 25), {"f.md": 1.0})
+    assert "25 of 25" in measure.early_end("\n".join(["<|DSML|invoke>"] * 25), {"f.md": 1.0})  # the ASCII bar too
+
+
+def test_markup_inside_a_fence_or_among_prose_or_below_the_minimum_is_not_a_loop():
+    fenced = "Here is the call the tool takes:\n```\n" + "\n".join(["<invoke name=x>"] * 25) + "\n```\nThat is all."
+    assert measure.early_end(fenced, {"f.md": 1.0}) is None
+    tilde = "~~~xml\n" + "\n".join(["<invoke name=x>"] * 25) + "\n~~~"
+    assert measure.early_end(tilde, {"f.md": 1.0}) is None
+    prose = "\n".join(f"Line {i} of an ordinary report about the work." for i in range(60)) + "\n" + "\n".join(["<invoke name=x>"] * 25)
+    assert measure.early_end(prose, {"f.md": 1.0}) is None  # 25 of 85
+    assert measure.early_end("\n".join(["</｜DSML｜invoke>"] * 19), {"f.md": 1.0}) is None  # alone, but under the minimum
+
+
+def test_the_share_is_of_the_lines_outside_fences_and_a_run_that_wrote_a_file_keeps_every_other_result():
+    PROSE = "a plain line of prose that is long enough to outweigh a short tag"
+    mixed = "\n".join(["<invoke name=x/>"] * 20 + [PROSE] * 20)  # a self-closing tag opens no block
+    assert measure.collapse_loop(mixed) == "20 of 40 lines"  # exactly the share
+    assert measure.collapse_loop(mixed + "\n" + PROSE) is None
+    assert measure.early_end("Now I'll write the PRD. First, let me create the Sources section.", {"docs/prd.md": 1.0}) is None
+    assert measure.early_end("<skill_tool>\n</skill_tool>", {"docs/prd.md": 1.0}) is None
+    assert measure.early_end("", {}) == "empty response and no file written"
+
+
+# --- T27, after the review: what the first rule missed and what it flagged by mistake ------------------------------
+
+WRITE_CALL = (["<｜DSML｜function_calls>", '<｜DSML｜invoke name="write_file">', '<｜DSML｜parameter name="path">docs/spec.md</｜DSML｜parameter>',
+               '<｜DSML｜parameter name="content"># Spec', ""]
+              + [f"Line {n} of the file's content, plain prose that is not markup." for n in range(1, 13)]
+              + ["- the last item</｜DSML｜parameter>", "</｜DSML｜invoke>", "</｜DSML｜function_calls>"])
+
+
+def test_write_calls_with_long_content_are_a_loop_because_every_line_inside_a_call_block_is_markup():
+    assert measure.collapse_loop("\n".join(WRITE_CALL * 3)) == "57 of 57 lines"
+    assert measure.collapse_loop("\n".join(WRITE_CALL)) is None  # one call, 19 lines: a call printed once is not a loop of them
+    assert measure.collapse_loop("\n".join(WRITE_CALL * 2)) == "38 of 38 lines"
+
+
+def test_a_loop_after_an_unclosed_fence_is_still_counted():
+    assert measure.collapse_loop("```\nstray\n" + "\n".join(WRITE_CALL * 2)) is not None
+    assert measure.collapse_loop("```python\n" + "\n".join(["<invoke name=x>"] * 25)) is not None
+    assert measure.collapse_loop("`````xml\n" + "\n".join(["<invoke name=x>"] * 25) + "\n`````````xml") is not None  # an info string cannot close it
+    many = "\n".join(["```a"] * 5000)  # a fence opener after another: bounded work, no loop of markup
+    assert measure.collapse_loop(many) is None
+
+
+def test_markup_after_prose_on_the_same_line_counts():
+    assert "25 of 25" in measure.collapse_loop("\n".join(["I will read the file.<｜DSML｜function_calls>"] * 25))
+    assert measure.collapse_loop("\n".join(["use the `<invoke name=x>` tag"] * 30)) is None  # an inline code span is a quotation
+
+
+def test_a_fence_inside_a_call_block_does_not_toggle_and_a_fence_in_a_fence_needs_its_length():
+    inner = ["<｜DSML｜invoke name=w>", "<｜DSML｜parameter name=content>", "```", "code", "```", "</｜DSML｜parameter>", "</｜DSML｜invoke>"] * 6
+    assert measure.collapse_loop("\n".join(inner)) == "42 of 42 lines"
+    quoted = "````\n```\n" + "\n".join(["<invoke name=x>"] * 25) + "\n```\n````"
+    assert measure.collapse_loop(quoted) is None
+    assert measure.collapse_loop("~~~~\n~~~\n" + "\n".join(["<invoke name=x>"] * 25) + "\n~~~\n~~~~") is None
+
+
+@pytest.mark.parametrize("body", [
+    ["    <invoke name=x>", "    <parameter name=y>1</parameter>"] * 15,                       # an indented code block
+    ["\t<invoke name=x>", "\t</invoke>"] * 15,
+    ["<parameters>", "<parameterDefinition>", "</parameterDefinition>", "<tool_calls>", "</tool_calls>"] * 8,  # XML of a project's own
+    ["<function_call_id>", "<invoke_endpoint>", "<tool_call_id>"] * 10,
+])
+def test_indented_code_and_xml_that_merely_starts_like_a_tag_is_not_markup(body):
+    assert measure.early_end("\n".join(body), {"docs/spec.md": 1.0}) is None
+
+
+def test_the_shape_of_a_real_loop_of_reminder_blocks_is_one_even_with_a_file_written():
+    """The shape of two floor-model replies of the local workspace (2026-10): prose, then a block opened and closed again
+    and again, with a line of the model's own thinking inside. Fictional wording."""
+    block = ["<system-reminder>", "<thinking>", "Let me write the example file now, in the folder the user named.", "</thinking>",
+             "</system-reminder>", ""]
+    reply = "I'll set up the example.\nNow I'll create the files:\n" + "\n".join(block * 8)
+    assert measure.early_end(reply, {"docs/example.md": 1.0}).startswith("a loop of raw tool-call syntax printed as text (")
+    assert measure.early_end(reply, {}) is not None
+    assert measure.early_end("\n".join(block[:5]) + "\nThat is the whole note.", {"docs/example.md": 1.0}) is None
+
+
+def test_the_characters_share_catches_a_loop_with_a_few_very_long_lines():
+    long_call = "<invoke name=x/>" + "y" * 400
+    prose = [f"A short plain line number {n}." for n in range(30)]
+    assert measure.collapse_loop("\n".join([long_call] * 20 + prose)) == "20 of 50 lines"
+    assert measure.collapse_loop("\n".join([long_call] * 20 + prose * 2)) is not None  # 20 of 80 lines, but most of the characters
+
+
+# --- T27, second review: a sentence that mentions a tag, a long line, and a tag of another format ---------------------
+
+PROSE_LINES = [f"A plain line of the report, number {n}, about what the change does." for n in range(30)]
+
+
+@pytest.mark.parametrize("sentence", [
+    "The harness wraps its notes in a <system-reminder> tag before the model sees them.",
+    "Each tool call is printed as <invoke name=...> by the old format.",
+    "Wrap the agent's instructions in <function_calls> only when the API needs it.",
+    "<invoke name=x> is the old format, and it is gone.",   # a tag that starts the line but is never closed: not a block
+])
+def test_a_sentence_that_mentions_a_call_tag_does_not_turn_the_lines_after_it_into_markup(sentence):
+    reply = sentence + "\n" + "\n".join(PROSE_LINES)
+    assert measure.collapse_loop(reply) is None
+    assert measure.early_end(reply, {"docs/report.md": 1.0}) is None
+
+
+def test_a_block_that_never_closes_is_not_one_but_its_own_tag_lines_still_count():
+    assert measure.collapse_loop("\n".join(["<invoke name=x>"] * 25)) == "25 of 25 lines"
+    assert measure.collapse_loop("\n".join(["<invoke name=x>"] * 20000)) is not None  # bounded rescans, no quadratic work
+    closed = ["<function_calls>", "<invoke name=w>"] + PROSE_LINES[:20] + ["</invoke>", "</function_calls>"]
+    assert measure.collapse_loop("\n".join(closed)) == "24 of 24 lines"  # a closed block holds its content
+
+
+def test_a_loop_written_on_one_line_is_one_line_by_design_and_a_long_line_is_read_in_linear_time():
+    import time
+    one_line = "<invoke name=x/>" * 12500   # 200,000 characters, no newline
+    assert measure.collapse_loop(one_line) is None  # one line, under the minimum of 20
+    assert measure.collapse_loop("<invoke " * 25000) is None
+    assert measure.collapse_loop("<function_calls>" * 12500 + "\n" + "\n".join(["<invoke name=x/>"] * 25)) is not None
+
+    def cpu_seconds(n):
+        """The CPU time of the process for the three long inputs at size n, the least of three tries. CPU time and not the
+        wall clock, so another test running beside it (pytest -n auto) does not lengthen it."""
+        best = None
+        for _ in range(3):
+            began = time.process_time()
+            measure.collapse_loop("<invoke name=x/>" * n)
+            measure.collapse_loop("<invoke " * (2 * n))
+            measure.collapse_loop("<function_calls>" * n + "\n" + "\n".join(["<invoke name=x/>"] * 25))
+            spent = time.process_time() - began
+            best = spent if best is None else min(best, spent)
+        return best
+
+    # Linear work doubles when the input doubles (a ratio near 2); quadratic work quadruples (near 4). The bound sits between
+    # them with slack on both sides, and no absolute time is asserted: a loaded machine is slower, not quadratic.
+    assert cpu_seconds(12500) / cpu_seconds(6250) < 3.2
+
+
+def test_another_formats_parameter_tag_is_not_a_call():
+    tomcat = "\n".join(f'<Parameter name="p{n}" value="v{n}"/>' for n in range(30))
+    assert measure.collapse_loop(tomcat) is None
+    assert measure.collapse_loop("\n".join(f'<parameter name="p{n}">v</parameter>' for n in range(30))) is not None
+    assert measure.collapse_loop("\n".join(["<System-Reminder>"] * 25)) is not None  # the other tags keep matching in any case

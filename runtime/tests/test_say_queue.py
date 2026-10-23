@@ -245,7 +245,7 @@ def test_a_direct_reply_is_answered_by_code_cancels_its_request_and_opens_no_dec
     assert recorded["state"] == "cancelled"                                                  # cancelled by code, in the same call
     assert st.calls(tree["adapter"]) == ["core-orchestrator 1"]
     stored = [m for m in messages(tree) if m["role"] == "assistant"]
-    assert stored[0]["text"] == out["reply"] and stored[0]["task_id"] is None and stored[0]["run_id"]
+    assert stored[0]["text"] == out["reply"] and stored[0]["task_id"] == recorded["id"] and stored[0]["run_id"]      # stored under the request it closed (S4), so that the next line does not revive an older question
     # a direct reply to a form's route is left to the form: the request stays, the answer says what the planner proposes
     other = ops.request(path, "And the second?")["request"]
     routed = ops.route(path, other)
@@ -479,7 +479,7 @@ def test_an_entry_that_is_dropped_leaves_the_queue_even_when_the_note_cannot_be_
 
 def test_a_taken_entry_is_dead_only_after_the_run_timeout_of_the_gate_file_plus_a_minute(tree, monkeypatch):
     path = str(tree["project"])
-    timeout = ops.lab.reference("strong")["timeout_seconds"]
+    timeout = ops.lab.reference()["timeout_seconds"]
     assert ops_say.queue_stale() == timeout + 60
     with locked(tree):
         page_say(tree, "Which market first?")
@@ -493,7 +493,7 @@ def test_a_taken_entry_is_dead_only_after_the_run_timeout_of_the_gate_file_plus_
     assert "was not answered" in [m for m in messages(tree) if m["role"] == "assistant"][0]["text"]
     # the bound follows the gate file, not a number of this module
     real = ops.lab.reference
-    monkeypatch.setattr(ops.lab, "reference", lambda tier="strong": dict(real(tier), timeout_seconds=1800))
+    monkeypatch.setattr(ops.lab, "reference", lambda model=None: dict(real(model), timeout_seconds=1800))
     assert ops_say.queue_stale() == 1860
-    monkeypatch.setattr(ops.lab, "reference", lambda tier="strong": (_ for _ in ()).throw(ops.lab.LabError("gate", "unreadable")))
+    monkeypatch.setattr(ops.lab, "reference", lambda model=None: (_ for _ in ()).throw(ops.lab.LabError("gate", "unreadable")))
     assert ops_say.queue_stale() == ops_say.QUEUE_STALE_FALLBACK + ops_say.QUEUE_STALE_MARGIN

@@ -98,7 +98,7 @@ def test_a_task_that_waits_says_for_what_on_the_chips_the_bar_and_the_rows_and_h
     assert got["junk"] == 1, "an entry with no text reason is not a wait"
     actions = got["actions"]
     assert actions["planned"] == [] and actions["waitsInput"] == ["go-ahead"] and actions["waitsAfter"] == ["drop-after"] and actions["waitsBoth"] == ["go-ahead", "drop-after"]
-    assert actions["ready"] == ["go-ahead"] and actions["running"] == [], "only a task that has not started can be told to go ahead"
+    assert actions["ready"] == ["go-ahead"] and actions["running"] == ["stop"], "only a task that has not started can be told to go ahead; a running one can be stopped (R18)"
     assert actions["blocked"] == ["retry"] and actions["failed"] == ["retry"] and actions["waiting"] == ["inbox"] and actions["done"] == []
     assert got["blockedNote"] == ["design-system needs docs/brand/identity.md", "", ""], "the sentence stands beside Retry for a blocked task only"
     assert got["row"] == {"waiting": "waiting for #10", "waits": ["waiting for #10: docs/brand/identity.md, written by task #10"], "actions": [{"kind": "go-ahead"}]}
@@ -889,7 +889,7 @@ def test_every_route_the_adjustments_send_exists_and_the_sends_are_the_shapes_th
     client = (JS / "api.js").read_text(encoding="utf-8")
     routes = {(r["method"], r["pattern"]) for r in service.ROUTES}
     assert ("POST", "/projects/{p}/tasks/{id}/go-ahead") in routes and "/tasks/${enc(id)}/go-ahead" in client
-    assert "go_ahead: goAhead" in client and "drop_after: dropAfter ? true : undefined" in client and "{ body: { text, flow, title, after }" in client
+    assert "go_ahead: goAhead" in client and "drop_after: dropAfter ? true : undefined" in client and "{ body: { text, flow, title, after, model, language }" in client
     ops = st.load("operations")
     approve = ops.by_name("approve")
     assert {"go_ahead"} <= {a["name"] for a in approve["args"]} and {a["name"]: a["kind"] for a in approve["args"]}["go_ahead"] == "list"

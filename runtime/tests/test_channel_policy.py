@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_channel_policy.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import json
 import os
 import threading
@@ -45,7 +47,7 @@ def set_channels(path, channels, agents=None):
     if agents is not None:
         raw["area_agents"] = agents
     file.write_text(json.dumps(raw))
-    ops.accept_config(path, project_config.load(path)["sha256"])
+    ops.accept_config(path, project_config.load(path)["sha256"], widen=ops.config(path)["widening_sha256"])
 
 
 def real_world(path):
@@ -60,11 +62,20 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
     for row in operations.OPERATIONS:
         if not {"page", "mcp", "messaging"} & set(row["channels"]):
             continue
-        owners = [(g, s["kind"]) for g, s in operations.GROUPS.items() if row["name"] in s["operations"]]
+        owners = [(g, s["kind"]) for g, s in operations.GROUPS.items() if row["name"] in s["operations"] and g not in operations.MESSAGING_ONLY_GROUPS]
         if row["name"] == "approve":
-            assert sorted(k for _, k in owners) == ["acceptance", "effect", "plan"], owners
+            # the umbrella and one group for each word of an effect (POL-1), and the networked plans beside the plans
+            assert sorted(k for _, k in owners) == ["acceptance", "effect", "effect:calendar", "effect:create", "effect:files", "effect:mailbox", "effect:publish", "effect:send", "effect:send-own", "effect:write",
+                                                     "plan", "plan:networked"], owners
+        elif row["name"] == "cancel":   # R18: the one operation in two groups, so that a policy written with reject-cancel stays valid
+            assert sorted(g for g, _ in owners) == ["brakes", "reject-cancel"] and {k for _, k in owners} == {None}, owners
+        elif row["name"] == "attachment-hold":   # ATT-1: the group of the files, and the grant that adds them without a card (kind "direct")
+            assert sorted(owners, key=str) == [("add-sources", None), ("add-sources-direct", "direct")], owners
         else:
             assert len(owners) == 1 and owners[0][1] is None, (row["name"], owners)
+    # POL-2: `read-limited` is a subset of `read` (the one group beside `brakes`/`reject-cancel` that shares operations), valid on a messaging app alone
+    assert set(operations.GROUPS["read-limited"]["operations"]) < set(operations.GROUPS["read"]["operations"])
+    assert operations.MESSAGING_ONLY_GROUPS == ("read-limited", "ask-mail", "interpret", "send-files")
     for group, spec in operations.GROUPS.items():  # every operation a group names is a row of the table
         for name in spec["operations"]:
             operations.by_name(name)
@@ -72,7 +83,7 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
     assert operations.GROUPS["approve-effects"] == {"operations": ("approve",), "kind": "effect"}
     assert "reject-cancel-retry" not in operations.GROUPS and operations.GROUPS["reject-cancel"]["operations"] == ("reject", "cancel")
     assert operations.GROUPS["retry"]["operations"] == ("retry",)
-    assert operations.DEFAULT_POLICY == {"messaging": ("read", "talk", "answer")}
+    assert operations.DEFAULT_POLICY == {"messaging": ("read", "talk", "answer", "routine-brakes")}
     assert ops.EFFECT_CHANNELS is operations.EFFECT_CHANNELS == ("terminal", "page")
 
 
@@ -83,9 +94,10 @@ def test_a_group_is_valid_on_a_channel_with_one_operation_in_its_ceiling_and_the
     assert ok({"messaging": ["read", "reject-cancel", "retry"]}) == {"messaging": ["read", "reject-cancel", "retry"]}  # reject and cancel are both on it
     assert ok({"messaging": []}) == {"messaging": []}                        # the closed default is not a "must list read" channel
     assert ok({"page": ["read", "reject-cancel"], "mcp": ["read"]})
+    assert ok({"mcp": ["read", "retry"]}) == {"mcp": ["read", "retry"]}      # POL-1: a grant of the MCP mode (it was invalid before: the ceiling has no retry), valid because the project's own entry lists it
     for bad in ({"page": ["talk"]}, {"mcp": []}, {"mcp": ["talk"]},           # page and mcp list read
                 {"mcp": ["read", "approve-effects"]}, {"messaging": ["approve-effects"]},   # approve-effects is for the page alone
-                {"mcp": ["read", "retry"]}, {"mcp": ["read", "go-ahead"]}, {"messaging": ["go-ahead"]},  # no operation of the group in the ceiling
+                {"mcp": ["read", "go-ahead"]}, {"messaging": ["go-ahead"]},  # no operation of the group in the ceiling
                 {"messaging": ["verdict"]}, {"messaging": ["documents"]},
                 {"chat": ["read"]}, {"terminal": ["read"]}, {"nobody": ["read"]}):
         with pytest.raises(project_config.ConfigError):
@@ -94,6 +106,17 @@ def test_a_group_is_valid_on_a_channel_with_one_operation_in_its_ceiling_and_the
         ok({"chat": ["read"]})
     with pytest.raises(project_config.ConfigError, match="page only"):
         ok({"mcp": ["read", "approve-effects"]})
+
+
+def test_the_group_flow_write_covers_saving_a_flow_and_handing_a_file_over_and_neither_workflows_nor_flows_is_a_group():
+    assert operations.GROUPS["flow-write"] == {"operations": ("flow-save", "stage-file"), "kind": None}
+    assert "workflows" not in operations.GROUPS and "flows" not in operations.GROUPS, "no alias: the group exists under one name"
+    assert project_config._channels({"page": ["read", "flow-write"]}) == {"page": ["read", "flow-write"]}
+    assert operations.permitted("flow-save", "page", {"page": ["read", "flow-write"]}) and operations.permitted("stage-file", "page", {"page": ["read", "flow-write"]})
+    assert not operations.permitted("flow-save", "page", {"page": ["read"]}) and not operations.permitted("stage-file", "page", {"page": ["read"]})
+    for stale in ("workflows", "flows"):      # `flows` is the read operation of the group `read`, never a group: narrowing to it must not grant a write
+        with pytest.raises(project_config.ConfigError, match=rf"'{stale}' is not a group \(known: .*\bflow-write\b"):
+            project_config._channels({"page": ["read", stale]})
 
 
 def test_defaults_page_and_mcp_keep_their_ceiling_and_messaging_stays_closed():
@@ -106,7 +129,7 @@ def test_defaults_page_and_mcp_keep_their_ceiling_and_messaging_stays_closed():
     for kind in ("plan", "acceptance", "effect"):
         assert operations.permitted("approve", "page", None, kind) and operations.permitted("approve", "page", {"mcp": ["read"]}, kind)
     assert not operations.permitted("approve", "mcp", None, "plan")
-    assert operations.policy_groups("messaging", None) == ("read", "talk", "answer") and operations.policy_groups("page", None) is None
+    assert operations.policy_groups("messaging", None) == ("read", "talk", "answer", "routine-brakes") and operations.policy_groups("page", None) is None
 
 
 def test_refusal_is_a_pure_sentence_and_the_terminal_and_the_conversation_are_never_refused():
@@ -130,21 +153,22 @@ def test_permissions_are_names_and_pairs_in_the_tables_order():
     assert "approve" not in everything and "set-mode" not in everything
     assert {"approve:plan", "approve:acceptance", "approve:effect", "approve:go-ahead", "set-mode:down", "set-mode:up", "cancel", "go-ahead"} <= set(everything)
     assert operations.permissions("page", {"page": ["read", "approve-plans", "go-ahead"]}) == [
-        "status", "task", "flows", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "set-mode:down",
-        "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands"]
+        "status", "task", "flows", "flow-check", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "stop-task", "set-mode:down",
+        "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "items", "instructions", "routines", "routine-pause", "routine-cancel"]
     only_read = operations.permissions("page", {"page": ["read"]})
-    assert only_read == ["status", "task", "flows", "config", "progress", "pending", "cancel", "set-mode:down", "agents", "conversation",
-                         "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands"]  # the brakes are there
+    assert only_read == ["status", "task", "flows", "flow-check", "config", "progress", "pending", "cancel", "stop-task", "set-mode:down", "agents", "conversation",
+                         "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "items", "instructions", "routines", "routine-pause", "routine-cancel"]  # the brakes are there
     assert "set-mode:up" in operations.permissions("page", {"page": ["read", "set-mode"]})
     assert operations.permissions("page", {"page": ["read", "approve-effects", "approve-acceptances"]}).count("approve:effect") == 1
 
 
 def test_the_brakes_are_for_the_page_alone_and_do_not_leak_to_messaging_or_mcp():
-    assert operations.BRAKES == ("cancel", "set-mode")
+    assert operations.BRAKES == ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")
     assert operations.permitted("cancel", "page", {"page": ["read"]}) and operations.permitted("set-mode", "page", {"page": ["read"]})
-    assert not operations.permitted("cancel", "messaging", {"messaging": ["read"]})
-    assert not operations.permitted("cancel", "messaging", None)
+    assert not operations.permitted("cancel", "messaging", {"messaging": ["read"]})   # a written policy that leaves the group out narrows it
+    assert not operations.permitted("cancel", "messaging", None) and not operations.permitted("stop-task", "messaging", None)   # R18: every channel is restrictive by default, `brakes` is a grant
     assert operations.permitted("cancel", "messaging", {"messaging": ["reject-cancel"]})
+    assert operations.permitted("cancel", "messaging", {"messaging": ["brakes"]}) and not operations.permitted("stop-task", "messaging", {"messaging": ["reject-cancel"]})
     assert not operations.permitted("cancel", "mcp", None) and not operations.permitted("set-mode", "mcp", None)
     assert not operations.policy_allows("set-mode", "page", {"page": ["read"]})   # the move up is not a brake
 
@@ -224,10 +248,10 @@ def test_the_page_commands_leave_out_what_its_policy_refuses_and_new_follows_tal
     names = lambda: [c["command"] for c in call(world, "GET", api(world, "/commands"))[2]["commands"]]  # noqa: E731
     stand_in(world, ["read", "approve-plans"])
     world.fake.answers["commands"] = {"commands": rows}
-    assert names() == ["/help", "/status", "/progress", "/pending", "/approve", "/cancel"]
+    assert names() == ["/help", "/status", "/progress", "/pending", "/approve", "/cancel", "/stop-task"]
     stand_in(world, ["read", "talk", "answer", "release", "reject-cancel", "retry", "approve-effects"])
     world.fake.answers["commands"] = {"commands": rows}
-    assert names() == ["/help", "/status", "/progress", "/pending", "/answer", "/release", "/approve", "/reject", "/retry", "/cancel", "/new"]
+    assert names() == ["/help", "/status", "/progress", "/pending", "/answer", "/release", "/approve", "/reject", "/retry", "/cancel", "/stop-task", "/new"]
     world.fake.answers["config"] = {"path": "x", "sha256": "a" * 64, "accepted": True, "data_dir": str(world.tmp), "channels": {}}
     assert names() == [r["command"] for r in rows]                          # no policy: the ceiling, whole
 
@@ -305,8 +329,8 @@ def test_a_typed_approve_on_the_page_follows_the_page_policy_and_never_approves_
     assert reply.startswith("error: an effect is approved in the terminal, with its hash") and provider_calls(tree) == []
     assert ops.pending(path, effect["id"])["status"] == "open"
     for channel in ("terminal", "mcp", "messaging", None):
-        said = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel=channel)["reply"]
-        assert said.startswith("error: ") and provider_calls(tree) == [], channel
+        said = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"]
+        assert (said == PLAIN_REFUSAL if channel == "messaging" else said.startswith("error: ")) and provider_calls(tree) == [], channel
     ops.say(path, f"/approve {accept_id}", channel="page")
     assert ops.pending(path, accept_id)["status"] == "resolved"
     set_channels(path, {"page": ["read"]})                                 # a line needs talk to be said at all, on the page route
@@ -333,7 +357,8 @@ def second_project(tmp_path, tree, name="second"):  # noqa: F811
     folder = tmp_path / name
     (folder / "docs" / "workbench").mkdir(parents=True)
     (folder / "docs" / "workbench" / "runtime.json").write_text(json.dumps(
-        {"workbench": str(tree["tree"]), "data_dir": str(tmp_path / f"{name}-data"), "store_db": str(tmp_path / f"{name}-store" / "tasks.sqlite")}))
+        {"workbench": str(tree["tree"]), "data_dir": str(tmp_path / f"{name}-data"), "store_db": str(tmp_path / f"{name}-store" / "tasks.sqlite"),
+         "sources_dir": str(tmp_path / f"{name}-sources")}))
     (folder / "docs" / "workbench" / "state.md").write_text((tree["project"] / "docs" / "workbench" / "state.md").read_text())
     (folder / "AGENTS.md").write_text("# Project\n")
     ops.accept_config(str(folder), project_config.load(str(folder))["sha256"])
@@ -453,8 +478,8 @@ def test_get_projects_carries_the_pages_permissions_per_project_and_null_when_no
     assert status == 200 and set(body) == {"projects", "messaging"}
     [one, two, three] = body["projects"]
     assert one["permissions"] == {"channel": "page", "allowed": [
-        "status", "task", "flows", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "set-mode:down",
-        "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands"]}
+        "status", "task", "flows", "flow-check", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "stop-task", "set-mode:down",
+        "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "items", "instructions", "routines", "routine-pause", "routine-cancel"]}
     assert set(one["permissions"]) == {"channel", "allowed"}
     assert two["permissions"] == {"channel": "page", "allowed": operations.permissions("page", None)}
     assert {"approve:plan", "approve:acceptance", "approve:effect", "approve:go-ahead", "set-mode:down", "set-mode:up"} <= set(two["permissions"]["allowed"])
@@ -464,15 +489,16 @@ def test_get_projects_carries_the_pages_permissions_per_project_and_null_when_no
     # the page's commands, through the real operations layer
     set_channels(first, {"page": ["read", "approve-plans"]})
     got = [c["command"] for c in call(world, "GET", f"/api/v1/projects/{projects[0]['id']}/commands")[2]["commands"]]
-    assert got == ["/help", "/status", "/progress", "/pending", "/approve", "/cancel"]
+    assert got == ["/help", "/status", "/progress", "/pending", "/approve", "/cancel", "/stop-task"]
 
 
 # --- messaging keeps its behaviour with the new names ------------------------------------------------------------------------
 
 
 def test_messaging_keeps_its_closed_default_and_the_split_groups_turn_reject_cancel_and_retry_on_separately():
-    for name in ("reject", "cancel", "retry", "release", "approve"):
+    for name in ("reject", "cancel", "stop-task", "retry", "release", "approve"):
         assert not operations.permitted(name, "messaging", None)
+    assert not operations.permitted("stop-task", "messaging", None) and operations.permitted("stop-task", "messaging", {"messaging": ["brakes"]})   # R18: a grant, not a default
     assert operations.permitted("reject", "messaging", {"messaging": ["reject-cancel"]}) and operations.permitted("cancel", "messaging", {"messaging": ["reject-cancel"]})
     assert not operations.permitted("retry", "messaging", {"messaging": ["reject-cancel"]})
     assert operations.permitted("retry", "messaging", {"messaging": ["retry"]}) and not operations.permitted("cancel", "messaging", {"messaging": ["retry"]})

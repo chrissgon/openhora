@@ -97,10 +97,22 @@ def test_contained_env_is_an_allowlist(tmp_path, monkeypatch):
     assert er.contained_env(str(tmp_path), ["PROVIDER_API_KEY"])["PROVIDER_API_KEY"] == "k"
 
 
-@pytest.mark.parametrize("name", ["GITHUB_TOKEN", "VCS_GITHUB_TOKEN"])
+@pytest.mark.parametrize("name", ["GITHUB_TOKEN", "VCS_GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "OP_SESSION_demo",
+                                  "OP_CONNECT_TOKEN", "OP_CONNECT_HOST"])
 def test_pass_env_refuses_token_variables(name):
     with pytest.raises(SystemExit):
         er.parse(["--skill", "s", "--harness", "h", "--model", "m", "--pass-env", name])
+
+
+def test_contained_env_drops_the_password_managers_variables_even_when_passed(tmp_path, monkeypatch):
+    names = ["OP_SERVICE_ACCOUNT_TOKEN", "OP_SESSION_demo", "OP_CONNECT_TOKEN", "OP_CONNECT_HOST"]
+    for name in names:
+        monkeypatch.setenv(name, "not-a-real-value")
+    monkeypatch.setenv("PROVIDER_API_KEY", "k")
+    env = er.contained_env(str(tmp_path), names + ["PROVIDER_API_KEY"])
+    assert env["PROVIDER_API_KEY"] == "k"
+    assert not [k for k in env if k.startswith("OP_")]
+    assert er.token_var("OP_ANYTHING") and er.token_var("GH_TOKEN") and not er.token_var("OPENROUTER_API_KEY")
 
 
 def test_setup_and_fixture_commit_never_reach_an_outer_repository(tmp_path, monkeypatch):
@@ -475,7 +487,7 @@ def test_a_grading_that_fails_no_guard_is_made_once(tmp_path, monkeypatch, capsy
 
 def test_regrade_grades_stored_replies_again_and_reports_the_share_that_differs(tmp_path, monkeypatch, capsys):
     skill = grades_demo(tmp_path, monkeypatch)
-    full = ["--skill", "demo", "--harness", "h", "--model", "m", "--floor-model", "f", "--runs", "1"]
+    full = ["--skill", "demo", "--harness", "h", "--model", "m", "--model", "f", "--runs", "1"]
     assert er.main(full) == 0
     capsys.readouterr()
     iteration = tmp_path / "evals-workspace" / "demo" / "iteration-1"
@@ -536,7 +548,7 @@ def graded_for_regrade(tmp_path, monkeypatch, capsys, **markers):
     """One graded run of case 1 with the skill on the reference model, made by the control adapter; the markers
     are written after it, so they act on the regrade only. Returns the event folder."""
     control_demo(tmp_path, monkeypatch)
-    assert er.main(FULL + ["--case", "1", "--only", "with", "--tiers", "strong"]) == 0
+    assert er.main(FULL1 + ["--case", "1", "--only", "with"]) == 0
     capsys.readouterr()
     for name, value in markers.items():
         (tmp_path / "adapters" / "h" / name.replace("_", "-")).write_text(f"{value}\n")
@@ -765,7 +777,7 @@ def test_pass_env_checks_names_against_what_the_adapters_register_and_takes_none
 
 def test_the_gate_file_is_the_one_home_of_the_variables_passed_into_runs():
     gate = json.load(open(os.path.join(REPO, "evals", "eval-gate.json"), encoding="utf-8"))
-    assert gate["floor_pass_env"] and gate["strong_pass_env"]
+    assert all(gate["models"][m]["pass_env"] for m in gate["lab_models"])
     for path in sorted(glob.glob(os.path.join(REPO, "adapters", "*", "adapter.json"))):
         assert not [k for k in json.load(open(path, encoding="utf-8")) if "pass_env" in k], path
 
@@ -800,7 +812,7 @@ def test_max_cost_reaches_the_adapter(tmp_path):
     assert "--max-cost-usd 0.50" in (tmp_path / "args").read_text()
 
 
-def test_floor_pass_env_reaches_only_the_floor_runs(tmp_path, monkeypatch, capsys):
+def test_a_models_pass_env_reaches_only_its_runs(tmp_path, monkeypatch, capsys):
     skill = make_skill(tmp_path)
     (skill / "evals" / "evals.json").write_text(json.dumps({"evals": [{"id": 1, "prompt": "p", "assertions": ["a"]}]}))
     adapter = tmp_path / "adapters" / "h"
@@ -810,14 +822,14 @@ def test_floor_pass_env_reaches_only_the_floor_runs(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
     monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     monkeypatch.setenv("FLOOR_ONLY_KEY", "floor-secret")
-    assert er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--floor-model", "f", "--runs", "1",
-                    "--only", "with", "--no-grade", "--floor-pass-env", "FLOOR_ONLY_KEY"]) == 0
+    configure_gate(tmp_path, f={"pass_env": ["FLOOR_ONLY_KEY"]})
+    assert er.main(["--skill", "demo", "--model", "m", "--model", "f", "--runs", "1", "--only", "with", "--no-grade"]) == 0
     strong = (tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1" / "with_skill" / "outputs" / "env.txt").read_text()
-    floor = (tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1" / "with_skill.floor" / "outputs" / "env.txt").read_text()
-    # The floor run had the variable; what it printed of it is stored as the marker, never as the value.
+    floor = (tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1" / "with_skill.m2" / "outputs" / "env.txt").read_text()
+    # The run of f had the variable; what it printed of it is stored as the marker, never as the value.
     assert "FLOOR_ONLY_KEY" not in strong and "FLOOR_ONLY_KEY=[redacted:FLOOR_ONLY_KEY]" in floor and "floor-secret" not in floor
     with pytest.raises(SystemExit):
-        er.parse(["--skill", "s", "--harness", "h", "--model", "m", "--floor-pass-env", "GITHUB_TOKEN"])
+        er.parse(["--skill", "s", "--harness", "h", "--model", "m", "--model", "f", "--pass-env", "GITHUB_TOKEN"])
 
 
 def test_a_pass_env_variable_that_stays_unset_stops_the_run(tmp_path, monkeypatch, capsys):
@@ -830,31 +842,57 @@ def test_a_pass_env_variable_that_stays_unset_stops_the_run(tmp_path, monkeypatc
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
     monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     monkeypatch.delenv("FLOOR_ONLY_KEY", raising=False)
+    configure_gate(tmp_path, f={"pass_env": ["FLOOR_ONLY_KEY"]})
     with pytest.raises(SystemExit) as exc:
-        er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--floor-model", "f", "--runs", "1",
-                 "--only", "with", "--no-grade", "--floor-pass-env", "FLOOR_ONLY_KEY"])
+        er.main(["--skill", "demo", "--model", "m", "--model", "f", "--runs", "1", "--only", "with", "--no-grade"])
     assert exc.value.code == 2
     assert "FLOOR_ONLY_KEY is not set" in capsys.readouterr().err
     assert not (tmp_path / "evals-workspace").exists()
 
 
 def test_jobs_runs_model_runs_at_the_same_time_and_keeps_the_order(tmp_path, monkeypatch):
-    import time
+    """No clock: each fake run leaves a marker in a folder and waits until all four markers exist (at most 60 s), and writes
+    its response only then. The runs complete only if the four were alive at the same time, however slow the machine is."""
     skill = make_skill(tmp_path)
     (skill / "evals" / "evals.json").write_text(json.dumps({"evals": [{"id": 1, "prompt": "p", "assertions": ["a"]},
                                                                       {"id": 2, "prompt": "q", "assertions": ["a"]}]}))
     adapter = tmp_path / "adapters" / "h"
     adapter.mkdir(parents=True)
     (adapter / "eval.json").write_text(EVAL_JSON)
-    (adapter / "run-prompt.sh").write_text('sleep 1; echo ok > "$8/response.md"\n')
+    markers = tmp_path / "markers"
+    markers.mkdir()
+    (adapter / "run-prompt.sh").write_text(
+        f'd={markers}\n: > "$d/$$"\ni=0\n'
+        'while [ "$(ls "$d" | wc -l)" -lt 4 ] && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i + 1)); done\n'
+        '[ "$(ls "$d" | wc -l)" -ge 4 ] && echo ok > "$8/response.md"\n')
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
     monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
-    start = time.monotonic()
     assert er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--runs", "2", "--jobs", "4",
                     "--only", "with", "--no-grade"]) == 0
-    assert time.monotonic() - start < 3.5  # four one-second runs, not one after another
+    assert len(list(markers.iterdir())) == 4  # the four runs were alive together: each saw all four markers
     bench = json.loads((tmp_path / "evals-workspace" / "demo" / "iteration-1" / "benchmark.json").read_text())
     assert [(r["case"], r["run"]) for r in bench["run_summary"]["with_skill"]["cases"]] == [(1, 1), (1, 2), (2, 1), (2, 2)]
+
+
+def test_the_executor_module_is_whole_for_every_thread_that_loads_it(tmp_path, monkeypatch):
+    """Runs load evals/executor.py from several threads. A thread that came while another was still running the module
+    took the half-made one and found no `read_meter` (a flake of the test above under load). A stand-in module that is slow
+    to finish makes that every time."""
+    import threading
+    import time
+    slow = tmp_path / "executor.py"
+    slow.write_text("import time\ntime.sleep(0.4)\ndef read_meter(path):\n    return {}\n")
+    monkeypatch.setattr(er.KIT, "EXECUTOR_SCRIPT", str(slow))
+    monkeypatch.delitem(sys.modules, "workbench_eval_executor", raising=False)
+    seen = []
+    threads = [threading.Thread(target=lambda: seen.append(hasattr(er.KIT.load_executor(), "read_meter"))) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+        time.sleep(0.1)
+    for thread in threads:
+        thread.join(10)
+    sys.modules.pop("workbench_eval_executor", None)  # the stand-in must not be what the next test finds
+    assert seen == [True, True]
 
 
 @pytest.mark.parametrize("jobs", ["0", "9", "x"])
@@ -1021,14 +1059,14 @@ def seen(tmp_path, variant, name="files.txt"):
 def test_the_runner_stages_the_skill_its_dependencies_and_only_the_cited_reference(tmp_path, monkeypatch, capsys):
     sees_demo(tmp_path, monkeypatch)
     assert er.main(FULL) == 0
-    for variant in ("with_skill", "with_skill.floor"):
+    for variant in ("with_skill", "with_skill.m2"):
         assert seen(tmp_path, variant) == [
             "./.h/shared/references/security.md",  # the one file the skill under test cites, where ../../shared resolves
             "./.h/skills/demo/SKILL.md", "./.h/skills/demo/references/guide.md", "./.h/skills/demo/scripts/check.py",
             "./.h/skills/dep/SKILL.md", "./a.txt"]
         assert seen(tmp_path, variant, "links.txt") == []  # copies, never links into the workbench
         assert seen(tmp_path, variant, "status.txt") == []  # the staged paths are on the repository's exclude list
-    for variant in ("without_skill", "without_skill.floor"):
+    for variant in ("without_skill", "without_skill.m2"):
         # The dependency skill in both variants; no copy of the skill under test and no shared reference at all.
         assert seen(tmp_path, variant) == ["./.h/skills/dep/SKILL.md", "./a.txt"]
     for variant in ("with_skill", "without_skill"):
@@ -1161,7 +1199,7 @@ def test_run_files_is_the_one_list_of_what_the_host_touches_after_a_run(tmp_path
 
 def test_an_event_that_passes_an_extra_variable_names_it_and_is_a_trial(tmp_path, monkeypatch, capsys):
     skill = write_demo(tmp_path, monkeypatch, FAKE)
-    configure_gate(tmp_path, floor_pass_env=["FLOOR_KEY"])
+    configure_gate(tmp_path, f={"pass_env": ["FLOOR_KEY"]})
     monkeypatch.setenv("FLOOR_KEY", "k")
     monkeypatch.setenv("SOME_ADAPTER_SWITCH", "1")
     assert er.main(["--skill", "demo", "--pass-env", "SOME_ADAPTER_SWITCH"]) == 0
@@ -1173,7 +1211,7 @@ def test_an_event_that_passes_an_extra_variable_names_it_and_is_a_trial(tmp_path
     assert er.main(["--skill", "demo"]) == 0
     assert json.loads(capsys.readouterr().out)["evidence"]["written"] is True
     assert evidence_of(skill)[0][0]["extra_pass_env"] == []
-    assert er.parse(["--skill", "demo", "--floor-pass-env", "OTHER_KEY"])["extra_pass_env"] == ["OTHER_KEY"]
+    assert er.parse(["--skill", "demo", "--pass-env", "OTHER_KEY"])["extra_pass_env"] == ["OTHER_KEY"]
 
 
 def test_a_case_without_dependencies_stages_nothing_into_a_without_skill_run(tmp_path, monkeypatch, capsys):
@@ -1204,7 +1242,7 @@ def platform_file(skill, name="chirp", cases=None, **top):
     (skill / "evals" / "platforms" / f"{name}.json").write_text(json.dumps(data))
 
 
-PLATFORM = ["--skill", "demo", "--harness", "h", "--model", "m", "--floor-model", "f", "--runs", "1", "--platform", "chirp"]
+PLATFORM = ["--skill", "demo", "--harness", "h", "--model", "m", "--model", "f", "--runs", "1", "--platform", "chirp"]
 
 
 def test_a_platform_test_runs_its_cases_with_the_skill_only_and_its_lines_carry_the_platform(tmp_path, monkeypatch, capsys):
@@ -1222,7 +1260,7 @@ def test_a_platform_test_runs_its_cases_with_the_skill_only_and_its_lines_carry_
     # With the skill only: no run without it, and the base cases did not run.
     assert sorted(p.name for p in (tmp_path / "evals-workspace" / "demo" / "iteration-1").glob("eval-*")) == ["eval-7"]
     assert sorted(p.name for p in (tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-7").iterdir()) == [
-        "with_skill", "with_skill.floor"]
+        "with_skill", "with_skill.m2"]
     # The platform's reference and data file are staged as if the case named the platform.
     run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-7" / "with_skill"
     assert [f for f in (run / "outputs" / "files.txt").read_text().split("\n") if "/shared/" in f] == [
@@ -1369,7 +1407,8 @@ echo ok > "$out/response.md"
 '''
 # Every case, with the skill and without it, on both models: a full test with the floor model's baseline too
 # (--baseline-on), so that each test below sees the four variants. The default runs no baseline on the floor model.
-FULL = ["--skill", "demo", "--harness", "h", "--model", "m", "--floor-model", "f", "--runs", "1", "--baseline-on", "f"]
+FULL = ["--skill", "demo", "--harness", "h", "--model", "m", "--model", "f", "--runs", "1", "--baseline-on", "f"]
+FULL1 = ["--skill", "demo", "--harness", "h", "--model", "m", "--runs", "1"]  # the lead model alone
 
 
 def test_check_cases_and_a_real_run_stop_on_a_preflight_error_before_any_run(tmp_path, monkeypatch, capsys):
@@ -1398,14 +1437,14 @@ def test_a_complete_full_test_writes_its_evidence_file_into_the_skill(tmp_path, 
     test = event["test"]
     assert out["evidence"] == {"written": True, "path": f"skills/demo/evals/evidence/lab-{test}.jsonl",
                                "scratch": f"evals-workspace/demo/iteration-1/scratch/skills/demo/evals/evidence/lab-{test}.jsonl",
-                               "reason": None, "test": test, "kind": "full", "lines": 8, "gate": event["gate"]}
+                               "reason": None, "test": test, "kind": "full", "lines": 8, "gate": event["gate"]["m"], "home": "repository"}
     # The event line: what describes the event as a whole.
     assert (event["record"], event["skill"], event["kind"], event["complete"], event["version"]) == ("test", "demo", "full", True, "0.3.0")
     assert event["content_sha256"] == bench["content_sha256"] == before == status.content_hash(str(skill))  # evidence changes no hash
-    assert event["models"] == {"strong": "m", "floor": "f"} and event["adapters"] == {"strong": "h", "floor": "h"}
+    assert event["models"] == ["m", "f"] and event["adapters"] == {"m": "h", "f": "h"} and event["complete_models"] == ["m", "f"]
     assert event["adapter_sha256"] == {"h": status.file_sha256(str(tmp_path / "adapters" / "h" / "run-prompt.sh"))}
     assert (event["grader"], event["runs"], event["timeout_seconds"], event["retries"]) == ("m", 1, 900, 2)
-    assert event["gate"] == {"passed": True, "with": 1.0, "baseline": 1.0, "threshold": 0.8, "tolerance": 0}
+    assert event["gate"]["m"] == {"passed": True, "with": 1.0, "baseline": 1.0, "threshold": 0.8, "tolerance": 0}
     assert event["cases"] == status.case_hashes(str(skill)) and event["baseline"] == {"1": "run", "2": "run"}
     assert event["measurement_sha256"] == status.measurement_fingerprint(str(tmp_path)) and event["grading_template_sha256"] == er.template_hash()
     assert event["image_digest"] == "sha256:" + "1" * 64 and event["tools"] == {"git": "git version 2.0-test"}
@@ -1429,7 +1468,7 @@ def test_a_complete_full_test_writes_its_evidence_file_into_the_skill(tmp_path, 
     assert not (skill / "evals" / "result.json").exists() and status.content_hash(str(skill)) == before
 
 
-@pytest.mark.parametrize("extra, why", [(["--only", "with"], "--only"), (["--tiers", "strong"], "--tiers"), (["--no-grade"], "--no-grade"),
+@pytest.mark.parametrize("extra, why", [(["--only", "with"], "--only"), (["--no-grade"], "--no-grade"),
                                         (["--scratch"], "--scratch"), (["--ablate", "demo"], "--ablate")])
 def test_a_trial_never_writes_into_the_skill(tmp_path, monkeypatch, capsys, extra, why):
     skill = write_demo(tmp_path, monkeypatch, FAKE)
@@ -1461,15 +1500,17 @@ def test_an_infrastructure_failure_is_listed_left_out_of_the_mean_and_exits_1(tm
     assert "INCOMPLETE: 2 of 16 runs failed on infrastructure" in captured.err
     bench = json.loads((tmp_path / "evals-workspace" / "demo" / "iteration-1" / "benchmark.json").read_text())
     assert bench["complete"] is False
-    assert [(f["case"], f["variant"], f["tier"], f["run"]) for f in bench["infra_failures"]] == [
-        (2, "with_skill", "floor", 1), (2, "with_skill", "floor", 2)]
+    assert [(f["case"], f["variant"], f["slot"], f["run"]) for f in bench["infra_failures"]] == [
+        (2, "with_skill", "m2", 1), (2, "with_skill", "m2", 2)]
     assert bench["infra_failures"][0]["reason"] == "adapter exit 7: provider: out of credits"
-    floor = bench["run_summary"]["with_skill.floor"]
+    floor = bench["run_summary"]["with_skill.m2"]
     assert floor["pass_rate"] == {"mean": 1.0, "stddev": 0.0, "n": 2} and [r["case"] for r in floor["cases"]] == [1, 1]
     # The failed runs are the floor model's: the event is complete by the reference model, and its evidence is
     # written, without them. The exit code says that runs are missing.
     (event, runs), = evidence_of(skill)
-    assert out["evidence"]["written"] is True and event["complete"] is True and event["gate"]["passed"] is True
+    assert out["evidence"]["written"] is True and event["complete"] is True and event["gate"]["m"]["passed"] is True
+    assert set(event["gate"]) == {"m"}  # the floor model's runs are not all graded: no gate is written for it
+    assert event["complete_models"] == ["m"]  # and the event says it is complete for the model that finished only
     assert len(runs) == 14 and not [l for l in runs if l["case"] == 2 and l["model"] == "f" and l["variant"] == "with"]
 
 
@@ -1481,7 +1522,7 @@ def test_a_gate_that_fails_on_a_complete_full_test_exits_3_and_is_written_as_fai
     out = json.loads(captured.out)
     (event, runs), = evidence_of(skill)  # a failed gate is evidence too: it is what the band will read
     assert out["complete"] is True and out["evidence"]["written"] is True and "gate failed" in captured.err
-    assert event["gate"] == {"passed": False, "with": 0.0, "baseline": 0.0, "threshold": 0.8, "tolerance": 0}
+    assert event["gate"]["m"] == {"passed": False, "with": 0.0, "baseline": 0.0, "threshold": 0.8, "tolerance": 0}
     assert {l["score"] for l in runs} == {0.0} and {tuple(l["results"]) for l in runs} == {(0,)}
 
 
@@ -1713,19 +1754,19 @@ def test_an_early_end_is_retried_and_the_second_attempt_is_scored(tmp_path, monk
     out, bench = json.loads(captured.out), bench_of(tmp_path)
     assert out["complete"] is True and bench["infra_failures"] == [] and out["early_end_warning"] is None
     # Counted per case and per variant: an early end thrown away and drawn again conditions that variant's score.
-    assert bench["early_ends"]["floor"] == {"attempts": 5, "early_ends": 1, "rate": 0.2, "by_case": {"1": 1},
+    assert bench["early_ends"]["f"] == {"attempts": 5, "early_ends": 1, "rate": 0.2, "by_case": {"1": 1},
                                             "by_variant": {"with_skill": 1}}
-    assert bench["early_ends"]["strong"] == {"attempts": 4, "early_ends": 0, "rate": 0.0, "by_case": {}, "by_variant": {}}
-    assert bench["run_summary"]["with_skill.floor"]["pass_rate"] == {"mean": 1.0, "stddev": 0.0, "n": 2}
-    run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1" / "with_skill.floor"
+    assert bench["early_ends"]["m"] == {"attempts": 4, "early_ends": 0, "rate": 0.0, "by_case": {}, "by_variant": {}}
+    assert bench["run_summary"]["with_skill.m2"]["pass_rate"] == {"mean": 1.0, "stddev": 0.0, "n": 2}
+    run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1" / "with_skill.m2"
     assert (run / "outputs" / "response.md").read_text() == "ok: attempt 2\n" and (run / "grading.json").is_file()
     assert (run / "early-end-1" / "outputs" / "response.md").read_text() == "Let me just read the template first.\n"
     assert (run / "early-end-1" / "cwd").is_dir() and not (run / "early-end-2").exists()
-    assert "EARLY END   case 1 with_skill.floor run 1 attempt 1" in captured.err
+    assert "EARLY END   case 1 with_skill.m2 run 1 attempt 1" in captured.err
     (event, _), = evidence_of(skill)  # the event line counts them per model and variant
     assert (event["counts"]["f"]["with"]["early_ends"], event["counts"]["f"]["with"]["retries"]) == (1, 1)
     assert event["counts"]["f"]["without"]["early_ends"] == 0 and event["counts"]["m"]["with"]["early_ends"] == 0
-    assert event["gate"]["passed"] is True and out["evidence"]["written"] is True
+    assert event["gate"]["m"]["passed"] is True and out["evidence"]["written"] is True
 
 
 def test_a_run_that_ends_early_on_every_attempt_is_an_infrastructure_failure(tmp_path, monkeypatch, capsys):
@@ -1733,12 +1774,12 @@ def test_a_run_that_ends_early_on_every_attempt_is_an_infrastructure_failure(tmp
     assert er.main(FULL) == 1
     out, bench = json.loads(capsys.readouterr().out), bench_of(tmp_path)
     assert out["complete"] is False and evidence_of(skill)[0][0]["complete"] is True  # a floor run is missing: information
-    assert bench["infra_failures"] == [{"case": 1, "variant": "with_skill", "tier": "floor", "run": 1, "reason": "early_end",
+    assert bench["infra_failures"] == [{"case": 1, "variant": "with_skill", "slot": "m2", "run": 1, "reason": "early_end",
                                         "kind": "early_end", "detail": "the reply ends by announcing a next action, no question was asked and no file written",
                                         "attempts": 3}]
-    assert bench["early_ends"]["floor"]["early_ends"] == 3 and bench["early_ends"]["floor"]["attempts"] == 6
-    assert [r["case"] for r in bench["run_summary"]["with_skill.floor"]["cases"]] == [2]
-    run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1" / "with_skill.floor"
+    assert bench["early_ends"]["f"]["early_ends"] == 3 and bench["early_ends"]["f"]["attempts"] == 6
+    assert [r["case"] for r in bench["run_summary"]["with_skill.m2"]["cases"]] == [2]
+    run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1" / "with_skill.m2"
     assert (run / "early-end-1").is_dir() and (run / "early-end-2").is_dir() and (run / "outputs" / "response.md").is_file()
 
 
@@ -1747,7 +1788,7 @@ def test_retries_0_disables_the_retry(tmp_path, monkeypatch, capsys):
     assert er.main(FULL + ["--retries", "0"]) == 1
     bench = bench_of(tmp_path)
     assert [(f["reason"], f["attempts"]) for f in bench["infra_failures"]] == [("early_end", 1)]
-    assert bench["early_ends"]["floor"]["attempts"] == 4
+    assert bench["early_ends"]["f"]["attempts"] == 4
     assert not list((tmp_path / "evals-workspace").rglob("early-end-*"))
 
 
@@ -1756,7 +1797,7 @@ def test_a_question_or_a_written_file_is_graded_not_retried(tmp_path, monkeypatc
     early_demo(tmp_path, monkeypatch, times=9, kind=kind)
     assert er.main(FULL) == 0
     bench = bench_of(tmp_path)
-    assert bench["early_ends"]["floor"] == {"attempts": 4, "early_ends": 0, "rate": 0.0, "by_case": {}, "by_variant": {}}
+    assert bench["early_ends"]["f"] == {"attempts": 4, "early_ends": 0, "rate": 0.0, "by_case": {}, "by_variant": {}}
     assert bench["complete"] is True and bench["early_end_warning"] is None
 
 
@@ -1766,8 +1807,8 @@ def test_the_warning_names_the_case_when_the_early_ends_concentrate_on_it(tmp_pa
     assert er.main(FULL + ["--runs", "3", "--jobs", "1"]) == 0  # complete and passing: the warning does not change the exit code
     captured = capsys.readouterr()
     warning = json.loads(captured.out)["early_end_warning"]
-    assert warning.startswith("the floor model ended its turn early in 3 of 21 attempts (14%): retries hid them from the scores.")
-    assert "All of them are on case 1" in warning and "WARNING early ends: the floor model" in captured.err
+    assert warning.startswith("f ended its turn early in 3 of 21 attempts (14%): retries hid them from the scores.")
+    assert "All of them are on case 1" in warning and "WARNING early ends: f" in captured.err
     assert bench_of(tmp_path)["early_end_warning"] == warning
 
 
@@ -1782,8 +1823,8 @@ def test_no_warning_below_three_early_ends_or_under_the_rate(tmp_path, monkeypat
     early_demo(tmp_path, monkeypatch, cases="1 2", times=1, n_cases=3)
     assert er.main(FULL) == 0  # 2 early ends of 8 attempts: a high rate, but fewer than three
     assert json.loads(capsys.readouterr().out)["early_end_warning"] is None
-    assert er.early_end_warning({"floor": {"attempts": 40, "early_ends": 4, "rate": 0.1, "by_case": {"1": 2, "2": 2}}}, 0.15) is None
-    assert er.early_end_warning({"floor": {"attempts": 40, "early_ends": 4, "rate": 0.1, "by_case": {"1": 2, "2": 2}}}, 0.05)
+    assert er.early_end_warning({"f": {"attempts": 40, "early_ends": 4, "rate": 0.1, "by_case": {"1": 2, "2": 2}}}, 0.15) is None
+    assert er.early_end_warning({"f": {"attempts": 40, "early_ends": 4, "rate": 0.1, "by_case": {"1": 2, "2": 2}}}, 0.05)
 
 
 @pytest.mark.parametrize("args", [["--retries", "-1"], ["--retries", "6"], ["--retries", "x"], ["--early-end-rate", "2"]])
@@ -1794,11 +1835,21 @@ def test_retries_and_the_rate_are_checked(args):
 
 # --- the eval gate configuration supplies the defaults --------------------------------------------
 
-def configure_gate(tmp_path, **changes):
-    config = {"strong_model": "m", "strong_harness": "h", "floor_model": "f", "floor_harness": "h",
-              "floor_pass_env": [], "strong_pass_env": [], "grader": "m", "threshold": 0.8, "strong_tolerance": 0, "measurement_version": 2,
-              "measurement_floor": 2, "measurement_sha256": er.load_status().measurement_fingerprint(str(tmp_path)),
-              "runs": 1, **changes}
+ENTRY = {"aliases": [], "adapter": "h", "pass_env": [], "route": None, "provider_pin": None, "upstream_models": ["x"],
+         "price_source": "https://example.test/price", "run_token_budget": 1000}
+
+
+def configure_gate(tmp_path, m=None, f=None, **changes):
+    """A valid gate file for the stand-in tree: two listed models, m (the lead and the grader) and f, both run through
+    the stand-in adapter h. m and f are changes to their entries (adapter, pass_env, web_pass_env); an entry that
+    passes a key gets a route, which a model that holds a key must name."""
+    models = {"m": {**ENTRY, **(m or {})}, "f": {**ENTRY, **(f or {})}}
+    for entry in models.values():
+        if entry["pass_env"] and not entry["route"]:
+            entry["route"] = "openrouter"
+    config = {"grader": "m", "threshold": 0.8, "tolerance": 0, "measurement_version": 2, "models": models,
+              "lab_models": ["m", "f"], "measurement_floor": 2,
+              "measurement_sha256": er.load_status().measurement_fingerprint(str(tmp_path)), "runs": 1, **changes}
     config = {k: v for k, v in config.items() if v is not None}  # None leaves a key out
     (tmp_path / "evals").mkdir(exist_ok=True)
     (tmp_path / "evals" / "eval-gate.json").write_text(json.dumps(config))
@@ -1807,21 +1858,109 @@ def configure_gate(tmp_path, **changes):
 def test_the_configuration_supplies_models_adapters_key_and_threshold(tmp_path, monkeypatch):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
     monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
-    configure_gate(tmp_path, floor_harness="fh", floor_pass_env=["FLOOR_KEY"], threshold=0.7)
+    configure_gate(tmp_path, f={"adapter": "fh", "pass_env": ["FLOOR_KEY"]}, threshold=0.7)
     o = er.parse(["--skill", "demo"])
-    assert (o["harness"], o["model"], o["floor"], o["floor_harness"], o["floor_pass_env"], o["threshold"], o["grader"]) == (
-        "h", "m", "f", "fh", ["FLOOR_KEY"], 0.7, "m")
+    assert (o["models"], o["model"], o["harness"], o["adapters"], o["pass_envs"], o["threshold"], o["grader"]) == (
+        ["m", "f"], "m", "h", {"m": "h", "f": "fh"}, {"m": [], "f": ["FLOOR_KEY"]}, 0.7, "m")
+    assert (o["grader_harness"], o["grader_pass_env"], o["tolerance"]) == ("h", [], 0)
 
 
 def test_explicit_flags_win_over_the_configuration(tmp_path, monkeypatch):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
     monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
-    configure_gate(tmp_path, floor_harness="fh", floor_pass_env=["FLOOR_KEY"])
-    o = er.parse(["--skill", "demo", "--harness", "h2", "--model", "m2", "--floor-model", "local/x", "--threshold", "0.5"])
-    assert (o["harness"], o["model"], o["floor"], o["floor_harness"], o["threshold"]) == ("h2", "m2", "local/x", "fh", 0.5)
-    assert o["floor_pass_env"] == []  # the configured key belongs to the configured floor model only
-    o = er.parse(["--skill", "demo", "--floor-harness", "other", "--floor-pass-env", "MY_KEY"])
-    assert (o["floor_harness"], o["floor_pass_env"]) == ("other", ["MY_KEY"])
+    configure_gate(tmp_path, f={"adapter": "fh", "pass_env": ["FLOOR_KEY"]})
+    o = er.parse(["--skill", "demo", "--harness", "h2", "--model", "m2", "--model", "own/x", "--threshold", "0.5"])
+    assert (o["models"], o["harness"], o["adapters"], o["threshold"]) == (["m2", "own/x"], "h2", {"m2": "h2", "own/x": "h2"}, 0.5)
+    assert o["pass_envs"] == {"m2": [], "own/x": []}  # the configured key belongs to the model whose entry names it
+    o = er.parse(["--skill", "demo", "--model", "f", "--pass-env", "MY_KEY"])
+    assert (o["models"], o["adapters"], o["pass_envs"], o["extra_pass_env"]) == (["f"], {"f": "fh"}, {"f": ["FLOOR_KEY"]}, ["MY_KEY"])
+
+
+def three_models(tmp_path, **changes):
+    """A gate file that lists three models, the third with an adapter of its own and a key."""
+    configure_gate(tmp_path, lab_models=["m", "f", "g"], models={
+        "m": {**ENTRY}, "f": {**ENTRY}, "g": {**ENTRY, "adapter": "gh", "pass_env": ["G_KEY"], "route": "openrouter"}}, **changes)
+
+
+def test_model_is_repeated_in_the_order_given_and_defaults_to_the_lab_models(tmp_path, monkeypatch):
+    monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
+    three_models(tmp_path)
+    o = er.parse(["--skill", "demo"])
+    assert (o["models"], o["model"]) == (["m", "f", "g"], "m")  # no --model: the lab models, the first leads
+    o = er.parse(["--skill", "demo", "--model", "g", "--model", "m"])
+    assert (o["models"], o["model"], o["adapters"]) == (["g", "m"], "g", {"g": "gh", "m": "h"})  # the order given; g leads
+    o = er.parse(["--skill", "demo", "--model", "f"])
+    assert (o["models"], o["model"]) == (["f"], "f")
+    assert (o["grader"], o["grader_harness"]) == ("m", "h")  # the grader is its own entry's, wherever it stands
+    o = er.parse(["--skill", "demo", "--model", "g", "--model", "m", "--baseline-on", "m"])
+    assert o["baseline_on"] == ["m"]
+    for argv, why in ((["--model", "m", "--model", "m"], "the same model twice"),
+                      (["--model", "m", "--baseline-on", "g"], "another model is one the event runs"),
+                      (["--model", "m", "--model", "f", "--harness", "other"], "every model of this event is listed")):
+        with pytest.raises(SystemExit) as e:
+            er.parse(["--skill", "demo", *argv])
+        assert e.value.code == 2
+
+
+def test_harness_is_the_adapter_of_the_models_the_gate_file_does_not_list(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
+    three_models(tmp_path)
+    o = er.parse(["--skill", "demo", "--model", "g", "--model", "mine/a", "--model", "mine/b", "--harness", "own"])
+    assert o["adapters"] == {"g": "gh", "mine/a": "own", "mine/b": "own"}  # listed: its entry's; unlisted: --harness
+    assert o["pass_envs"] == {"g": ["G_KEY"], "mine/a": [], "mine/b": []}
+    # A single listed model takes --harness in place of its entry's adapter; several listed models do not.
+    assert er.parse(["--skill", "demo", "--model", "g", "--harness", "own"])["adapters"] == {"g": "own"}
+    assert er.parse(["--skill", "demo", "--model", "m", "--model", "f", "--harness", "h"])["adapters"] == {"m": "h", "f": "h"}
+    with pytest.raises(SystemExit):
+        er.parse(["--skill", "demo", "--model", "mine/a"])  # an unlisted model needs --harness
+    assert "--harness <adapter> is required" in capsys.readouterr().err
+    # The old options are gone.
+    for old in (["--floor-model", "f"], ["--floor-harness", "h"], ["--floor-pass-env", "X"], ["--tiers", "strong"], ["--tier", "floor"]):
+        with pytest.raises(SystemExit):
+            er.parse(["--skill", "demo", *old])
+
+
+def test_a_dry_run_of_a_three_model_event_plans_runs_for_all_three(tmp_path, monkeypatch, capsys):
+    write_demo(tmp_path, monkeypatch, FAKE)
+    shutil.copytree(tmp_path / "adapters" / "h", tmp_path / "adapters" / "gh")
+    three_models(tmp_path)
+    assert er.main(["--skill", "demo", "--runs", "2", "--dry-run"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["models"] == ["m", "f", "g"]
+    assert plan["runners"] == {"m": "adapters/h/run-prompt.sh", "f": "adapters/h/run-prompt.sh", "g": "adapters/gh/run-prompt.sh"}
+    assert plan["model_pass_env"] == {"m": [], "f": [], "g": ["G_KEY"]}
+    by_slot = {}
+    for run in plan["runs"]:
+        by_slot.setdefault((run["slot"], run["model"]), []).append((run["case"], run["variant"], run["run"]))
+    assert set(by_slot) == {("m1", "m"), ("m2", "f"), ("m3", "g")}
+    # 2 cases x 2 runs with the skill on every model; the baseline, in a full test, on the lead model only.
+    assert [len([r for r in rows if r[1] == "with_skill"]) for rows in by_slot.values()] == [4, 4, 4]
+    assert len([r for r in by_slot[("m1", "m")] if r[1] == "without_skill"]) == 2 and not [
+        r for slot in ("m2", "m3") for key, rows in by_slot.items() if key[0] == slot for r in rows if r[1] == "without_skill"]
+    assert len(plan["runs"]) == 12 + 2
+    # --baseline-on adds a model's baseline column.
+    assert er.main(["--skill", "demo", "--runs", "1", "--baseline-on", "g", "--dry-run"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert {(r["slot"]) for r in plan["runs"] if r["variant"] == "without_skill"} == {"m1", "m3"}
+
+
+def test_the_variants_and_conditions_of_a_three_model_event_are_named_by_place(tmp_path, monkeypatch, capsys):
+    write_demo(tmp_path, monkeypatch, FAKE)
+    shutil.copytree(tmp_path / "adapters" / "h", tmp_path / "adapters" / "gh")
+    configure_gate(tmp_path, lab_models=["m", "f", "g"], models={
+        "m": {**ENTRY}, "f": {**ENTRY}, "g": {**ENTRY, "adapter": "gh"}})
+    monkeypatch.setenv("WB_LOCAL_EVIDENCE_DIR", str(tmp_path / "local"))
+    assert er.main(["--skill", "demo", "--runs", "1", "--only", "with", "--no-grade"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    bench = bench_of(tmp_path)
+    assert set(bench["run_summary"]) == {"with_skill", "with_skill.m2", "with_skill.m3"}
+    assert bench["models"] == {"m1": "m", "m2": "f", "m3": "g"} and set(bench["counts"]) == {"m", "f", "g"}
+    run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1"
+    assert all((run / name / "outputs").is_dir() for name in ("with_skill", "with_skill.m2", "with_skill.m3"))
+    assert set(er.conditions_of({"with_skill": 1.0, "with_skill.m2": 0.5, "with_skill.m3": 1.0}, 0.8, 0.05)) == {
+        "pass_rate.m2", "ok.m2", "pass_rate.m3", "ok.m3"}
 
 
 def test_without_a_configuration_harness_and_model_are_required_and_there_is_no_floor(tmp_path, monkeypatch, capsys):
@@ -1831,18 +1970,18 @@ def test_without_a_configuration_harness_and_model_are_required_and_there_is_no_
         er.parse(["--skill", "demo"])
     assert e.value.code == 2 and "--harness is required" in capsys.readouterr().err
     o = er.parse(["--skill", "demo", "--harness", "h", "--model", "m"])
-    assert (o["floor"], o["floor_harness"], o["threshold"]) == (None, None, 0.8)
+    assert (o["models"], o["adapters"], o["threshold"]) == (["m"], {"m": "h"}, 0.8)
     assert er.parse(["--skill", "demo", "--check-cases"])["check_cases"] is True
 
 
 def test_skill_alone_runs_the_configured_gate_and_writes_evidence(tmp_path, monkeypatch, capsys):
     skill = write_demo(tmp_path, monkeypatch, FAKE)
-    configure_gate(tmp_path, measurement_version=7, strong_tolerance=0.05)
+    configure_gate(tmp_path, measurement_version=7, tolerance=0.05)
     assert er.main(["--skill", "demo"]) == 0
     assert json.loads(capsys.readouterr().out)["evidence"]["written"] is True
     (event, runs), = evidence_of(skill)
-    assert event["models"] == {"strong": "m", "floor": "f"} and event["measurement_version"] == 7
-    assert event["gate"]["tolerance"] == 0.05 and {l["measurement_version"] for l in runs} == {7}
+    assert event["models"] == ["m", "f"] and event["measurement_version"] == 7
+    assert event["gate"]["m"]["tolerance"] == 0.05 and {l["measurement_version"] for l in runs} == {7}
 
 
 def test_while_the_gate_file_carries_no_fingerprint_a_complete_event_writes_no_evidence(tmp_path, monkeypatch, capsys):
@@ -1871,33 +2010,323 @@ def test_a_fingerprint_that_differs_from_the_committed_one_writes_no_evidence(tm
         (tmp_path / "evals" / "eval-gate.json").read_text())["measurement_sha256"]
 
 
-def test_an_image_of_another_platform_writes_no_evidence(tmp_path, monkeypatch, capsys):
-    """The CI job builds the image for its own architecture to test the definition; evidence is made on one platform."""
+def test_an_image_of_a_platform_that_is_not_listed_writes_no_evidence(tmp_path, monkeypatch, capsys):
+    """The CI job builds the image for its own architecture to test the definition; evidence is made on the listed platforms."""
     skill = write_demo(tmp_path, monkeypatch, FAKE)
     executor = er.load_executor()
-    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image_digest": "sha256:" + "2" * 64, "image_platform": "linux/amd64"})
+    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image_digest": "sha256:" + "2" * 64, "image_platform": "linux/riscv64"})
     assert er.main(FULL) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["evidence"]["written"] is False and "built for linux/amd64" in out["evidence"]["reason"]
-    assert evidence_of(skill) == [] and event_file(tmp_path, out)[0]["image_platform"] == "linux/amd64"
+    assert out["evidence"]["written"] is False and "built for linux/riscv64" in out["evidence"]["reason"]
+    assert "linux/arm64 or linux/amd64 only" in out["evidence"]["reason"]
+    assert evidence_of(skill) == [] and event_file(tmp_path, out)[0]["image_platform"] == "linux/riscv64"
 
 
-@pytest.mark.parametrize("extra, why", [
-    (["--floor-model", "local/x"], "the floor model of the event is local/x, and the configured one is f"),
-    (["--model", "other"], "the strong model of the event is other, and the configured one is m"),
-    (["--grader", "another"], "the grader of the event is another, and the configured one is m"),
-])
-def test_an_event_on_another_model_or_grader_than_the_configured_ones_is_a_trial(tmp_path, monkeypatch, capsys, extra, why):
+def test_a_run_line_records_the_cpu_platform_it_ran_on_and_lines_of_both_platforms_count(tmp_path, monkeypatch, capsys):
+    """The same test run on arm64 and on amd64 writes lines with the platform, and the status counts both."""
+    skill = write_demo(tmp_path, monkeypatch, FAKE)
+    configure_gate(tmp_path, measurement_floor=2)
+    executor = er.load_executor()
+    made = {}
+    for platform, source in (("linux/arm64", "published"), ("linux/amd64", "local")):
+        monkeypatch.setattr(executor, "ensure", lambda platform=platform, source=source: {
+            "kind": "container", "image": "wb-eval:test", "image_digest": "sha256:" + "3" * 64, "image_platform": platform,
+            "image_source": source})
+        assert er.main(FULL) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["evidence"]["written"] is True, out["evidence"]
+        made[platform] = source
+    files = evidence_of(skill)
+    assert [(e["image_platform"], e["image_source"]) for e, _ in files] == [(p, s) for p, s in made.items()]
+    for event, runs in files:
+        assert runs and {line["cpu_platform"] for line in runs} == {event["image_platform"]}
+    status = er.load_status()
+    assert status.evidence_problems(str(tmp_path))[0] == {}  # every line of both is valid
+    both = status.skill_band(str(tmp_path), str(skill), status.load_gate(str(tmp_path)))
+    one = sum(len([l for l in runs if l["variant"] == "with" and l["model"] == "m"]) for _, runs in files[:1])
+    assert one and both["current_runs"] == 2 * one  # the amd64 lines are in the same current set as the arm64 ones
+
+
+def test_the_event_line_names_the_upstream_of_every_model_that_ran_through_a_key_proxy(tmp_path, monkeypatch, capsys):
+    skill = write_demo(tmp_path, monkeypatch, FAKE)
+    entry = {"aliases": [], "price_source": "https://example.test/price", "run_token_budget": 1000, "upstream_models": ["x"]}
+    configure_gate(tmp_path, models={
+        "m": {**entry, "adapter": "h", "pass_env": ["CLAUDE_CODE_OAUTH_TOKEN"], "route": "anthropic", "provider_pin": None},
+        "f": {**entry, "adapter": "h", "pass_env": ["OPENROUTER_API_KEY"], "route": "openrouter", "provider_pin": "deepinfra"}})
+    executor = er.load_executor()
+    monkeypatch.setattr(executor, "GATE_FILE", str(tmp_path / "evals" / "eval-gate.json"))
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token-for-the-upstream-test-0010")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key-for-the-upstream-test-0011")
+    assert er.main(FULL) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["written"] is True, out["evidence"]
+    event, _ = evidence_of(skill)[0]
+    assert event["upstream"] == {"m": "api.anthropic.com", "f": "deepinfra"}  # a pin when there is one, else the route's host
+    assert er.load_status().evidence_problems(str(tmp_path))[0] == {}
+    # a model whose key was not passed ran through no key proxy: it is not named
+    configure_gate(tmp_path, models=json.loads(
+        (tmp_path / "evals" / "eval-gate.json").read_text())["models"] | {"m": {**entry, "adapter": "h", "pass_env": [], "route": None,
+                                                                                  "provider_pin": None}})
+    assert er.main(FULL) == 0
+    event, _ = evidence_of(skill)[1]
+    assert event["upstream"] == {"f": "deepinfra"}
+
+
+def test_a_run_line_carries_the_usage_of_its_run_when_the_run_left_a_count_and_none_when_it_did_not(tmp_path, monkeypatch, capsys):
+    counted = FAKE.replace('echo ok > "$out/response.md"', 'if [ "$6" = m ]; then echo \'{"type":"result","modelUsage":{"x":{"inputTokens":11,'
+                           '"outputTokens":4,"cacheReadInputTokens":100,"cacheCreationInputTokens":2},"y":{"inputTokens":1,"outputTokens":1}}}\' '
+                           '> "$out/raw.json"; fi\necho ok > "$out/response.md"')
+    skill = write_demo(tmp_path, monkeypatch, counted)
+    assert er.main(FULL) == 0
+    (event, runs), = evidence_of(skill)
+    by_model = {}
+    for line in runs:
+        by_model.setdefault(line["model"], []).append(line.get("usage"))
+    assert by_model["m"] == [{"input": 12, "output": 5, "cache_read": 100, "cache_write": 2}] * 4  # the subagent model's tokens count
+    assert by_model["f"] == [None] * 4  # the floor runner left no count: the line has no usage, whatever the total says
+    assert er.load_status().evidence_problems(str(tmp_path)) == ({}, 1)  # lines with and without usage are valid ones
+
+
+def test_an_event_on_another_grader_than_the_configured_one_is_a_trial(tmp_path, monkeypatch, capsys):
     skill = write_demo(tmp_path, monkeypatch, FAKE)
     configure_gate(tmp_path)
-    assert er.main(["--skill", "demo"] + extra) == 0
+    assert er.main(["--skill", "demo", "--grader", "another"]) == 0
     captured = capsys.readouterr()
     out = json.loads(captured.out)
-    assert out["evidence"]["written"] is False and why in out["evidence"]["reason"]
+    assert out["evidence"]["written"] is False
+    assert "the grader of the event is another, and the configured one is m" in out["evidence"]["reason"]
     assert "EVIDENCE demo: nothing written into the skill" in captured.err and evidence_of(skill) == []
-    # A model that is not a known one is written as "unknown", also in the trial's own file.
+    # A grader that is not a known one is written as "unknown", also in the trial's own file.
     event, runs = event_file(tmp_path, out)
-    assert set(event["models"].values()) | {event["grader"]} <= {"m", "f", "unknown"} and "unknown" in list(event["models"].values()) + [event["grader"]]
+    assert event["grader"] == "unknown" and event["models"] == ["m", "f"]
+
+
+def local_demo(tmp_path, tmp_path_factory, monkeypatch, **gate):
+    """A tree with a configured gate whose evidence folder for a person's own tests is elsewhere; returns (skill, the local folder)."""
+    skill = write_demo(tmp_path, monkeypatch, FAKE)
+    configure_gate(tmp_path, lab_models=["m", "f"], **gate)
+    local = tmp_path_factory.mktemp("local-evidence")
+    monkeypatch.setenv("WB_LOCAL_EVIDENCE_DIR", str(local))
+    return skill, local
+
+
+def test_a_model_outside_the_lab_models_writes_its_evidence_outside_the_checkout(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    skill, local = local_demo(tmp_path, tmp_path_factory, monkeypatch)
+    (tmp_path / ".gitignore").write_text("evals-workspace/\nlocks/\n")  # the run folders and the test's own lock folder
+    for command in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "-c", "user.name=t", "-c", "user.email=t@example.test",
+                                                                  "commit", "-q", "-m", "tree"]):
+        subprocess.run(command, cwd=tmp_path, check=True, capture_output=True)
+    assert er.main(["--skill", "demo", "--harness", "h", "--model", "other-model", "--model", "own/x", "--runs", "1"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["written"] is True and out["evidence"]["home"] == "local" and out["evidence"]["kind"] == "full"
+    written = Path(out["evidence"]["path"])
+    assert written.parent == local / "demo" and written.name == f"lab-{out['evidence']['test']}.jsonl" and written.is_file()
+    # The checkout is untouched: no file of the skill, and nothing for `git status` to report.
+    assert evidence_of(skill) == []
+    assert subprocess.run(["git", "status", "--porcelain"], cwd=tmp_path, capture_output=True, text=True).stdout == ""
+    # The file is an ordinary evidence file with the real ids, valid by its own event line.
+    lines = [json.loads(line) for line in written.read_text().splitlines()]
+    event, runs = lines[0], lines[1:]
+    assert event["models"] == ["other-model", "own/x"] and event["adapters"] == {"other-model": "h", "own/x": "h"}
+    assert {line["model"] for line in runs} == {"other-model", "own/x"} and set(event["gate"]) == {"other-model"}
+    status = er.load_status()
+    assert status.evidence_file_problems(str(written), str(tmp_path), "demo") == []
+    assert status.evidence_problems(str(tmp_path)) == ({}, 0)  # the repository holds none of it
+
+
+def test_a_skill_folder_of_the_local_evidence_that_links_into_the_checkout_is_refused(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    skill, local = local_demo(tmp_path, tmp_path_factory, monkeypatch)
+    (local / "demo").symlink_to(skill / "evals" / "evidence")  # <base>/<skill> is the skill's own evidence folder
+    with pytest.raises(SystemExit) as e:
+        er.main(["--skill", "demo", "--harness", "h", "--model", "other-model", "--runs", "1"])
+    assert e.value.code == 2 and "must be outside it" in capsys.readouterr().err
+    assert list((skill / "evals" / "evidence").glob("*")) == [] and not (tmp_path / "evals-workspace").exists()
+
+
+def entry_of(pass_env, route):
+    return {"aliases": [], "price_source": "https://example.test/price", "run_token_budget": 1000, "upstream_models": ["x"],
+            "adapter": "h", "pass_env": pass_env, "route": route, "provider_pin": None}
+
+
+def test_a_model_takes_its_key_variables_from_its_entry_in_whichever_place_it_runs(tmp_path, monkeypatch, capsys):
+    write_demo(tmp_path, monkeypatch, FAKE)
+    configure_gate(tmp_path, models={"m": entry_of(["CLAUDE_CODE_OAUTH_TOKEN"], "anthropic"),
+                                     "f": entry_of(["OPENROUTER_API_KEY"], "openrouter")})
+    # As configured.
+    o = er.parse(["--skill", "demo"])
+    assert (o["pass_envs"], o["extra_pass_env"]) == ({"m": ["CLAUDE_CODE_OAUTH_TOKEN"], "f": ["OPENROUTER_API_KEY"]}, [])
+    # Swapped: the model that holds the account token runs second, the other leads.
+    o = er.parse(["--skill", "demo", "--model", "f", "--model", "m"])
+    assert o["models"] == ["f", "m"] and o["pass_envs"] == {"f": ["OPENROUTER_API_KEY"], "m": ["CLAUDE_CODE_OAUTH_TOKEN"]}
+    assert o["extra_pass_env"] == []  # variables of the models' own entries are not extra ones: the event is no trial
+    assert (o["harness"], o["adapters"]) == ("h", {"f": "h", "m": "h"})
+    assert er.main(["--skill", "demo", "--model", "f", "--model", "m", "--dry-run"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["model_pass_env"] == {"f": ["OPENROUTER_API_KEY"], "m": ["CLAUDE_CODE_OAUTH_TOKEN"]}
+    assert {(r["slot"], r["model"]) for r in plan["runs"]} == {("m1", "f"), ("m2", "m")}
+    # A variable named by hand stays an extra one, whichever model it is meant for.
+    o = er.parse(["--skill", "demo", "--model", "f", "--model", "m", "--pass-env", "MY_KEY"])
+    assert o["extra_pass_env"] == ["MY_KEY"] and o["pass_envs"]["m"] == ["CLAUDE_CODE_OAUTH_TOKEN"]
+    # A model the gate file does not list has no variables of its own.
+    assert er.parse(["--skill", "demo", "--harness", "h", "--model", "other-model"])["pass_envs"] == {"other-model": []}
+
+
+def test_a_listed_model_outside_the_lab_models_is_local_too_and_a_lab_model_through_another_adapter(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    entry = {"aliases": [], "price_source": "https://example.test/price", "run_token_budget": 1000, "upstream_models": ["x"],
+             "pass_env": [], "route": None, "provider_pin": None}
+    models = {"m": {**entry, "adapter": "h"}, "f": {**entry, "adapter": "h"}, "g": {**entry, "adapter": "h"}}
+    skill, local = local_demo(tmp_path, tmp_path_factory, monkeypatch, models=models)
+    assert er.main(["--skill", "demo", "--model", "g", "--model", "f", "--runs", "1"]) == 0  # g: listed, its adapter from its entry
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["home"] == "local" and out["evidence"]["written"] is True and evidence_of(skill) == []
+    event = json.loads(Path(out["evidence"]["path"]).read_text().splitlines()[0])
+    assert event["models"] == ["g", "f"]  # listed ids, though g is no lab model
+    # A lab model through an adapter other than its entry's is another measurement pair: local, not the repository's.
+    other = tmp_path / "adapters" / "h2"
+    shutil.copytree(tmp_path / "adapters" / "h", other)
+    configure_gate(tmp_path, lab_models=["m", "f"], models=models)  # the new adapter is in the fingerprint: commit it again
+    assert er.main(["--skill", "demo", "--harness", "h2", "--model", "m", "--runs", "1"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    # (The grader m is graded through its own entry's adapter, h, whatever adapter the event gives the model.)
+    assert out["evidence"]["home"] == "local" and out["evidence"]["written"] is True and evidence_of(skill) == []
+    event = json.loads(Path(out["evidence"]["path"]).read_text().splitlines()[0])
+    assert event["adapters"] == {"m": "h2"}
+
+
+# An adapter per model that says, for each call it gets, which adapter it is, whether it is a grading, the model it was
+# given and which of the two keys it holds (never the value).
+WHO = r'''
+here="$(dirname "$0")"; out="$8"; kind=run
+grep -q "You are grading" "$2" && kind=grade
+echo "$(basename "$here") $kind model=$6 TOK_M=${TOK_M:+set} TOK_F=${TOK_F:+set}" >> "$here/../../calls.log"
+if [ "$kind" = grade ]; then
+  echo '[{"id": 1, "text": "a", "passed": true, "evidence": "ok"}]' > "$out/response.md"; exit 0
+fi
+echo ok > "$out/response.md"
+'''
+
+
+def two_adapters(tmp_path, monkeypatch):
+    """m is served by the adapter h with the key TOK_M, f by the adapter fh with TOK_F; m is the grader."""
+    skill = write_demo(tmp_path, monkeypatch, WHO)
+    (tmp_path / "adapters" / "h" / "run-prompt.sh").write_text(WHO)
+    shutil.copytree(tmp_path / "adapters" / "h", tmp_path / "adapters" / "fh")
+    configure_gate(tmp_path, m={"pass_env": ["TOK_M"]}, f={"adapter": "fh", "pass_env": ["TOK_F"]})
+    monkeypatch.setenv("TOK_M", "secret-of-model-m-0001")
+    monkeypatch.setenv("TOK_F", "secret-of-model-f-0002")
+    return skill
+
+
+def calls_of(tmp_path):
+    rows = [line.split() for line in (tmp_path / "calls.log").read_text().splitlines()]
+    return [(adapter, kind, model, m, f) for adapter, kind, model, m, f in rows]
+
+
+@pytest.mark.parametrize("order", [["m", "f"], ["f", "m"]], ids=["as configured", "swapped"])
+def test_the_grader_grades_through_its_own_entry_whatever_the_order_of_the_models(tmp_path, monkeypatch, capsys, order):
+    skill = two_adapters(tmp_path, monkeypatch)
+    argv = ["--skill", "demo", "--runs", "1"] + [x for model in order for x in ("--model", model)]
+    # The plan: each model's runner is its entry's, the grader's runner and variables are the grader entry's.
+    assert er.main(argv + ["--dry-run"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["models"] == order and plan["runners"] == {"m": "adapters/h/run-prompt.sh", "f": "adapters/fh/run-prompt.sh"}
+    assert plan["grader"] == "m" and plan["grader_runner"] == "adapters/h/run-prompt.sh" and plan["grader_pass_env"] == ["TOK_M"]
+    assert {(r["slot"], r["model"]) for r in plan["runs"]} == {("m1", order[0]), ("m2", order[1])}
+    assert "trial" not in plan  # the order of the models no longer makes an event another measurement
+    # The run, with a stand-in runner for each adapter: who is called, with what.
+    assert er.main(argv) == 0
+    out = json.loads(capsys.readouterr().out)
+    calls = calls_of(tmp_path)
+    gradings = [c for c in calls if c[1] == "grade"]
+    assert len(gradings) == 6  # 2 cases x 2 models with the skill, and the lead's baseline of the 2 cases
+    assert {c[0] for c in gradings} == {"h"}  # every grading goes through m's adapter, never through f's
+    assert {c[2] for c in gradings} == {"model=m"}
+    assert {(c[3], c[4]) for c in gradings} == {("TOK_M=set", "TOK_F=")}  # with m's variables, and never f's
+    runs = {(c[0], c[2], c[3], c[4]) for c in calls if c[1] == "run"}
+    assert runs == {("h", "model=m", "TOK_M=set", "TOK_F="), ("fh", "model=f", "TOK_M=", "TOK_F=set")}
+    assert out["complete"] is True and out["evidence"]["written"] is True and evidence_of(skill)[0][0]["models"] == order
+    (tmp_path / "calls.log").unlink()
+
+
+def test_the_graders_variables_reach_the_gradings_when_the_grader_is_not_among_the_models(tmp_path, monkeypatch, capsys):
+    skill = two_adapters(tmp_path, monkeypatch)
+    # Only f runs; m, which is not one of the event's models, is still the grader: its key is passed to the gradings.
+    assert er.main(["--skill", "demo", "--model", "f", "--runs", "1", "--only", "with"]) == 0
+    capsys.readouterr()
+    calls = calls_of(tmp_path)
+    assert {(c[0], c[2], c[3], c[4]) for c in calls if c[1] == "grade"} == {("h", "model=m", "TOK_M=set", "TOK_F=")}
+    assert {(c[0], c[2], c[3], c[4]) for c in calls if c[1] == "run"} == {("fh", "model=f", "TOK_M=", "TOK_F=set")}
+    # Neither secret is stored anywhere a reader of the event looks.
+    stored = "\n".join(p.read_text(errors="ignore") for p in (tmp_path / "evals-workspace").rglob("*") if p.is_file())
+    assert "secret-of-model-m-0001" not in stored and "secret-of-model-f-0002" not in stored
+
+
+def test_the_grading_call_takes_its_place_of_the_shared_lock_by_the_graders_id(tmp_path, monkeypatch):
+    placed = []
+
+    class Recorder:
+        def __init__(self, control, model, web=False):
+            placed.append((model, web))
+
+        def __enter__(self):
+            raise StopIteration  # the call is seen; nothing more of it is needed
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(er, "Slots", Recorder)
+    monkeypatch.setattr(er, "wait_while_paused", lambda *a, **k: None)
+    account = {"key": "h", "markers": [], "probe": None, "control": {}, "model": "the-grader"}
+    with pytest.raises(StopIteration):
+        er.grading_call("/x/run-prompt.sh", "the-grader", "prompt", str(tmp_path / "g"), {}, (), 5, account)
+    assert placed and placed[0] == ("the-grader", False)
+
+
+def test_the_models_of_the_gate_file_s_lab_set_keep_writing_into_the_skill(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    skill, local = local_demo(tmp_path, tmp_path_factory, monkeypatch)
+    assert er.main(FULL) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["home"] == "repository" and out["evidence"]["written"] is True and len(evidence_of(skill)) == 1
+    assert list(local.iterdir()) == []
+
+
+def test_a_named_model_the_gate_file_does_not_list_needs_an_adapter(tmp_path, monkeypatch, capsys):
+    write_demo(tmp_path, monkeypatch, FAKE)
+    configure_gate(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        er.main(["--skill", "demo", "--model", "other-model"])
+    assert e.value.code == 2 and "--harness <adapter> is required" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        er.main(["--skill", "demo", "--harness", "h", "--model", "has spaces"])
+
+
+def test_the_local_evidence_folder_is_never_inside_the_checkout(tmp_path, monkeypatch, capsys):
+    write_demo(tmp_path, monkeypatch, FAKE)
+    configure_gate(tmp_path, lab_models=["m", "f"])
+    monkeypatch.setenv("WB_LOCAL_EVIDENCE_DIR", str(tmp_path / "evidence"))
+    with pytest.raises(SystemExit) as e:
+        er.main(["--skill", "demo", "--harness", "h", "--model", "other-model", "--runs", "1"])
+    assert e.value.code == 2 and "must be outside it" in capsys.readouterr().err
+    assert not (tmp_path / "evidence").exists()
+
+
+def test_a_second_local_test_adds_to_the_first_and_the_status_shows_it_as_local(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    skill, local = local_demo(tmp_path, tmp_path_factory, monkeypatch)
+    status = er.load_status()
+    argv = ["--skill", "demo", "--harness", "h", "--model", "other-model", "--model", "f", "--runs", "1", "--baseline-on", "f"]
+    assert er.main(argv) == 0
+    first = json.loads(capsys.readouterr().out)["evidence"]["test"]
+    assert er.main(argv) == 0
+    second = json.loads(capsys.readouterr().out)["evidence"]["test"]
+    assert second > first and len(list((local / "demo").glob("lab-*.jsonl"))) == 2
+    # The baseline of the first test is in force for the second: it is reused, not run again.
+    event = json.loads(next((local / "demo").glob(f"lab-{second}.jsonl")).read_text().splitlines()[0])
+    assert event["baseline"] == {"1": "reused", "2": "reused"} and evidence_of(skill) == []
+    # `status` keeps the repository's figures and adds its own "local" section.
+    result = status.all_status(str(tmp_path), local_base=str(local))
+    assert result["local"]["folder"] == str(local) and result["local"]["skills"]["demo"]["other-model"]["tests"] == 2
+    assert set(result["local"]["skills"]["demo"]) == {"other-model", "f"}
+    assert "local" not in status.all_status(str(tmp_path)) and result["skills"] == status.all_status(str(tmp_path))["skills"]
 
 
 def test_a_skill_without_a_version_writes_no_evidence(tmp_path, monkeypatch, capsys):
@@ -2054,7 +2483,7 @@ def test_a_run_sees_a_case_folder_outside_the_repository_and_it_returns_to_the_w
     repo = {str(tmp_path), os.path.realpath(tmp_path)}
     roots = (tmp_path / "adapters" / "h" / "roots.txt").read_text().split()
     assert len(roots) == 4 and len(set(roots)) == 4
-    for variant in ("with_skill", "without_skill", "with_skill.floor", "without_skill.floor"):
+    for variant in ("with_skill", "without_skill", "with_skill.m2", "without_skill.m2"):
         run = run_folder(tmp_path, variant)
         seen = (run / "outputs" / "pwd.txt").read_text().strip()
         assert not any(seen.startswith(r) for r in repo) and seen.endswith("/case")
@@ -2082,7 +2511,7 @@ def test_the_environment_of_a_run_carries_no_path_into_the_repository(tmp_path, 
     monkeypatch.setenv("CHOSEN_BY_THE_CALLER", str(tmp_path / "key"))
     monkeypatch.chdir(tmp_path)  # eval_run.py is started from the repository's root
     assert er.main(FULL + ["--only", "without", "--no-grade", "--pass-env", "CHOSEN_BY_THE_CALLER"]) == 0
-    for variant in ("without_skill", "without_skill.floor"):
+    for variant in ("without_skill", "without_skill.m2"):
         env = dict(line.split("=", 1) for line in (run_folder(tmp_path, variant) / "outputs" / "env.txt").read_text().splitlines()
                    if "=" in line)
         leaks = {k: v for k, v in env.items() if str(tmp_path) in v or os.path.realpath(tmp_path) in v}
@@ -2166,14 +2595,14 @@ def test_a_without_skill_run_that_names_the_repository_is_not_scored_and_leaves_
     assert er.main(FULL) == 1  # incomplete: no gate is evaluated on a baseline that reached the workbench
     captured = capsys.readouterr()
     out, bench = json.loads(captured.out), bench_of(tmp_path)
-    assert [(c["case"], c["variant"], c["tier"], c["run"]) for c in bench["contaminated"]] == [
-        (1, "without_skill", "strong", 1), (1, "without_skill", "floor", 1)]
+    assert [(c["case"], c["variant"], c["slot"], c["run"]) for c in bench["contaminated"]] == [
+        (1, "without_skill", "m1", 1), (1, "without_skill", "m2", 1)]
     assert bench["contaminated"][0]["evidence"].startswith("response.md: I found the capability in ")
     assert "/skills/demo" in bench["contaminated"][0]["evidence"]
     assert [(f["reason"], f["variant"]) for f in bench["infra_failures"]] == [("contaminated", "without_skill")] * 2
     assert bench["infra_failures"][0]["evidence"] == bench["contaminated"][0]["evidence"]
     # No score for those runs, so no baseline mean and no condition computed from one.
-    assert "without_skill" not in bench["run_summary"] and "strong_delta" not in bench["conditions"]
+    assert "without_skill" not in bench["run_summary"] and "delta" not in bench["conditions"]
     assert bench["complete"] is False and out["contaminated"] == 2 and "the event is incomplete" in out["evidence"]["reason"]
     assert "CONTAMINATED: 2 without-skill run(s)" in captured.err and evidence_of(skill) == []
     assert not [l for l in event_file(tmp_path, out)[1] if l["variant"] == "without"]  # no line for a contaminated run
@@ -2244,9 +2673,9 @@ def test_a_passage_shared_with_the_skills_text_is_a_warning_with_the_passage_quo
     assert er.main(FULL) == 0  # a warning: the event is complete
     captured = capsys.readouterr()
     bench = bench_of(tmp_path)
-    assert [(s["variant"], s["tier"]) for s in bench["shared_passages"]] == [("without_skill", "strong"), ("without_skill", "floor")]
+    assert [(s["variant"], s["slot"]) for s in bench["shared_passages"]] == [("without_skill", "m1"), ("without_skill", "m2")]
     assert bench["shared_passages"][0]["passage"] == SENTENCE.lower()  # the whole shared run, not only ten words of it
-    assert f'WARNING shared passage: case 1 without_skill (strong) run 1 shares 14 words' in captured.err and SENTENCE.lower() in captured.err
+    assert f'WARNING shared passage: case 1 without_skill (m) run 1 shares 14 words' in captured.err and SENTENCE.lower() in captured.err
     assert bench["complete"] is True and bench["contaminated"] == [] and json.loads(captured.out)["shared_passages"] == 2
     assert bench["evidence"]["gate"]["passed"] is True  # it blocks nothing: the gate was evaluated
 
@@ -2393,11 +2822,11 @@ def test_a_refused_run_is_made_again_and_then_fails_with_the_skill_and_without_i
     out = json.loads(captured.out)
     assert out["complete"] is False and out["failures"] == 1 and out["evidence"]["written"] is False
     bench = json.loads((tmp_path / out["iteration_dir"] / "benchmark.json").read_text())
-    assert [(f["case"], f["tier"], f["variant"], f["kind"], f["attempts"]) for f in bench["infra_failures"]] == [
-        (2, "strong", "without_skill", "refused", 3)]
-    assert bench["counts"]["strong"]["without_skill"] == {"attempts": 4, "retries": 2, "timeouts": 0, "refusals": 3,
+    assert [(f["case"], f["slot"], f["variant"], f["kind"], f["attempts"]) for f in bench["infra_failures"]] == [
+        (2, "m1", "without_skill", "refused", 3)]
+    assert bench["counts"]["m"]["without_skill"] == {"attempts": 4, "retries": 2, "timeouts": 0, "refusals": 3,
                                                           "adapter_failures": 0, "early_ends": 0, "pauses": 0, "resumes": 0}
-    assert [(r["case"], r["tier"], r["variant"]) for r in bench["refusals"]] == [(2, "strong", "without_skill")]
+    assert [(r["case"], r["slot"], r["variant"]) for r in bench["refusals"]] == [(2, "m1", "without_skill")]
     assert [r["case"] for r in bench["run_summary"]["without_skill"]["cases"]] == [1]  # no score for the refused run
     run = tmp_path / out["iteration_dir"] / "eval-2" / "without_skill"
     assert (run / "failed-1" / "outputs" / "raw.json").is_file() and (run / "failed-2").is_dir() and not (run / "failed-3").exists()
@@ -2490,15 +2919,15 @@ def test_the_runs_the_timeout_and_the_retries_come_from_the_gate_file(tmp_path, 
 def test_the_repository_gate_file_holds_the_control_of_an_event_and_names_the_nine_web_cases():
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
     assert (gate["runs"], gate["retries"], gate["max_resumes"], gate["total_jobs"]) == (3, 2, 3, 14)
-    assert gate["web_jobs"] == {"strong": 2, "floor": 2} and gate["timeout_seconds"] >= 30
+    assert gate["web_jobs"] == {model: 2 for model in gate["lab_models"]} and gate["timeout_seconds"] >= 30
     listed = {(skill, str(i)) for skill, ids in gate["web_cases"].items() for i in ids}
     declared = set()
     for path in glob.glob(str(REPO / "skills" / "*" / "evals" / "evals.json")):
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         declared |= {(Path(path).parents[1].name, str(c["id"])) for c in data.get("evals") or [] if er.allow_web(data, c)}
     assert listed == declared  # no case opens the network unlisted, and the list names no case that does not
-    # No low-limit key for the web cases: a strong run of one receives strong_pass_env, which its key proxy holds.
-    assert "strong_web_pass_env" not in gate and gate["strong_pass_env"]
+    # No low-limit key for the web cases: a run of one receives its model's pass_env, which its key proxy holds.
+    assert not [m for m in gate["models"].values() if isinstance(m, dict) and "web_pass_env" in m]
 
 
 @pytest.mark.parametrize("extra, why", [
@@ -2520,11 +2949,17 @@ def test_an_event_with_other_values_than_the_configured_ones_writes_to_its_scrat
     assert out["evidence"]["scratch"] == str(scratch.relative_to(tmp_path))
     event, runs = event_file(tmp_path, out)
     assert event["skill"] == "demo" and event["complete"] is True and len(runs) == out["evidence"]["lines"] > 0
-    # A valid file, but for its number of runs: the one value an evidence line records, which is refused when it
-    # is not the configured one, so that such a trial copied into a skill by hand fails the validator.
-    assert er.load_status().evidence_file_problems(str(scratch), str(tmp_path), "demo") == (
-        ["line 1: runs is 2, and the configured number is 1 (\"runs\" of evals/eval-gate.json): an event with another "
-         "number of runs is a trial, and writes no evidence"] if extra == ["--runs", "2"] else [])
+    # A valid file by what its own event line states (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)): the validator no longer compares the event's
+    # "runs" with the gate file's current value, so a file stays valid when the gate file changes later. What keeps
+    # a trial out of a skill's folder is this runner (above) and the review of every evidence file.
+    status = er.load_status()
+    assert status.evidence_file_problems(str(scratch), str(tmp_path), "demo") == []
+    # Read strictly, as the runner reads a file it is about to copy into a skill, the one value an event line
+    # records that is not the configured one is refused.
+    assert status.evidence_file_problems(str(scratch), str(tmp_path), "demo", strict=True) == (
+        ["line 1: runs is 2, and the configured number is 1 (\"runs\" of evals/eval-gate.json): a new evidence file comes only "
+         "from an event that used the configured number; another number is a trial, and writes no evidence"]
+        if extra == ["--runs", "2"] else [])
     assert why in bench_of(tmp_path)["scratch"]
     # The configured values, and the same event is evidence.
     assert er.main(["--skill", "demo"]) == 0
@@ -2548,22 +2983,22 @@ def test_a_failed_attempt_is_made_again_inside_the_event_and_counted_in_both_var
     captured = capsys.readouterr()
     out, bench = json.loads(captured.out), bench_of(tmp_path)
     assert out["complete"] is True and bench["infra_failures"] == []
-    assert bench["counts"]["floor"]["with_skill"] == {"attempts": 3, "retries": 1, "timeouts": 0, "refusals": 0,
+    assert bench["counts"]["f"]["with_skill"] == {"attempts": 3, "retries": 1, "timeouts": 0, "refusals": 0,
                                                       "adapter_failures": 1, "early_ends": 0, "pauses": 0, "resumes": 0}
-    assert bench["counts"]["strong"]["without_skill"]["adapter_failures"] == 2 and bench["counts"]["strong"]["without_skill"]["retries"] == 2
+    assert bench["counts"]["m"]["without_skill"]["adapter_failures"] == 2 and bench["counts"]["m"]["without_skill"]["retries"] == 2
     assert calls(tmp_path).count("q with f") == 2 and calls(tmp_path).count("q without m") == 3
-    run = tmp_path / out["iteration_dir"] / "eval-2" / "with_skill.floor"
+    run = tmp_path / out["iteration_dir"] / "eval-2" / "with_skill.m2"
     assert "overloaded" in (run / "failed-1" / "outputs" / "error.log").read_text() and (run / "grading.json").is_file()
-    assert "RETRY       case 2 with_skill.floor run 1 attempt 1 (adapter exit 7: provider: overloaded)" in captured.err
+    assert "RETRY       case 2 with_skill.m2 run 1 attempt 1 (adapter exit 7: provider: overloaded)" in captured.err
 
 
 def test_a_timeout_is_made_again_too_and_counted(tmp_path, monkeypatch, capsys):
     control_demo(tmp_path, monkeypatch, hang_p_with_m=1)
     parse = er.parse
     monkeypatch.setattr(er, "parse", lambda argv: {**parse(argv), "timeout": 2})
-    assert er.main(FULL + ["--case", "1", "--only", "with", "--tiers", "strong"]) == 0
+    assert er.main(FULL1 + ["--case", "1", "--only", "with"]) == 0
     bench = bench_of(tmp_path)
-    assert bench["counts"]["strong"]["with_skill"]["timeouts"] == 1 and bench["counts"]["strong"]["with_skill"]["retries"] == 1
+    assert bench["counts"]["m"]["with_skill"]["timeouts"] == 1 and bench["counts"]["m"]["with_skill"]["retries"] == 1
     assert bench["infra_failures"] == [] and bench["timeouts"] == []  # a retried timeout is no result
 
 
@@ -2574,8 +3009,8 @@ def test_resume_runs_only_the_failed_runs_and_completes_the_event(tmp_path, monk
     event = tmp_path / out["iteration_dir"]
     assert out["failures"] == 2 and json.loads((event / "event.json").read_text())["state"] == "open"
     assert evidence_of(skill) == [] and out["evidence"]["test"]  # nothing in the skill while the event is open
-    assert sorted((f["case"], f["variant"], f["tier"], f["kind"]) for f in bench_of(tmp_path)["infra_failures"]) == [
-        (1, "without_skill", "strong", "adapter"), (2, "with_skill", "floor", "adapter")]
+    assert sorted((f["case"], f["variant"], f["slot"], f["kind"]) for f in bench_of(tmp_path)["infra_failures"]) == [
+        (1, "without_skill", "m1", "adapter"), (2, "with_skill", "m2", "adapter")]
     first = len(calls(tmp_path))
     for name in ("fail-q-with-f", "fail-p-without-m"):
         (tmp_path / "adapters" / "h" / name).unlink()
@@ -2584,14 +3019,14 @@ def test_resume_runs_only_the_failed_runs_and_completes_the_event(tmp_path, monk
     out, bench = json.loads(captured.out), bench_of(tmp_path)
     assert sorted(calls(tmp_path)[first:]) == ["p without m", "q with f"]  # the two failed runs, and no other
     assert out["complete"] is True and bench["passes"] == 2 and bench["infra_failures"] == [] and bench["timeouts"] == []
-    assert bench["counts"]["floor"]["with_skill"]["resumes"] == 1 and bench["counts"]["strong"]["with_skill"]["resumes"] == 0
-    assert bench["run_summary"]["with_skill.floor"]["pass_rate"] == {"mean": 1.0, "stddev": 0.0, "n": 2}
+    assert bench["counts"]["f"]["with_skill"]["resumes"] == 1 and bench["counts"]["m"]["with_skill"]["resumes"] == 0
+    assert bench["run_summary"]["with_skill.m2"]["pass_rate"] == {"mean": 1.0, "stddev": 0.0, "n": 2}
     (line, runs), = evidence_of(skill)  # one file for the event, written when it was complete, under the id it started with
     assert out["evidence"]["written"] is True and line["complete"] is True and len(runs) == 8
     assert line["test"] == json.loads((event / "event.json").read_text())["test"] and line["counts"]["f"]["with"]["resumes"] == 1
     assert json.loads((event / "event.json").read_text())["state"] == "complete"
     # What the first pass left of the run is kept beside the new attempt.
-    assert (event / "eval-2" / "with_skill.floor" / "before-resume-1" / "outputs" / "error.log").is_file()
+    assert (event / "eval-2" / "with_skill.m2" / "before-resume-1" / "outputs" / "error.log").is_file()
     # An event whose evidence is in the skill is never resumed: that file is never edited.
     with pytest.raises(SystemExit) as e:
         er.main(["--resume", str(event)])
@@ -2615,12 +3050,12 @@ def test_a_run_still_failing_after_the_cap_of_resumptions_is_a_timeout_with_scor
         row = [r for r in bench["run_summary"][name]["cases"] if r["case"] == 2][0]
         assert (row["pass_rate"], row["outcome"], row["results"]) == (0.0, "timeout", [0])
         assert bench["run_summary"][name]["pass_rate"]["mean"] == 0.5
-    assert "TIMEOUT     case 2 with_skill (strong) run 1: still incomplete after 2 resumption(s)" in captured.err
+    assert "TIMEOUT     case 2 with_skill (m) run 1: still incomplete after 2 resumption(s)" in captured.err
     # In the evidence file: a line with outcome timeout and score 0, the same with the skill and without it.
     (line, runs), = evidence_of(tmp_path / "skills" / "demo")
     assert sorted((l["variant"], l["outcome"], l["score"], l["results"]) for l in runs if l["case"] == 2 and l["model"] == "m") == [
         ("with", "timeout", 0.0, [0]), ("without", "timeout", 0.0, [0])]
-    assert line["gate"]["passed"] is False and line["gate"]["with"] == 0.5 and line["counts"]["m"]["with"]["resumes"] == 2
+    assert line["gate"]["m"]["passed"] is False and line["gate"]["m"]["with"] == 0.5 and line["counts"]["m"]["with"]["resumes"] == 2
     assert er.load_status().evidence_problems(str(tmp_path)) == ({}, 1)
     assert calls(tmp_path).count("q with m") == 3  # the event, and two resumptions: never a fourth
     with pytest.raises(SystemExit):
@@ -2675,22 +3110,22 @@ def test_a_refused_key_is_named_by_its_variable_and_its_store_username_never_by_
 
 def test_a_refused_key_is_not_retried_and_stops_the_event_until_it_is_resumed(tmp_path, monkeypatch, capsys):
     control_demo(tmp_path, monkeypatch, auth_p_with_f=9)
-    configure_gate(tmp_path, floor_pass_env=["FLOORKEY"])
+    configure_gate(tmp_path, f={"pass_env": ["FLOORKEY"]})
     monkeypatch.setenv("FLOORKEY", "floorkey-value")
     assert er.main(["--skill", "demo", "--jobs", "1"]) == 1
     captured = capsys.readouterr()
     out, bench = json.loads(captured.out), bench_of(tmp_path)
     # One call, never retried, and no run started after it: every later run would meet the same refusal.
     assert calls(tmp_path) == ["p with m", "p with f"]
-    failures = sorted((f["case"], f["variant"], f["tier"], f["kind"]) for f in bench["infra_failures"])
-    assert failures == [(1, "with_skill", "floor", "auth"), (1, "without_skill", "strong", "not_run"),
-                        (2, "with_skill", "floor", "not_run"), (2, "with_skill", "strong", "not_run"),
-                        (2, "without_skill", "strong", "not_run")]
+    failures = sorted((f["case"], f["variant"], f["slot"], f["kind"]) for f in bench["infra_failures"])
+    assert failures == [(1, "with_skill", "m2", "auth"), (1, "without_skill", "m1", "not_run"),
+                        (2, "with_skill", "m1", "not_run"), (2, "with_skill", "m2", "not_run"),
+                        (2, "without_skill", "m1", "not_run")]
     refused = next(f for f in bench["infra_failures"] if f["kind"] == "auth")
     assert refused["attempts"] == 1 and refused["detail"] == "HTTP 401" and "FLOORKEY" in refused["reason"]
-    assert bench["counts"]["floor"]["with_skill"]["adapter_failures"] == 0 and bench["counts"]["floor"]["with_skill"]["retries"] == 0
+    assert bench["counts"]["f"]["with_skill"]["adapter_failures"] == 0 and bench["counts"]["f"]["with_skill"]["retries"] == 0
     # The message names the variable, never its value, and says how to go on.
-    assert "KEY REFUSED case 1 with_skill.floor run 1: the provider refused the key (HTTP 401) passed in FLOORKEY" in captured.err
+    assert "KEY REFUSED case 1 with_skill.m2 run 1: the provider refused the key (HTTP 401) passed in FLOORKEY" in captured.err
     assert f"--resume {out['iteration_dir']}" in captured.err and "floorkey-value" not in captured.err + captured.out
     assert "RETRY" not in captured.err and json.loads((tmp_path / out["iteration_dir"] / "event.json").read_text())["state"] == "open"
     # With a valid key stored, --resume runs the refused run and the runs that never started, and no other.
@@ -2721,7 +3156,7 @@ def test_a_run_that_meets_the_account_limit_pauses_and_is_never_retried_never_a_
     # Never retried into the limit: while the account was exhausted the run was not made again; three probes
     # were (two met the limit), and then the run, once, from its start.
     assert calls(tmp_path).count("q with m") == 2 and len(calls(tmp_path, "probes.txt")) == 3
-    count = bench["counts"]["strong"]["with_skill"]
+    count = bench["counts"]["m"]["with_skill"]
     assert (count["pauses"], count["retries"], count["timeouts"], count["adapter_failures"]) == (1, 0, 0, 0)
     # Never written as a timeout, although the cap is 0 and no retry is left.
     assert bench["timeouts"] == [] and bench["infra_failures"] == [] and out["complete"] is True
@@ -2736,11 +3171,11 @@ def test_a_run_that_meets_the_account_limit_pauses_and_is_never_retried_never_a_
 def test_a_grading_call_that_meets_the_account_limit_pauses_and_is_made_again(tmp_path, monkeypatch, capsys):
     control_demo(tmp_path, monkeypatch, limit_grading=1)
     fast_pause(monkeypatch)
-    assert er.main(FULL + ["--case", "1", "--only", "with", "--tiers", "strong"]) == 0
+    assert er.main(FULL1 + ["--case", "1", "--only", "with"]) == 0
     captured = capsys.readouterr()
     bench = bench_of(tmp_path)
     assert "the account of h is exhausted (a grading call)" in captured.err
-    assert bench["grading"]["refused"] == 0 and bench["counts"]["strong"]["with_skill"]["pauses"] == 1
+    assert bench["grading"]["refused"] == 0 and bench["counts"]["m"]["with_skill"]["pauses"] == 1
     assert bench["run_summary"]["with_skill"]["pass_rate"]["mean"] == 1.0 and calls(tmp_path) == ["p with m"]
 
 
@@ -2842,9 +3277,13 @@ def test_the_total_of_the_gate_file_bounds_the_runs_whatever_jobs_says(tmp_path,
 
 
 def test_a_web_run_takes_a_place_of_its_tiers_web_lock_before_a_place_of_the_total():
-    control = {"total_jobs": 10, "web_jobs": {"strong": 2, "floor": 1}}
-    assert [(s.kind, s.n) for s in er.Slots(control, "floor", web=True).slots] == [("web-floor", 1), ("total", 10)]
-    assert [(s.kind, s.n) for s in er.Slots(control, "strong").slots] == [("total", 10)]
+    control = {"total_jobs": 10, "web_jobs": {"openrouter/vendor/a-model": 1}, "web_jobs_default": 2}
+    # The web lock is named after the model id (every character outside [A-Za-z0-9._-] becomes "_").
+    assert [(s.kind, s.n) for s in er.Slots(control, "openrouter/vendor/a-model", web=True).slots] == [
+        ("web-openrouter_vendor_a-model", 1), ("total", 10)]
+    assert [(s.kind, s.n) for s in er.Slots(control, "other", web=True).slots] == [("web-other", 2), ("total", 10)]  # the default
+    assert [(s.kind, s.n) for s in er.Slots({"total_jobs": 10}, "x", web=True).slots] == [("web-x", 2), ("total", 10)]
+    assert [(s.kind, s.n) for s in er.Slots(control, "claude-sonnet-5-5").slots] == [("total", 10)]
 
 
 # Web cases.
@@ -2865,7 +3304,7 @@ def test_the_network_is_opened_only_for_a_case_the_gate_file_lists(tmp_path, mon
 def test_on_a_web_case_the_strong_tier_runs_with_the_low_limit_key_in_place_of_the_token(tmp_path, monkeypatch, capsys):
     cases = [{"id": 1, "prompt": "p", "assertions": ["a"], "allow_web": True}, {"id": 2, "prompt": "q", "assertions": ["a"]}]
     write_demo(tmp_path, monkeypatch, CONTROL, cases)
-    configure_gate(tmp_path, web_cases={"demo": [1]}, strong_pass_env=["TOKEN"], strong_web_pass_env=["WEBKEY"], floor_pass_env=["FLOORKEY"])
+    configure_gate(tmp_path, web_cases={"demo": [1]}, m={"pass_env": ["TOKEN"], "web_pass_env": ["WEBKEY"]}, f={"pass_env": ["FLOORKEY"]})
     for name in ("TOKEN", "WEBKEY", "FLOORKEY"):
         monkeypatch.setenv(name, name.lower() + "-value")
     assert er.main(["--skill", "demo"]) == 0
@@ -2874,7 +3313,7 @@ def test_on_a_web_case_the_strong_tier_runs_with_the_low_limit_key_in_place_of_t
     # Which variables each run had: the stored output names them, with the marker in place of each value.
     assert keys(1, "with_skill") == ["WEBKEY=[redacted:WEBKEY]"] and keys(1, "without_skill") == ["WEBKEY=[redacted:WEBKEY]"]
     assert keys(2, "with_skill") == ["TOKEN=[redacted:TOKEN]"]  # a case without the web keeps the account's token
-    assert keys(1, "with_skill.floor") == ["FLOORKEY=[redacted:FLOORKEY]"] and keys(2, "with_skill.floor") == ["FLOORKEY=[redacted:FLOORKEY]"]
+    assert keys(1, "with_skill.m2") == ["FLOORKEY=[redacted:FLOORKEY]"] and keys(2, "with_skill.m2") == ["FLOORKEY=[redacted:FLOORKEY]"]
     # Without a web case in the event the key is not asked for.
     monkeypatch.delenv("WEBKEY")
     assert er.main(["--skill", "demo", "--case", "2"]) == 0
@@ -2887,12 +3326,13 @@ def test_on_a_web_case_the_strong_tier_runs_with_the_low_limit_key_in_place_of_t
 # The comparison.
 
 def test_the_gate_compares_unrounded_means_and_rounds_only_to_show_them():
-    conditions = er.conditions_of({"with_skill": 0.7996, "without_skill": 0.8504, "with_skill.floor": 0.79951}, 0.8, 0.05)
-    assert conditions["strong_pass_rate"] == 0.8 and conditions["strong_ok"] is False  # shown as 0.8, and below it
-    assert conditions["floor_pass_rate"] == 0.8 and conditions["floor_ok"] is False
-    assert conditions["strong_delta"] == -0.051 and conditions["strong_delta_ok"] is False
-    conditions = er.conditions_of({"with_skill": 0.8, "without_skill": 0.85, "with_skill.floor": 0.8}, 0.8, 0.05)
-    assert conditions["strong_ok"] and conditions["floor_ok"] and conditions["strong_delta_ok"]
+    conditions = er.conditions_of({"with_skill": 0.7996, "without_skill": 0.8504, "with_skill.m2": 0.79951}, 0.8, 0.05)
+    assert conditions["pass_rate"] == 0.8 and conditions["ok"] is False  # shown as 0.8, and below it
+    assert conditions["pass_rate.m2"] == 0.8 and conditions["ok.m2"] is False
+    assert conditions["delta"] == -0.051 and conditions["delta_ok"] is False
+    assert er.condition_fails(conditions)
+    conditions = er.conditions_of({"with_skill": 0.8, "without_skill": 0.85, "with_skill.m2": 0.8}, 0.8, 0.05)
+    assert conditions["ok"] and conditions["ok.m2"] and conditions["delta_ok"] and not er.condition_fails(conditions)
 
 
 def test_the_deviation_of_the_runs_is_the_sample_one():
@@ -3042,7 +3482,7 @@ echo "ran $with the skill" > "$out/response.md"
 def scores_demo(tmp_path, monkeypatch, prompts=("p", "q")):
     cases = [{"id": i, "prompt": prompt, "assertions": ["a"]} for i, prompt in enumerate(prompts, 1)]
     skill = write_demo(tmp_path, monkeypatch, SCORES, cases)
-    configure_gate(tmp_path, strong_tolerance=0.05)
+    configure_gate(tmp_path, tolerance=0.05)
     return skill
 
 
@@ -3074,7 +3514,7 @@ def test_a_full_test_runs_every_case_with_the_skill_everywhere_and_the_baseline_
     runs = [r for e, r in evidence_of(skill) if e["test"] != event["test"]][0]
     assert {(l["case"], l["variant"], l["model"]) for l in runs if l["variant"] == "without"} == {(1, "without", "f"), (2, "without", "f")}
     with pytest.raises(SystemExit) as e:
-        er.parse(["--skill", "demo", "--harness", "h", "--model", "m", "--floor-model", "f", "--baseline-on", "elsewhere"])
+        er.parse(["--skill", "demo", "--harness", "h", "--model", "m", "--model", "f", "--baseline-on", "elsewhere"])
     assert e.value.code == 2
 
 
@@ -3083,7 +3523,7 @@ def test_a_second_full_test_reuses_the_baseline_in_force_and_adds_its_runs_to_th
     mark(tmp_path, "fail-p-without", "fail-q-without")  # the model alone does nothing of it
     assert er.main(["--skill", "demo"]) == 0
     first = evidence_of(skill)[0][0]
-    assert first["gate"] == {"passed": True, "with": 1.0, "baseline": 0.0, "threshold": 0.8, "tolerance": 0.05}
+    assert first["gate"]["m"] == {"passed": True, "with": 1.0, "baseline": 0.0, "threshold": 0.8, "tolerance": 0.05}
     before = len(calls(tmp_path))
     mark(tmp_path, "fail-p-with")  # the same content, a worse draw on case 1
     assert er.main(["--skill", "demo"]) == 3  # complete, and the gate fails
@@ -3092,7 +3532,7 @@ def test_a_second_full_test_reuses_the_baseline_in_force_and_adds_its_runs_to_th
     assert not [c for c in calls(tmp_path)[before:] if " without " in c]  # the baselines were in force: not run again
     assert second["baseline"] == {"1": "reused", "2": "reused"}
     # The gate of the second test reads the runs of both: 1, 1 from the first, 0, 1 from this one. It replaces none.
-    assert second["gate"] == {"passed": False, "with": 0.75, "baseline": 0.0, "threshold": 0.8, "tolerance": 0.05}
+    assert second["gate"]["m"] == {"passed": False, "with": 0.75, "baseline": 0.0, "threshold": 0.8, "tolerance": 0.05}
     assert gate_now(tmp_path)["with"] == 0.75 and gate_now(tmp_path)["passed"] is False
 
 
@@ -3182,7 +3622,7 @@ def test_an_abandoned_full_test_is_closed_and_its_runs_stay_in_the_gate_of_its_v
                 by_case.setdefault(l["case"], []).append(l["score"])
     expected = sum(sum(v) / len(v) for v in by_case.values()) / len(by_case)
     assert sorted(by_case) == [1, 2] and expected != pytest.approx(2 / 3)  # the mean over lines was 2/3
-    assert newest["gate"]["with"] == pytest.approx(expected) and newest["gate"]["passed"] is False
+    assert newest["gate"]["m"]["with"] == pytest.approx(expected) and newest["gate"]["m"]["passed"] is False
 
 
 def test_the_two_options_that_rewrote_a_record_are_gone():
@@ -3215,16 +3655,16 @@ def test_invoked_is_kept_per_run_and_counted_per_model_and_never_scored(tmp_path
     captured = capsys.readouterr()
     bench = bench_of(tmp_path)
     rows = {name: [r.get("invoked") for r in bench["run_summary"][name]["cases"]] for name in bench["run_summary"]}
-    assert rows["with_skill"] == [True, True] and rows["with_skill.floor"] == [False, False]
+    assert rows["with_skill"] == [True, True] and rows["with_skill.m2"] == [False, False]
     assert rows["without_skill"] == [None, None]  # a run without the skill has nothing to invoke
     # Never scored: the runs that did not load the skill score like the others.
-    assert bench["run_summary"]["with_skill.floor"]["pass_rate"]["mean"] == 1.0
-    run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1" / "with_skill.floor"
+    assert bench["run_summary"]["with_skill.m2"]["pass_rate"]["mean"] == 1.0
+    run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1" / "with_skill.m2"
     assert json.loads((run / "timing.json").read_text())["invoked"] is False  # kept in the run folder
     (event, _), = evidence_of(skill)
     assert event["counts"]["m"]["with"]["invoked"] == 2 and event["counts"]["f"]["with"]["invoked"] == 0
     assert "invoked" not in event["counts"]["m"]["without"]
-    assert "INVOKED     the floor model loaded the skill in 0 of 2 with-skill run(s)" in captured.err
+    assert "INVOKED     f loaded the skill in 0 of 2 with-skill run(s)" in captured.err
     assert er.load_status().evidence_problems(str(tmp_path)) == ({}, 1)
 
 
@@ -3399,7 +3839,7 @@ def test_the_routing_mode_lists_the_cases_in_which_another_skill_loaded(tmp_path
     assert er.main(["--routing", "--pack", "all", "--skill", "demo", "--harness", "h", "--model", "m"]) == 0
     captured = capsys.readouterr()
     out = json.loads(captured.out)
-    assert out["loaded_another"] == [2] and out["not_reported"] == 0 and (out["tier"], out["model"]) == ("strong", "m")
+    assert out["loaded_another"] == [2] and out["not_reported"] == 0 and out["model"] == "m" and "tier" not in out
     assert out["prompts"] == [{"case": 1, "loaded": ["demo"], "invoked": True, "others": []},
                               {"case": 2, "loaded": ["other"], "invoked": False, "others": ["other"]}]
     assert "in case(s) 2 another skill loaded" in captured.err
@@ -3432,7 +3872,8 @@ def test_the_routing_mode_runs_given_prompts_and_says_when_the_adapter_does_not_
     (["--routing", "--pack", "all"], "one of them"),
     (["--routing", "--pack", "all", "--skill", "demo", "--prompts", "p.json"], "one of them"),
     (["--routing", "--pack", "all", "--skill", "demo", "--cases", "1"], "not --cases"),
-    (["--routing", "--pack", "all", "--skill", "demo", "--tier", "floor"], "floor needs a floor model"),
+    (["--routing", "--pack", "all", "--skill", "demo", "--tier", "floor"], "unknown option '--tier'"),
+    (["--routing", "--pack", "all", "--skill", "demo", "--harness", "h", "--model", "m", "--model", "f"], "runs one model"),
     (["--skill", "demo", "--pack", "all"], "go with --routing"),
 ])
 def test_the_routing_mode_takes_its_own_options(tmp_path, monkeypatch, capsys, args, why):
@@ -3456,28 +3897,205 @@ def test_the_pack_is_resolved_by_the_repositorys_own_resolver():
     assert "ops-branch-sync" in names and len(names) >= 40
 
 
-def test_a_command_passed_the_held_key_starts_the_key_proxy_first_and_fails_as_infrastructure_without_it(tmp_path, monkeypatch):
+def held_gate(tmp_path, monkeypatch, **entry):
+    """A gate file whose model "m" is served by the OpenRouter route (the entry's other keys as given), read by the executor."""
     executor = er.load_executor()
-    secret, key = executor.route()["secret"], "fake-floor-key-for-the-runner-tests-0004"
-    started, ran = [], []
+    entry = {"aliases": [], "adapter": "h", "pass_env": ["OPENROUTER_API_KEY"], "route": "openrouter", "provider_pin": "deepinfra",
+             "upstream_models": ["vendor/m"], "price_source": "https://example.test/price", "run_token_budget": 1000, **entry}
+    (tmp_path / "gate.json").write_text(json.dumps({"models": {"m": entry}}))
+    monkeypatch.setattr(executor, "GATE_FILE", str(tmp_path / "gate.json"))
+    return executor
+
+
+def test_a_command_passed_the_held_key_gets_a_key_proxy_and_a_network_of_its_own_and_loses_them_when_it_ends(tmp_path, monkeypatch):
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    held, released, ran, removed = [], [], [], []
     monkeypatch.setattr(er, "EXECUTOR", "container")
     monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
-    monkeypatch.setattr(executor, "keyproxy", lambda env=None, name="floor": started.append(env[secret]))
-    monkeypatch.setattr(executor, "remove", lambda name, env=None: None)
-    monkeypatch.setattr(er, "_run_group", lambda cmd, timeout, cwd, env, container: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
-    monkeypatch.setattr(er.KIT, "_run_group", lambda cmd, timeout, cwd, env, container: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
-    box = {"root": str(tmp_path), "pass": [secret], "network": "proxy"}
-    er.run_group(["true"], 10, env={secret: key}, box=box)
-    assert started == [key] and len(ran) == 1 and key not in " ".join(ran[0])
-    er.run_group(["true"], 10, env={secret: key}, box={**box, "network": "none"})  # no network: no proxy to start
-    er.run_group(["true"], 10, env={"OTHER": "v"}, box={**box, "pass": ["OTHER"]})  # another tier's run
-    assert started == [key] and len(ran) == 3
 
-    def down(env=None, name="floor"):
+    def hold(run_id, model, env, network="proxy", meter_dir=None, **kw):
+        held.append((run_id, model, env[secret], network))
+        meter = os.path.join(meter_dir, run_id + ".json")
+        Path(meter).write_text(json.dumps({"input": 5, "output": 6, "cache_read": 0, "cache_write": 1, "total": 12,
+                                           "unknown_responses": 0, "budget_reached": False}))
+        return {"keys": "k", "network": "n", "route": "openrouter", "meter": meter, "model": model}
+    monkeypatch.setattr(executor, "hold", hold)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: released.append(run_id))
+    monkeypatch.setattr(executor, "remove", lambda name, env=None: removed.append(name))
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0)
+    run = lambda cmd, timeout, cwd, env, container: ran.append((cmd, container)) or subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(er, "_run_group", run)
+    monkeypatch.setattr(er.KIT, "_run_group", run)
+    box = {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}
+    er.run_group(["true"], 10, env={secret: key}, box=box)
+    run_id = held[0][0]
+    assert held == [(run_id, "m", key, "proxy")] and len(ran) == 1 and key not in " ".join(ran[0][0])
+    assert ran[0][1] == f"wb-eval-run-{run_id}" and removed == [ran[0][1]] and released == [run_id]  # one id names all three
+    assert box["meter"]["total"] == 12  # what the key proxy counted, read before it was removed
+    assert er.KIT.HELD == set()  # the run's end took it out of the set that a stop would release
+    er.run_group(["true"], 10, env={secret: key}, box={**box, "network": "none"})  # no network: no proxy to start
+    er.run_group(["true"], 10, env={"OTHER": "v"}, box={**box, "pass": ["OTHER"]})  # no held key: none
+    assert len(held) == 1 and len(ran) == 3 and released == [run_id]
+
+
+@pytest.mark.parametrize("failure", ["executor", "other"])
+def test_a_key_proxy_and_its_network_are_released_when_anything_after_hold_fails(tmp_path, monkeypatch, failure):
+    """command() (or anything else after hold()) failing must not leak the run's key proxy, its network or its meter folder."""
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    held, released, folders = [], [], []
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
+
+    def hold(run_id, model, env, network="proxy", meter_dir=None, **kw):
+        held.append(run_id)
+        folders.append(meter_dir)
+        return {"keys": "k", "network": "n", "route": "openrouter", "meter": os.path.join(meter_dir, run_id + ".json"), "model": model}
+
+    def command(*a, **kw):
+        raise (executor.ExecutorError("cannot build the command") if failure == "executor" else RuntimeError("something else broke"))
+    monkeypatch.setattr(executor, "hold", hold)
+    monkeypatch.setattr(executor, "command", command)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: released.append(run_id))
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0)
+    box = {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}
+    if failure == "executor":
+        r = er.run_group(["true"], 10, env={secret: key}, box=box)
+        assert r.returncode == 1 and "cannot build the command" in r.stderr
+    else:
+        with pytest.raises(RuntimeError):
+            er.run_group(["true"], 10, env={secret: key}, box=box)
+    assert held and released == held  # released, once, whichever way hold's caller failed
+    assert er.KIT.HELD == set() and not os.path.exists(folders[0])
+
+
+def meter_json(**changes):
+    return json.dumps({"input": 5, "output": 6, "cache_read": 0, "cache_write": 1, "total": 12, "unknown_responses": 0,
+                       "budget_reached": False, "in_flight": 0, **changes})
+
+
+def mid_request_run(tmp_path, monkeypatch, then):
+    """A held run whose key proxy still has a request under way when the run's container is gone; `then(path)` is what the
+    proxy does next (the file at `path` is its meter), and release() stands for the proxy being stopped."""
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
+    paths = []
+
+    def hold(run_id, model, env, network="proxy", meter_dir=None, **kw):
+        path = os.path.join(meter_dir, run_id + ".json")
+        Path(path).write_text(meter_json(in_flight=1))
+        paths.append(path)
+        return {"keys": "k", "network": "n", "route": "openrouter", "meter": path, "model": model}
+    monkeypatch.setattr(executor, "hold", hold)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: then(paths[0], "released"))
+    monkeypatch.setattr(executor, "remove", lambda name, env=None: None)
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0.01)
+    run = lambda cmd, timeout, cwd, env, container: subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(er, "_run_group", run)
+    monkeypatch.setattr(er.KIT, "_run_group", run)
+    return executor, {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}, {secret: key}, paths
+
+
+def test_a_run_that_ends_in_the_middle_of_a_request_waits_for_the_answer_to_be_counted(tmp_path, monkeypatch):
+    import threading
+    import time
+    state = {}
+
+    def then(path, when):
+        state[when] = json.loads(Path(path).read_text())
+    executor, box, env, paths = mid_request_run(tmp_path, monkeypatch, then)
+
+    def count_it_later():  # the proxy reads the rest of the answer, counts it, and says nothing is under way
+        time.sleep(0.2)
+        for _ in range(100):
+            if paths:
+                break
+            time.sleep(0.01)
+        Path(paths[0]).write_text(meter_json(input=100, output=50, total=150))
+    threading.Thread(target=count_it_later).start()
+    er.run_group(["true"], 10, env=env, box=box)
+    assert state["released"]["in_flight"] == 0 and state["released"]["total"] == 150  # waited: the proxy was stopped when idle
+    assert box["meter"]["total"] == 150 and box["meter"]["unknown_responses"] == 0
+
+
+def test_a_request_that_never_ends_is_waited_for_at_most_the_routes_timeout_and_then_flagged_as_unknown(tmp_path, monkeypatch):
+    def then(path, when):  # the proxy is stopped: its SIGTERM handler records the open answer as unknown
+        Path(path).write_text(meter_json(in_flight=0, unknown_responses=1, counting_failed=True))
+    executor, box, env, paths = mid_request_run(tmp_path, monkeypatch, then)
+    real = executor.route
+    monkeypatch.setattr(executor, "route", lambda *a, **kw: {**real(name="openrouter"), "timeout_seconds": 0.3})
+    er.run_group(["true"], 10, env=env, box=box)
+    assert box["meter"]["unknown_responses"] == 1  # read after the stop: never a silent zero
+    assert box["meter"]["total"] == 12
+
+
+def test_a_stop_does_not_wait_for_the_requests_under_way(tmp_path, monkeypatch):
+    import time
+    executor = held_gate(tmp_path, monkeypatch)
+    path = tmp_path / "meter.json"
+    path.write_text(meter_json(in_flight=1))
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0.01)
+    monkeypatch.setattr(er.KIT.STOPPING, "is_set", lambda: True)
+    started = time.monotonic()
+    er.KIT.wait_idle(executor, str(path), "openrouter")  # the route's timeout is 600 seconds
+    assert time.monotonic() - started < 2
+
+
+def test_a_held_command_fails_as_infrastructure_when_its_key_proxy_cannot_start_and_nothing_runs(tmp_path, monkeypatch):
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    ran = []
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
+    run = lambda cmd, timeout, cwd, env, container: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(er, "_run_group", run)
+    monkeypatch.setattr(er.KIT, "_run_group", run)
+
+    def down(*a, **kw):
         raise executor.ExecutorError("the key proxy did not start: cannot start")
-    monkeypatch.setattr(executor, "keyproxy", down)
+    monkeypatch.setattr(executor, "hold", down)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: None)
+    box = {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}
     r = er.run_group(["true"], 10, env={secret: key}, box=box)
-    assert r.returncode == 1 and "key proxy did not start" in r.stderr and len(ran) == 3  # no container ran
+    assert r.returncode == 1 and "key proxy did not start" in r.stderr and ran == [] and key not in r.stderr
+    # a model the gate file does not list, or lists without a route, never gets the key: the command does not run
+    for model in ("not-listed", None):
+        r = er.run_group(["true"], 10, env={secret: key}, box={**box, "model": model})
+        assert r.returncode == 1 and "no object entry with a route" in r.stderr and ran == []
+    held_gate(tmp_path, monkeypatch, route=None, pass_env=[], provider_pin=None)
+    r = er.run_group(["true"], 10, env={secret: key}, box=box)
+    assert r.returncode == 1 and ran == []
+
+
+def test_the_adapter_call_carries_its_model_into_the_box_and_the_runs_meter_is_left_beside_its_outputs(tmp_path, monkeypatch):
+    seen = []
+
+    def group(cmd, timeout, cwd=None, env=None, box=None):
+        seen.append(box)
+        box["meter"] = {"input": 3, "output": 4, "cache_read": 0, "cache_write": 0, "total": 7, "unknown_responses": 0,
+                        "budget_reached": True}
+        return subprocess.CompletedProcess(cmd, 1, "", "boom")
+    monkeypatch.setattr(er.KIT, "run_group", group)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "meter.json").write_text('{"total": 999999}')  # a run that made one is overwritten: only the key proxy's count is the run's
+    runner = tmp_path / "run.sh"
+    runner.write_text("exit 0\n")
+    why = er.run_failure(str(runner), str(tmp_path / "p.md"), str(tmp_path), "m", str(out), box={"root": str(tmp_path)})
+    assert seen[0]["model"] == "m" and json.loads((out / "meter.json").read_text())["total"] == 7
+    assert why.startswith("adapter exit 1") and "stopped the run at its token budget" in why
+    assert er.meter_of(str(out)) == {"input": 3, "output": 4, "cache_read": 0, "cache_write": 0, "total": 7,
+                                     "unknown_responses": 0, "budget_reached": True}
+
+    def group_without(cmd, timeout, cwd=None, env=None, box=None):
+        box["meter"] = None
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(er.KIT, "run_group", group_without)
+    assert er.run_failure(str(runner), str(tmp_path / "p.md"), str(tmp_path), "m", str(out), box={"root": str(tmp_path)}) is None
+    assert not (out / "meter.json").exists() and er.meter_of(str(out)) is None  # no count: no file, never a made-up one
 
 
 # --- the attempts of a run are made by evals/run_attempts.py, loaded only when a model runs ------------------
@@ -3516,3 +4134,65 @@ def test_a_run_makes_its_attempts_through_the_shared_module(tmp_path, monkeypatc
     for case in (1, 2):
         run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / f"eval-{case}" / "with_skill"
         assert (run / "outputs" / "response.md").read_text().strip() == "ok" and (run / "prompt.md").is_file()
+
+
+def test_an_emulated_platform_stays_a_trial(tmp_path, monkeypatch, capsys):
+    """An image for linux/amd64 on a linux/arm64 docker host runs emulated: the line would say a platform it did not run on."""
+    skill = write_demo(tmp_path, monkeypatch, FAKE)
+    executor = er.load_executor()
+    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image": "wb-eval:test", "image_digest": "sha256:" + "4" * 64,
+                                                     "image_platform": "linux/amd64", "host_platform": "linux/arm64"})
+    assert er.main(FULL) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["written"] is False and "emulated" in out["evidence"]["reason"]
+    assert "linux/amd64" in out["evidence"]["reason"] and "linux/arm64" in out["evidence"]["reason"] and evidence_of(skill) == []
+    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image": "wb-eval:test", "image_digest": "sha256:" + "4" * 64,
+                                                     "image_platform": "linux/amd64", "host_platform": "linux/amd64"})
+    assert er.main(FULL) == 0
+    assert json.loads(capsys.readouterr().out)["evidence"]["written"] is True  # the same platform: evidence
+
+
+def test_a_meter_with_a_request_under_way_or_one_the_proxy_could_not_write_is_read_as_a_lower_bound(tmp_path):
+    base = {"input": 5, "output": 6, "cache_read": 0, "cache_write": 1, "total": 12, "responses": 3, "unknown_responses": 0,
+            "budget_reached": False}
+    for name, extra, unknown in (("whole", {"in_flight": 0}, 0), ("old_file", {}, 0), ("under_way", {"in_flight": 1}, 1),
+                                 ("failed", {"failed": True}, 1), ("and_unreadable", {"in_flight": 2, "unknown_responses": 1}, 2)):
+        out = tmp_path / name
+        out.mkdir()
+        (out / "meter.json").write_text(json.dumps({**base, **extra}))
+        found = er.meter_of(str(out))
+        assert found["unknown_responses"] == unknown and found["input"] == 5 and found["total"] == 12, (name, found)
+    assert er.meter_unfinished({"in_flight": 1}) and er.meter_unfinished({"failed": True}) and not er.meter_unfinished({"in_flight": 0})
+    assert not er.meter_unfinished({"in_flight": True}) and not er.meter_unfinished({})  # a boolean is not a count
+
+
+# --- R12: "used" is kept in the run's timing.json and nowhere else --------------------------------------
+
+USES = INVOKES.replace('"skills_loaded\\": $loaded}"', '"skills_loaded\\": $loaded, \\"skills_used\\": $used}"').replace(
+    "loaded='[]'", "loaded='[]'; used='[]'").replace(
+    """loaded='["demo", "other"]'""", """loaded='["demo", "other"]'; used='["demo", "other"]'""").replace(
+    """loaded='["other"]'""", """loaded='["other"]'; used='["demo", "other"]'""")
+
+
+def test_used_is_kept_in_the_runs_timing_and_on_no_row_and_no_evidence_line(tmp_path, monkeypatch, capsys):
+    skill = write_demo(tmp_path, monkeypatch, USES)
+    assert er.main(FULL) == 0
+    bench = bench_of(tmp_path)
+    folder = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1"
+    # The model f never read the skill's text (invoked false) and ran something of its folder (used true).
+    timing = json.loads((folder / "with_skill.m2" / "timing.json").read_text())
+    assert (timing["invoked"], timing["used"], timing["skills_used"]) == (False, True, ["demo", "other"])
+    assert json.loads((folder / "with_skill" / "timing.json").read_text())["used"] is True
+    assert "used" not in json.loads((folder / "without_skill" / "timing.json").read_text())
+    assert not [r for name in bench["run_summary"] for r in bench["run_summary"][name]["cases"] if "used" in r]
+    for path in (tmp_path / "skills" / "demo" / "evals" / "evidence").glob("*.jsonl"):
+        assert "skills_used" not in path.read_text() and '"used"' not in path.read_text()
+    (event, _), = evidence_of(skill)
+    assert event["counts"]["m"]["with"]["invoked"] == 2 and event["counts"]["f"]["with"]["invoked"] == 0
+    assert er.load_status().evidence_problems(str(tmp_path)) == ({}, 1)
+
+
+def test_a_loop_of_raw_call_syntax_is_an_early_end_even_when_the_run_wrote_a_file():
+    loop = "\n".join(["<｜DSML｜function_calls>", '<｜DSML｜invoke name="write_file">', "</｜DSML｜invoke>"] * 14)
+    assert er.early_end(loop, {"docs/prd.md": 1.0}).startswith("a loop of raw tool-call syntax printed as text (")
+    assert er.early_end("```\n" + loop + "\n```", {"docs/prd.md": 1.0}) is None  # quoted in a fence: a reply that shows a call

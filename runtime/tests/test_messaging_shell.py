@@ -22,6 +22,7 @@ from test_service import Standin
 messaging = st.load("messaging")
 ops = st.load("ops")
 ledgers = st.load("messaging_ledger")
+operations = st.load("operations")
 
 
 @pytest.fixture(autouse=True)
@@ -92,6 +93,57 @@ def test_a_project_without_senders_or_not_accepted_is_skipped_and_the_bridge_kee
         assert (tmp_path / "out").read_text() == "" or "skipping" not in (tmp_path / "out").read_text()
 
 
+def test_a_stop_signal_that_lands_outside_the_loop_still_ends_with_code_zero(tmp_path, monkeypatch):
+    # The signal handler raises Stop in the main thread wherever it is. Right after the start line it can land before
+    # serve's own try (a slow machine, a signal sent as soon as the line is read): that was a traceback and exit code 1.
+    def stopped(*args, **kwargs):
+        raise messaging.Stop()
+
+    monkeypatch.setattr(messaging, "serve", stopped)
+    handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        assert messaging.main(["--project", str(tmp_path), "--platform", "telegram"]) == 0
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+
+
+def test_a_stop_signal_right_after_the_start_line_still_ends_the_runs(tmp_path):
+    # The driver of the SIGTERM test below signals as soon as it has read the start line; on a slow machine the handler
+    # then ran before the loop's try, and the runs were never ended (the marker was missing). The line is printed inside
+    # the try, so the Stop it meets there ends the runs like any other.
+    ended = []
+
+    class Ops:
+        OpsError = type("OpsError", (Exception,), {"code": 1})
+        operations = operations
+
+        def config(self, project):
+            return {"path": project, "sha256": "a" * 64, "accepted": True, "data_dir": str(tmp_path / "data"),
+                    "messaging": {"senders": {"telegram": ["4242"]}}}
+
+        def stop_runs(self):
+            ended.append(1)
+            return {}
+
+    class Messenger:
+        def capabilities(self):
+            return {"max_text": 4096, "buttons": True, "max_buttons": 6}
+
+    class Out:
+        def write(self, text):
+            raise messaging.Stop()  # the signal arrives as the start line is written
+
+        def flush(self):
+            pass
+
+    folder = tmp_path / "project"
+    folder.mkdir()
+    code = messaging.serve([str(folder)], "telegram", 5, ops_module=Ops(), messenger=Messenger(), out=Out(),
+                           state_dir=ledgers.prepare_state_dir())
+    assert code == 0 and ended, (code, ended)
+
+
 def test_sigterm_stops_the_loop_and_ends_the_runs(tmp_path):
     folder = tmp_path / "project"
     folder.mkdir()
@@ -110,6 +162,8 @@ def test_sigterm_stops_the_loop_and_ends_the_runs(tmp_path):
                         "messaging": {{"senders": {{"telegram": ["4242"]}}}}}}
             def pending(self, project, pending_id=None):
                 return {{"pending": []}}
+            def reminders_due(self, project, platform):
+                return {{"send": [], "missed": 0, "dropped": 0}}
             def stop_runs(self):
                 open({str(marker)!r}, "w").write("stopped")
                 return {{}}
@@ -136,5 +190,6 @@ def test_sigterm_stops_the_loop_and_ends_the_runs(tmp_path):
     finally:
         if proc.poll() is None:
             proc.kill()
-    assert code == 0 and marker.read_text() == "stopped"
-    assert b"4242" not in proc.stderr.read()
+    err = proc.stderr.read()
+    assert code == 0 and marker.read_text() == "stopped", (code, err)
+    assert b"4242" not in err

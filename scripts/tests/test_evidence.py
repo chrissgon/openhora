@@ -1,5 +1,5 @@
 """Offline tests of scripts/evidence.py, the field recorder (the reliability model, section 7; item B15 of
-docs/architecture/final-plan-2026-10-02.md). Each test builds a small workbench in a temporary folder (the
+the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md). Each test builds a small workbench in a temporary folder (the
 recorder, the status script, a gate file, an adapter folder, one skill with its version file) and a project
 beside it, and runs the recorder as a project would: flags only, no prompt, no network.
 
@@ -22,10 +22,11 @@ es = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(es)
 
 SKILL = '---\nname: core-demo\ndescription: A demo.\nmetadata:\n  version: "1.2.0"\n---\n\n# Demo\n\nIt does one job.\n'
-GATE = {"strong_model": "s-model", "strong_harness": "h", "floor_model": "f-model", "floor_harness": "h",
-        "floor_pass_env": [], "strong_pass_env": [], "grader": "s-model", "threshold": 0.8, "strong_tolerance": 0.05,
-        "measurement_version": 5, "measurement_floor": 5,
-        "models": {"s-model": ["provider/s-model"], "f-model": []}}
+ENTRY = {"aliases": [], "adapter": "h", "pass_env": [], "route": None, "provider_pin": None, "upstream_models": ["x"],
+         "price_source": "https://example.test/price", "run_token_budget": 1000}
+GATE = {"grader": "s-model", "threshold": 0.8, "tolerance": 0.05, "measurement_version": 5, "measurement_floor": 5,
+        "lab_models": ["s-model", "f-model"],
+        "models": {"s-model": {**ENTRY, "aliases": ["provider/s-model"]}, "f-model": ENTRY}}
 
 
 @pytest.fixture
@@ -35,6 +36,7 @@ def tree(tmp_path):
     (wb / "evals").mkdir()
     shutil.copy(REPO / "scripts" / "evidence.py", wb / "scripts" / "evidence.py")
     shutil.copy(REPO / "evals" / "eval_status.py", wb / "evals" / "eval_status.py")
+    shutil.copy(REPO / "evals" / "evidence_lines.py", wb / "evals" / "evidence_lines.py")  # eval_status.py loads it by path
     (wb / "evals" / "eval-gate.json").write_text(json.dumps(GATE))
     (wb / "adapters" / "demo-harness").mkdir(parents=True)
     skill = wb / "skills" / "core-demo"

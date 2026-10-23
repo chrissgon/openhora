@@ -67,6 +67,7 @@
 .wb-route-flow { flex: 0 1 12rem; width: auto; min-width: 0; padding-block: 2px; font-size: 12px; }   /* the flow beside "Route it" (E-20) */
 .wb-lobby-resolved { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 4px; color: var(--pui-text-muted); font-size: 12px; }
 .wb-lobby-resolved-text { min-width: 0; overflow-wrap: anywhere; }
+.wb-lobby-resolved .wb-save-flow { flex: 1 1 100%; min-width: 0; }      /* "Save this plan as a flow" (P6a): under the line, as wide as it */
 .wb-pointer { padding: 8px 10px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
 .wb-pointer .pui-link { margin-left: auto; }
 .wb-pointer-title { color: var(--pui-text); font-weight: 600; }     /* F2-D11: the pointer's title is bold in the text colour, the date after it muted (lobby.html) */
@@ -82,6 +83,9 @@
 .wb-panel-lobby .wb-plan-task .wb-task-n { color: var(--pui-text-muted); font-variant-numeric: tabular-nums; }
 .wb-panel-lobby .wb-plan-task .wb-cur-sub { font-size: 12px; overflow-wrap: anywhere; }
 .wb-panel-lobby .wb-plan-task .wb-cell-skill { font-size: 12px; }
+.wb-panel-lobby .wb-plan-task-web-sources { border-inline-start: 3px solid var(--pui-warn); }
+.wb-panel-lobby .wb-plan-task .wb-plan-web-sources { justify-self: start; }
+.wb-panel-lobby .wb-plan-task .wb-plan-web-sources-note { color: var(--wb-ink-warn); }
 .wb-panel-lobby .wb-waits { gap: 4px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 13px; }
 .wb-panel-lobby .wb-waits-title { color: var(--pui-text-muted); font-size: 12px; font-weight: 400; }
 .wb-panel-lobby .wb-waits-task { font-weight: 400; }
@@ -96,6 +100,9 @@
 .wb-comp-label { color: var(--pui-text-muted); font-size: 12px; }
 .wb-composer-field { display: block; }
 .wb-comp-line { margin: 0; font-size: 12px; }
+.wb-in-proposal { display: grid; gap: 4px; min-width: 0; padding: 6px 8px; border-radius: var(--pui-radius); }      /* a proposal for the project's instructions */
+.wb-in-proposal[hidden] { display: none; }
+.wb-in-line { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .wb-composer > .wb-comp-field { grid-column: 1 / -1; grid-row: 1; min-height: 40px; resize: none; }
 .wb-composer .pui-input:disabled::placeholder { color: transparent; }

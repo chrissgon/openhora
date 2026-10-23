@@ -43,6 +43,7 @@ import documents
 import lab
 import parallel
 import skill_meta
+import upkeep
 
 REFUSED_CURSOR = "dispatch:refused"    # the store's cursor: {task id: {"reason", "at"}}, the children that were refused or crashed
 REPORTED_CURSOR = "dispatch:reported"  # the store's cursor: {"low": run id, "seen": [run ids]}, the finished runs already reported
@@ -87,9 +88,18 @@ def skill_facts(skill, cache: dict) -> tuple:
     return cache[skill]
 
 
+def task_facts(task: dict, cache: dict) -> tuple:
+    """(footprint, code) of a task. A step task's footprint is the one its kind declared when the task was made (the column
+    `step_footprint`, never read from the task's text), and it is never a code task: the one-code-task-per-request rule is the
+    skill tasks' of the code areas. Any other task's are its skill's (skill_facts)."""
+    if task.get("step_kind"):
+        return frozenset(task.get("step_footprint") or ()), False
+    return skill_facts(task.get("skill"), cache)
+
+
 def item_of(task: dict, cache: dict) -> dict:
     """The task as runtime/parallel.py reads it: {"id", "agent", "request_id", "code", "footprint"}."""
-    footprint, code = skill_facts(task.get("skill"), cache)
+    footprint, code = task_facts(task, cache)
     return {"id": task["id"], "agent": task.get("agent"), "request_id": task.get("parent_id"), "code": code,
             "footprint": footprint}
 
@@ -178,9 +188,10 @@ def _recover(ctx: dict, holding_route: bool = False) -> dict:
                 if fd is not None:
                     held.append(fd)
                     runs = router
-        if not tasks and not runs:
-            return ops_waits.settled(ctx, {"tasks": [], "runs": []})
-        return ops_waits.settled(ctx, core._stored(ctx, store.task_fail_orphans, tasks, runs, ORPHAN_NOTE))
+        found = {"tasks": [], "runs": []} if not tasks and not runs else core._stored(ctx, store.task_fail_orphans, tasks, runs, ORPHAN_NOTE)
+        # the questions an ask left when its process died (a request code titled "Question <n>", with no task, no run of the router's skill and no run running)
+        core._stored(ctx, store.answers_abandoned_cancel, importlib.import_module("router").ROUTER_SKILL)
+        return ops_waits.settled(ctx, found)
     finally:
         for fd in held:
             os.close(fd)
@@ -189,16 +200,20 @@ def _recover(ctx: dict, holding_route: bool = False) -> dict:
 # --- one task run -----------------------------------------------------------------------------------------------------
 
 
-def run_task(project: str, task_id: int, tier=None, checked: bool = True) -> dict:
+def run_task(project: str, task_id: int, requested=None, checked: bool = True) -> dict:
     """Run one named task in this process: take its lock, end what dead processes left, admit and claim it under the claim
     lock, run it, write back the documents it returned. What it returns is what `run_next` returns; a refusal is
     {"ran": None, "reason", "held"} (held: the reason is one of the words of the held tasks, not an error). `checked`
-    false is the person's own start: the daily caps are not asked, the rest is."""
+    false is the person's own start: the daily caps are not asked, the rest is. `requested` is the model the person asked
+    for this run (a checked id or "auto", ops_models.check_word), which wins over the request's, the task's, the agent's and the
+    project's default."""
     ctx = core.context(project)
     cfg = ctx["cfg"]
+    if _is_step(ctx, task_id):   # a step task runs no skill: it has its own process, `run-step` (runtime/ops_steps.py)
+        return importlib.import_module("ops_steps").run_step(project, task_id, unattended=checked)
     with core._task_lock(cfg, task_id):
         recovered = _recover(ctx)
-        started = _start(ctx, task_id, tier, checked)
+        started = _start(ctx, task_id, requested, checked)
         if started.get("ran", True) is None:
             return {**started, "recovered": recovered["tasks"], "pending": len(core._stored(ctx, ctx["store"].pending_list))}
         out = {**_ops()._run_body(ctx, started), "recovered": recovered["tasks"]}
@@ -208,7 +223,15 @@ def run_task(project: str, task_id: int, tier=None, checked: bool = True) -> dic
         return out
 
 
-def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
+def _is_step(ctx: dict, task_id: int) -> bool:
+    """Whether the named task is a step task (the store's is_step_task); a task the store does not have is not."""
+    try:
+        return bool(ctx["store"].is_step_task(ctx["store"].task_get(ctx["conn"], task_id)))
+    except ctx["store"].StoreError:
+        return False
+
+
+def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
     """Admit, claim and open the run row of one task, under the claim lock. The slow work (the task, its skill, the secret
     store, the routing) is done before the lock. Returns the run's start (what ops._run_body takes), or a refusal
     {"ran": None, "reason", "held"}."""
@@ -217,11 +240,11 @@ def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
         task = store.task_get(ctx["conn"], task_id)
     except store.StoreError:
         task = None
-    key = core._floor_key()
+    keys = core._keys()
     prepared, failure = None, None
     if task is not None and task["parent_id"] is not None and task.get("skill") and task["state"] == "ready":
         try:
-            prepared = ops._prepare_run(ctx, task, tier, key)
+            prepared = ops._prepare_run(ctx, task, requested, keys)
         except ops.PREPARE_ERRORS as e:
             failure = e
     with core._claim_lock(cfg):
@@ -238,7 +261,7 @@ def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
             running = [r for r in running_and_effects(ctx, cache) if r["id"] != task_id]
             holders = core._stored(ctx, store.task_slot_holders)
             if checked and prepared is not None and task.get("agent") in cfg["area_agents"]:
-                found = ops._agents_of_the_day(ctx, key).get(task["agent"])
+                found = ops._agents_of_the_day(ctx, keys).get(task["agent"])
                 if found is not None:
                     ok, why = autonomy.may_start(task["agent"], cfg["area_agents"], found["facts"], found["spent"],
                                                  prepared["routing"]["billing"])
@@ -261,10 +284,10 @@ def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
         if failure is not None:
             core._stored(ctx, store.task_fail_orphans, [claim["id"]], [], ops._note(f"the run could not start: {failure}"))
             raise core.OpsError(f"task {claim['id']} ({claim['skill']}) could not start: {failure}", 1)
-        return started
+        return {**started, "unattended": checked}   # a task the dispatcher starts is unattended; run-next is the person's own start
 
 
-def run_next(project: str, tier=None) -> dict:
+def run_next(project: str, requested=None) -> dict:
     """The person's verb: end what dead processes left, read the documents platform, pick the oldest ready task that the
     rules of the slots let in (only to choose; the real check is made under the claim lock) and run it in this process.
     Nothing admissible: {"ran": None, "reason"} naming why. Works on a project with no area agents."""
@@ -300,7 +323,7 @@ def run_next(project: str, tier=None) -> dict:
         out = {"ran": None, "reason": ops_waits.explain(ctx, None, reason) if not ready else reason,
                "recovered": recovered["tasks"], "pending": len(core._stored(ctx, store.pending_list))}
         return {**out, "documents": pulled} if pulled is not None else out
-    out = run_task(project, chosen, tier=tier, checked=False)
+    out = run_task(project, chosen, requested=requested, checked=False)
     out["recovered"] = list(dict.fromkeys(recovered["tasks"] + list(out.get("recovered") or [])))
     if pulled is not None:
         if out.get("ran") is None:
@@ -325,8 +348,8 @@ def _prune(folder: str) -> None:
             pass
 
 
-def spawn(cfg: dict, project: str, task_id: int):
-    """Start `run-task` for one task as a child process in a session of its own, its output in two files of
+def spawn(cfg: dict, project: str, task_id: int, verb: str = "run-task"):
+    """Start `run-task` (for a step task, `run-step`) for one task as a child process in a session of its own, its output in two files of
     <data_dir>/task-runs/children/, and keep it in SPAWNED. The one seam a test replaces. The environment is this
     process's, with every variable a router call is injecting at this moment put back as it was before: a child never
     inherits a key a router call put in, and does inherit one the person exported."""
@@ -345,8 +368,8 @@ def spawn(cfg: dict, project: str, task_id: int):
                     env.pop(name, None)
                 else:
                     env[name] = before
-        proc = subprocess.Popen([sys.executable, os.path.join(core.ROOT, "runtime", "cli.py"), "run-task", "--project", project,
-                                 "--task", str(task_id)], stdout=files[0], stderr=files[1], stdin=subprocess.DEVNULL,
+        proc = subprocess.Popen([sys.executable, os.path.join(core.ROOT, "runtime", "cli.py"), verb, "--project", project,
+                                 "--task", str(task_id), *(["--unattended"] if verb == "run-step" else [])], stdout=files[0], stderr=files[1], stdin=subprocess.DEVNULL,
                                 start_new_session=True, close_fds=True, env=env)
     finally:
         for fd in files:
@@ -482,7 +505,9 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
     leader of its session, so its pid is the group id and cannot be reused before it is reaped). Otherwise, for the
     project of cfg, the process group of every task whose lock is held by a live process (the group id its holder wrote:
     a lock that is free is never signalled). TERM first; after `grace` seconds KILL only those still alive. Returns the
-    task ids signalled."""
+    task ids signalled. A process that took the lock after the TERM is never signalled: the KILL goes to the (pid, pgid) that got the
+    TERM, and only while the lock is held and the file still names it. So when another process has taken the lock but has not yet
+    written its own line, what is killed is the process that got the TERM (which let the lock go and is ending), never the new holder."""
     signalled = []
     if only_mine:
         with SPAWNED_LOCK:
@@ -523,7 +548,9 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
     while time.monotonic() < deadline and any(still_held(t) for t in holders):
         time.sleep(0.05)
     for task_id, termed in sorted(holders.items()):
-        # read again just before: KILL only a lock that is still held by the very process that got the TERM
+        # read again just before: KILL only while the lock is held and the file still names the process that got the TERM. In the moment
+        # between a new holder's lock and its write the file still names the old one: the old one is signalled (it got the TERM and
+        # is ending), the new holder, whose pid and group differ, never is.
         if still_held(task_id) and core._lock_owner(cfg, task_id) == termed:
             _signal_owner(termed, signal.SIGKILL)
     return signalled
@@ -585,21 +612,38 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
     ctx = core.context(project)
     cfg = ctx["cfg"]
     with core._dispatch_lock(cfg):
+        upkeep.run_quietly(ctx)   # retention and orphan containers, once an hour, before any run of this round (package P-OPS)
+        fired = _fire_routines(ctx)   # the routines whose slot is due make their requests now, before the round decides what starts (P6b)
         if not cfg["area_agents"]:
             rows = core._stored(ctx, ctx["store"].tasks_list)
-            ops._record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"), "reason": dispatcher.NO_AGENT}
-                                   for t in rows if t["state"] == "ready" and t["parent_id"] is not None], [])
-            return {"stopped": "no area agent is configured"}
-        out = {"handlers": ops._ticks(ctx, project), "released": [], "started": [], "ran": [], "held": [], "stopped": None}
+            ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
+            # a step task is the runtime's own (no agent, no model): it needs no area agent, so it is neither held for the lack of one
+            # nor left unstarted by it
+            steps_module = importlib.import_module("ops_steps")
+            ops._record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"),
+                                    "reason": steps_module.held_reason(ctx, t) if t.get("step_kind") else dispatcher.NO_AGENT}
+                                   for t in ready if not t.get("step_kind") or steps_module.held_reason(ctx, t)], [])
+            if not any(t.get("step_kind") and steps_module.may_dispatch(ctx, t) for t in ready):
+                return {"stopped": "no area agent is configured", "routines": fired}
+        out = {"handlers": ops._ticks(ctx, project), "routines": fired, "released": [], "started": [], "ran": [], "held": [], "stopped": None}
         if wait:
             STOPPING.clear()
         return _round(ctx, project, ops.DISPATCH_BUDGET if budget_seconds is None else budget_seconds, wait, out)
 
 
+def _fire_routines(ctx: dict) -> list:
+    """The routines' tick (runtime/ops_routines.py): what fired, was skipped or stopped to ask. A failure is recorded as a line, never raised,
+    so that a routine cannot stop a round of the dispatcher."""
+    try:
+        return importlib.import_module("ops_routines").tick(ctx)
+    except Exception as e:
+        return [{"error": f"{type(e).__name__}: {e}"[:300]}]
+
+
 def _round(ctx: dict, project: str, budget: float, wait: bool, out: dict) -> dict:
     ops = _ops()
     began = time.monotonic()
-    state = {"key": core._floor_key(), "checked": {}, "held": [], "missing": [], "released": [], "first": True}
+    state = {"keys": core._keys(), "checked": {}, "held": [], "missing": [], "released": [], "first": True}
     mine = []
     previous = _install_handlers() if wait else {}
     try:
@@ -661,7 +705,7 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
             except ctx["store"].StoreError as e:
                 raise core.OpsError(str(e), e.code) from None
     while True:
-        snapshot = ops._snapshot(ctx, state["key"])
+        snapshot = ops._snapshot(ctx, state["keys"])
         decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, parallel.admit)
         out["held"] = decided["held"]
         state["held"] = dispatcher.held_of(snapshot, decided)
@@ -672,24 +716,40 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
         break
     if not decided["start"]:
         return 0, "nothing may start" if decided["held"] or snapshot["ready"] else "no task is ready"
-    started = 0
-    for position, task_id in enumerate(decided["start"]):
+    started, blocked, first = 0, {}, None
+    step_ids = {t["id"] for t in snapshot["ready"] if t.get("step_kind")}  # step tasks call no model and run in no eval container
+    order = [t for t in decided["start"] if t in step_ids] + [t for t in decided["start"] if t not in step_ids]  # steps first: a missing image holds only the skill runs
+    for position, task_id in enumerate(order):
         if STOPPING.is_set():
             out["stopped"] = "the dispatcher was stopped: no new run starts"
             break
         if time.monotonic() - began > budget:
             out["stopped"] = f"the round's budget of {budget} s is spent: no new run starts"
             break
-        tier, checked = snapshot["tier"].get(task_id), state["checked"]
-        if tier == "strong" and "credential" not in checked:
-            checked["credential"] = ops._credential_stop()
+        if task_id in step_ids:
+            try:
+                proc = spawn(cfg, project, task_id, "run-step")
+            except OSError as e:
+                out["stopped"] = f"task {task_id} could not be started: {e}"
+                break
+            mine.append(proc)
+            out["started"].append({"task_id": task_id, "started_at": ops._now_iso()})
+            started += 1
+            continue
+        model, checked = snapshot["model"].get(task_id), state["checked"]
+        if model is not None and ("credential", model) not in checked:
+            checked[("credential", model)] = ops._credential_stop(model)
         if "image" not in checked:
             checked["image"] = ops._image_stop()
-        stopper = (checked["credential"] if tier == "strong" else None) or checked["image"]
-        if stopper:
-            reason, out["stopped"], state["missing"] = stopper
-            state["held"] = dispatcher.held_of(snapshot, decided, {t: reason for t in decided["start"][position:]})
+        if checked["image"]:  # no run starts without the image: the rest of the round is held with it
+            reason, out["stopped"], state["missing"] = checked["image"]
+            state["held"] = dispatcher.held_of(snapshot, decided, {t: reason for t in order[position:]})
             break
+        lacks = checked[("credential", model)] if model is not None else None
+        if lacks:  # no run of this model starts; the tasks of the models that have their key go on
+            blocked[task_id] = lacks[0]
+            first = first or lacks
+            continue
         try:
             proc = spawn(cfg, project, task_id)
         except OSError as e:
@@ -698,6 +758,11 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
         mine.append(proc)
         out["started"].append({"task_id": task_id, "started_at": ops._now_iso()})
         started += 1
+    if blocked:
+        state["held"] = dispatcher.held_of(snapshot, decided, blocked)
+        state["missing"] = list(first[2])
+        if not started and out["stopped"] is None:
+            out["stopped"] = first[1]
     return started, None
 
 

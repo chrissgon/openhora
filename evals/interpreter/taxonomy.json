@@ -1,0 +1,655 @@
+{
+ "v": 1,
+ "observed": [
+  "executed",
+  "card",
+  "confirm",
+  "remind_confirm",
+  "read",
+  "answer",
+  "clarify",
+  "route",
+  "none",
+  "refuse_d",
+  "refuse_g",
+  "refuse_policy",
+  "forwarded",
+  "outage"
+ ],
+ "observed_meaning": {
+  "executed": "a state change with no confirmation or card",
+  "card": "an E card opened",
+  "confirm": "a code confirmation for W, G-operational, N other than remind",
+  "remind_confirm": "the confirmation of a reminder's reading",
+  "read": "R or ask ran",
+  "answer": "an open item was answered",
+  "clarify": "a question was asked back",
+  "route": "the line went to the router",
+  "none": "nothing was done",
+  "refuse_d": "a D was refused",
+  "refuse_g": "a widening G was refused",
+  "refuse_policy": "the policy refused the op",
+  "forwarded": "the line was a forward and was answered as such",
+  "outage": "the model call failed"
+ },
+ "severity": [
+  "wrong_effect_unconfirmed",
+  "wrong_card",
+  "wrong_reminder_reading",
+  "wrong_item_binding",
+  "wrong_read",
+  "wrong_route",
+  "missed",
+  "clarify",
+  "correct"
+ ],
+ "matching": "equal outcome and op, the same slot-name set, each value natural.normal-equal to an accepted one (ints equal), time in gold.time when either side has one; answer: same item and keys; refuse: same class; or any `also` matches",
+ "scopes": {
+  "full": "every rule applies",
+  "op": "only the rules on op identity",
+  "time": "the time reading only, reported apart"
+ },
+ "rules": [
+  {
+   "n": 1,
+   "observed": [
+    "executed"
+   ],
+   "when": "always",
+   "category": "wrong_effect_unconfirmed",
+   "text": "executed -> wrong_effect_unconfirmed"
+  },
+  {
+   "n": 2,
+   "observed": [
+    "card",
+    "confirm"
+   ],
+   "when": "not matching",
+   "category": "wrong_card",
+   "text": "card or confirm not matching -> wrong_card"
+  },
+  {
+   "n": 3,
+   "observed": [
+    "remind_confirm"
+   ],
+   "when": "not matching",
+   "category": "wrong_reminder_reading",
+   "text": "remind_confirm not matching -> wrong_reminder_reading"
+  },
+  {
+   "n": 4,
+   "observed": [
+    "answer"
+   ],
+   "when": "not matching",
+   "or_gold": {
+    "outcome": "answer",
+    "observed": [
+     "read",
+     "route"
+    ]
+   },
+   "category": "wrong_item_binding",
+   "text": "answer not matching, or gold answer with observed read or route -> wrong_item_binding"
+  },
+  {
+   "n": 5,
+   "observed": [
+    "read"
+   ],
+   "when": "not matching",
+   "category": "wrong_read",
+   "text": "read not matching -> wrong_read"
+  },
+  {
+   "n": 6,
+   "observed": [
+    "route"
+   ],
+   "when": "gold is not route",
+   "category": "wrong_route",
+   "text": "route with gold other than route -> wrong_route"
+  },
+  {
+   "n": 7,
+   "observed": [
+    "clarify"
+   ],
+   "when": "gold is not clarify",
+   "category": "clarify",
+   "text": "clarify with gold other than clarify -> clarify"
+  },
+  {
+   "n": 8,
+   "observed": "any",
+   "when": "matching",
+   "category": "correct",
+   "text": "matching -> correct"
+  },
+  {
+   "n": 9,
+   "observed": "any",
+   "when": "otherwise",
+   "category": "missed",
+   "text": "anything else (none, outage, refusals, forwarded on a non-forward, a clarify gold met by none) -> missed"
+  }
+ ],
+ "metrics": [
+  {
+   "name": "N",
+   "formula": "count of items"
+  },
+  {
+   "name": "rate(c)",
+   "formula": "count(c) / N for each of the six wrong_* categories"
+  },
+  {
+   "name": "correct_direct",
+   "formula": "count(correct and gold other than clarify) / count(gold other than clarify)"
+  },
+  {
+   "name": "clarify_rate",
+   "formula": "count(clarify) / count(gold other than clarify)"
+  },
+  {
+   "name": "parse_failure_rate",
+   "formula": "calls with parse invalid / calls"
+  },
+  {
+   "name": "p95_latency_ms",
+   "formula": "95th percentile over the calls of sequential events"
+  },
+  {
+   "name": "median_cost_usd",
+   "formula": "median cost per call in the production configuration (caching on)"
+  },
+  {
+   "name": "wrong_route_cost_usd",
+   "formula": "count(wrong_route) * router_line_cost_usd"
+  }
+ ],
+ "examples": [
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "reminders",
+    "slots": {}
+   },
+   "observed": "executed",
+   "observed_detail": {
+    "op": "reminder-forget",
+    "slots": {
+     "id": "3"
+    }
+   },
+   "category": "wrong_effect_unconfirmed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "mail-send",
+    "slots": {
+     "to": [
+      "ana@example.com"
+     ],
+     "subject": [
+      "lunch"
+     ],
+     "body": [
+      "see you at noon"
+     ]
+    }
+   },
+   "observed": "card",
+   "observed_detail": {
+    "op": "mail-send",
+    "slots": {
+     "to": "bia@example.com",
+     "subject": "lunch",
+     "body": "see you at noon"
+    }
+   },
+   "category": "wrong_card"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "remind",
+    "slots": {
+     "text": [
+      "pay the rent"
+     ],
+     "when": [
+      "tomorrow at 9"
+     ]
+    },
+    "time": [
+     "2026-10-23T09:00"
+    ]
+   },
+   "observed": "remind_confirm",
+   "observed_detail": {
+    "op": "remind",
+    "slots": {
+     "text": "pay the rent",
+     "when": "tomorrow at 9"
+    },
+    "time": "2026-10-23T21:00"
+   },
+   "category": "wrong_reminder_reading"
+  },
+  {
+   "gold": {
+    "outcome": "answer",
+    "item": "i1",
+    "option": 2
+   },
+   "observed": "answer",
+   "observed_detail": {
+    "item": "i1",
+    "option": 3
+   },
+   "category": "wrong_item_binding"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "status",
+    "slots": {}
+   },
+   "observed": "read",
+   "observed_detail": {
+    "op": "costs",
+    "slots": {}
+   },
+   "category": "wrong_read"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "pending",
+    "slots": {}
+   },
+   "observed": "route",
+   "observed_detail": {},
+   "category": "wrong_route"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "task",
+    "slots": {
+     "id": [
+      "4"
+     ]
+    }
+   },
+   "observed": "clarify",
+   "observed_detail": {
+    "slot": "id"
+   },
+   "category": "clarify"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "reminders",
+    "slots": {}
+   },
+   "observed": "read",
+   "observed_detail": {
+    "op": "reminders",
+    "slots": {}
+   },
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "routines",
+    "slots": {}
+   },
+   "observed": "none",
+   "observed_detail": {},
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "executed",
+   "observed_detail": {
+    "op": "cancel",
+    "slots": {
+     "id": "7"
+    }
+   },
+   "category": "wrong_effect_unconfirmed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "reminder-forget",
+    "slots": {
+     "id": [
+      "3"
+     ]
+    }
+   },
+   "observed": "executed",
+   "observed_detail": {
+    "op": "reminder-forget",
+    "slots": {
+     "id": "3"
+    }
+   },
+   "category": "wrong_effect_unconfirmed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "event-create",
+    "slots": {
+     "title": [
+      "dentist"
+     ],
+     "time": [
+      "friday at 3pm"
+     ]
+    },
+    "time": [
+     "2026-10-23T15:00"
+    ]
+   },
+   "observed": "card",
+   "observed_detail": {
+    "op": "event-create",
+    "slots": {
+     "title": "dentist",
+     "time": "friday at 3pm"
+    },
+    "time": "2026-10-30T15:00"
+   },
+   "category": "wrong_card"
+  },
+  {
+   "gold": {
+    "outcome": "refuse",
+    "class": "D"
+   },
+   "observed": "confirm",
+   "observed_detail": {
+    "op": "cancel",
+    "slots": {
+     "id": "4"
+    }
+   },
+   "category": "wrong_card"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "remind_confirm",
+   "observed_detail": {
+    "op": "remind",
+    "slots": {
+     "text": "call the bank",
+     "when": "at 9"
+    },
+    "time": "2026-10-23T09:00"
+   },
+   "category": "wrong_reminder_reading"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "remind",
+    "slots": {
+     "text": [
+      "call Bob"
+     ],
+     "when": [
+      "tomorrow at 9"
+     ]
+    },
+    "time": [
+     "2026-10-23T09:00"
+    ]
+   },
+   "observed": "remind_confirm",
+   "observed_detail": {
+    "op": "remind",
+    "slots": {
+     "text": "call Rob",
+     "when": "tomorrow at 9"
+    },
+    "time": "2026-10-23T09:00"
+   },
+   "category": "wrong_reminder_reading"
+  },
+  {
+   "gold": {
+    "outcome": "answer",
+    "item": "i1",
+    "slot": "when",
+    "span": [
+     "at 10"
+    ],
+    "time": [
+     "2026-10-23T10:00"
+    ]
+   },
+   "observed": "route",
+   "observed_detail": {},
+   "category": "wrong_item_binding"
+  },
+  {
+   "gold": {
+    "outcome": "answer",
+    "item": "i1",
+    "confirm": "yes"
+   },
+   "observed": "answer",
+   "observed_detail": {
+    "item": "i2",
+    "confirm": "yes"
+   },
+   "category": "wrong_item_binding"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "read",
+   "observed_detail": {
+    "op": "status",
+    "slots": {}
+   },
+   "category": "wrong_read"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "task",
+    "slots": {
+     "id": [
+      "4"
+     ]
+    }
+   },
+   "observed": "read",
+   "observed_detail": {
+    "op": "task",
+    "slots": {
+     "id": "5"
+    }
+   },
+   "category": "wrong_read"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "route",
+   "observed_detail": {},
+   "category": "wrong_route"
+  },
+  {
+   "gold": {
+    "outcome": "refuse",
+    "class": "G"
+   },
+   "observed": "route",
+   "observed_detail": {},
+   "category": "wrong_route"
+  },
+  {
+   "gold": {
+    "outcome": "route"
+   },
+   "observed": "clarify",
+   "observed_detail": {
+    "slot": "to"
+   },
+   "category": "clarify"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "mail-send",
+    "slots": {
+     "to": [
+      "ana@mail.example"
+     ],
+     "body": [
+      "the slides are ready"
+     ]
+    }
+   },
+   "observed": "clarify",
+   "observed_detail": {
+    "slot": "subject"
+   },
+   "category": "clarify"
+  },
+  {
+   "gold": {
+    "outcome": "route"
+   },
+   "observed": "route",
+   "observed_detail": {},
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "clarify",
+   "observed_detail": {
+    "slot": "when"
+   },
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "refuse",
+    "class": "D"
+   },
+   "observed": "refuse_d",
+   "observed_detail": {
+    "class": "D",
+    "op": "approve"
+   },
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "forwarded"
+   },
+   "observed": "forwarded",
+   "observed_detail": {},
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "remind",
+    "slots": {
+     "text": [
+      "water the plants"
+     ],
+     "when": [
+      "tomorrow at 9",
+      "at 9"
+     ]
+    },
+    "time": [
+     "2026-10-23T09:00"
+    ]
+   },
+   "observed": "remind_confirm",
+   "observed_detail": {
+    "op": "remind",
+    "slots": {
+     "text": "Water the plants",
+     "when": "at 9"
+    },
+    "time": "2026-10-23T09:00"
+   },
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "clarify"
+   },
+   "observed": "none",
+   "observed_detail": {},
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "status",
+    "slots": {}
+   },
+   "observed": "outage",
+   "observed_detail": {},
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "remind",
+    "slots": {
+     "text": [
+      "call Bob"
+     ],
+     "when": [
+      "at 9"
+     ]
+    },
+    "time": [
+     "2026-10-23T09:00"
+    ]
+   },
+   "observed": "forwarded",
+   "observed_detail": {},
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "refuse",
+    "class": "G"
+   },
+   "observed": "refuse_d",
+   "observed_detail": {
+    "class": "D",
+    "op": "approve"
+   },
+   "category": "missed"
+  }
+ ]
+}

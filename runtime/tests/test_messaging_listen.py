@@ -158,7 +158,7 @@ def rig(tmp_path, monkeypatch):
 def test_listen_is_optional_in_capabilities_false_when_absent_and_a_bool_when_present(rig):
     r = rig(caps={"listen": None})
     assert r.messenger.capabilities()["listen"] is False
-    assert set(r.messenger.capabilities()) == set(providers.CAPABILITY_KEYS) | {"listen"}
+    assert set(r.messenger.capabilities()) == set(providers.CAPABILITY_KEYS) | set(providers.OPTIONAL_KEYS)
     r.messenger.open_session()
     assert r.messenger.session is None and r.starts() == []   # nothing is started for a provider that does not listen
     r = rig(caps={"listen": "yes"})
@@ -206,8 +206,8 @@ def test_a_reply_answers_a_question_and_free_text_goes_to_say(tmp_path, monkeypa
     r = rig(script={"default": {"after_send": {"1": [reply, free]}}})
     r.items[2] = decision("question", 2, title="Which colour?", actions=["answered"])
     r.run()
-    assert wait_for(lambda: r.calls("answer") and r.calls("say"))
-    assert r.calls("answer")[0][2] == {"pending_id": 2, "text": "blue"}
+    assert wait_for(lambda: r.calls("answer_proposing") and r.calls("say"))
+    assert r.calls("answer_proposing")[0][2] == {"pending_id": 2, "text": "blue", "channel": "messaging"}
     assert r.calls("say")[0][2]["text"] == "what is the plan?"
     assert wait_for(lambda: "Noted." in r.texts() and "Answered #2." in r.texts())
     r.finish()
@@ -248,6 +248,17 @@ def test_the_answers_of_the_provider_map_to_the_kinds_and_a_missing_message_id_i
         with pytest.raises(providers.MessengerError) as caught:
             r.messenger.send(chat, plain)
         assert caught.value.kind == kind, chat
+    r.finish()
+
+
+def test_a_send_answer_carries_whether_the_document_went_out_and_the_id_is_still_a_string(tmp_path, monkeypatch, rig):
+    r = rig()
+    r.messenger.open_session(r.log.append)
+    assert wait_for(r.messenger.session.is_ready)
+    plain = {"text": "x", "actions": [], "link": None, "document": {"name": "d.txt", "text": "whole"}}
+    ok, failed = r.messenger.send("somebody", plain), r.messenger.send("doc-failed", plain)
+    assert isinstance(ok, str) and isinstance(failed, str) and ok.startswith("m") and failed.startswith("m")
+    assert ok.document_failed is False and failed.document_failed is True
     r.finish()
 
 
@@ -436,6 +447,8 @@ class Fake:
                 "messaging": {{"senders": {{"chirp": ["4242"]}}}}, "channels": {{"messaging": ["read"]}}}}
     def pending(self, project, pending_id=None):
         return {{"pending": []}}
+    def reminders_due(self, project, platform):
+        return {{"send": [], "missed": 0, "dropped": 0}}
     def stop_runs(self):
         open({marker!r}, "w").write("stopped")
         return {{}}
@@ -623,7 +636,7 @@ def test_deferred_is_an_answer_kind_and_not_an_error_kind_and_other_words_stay_f
     with pytest.raises(providers.MessengerError) as caught:
         r.messenger.send("fail-deferred", plain)
     assert caught.value.kind == "deferred" and caught.value.reason == "refused by the stand-in"
-    assert set(providers.ANSWER_KINDS) == {"usage", "not-configured", "failed", "deferred"}, "paused is an event kind, not an answer kind"
+    assert set(providers.ANSWER_KINDS) == {"usage", "not-configured", "failed", "deferred", "gone"}, "paused is an event kind, not an answer kind; gone is the answer to a fetch"
     r.finish()
 
 
@@ -670,7 +683,8 @@ def test_a_deferred_card_goes_out_as_soon_as_the_person_writes_without_waiting_f
     [card] = [s for s in r.sent() if s["message"]["actions"]]
     assert card["chat"] == "defer-once" and SECRET_TEXT in card["message"]["text"]
     assert [q["message"]["actions"] != [] for q in r.requests() if q["op"] == "send"][0] is True, "the card was the first request, deferred"
-    assert r.bridge.ledger.sent(r.projects[0]["id"], 1, bridge.cards.content_sha256(r.items[1]), "defer-once")
+    # the provider writes the card before the bridge's thread records it in the ledger: wait for the record
+    assert wait_for(lambda: r.bridge.ledger.sent(r.projects[0]["id"], 1, bridge.cards.content_sha256(r.items[1]), "defer-once"))
     assert len([x for x in r.log if "kept for later" in x]) == 1
     r.finish()
 

@@ -29,13 +29,15 @@ of run_skill, through which the caller changes a fresh copy before the run and r
 
 Usage (a library; the terminal shell is runtime/cli.py):
   python3 runtime/lab.py --help        print this text
-  python3 runtime/lab.py reference     print the reference model and its adapter, as JSON
+  python3 runtime/lab.py reference     print the lab's default model (the first of lab_models) and its adapter, as JSON
+  python3 runtime/lab.py models        print the models of the gate file with their adapters, as JSON
 
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
 import contextlib
+import costs
 import glob
 import hashlib
 import importlib.util
@@ -58,9 +60,11 @@ MODULE = "workbench_eval_execution"  # the name the lab's runner gives the kit t
 # test asserts that the runner's own names (the event runner, the case files, the variants, the baseline's
 # checks, the grading, the evidence) are not in it. A name enters __all__ only with a line in the pull request that
 # says why it is not measurement. What this file may read of the status script is the kit's STATUS_NAMES.
-TIERS = {"strong": ("strong_model", "strong_harness", "strong_pass_env"),
-         "floor": ("floor_model", "floor_harness", "floor_pass_env")}
 RESPONSE_LIMIT = 2000000  # characters of a reply handed to the caller
+# A model on the person's own machine (evals/local_models.py) is tested in the lab; the runtime never runs one: it has no
+# price (so `auto` never picks it), no evidence in the repository and no key proxy, and its server is the person's to start.
+LOCAL_MODEL_PREFIX = "local/"
+LOCAL_MODEL_REFUSAL = "a local model is for lab tests only; the runtime does not run one"
 
 
 class LabError(Exception):
@@ -135,28 +139,83 @@ def _lab_call(function, *args, **kwargs):
                                  f"exit code {e.code}") from None
 
 
-def reference(tier: str = "strong") -> dict:
-    """The model a tier runs on, its adapter, the variables that carry its credential (names only) and the
-    control of a run, all from the gate file evals/eval-gate.json: {"tier", "model", "adapter", "pass_env",
-    "timeout_seconds", "retries", "control"}."""
-    if tier not in TIERS:
-        raise LabError("config", f"tier must be one of {', '.join(TIERS)}")
+def _gate() -> tuple:
+    """(the status script, the gate file as a dict): LabError("config") when the file is missing or invalid."""
     status = _lab_call(LAB.load_status)
     gate = status.load_gate(LAB.ROOT)
+    if not gate or not isinstance(gate.get("models"), dict):
+        raise LabError("config", "evals/eval-gate.json is missing or invalid, or lists no models")
+    return status, gate
+
+
+def local_evidence_base() -> str:
+    """The folder a person's own lab evidence lives in (the status script's local_evidence_base). The sources folder must be
+    disjoint from it (limit L22, runtime/sources.py): the runtime asks the lab for it and holds no copy of the rule."""
+    return _lab_call(_lab_call(LAB.load_status).local_evidence_base)
+
+
+def models() -> list:
+    """The ids of the models the gate file lists, in a stable order: the lab models first (the gate file's lab_models, in
+    its order), then the others as the file lists them. A model is run by the lab only when it is listed here: its entry
+    holds the adapter and the variables of its key."""
+    status, gate = _gate()
+    listed = list(status.known_models(gate))
+    lab = [m for m in (gate.get("lab_models") or []) if m in listed]
+    return lab + [m for m in listed if m not in lab]
+
+
+def default_model() -> str:
+    """The id of the first lab model: the model a run goes to when nothing chooses another. LabError when the gate file
+    lists none."""
+    found = models()
+    if not found:
+        raise LabError("config", "evals/eval-gate.json lists no model")
+    return found[0]
+
+
+def resolve_model(model: str | None = None) -> str:
+    """The listed id of a model written as its id or one of its aliases; the first lab model for None. LabError("config")
+    for a name the gate file does not list: the lab runs the models of the gate file only."""
+    if model is None:
+        return default_model()
+    status, gate = _gate()
+    listed = status.model_id(gate, model)
+    if listed == "unknown" or not isinstance(gate["models"].get(listed), dict):
+        raise LabError("config", f"{model!r} is not a model of evals/eval-gate.json: the lab runs the models the file lists")
+    return listed
+
+
+def names_of(model: str) -> list:
+    """[the listed id, then its aliases] of a model, as the gate file writes them; just the name for one it does not list."""
+    status, gate = _gate()
+    listed = status.model_id(gate, model)
+    if listed == "unknown":
+        return [model]
+    entry = gate["models"].get(listed)
+    return [listed] + [a for a in (entry.get("aliases") if isinstance(entry, dict) else []) or [] if a != listed]
+
+
+def reference(model: str | None = None) -> dict:
+    """The model's entry of the gate file evals/eval-gate.json and the control of a run: {"model" (the listed id), "adapter",
+    "pass_env" (the variables that carry its credential, names only), "route", "price_source", "timeout_seconds",
+    "retries", "control"}. model is an id or an alias; None is the first lab model."""
+    status, gate = _gate()
+    listed = resolve_model(model)
+    entry = status.model_entry(gate, listed) or {}
+    if not entry.get("adapter"):
+        raise LabError("config", f"evals/eval-gate.json names no adapter for {listed}")
     control = status.event_config(gate)
-    model_key, harness_key, env_key = TIERS[tier]
-    if not gate.get(model_key) or not gate.get(harness_key):
-        raise LabError("config", f"evals/eval-gate.json is missing or invalid, or names no {tier} model")
-    return {"tier": tier, "model": gate[model_key], "adapter": gate[harness_key], "pass_env": list(gate.get(env_key) or []),
+    return {"model": listed, "adapter": entry["adapter"], "pass_env": list(entry.get("pass_env") or []),
+            "route": entry.get("route"), "price_source": entry.get("price_source"),
             "timeout_seconds": control["timeout_seconds"], "retries": control["retries"], "control": control}
 
 
-def credential_missing(tier: str) -> list:
-    """The variables of a tier's credential (its pass_env in the gate file) that are neither set nor found in the
+def credential_missing(model: str | None = None) -> list:
+    """The variables of a model's credential (its pass_env in the gate file) that are neither set nor found in the
     secret store, by the lab's own lookup (resolve_pass_env of evals/execution.py, the one run_skill uses). It
-    tells whether a run of the tier would have its key; no value is returned or kept: the environment is put back
-    as it was. An empty list for a tier whose gate file names no variable."""
-    names = reference(tier)["pass_env"]
+    tells whether a run on the model would have its key; no value is returned or kept: the environment is put back
+    as it was. An empty list for a model whose gate entry names no variable."""
+    names = reference(model)["pass_env"]
     before = {name: os.environ.get(name) for name in names}
     try:
         _lab_call(LAB.resolve_pass_env, names)
@@ -167,6 +226,192 @@ def credential_missing(tier: str) -> list:
                 os.environ.pop(name, None)
             else:
                 os.environ[name] = value
+
+
+# --- the text contract: one system text and one user text to a model on the person's own account (package ACCT-C) ----------------------
+
+TEXT_MARGIN_S = 5            # beyond the row's deadline: the runner enforces the deadline itself and returns within 3 s of it
+TERM_GRACE_S = 3             # a runner past that time is sent TERM first (its own handler stops the harness and removes its temp root), then KILL after this
+DRAIN_S = 1                  # the last wait for the pipes of a killed runner before they are closed
+PROBE_LIMIT_S = 180          # the preflight's probe: one start of the harness against a loopback stub, no model call
+TEXT_CODE = re.compile(r"run-text: (E_[A-Z_]+)")
+TEXT_CODES = ("E_USAGE", "E_KEY", "E_ROUTE", "E_TIMEOUT", "E_RATE", "E_NETWORK", "E_UPSTREAM", "E_RESPONSE", "E_INTERNAL")
+TEXT_FINISHES = ("stop", "length", "other")
+TEXT_USAGE = ("input", "output", "cache_read", "cache_write")
+TEXT_ENV = ("PATH", "LANG", "HOME", "TMPDIR")   # what the text runner is given of the caller's environment, beside its credential
+_TEXT_LOCK = threading.Lock()   # one preflight at a time, and the one lookup of the credential
+_TEXT_STATE = {"preflight": {}, "credentials": {}}   # credentials: {tuple of the pass_env names: {name: value}}
+
+
+def reset_account_text() -> None:
+    """Forget the preflights and the credential this process holds (a test's; a new process starts clean)."""
+    with _TEXT_LOCK:
+        _TEXT_STATE["preflight"].clear()
+        _TEXT_STATE["credentials"] = {}
+
+
+def _start(argv, stdin, env, timeout):
+    """subprocess.run with a graceful end: at `timeout` the runner is sent TERM, not KILL, so that its handler can stop the harness it started
+    (its process group) and remove the temporary folder the harness ran in; KILL follows only after TERM_GRACE_S. Raises TimeoutExpired
+    (without output: nothing a runner printed is kept) once it has ended the process; the pipes are read to their end or closed, so no
+    descendant that holds one can keep this call waiting."""
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    try:
+        try:
+            out, err = proc.communicate(stdin, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                proc.wait(timeout=TERM_GRACE_S)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            try:
+                proc.communicate(timeout=DRAIN_S)       # what is left in the pipes; a descendant that still holds one is not waited for
+            except subprocess.TimeoutExpired:
+                pass
+            raise subprocess.TimeoutExpired(argv, timeout) from None
+    finally:
+        if proc.poll() is None:      # also on an interrupt: nothing is left running
+            proc.kill()
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            try:
+                if pipe:
+                    pipe.close()
+            except (OSError, ValueError):
+                pass
+        proc.wait()
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+
+
+def _text_runner(model: str) -> tuple:
+    """(the runner's path, the names of the model's credential) for a model of the gate file whose adapter declares a `text_runner` in its
+    manifest; LabError("config") for any other."""
+    ref = reference(model)
+    folder = os.path.join(LAB.ROOT, "adapters", ref["adapter"])
+    try:
+        with open(os.path.join(folder, "adapter.json"), encoding="utf-8") as f:
+            name = json.load(f).get("text_runner")
+    except (OSError, ValueError, AttributeError):
+        name = None
+    path = os.path.join(folder, name) if isinstance(name, str) and name and os.sep not in name else None
+    if path is None or not os.path.isfile(path):
+        raise LabError("config", f"the adapter {ref['adapter']!r} declares no text runner (text_runner in its adapter.json)")
+    if not ref["pass_env"]:
+        raise LabError("config", f"evals/eval-gate.json names no credential variable for {ref['model']}")
+    return path, list(ref["pass_env"])
+
+
+def _text_environment(values=None) -> dict:
+    env = {name: os.environ[name] for name in TEXT_ENV if os.environ.get(name)}
+    env.update(values or {})
+    return env
+
+
+def _preflight(start, runner: str, row: dict) -> str:
+    """"ok", or the code of the first difference between the row and what the runner reports now (its version, its files, the request the
+    harness sends), measured by the runner's probe with no credential and no model call. Any difference is E_ROUTE: a harness that was
+    updated or a runner that was edited is never measured under the hash of an older route."""
+    params = row["params"]
+    argv = ["bash", runner, "--probe", "--model", row["upstream_model"], "--max-tokens", str(params["max_tokens"]), "--reasoning", params["reasoning"]]
+    try:
+        done = start(argv, "", _text_environment(), PROBE_LIMIT_S)
+        seen = json.loads(done.stdout) if done.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return "E_ROUTE"
+    if not isinstance(seen, dict):
+        return "E_ROUTE"
+    same = all(seen.get(key) == row[key] for key in ("runner_version", "runner_sha256", "envelope_sha256"))
+    return "ok" if same else "E_ROUTE"
+
+
+def _text_credentials(names: list):
+    """{name: value} of the model's credential, found by the lab's own lookup (resolve_pass_env of evals/execution.py: the environment, then
+    the OS secret store), or None. The environment is put back as it was (the pattern of credential_missing): the values live in this
+    process's memory and reach the runner's environment only. Called with _TEXT_LOCK held."""
+    cached = _TEXT_STATE["credentials"].get(tuple(names))
+    if cached is not None:
+        return cached
+    before = {name: os.environ.get(name) for name in names}
+    try:
+        _lab_call(LAB.resolve_pass_env, names)
+        found = {name: os.environ.get(name) for name in names}
+    finally:
+        for name, value in before.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    if not all(found.values()):
+        return None
+    _TEXT_STATE["credentials"][tuple(names)] = found
+    return found
+
+
+def account_text(row: dict, system: str, user: str, *, run=None) -> dict:
+    """One call of a model on the maintainer's own account: the system text and the user text through the adapter's text runner
+    (contracts/runtime.md, "The text contract"), on a route row of kind `account` (runtime/interpreter_route.py). Returns {"ok": True,
+    "text", "finish", "usage", "latency_ms"} or {"ok": False, "code": "E_..."} and nothing else: a runner's stderr is never read past its
+    last line, and no text of a request or a reply is written anywhere here.
+
+    The first call of a process runs the runner's probe once, under a lock, with no credential, and compares the runner's version, the
+    sha256 of its files and the sha256 of the request the harness sends with the row's: any difference is E_ROUTE, before the credential
+    is looked up. The credential is the one of the row's `lab_model` in the gate file, found by the lab's own lookup, and reaches the
+    runner's environment alone. The row's `params` and `deadline_ms` are what the call uses.
+    `run(argv, stdin, env, timeout)` is the process start (a test's stand-in); it returns an object with returncode, stdout and stderr."""
+    start = run or _start
+    try:
+        runner, names = _text_runner(row["lab_model"])
+    except LabError:
+        return {"ok": False, "code": "E_ROUTE"}
+    params = row["params"]
+    key = (row["id"], row["lab_model"], runner, row["runner_version"], row["runner_sha256"], row["envelope_sha256"], row["upstream_model"], params["max_tokens"], params["reasoning"])
+    with _TEXT_LOCK:
+        verdict = _TEXT_STATE["preflight"].get(key)
+        if verdict is None:
+            verdict = _TEXT_STATE["preflight"][key] = _preflight(start, runner, row)
+        if verdict != "ok":
+            return {"ok": False, "code": verdict}
+        try:
+            values = _text_credentials(names)
+        except LabError:
+            values = None
+    if values is None:
+        return {"ok": False, "code": "E_KEY"}
+    request = {"v": 1, "system": system, "user": user, "max_tokens": params["max_tokens"], "reasoning": params["reasoning"],
+               "deadline_ms": row["deadline_ms"]}
+    try:
+        done = start(["bash", runner, "--model", row["upstream_model"]], json.dumps(request), _text_environment(values),
+                     row["deadline_ms"] / 1000.0 + TEXT_MARGIN_S)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "code": "E_TIMEOUT"}
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {"ok": False, "code": "E_INTERNAL"}
+    if done.returncode != 0:
+        lines = (done.stderr or "").strip().splitlines()
+        found = TEXT_CODE.fullmatch(lines[-1].strip()) if lines else None
+        return {"ok": False, "code": found.group(1) if found and found.group(1) in TEXT_CODES else "E_INTERNAL"}
+    try:
+        out = json.loads(done.stdout)
+    except ValueError:
+        return {"ok": False, "code": "E_RESPONSE"}
+    if not isinstance(out, dict) or out.get("v") != 1 or not isinstance(out.get("text"), str) or out.get("finish") not in TEXT_FINISHES \
+            or not isinstance(out.get("usage"), dict):
+        return {"ok": False, "code": "E_RESPONSE"}
+    if out.get("runner_version") != row["runner_version"]:
+        return {"ok": False, "code": "E_ROUTE"}          # the runner or the harness changed between the preflight and this call
+    return {"ok": True, "text": out["text"], "finish": out["finish"], "usage": {k: out["usage"].get(k) for k in TEXT_USAGE},
+            "latency_ms": out.get("latency_ms")}
+
+
+def container_tool(*args) -> tuple:
+    """(return code, standard output) of one command of the container client, through the executor's own function (evals/executor.py
+    docker, which names the client and bounds the time): what the upkeep sweeps orphan containers with (runtime/orphans.py). (127, "")
+    when the client or the executor is not there. It starts no run and reads no credential."""
+    try:
+        done = LAB.load_executor().docker(*args, check=False, timeout=60)
+    except Exception:  # no docker client, no executor in this checkout: the caller reads 127 as "cannot be asked"
+        return 127, ""
+    return done.returncode, done.stdout
 
 
 def credential_usernames(names) -> dict:
@@ -212,30 +457,154 @@ def measurement_problem():
     return _lab_call(LAB.load_status).fingerprint_problem(LAB.ROOT)
 
 
+_LOCK_MODULE = None
+
+
+def _image_lock():
+    """scripts/image_lock.py as a module, loaded once by path (the reading of the lock file lives there, once)."""
+    global _LOCK_MODULE
+    if _LOCK_MODULE is None:
+        path = os.path.join(ROOT, "scripts", "image_lock.py")
+        if not os.path.isfile(path):
+            raise LabError("config", "scripts/image_lock.py is missing: the runtime runs from a checkout of the workbench")
+        spec = importlib.util.spec_from_file_location("workbench_runtime_image_lock", path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _LOCK_MODULE = module
+    return _LOCK_MODULE
+
+
+def lock_path() -> str:
+    """The lock file of the published eval image (evals/image-lock.json) of the lab's checkout."""
+    return os.path.join(LAB.ROOT, "evals", "image-lock.json")
+
+
+class DockerDown(Exception):
+    """The docker client or its daemon cannot be reached: an image cannot be asked about, which is not the same as an
+    image that is not there."""
+
+
+DAEMON_DOWN = "the docker daemon cannot be reached: start Docker, then try again"
+
+
+def _asked(found):
+    """The result of a docker call; DockerDown when it failed because the daemon is not running."""
+    if found.returncode != 0 and "daemon" in (getattr(found, "stderr", "") or "").lower():
+        raise DockerDown(DAEMON_DOWN)
+    return found
+
+
+def _inspector(executor):
+    """image_lock's `inspect` over the executor's docker: docker image inspect <args>, as (returncode, stdout)."""
+    def inspect(args):
+        found = _asked(executor.docker("image", "inspect", *args, check=False))
+        return found.returncode, found.stdout
+    return inspect
+
+
+def _published(executor):
+    """What the lock file names for this checkout's definition and this platform (image_lock.published), or None when
+    it names nothing: no entry, an empty lock, or an executor that cannot say its definition. Raises Refused (of
+    image_lock) when the lock file cannot be read."""
+    try:
+        definition, platform = executor.definition_hash(), executor.image_platform()
+    except AttributeError:
+        return None
+    module = _image_lock()
+    return module.published(module.read_lock(lock_path()), definition, platform)
+
+
+def published_digests() -> list:
+    """Every manifest digest of the lock file: the images whose evidence was measured in a published image, which any
+    machine can pull. [] when the lock names none or cannot be read."""
+    try:
+        module = _image_lock()
+        return module.published_digests(module.read_lock(lock_path()))
+    except Exception:  # noqa: BLE001  (a lock that cannot be read names nothing)
+        return []
+
+
+PULL = "python3 scripts/image_lock.py pull"  # the setup step for an image the lock file names (D39): it verifies the
+#                                                  provenance, then runs python3 evals/executor.py pull
+LOCK_FILE = "evals/image-lock.json"
+BUILD = "python3 evals/executor.py ensure"  # and for a definition the lock file does not name
+
+
 def image() -> dict:
-    """{"name", "digest", "platform", "evidence_platform"} of the eval image on this machine. digest is None when the lab
-    does not run in a container, or when the image is not on this machine. platform is the CPU platform the image runs
-    as here; evidence_platform is the one lab evidence is made on (the executor's IMAGE_PLATFORM, which every evidence
-    line carries as image_platform): the two differ on a machine of another architecture, and the proof holds for the
-    second. It only inspects, the way ensure() of evals/executor.py reads the id of the built image (its digest); it
-    never calls ensure() and never builds."""
+    """{"name", "digest", "platform", "evidence_platform", "source", "setup", "problem"} of the eval image on this
+    machine. digest is None when the lab does not run in a container, or when the image is not on this machine. platform is the CPU platform
+    the image runs as here; evidence_platform is the one lab evidence is made on (platform when it is one of the executor's
+    IMAGE_PLATFORMS, which every evidence line carries as image_platform; else IMAGE_PLATFORM): the two differ on a machine of another architecture, and the proof
+    holds for the second.
+
+    source says which image it is. "published": the lock file (evals/image-lock.json) names an image for this
+    checkout's definition and platform, so that image is the one a run uses; name is <repository>@<manifest digest>
+    and digest is that manifest digest, the repo digest, once the image is on this machine with that repo digest (it
+    is never the image's own id, which differs between the two image stores of Docker); until it is pulled, digest is
+    None. "local": the lock names nothing for this definition; name is the local build's, and digest its id, which
+    holds on the machine that built it only. None when the lab does not run in a container. setup is the command that
+    puts the image on this machine (PULL or BUILD), None when it is here. problem is None, or why the image cannot be
+    looked at at all (the lock file is not well formed, the docker daemon cannot be reached), which is not an image
+    that is missing: setup then says what to fix. It only inspects, the way ensure() of
+    evals/executor.py reads the image; it never calls ensure() and never builds or pulls."""
+    nothing = {"name": None, "digest": None, "platform": None, "evidence_platform": None, "source": None, "setup": None,
+               "problem": None}
     if LAB.EXECUTOR != "container":
-        return {"name": None, "digest": None, "platform": None, "evidence_platform": None}
+        return nothing
+    name = wanted = platform = evidence = None
     try:
         executor = LAB.load_executor()
-        name, platform = executor.names()["image"], executor.image_platform()
-        evidence = executor.IMAGE_PLATFORM
-        found = executor.docker("image", "inspect", "--format", "{{.Id}}", name, check=False)
-    except Exception:  # no docker client, no daemon: the image cannot be seen, so it is not there
-        return {"name": None, "digest": None, "platform": None, "evidence_platform": None}
+        platform = executor.image_platform()
+        # Evidence is made on either accepted platform: the one the image runs as here counts when it is one of them, so
+        # that an amd64 machine running amd64 natively is not shown as a mismatch with arm64.
+        accepted = getattr(executor, "IMAGE_PLATFORMS", (executor.IMAGE_PLATFORM,))
+        evidence = platform if platform in accepted else executor.IMAGE_PLATFORM
+        try:
+            wanted = _published(executor)
+        except _image_lock().Refused as e:  # a lock that is not well formed is never read as an empty one
+            return {**nothing, "name": LOCK_FILE, "platform": platform, "evidence_platform": evidence, "source": "lock",
+                    "setup": f"fix {LOCK_FILE}", "problem": f"lock unreadable: {e}"}
+        if wanted:
+            name = wanted["ref"]
+            there = _image_lock().present(wanted, _inspector(executor))
+            return {"name": name, "digest": wanted["manifest_digest"] if there else None, "platform": platform,
+                    "evidence_platform": evidence, "source": "published", "setup": None if there else PULL,
+                    "problem": None}
+        name = executor.names()["image"]
+        found = _asked(executor.docker("image", "inspect", "--format", "{{.Id}}", name, check=False))
+    except DockerDown as e:
+        return {**nothing, "name": name, "platform": platform, "evidence_platform": evidence,
+                "source": "published" if wanted else "local", "setup": DAEMON_DOWN, "problem": str(e)}
+    except Exception:  # no docker client, a lock that cannot be read: the image cannot be seen, so it is not there
+        return nothing
     digest = found.stdout.strip() if found.returncode == 0 else ""
-    return {"name": name, "digest": digest or None, "platform": platform, "evidence_platform": evidence}
+    return {"name": name, "digest": digest or None, "platform": platform, "evidence_platform": evidence, "source": "local",
+            "setup": None if digest else BUILD, "problem": None}
+
+
+def _cases(skill_dir: str):
+    """(the file's top-level "allow_web", {case id as text: case}) of the skill's evals/evals.json; (False, {}) when
+    there is no readable case file."""
+    try:
+        with open(os.path.join(skill_dir, "evals", "evals.json"), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False, {}
+    cases = data.get("evals") if isinstance(data, dict) else None
+    top = isinstance(data, dict) and data.get("allow_web") is True
+    return top, {str(c.get("id")): c for c in cases or [] if isinstance(c, dict)}
 
 
 def proof_inputs(skill: str) -> str:
     """A sha256 that changes when the proof of a skill may have changed. Over, in this order: the bytes of the gate
-    file; of the skill's evals/versions.jsonl; of every file of the skill's evals/evidence/ in sorted name order,
-    each preceded by its name; and the skill's content hash. It lives here because no other module of runtime/
+    file; of the skill's evals/versions.jsonl; of its case files (evals/evals.json, then evals/platforms/*.json in
+    sorted name order, each preceded by its name); of every file of the skill's evals/evidence/ in sorted name order,
+    each preceded by its name; the context hash the status script computes for each case of evals/evals.json (its
+    dependency skills' content and the shared references staged with the skill: what a line's context is compared
+    with); the same for the person's own local evidence files of the skill (outside the checkout: the status script's
+    local_evidence_base), each preceded by its name; and the skill's content hash. Editing a case or a dependency
+    therefore recomputes the entry, and so does a new local test. It lives here because no other module of runtime/
     may name a path under evals/."""
     status = _lab_call(LAB.load_status)
     skill_dir = os.path.join(LAB.ROOT, "skills", skill)
@@ -250,33 +619,133 @@ def proof_inputs(skill: str) -> str:
 
     add(os.path.join(LAB.ROOT, *status.GATE_REL.split("/")))
     add(os.path.join(skill_dir, "evals", "versions.jsonl"))
+    add(os.path.join(skill_dir, "evals", "evals.json"))
+    platforms = os.path.join(skill_dir, "evals", "platforms")
+    for name in sorted(os.listdir(platforms)) if os.path.isdir(platforms) else []:
+        digest.update(b"\0" + name.encode("utf-8") + b"\0")
+        add(os.path.join(platforms, name))
+    for case_id, case in sorted(_cases(skill_dir)[1].items()):
+        try:
+            context = status.case_context(LAB.ROOT, skill_dir, case, True)
+        except Exception:  # a malformed case ("skills": 1): the preflight refuses it; here it only has no context
+            context = "unknown"
+        digest.update(b"\0context " + case_id.encode("utf-8") + b" "
+                      + (str(context) if isinstance(context, (str, type(None))) else "unknown").encode("utf-8") + b"\0")
     evidence = os.path.join(skill_dir, "evals", "evidence")
     for name in sorted(os.listdir(evidence)) if os.path.isdir(evidence) else []:
         digest.update(b"\0" + name.encode("utf-8") + b"\0")
         add(os.path.join(evidence, name))
+    digest.update(b"\0local\0")
+    for path in _lab_call(status.local_evidence_files, skill, _lab_call(status.local_evidence_base)):
+        digest.update(b"\0" + os.path.basename(path).encode("utf-8") + b"\0")
+        add(path)
     digest.update(skill_identity(skill)["content_sha256"].encode("utf-8"))
     return digest.hexdigest()
 
 
+USAGE_KINDS = ("input", "output", "cache_read", "cache_write")
+
+
+def usage_mean(lines):
+    """The mean usage of the run lines that carry one, by kind: {"input", "output", "cache_read", "cache_write"} in tokens
+    per run, or None when no line has a usage (a line written before the field, or a run no count could be read for). The
+    lines are a model's with-skill lines that weigh above zero (a pool's current and inherited lines)."""
+    seen = [line["usage"] for line in lines if isinstance(line.get("usage"), dict)
+            and all(isinstance(line["usage"].get(kind), (int, float)) for kind in USAGE_KINDS)]
+    if not seen:
+        return None
+    return {kind: round(sum(u[kind] for u in seen) / len(seen), 1) for kind in USAGE_KINDS}
+
+
 def standing(skill: str) -> dict:
-    """What the status script computes for one skill: {"skill", "version", "models": {model id: {"band", "cause",
-    "score", "mean", "runs"}}, "tiers": {"strong": {"model", "adapter"}, "floor": {"model", "adapter"}},
-    "web_cases": the gate file's web cases of the skill, "evidence_images": the sorted distinct image digests of
-    the skill's lab events at or above the measurement floor}."""
-    status = _lab_call(LAB.load_status)
-    gate = status.load_gate(LAB.ROOT)
-    row = _lab_call(status.all_status, LAB.ROOT, only=skill)["skills"][0]
+    """What the status script computes for one skill, per model: {"skill", "version", "lab_models": [ids], "adapters":
+    {model id: adapter} (the gate file's entries), "models": {model id: {"band", "cause", "score", "mean", "runs",
+    "web_measured", "usage_mean", "images", "source": "lab"}} for every model with lab evidence, "local": {model id: the same keys
+    with "source": "local"} for the models the person's own tests (outside the checkout) cover and the gate file lists,
+    "community": {model id: the same keys with "source": "community" and "community_only" (true when the pair is reliable
+    only through community evidence: its lab band is not reliable)} for the models the verified community evidence of the
+    checkout covers and the gate file lists (P10; the status script's own section, computed from the community lines alone),
+    "web_cases": the gate file's web cases of the skill (information only), "evidence_images": the sorted distinct image
+    digests of the skill's lab events at or above the measurement floor}.
+
+    web_measured, per model, is true when the lines that weigh above zero for that model hold a with-skill lab line
+    of a web case. Those are the lines the model's score is computed from (the status script's lab_view: the pool's
+    "current" lines, those of the current X.Y since the newest epoch, measurement floor or dependency change, and
+    its "inherited" ones, which lab_view keeps only when the case still has the same hash, the line is at or above
+    the measurement floor and its major version is the current one), so the flag stays true while the band stays
+    reliable on inherited lines. A web case is a case the gate file lists in web_cases for the skill and that sets
+    "allow_web" in evals/evals.json now (in the case or at the top of the file): the listing is only the
+    permission, the runner opens the network for cases that set it. A listed case with no such line, and a model
+    with no line at all, is false.
+
+    images, per model and source, is the sorted list of the image digests of the events that source's figures rest on
+    (the events at or above the measurement floor that name the model and record an image): the image a pair is released
+    in is checked against these, not against the images of another model or another source (runtime/proof.py).
+
+    usage_mean, per model, is the mean usage by kind of those same lines that carry a "usage" (usage_mean()); None when
+    none does. The local figures are the status script's own for the person's local files, computed from those files alone
+    and never added to the repository's."""
+    status, gate = _gate()
+    base = _lab_call(status.local_evidence_base)
+    row = _lab_call(status.all_status, LAB.ROOT, only=skill, local_base=base)
+    found = row["skills"][0]
     floor = gate.get("measurement_floor") or 0
+    skill_dir = os.path.join(LAB.ROOT, "skills", skill)
+    events = status.skill_evidence(skill_dir)
+    top_web, cases = _cases(skill_dir)
+    web_cases = {str(case) for case in (gate.get("web_cases") or {}).get(skill, [])
+                 if str(case) in cases and (top_web or cases[str(case)].get("allow_web") is True)}
+    pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, events)["pools"]  # what weighs above zero, per model
     images = set()
-    for event, _ in status.skill_evidence(os.path.join(LAB.ROOT, "skills", skill)):
+    for event, _ in events:
         version = event.get("measurement_version")
         if isinstance(version, (int, float)) and version >= floor and event.get("image_digest"):
             images.add(event["image_digest"])
-    return {"skill": skill, "version": row["version"],
-            "models": {model: {k: found.get(k) for k in ("band", "cause", "score", "mean", "runs")}
-                       for model, found in (row.get("models") or {}).items()},
-            "tiers": {"strong": {"model": gate.get("strong_model"), "adapter": gate.get("strong_harness")},
-                      "floor": {"model": gate.get("floor_model"), "adapter": gate.get("floor_harness")}},
+
+    def images_by_model(source_events):
+        """{model id: sorted digests} of the events at or above the floor that name the model and record an image."""
+        found = {}
+        for event, _ in source_events:
+            version = event.get("measurement_version")
+            if not (isinstance(version, (int, float)) and version >= floor and event.get("image_digest")):
+                continue
+            for model, _adapter in _lab_call(status.event_model_pairs, event):
+                found.setdefault(model, set()).add(event["image_digest"])
+        return {model: sorted(digests) for model, digests in found.items()}
+
+    def lines_of(pools_of, model):
+        pool = pools_of.get(model) or {}
+        return (pool.get("current") or []) + (pool.get("inherited") or [])
+
+    def figures(source, model, found_figures, pools_of, source_images):
+        lines = lines_of(pools_of, model)
+        return {**{k: found_figures.get(k) for k in ("band", "cause", "score", "mean", "runs")},
+                "web_measured": any(str(line["case"]) in web_cases for line in lines),
+                "usage_mean": usage_mean(lines), "source": source, "images": source_images.get(model, [])}
+
+    lab_images = images_by_model(events)
+    out_models = {model: figures("lab", model, got, pools, lab_images) for model, got in (found.get("models") or {}).items()}
+    out_local = {}
+    local = ((row.get("local") or {}).get("skills") or {}).get(skill) or {}
+    if local:
+        listed = set(_lab_call(status.known_models, gate))
+        local_events = _lab_call(status.local_skill_evidence, skill, base)
+        local_pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, local_events)["pools"]
+        local_images = images_by_model(local_events)
+        out_local = {model: figures("local", model, got, local_pools, local_images) for model, got in local.items() if model in listed}
+    out_community = {}
+    community = ((row.get("community") or {}).get("skills") or {}).get(skill) or {}
+    if community:
+        listed = set(_lab_call(status.known_models, gate))
+        pool, _info = _lab_call(status.community_pool, LAB.ROOT, skill_dir, _lab_call(status.evidence_authors, LAB.ROOT))
+        community_events = [event for events in pool.values() for event in events]
+        community_pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, community_events)["pools"]
+        community_images = images_by_model(community_events)
+        out_community = {model: {**figures("community", model, got, community_pools, community_images), "community_only": bool(got.get("community_only"))}
+                         for model, got in community.items() if model in listed}
+    return {"skill": skill, "version": found["version"], "lab_models": list(gate.get("lab_models") or []),
+            "adapters": {model: (gate["models"].get(model) or {}).get("adapter") for model in models()},
+            "models": out_models, "local": out_local, "community": out_community,
             "web_cases": list((gate.get("web_cases") or {}).get(skill, [])),
             "evidence_images": sorted(images)}
 
@@ -332,7 +801,8 @@ def stop_runs() -> dict:
 
 def reported_usage(dest: str) -> dict:
     """What the attempts of a run reported, whether it ended or failed: {"cost_usd", "total_tokens"}, each the sum over the
-    attempts' timing.json (the run folder's outputs/ and those the lab kept from the attempts it set aside, failed-<n>/,
+    attempts' timing.json (the tokens are the key proxy's count instead, runtime/costs.py metered_usage, when the run and
+    every attempt it set aside have one) (the run folder's outputs/ and those the lab kept from the attempts it set aside, failed-<n>/,
     early-end-<n>/ and paused-<n>/), or None when no attempt reported it. A paused attempt (the account limit) counts as no
     result, but it may have spent before it stopped, so its usage is read: reading it only adds spend. A run id is never
     reused over a leftover run folder (the store's ids are AUTOINCREMENT), so every folder under dest is this run's.
@@ -351,6 +821,9 @@ def reported_usage(dest: str) -> dict:
             value = timing.get(key) if isinstance(timing, dict) else None
             if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
                 sums[key] = (sums[key] or 0) + value
+    metered = costs.metered_usage(dest)  # the key proxy's own count, which the run could not change, when it has one
+    if metered is not None:  # a lower bound when the proxy could not count every answer (metered["unknown_responses"])
+        sums["total_tokens"] = sum(metered[kind] for kind in costs.KINDS)
     return sums
 
 
@@ -403,10 +876,16 @@ def _container() -> dict:
         return {}
     try:
         executor = LAB.load_executor()
-        if executor.docker("image", "inspect", executor.names()["image"], check=False).returncode != 0:
+        wanted = _published(executor)
+        if wanted:
+            if not _image_lock().present(wanted, _inspector(executor)):
+                raise LabError("container", f"the published eval image {wanted['ref']} is not on this machine, and the "
+                                            f"runtime never builds it or pulls it: run {PULL}")
+        elif _asked(executor.docker("image", "inspect", executor.names()["image"], check=False)).returncode != 0:
             raise LabError("container", "the eval image of this checkout is not on this machine, and the runtime "
-                                        "never builds it: the maintainer loads the archived image (docker load), "
-                                        "or builds it with python3 evals/executor.py ensure")
+                                        "never builds it: no published image is recorded for its definition "
+                                        "(evals/image-lock.json), so the maintainer loads the archived image "
+                                        f"(docker load), or builds it with {BUILD}")
         return executor.ensure()
     except LabError:
         raise
@@ -497,7 +976,7 @@ def _platform_names(platforms) -> list:
     return sorted(set(platforms))
 
 
-def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, tier: str = "strong",
+def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False,
               model: str | None = None, adapter: str | None = None, pass_env=None,
               timeout: int | None = None, retries: int | None = None, prepare=None, finish=None,
               tmp_in_run: bool = False, platforms=None, max_cost=None) -> dict:
@@ -514,9 +993,10 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
              <dest>/prompt.md the task text; what an attempt that was made again left is in <dest>/failed-<n>/,
              <dest>/early-end-<n>/ or <dest>/paused-<n>/
     web      True runs on the open network and lets the model search and fetch pages (the adapter's --allow-web)
-    tier     "strong" (the reference model) or "floor": the model, its adapter and the names of the variables
-             that carry its credential come from evals/eval-gate.json. model, adapter and pass_env replace them
-             (a test's stand-in); timeout (seconds) and retries default to the gate file's too
+    model    the model the run goes to, an id or alias of evals/eval-gate.json (None: the first lab model); its adapter
+             and the names of the variables that carry its credential come from its entry there. A model that is not
+             listed runs only with both adapter and pass_env given. adapter and pass_env replace the entry's (a test's
+             stand-in); timeout (seconds) and retries default to the gate file's
     prepare  prepare(copy_dir, root), called on every attempt after the base commit of the copy and before the
              check of a tool's settings: the caller changes the fresh copy (puts a dependency folder in, applies a
              change set)
@@ -529,7 +1009,7 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
              is not a secret, so its value is never replaced in what the run left
     max_cost  the run's own spend limit in dollars (a number above 0), given to the adapter as --max-cost-usd, to the cent; None, the
              default, gives none. The runtime passes one for a run on a metered credential (autonomy.run_budget); the
-             adapter of the reference model stops the run once it has spent that much, the floor model's adapter does not enforce it
+             adapter of a model that enforces it stops the run once it has spent that much, one that cannot says so
     platforms  the platforms whose reference the caller names, a list of names ("a case's platforms"): each is
              staged beside the skill, with its data file when it has one, as the lab stages a case's platforms. The
              list is added to what platforms_cited() gives, never in its place; a name with no reference under
@@ -538,14 +1018,20 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
     Returns {"status": "ok" | "failed", "failure": None | {"kind", "reason", "detail"}, "response", "changes":
     {"created", "modified", "deleted", "unchanged"} or None, "staged": [paths the runtime put in the copy],
     "run_dir", "cwd", "outputs", "timing": {...}, "counts": {"attempts", "timeouts", "refusals",
-    "adapter_failures", "early_ends", "pauses", "redactions"}, "tier", "model", "adapter", "web",
+    "adapter_failures", "early_ends", "pauses", "redactions"}, "model", "adapter", "web",
     "image_digest", "image_platform", "base_commit": the commit id of the copy's base, or None, "tmp": with
     tmp_in_run, <dest>/outputs/tmp, else None}. failure kinds: "timeout", "refused", "auth", "adapter", "early_end"
     (each after the gate file's retries, "auth" at once), "settings" (the copy carries a tool's settings) and
     "stopped". Raises LabError when no run could be made (configuration, container, a file that may not enter).
     Call it inside `with session():`."""
+    if isinstance(model, str) and model.startswith(LOCAL_MODEL_PREFIX):  # one guard, before anything is resolved or started
+        raise LabError("config", LOCAL_MODEL_REFUSAL)
     named = _platform_names(platforms)
-    ref = reference(tier)
+    if model is not None and adapter is not None and pass_env is not None:  # a stand-in: the gate file gives the control only
+        ref = reference()
+    else:
+        ref = reference(model)
+        model = ref["model"]
     model, adapter = model or ref["model"], adapter or ref["adapter"]
     pass_env = list(ref["pass_env"] if pass_env is None else pass_env)
     if max_cost is not None and (isinstance(max_cost, bool) or not isinstance(max_cost, (int, float)) or not max_cost > 0):
@@ -577,7 +1063,7 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
     cwd, out = os.path.join(dest, "cwd"), os.path.join(dest, "outputs")
     os.makedirs(dest, exist_ok=True)
     result = {"status": "failed", "failure": None, "response": "", "changes": None, "staged": [], "run_dir": dest,
-              "cwd": cwd, "outputs": out, "timing": {}, "counts": counts, "tier": tier, "model": model,
+              "cwd": cwd, "outputs": out, "timing": {}, "counts": counts, "model": model,
               "adapter": adapter, "web": bool(web), "image_digest": environment.get("image_digest"),
               "image_platform": environment.get("image_platform"), "base_commit": None,
               "tmp": os.path.join(out, "tmp") if tmp_in_run else None}
@@ -623,7 +1109,7 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
     spec = {"dest": dest, "names": [skill], "label": f"task run {os.path.basename(dest)}", "runner": runner,
             "model": model, "account": {"key": adapter, "markers": eval_cfg["account_limit"], "probe": probe},
             "refusal_markers": eval_cfg["refusal_markers"], "pass_env": pass_env, "values": values,
-            "settings": settings, "control": control, "tier": tier, "web": bool(web), "timeout": timeout,
+            "settings": settings, "control": control, "web": bool(web), "timeout": timeout,
             "max_cost": None if max_cost is None else f"{max_cost:.2f}", "retries": retries, "prompt": prompt, "response_limit": RESPONSE_LIMIT,
             "counts": counts, "env_extra": (lambda root: _run_tmp(root, runner)) if tmp_in_run else None}
     hooks = types.SimpleNamespace(build=build, after_base=after_base, stage=stage, after_run=after_run)
@@ -666,7 +1152,10 @@ def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv == ["reference"]:
         ref = reference()
-        print(json.dumps({key: ref[key] for key in ("tier", "model", "adapter", "pass_env", "timeout_seconds", "retries")}, indent=1))
+        print(json.dumps({key: ref[key] for key in ("model", "adapter", "pass_env", "timeout_seconds", "retries")}, indent=1))
+        return 0
+    if argv == ["models"]:
+        print(json.dumps({m: reference(m)["adapter"] for m in models()}, indent=1))
         return 0
     print(__doc__.strip(), file=sys.stdout if argv in (["--help"], ["-h"]) else sys.stderr)
     return 0 if argv in (["--help"], ["-h"]) else 2

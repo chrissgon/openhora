@@ -34,9 +34,9 @@ ON_SYSTEM_PYTHON = [
     "shared/scripts/sensitive_topics.py", "shared/scripts/redact.py",
     # The field recorder: the runtime calls `record --start` before it starts an agent (the reliability model,
     # section 7), and it loads the status script for the form of a field line and the content hash.
-    "scripts/evidence.py", "evals/eval_status.py",
+    "scripts/evidence.py", "evals/eval_status.py", "evals/evidence_lines.py", "evals/interpreter_status.py",
     # The task runtime: its shell runs on the system interpreter, and a scheduler will start its dispatcher.
-    "runtime/lab.py", "runtime/ops.py", "runtime/ops_core.py", "runtime/ops_say.py", "runtime/ops_reads.py", "runtime/ops_waits.py", "runtime/ops_config.py", "runtime/ops_runs.py", "runtime/cli.py", "runtime/flow_files.py", "runtime/skill_meta.py",
+    "runtime/lab.py", "runtime/ops.py", "runtime/ops_core.py", "runtime/ops_say.py", "runtime/ops_reads.py", "runtime/ops_waits.py", "runtime/ops_config.py", "runtime/ops_runs.py", "runtime/ops_models.py", "runtime/prices.py", "runtime/cli.py", "runtime/flow_files.py", "runtime/skill_meta.py",
     "runtime/path_rule.py", "runtime/state_merge.py", "runtime/endings.py", "runtime/project_config.py",
     "runtime/manifest.py", "runtime/workcopy.py", "runtime/proof.py", "runtime/router.py", "runtime/plan.py",
     "runtime/board.py", "runtime/documents.py", "runtime/drop.py", "runtime/deps.py", "runtime/changeset.py", "runtime/effects.py", "runtime/effect_pull_request.py", "runtime/effect_commit.py", "runtime/effect_reply.py",
@@ -47,11 +47,78 @@ ON_SYSTEM_PYTHON = [
     "runtime/mcp.py",
     # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.
     "runtime/messaging.py", "runtime/messaging_bridge.py", "runtime/messaging_cards.py", "runtime/messaging_inbound.py",
-    "runtime/messaging_ledger.py", "runtime/messaging_provider.py",
+    "runtime/messaging_ledger.py", "runtime/messaging_provider.py", "runtime/messaging_guard.py", "runtime/messaging_outcome.py", "runtime/messaging_failure.py",
+    # The words that decide a decision card (S2, limit L64), the greeting forms (S5) and the words that choose the project (S20): pure readings of one line, read by the bridge.
+    "runtime/card_words.py", "runtime/greeting.py", "runtime/command_words.py",
+    # S10: the plain sentence of a refusal on a phone, and the typing indicator while a reply is prepared (both read by the bridge)
+    "runtime/phone_refusal.py", "runtime/messaging_typing.py", "runtime/messaging_file.py", "runtime/send_scan.py", "runtime/phone_errors.py", "runtime/phone_delete.py", "runtime/messaging_pending.py", "runtime/ops_question.py", "runtime/messaging_ack.py", "runtime/line_stage.py",
     # What the two shells share (stage 9, WP-9.9): the job registry, the status words, the project list.
     "runtime/shell_kit.py",
     # The cost of a run recomputed from its token counts (stage 9): the operations layer imports it.
     "runtime/costs.py",
+    # The generic streaming intake of a body (P0): a source module of the runtime calls it.
+    "runtime/intake.py",
+    # The sources of a project (P4): the registry, the versions, the catalog and the guardrails of the folder, and the ingest operations.
+    # The document converter's provider runs a container; the host side is plain Python and runs on the scheduler's interpreter too.
+    "runtime/sources.py", "runtime/sources_onedrive.py", "runtime/sources_mail.py", "runtime/snapshot_text.py", "runtime/ops_sources.py", "providers/converter/container.py",
+    # References to one item of a mail or calendar snapshot (SNAP-IDX): read through the index of the newest version.
+    "runtime/item_refs.py",
+    "runtime/items_mail.py",
+    # Files sent through a messaging app (ATT-1): the limits and folders of the hold, and the operations over it.
+    "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",
+    # The start of a write to the person's own accounts (FND): the one function an operation of the family calls.
+    "runtime/account_start.py",
+    # A change to the person's own calendar (W1): the document, the effect, the step kind and the operations.
+    "runtime/calendar_document.py", "runtime/effect_calendar.py", "runtime/step_calendar_event.py", "runtime/ops_calendar.py",
+    # Files in the person's own Drive and OneDrive (W4a): the document, the step kind, the effect kind, the operations.
+    "runtime/files_document.py", "runtime/step_files.py", "runtime/effect_files.py", "runtime/ops_files.py",
+    # An e-mail from the person's own account (W2): the message a reply answers (pure) and the operations; the mailers' shared module is plain Python too.
+    "runtime/mail_refs.py", "runtime/ops_mail_send.py", "providers/_mailer_account.py",
+    # A change to the person's own mailbox (W3): the document, the effect, the step kind and the operations.
+    "runtime/mailbox_document.py", "runtime/effect_mailbox.py", "runtime/step_mailbox.py", "runtime/ops_mailbox.py",
+    # Reminders (RM-1): the pure part, the operations and the bridge's part.
+    "runtime/reminders.py", "runtime/ops_reminders.py", "runtime/messaging_remind.py",
+    # Reminders asked in the person's own words (NR-1): the intent rows, the time parser and the language tables it reads (data, loaded by path).
+    "runtime/natural.py", "runtime/natural_time.py", "runtime/natural_lang_en.py", "runtime/natural_lang_pt_br.py",
+    # Natural requests, all operations (NR-2): the dispatcher, a file named in words, and the one store of the questions a line leaves open.
+    "runtime/ops_natural.py", "runtime/source_resolve.py", "runtime/drafts.py",
+    # Natural writes (NR-5): the pure families and the card-opening path.
+    "runtime/natural_writes.py", "runtime/natural_writes_calendar.py", "runtime/natural_writes_files.py", "runtime/ops_natural_writes.py",
+    "runtime/ops_natural_calendar.py", "runtime/ops_natural_files.py", "runtime/ops_items.py", "runtime/ops_file_read.py", "runtime/ops_research.py", "runtime/research_reply.py", "runtime/research_guard.py", "runtime/ops_file_trash.py",
+    # A mail write asked in words (NR-5b): the closed forms of the mail family (pure) and the resolution of what they read.
+    "runtime/natural_writes_mail.py", "runtime/ops_natural_mail.py",
+    # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state
+    "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py", "runtime/ops_cancel.py", "runtime/run_stop.py",
+    # S16: the password-manager backends, loaded by path by the resolver, which the runtime loads under the system interpreter too.
+    "providers/secrets/password_managers.py",
+    # The step engine (P5): the engine, the run of a step task (a process the dispatcher starts), and the kind `ingest`.
+    "runtime/steps.py", "runtime/ops_steps.py", "runtime/step_ingest.py", "runtime/step_export.py", "runtime/step_write_back.py",
+    "runtime/effect_write.py", "runtime/ops_step_effects.py", "runtime/write_document.py", "runtime/ops_step_seams.py",
+    # Outputs to the documents platform (NOTION-OUT): the kinds, the document of a new page or table, and the table reader.
+    "runtime/step_output.py", "runtime/output_document.py", "runtime/table_data.py", "runtime/ops_cancel.py",
+    # E-mail sent from the project's outbox (EMAIL-SEND): the kind, the document, the effect, the address rule, and the provider with its shared code.
+    "runtime/step_send_email.py", "runtime/send_document.py", "runtime/effect_send.py", "runtime/mail_address.py",
+    "providers/_email.py", "providers/mailer/smtp.py",
+    # A post published from the approval path (PUBLISH-EFFECT): the kind, the document, the script runner, and the effect that fronts the word `publish`.
+    "runtime/step_publish_post.py", "runtime/publish_document.py", "runtime/publish_payload.py", "runtime/effect_publish.py",
+    # The flows (P6a): the flow check, and the operations over flow files (list, check, save a plan, stage a file).
+    "runtime/flow_check.py", "runtime/ops_flows.py",
+    # The routines (P6b): the pure schedule and content, and the operations and the tick.
+    "runtime/routines.py", "runtime/ops_routines.py",
+    # The person's standing instructions (package INSTRUCTIONS): the file and its checks, and the operations over it.
+    "runtime/instructions.py", "runtime/ops_instructions.py", "runtime/ops_contained.py",
+    # The interpreter on a messaging line (S1): its sibling of the conversation and the file that turns it on.
+    "runtime/ops_interpret.py", "runtime/interpreter_enable.py", "runtime/mail_compose.py", "runtime/mail_revise.py", "runtime/ops_card_revise.py", "runtime/ops_event_revise.py", "runtime/pending_items.py", "runtime/event_lookup.py", "runtime/event_created.py", "runtime/ops_google_folders.py",
+    # The grants of the channel policy (POL-1): the effect's word and card, and the widening list with its hash; who acted (POL-2): the sender, its profile and the record.
+    "runtime/ops_grants.py", "runtime/policy_grants.py", "runtime/policy_widening.py", "runtime/ops_actor.py",
+    # The language the deliverables are written in (LANGUAGE): the rule, the order and the words; the operations that check a request's choice.
+    "runtime/language.py", "runtime/ops_language.py",
+    # The runtime's replies in the project's language (LR-1): the phrase table and the function that picks a sentence.
+    "runtime/phrases.py", "runtime/phrases_pt_br.py", "runtime/phone_questions.py",      # the router's questions as a phone shows them (S9)
+    # The answer from sources (AQ-1): the selection of the sources a question reads, the checks of the reply, and the operation `ask`.
+    "runtime/ask_select.py", "runtime/ask_reply.py", "runtime/ops_ask.py",
+    # The project script (P9): the step kind, the provider's host side (it loads the two programs that run inside its image, which parse here too).
+    "runtime/step_project_script.py", "providers/script/container.py", "providers/script/egress_proxy.py", "providers/script/_inner.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.
     "runtime/parallel.py",
     # How the credential of a run is billed, read from the adapters' manifests (ADJ-R3): the operations layer imports it.
@@ -77,6 +144,14 @@ ON_SYSTEM_PYTHON = [
     "providers/messenger/whatsapp-twilio.py", "providers/messenger/whatsapp_meta.py",
     # The documents' local implementation, called the same way (stage 3).
     "providers/documents/local.py",
+    # The interpreter experiment (IX-C0): the catalog a line is read against, generated from the table of natural requests and the classification of the gated operations.
+    "runtime/interpreter_catalog.py",
+    # The interpreter's model calls (IX-2b): the provider of the class model:text (standard library only) and the caller that reads the routes file.
+    "providers/model/chat-http.py", "runtime/interpreter_route.py",
+    # The interpreter's protocol and validator (IX-2a): pure; the runtime imports it with the system interpreter.
+    "runtime/interpreter.py",
+    # The interpreter's measurement (IX-2c): the harness the maintainer starts, and the three modules it is built from (pipeline, scorer, evidence lines).
+    "runtime/interpreter_measure.py", "runtime/interpreter_pipeline.py", "runtime/interpreter_score.py", "runtime/interpreter_evidence.py",
 ]
 RUNTIME = ("scripts/runtime.py", "scripts/runtime_vote.py", "scripts/vote_job.py",
            "runtime/handlers/social.py", "runtime/handlers/social_vote_job.py")  # the scheduler starts these

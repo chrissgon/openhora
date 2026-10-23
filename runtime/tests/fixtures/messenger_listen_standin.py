@@ -21,16 +21,22 @@ script.json (optional) is {"1": step, "2": step, "default": step}: the step for 
   stderr         text written to stderr before anything else
   die            an exit code: exit at once, before the ready event
   paused         a reason: write an error event of kind "paused" with it and exit 3 at once, before the ready event
+  skipped_after_ready  a number n: after ready and the emitted lines, write n error events of kind "skipped" (a reason that names a uid, a
+                 Message-ID and a home path, which the bridge must never forward) and keep running
   paused_after_ready  a reason: after ready and the emitted lines, write that event and exit 3 (a session lost while connected)
+The listen op `fetch` (ATT-1): {"id", "op": "fetch", "ref", "out", "max_bytes"} is answered {"id", "ok": true, "bytes", "sha256"} after writing `files/<ref>` of
+STANDIN_DIR as `<out>/content`; a ref in gone.json is answered ok:false, kind "gone"; one in fail.json kind "failed"; a file over max_bytes kind "usage"; one in lie.json
+is written with a byte more than it says. Each fetch is recorded in fetches.jsonl. The capabilities take `attachments` and `max_attachment_bytes` from caps.json.
 A send to the chat "crash-1" makes the first start deliver it (it is recorded) and exit 1 without answering, "exit-3" writes the error event and exits 3,
 "exit-2" does the same with 2, "silent" is never answered, "fail-usage", "fail-failed" and "fail-deferred" are answered ok:false
 (the kind is the rest of the chat's name), "defer-first-<n>" is answered the same way for its first n sends, "defer-once" is answered ok:false, kind "deferred", the first time it is sent to
-(then runs after_send "1" as a send does) and as any chat after, "no-id" is answered ok:true without a message_id. Records, one JSON object per line, in STANDIN_DIR: starts.jsonl (pid, pgid,
+(then runs after_send "1" as a send does) and as any chat after, "no-id" is answered ok:true without a message_id, "doc-failed" ok:true with a message_id and document_failed:true. Records, one JSON object per line, in STANDIN_DIR: starts.jsonl (pid, pgid,
 the arguments), requests.jsonl (every line it read), sent.jsonl (chat and message of each send it answered). No network.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -60,6 +66,29 @@ def append(name, value) -> int:
         f.write(json.dumps(value) + "\n")
     with open(path, encoding="utf-8") as f:
         return len(f.readlines())
+
+
+def fetch(request, write) -> None:
+    append("fetches.jsonl", {"ref": request["ref"], "out": request["out"], "max_bytes": request["max_bytes"]})
+    ref = request["ref"]
+    if ref in read("gone.json", []):
+        write({"id": request["id"], "ok": False, "kind": "gone", "reason": "the platform no longer serves this file"})
+        return
+    try:
+        with open(os.path.join(folder(), "files", ref), "rb") as f:
+            data = f.read()
+    except OSError:
+        data = None
+    if data is None or ref in read("fail.json", []):
+        write({"id": request["id"], "ok": False, "kind": "failed", "reason": "the download failed"})
+        return
+    if len(data) > request["max_bytes"]:
+        write({"id": request["id"], "ok": False, "kind": "usage", "reason": "the file is over the cap"})
+        return
+    fd = os.open(os.path.join(request["out"], "content"), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data + (b"x" if ref in read("lie.json", []) else b""))
+    write({"id": request["id"], "ok": True, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
 
 
 def listen(platform) -> int:
@@ -109,6 +138,8 @@ def listen(platform) -> int:
         write({"event": "ready"})
     for item in step.get("emit", []):
         emit(item)
+    for _ in range(int(step.get("skipped_after_ready") or 0)):
+        write({"event": "error", "kind": "skipped", "reason": "uid 4242 <a1b2@mail.example> could not be read at /Users/someone/Mail/x"})
     if step.get("paused_after_ready") is not None:
         write({"event": "error", "kind": "paused", "reason": step["paused_after_ready"]})
         return 3
@@ -118,6 +149,9 @@ def listen(platform) -> int:
     for raw in sys.stdin.buffer:
         append("requests.jsonl", json.loads(raw))
         request = json.loads(raw)
+        if request.get("op") == "fetch":
+            fetch(request, write)
+            continue
         if request.get("op") != "send":
             continue
         chat = request["chat"]
@@ -149,6 +183,11 @@ def listen(platform) -> int:
             continue
         if chat == "no-id":
             write({"id": request["id"], "ok": True})
+            continue
+        if chat == "doc-failed":      # the text went out and its document did not: ok, with the id, and the flag the bridge reads
+            sends += 1
+            count = append("sent.jsonl", {"chat": chat, "message": request["message"]})
+            write({"id": request["id"], "ok": True, "message_id": f"m{count}", "document_failed": True})
             continue
         sends += 1
         sent = {"chat": chat, "message": request["message"]}

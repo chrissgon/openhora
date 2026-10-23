@@ -17,7 +17,7 @@ What the workbench should contain, per area. This is a plan, not a promise: a sk
 
 ## Evaluation status
 
-A skill's standing is computed from its evidence, never written by hand. `python3 evals/eval_status.py status` computes it from the evidence files, `skills/<name>/evals/evidence/`: the pessimistic score, always with the mean and the number of runs, and the band, a rule computed on the reference model and shown with its cause and the command that clears it.
+A skill's standing is computed from its evidence, never written by hand. `python3 evals/eval_status.py status` computes it from the evidence files, `skills/<name>/evals/evidence/`: the pessimistic score, always with the mean and the number of runs, and the band, a rule computed for each model on its own evidence and shown with its cause and the command that clears it.
 
 - `needs a test`: no full test of the current major version passes the gate; or a guard assertion has a confirmed failure, or no run, in the current set; or the newest full test fails the gate, or a case changed after it.
 - `watch`: no lab run with the skill in the current set; or only guard cases have run in it; or the pessimistic score is under 0.70; or three or more Y changes since the newest full test; or the field signal is on.

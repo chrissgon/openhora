@@ -151,7 +151,8 @@ def test_the_router_step_is_a_run_of_the_unmodified_skill_and_returns_no_file(tr
     out = ops.route(path, request["request"])
     assert st.calls(tree["adapter"]) == ["core-orchestrator 1"]  # the one skill staged is the router
     prompt = open(os.path.join(out["run_dir"], "prompt.md"), encoding="utf-8").read()
-    assert prompt.rstrip("\n").endswith("For this task: " + router.ROUTE_TASK_TEXT)
+    # the task paragraph, then the language paragraph every router run gets (runtime/language.py), and nothing else
+    assert prompt.rstrip("\n").endswith("For this task: " + router.ROUTE_TASK_TEXT + "\n\n" + st.load("language").router_line(None, None).rstrip("\n"))
     assert prompt.startswith("Tell me which market to go after first.\nWe sell to clinics.\n")
     assert state.read_text(encoding="utf-8") == before  # the line the router added did not come back
     assert out["kept"] == [{"path": "docs/workbench/state.md", "class": "state", "reason": ops.ROUTE_KEPT}]

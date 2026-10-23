@@ -25,13 +25,17 @@ fields, written by the runtime and never read back). Only code talks to the boar
                               waits for (the store's waits), before the task's own note. With dry_run, every write is
                               printed by the provider (upsert --dry-run) and nothing changes.
 
+A question answered from the sources (package AQ-1, runtime/ops_ask.py) is not mirrored, while it runs or after: its request has no task and
+a run of the answer skill, and its text is the person's question, which the board's hosts would otherwise keep (asked()).
+
 Only what is still open when the board is configured is mirrored: a task that was already final (done or cancelled)
 at the first sync that writes to the board never gets an item (left_out()). That sync records its time in the
 store's cursor board:configured. A task that becomes final later keeps its item, and the item moves.
 
 The three moves a person may make on the board:
   ready      on a task that is failed or blocked: it is retried (store.task_retry)
-  cancelled  on a request that is not final: it is cancelled with what is open under it (store.request_cancel)
+  cancelled  on a request that is not final: it is cancelled with what is open under it, at any moment, a task that runs
+             stopped (ops_cancel.cancel_request, by "board")
   done       on a task waiting on a review: the review is released (store.pending_resolve, by "board")
 
 The bounds of the writes: they are the project configuration's task_board object, inside the file whose hash the
@@ -46,6 +50,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -54,6 +59,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
 import project_config  # noqa: E402  (the same folder: the resolver is loaded, and the bounds read, from here)
 
 CLASS = "integration:issue-tracker"
@@ -159,17 +165,39 @@ def left_out(ctx: dict, tasks=None) -> list:
             if not t.get("remote_id") and t["state"] in FINAL and t["updated_at"] <= configured]
 
 
+def asked(ctx: dict, tasks=None) -> list:
+    """The ids of the requests that are a question answered from the sources: a request with no task that has a run of a skill other
+    than the router's (the only runs a request has are the router's and an answer run: `ask` makes the request with its run, in one
+    transaction, so none is ever seen without one). Marked by what the store holds, not by the configuration now: a question stays
+    one when the answer skill is renamed or removed. Never mirrored: its text is the person's question, and the board's host is not
+    where a question goes."""
+    store, conn = ctx["store"], ctx["conn"]
+    tasks = store.tasks_list(conn) if tasks is None else tasks
+    parents = {t["parent_id"] for t in tasks if t["parent_id"] is not None}
+    return [t["id"] for t in tasks if t["parent_id"] is None and t["id"] not in parents and not t.get("remote_id")
+            and any(r["skill"] != roles_router() for r in store.task_runs_list(conn, t["id"]))]
+
+
+def roles_router() -> str:
+    """The router's skill, the one skill whose runs a request has besides an answer run."""
+    return importlib.import_module("router").ROUTER_SKILL
+
+
 def _open_pending(ctx: dict, task_id: int):
     found = ctx["store"].pending_list(ctx["conn"], "open", task_id)
     return found[0] if found else None
 
 
-def pull(ctx: dict) -> dict:
+def pull(ctx: dict, defer: bool = False) -> dict:
     """The board to the store (see the module's text). Returns {"pulled", "created", "edited", "refused", "gone",
     "comments", "left_out_final"}: "comments" is the number of comments saved that were not saved before;
-    "left_out_final" the number of tasks never mirrored because they were final when the board was configured."""
+    "left_out_final" the number of tasks never mirrored because they were final when the board was configured.
+    With defer, a request cancelled on the board is not cancelled here but listed under "cancel_later" (the ids): a cancel may take a
+    minute to end a run, and `sync` holds the write lock while it pulls; it cancels them after it let the lock go (ops_cancel.after_sync)."""
     cfg, store, conn, root = ctx["cfg"], ctx["store"], ctx["conn"], ctx["root"]
     out = {"pulled": [], "created": [], "edited": [], "refused": [], "gone": [], "comments": 0, "left_out_final": 0}
+    if defer:
+        out["cancel_later"] = []
     listed = {item["id"]: item for item in call(cfg, root, "list", []).get("items", [])}
     tasks = store.tasks_list(conn)
     out["left_out_final"] = len(left_out(ctx, tasks))
@@ -215,7 +243,7 @@ def pull(ctx: dict) -> dict:
                 out["refused"].append({"task": task["id"], "reason": str(e)})
         state = got.get("state")
         if state != task["state"]:
-            reason = _take_state(ctx, task, state)
+            reason = _take_state(ctx, task, state, out.get("cancel_later"))
             if reason:
                 out["refused"].append({"task": task["id"], "state": state, "reason": reason})
                 written = None  # the next push writes the store's state back
@@ -257,16 +285,19 @@ def _save_comments(ctx: dict, task_id: int, comments) -> int:
                                       subject="task", task_id=task_id)["saved"]
 
 
-def _take_state(ctx: dict, task: dict, state):
-    """Take a state a person set on the board when it is one of the three moves; else the reason it is refused."""
+def _take_state(ctx: dict, task: dict, state, later=None):
+    """Take a state a person set on the board when it is one of the three moves; else the reason it is refused. later is the list a
+    cancel is put on instead of being made (pull's defer)."""
     store, conn = ctx["store"], ctx["conn"]
     try:
         if state == "ready" and task["state"] in ("failed", "blocked"):
             store.task_retry(conn, task["id"])
             return None
         if state == "cancelled" and task.get("parent_id") is None and task["state"] not in FINAL:
-            store.request_cancel(conn, task["id"], by="board")
-            return None
+            if later is not None:
+                later.append(task["id"])
+                return None
+            return _cancel_from_board(ctx, task["id"])
         if state == "done" and task["state"] == "waiting":
             pending = _open_pending(ctx, task["id"])
             if pending and pending["kind"] == "review":
@@ -276,6 +307,17 @@ def _take_state(ctx: dict, task: dict, state):
         return str(e)
     return (f"the board moved task {task['id']} from {task['state']} to {state}: only ready (a failed or blocked "
             "task), cancelled (a request) and done (a task waiting on a review) are taken from the board")
+
+
+def _cancel_from_board(ctx: dict, request_id: int):
+    """A request cancelled on the board is cancelled as anywhere else, at any moment (R18, runtime/ops_cancel.py): a task of it that
+    runs is stopped. None when it is, else the reason it is refused (an effect of the request is executing)."""
+    cancel = importlib.import_module("ops_cancel")
+    try:
+        cancel.cancel_request(ctx, request_id, by="board", channel="board")
+    except cancel.core.OpsError as e:
+        return str(e)
+    return None
 
 
 def _key(cfg: dict, task_id: int, digest: str) -> str:
@@ -294,7 +336,7 @@ def push(ctx: dict, dry_run: bool = False) -> dict:
     tasks = store.tasks_list(conn)
     if not dry_run and store.cursor_get(conn, CONFIGURED) is None:
         store.cursor_set(conn, CONFIGURED, _now())  # the board is configured: what is final now is never mirrored
-    never = set(left_out(ctx, tasks))
+    never = set(left_out(ctx, tasks)) | set(asked(ctx, tasks))
     waiting = {}
     for w in store.waits_list(conn):
         waiting.setdefault(w["task_id"], []).append(w)

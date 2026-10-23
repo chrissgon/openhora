@@ -78,12 +78,13 @@ HELPERS = r"""
 import { FakeNode, has, settle } from "@FAKE@";
 const flat = (n) => (n.children === undefined ? n.data : n.children.filter((c) => !(c.attrs && c.attrs["aria-hidden"] === "true")).map(flat).join(" "));
 const text = (n) => flat(n).replace(/\s+/g, " ").trim();
-const pair = (tier, band, score, extra = {}) => ({ tier, model: tier === "strong" ? "reference-model-1" : "floor-model-1", adapter: tier === "strong" ? "adapter-a" : "adapter-b", band, cause: null, score, mean: score, runs: 9, ...extra });
-const skill = (name, area, strong, floor, extra = {}) => ({ name, version: "1.2.0", area, manifest: true, runs_here: 3, proof: [strong, floor].filter(Boolean), ...extra });
+const pair = (model, band, score, extra = {}) => ({ model, adapter: model === "model-a" ? "adapter-a" : "adapter-b", band, cause: null, score, mean: score, runs: 9, source: "lab",
+  price: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75, source: "https://prices.example/models", accessed: "2026-10-01", age_days: 14, stale: false }, expected_cost: 0.0012, ...extra });
+const skill = (name, area, first, second, extra = {}) => ({ name, version: "1.2.0", area, manifest: true, runs_here: 3, proof: [first, second].filter(Boolean), ...extra });
 const skillsData = {
-  skills: [skill("brand-voice", "brand", pair("strong", "reliable", 0.86), pair("floor", "watch", 0.58, { cause: "pessimistic score under 0.70" })),
-    skill("brand-identity", "brand", pair("strong", "watch", 0.66), pair("floor", "needs a test", null, { mean: null, runs: 0, cause: "no evidence on this model" }), { runs_here: 0 }),
-    skill("mkt-publish", "marketing", pair("strong", "needs a test", null, { mean: null, runs: 0 }), null, { manifest: false, runs_here: null })],
+  skills: [skill("brand-voice", "brand", pair("model-a", "reliable", 0.86), pair("model-b", "watch", 0.58, { cause: "pessimistic score under 0.70" }), { recommended: "model-a" }),
+    skill("brand-identity", "brand", pair("model-a", "watch", 0.66), pair("model-b", "needs a test", null, { mean: null, runs: 0, cause: "no evidence on this model", source: null, expected_cost: null, price: null }), { runs_here: 0 }),
+    skill("mkt-publish", "marketing", pair("model-a", "needs a test", null, { mean: null, runs: 0 }), null, { manifest: false, runs_here: null })],
   checks: { measurement: "ok", image: "ok" },
 };
 """
@@ -102,7 +103,7 @@ out.rows = rowsOf().map((r) => {
   const sum = r.children[0];
   return { cls: r.cls(), parts: sum.children.map((c) => c.cls().join(" ")), cells: sum.children.map(text), body: r.find((n) => has(n, "wb-skill-detail")).children.map(text), open: r.open, label: sum.attrs["aria-label"] };
 });
-// the score comes first, then the band's chip (M-2, R-53), in the list
+// the best band's chip comes first, then how many models are reliable (R-53), in the list
 const band = rowsOf()[0].children[0].children[4].find((n) => has(n, "wb-band"));
 out.order = band.children.flatMap((c) => c.cls().filter((x) => x === "wb-score" || x === "pui-chip"));
 // the chevron is the accordion's, drawn by the stylesheet from an icon
@@ -115,10 +116,10 @@ tab.set({ status: "ready", data: skillsData });
 out.keptOpen = [rowsOf()[0].open, cards()[0].open, rowsOf()[1].open];
 cards()[1].open = true; cards()[1].fire("toggle");
 out.cardToRow = [rowsOf()[1].open, rowsOf()[2].open];
-// the card of a phone: name and "version · area", the manifest and runs, the two tiers with the score first; opened: the two sentences only
+// the card of a phone: name and "version · area", the manifest and runs, the models cell; opened: the recommendation and one sentence for each model
 out.cards = cards().map((c) => ({ summary: text(c.children[0]), body: c.find((n) => has(n, "wb-skill-detail")).children.map(text) }));
-const tier = cards()[0].find((n) => has(n, "wb-sc-3"));
-out.cardOrder = tier.all((n) => has(n, "wb-band"))[0].children.flatMap((c) => c.cls().filter((x) => x === "wb-score" || x === "pui-chip"));
+const models = cards()[0].find((n) => has(n, "wb-sc-3"));
+out.cardOrder = models.all((n) => has(n, "wb-band"))[0].children.flatMap((c) => c.cls().filter((x) => x === "wb-score" || x === "pui-chip"));
 // a filter that matches nothing and a read with no skill
 const area = tab.el.all((n) => n.tagName === "SELECT")[0];
 area.value = "marketing"; area.fire("change");
@@ -128,33 +129,33 @@ console.log(JSON.stringify(out));
 
 
 @needs_node_here
-def test_the_skills_tab_is_a_list_of_accordions_in_five_columns_with_the_score_before_the_chip(tmp_path):
-    """R-53 and (a) 5: the table is a list of accordions (the chevron, the name, the version, the area, the two tiers); opened: Manifest, Runs here and the two sentences;
-    in a tier the score comes first, then the band's chip, in the list and on the phone's card (M-2)."""
+def test_the_skills_tab_is_a_list_of_accordions_with_the_best_band_and_the_count_of_reliable_models(tmp_path):
+    """R-53 and (a) 5: the table is a list of accordions (the chevron, the name, the version, the area, the models); opened: Manifest, Runs here, the recommendation and one
+    sentence for each model; the models cell is the best band's chip, then how many models are reliable, in the list and on the phone's card."""
     got = node(tmp_path, SKILLS_R4)
     assert got["tables"] == 0, "R-53: no table on this tab"
-    assert got["group"] == ["group", "Skills in scope, with their band and score on the reference model and the floor model"]
-    assert got["head"] == ["true", ["", "Skill", "Version", "Area", "Reference model", "Floor model"]], "the head row names the five columns (hidden from a screen reader: each row names itself)"
+    assert got["group"] == ["group", "Skills in scope, with their band on each model"]
+    assert got["head"] == ["true", ["", "Skill", "Version", "Area", "Models"]], "the head row names the columns (hidden from a screen reader: each row names itself)"
     first, second, third = got["rows"]
-    assert first["parts"] == ["wb-acc-chev", "wb-code wb-skill-name", "wb-muted wb-skill-ver", "wb-muted wb-skill-area", "wb-skill-tier", "wb-skill-tier"]
-    assert first["cells"] == ["", "brand-voice", "1.2.0", "brand", "0.86 reliable", "0.58 watch"], "the score first, then the chip's word"
-    assert second["cells"][4:] == ["0.66 watch", "- needs a test"], "an untested pair has no score: '-', never 0.00"
-    assert third["cells"][4:] == ["- needs a test", "-"], "no pair for a tier: '-' alone"
-    assert first["body"] == ["Manifest: yes", "Runs here: 3",
-                             "Reference model: reference-model-1, adapter-a, mean 0.86, 9 runs. Cause: none.",
-                             "Floor model: floor-model-1, adapter-b, mean 0.58, 9 runs. Cause: pessimistic score under 0.70."]
-    assert third["body"][:2] == ["Manifest: no", "Runs here: -"] and third["body"][-1] == "Floor model: the service sent no proof for this model."
-    assert first["label"].startswith("brand-voice, version 1.2.0, brand, reference model 0.86 reliable, floor model 0.58 watch"), "a row names its cells, since the head is hidden"
+    assert first["parts"] == ["wb-acc-chev", "wb-code wb-skill-name", "wb-muted wb-skill-ver", "wb-muted wb-skill-area", "wb-skill-models"]
+    assert first["cells"] == ["", "brand-voice", "1.2.0", "brand", "reliable 1 of 2 models"], "the best band's chip, then how many models are reliable"
+    assert second["cells"][4:] == ["watch 0 of 2 models"], "a skill with no reliable model says so"
+    assert third["cells"][4:] == ["needs a test 0 of 1 model"], "one pair: the singular"
+    priced = "Price: $3.00 in, $15.00 out per million tokens (read 2026-10-01). about $0.0012 a run."
+    assert first["body"] == ["Manifest: yes", "Runs here: 3", "Recommended: model-a, the cheapest model on which this skill is reliable.",
+                             f"model-a (lab evidence): adapter-a, reliable, mean 0.86, 9 runs. {priced} Cause: none.",
+                             f"model-b (lab evidence): adapter-b, watch, mean 0.58, 9 runs. {priced} Cause: pessimistic score under 0.70."]
+    assert third["body"][:2] == ["Manifest: no", "Runs here: -"]
+    assert first["label"].startswith("brand-voice, version 1.2.0, brand, reliable, 1 of 2 models reliable"), "a row names its cells, since the head is hidden"
     assert [r["open"] for r in got["rows"]] == [False, False, False]
-    assert got["order"] == ["wb-score", "pui-chip"], "the score before the chip (R-53)"
+    assert got["order"] == ["pui-chip", "wb-score"], "the chip, then the count (R-53)"
     assert got["chevron"] == ["wb-acc-chev"]
     assert got["afterToggle"] == [True, False], "opening a row of the list opens the same skill's card (one set of names)"
     assert got["keptOpen"] == [True, True, False], "an open row stays open through a read"
     assert got["cardToRow"] == [True, False]
-    assert got["cards"][0]["summary"] == "brand-voice 1.2.0 · brand Manifest yes · 3 runs here Reference 0.86 reliable Floor 0.58 watch", "R-55: one card per skill, the score first"
-    assert got["cards"][0]["body"] == ["Reference model: reference-model-1, adapter-a, mean 0.86, 9 runs. Cause: none.",
-                                       "Floor model: floor-model-1, adapter-b, mean 0.58, 9 runs. Cause: pessimistic score under 0.70."], "the card says Manifest and Runs here in its summary: its body holds the two sentences"
-    assert got["cardOrder"] == ["wb-score", "pui-chip"]
+    assert got["cards"][0]["summary"] == "brand-voice 1.2.0 · brand Manifest yes · 3 runs here Models reliable 1 of 2 models", "R-55: one card per skill"
+    assert got["cards"][0]["body"] == first["body"][2:], "the card says Manifest and Runs here in its summary: its body holds the recommendation and one sentence for each model"
+    assert got["cardOrder"] == ["pui-chip", "wb-score"]
     assert got["afterArea"] == ["mkt-publish"]
 
 
@@ -193,7 +194,7 @@ def test_the_checks_notice_date_refused_and_the_failed_read_are_the_soft_error_s
     for key in ("checks", "skillsFailed", "connFailed", "refused", "costsFailed"):
         assert got[key]["cls"] == base and got[key]["role"] == "alert" and got[key]["icon"] is True, key
     assert got["checks"]["title"] == "A check of the proof failed"
-    assert [line[0] for line in got["checks"]["lines"]] == ["These skills run as not proven: on the reference model and without autonomy.", "Measurement check: ok",
+    assert [line[0] for line in got["checks"]["lines"]] == ["These skills run as not proven: without autonomy, on any model.", "Measurement check: ok",
                                                           "Image check: the image on this machine is not the one the evidence of 2 skill(s) was measured in"]
     assert got["checksFirst"] == [True, True], "the notice is first in the tab, above the legend"
     assert got["skillsFailed"]["title"] == "The read failed" and got["skillsFailed"]["lines"] == [["the proof of x cannot be read: y", True]], "the service's message in the mono face"

@@ -1,0 +1,2837 @@
+{
+ "v": 1,
+ "split": "dev",
+ "notes": "Dev value pools per language (`sets`: {lang: {pool: [values]}}). A value is {text} plus `resolve` for time pools ({days: N>=1 | weekday: mon..sun, hour, minute}: clock date + N days, or the next date strictly after the clock date with that weekday; never pick a clock on that weekday) and `gold` for ints pools (digits joined by ','). Word pools are one token. Addresses are on .example domains; every name and company is fictional.",
+ "sets": {
+  "pt-BR": {
+   "when": [
+    {
+     "text": "amanhã às 9",
+     "resolve": {
+      "days": 1,
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "amanhã cedo, 7h30",
+     "resolve": {
+      "days": 1,
+      "hour": 7,
+      "minute": 30
+     }
+    },
+    {
+     "text": "depois de amanhã às 14h",
+     "resolve": {
+      "days": 2,
+      "hour": 14,
+      "minute": 0
+     }
+    },
+    {
+     "text": "quinta às 10h",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "sexta de manhã às 8h",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 8,
+      "minute": 0
+     }
+    },
+    {
+     "text": "segunda 9h",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "sábado às 11h",
+     "resolve": {
+      "weekday": "sat",
+      "hour": 11,
+      "minute": 0
+     }
+    },
+    {
+     "text": "amanhã 18h30",
+     "resolve": {
+      "days": 1,
+      "hour": 18,
+      "minute": 30
+     }
+    },
+    {
+     "text": "daqui a 3 dias às 10h",
+     "resolve": {
+      "days": 3,
+      "hour": 10,
+      "minute": 0
+     }
+    }
+   ],
+   "time": [
+    {
+     "text": "quinta às 15h",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 15,
+      "minute": 0
+     }
+    },
+    {
+     "text": "amanhã às 10h",
+     "resolve": {
+      "days": 1,
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "sexta 14h30",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 14,
+      "minute": 30
+     }
+    },
+    {
+     "text": "segunda às 9h",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "depois de amanhã às 11h",
+     "resolve": {
+      "days": 2,
+      "hour": 11,
+      "minute": 0
+     }
+    },
+    {
+     "text": "amanhã 8h",
+     "resolve": {
+      "days": 1,
+      "hour": 8,
+      "minute": 0
+     }
+    }
+   ],
+   "text": [
+    {
+     "text": "pagar o IPVA"
+    },
+    {
+     "text": "levar o Thor no veterinário"
+    },
+    {
+     "text": "ligar pra Marina do RH"
+    },
+    {
+     "text": "renovar o seguro do carro"
+    },
+    {
+     "text": "tirar a roupa da máquina"
+    },
+    {
+     "text": "mandar o relatório pro Otávio"
+    },
+    {
+     "text": "comprar ração"
+    },
+    {
+     "text": "buscar o Caio na natação"
+    },
+    {
+     "text": "tomar o antibiótico"
+    }
+   ],
+   "title": [
+    {
+     "text": "dentista com a Dra. Lívia"
+    },
+    {
+     "text": "reunião com a Vetra Engenharia"
+    },
+    {
+     "text": "almoço com o Rui"
+    },
+    {
+     "text": "corte de cabelo"
+    },
+    {
+     "text": "call de alinhamento com o time"
+    },
+    {
+     "text": "aula de pilates"
+    },
+    {
+     "text": "entrevista com candidata de design"
+    }
+   ],
+   "to": [
+    {
+     "text": "renata.alves@vetra.example"
+    },
+    {
+     "text": "compras@padariasol.example"
+    },
+    {
+     "text": "joao.m@cooperverde.example"
+    },
+    {
+     "text": "financeiro@lumenrio.example"
+    },
+    {
+     "text": "tati@estudiokora.example"
+    },
+    {
+     "text": "suporte@nuvemclara.example"
+    }
+   ],
+   "subject": [
+    {
+     "text": "orçamento de novembro"
+    },
+    {
+     "text": "atraso na entrega"
+    },
+    {
+     "text": "contrato renovado"
+    },
+    {
+     "text": "fotos do evento"
+    },
+    {
+     "text": "nota fiscal pendente"
+    },
+    {
+     "text": "reunião de quinta"
+    }
+   ],
+   "body": [
+    {
+     "text": "segue o orçamento atualizado, qualquer dúvida me chama"
+    },
+    {
+     "text": "consegue me mandar a nota até sexta?"
+    },
+    {
+     "text": "obrigada pelo retorno, fechamos assim"
+    },
+    {
+     "text": "vou atrasar uns minutos, desculpa"
+    },
+    {
+     "text": "pode confirmar o endereço da entrega?"
+    },
+    {
+     "text": "tudo certo por aqui, abraço"
+    }
+   ],
+   "id": [
+    {
+     "text": "4"
+    },
+    {
+     "text": "12"
+    },
+    {
+     "text": "27"
+    },
+    {
+     "text": "8"
+    },
+    {
+     "text": "31"
+    },
+    {
+     "text": "15"
+    },
+    {
+     "text": "102"
+    }
+   ],
+   "messages": [
+    {
+     "text": "3 e 5",
+     "gold": "3,5"
+    },
+    {
+     "text": "2, 4 e 7",
+     "gold": "2,4,7"
+    },
+    {
+     "text": "1 e 2",
+     "gold": "1,2"
+    },
+    {
+     "text": "6",
+     "gold": "6"
+    },
+    {
+     "text": "10 e 11",
+     "gold": "10,11"
+    },
+    {
+     "text": "3, 8 e 9",
+     "gold": "3,8,9"
+    }
+   ],
+   "folder": [
+    {
+     "text": "Financeiro"
+    },
+    {
+     "text": "Clientes"
+    },
+    {
+     "text": "Arquivo2026"
+    },
+    {
+     "text": "Notas"
+    },
+    {
+     "text": "Projetos"
+    },
+    {
+     "text": "Pessoal"
+    }
+   ],
+   "state": [
+    {
+     "text": "lida"
+    },
+    {
+     "text": "não lida"
+    },
+    {
+     "text": "lidas"
+    },
+    {
+     "text": "não lidas"
+    }
+   ],
+   "name": [
+    {
+     "text": "ata-reuniao.txt"
+    },
+    {
+     "text": "lista-compras.md"
+    },
+    {
+     "text": "ideias-podcast.txt"
+    },
+    {
+     "text": "checklist-viagem.md"
+    },
+    {
+     "text": "orcamento-festa.txt"
+    },
+    {
+     "text": "notas-curso.md"
+    }
+   ],
+   "content": [
+    {
+     "text": "pauta: fechamento do mês e metas de dezembro"
+    },
+    {
+     "text": "arroz, feijão, café e detergente"
+    },
+    {
+     "text": "episódio sobre finanças pessoais com convidada"
+    },
+    {
+     "text": "passaporte, carregador, remédios e casaco"
+    },
+    {
+     "text": "bolo, salgados, refrigerante e decoração azul"
+    },
+    {
+     "text": "resumo da aula de sexta"
+    }
+   ],
+   "file": [
+    {
+     "text": "planilha de preços"
+    },
+    {
+     "text": "cardápio da semana"
+    },
+    {
+     "text": "lista de fornecedores"
+    },
+    {
+     "text": "roteiro do evento"
+    },
+    {
+     "text": "tabela de horários"
+    }
+   ],
+   "attachment": [
+    {
+     "text": "1"
+    },
+    {
+     "text": "2"
+    },
+    {
+     "text": "3"
+    },
+    {
+     "text": "5"
+    }
+   ],
+   "event": [
+    {
+     "text": "3"
+    },
+    {
+     "text": "4"
+    },
+    {
+     "text": "6"
+    },
+    {
+     "text": "9"
+    }
+   ],
+   "message": [
+    {
+     "text": "2"
+    },
+    {
+     "text": "5"
+    },
+    {
+     "text": "7"
+    },
+    {
+     "text": "12"
+    }
+   ],
+   "calendar": [
+    {
+     "text": "Trabalho"
+    },
+    {
+     "text": "Pessoal"
+    },
+    {
+     "text": "Família"
+    },
+    {
+     "text": "Academia"
+    }
+   ],
+   "service": [
+    {
+     "text": "google"
+    },
+    {
+     "text": "outlook"
+    }
+   ],
+   "path": [
+    {
+     "text": "docs/plano-trimestral.md"
+    },
+    {
+     "text": "docs/briefing.md"
+    },
+    {
+     "text": "docs/ata-kickoff.md"
+    },
+    {
+     "text": "docs/roadmap.md"
+    }
+   ],
+   "flow": [
+    {
+     "text": "onboarding-cliente"
+    },
+    {
+     "text": "fechamento-mensal"
+    },
+    {
+     "text": "relatorio-semanal"
+    },
+    {
+     "text": "triagem-leads"
+    }
+   ],
+   "since": [
+    {
+     "text": "7d"
+    },
+    {
+     "text": "3d"
+    },
+    {
+     "text": "14d"
+    },
+    {
+     "text": "2026-10-01"
+    },
+    {
+     "text": "2026-10-15"
+    },
+    {
+     "text": "30d"
+    }
+   ],
+   "person": [
+    {
+     "text": "Marina"
+    },
+    {
+     "text": "Otávio"
+    },
+    {
+     "text": "Rui"
+    },
+    {
+     "text": "Tati"
+    },
+    {
+     "text": "seu Jorge"
+    },
+    {
+     "text": "Bia"
+    }
+   ],
+   "area": [
+    {
+     "text": "marketing"
+    },
+    {
+     "text": "vendas"
+    },
+    {
+     "text": "suporte"
+    },
+    {
+     "text": "financeiro"
+    }
+   ],
+   "topic": [
+    {
+     "text": "o lançamento da linha de inverno"
+    },
+    {
+     "text": "nosso cardápio vegano"
+    },
+    {
+     "text": "a feira de artesanato de sábado"
+    },
+    {
+     "text": "dicas de organização pra home office"
+    },
+    {
+     "text": "a promoção de aniversário da loja"
+    },
+    {
+     "text": "o novo curso de cerâmica"
+    }
+   ],
+   "company": [
+    {
+     "text": "Vetra Engenharia"
+    },
+    {
+     "text": "Padaria Sol"
+    },
+    {
+     "text": "Cooperverde"
+    },
+    {
+     "text": "Estúdio Kora"
+    },
+    {
+     "text": "Nuvem Clara"
+    },
+    {
+     "text": "Lumen Rio"
+    }
+   ]
+  },
+  "en": {
+   "when": [
+    {
+     "text": "tomorrow at 9am",
+     "resolve": {
+      "days": 1,
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "tomorrow morning at 7:30",
+     "resolve": {
+      "days": 1,
+      "hour": 7,
+      "minute": 30
+     }
+    },
+    {
+     "text": "the day after tomorrow at 2pm",
+     "resolve": {
+      "days": 2,
+      "hour": 14,
+      "minute": 0
+     }
+    },
+    {
+     "text": "thursday at 10",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "friday 8am",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 8,
+      "minute": 0
+     }
+    },
+    {
+     "text": "monday at 9",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "saturday 11am",
+     "resolve": {
+      "weekday": "sat",
+      "hour": 11,
+      "minute": 0
+     }
+    },
+    {
+     "text": "tomorrow at 6:30pm",
+     "resolve": {
+      "days": 1,
+      "hour": 18,
+      "minute": 30
+     }
+    },
+    {
+     "text": "in 3 days at 10am",
+     "resolve": {
+      "days": 3,
+      "hour": 10,
+      "minute": 0
+     }
+    }
+   ],
+   "time": [
+    {
+     "text": "thursday at 3pm",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 15,
+      "minute": 0
+     }
+    },
+    {
+     "text": "tomorrow at 10am",
+     "resolve": {
+      "days": 1,
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "friday 2:30pm",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 14,
+      "minute": 30
+     }
+    },
+    {
+     "text": "monday at 9am",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "the day after tomorrow at 11am",
+     "resolve": {
+      "days": 2,
+      "hour": 11,
+      "minute": 0
+     }
+    },
+    {
+     "text": "tomorrow 8am",
+     "resolve": {
+      "days": 1,
+      "hour": 8,
+      "minute": 0
+     }
+    }
+   ],
+   "text": [
+    {
+     "text": "renew my car registration"
+    },
+    {
+     "text": "take Biscuit to the vet"
+    },
+    {
+     "text": "call Megan from HR"
+    },
+    {
+     "text": "pay the water bill"
+    },
+    {
+     "text": "move the laundry to the dryer"
+    },
+    {
+     "text": "send the report to Owen"
+    },
+    {
+     "text": "buy dog food"
+    },
+    {
+     "text": "pick up Leo from swim practice"
+    },
+    {
+     "text": "take the antibiotic"
+    }
+   ],
+   "title": [
+    {
+     "text": "dentist with Dr. Patel"
+    },
+    {
+     "text": "meeting with Harbor & Pine"
+    },
+    {
+     "text": "lunch with Marcus"
+    },
+    {
+     "text": "haircut"
+    },
+    {
+     "text": "team sync call"
+    },
+    {
+     "text": "yoga class"
+    },
+    {
+     "text": "interview with a design candidate"
+    }
+   ],
+   "to": [
+    {
+     "text": "megan.cho@harborpine.example"
+    },
+    {
+     "text": "orders@greenleafbakery.example"
+    },
+    {
+     "text": "owen@brightkettle.example"
+    },
+    {
+     "text": "billing@northfield.example"
+    },
+    {
+     "text": "dana@quillstudio.example"
+    },
+    {
+     "text": "help@cloudmoss.example"
+    }
+   ],
+   "subject": [
+    {
+     "text": "November quote"
+    },
+    {
+     "text": "late delivery"
+    },
+    {
+     "text": "contract renewal"
+    },
+    {
+     "text": "event photos"
+    },
+    {
+     "text": "missing invoice"
+    },
+    {
+     "text": "Thursday meeting"
+    }
+   ],
+   "body": [
+    {
+     "text": "here's the updated quote, let me know if anything's unclear"
+    },
+    {
+     "text": "could you send the invoice by friday?"
+    },
+    {
+     "text": "thanks for getting back to me, let's go with that"
+    },
+    {
+     "text": "running a few minutes late, sorry"
+    },
+    {
+     "text": "can you confirm the delivery address?"
+    },
+    {
+     "text": "all good on our side, cheers"
+    }
+   ],
+   "id": [
+    {
+     "text": "4"
+    },
+    {
+     "text": "12"
+    },
+    {
+     "text": "27"
+    },
+    {
+     "text": "8"
+    },
+    {
+     "text": "31"
+    },
+    {
+     "text": "15"
+    },
+    {
+     "text": "102"
+    }
+   ],
+   "messages": [
+    {
+     "text": "3 and 5",
+     "gold": "3,5"
+    },
+    {
+     "text": "2, 4 and 7",
+     "gold": "2,4,7"
+    },
+    {
+     "text": "1 and 2",
+     "gold": "1,2"
+    },
+    {
+     "text": "6",
+     "gold": "6"
+    },
+    {
+     "text": "10 and 11",
+     "gold": "10,11"
+    },
+    {
+     "text": "3, 8 and 9",
+     "gold": "3,8,9"
+    }
+   ],
+   "folder": [
+    {
+     "text": "Finance"
+    },
+    {
+     "text": "Clients"
+    },
+    {
+     "text": "Archive2026"
+    },
+    {
+     "text": "Receipts"
+    },
+    {
+     "text": "Projects"
+    },
+    {
+     "text": "Personal"
+    }
+   ],
+   "state": [
+    {
+     "text": "read"
+    },
+    {
+     "text": "unread"
+    }
+   ],
+   "name": [
+    {
+     "text": "meeting-notes.txt"
+    },
+    {
+     "text": "grocery-list.md"
+    },
+    {
+     "text": "podcast-ideas.txt"
+    },
+    {
+     "text": "trip-checklist.md"
+    },
+    {
+     "text": "party-budget.txt"
+    },
+    {
+     "text": "course-notes.md"
+    }
+   ],
+   "content": [
+    {
+     "text": "agenda: month close and december goals"
+    },
+    {
+     "text": "rice, beans, coffee and dish soap"
+    },
+    {
+     "text": "episode on personal finance with a guest"
+    },
+    {
+     "text": "passport, charger, meds and a jacket"
+    },
+    {
+     "text": "cake, snacks, soda and blue decorations"
+    },
+    {
+     "text": "summary of friday's class"
+    }
+   ],
+   "file": [
+    {
+     "text": "price sheet"
+    },
+    {
+     "text": "weekly menu"
+    },
+    {
+     "text": "supplier list"
+    },
+    {
+     "text": "event run of show"
+    },
+    {
+     "text": "shift schedule"
+    }
+   ],
+   "attachment": [
+    {
+     "text": "1"
+    },
+    {
+     "text": "2"
+    },
+    {
+     "text": "3"
+    },
+    {
+     "text": "5"
+    }
+   ],
+   "event": [
+    {
+     "text": "3"
+    },
+    {
+     "text": "4"
+    },
+    {
+     "text": "6"
+    },
+    {
+     "text": "9"
+    }
+   ],
+   "message": [
+    {
+     "text": "2"
+    },
+    {
+     "text": "5"
+    },
+    {
+     "text": "7"
+    },
+    {
+     "text": "12"
+    }
+   ],
+   "calendar": [
+    {
+     "text": "Work"
+    },
+    {
+     "text": "Personal"
+    },
+    {
+     "text": "Family"
+    },
+    {
+     "text": "Gym"
+    }
+   ],
+   "service": [
+    {
+     "text": "google"
+    },
+    {
+     "text": "outlook"
+    }
+   ],
+   "path": [
+    {
+     "text": "docs/quarterly-plan.md"
+    },
+    {
+     "text": "docs/brief.md"
+    },
+    {
+     "text": "docs/kickoff-notes.md"
+    },
+    {
+     "text": "docs/roadmap.md"
+    }
+   ],
+   "flow": [
+    {
+     "text": "client-onboarding"
+    },
+    {
+     "text": "month-close"
+    },
+    {
+     "text": "weekly-report"
+    },
+    {
+     "text": "lead-triage"
+    }
+   ],
+   "since": [
+    {
+     "text": "7d"
+    },
+    {
+     "text": "3d"
+    },
+    {
+     "text": "14d"
+    },
+    {
+     "text": "2026-10-01"
+    },
+    {
+     "text": "2026-10-15"
+    },
+    {
+     "text": "30d"
+    }
+   ],
+   "person": [
+    {
+     "text": "Megan"
+    },
+    {
+     "text": "Owen"
+    },
+    {
+     "text": "Marcus"
+    },
+    {
+     "text": "Dana"
+    },
+    {
+     "text": "Mr. Holt"
+    },
+    {
+     "text": "Priya"
+    }
+   ],
+   "area": [
+    {
+     "text": "marketing"
+    },
+    {
+     "text": "sales"
+    },
+    {
+     "text": "support"
+    },
+    {
+     "text": "finance"
+    }
+   ],
+   "topic": [
+    {
+     "text": "our winter collection launch"
+    },
+    {
+     "text": "the new vegan menu"
+    },
+    {
+     "text": "saturday's craft fair"
+    },
+    {
+     "text": "home office organizing tips"
+    },
+    {
+     "text": "the store's anniversary sale"
+    },
+    {
+     "text": "our new pottery course"
+    }
+   ],
+   "company": [
+    {
+     "text": "Harbor & Pine"
+    },
+    {
+     "text": "Greenleaf Bakery"
+    },
+    {
+     "text": "Bright Kettle"
+    },
+    {
+     "text": "Quill Studio"
+    },
+    {
+     "text": "Cloudmoss"
+    },
+    {
+     "text": "Northfield"
+    }
+   ]
+  },
+  "es": {
+   "when": [
+    {
+     "text": "mañana a las 9",
+     "resolve": {
+      "days": 1,
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "pasado mañana a las 14:00",
+     "resolve": {
+      "days": 2,
+      "hour": 14,
+      "minute": 0
+     }
+    },
+    {
+     "text": "el jueves a las 10",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "el viernes a las 8",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 8,
+      "minute": 0
+     }
+    },
+    {
+     "text": "el lunes a las 9:30",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 30
+     }
+    },
+    {
+     "text": "mañana a las 18:30",
+     "resolve": {
+      "days": 1,
+      "hour": 18,
+      "minute": 30
+     }
+    },
+    {
+     "text": "el sábado a las 11",
+     "resolve": {
+      "weekday": "sat",
+      "hour": 11,
+      "minute": 0
+     }
+    },
+    {
+     "text": "dentro de 3 días a las 10",
+     "resolve": {
+      "days": 3,
+      "hour": 10,
+      "minute": 0
+     }
+    }
+   ],
+   "time": [
+    {
+     "text": "el jueves a las 15:00",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 15,
+      "minute": 0
+     }
+    },
+    {
+     "text": "mañana a las 10",
+     "resolve": {
+      "days": 1,
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "el viernes a las 14:30",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 14,
+      "minute": 30
+     }
+    },
+    {
+     "text": "el lunes a las 9",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "pasado mañana a las 11",
+     "resolve": {
+      "days": 2,
+      "hour": 11,
+      "minute": 0
+     }
+    }
+   ],
+   "text": [
+    {
+     "text": "pagar la luz"
+    },
+    {
+     "text": "llevar a Toby al veterinario"
+    },
+    {
+     "text": "llamar a Lucía de recursos humanos"
+    },
+    {
+     "text": "renovar el seguro del coche"
+    },
+    {
+     "text": "sacar la ropa de la lavadora"
+    },
+    {
+     "text": "mandar el informe a Andrés"
+    },
+    {
+     "text": "comprar pienso"
+    },
+    {
+     "text": "recoger a Mateo del colegio"
+    }
+   ],
+   "title": [
+    {
+     "text": "dentista con la Dra. Ferrer"
+    },
+    {
+     "text": "reunión con Alcor Diseño"
+    },
+    {
+     "text": "comida con Javier"
+    },
+    {
+     "text": "corte de pelo"
+    },
+    {
+     "text": "llamada con el equipo"
+    },
+    {
+     "text": "clase de yoga"
+    }
+   ],
+   "to": [
+    {
+     "text": "lucia.ferrer@alcordiseno.example"
+    },
+    {
+     "text": "pedidos@panaderiaalba.example"
+    },
+    {
+     "text": "andres@cerrorojo.example"
+    },
+    {
+     "text": "facturas@marisma.example"
+    },
+    {
+     "text": "carla@estudiotinta.example"
+    },
+    {
+     "text": "soporte@nubegris.example"
+    }
+   ],
+   "subject": [
+    {
+     "text": "presupuesto de noviembre"
+    },
+    {
+     "text": "retraso en la entrega"
+    },
+    {
+     "text": "renovación del contrato"
+    },
+    {
+     "text": "fotos del evento"
+    },
+    {
+     "text": "factura pendiente"
+    }
+   ],
+   "body": [
+    {
+     "text": "te mando el presupuesto actualizado, cualquier duda me dices"
+    },
+    {
+     "text": "¿me puedes enviar la factura antes del viernes?"
+    },
+    {
+     "text": "gracias por responder, lo dejamos así"
+    },
+    {
+     "text": "llego unos minutos tarde, perdón"
+    },
+    {
+     "text": "¿puedes confirmar la dirección de entrega?"
+    }
+   ],
+   "id": [
+    {
+     "text": "4"
+    },
+    {
+     "text": "12"
+    },
+    {
+     "text": "27"
+    },
+    {
+     "text": "8"
+    },
+    {
+     "text": "31"
+    },
+    {
+     "text": "15"
+    }
+   ],
+   "messages": [
+    {
+     "text": "3 y 5",
+     "gold": "3,5"
+    },
+    {
+     "text": "2, 4 y 7",
+     "gold": "2,4,7"
+    },
+    {
+     "text": "1 y 2",
+     "gold": "1,2"
+    },
+    {
+     "text": "6",
+     "gold": "6"
+    },
+    {
+     "text": "10 y 11",
+     "gold": "10,11"
+    },
+    {
+     "text": "3, 8 y 9",
+     "gold": "3,8,9"
+    }
+   ],
+   "folder": [
+    {
+     "text": "Finanzas"
+    },
+    {
+     "text": "Clientes"
+    },
+    {
+     "text": "Archivo2026"
+    },
+    {
+     "text": "Facturas"
+    },
+    {
+     "text": "Proyectos"
+    },
+    {
+     "text": "Personal"
+    }
+   ],
+   "state": [
+    {
+     "text": "leído"
+    },
+    {
+     "text": "no leído"
+    },
+    {
+     "text": "leídos"
+    },
+    {
+     "text": "no leídos"
+    }
+   ],
+   "name": [
+    {
+     "text": "acta-reunion.txt"
+    },
+    {
+     "text": "lista-compra.md"
+    },
+    {
+     "text": "ideas-podcast.txt"
+    },
+    {
+     "text": "checklist-viaje.md"
+    },
+    {
+     "text": "presupuesto-fiesta.txt"
+    },
+    {
+     "text": "apuntes-curso.md"
+    }
+   ],
+   "content": [
+    {
+     "text": "orden del día: cierre de mes y objetivos de diciembre"
+    },
+    {
+     "text": "arroz, lentejas, café y lavavajillas"
+    },
+    {
+     "text": "episodio sobre finanzas personales"
+    },
+    {
+     "text": "pasaporte, cargador, medicinas y abrigo"
+    },
+    {
+     "text": "tarta, bocadillos y globos azules"
+    },
+    {
+     "text": "resumen de la clase del viernes"
+    }
+   ],
+   "file": [
+    {
+     "text": "hoja de precios"
+    },
+    {
+     "text": "carta de la semana"
+    },
+    {
+     "text": "lista de proveedores"
+    },
+    {
+     "text": "tabla de turnos"
+    },
+    {
+     "text": "escaleta del evento"
+    }
+   ],
+   "attachment": [
+    {
+     "text": "1"
+    },
+    {
+     "text": "2"
+    },
+    {
+     "text": "3"
+    },
+    {
+     "text": "5"
+    }
+   ],
+   "event": [
+    {
+     "text": "3"
+    },
+    {
+     "text": "4"
+    },
+    {
+     "text": "6"
+    },
+    {
+     "text": "9"
+    }
+   ],
+   "message": [
+    {
+     "text": "2"
+    },
+    {
+     "text": "5"
+    },
+    {
+     "text": "7"
+    },
+    {
+     "text": "12"
+    }
+   ],
+   "calendar": [
+    {
+     "text": "Trabajo"
+    },
+    {
+     "text": "Personal"
+    },
+    {
+     "text": "Familia"
+    },
+    {
+     "text": "Gimnasio"
+    }
+   ],
+   "path": [
+    {
+     "text": "docs/plan-trimestral.md"
+    },
+    {
+     "text": "docs/briefing.md"
+    },
+    {
+     "text": "docs/acta-inicio.md"
+    },
+    {
+     "text": "docs/hoja-de-ruta.md"
+    }
+   ],
+   "flow": [
+    {
+     "text": "alta-cliente"
+    },
+    {
+     "text": "cierre-mensual"
+    },
+    {
+     "text": "informe-semanal"
+    },
+    {
+     "text": "triaje-leads"
+    }
+   ],
+   "since": [
+    {
+     "text": "7d"
+    },
+    {
+     "text": "3d"
+    },
+    {
+     "text": "14d"
+    },
+    {
+     "text": "2026-10-01"
+    },
+    {
+     "text": "2026-10-15"
+    },
+    {
+     "text": "30d"
+    }
+   ],
+   "person": [
+    {
+     "text": "Lucía"
+    },
+    {
+     "text": "Andrés"
+    },
+    {
+     "text": "Javier"
+    },
+    {
+     "text": "Carla"
+    },
+    {
+     "text": "don Ramón"
+    },
+    {
+     "text": "Inés"
+    }
+   ],
+   "area": [
+    {
+     "text": "marketing"
+    },
+    {
+     "text": "ventas"
+    },
+    {
+     "text": "soporte"
+    },
+    {
+     "text": "finanzas"
+    }
+   ],
+   "topic": [
+    {
+     "text": "el lanzamiento de la colección de invierno"
+    },
+    {
+     "text": "nuestra nueva carta vegana"
+    },
+    {
+     "text": "la feria de artesanía del sábado"
+    },
+    {
+     "text": "consejos para teletrabajar"
+    },
+    {
+     "text": "las rebajas de aniversario"
+    },
+    {
+     "text": "el nuevo curso de cerámica"
+    }
+   ],
+   "company": [
+    {
+     "text": "Alcor Diseño"
+    },
+    {
+     "text": "Panadería Alba"
+    },
+    {
+     "text": "Cerro Rojo"
+    },
+    {
+     "text": "Estudio Tinta"
+    },
+    {
+     "text": "Nube Gris"
+    },
+    {
+     "text": "Marisma"
+    }
+   ]
+  },
+  "fr": {
+   "when": [
+    {
+     "text": "demain à 9h",
+     "resolve": {
+      "days": 1,
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "après-demain à 14h",
+     "resolve": {
+      "days": 2,
+      "hour": 14,
+      "minute": 0
+     }
+    },
+    {
+     "text": "jeudi à 10h",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "vendredi matin à 8h",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 8,
+      "minute": 0
+     }
+    },
+    {
+     "text": "lundi à 9h30",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 30
+     }
+    },
+    {
+     "text": "demain à 18h30",
+     "resolve": {
+      "days": 1,
+      "hour": 18,
+      "minute": 30
+     }
+    },
+    {
+     "text": "samedi à 11h",
+     "resolve": {
+      "weekday": "sat",
+      "hour": 11,
+      "minute": 0
+     }
+    }
+   ],
+   "time": [
+    {
+     "text": "jeudi à 15h",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 15,
+      "minute": 0
+     }
+    },
+    {
+     "text": "demain à 10h",
+     "resolve": {
+      "days": 1,
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "vendredi à 14h30",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 14,
+      "minute": 30
+     }
+    },
+    {
+     "text": "lundi à 9h",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "après-demain à 11h",
+     "resolve": {
+      "days": 2,
+      "hour": 11,
+      "minute": 0
+     }
+    }
+   ],
+   "text": [
+    {
+     "text": "payer la facture d'électricité"
+    },
+    {
+     "text": "emmener Filou chez le vétérinaire"
+    },
+    {
+     "text": "appeler Camille des RH"
+    },
+    {
+     "text": "renouveler l'assurance auto"
+    },
+    {
+     "text": "sortir le linge de la machine"
+    },
+    {
+     "text": "envoyer le rapport à Hugo"
+    },
+    {
+     "text": "acheter des croquettes"
+    }
+   ],
+   "title": [
+    {
+     "text": "dentiste avec le Dr Morel"
+    },
+    {
+     "text": "réunion avec Atelier Brise"
+    },
+    {
+     "text": "déjeuner avec Julien"
+    },
+    {
+     "text": "coiffeur"
+    },
+    {
+     "text": "point d'équipe"
+    },
+    {
+     "text": "cours de yoga"
+    }
+   ],
+   "to": [
+    {
+     "text": "camille.morel@atelierbrise.example"
+    },
+    {
+     "text": "commandes@boulangerieclair.example"
+    },
+    {
+     "text": "hugo@ventdouest.example"
+    },
+    {
+     "text": "compta@lysmarin.example"
+    },
+    {
+     "text": "lea@studioplume.example"
+    }
+   ],
+   "subject": [
+    {
+     "text": "devis de novembre"
+    },
+    {
+     "text": "retard de livraison"
+    },
+    {
+     "text": "renouvellement du contrat"
+    },
+    {
+     "text": "photos de l'événement"
+    },
+    {
+     "text": "facture en attente"
+    }
+   ],
+   "body": [
+    {
+     "text": "voici le devis mis à jour, dis-moi si tu as des questions"
+    },
+    {
+     "text": "tu peux m'envoyer la facture avant vendredi ?"
+    },
+    {
+     "text": "merci pour ton retour, on part là-dessus"
+    },
+    {
+     "text": "j'aurai quelques minutes de retard, désolé"
+    }
+   ],
+   "id": [
+    {
+     "text": "4"
+    },
+    {
+     "text": "12"
+    },
+    {
+     "text": "27"
+    },
+    {
+     "text": "8"
+    },
+    {
+     "text": "31"
+    }
+   ],
+   "messages": [
+    {
+     "text": "3 et 5",
+     "gold": "3,5"
+    },
+    {
+     "text": "2, 4 et 7",
+     "gold": "2,4,7"
+    },
+    {
+     "text": "1 et 2",
+     "gold": "1,2"
+    },
+    {
+     "text": "6",
+     "gold": "6"
+    },
+    {
+     "text": "10 et 11",
+     "gold": "10,11"
+    }
+   ],
+   "folder": [
+    {
+     "text": "Finances"
+    },
+    {
+     "text": "Clients"
+    },
+    {
+     "text": "Archives2026"
+    },
+    {
+     "text": "Factures"
+    },
+    {
+     "text": "Projets"
+    }
+   ],
+   "attachment": [
+    {
+     "text": "1"
+    },
+    {
+     "text": "2"
+    },
+    {
+     "text": "3"
+    },
+    {
+     "text": "5"
+    }
+   ],
+   "event": [
+    {
+     "text": "3"
+    },
+    {
+     "text": "4"
+    },
+    {
+     "text": "6"
+    },
+    {
+     "text": "9"
+    }
+   ],
+   "message": [
+    {
+     "text": "2"
+    },
+    {
+     "text": "5"
+    },
+    {
+     "text": "7"
+    },
+    {
+     "text": "12"
+    }
+   ],
+   "calendar": [
+    {
+     "text": "Travail"
+    },
+    {
+     "text": "Perso"
+    },
+    {
+     "text": "Famille"
+    },
+    {
+     "text": "Sport"
+    }
+   ],
+   "path": [
+    {
+     "text": "docs/plan-trimestriel.md"
+    },
+    {
+     "text": "docs/brief.md"
+    },
+    {
+     "text": "docs/compte-rendu.md"
+    },
+    {
+     "text": "docs/feuille-de-route.md"
+    }
+   ],
+   "since": [
+    {
+     "text": "7d"
+    },
+    {
+     "text": "3d"
+    },
+    {
+     "text": "14d"
+    },
+    {
+     "text": "2026-10-01"
+    },
+    {
+     "text": "2026-10-15"
+    }
+   ],
+   "person": [
+    {
+     "text": "Camille"
+    },
+    {
+     "text": "Hugo"
+    },
+    {
+     "text": "Julien"
+    },
+    {
+     "text": "Léa"
+    },
+    {
+     "text": "Mme Garnier"
+    }
+   ],
+   "area": [
+    {
+     "text": "marketing"
+    },
+    {
+     "text": "ventes"
+    },
+    {
+     "text": "support"
+    },
+    {
+     "text": "finances"
+    }
+   ],
+   "topic": [
+    {
+     "text": "le lancement de la collection d'hiver"
+    },
+    {
+     "text": "notre nouvelle carte végétarienne"
+    },
+    {
+     "text": "le marché artisanal de samedi"
+    },
+    {
+     "text": "des astuces pour le télétravail"
+    },
+    {
+     "text": "les soldes d'anniversaire"
+    }
+   ],
+   "company": [
+    {
+     "text": "Atelier Brise"
+    },
+    {
+     "text": "Boulangerie Clair"
+    },
+    {
+     "text": "Vent d'Ouest"
+    },
+    {
+     "text": "Studio Plume"
+    },
+    {
+     "text": "Lys Marin"
+    }
+   ]
+  },
+  "de": {
+   "when": [
+    {
+     "text": "morgen um 9",
+     "resolve": {
+      "days": 1,
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "übermorgen um 14 Uhr",
+     "resolve": {
+      "days": 2,
+      "hour": 14,
+      "minute": 0
+     }
+    },
+    {
+     "text": "am Donnerstag um 10",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "Freitag früh um 8",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 8,
+      "minute": 0
+     }
+    },
+    {
+     "text": "Montag um 9:30",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 30
+     }
+    },
+    {
+     "text": "morgen Abend um 18:30",
+     "resolve": {
+      "days": 1,
+      "hour": 18,
+      "minute": 30
+     }
+    },
+    {
+     "text": "Samstag um 11",
+     "resolve": {
+      "weekday": "sat",
+      "hour": 11,
+      "minute": 0
+     }
+    }
+   ],
+   "time": [
+    {
+     "text": "Donnerstag um 15 Uhr",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 15,
+      "minute": 0
+     }
+    },
+    {
+     "text": "morgen um 10",
+     "resolve": {
+      "days": 1,
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "Freitag um 14:30",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 14,
+      "minute": 30
+     }
+    },
+    {
+     "text": "Montag um 9 Uhr",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "übermorgen um 11",
+     "resolve": {
+      "days": 2,
+      "hour": 11,
+      "minute": 0
+     }
+    }
+   ],
+   "text": [
+    {
+     "text": "die Stromrechnung zahlen"
+    },
+    {
+     "text": "mit Bello zum Tierarzt"
+    },
+    {
+     "text": "Jana aus der Personalabteilung anrufen"
+    },
+    {
+     "text": "die Kfz-Versicherung verlängern"
+    },
+    {
+     "text": "die Wäsche aufhängen"
+    },
+    {
+     "text": "den Bericht an Felix schicken"
+    },
+    {
+     "text": "Hundefutter kaufen"
+    }
+   ],
+   "title": [
+    {
+     "text": "Zahnarzt bei Dr. Brandt"
+    },
+    {
+     "text": "Meeting mit Holm & Weide"
+    },
+    {
+     "text": "Mittagessen mit Lars"
+    },
+    {
+     "text": "Friseur"
+    },
+    {
+     "text": "Team-Call"
+    },
+    {
+     "text": "Yogakurs"
+    }
+   ],
+   "to": [
+    {
+     "text": "jana.brandt@holmweide.example"
+    },
+    {
+     "text": "bestellung@baeckereikorn.example"
+    },
+    {
+     "text": "felix@nordlicht.example"
+    },
+    {
+     "text": "buchhaltung@eichwerk.example"
+    },
+    {
+     "text": "mia@atelierfeder.example"
+    }
+   ],
+   "subject": [
+    {
+     "text": "Angebot November"
+    },
+    {
+     "text": "Lieferverzug"
+    },
+    {
+     "text": "Vertragsverlängerung"
+    },
+    {
+     "text": "Fotos vom Event"
+    },
+    {
+     "text": "offene Rechnung"
+    }
+   ],
+   "body": [
+    {
+     "text": "anbei das aktualisierte Angebot, melde dich bei Fragen"
+    },
+    {
+     "text": "kannst du mir die Rechnung bis Freitag schicken?"
+    },
+    {
+     "text": "danke für die Rückmeldung, so machen wir es"
+    },
+    {
+     "text": "ich komme ein paar Minuten später, sorry"
+    }
+   ],
+   "id": [
+    {
+     "text": "4"
+    },
+    {
+     "text": "12"
+    },
+    {
+     "text": "27"
+    },
+    {
+     "text": "8"
+    },
+    {
+     "text": "31"
+    }
+   ],
+   "messages": [
+    {
+     "text": "3 und 5",
+     "gold": "3,5"
+    },
+    {
+     "text": "2, 4 und 7",
+     "gold": "2,4,7"
+    },
+    {
+     "text": "1 und 2",
+     "gold": "1,2"
+    },
+    {
+     "text": "6",
+     "gold": "6"
+    },
+    {
+     "text": "10 und 11",
+     "gold": "10,11"
+    }
+   ],
+   "state": [
+    {
+     "text": "gelesen"
+    },
+    {
+     "text": "ungelesen"
+    }
+   ],
+   "name": [
+    {
+     "text": "protokoll.txt"
+    },
+    {
+     "text": "einkaufsliste.md"
+    },
+    {
+     "text": "podcast-ideen.txt"
+    },
+    {
+     "text": "reise-checkliste.md"
+    },
+    {
+     "text": "partybudget.txt"
+    }
+   ],
+   "content": [
+    {
+     "text": "Tagesordnung: Monatsabschluss und Ziele für Dezember"
+    },
+    {
+     "text": "Reis, Linsen, Kaffee und Spülmittel"
+    },
+    {
+     "text": "Folge über private Finanzen"
+    },
+    {
+     "text": "Pass, Ladekabel, Medikamente und Jacke"
+    }
+   ],
+   "event": [
+    {
+     "text": "3"
+    },
+    {
+     "text": "4"
+    },
+    {
+     "text": "6"
+    },
+    {
+     "text": "9"
+    }
+   ],
+   "calendar": [
+    {
+     "text": "Arbeit"
+    },
+    {
+     "text": "Privat"
+    },
+    {
+     "text": "Familie"
+    },
+    {
+     "text": "Sport"
+    }
+   ],
+   "path": [
+    {
+     "text": "docs/quartalsplan.md"
+    },
+    {
+     "text": "docs/briefing.md"
+    },
+    {
+     "text": "docs/kickoff-protokoll.md"
+    },
+    {
+     "text": "docs/roadmap.md"
+    }
+   ],
+   "since": [
+    {
+     "text": "7d"
+    },
+    {
+     "text": "3d"
+    },
+    {
+     "text": "14d"
+    },
+    {
+     "text": "2026-10-01"
+    },
+    {
+     "text": "2026-10-15"
+    }
+   ],
+   "person": [
+    {
+     "text": "Jana"
+    },
+    {
+     "text": "Felix"
+    },
+    {
+     "text": "Lars"
+    },
+    {
+     "text": "Mia"
+    },
+    {
+     "text": "Herrn Vogt"
+    }
+   ],
+   "topic": [
+    {
+     "text": "den Start der Winterkollektion"
+    },
+    {
+     "text": "unsere neue vegane Karte"
+    },
+    {
+     "text": "den Kunsthandwerkermarkt am Samstag"
+    },
+    {
+     "text": "Tipps fürs Homeoffice"
+    },
+    {
+     "text": "den Jubiläumsverkauf"
+    }
+   ],
+   "company": [
+    {
+     "text": "Holm & Weide"
+    },
+    {
+     "text": "Bäckerei Korn"
+    },
+    {
+     "text": "Nordlicht"
+    },
+    {
+     "text": "Atelier Feder"
+    },
+    {
+     "text": "Eichwerk"
+    }
+   ]
+  },
+  "it": {
+   "when": [
+    {
+     "text": "domani alle 9",
+     "resolve": {
+      "days": 1,
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "dopodomani alle 14",
+     "resolve": {
+      "days": 2,
+      "hour": 14,
+      "minute": 0
+     }
+    },
+    {
+     "text": "giovedì alle 10",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "venerdì mattina alle 8",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 8,
+      "minute": 0
+     }
+    },
+    {
+     "text": "lunedì alle 9:30",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 30
+     }
+    },
+    {
+     "text": "domani alle 18:30",
+     "resolve": {
+      "days": 1,
+      "hour": 18,
+      "minute": 30
+     }
+    },
+    {
+     "text": "sabato alle 11",
+     "resolve": {
+      "weekday": "sat",
+      "hour": 11,
+      "minute": 0
+     }
+    }
+   ],
+   "time": [
+    {
+     "text": "giovedì alle 15",
+     "resolve": {
+      "weekday": "thu",
+      "hour": 15,
+      "minute": 0
+     }
+    },
+    {
+     "text": "domani alle 10",
+     "resolve": {
+      "days": 1,
+      "hour": 10,
+      "minute": 0
+     }
+    },
+    {
+     "text": "venerdì alle 14:30",
+     "resolve": {
+      "weekday": "fri",
+      "hour": 14,
+      "minute": 30
+     }
+    },
+    {
+     "text": "lunedì alle 9",
+     "resolve": {
+      "weekday": "mon",
+      "hour": 9,
+      "minute": 0
+     }
+    },
+    {
+     "text": "dopodomani alle 11",
+     "resolve": {
+      "days": 2,
+      "hour": 11,
+      "minute": 0
+     }
+    }
+   ],
+   "text": [
+    {
+     "text": "pagare la bolletta della luce"
+    },
+    {
+     "text": "portare Briciola dal veterinario"
+    },
+    {
+     "text": "chiamare Giulia delle risorse umane"
+    },
+    {
+     "text": "rinnovare l'assicurazione della macchina"
+    },
+    {
+     "text": "stendere il bucato"
+    },
+    {
+     "text": "mandare il report a Tommaso"
+    },
+    {
+     "text": "comprare le crocchette"
+    }
+   ],
+   "title": [
+    {
+     "text": "dentista dalla dott.ssa Rinaldi"
+    },
+    {
+     "text": "riunione con Ponte Alto"
+    },
+    {
+     "text": "pranzo con Marco"
+    },
+    {
+     "text": "parrucchiere"
+    },
+    {
+     "text": "call col team"
+    },
+    {
+     "text": "lezione di yoga"
+    }
+   ],
+   "to": [
+    {
+     "text": "giulia.rinaldi@pontealto.example"
+    },
+    {
+     "text": "ordini@fornolucia.example"
+    },
+    {
+     "text": "tommaso@vallefiorita.example"
+    },
+    {
+     "text": "amministrazione@corteverde.example"
+    },
+    {
+     "text": "sara@studiopenna.example"
+    }
+   ],
+   "subject": [
+    {
+     "text": "preventivo di novembre"
+    },
+    {
+     "text": "ritardo nella consegna"
+    },
+    {
+     "text": "rinnovo del contratto"
+    },
+    {
+     "text": "foto dell'evento"
+    },
+    {
+     "text": "fattura in sospeso"
+    }
+   ],
+   "body": [
+    {
+     "text": "ti mando il preventivo aggiornato, fammi sapere se hai domande"
+    },
+    {
+     "text": "mi mandi la fattura entro venerdì?"
+    },
+    {
+     "text": "grazie per la risposta, facciamo così"
+    },
+    {
+     "text": "arrivo con qualche minuto di ritardo, scusa"
+    }
+   ],
+   "id": [
+    {
+     "text": "4"
+    },
+    {
+     "text": "12"
+    },
+    {
+     "text": "27"
+    },
+    {
+     "text": "8"
+    },
+    {
+     "text": "31"
+    }
+   ],
+   "messages": [
+    {
+     "text": "3 e 5",
+     "gold": "3,5"
+    },
+    {
+     "text": "2, 4 e 7",
+     "gold": "2,4,7"
+    },
+    {
+     "text": "1 e 2",
+     "gold": "1,2"
+    },
+    {
+     "text": "6",
+     "gold": "6"
+    },
+    {
+     "text": "10 e 11",
+     "gold": "10,11"
+    }
+   ],
+   "folder": [
+    {
+     "text": "Contabilità"
+    },
+    {
+     "text": "Clienti"
+    },
+    {
+     "text": "Archivio2026"
+    },
+    {
+     "text": "Fatture"
+    },
+    {
+     "text": "Progetti"
+    }
+   ],
+   "file": [
+    {
+     "text": "tabella prezzi"
+    },
+    {
+     "text": "menù della settimana"
+    },
+    {
+     "text": "lista fornitori"
+    },
+    {
+     "text": "scaletta dell'evento"
+    }
+   ],
+   "content": [
+    {
+     "text": "prezzi aggiornati da novembre"
+    },
+    {
+     "text": "lunedì pasta, martedì risotto, mercoledì zuppa"
+    },
+    {
+     "text": "aggiunto il fornitore Valle Fiorita"
+    },
+    {
+     "text": "apertura alle 18, musica alle 20"
+    }
+   ],
+   "event": [
+    {
+     "text": "3"
+    },
+    {
+     "text": "4"
+    },
+    {
+     "text": "6"
+    },
+    {
+     "text": "9"
+    }
+   ],
+   "message": [
+    {
+     "text": "2"
+    },
+    {
+     "text": "5"
+    },
+    {
+     "text": "7"
+    },
+    {
+     "text": "12"
+    }
+   ],
+   "calendar": [
+    {
+     "text": "Lavoro"
+    },
+    {
+     "text": "Personale"
+    },
+    {
+     "text": "Famiglia"
+    },
+    {
+     "text": "Palestra"
+    }
+   ],
+   "flow": [
+    {
+     "text": "nuovo-cliente"
+    },
+    {
+     "text": "chiusura-mensile"
+    },
+    {
+     "text": "report-settimanale"
+    },
+    {
+     "text": "smistamento-contatti"
+    }
+   ],
+   "since": [
+    {
+     "text": "7d"
+    },
+    {
+     "text": "3d"
+    },
+    {
+     "text": "14d"
+    },
+    {
+     "text": "2026-10-01"
+    },
+    {
+     "text": "2026-10-15"
+    }
+   ],
+   "person": [
+    {
+     "text": "Giulia"
+    },
+    {
+     "text": "Tommaso"
+    },
+    {
+     "text": "Marco"
+    },
+    {
+     "text": "Sara"
+    },
+    {
+     "text": "il signor Bassi"
+    }
+   ],
+   "topic": [
+    {
+     "text": "il lancio della collezione invernale"
+    },
+    {
+     "text": "il nostro nuovo menù vegano"
+    },
+    {
+     "text": "il mercatino di sabato"
+    },
+    {
+     "text": "consigli per lo smart working"
+    },
+    {
+     "text": "i saldi di anniversario"
+    }
+   ],
+   "company": [
+    {
+     "text": "Ponte Alto"
+    },
+    {
+     "text": "Forno Lucia"
+    },
+    {
+     "text": "Valle Fiorita"
+    },
+    {
+     "text": "Studio Penna"
+    },
+    {
+     "text": "Corte Verde"
+    }
+   ]
+  }
+ }
+}

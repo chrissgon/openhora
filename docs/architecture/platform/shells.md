@@ -6,7 +6,7 @@ Part of [the platform map](README.md). Every layer page has the same eight secti
 
 A shell is a surface a person (or a scheduler) uses to reach the task runtime: it parses what was typed, calls one function of the operations layer (`runtime/ops.py`) and prints what that function returned. A shell holds no rule of its own: which actions a pending decision allows, what a state leads to, what a hash must equal are decided by the operations layer and the store. Five shells reach that layer: the terminal command (`runtime/cli.py`), the conversation (`runtime/chat.py`), the local service (`runtime/service.py`, which serves the pages of `interface/` and the routes listed under "Entry points"), the MCP mode (`runtime/mcp.py`, a process that an MCP client starts and speaks to on standard input and output: it is not a mode of the service and it opens no socket) and the messaging bridge (`runtime/messaging.py`, which takes the operations to a messaging app the person already uses, as the channel `messaging`; the local service can start it as a child process with `--messaging`, and [messaging.md](messaging.md) follows the feature across the layers). The service and the MCP mode share `runtime/shell_kit.py`, which is not a shell, and the bridge also imports it (its job registry and project list); the scheduler's entry (`runtime/dispatcher.py`) is a shell of another kind, started by a machine.
 
-The first runtime (`scripts/runtime.py`) has its own command and is not a shell of the operations layer; it stays as it is until stage 7 of [the platform plan](../platform-plan-2026-10-05.md).
+The first runtime (`scripts/runtime.py`) has its own command and is not a shell of the operations layer; it stays as it is until stage 7 of the platform plan (removed on 2026-10-15; `git show bc830832:docs/architecture/platform-plan-2026-10-05.md`).
 
 The operations are described on [the runtime's page](runtime.md); the contract is [contracts/runtime.md](../../../contracts/runtime.md). This page maps the surfaces and does not repeat them.
 
@@ -89,7 +89,7 @@ Built in stage 9 with the service: the operations `config`, `task`, `flows`, `st
 
 ## Abstractions
 
-**Shell.** A thin front over the operations layer: it parses, calls one operation, prints its result. It decides nothing a second shell would have to decide again (rule 3 of [the platform plan](../platform-plan-2026-10-05.md): there is one operations layer only). The terminal, the conversation, the local service, the MCP mode and the messaging bridge are shells; the scheduler's entry is one of another kind.
+**Shell.** A thin front over the operations layer: it parses, calls one operation, prints its result. It decides nothing a second shell would have to decide again (rule 3 of the platform plan (removed on 2026-10-15; `git show bc830832:docs/architecture/platform-plan-2026-10-05.md`): there is one operations layer only). The terminal, the conversation, the local service, the MCP mode and the messaging bridge are shells; the scheduler's entry is one of another kind.
 
 **Operation.** One function of `runtime/ops.py` and one row of the table of operations (`runtime/operations.py`: the verb, the function, the arguments, the channels that may call it, whether it calls a model), taking the project folder first and returning a JSON-serialisable object, or raising `OpsError` with an exit code: 1 failed or refused, 2 usage, 3 not configured; the refusal of a configuration that was not accepted also carries `next`, the command that gets past it. Every operation starts from `ops.context`, which loads `runtime.json`, refuses another checkout than the running one, opens the store and refuses a configuration whose hash is not the accepted one; `accept_config`, `config` and `service_check` run it with that check off, and `version` checks the hash itself. The operations are listed on [the runtime's page](runtime.md), "Entry points".
 
@@ -101,7 +101,7 @@ Built in stage 9 with the service: the operations `config`, `task`, `flows`, `st
 
 **Turn.** One line of the conversation, `ops.say`: a line that starts with `/` is read by `operations.parse_chat`: it is `/help`, `/new <text>`, or one row of the table that lists the `chat` channel, which calls its operation once and no model (an operation the table does not list for chat gets the help); any other line answers the router's open question on the conversation's last request, or else is a new request, routed (a model call) only when the planning agent may start (its mode and its cap). A plain line that is one of the closed list of questions about the state is answered at once by code (`status` and `progress` in prose); a line typed while the router answers another request of the project (it holds the route lock) is stored and queued (`{"queued": true, "reply": null}`), and `route_queued` answers it when the lock is free. A model's reply is stored and shown, never executed.
 
-**The conversation's memory and its place in a request.** `ops.chat_memory`: the plain lines and the router's replies after the newest reply whose request reached `planned`, `done` or `cancelled`; commands and their replies are left out; the newest 6 turns (`MEMORY_TURNS`), each cut to 600 characters (`MEMORY_CUT`), the whole cut to 4000 (`MEMORY_CHARS`) by dropping the oldest. It is written in front of the new line, under `Earlier in this conversation, oldest first:` and above `The request now:`, and that whole text becomes the request's text. The first line of an exchange reaches the router plain, as the router was measured. It is a bounded text because the floor model's adapter takes the request as one argument (workaround 2 of [backlog](../../backlog.md) T23, marked `T23:` in the code).
+**The conversation's memory and its place in a request.** `ops.chat_memory`: the plain lines and the router's replies after the newest reply whose request reached `planned`, `done` or `cancelled`; commands and their replies are left out; the newest 6 turns (`MEMORY_TURNS`), each cut to 600 characters (`MEMORY_CUT`), the whole cut to 4000 (`MEMORY_CHARS`) by dropping the oldest. It is written in front of the new line, under `Earlier in this conversation, oldest first:` and above `The request now:`, and that whole text becomes the request's text. The first line of an exchange reaches the router plain, as the router was measured. It is a bounded text because the adapter of the OpenRouter models takes the request as one argument (workaround 2 of [backlog](../../backlog.md) T23, marked `T23:` in the code).
 
 **The scheduler's entry.** `dispatcher.py` in a second role: a copy kept in the scheduler's job folder, started with `/usr/bin/python3`, which checks `runtime.json` against the pin before it imports anything of the checkout, then loads that checkout's `ops.py` and calls `ops.poll` (the short job) or `ops.dispatch` (the worker). Its `decide` function, the dispatcher proper, is a pure function of the runtime's layer.
 
@@ -112,7 +112,7 @@ Built in stage 9 with the service: the operations `config`, `task`, `flows`, `st
 - **The child of the service.** `runtime/service_bridge.py` starts the bridge with the service's own interpreter, in its own session, with a standard input pipe the service holds open (so the bridge stops when the service dies), standard output at `/dev/null` and the environment snapshot `service.main` takes before any thread or run. `--messaging a,b` starts one child per platform (at most 6). The service reports each child in `GET /projects` (`messaging`) and stops them all within one 150 s bound.
 - **The policy elsewhere.** The same `operations.permitted` and `operations.refusal` narrow the page (`service._policy_refusal`, and the `permissions` list `GET /projects` carries for `interface/js/permissions.js`) and the MCP mode (`mcp._refuse_by_policy`); the terminal and the conversation are never narrowed.
 
-**The channel rule.** Each row of the table of operations lists the channels that may call it (`terminal`, `chat`, `page`, `mcp`, `messaging`). A row whose function takes the channel (`channel_arg`: `approve` and `say`, among others) is told which one called, and `ops.approve` refuses an `effect` from any channel but the terminal and the page (decision D8, extended on 2026-10-07): an effect is approved in the terminal or on the local page, with the content's hash typed or clicked there. A messaging app is the weakest of the trust surfaces: its card carries the exact command of an effect and no button, a plan is approved from it only with its hash and an acceptance only if its card still matches (`runtime/messaging_bridge.py:389-410`). A chat message is a weaker trust surface than the person's own machine; the MCP mode (`runtime/mcp.py`), reached from a messaging app, is under a stricter rule: a model client may request, route, answer, release a draft and say, and has no tool to approve, reject, cancel or retry, nor can it type those commands into `say` (the row of `say` takes the channel and `ops.say` does a command only when its row lists that channel), and the local page is a channel of its own, which the service passes itself (a request cannot name one). A row exists as a route only when it lists `page` (`config` lists it and has none); the ones that widen what an agent may do on its own (`accept-config`, the standing approvals) or run the next task by hand (`run-next`) are terminal only. The MCP mode exposes only the rows that list `mcp`: the reads (`version` among them), `request`, `route`, `answer`, `release` and `say`, and two tools of its own, `projects` and `job`. A command typed into `say` through a channel its row does not list answers `error: /<name> is done in the terminal or on the page` and does nothing.
+**The channel rule.** Each row of the table of operations lists the channels that may call it (`terminal`, `chat`, `page`, `mcp`, `messaging`). A row whose function takes the channel (`channel_arg`: `approve` and `say`, among others) is told which one called, and `ops.approve` refuses an `effect` from any channel but the terminal and the page unless the project grants that channel the effect's word (decision D8, extended on 2026-10-07, now the default of a policy): by default an effect is approved in the terminal or on the local page, with the content's hash typed or clicked there. A messaging app is the weakest of the trust surfaces: by default its card carries the exact command of an effect and no button; a project may grant it one word at a time, and the button then appears only on a card that carried the whole text, bound to the effect's hash. A plan is approved from it only with its hash and an acceptance only if its card still matches (`runtime/messaging_bridge.py`). A chat message is a weaker trust surface than the person's own machine; the MCP mode (`runtime/mcp.py`), reached from a messaging app, is under a stricter rule: a model client may request, route, answer, release a draft and say, and by default has no tool to approve, reject, cancel or retry (a project may grant plans with their hash, acceptances, reject-cancel and retry, never an effect), nor can it type those commands into `say` (the row of `say` takes the channel and `ops.say` does a command only when its row lists that channel), and the local page is a channel of its own, which the service passes itself (a request cannot name one). A row exists as a route only when it lists `page` (`config` lists it and has none); the ones that widen what an agent may do on its own (`accept-config`, the standing approvals) or run the next task by hand (`run-next`) are terminal only. The MCP mode exposes only the rows that list `mcp`: the reads (`version` among them), `request`, `route`, `answer`, `release` and `say`, and two tools of its own, `projects` and `job`. A command typed into `say` through a channel its row does not list answers `error: /<name> is done in the terminal or on the page` and does nothing.
 
 **The pages.** `interface/` is one HTML document and ES modules, no build step, which the service serves; `interface/README.md` says what each file is. A page decides nothing: it shows what an operation returned and sends what the person typed or clicked. The router (`js/router.js`) parses the hash, `js/main.js` draws the screen it names, and `js/views/placeholder.js` is what a screen with no view falls back to. The screens:
 
@@ -236,7 +236,7 @@ Each invariant with its guard. A test is in `runtime/tests/` unless its path is 
 - `approve` sends only the exact reply shown, once, and never one that holds a credential: `test_approve_sends_only_the_exact_reply_shown`; `test_approving_the_same_item_twice_sends_once`; `test_approve_refuses_a_reply_that_holds_a_credential`.
 - One tick at a time; a missing configuration is exit 3: `test_a_second_tick_while_one_runs_does_nothing`; `test_missing_config_exits_3`.
 
-**The channel rule**: an effect is approved only from the terminal or the page, with its hash: `test_operations_table.py`, `test_an_effect_is_approved_in_the_terminal_and_never_from_the_conversation`; `test_task_ops.py`, `test_an_effect_is_approved_from_the_terminal_and_the_page_and_from_no_other_channel`; `test_service.py`, `test_an_effect_is_approved_from_the_page_with_its_hash_and_never_from_chat`. A page never accepts a configuration hash (that stays in the terminal): `test_service.py`, `test_accepting_a_configuration_is_not_a_route`.
+**The channel rule**: an effect is approved with its hash from the terminal or the page, or from a messaging app the project grants that effect's word (`test_channel_grants.py` and its three siblings): `test_operations_table.py`, `test_an_effect_is_approved_in_the_terminal_and_never_from_the_conversation`; `test_task_ops.py`, `test_an_effect_is_approved_from_the_terminal_and_the_page_and_from_no_other_channel`; `test_service.py`, `test_an_effect_is_approved_from_the_page_with_its_hash_and_never_from_chat`. A page never accepts a configuration hash (that stays in the terminal): `test_service.py`, `test_accepting_a_configuration_is_not_a_route`.
 
 **Narrowing from the page.** What `set_mode` does is under "Entry points". The rule is the operation's, so the terminal narrows in the same way, and code accepts no other change of the configuration. The order of the modes is data in `runtime/autonomy.py` (`MODES`, `narrows`). The change takes the configuration lock, and a call that finds the file or the accepted hash moved since it began writes nothing and is refused: `test_mode_narrowing.py`, `test_the_order_of_the_modes_is_data_in_autonomy`, `test_a_move_down_the_order_is_accepted_by_code_and_a_move_up_never_is`, `test_from_the_page_a_narrowing_is_accepted_and_the_next_read_succeeds_and_a_widening_is_refused_with_the_command`, `test_two_set_modes_at_once_never_make_code_accept_a_widening`, `test_a_configuration_edited_by_hand_and_not_accepted_is_never_accepted_by_a_narrowing`, `test_no_other_operation_writes_the_cursor_of_the_accepted_hash`.
 
@@ -262,6 +262,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `a code task of the request runs` | `CODE_IN_REQUEST` |
 | `artifact in use` | `IN_USE` |
 | `could not start, tried again shortly` | `RETRY_SOON` |
+| `start it by hand` | `BY_HAND` |
 <!-- /generated -->
 
 ## Entry points
@@ -271,31 +272,37 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 <!-- generated: cli-verbs -->
 | Verb | Flags it reads | Operation |
 |---|---|---|
-| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` | `request` |
-| `route` | `--request` `[--flow]` | `route` |
+| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` `[--model]` `[--language]` | `request` |
+| `route` | `--request` `[--flow]` `[--param]` | `route` |
 | `route-queued` | - | `route_queued` |
 | `status` | - | `status` |
 | `task` | `--task` | `task` |
 | `flows` | - | `flows` |
+| `flow-check` | `--flow` | `check_flow` |
+| `flow-save` | `--name` `[--id]` `[--flow]` `[--title]` `[--split]` `[--replace]` | `flow_save` |
+| `stage-file` | `--request` `--file` | `stage_file` |
 | `config` | - | `config` |
 | `progress` | `[--since]` | `progress` |
 | `pending` | `[--id]` | `pending` |
-| `answer` | `--id` `--text \| --text-file` `[--with-comments]` | `answer` |
+| `answer` | `--id` `--text \| --text-file` `[--with-comments]` | `answer_proposing` |
 | `release` | `--id` | `release` |
 | `approve` | `--id` `[--sha256]` `[--go-ahead]` | `approve` |
 | `reject` | `--id` `[--note]` | `reject` |
 | `retry` | `--task` | `retry` |
 | `go-ahead` | `--task` `[--drop-after]` | `go_ahead` |
 | `cancel` | `--request` | `cancel` |
+| `stop-task` | `--task` | `stop_task` |
 | `deps` | - | `deps` |
-| `run-next` | `[--tier]` | `run_next` |
-| `run-task` | `--task` `[--tier]` | `run_task` |
-| `accept-config` | `--sha256` | `accept_config` |
+| `run-next` | `[--model]` | `run_next` |
+| `run-task` | `--task` `[--model]` | `run_task` |
+| `run-step` | `--task` `[--unattended]` | `run_step` |
+| `accept-config` | `--sha256` `[--adopt-sources]` `[--widen]` | `accept_config` |
 | `proof` | `[--skill]` | `proof` |
 | `verdict` | `--run` `--word` | `verdict` |
 | `sync` | `[--dry-run]` `[--take]` `[--path]` | `sync` |
 | `hand-over` | `--task` `--file` | `hand_over` |
-| `set-mode` | `--agent` `--mode` `[--accept]` | `set_mode` |
+| `set-mode` | `--agent` `--mode` `[--accept]` `[--consent]` | `set_mode` |
+| `set-model` | `--agent` `--model` `[--accept]` `[--consent]` | `set_model` |
 | `approve-policy` | `--file` `--agent` `[--sha256]` `[--expires]` `[--what]` | `approve_policy` |
 | `revoke-policy` | `--id` | `revoke_policy` |
 | `standing` | `--policy` | `standing` |
@@ -306,6 +313,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `handler` | `--name` `--verb` `[--arg]` | `handler_call` |
 | `pin` | - | `pin` |
 | `say` | `--text \| --text-file` | `say` |
+| `ask` | `--text \| --text-file` | `ask` |
 | `agents` | - | `agents` |
 | `conversation` | `[--conversation]` `[--after]` | `conversation` |
 | `skills` | - | `skills` |
@@ -315,6 +323,49 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `artifact` | `--path` | `artifact` |
 | `stop-runs` | `[--all]` | `stop_runs` |
 | `service-check` | `[--dispatch-every]` | `service_check` |
+| `source-add` | `--source` `--type` `--origin` `[--description]` | `source_add` |
+| `source-import` | `--source` `[--file]` `[--url]` `[--origin]` `[--description]` | `source_import` |
+| `source-refresh` | `--source` `[--file]` | `source_refresh` |
+| `source-drive` | `[--file-id]` `[--source]` `[--description]` | `source_drive` |
+| `source-onedrive` | `[--search]` `[--folder]` `[--item]` `[--source]` `[--description]` | `source_onedrive` |
+| `source-mail` | `--source` `[--origin]` `[--description]` | `source_mail` |
+| `source-calendar` | `--source` `[--origin]` `[--description]` | `source_calendar` |
+| `source-describe` | `--source` `[--description]` | `source_describe` |
+| `sources` | - | `sources_catalog` |
+| `attachments` | - | `attachments` |
+| `items` | `[--kind]` `[--source]` | `items` |
+| `attachment-add` | `--id` | `attachment_add` |
+| `attachment-discard` | `--id` | `attachment_discard` |
+| `remind` | `--when` `--text \| --text-file` `[--to]` | `remind` |
+| `reminders` | - | `reminders_read` |
+| `reminder-forget` | `--id` | `reminder_forget` |
+| `reminder-restore` | `[--id]` | `reminder_restore` |
+| `file-create` | `--account` `--name` `[--content]` `[--content-file]` `[--from]` `[--folder]` | `file_create` |
+| `file-replace` | `--account` `--file` `[--content]` `[--content-file]` `[--from]` | `file_replace` |
+| `file-save` | `--account` `--attachment` `[--name]` `[--folder]` | `file_save` |
+| `file-trash` | `--file` `[--account]` `[--folder]` | `file_trash` |
+| `file-read` | `--file` `[--account]` | `file_read` |
+| `research` | `--question` | `research` |
+| `instructions` | - | `instructions_read` |
+| `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
+| `instructions-add` | `--line` `--base-sha256` | `instructions_add` |
+| `routines` | `[--id]` | `routines_read` |
+| `routine-create` | `--name` `--flow` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_create` |
+| `routine-change` | `--id` `[--flow]` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_change` |
+| `routine-approve` | `--id` `[--sha256]` | `routine_approve` |
+| `routine-pause` | `--id` | `routine_pause` |
+| `routine-resume` | `--id` | `routine_resume` |
+| `routine-cancel` | `--id` | `routine_cancel` |
+| `event-create` | `--account` `--title` `--start` `[--end]` `[--calendar]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_create` |
+| `event-change` | `--account` `--event` `[--calendar]` `[--title]` `[--start]` `[--end]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_change` |
+| `event-cancel` | `--account` `--event` `[--calendar]` | `event_cancel` |
+| `mail-send` | `--account` `--to` `[--cc]` `[--bcc]` `--subject` `--text \| --text-file` `[--attach]` | `mail_send` |
+| `mail-reply` | `--account` `--message` `--text \| --text-file` | `mail_reply` |
+| `mail-draft` | `--account` `[--to]` `[--cc]` `[--bcc]` `[--subject]` `--body` `[--message]` | `mail_draft` |
+| `mail-archive` | `--account` `--messages` | `mail_archive` |
+| `mail-move` | `--account` `--messages` `--folder` | `mail_move` |
+| `mail-mark` | `--account` `--messages` `--state` | `mail_mark` |
+| `mail-trash` | `--account` `--messages` | `mail_trash` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -327,13 +378,16 @@ Every verb also takes `--project <dir>`. The parser is built from `terminal_verb
 | `/help` | list the commands |
 | `/status` | requests, tasks and what waits for you |
 | `/progress [since]` | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
-| `/pending [id]` | what waits for you; with an id, that decision whole |
-| `/answer <id> <text>` | answer a pending decision |
+| `/pending [id]` | what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows, nor the addresses, the subject, the text and the attachment names of an e-mail card) |
+| `/answer <id> <text>` | answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page |
 | `/release <id>` | release a delivery (it stays a draft) |
-| `/approve <id> [sha256]` | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash |
+| `/approve <id> [sha256]` | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved with its hash, in the terminal, on the page, or on a messaging app the project grants that effect's word (from a card that carried the whole text) |
 | `/reject <id> [note]` | reject a plan, an acceptance or an effect |
 | `/retry <task id>` | make a failed or blocked task ready again |
-| `/cancel <request id>` | cancel a request |
+| `/cancel <request id>` | cancel a request at any moment, even while a task of it runs: the run is ended and returns nothing, what it used so far is spent |
+| `/stop-task <task id>` | stop one running task: its run is ended and returns nothing, the task is blocked, and retry resumes it |
+| `/ask <text>` | answer a question from the text of the project's sources, with the quotes it rests on and the sources and versions read: one run of the answer skill, no plan to approve; the sources are chosen by code (@<id> to name them), the answer goes only to the shell or chat that asked; never the MCP mode, and on a messaging app only for a sender whose profile lists the group ask |
+| `/attachments` | the files people sent through a messaging app (from a messaging app, only the ones you sent): those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder |
 | `/new <text>` | start a new request, whatever is open (--after <id> before the text: run it after that request) |
 <!-- /generated -->
 
@@ -378,15 +432,31 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/pending/{id}/approve` | `approve` | `pending_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/pending/{id}/reject` | `reject` | `pending_id` from `{id}` | every other argument | - | - |
 | GET | `/projects/{p}/flows` | `flows` | - | none | - | - |
+| GET | `/projects/{p}/flows/{name}/check` | `flow-check` | `flow` from `{name}` | none | - | - |
+| POST | `/projects/{p}/flows` | `flow-save` | - | every other argument | - | - |
+| GET | `/projects/{p}/routines` | `routines` | - | `routine_id` | - | - |
+| POST | `/projects/{p}/routines` | `routine-create` | - | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/change` | `routine-change` | `routine_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/approve` | `routine-approve` | `routine_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/pause` | `routine-pause` | `routine_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/resume` | `routine-resume` | `routine_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/cancel` | `routine-cancel` | `routine_id` from `{id}` | every other argument | - | - |
+| GET | `/projects/{p}/instructions` | `instructions` | - | none | - | - |
+| POST | `/projects/{p}/instructions` | `instructions-set` | - | every other argument | - | - |
+| POST | `/projects/{p}/instructions/add` | `instructions-add` | - | every other argument | - | - |
+| POST | `/projects/{p}/requests/{id}/files` | `stage-file` | `request_id` from `{id}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/requests` | `request` | - | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/route` | `route` | `request_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/cancel` | `cancel` | `request_id` from `{id}` | every other argument | - | - |
 | GET | `/projects/{p}/tasks/{id}` | `task` | `task_id` from `{id}` | none | - | - |
 | POST | `/projects/{p}/tasks/{id}/retry` | `retry` | `task_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/tasks/{id}/stop` | `stop-task` | `task_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/tasks/{id}/go-ahead` | `go-ahead` | `task_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/tasks/{id}/files` | `hand-over` | `task_id` from `{id}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/runs/{id}/verdict` | `verdict` | `run_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/agents/{name}/mode` | `set-mode` | `agent` from `{name}` | `mode` | - | - |
+| POST | `/projects/{p}/agents/{name}/model` | `set-model` | `agent` from `{name}` | `model` | - | - |
+| POST | `/projects/{p}/agents/{name}/consent` | `give-consent` | `agent` from `{name}` | `model`, `mode`, `config_sha256`, `warning_sha256` | - | - |
 | GET | `/projects/{p}/progress` | `progress` | - | every other argument | - | - |
 | GET | `/projects/{p}/agents` | `agents` | - | none | - | - |
 | GET | `/projects/{p}/conversation` | `conversation` | - | `conversation`, `after` | - | - |
@@ -400,7 +470,38 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/commands` | `commands` | - | none | - | - |
 | GET | `/versions` | the service's own `versions` | - | - | - | - |
 | POST | `/projects/{p}/conversation` | `say` | - | every other argument | - | - |
+| POST | `/projects/{p}/ask` | `ask` | - | every other argument | - | - |
 | POST | `/projects/{p}/sync` | `sync` | - | every other argument | - | - |
+| GET | `/projects/{p}/sources` | `sources` | - | none | - | - |
+| POST | `/projects/{p}/sources` | `source-add` | - | every other argument | - | - |
+| POST | `/projects/{p}/sources/{name}/files` | `source-import` | `source_id` from `{name}` | every other argument | `file`, `url`, `origin`, `description` | file upload |
+| POST | `/projects/{p}/sources/{name}/import` | `source-import` | `source_id` from `{name}` | `url`, `origin`, `description` | `file` | - |
+| POST | `/projects/{p}/sources/{name}/refresh` | `source-refresh` | `source_id` from `{name}` | none | `file` | - |
+| POST | `/projects/{p}/sources/{name}/refresh/files` | `source-refresh` | `source_id` from `{name}` | every other argument | `file` | file upload |
+| POST | `/projects/{p}/sources/{name}/description` | `source-describe` | `source_id` from `{name}` | `description` | - | - |
+| GET | `/projects/{p}/attachments` | `attachments` | - | none | - | - |
+| GET | `/projects/{p}/items` | `items` | - | `source` | - | - |
+| POST | `/projects/{p}/attachments/{id}/add` | `attachment-add` | `attachment_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/attachments/{id}/discard` | `attachment-discard` | `attachment_id` from `{id}` | every other argument | - | - |
+| GET | `/projects/{p}/reminders` | `reminders` | - | none | - | - |
+| POST | `/projects/{p}/reminders` | `remind` | - | every other argument | - | - |
+| POST | `/projects/{p}/reminders/{id}/forget` | `reminder-forget` | `reminder_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/reminders/{id}/restore` | `reminder-restore` | `reminder_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/events` | `event-create` | - | every other argument | - | - |
+| POST | `/projects/{p}/events/change` | `event-change` | - | every other argument | - | - |
+| POST | `/projects/{p}/events/cancel` | `event-cancel` | - | every other argument | - | - |
+| POST | `/projects/{p}/files` | `file-create` | - | `account`, `file_name`, `content`, `from_path`, `folder` | - | - |
+| POST | `/projects/{p}/files/replace` | `file-replace` | - | `account`, `file`, `content`, `from_path` | - | - |
+| POST | `/projects/{p}/files/save` | `file-save` | - | `account`, `attachment`, `file_name`, `folder` | - | - |
+| POST | `/projects/{p}/files/trash` | `file-trash` | - | `file`, `account`, `folder` | - | - |
+| POST | `/projects/{p}/files/read` | `file-read` | - | `file`, `account` | - | - |
+| POST | `/projects/{p}/mail/send` | `mail-send` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/reply` | `mail-reply` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/draft` | `mail-draft` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/archive` | `mail-archive` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/move` | `mail-move` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/mark` | `mail-mark` | - | every other argument | - | - |
+| POST | `/projects/{p}/mail/trash` | `mail-trash` | - | every other argument | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->
@@ -435,3 +536,9 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 - 2026-10-10: the conversation's commands are data (R4-C1, R-45): the operation `commands` (a row of the table with the channel `page`, in `runtime/ops_reads.py`) and the route `GET /projects/{p}/commands` answer `{"commands": [{"command", "arguments", "help"}]}`, the rows `/help` prints in its order (`operations.chat_command_rows`, built from `chat_commands`, the one source of the help); `/help`'s own help line reads `list the commands`; the `say-commands`, `operations` and `service-routes` blocks are regenerated.
 - 2026-10-13: the messaging bridge is a fifth shell and `messaging` a fifth channel (messaging.md).
 - 2026-10-14: the page follows the messaging bridge (MSG-14): five shells in the purpose and the diagram, the bridge's modules and the state-folder files in the artifacts, the bridge's call path, ceiling, child and policy in the abstractions, its dependencies and layer-map arrows, its rules and the service child's rules with their tests, the bridge's command and the service's `--messaging` and `--notice-every` flags, the `messaging` and `permissions` fields of `GET /projects` (and `--messaging` with several platforms, MSG-13), and two known limits.
+- 2026-10-15: the operation `run-step` (P5), and `set-mode` takes the agent `runtime` (the brake of step tasks); the held word `start it by hand`.
+- 2026-10-15: `run-step` takes `--unattended` (the dispatcher's flag), the `agents` read carries `steps` (the brake of the step tasks) and the Building's panel draws it (P5c).
+- 2026-10-15: five rows and seven routes for the sources (P4): `source-add`, `source-import`, `source-refresh`, `source-describe` (the terminal and the page; the upload follows the existing file route) and `sources` (also the MCP mode and messaging, in the group `sources`).
+- 2026-10-16: the language of a deliverable (LANGUAGE, runtime part): `request` takes `--language <tag>` (the terminal) and `language` (`POST /projects/{p}/requests`, the MCP mode); the request form has a language select beside the model select (the project's language first, then `en`, `pt-BR`, `es`, `fr`, `de`, and a field for another tag); the `skills` read carries the project's `language`; the plan card and the plan's text show one language line before approval (`interface/js/language.js`, `interface/js/cards/plan-rows.js`).
+- 2026-10-18: reminders (RM-1): the terminal verbs `remind`, `reminders` and `reminder-forget` and the page's routes `GET` and `POST /projects/{p}/reminders` and `POST /projects/{p}/reminders/{id}/forget`; no tool of the MCP mode and no conversation command.
+- 2026-10-18: files in the person's own accounts (W4a): the terminal verbs `file-create`, `file-replace` and `file-save` and the page's routes `POST /projects/{p}/files`, `/files/replace` and `/files/save`; each only prepares a card, and the MCP mode has none of them.

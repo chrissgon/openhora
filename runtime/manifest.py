@@ -28,7 +28,7 @@ Usage (a library):
 
 Standard library only. Runs on Python 3.9.
 """
-# Leaves at the change of reference model (docs/backlog.md, T23): the stable part of the manifest (the documents,
+# Leaves at the change of the lab default list or of the grader (docs/backlog.md, T23): the stable part of the manifest (the documents,
 # the asking openings, the gate) moves into the skill's frontmatter, which a change of model re-tests anyway.
 from __future__ import annotations
 

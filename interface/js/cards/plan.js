@@ -12,7 +12,7 @@ import { replyView } from "../floor/reply.js";
 import { withheldLine } from "../floor/widgets.js";
 import { wordOf } from "../permissions.js";
 import * as router from "../router.js";
-import { failureText, limitsLine, planHash, planText, stackedRow, taskRows } from "./plan-rows.js";
+import { WEB_SOURCES_NOTE, failureText, languageLine, limitsLine, planHash, planText, stackedRow, taskRows, webWithSources } from "./plan-rows.js";
 import { createWaitsBlock } from "./plan-waits.js";
 
 let counter = 0;
@@ -48,12 +48,15 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
   // what it waits for; the table the card had is gone
   const list = h("ol", { class: "wb-plan-list", "aria-label": "Plan tasks" }, rows.map((r) => {
     const s = stackedRow(r);
-    return h("li", { class: "wb-plan-task" },
+    const flagged = webWithSources(r);   // D16: a task that uses the web and receives sources is shown as such, before the person approves
+    return h("li", { class: flagged ? "wb-plan-task wb-plan-task-web-sources" : "wb-plan-task" },
       h("span", { class: "wb-task-n", text: r.n }),
       h("div", { class: "wb-plan-task-text" },
         h("strong", { class: "wb-cell-task", text: r.task }),
         h("span", { class: "wb-muted wb-cur-sub" }, h("code", { class: "mono wb-cell-skill", text: s.skill }), s.agent ? ` · ${s.agent}` : ""),
-        h("span", { class: "wb-muted wb-cur-sub", text: s.tail })));
+        h("span", { class: "wb-muted wb-cur-sub", text: s.tail }),
+        flagged ? h("span", { class: "pui-badge pui-warn pui-soft wb-plan-web-sources", title: WEB_SOURCES_NOTE, text: "Web task with sources" }) : null,
+        flagged ? h("span", { class: "wb-cur-sub wb-plan-web-sources-note", text: WEB_SOURCES_NOTE }) : null));
   }));
 
   const waits = createWaitsBlock(item.payload, { can });
@@ -66,6 +69,7 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
   };
   if (waits && waits.withheld) allow("approve", "go-ahead");
   const limits = limitsLine(item);
+  const language = languageLine(item);
   const hashBlock = shown
     ? h("div", { class: "wb-plan-hash-block" }, h("span", { class: "wb-card-label", text: "Plan hash" }), h("code", { class: "wb-plan-hash", tabindex: "0", role: "group", "aria-label": "Plan hash", text: shown }))
     : h("p", { class: "wb-card-note", text: "This plan carries no hash, so it cannot be approved from here." });
@@ -91,7 +95,7 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
   const el = h("article", { class: "pui-card wb-card wb-plan-card", "aria-labelledby": titleId },
     h("div", { class: "wb-card-head" }, kind, meta),
     h("div", { class: "pui-card-content wb-card-content" },
-      title, list, waits ? waits.el : null, limits ? h("p", { class: "wb-card-note", text: limits }) : null, hashBlock, asText,
+      title, list, language ? h("p", { class: "wb-card-note wb-plan-language", text: language }) : null, waits ? waits.el : null, limits ? h("p", { class: "wb-card-note", text: limits }) : null, hashBlock, asText,
       reject ? noteGroup : null, error, row, withheldLine(lacking)));
 
   let sending = false;

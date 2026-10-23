@@ -21,8 +21,9 @@ Functions:
   request_title(row)                        the title shown for a request row of the store, whatever rule made its
                                             stored title (the plan's first line and the rows of `status` use it)
   scope_refusal(flow, outside, root)        the sentence of a flow whose skills no enabled area agent has
-  build(request, tasks, route, source, limits, past, flow=None, deliveries=None, unrouted=None)
-                                            the title, the body and the payload of the plan
+  build(request, tasks, route, source, limits, past, flow=None, deliveries=None, unrouted=None, project_language=None)
+                                            the title, the body and the payload of the plan; its text has one line "Language:
+                                            ..." (runtime/language.py) and its payload the project's `project_language`
 
 Stage 6 (several deliveries, the brief, sub-tasks):
   split(text)                               {"preamble", "items"}: the lines of a request that start with "- " are its
@@ -55,8 +56,11 @@ Derived waits (A-29: the runtime knows by itself which task waits for which, fro
   wait_lines(waits, missing, cycles, titles)   the lines a plan's body adds for them
 
 A plan task is {"key", "skill", "title", "text", "depends_on": [keys], "milestone", "mandatory_milestone", "web"}:
-milestone is true when the flow file says so or the skill's runtime manifest makes it a mandatory milestone; web is
-whether the skill requires the web. No cost in money is written: the estimate counts runs.
+A task that runs a skill carries "language" when the person asked for one (the request's, or the router's proposal the
+person sees on the plan card): absent when none was asked, so the plan hash covers what was asked and a plan with no request
+for a language hashes as it did before. milestone is true when the flow file says so or the skill's runtime manifest makes it a mandatory milestone; web is
+whether the skill requires the web (and the run has it): a task with "web_off" true, which a flow's "web": false makes, is a
+skill that requires the web run without it. A task of a flow may carry "sources" (flow_files.sources_of). No cost in money is written: the estimate counts runs.
 
 Usage (a library; the shell is runtime/cli.py, verbs route, approve, reject): python3 runtime/plan.py --help
 
@@ -77,9 +81,11 @@ sys.path.insert(0, HERE)
 import autonomy  # noqa: E402  (the same folder)
 import flow_files  # noqa: E402  (the one reader of a skill's Required column: what scripts/validate.py reads)
 import isolated  # noqa: E402
+import language  # noqa: E402  (the same folder: the requested language of a task and the plan's language line)
 import manifest  # noqa: E402
 import roles  # noqa: E402
 import skill_meta  # noqa: E402
+import steps  # noqa: E402  (the step engine's registry: the kinds a plan task may name, and their footprints)
 
 DEFAULT_PACK = "default"
 CATCH_ALL_PACKS = ("default", "all")  # packs that hold nearly every skill: never the pack a refusal tells the person to add
@@ -173,6 +179,15 @@ def agent_of(skill: str, agents: dict) -> str:
     return owners[0]
 
 
+def agent_for(task: dict, agents: dict):
+    """The agent that owns a plan task. A step task (a key `step`: the name of a kind of runtime/steps.py) belongs to the runtime's own
+    pseudo-agent, steps.OWNER, whatever the project's area agents are: it runs no skill and no model, so no pack holds it and none
+    needs to. Any other task: agent_of its skill when area agents are configured, else None (stages 1 to 4)."""
+    if task.get("step"):
+        return steps.OWNER
+    return agent_of(task["skill"], agents) if agents else None
+
+
 def owner_of(path: str, root: str):
     """The skill whose metadata.outputs holds path (the artifact contract: one owner), read with skill_meta; None when
     no skill of the checkout declares it."""
@@ -252,19 +267,38 @@ def scope_refusal(flow_name: str, outside: list, root: str) -> str:
 
 def from_flow(flow: dict, root: str, pack) -> list:
     """The tasks of a flow file (flow_files.load()) as plan tasks, in its order. A task whose skill is not in pack
-    raises PlanError saying which pack of packs/ holds the skills and what to add to runtime.json (scope_refusal)."""
-    outside = [t["skill"] for t in flow["tasks"] if t["skill"] not in list(pack)]
+    raises PlanError saying which pack of packs/ holds the skills and what to add to runtime.json (scope_refusal). A flow that still
+    holds a placeholder (a parameter or a date variable nobody filled: flow_files.bind) raises PlanError too; a skill task also gets
+    "sources" (the ids it lists and those of the ingest steps before it) and, when the flow says "web": false for a skill that
+    requires the web, "web": false and "web_off": true (the run is routed without the web, migration 13 of the store)."""
+    unfilled = flow_files.placeholders(flow)
+    if unfilled:
+        raise PlanError(f"the flow {flow['flow']} has parameters or dates to fill ({', '.join(sorted(unfilled))}): name it, with its "
+                        f"parameters, to plan it (route --request <id> --flow {flow['flow']} --param name=value)")
+    outside = [t["skill"] for t in flow["tasks"] if not t.get("step") and t["skill"] not in list(pack)]
     if outside:
         raise PlanError(scope_refusal(flow["flow"], outside, root))
     tasks = []
+    received = flow_files.sources_of(flow, steps.sourcing_kinds())   # a skill task receives the sources it lists and those of the ingest steps before it
     for t in flow["tasks"]:
+        if t.get("step"):    # a step of the engine (runtime/steps.py): its kind checks the arguments and derives the footprint
+            try:
+                tasks.append(steps.plan_task(t["step"], t.get("args"), key=t["key"], title=t["title"], text=t["text"],
+                                             depends_on=t["depends_on"], milestone=bool(t["milestone"])))
+            except steps.StepFailure as e:
+                raise PlanError(f"the step {t['key']} of the flow {flow['flow']}: {e}") from None
+            continue
         try:
             facts = _task_facts(t["skill"], root)
         except (skill_meta.SkillError, manifest.ManifestError) as e:
             raise PlanError(str(e)) from None
-        tasks.append({"key": t["key"], "skill": t["skill"], "title": t["title"], "text": t["text"],
-                      "depends_on": list(t["depends_on"]), "milestone": bool(t["milestone"]) or facts["mandatory_milestone"],
-                      **facts})
+        one = {"key": t["key"], "skill": t["skill"], "title": t["title"], "text": t["text"],
+               "depends_on": list(t["depends_on"]), "milestone": bool(t["milestone"]) or facts["mandatory_milestone"], **facts}
+        if received.get(t["key"]):
+            one["sources"] = list(received[t["key"]])
+        if t.get("web") is False and facts["web"]:   # the flow runs this skill without the web it requires: the run is routed so (store: web_off)
+            one["web"], one["web_off"] = False, True
+        tasks.append(one)
     return tasks
 
 
@@ -319,14 +353,17 @@ def plan_hash(tasks: list) -> str:
 
 
 def build(request: dict, tasks: list, route, source: str, limits: dict, past: list, flow=None, deliveries=None,
-          unrouted=None) -> dict:
+          unrouted=None, bound=None, project_language=None) -> dict:
     """{"title", "body", "payload"} of the pending decision of kind `plan`. request is the request's row; route the
     route read from the router's reply (None for a flow the person named); source `router` or `named`; limits from
     the gate file; past the rows of task_runs of the plan's skills in this store. deliveries and unrouted (stage 6,
-    combine) add the plan's deliveries, what was not routed, and the estimate's runs and formula."""
+    combine) add the plan's deliveries, what was not routed, and the estimate's runs and formula. bound (a flow with parameters or
+    dates, flow_files.bind()'s "bound") adds the values the request gave and the dates, with their time zone, to the payload and
+    to the plan's text: the tasks the hash covers already hold them. project_language is the key `language` of the project's
+    configuration (None: not set, so `en`), which the plan's language line states for the tasks that asked for none."""
     if source not in ("router", "named"):
         raise PlanError("a plan's source is router or named")
-    skills = list(dict.fromkeys(t["skill"] for t in tasks))
+    skills = list(dict.fromkeys(t["skill"] for t in tasks if t.get("skill")))
     estimate_past = []
     for skill in skills:
         runs = [r for r in past if r.get("skill") == skill]
@@ -334,40 +371,61 @@ def build(request: dict, tasks: list, route, source: str, limits: dict, past: li
         estimate_past.append({"skill": skill, "runs": len(runs),
                               "mean_duration_ms": round(sum(durations) / len(durations)) if durations else None})
     digest = plan_hash(tasks)
+    runs = len([t for t in tasks if t.get("skill")])   # a step task is code, not a run of a skill
     payload = {"source": source, "route": route, "flow": flow, "tasks": tasks, "limits": limits,
-               "estimate": {"tasks": len(tasks), "runs_at_least": len(tasks), "past": estimate_past},
-               "plan_sha256": digest}
+               "estimate": {"tasks": len(tasks), "runs_at_least": runs, "past": estimate_past},
+               "plan_sha256": digest, "project_language": project_language or language.DEFAULT}
     several = deliveries is not None and len(deliveries) + len(unrouted or []) > 1
+    if bound:
+        payload["bound"] = bound
     if deliveries is not None:
         payload.update(deliveries=deliveries, unrouted=list(unrouted or []))
-        payload["estimate"].update(runs=RUNS_PER_TASK * len(tasks), formula=ESTIMATE_FORMULA)
+        payload["estimate"].update(runs=RUNS_PER_TASK * runs, formula=ESTIMATE_FORMULA)
     keys = {t["key"]: n for n, t in enumerate(tasks, 1)}
     if several:
         said = f"the router, once per delivery ({len(deliveries) + len(unrouted or [])} listed)"
     else:
         said = ('the router, ' + route['line'] if source == 'router' and route else 'the flow you named') + \
                (f"; flow file flows/{flow}.json" if flow and flow != DELIVERIES_FLOW else "")
-    lines = [f"Plan for request {request['id']}: {request_title(request)}", f"Source: {said}", ""]
+    lines = [f"Plan for request {request['id']}: {request_title(request)}", f"Source: {said}", language.payload_line(payload), ""]
     if several:
         lines += ["Deliveries (a delivery starts after an earlier one only when it reads what that one writes):"]
         lines += [f"- {d['item']}: {d['route']} -> {', '.join(d['tasks'])}"
                   + (f" (routed again after {d['reroute_after']})" if d.get("reroute_after") else "") for d in deliveries]
         lines += [""]
-    lines += ["| # | Task | Skill | After | Milestone | Web |", "|---|---|---|---|---|---|"]
+    with_source_ids = any(t.get("sources") for t in tasks)
+    lines += ["| # | Task | Skill | After | Milestone | Web |" + (" Sources |" if with_source_ids else ""),
+              "|---|---|---|---|---|---|" + ("---|" if with_source_ids else "")]
     for n, t in enumerate(tasks, 1):
         after = ", ".join(str(keys[d]) for d in t["depends_on"]) or "-"
         milestone = "yes, mandatory" if t.get("mandatory_milestone") else "yes" if t["milestone"] else "no"
-        lines.append(f"| {n} | {t['title']} | {t['skill']} | {after} | {milestone} | "
-                     f"{'yes' if t['web'] else 'no'} |")
+        lines.append(f"| {n} | {t['title']} | {t.get('skill') or 'step ' + t['step']} | {after} | {milestone} | "
+                     f"{'yes' if t['web'] else 'no'} |" + (f" {', '.join(t.get('sources') or []) or '-'} |" if with_source_ids else ""))
+    if with_source_ids and any(t.get("sources") and t["web"] for t in tasks):
+        lines += ["", "A task that uses the web receives sources: what it reads of them is visible to a run with the open network. "
+                      "Approving this plan is your choice about that."]
+    ran = [t for t in tasks if t.get("step")]
+    if ran:   # what a step task does is its kind and its arguments: the plan shows them, and the hash covers them
+        lines += ["", "Steps (run by code, no model):"]
+        lines += [f"- {t['title']}: {t['step']} {json.dumps(t.get('args') or {}, sort_keys=True)}"
+                  + (f"; may write {', '.join(t['footprint'])}" if t.get("footprint") else "") for t in ran]
+    if bound:   # what the request filled in and the clock gave: the tasks above already hold these values, and the hash covers the tasks
+        lines += [""] + [f"Parameter {k}: {v}" if "\n" not in v and len(v) <= 200 else f"Parameter {k}: {len(v)} characters (see the tasks)"
+                         for k, v in (bound.get("params") or {}).items()]
+        lines += [f"File {k}: {v['name']} (sha256 {v['sha256']})" for k, v in (bound.get("files") or {}).items()]
+        if bound.get("dates"):
+            lines += [f"Dates: today {bound['dates']['today']}, week {bound['dates']['week']}, in the time zone {bound['dates']['zone']}."]
+    if any(t.get("web_off") for t in tasks):
+        lines += ["", "Runs without the web although its skill requires it: " + ", ".join(t["title"] for t in tasks if t.get("web_off")) + "."]
     pace = f"Up to {limits['max_running']} tasks at a time; each" if limits.get("max_running") else "Each"
     lines += ["", f"{pace} run at most {limits.get('timeout_seconds')} s, retried at most "
-                  f"{limits.get('retries')} times. At least {len(tasks)} runs.",
+                  f"{limits.get('retries')} times. At least {runs} runs.",
               "Past runs of these skills here: " + "; ".join(
                   f"{p['skill']} {p['runs']}" + (f" (mean {p['mean_duration_ms']} ms)" if p["mean_duration_ms"] is not None else "")
                   for p in estimate_past) + ".",
               f"Plan hash: {digest}"]
     if deliveries is not None:
-        lines.insert(-1, f"Estimate: {RUNS_PER_TASK * len(tasks)} runs ({ESTIMATE_FORMULA}).")
+        lines.insert(-1, f"Estimate: {RUNS_PER_TASK * runs} runs ({ESTIMATE_FORMULA}).")
     for n, u in enumerate(unrouted or [], 1):
         lines += ["", f"Not planned {n}: {u['item']} ({u['why']}). The router's reply, whole:", "", u["reply"].rstrip("\n")]
     count = f"{len(tasks)} task{'s' if len(tasks) != 1 else ''}"
@@ -428,10 +486,10 @@ def _contract_deps(deliveries: list, declared: dict) -> None:
     nothing."""
     for k, mine in enumerate(deliveries):
         for t in mine:
-            reads = declared.get(t["skill"], {}).get("inputs", [])
+            reads = declared.get(t.get("skill"), {}).get("inputs", [])
             for earlier in deliveries[:k]:
                 for u in earlier:
-                    writes = declared.get(u["skill"], {}).get("outputs", [])
+                    writes = declared.get(u.get("skill"), {}).get("outputs", [])
                     if u["key"] not in t["depends_on"] and any(same_artifact(i, o) for i in reads for o in writes):
                         t["depends_on"] = list(t["depends_on"]) + [u["key"]]
 
@@ -572,15 +630,39 @@ def delivery_tasks(route: dict, k: int, flows: dict, root: str, pack, prefix: bo
     return tasks
 
 
+def with_sources(tasks: list, chosen: dict, forced) -> str | None:
+    """Put the source ids a delivery's tasks receive in the tasks (key "sources", absent when none, so a plan with no source
+    hashes as it did before): the ids the router chose for the skill of the task and for every task ("*"), then the ids an
+    @mention forced. Returns the reason when the router named a skill that is not in the delivery, else None. The order is the
+    order they were named; the plan hash covers the ids, and a new version of a source changes none of this."""
+    skills = {t["skill"] for t in tasks if t.get("skill")}
+    strange = sorted(k for k in chosen if k != "*" and k not in skills)
+    if strange:
+        return f"the router chose sources for a skill that is not in the plan: {', '.join(strange)}"
+    for t in tasks:
+        if t.get("step"):    # a step task receives no source: it names the ones it reads in its own arguments
+            continue
+        ids = []
+        for i in list(chosen.get("*", [])) + list(chosen.get(t["skill"], [])) + list(forced or []):
+            if i not in ids:
+                ids.append(i)
+        if ids:
+            t["sources"] = ids
+    return None
+
+
 def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: str, *, pack, limits: dict,
-            past: list) -> dict:
+            past: list, forced=(), project_language=None) -> dict:
     """One plan from the routes of the deliveries, in the order listed (decision P3). routed is [{"item", "route",
     "reply"}], route None when the router asked or gave no route line, else read_route() with "checked". A delivery
     whose route is not valid goes to "unrouted" with the whole reply and gets no task. A task depends on a task of an
     earlier delivery whose skill writes one of its inputs (the artifact contract); other deliveries do not wait for
     each other. Each task gets its agent (agent_of; None for every task when no
-    area agent is configured). Returns {"plan": build(...) or None when no task, "tasks", "deliveries", "unrouted"}."""
+    area agent is configured). The language of a delivery's tasks is the request's own (the person's choice), else the one the
+    router proposed for it (`language` of its route), else none; project_language is the project's setting, for the plan's line.
+    Returns {"plan": build(...) or None when no task, "tasks", "deliveries", "unrouted"}."""
     several = len(routed) > 1
+    forced = list(forced or [])
     tasks, deliveries, unrouted, routes, lists = [], [], [], [], []
     for k, entry in enumerate(routed, 1):
         route = entry.get("route")
@@ -591,8 +673,13 @@ def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: 
             continue
         route = dict(route, title=request_title(request) if not several else title_of(entry["item"]))
         mine = delivery_tasks(route, k, flows, root, pack, prefix=several)
+        refused = with_sources(mine, route.get("sources") or {}, forced)
+        if refused:
+            unrouted.append({"item": entry["item"], "why": refused, "reply": entry.get("reply") or ""})
+            continue
         for t in mine:
-            t["agent"] = agent_of(t["skill"], agent_skills) if agent_skills else None
+            t["agent"] = agent_for(t, agent_skills)
+        language.with_language(mine, request.get("language") or route.get("language"))
         brief = mine[0]["key"] if "skill" in checked and checked["skill"] == BRIEF_SKILL else None
         deliveries.append({"item": entry["item"], "route": route["line"], "tasks": [t["key"] for t in mine],
                            "reroute_after": brief})
@@ -600,7 +687,7 @@ def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: 
         routes.append(route)
         lists.append(mine)
     declared = {}
-    for skill in sorted({t["skill"] for t in tasks}):
+    for skill in sorted({t["skill"] for t in tasks if t.get("skill")}):
         try:
             meta = skill_meta.declared(os.path.join(root, "skills", skill))
         except skill_meta.SkillError:
@@ -609,12 +696,13 @@ def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: 
     _contract_deps(lists, declared)
     owner = owner_of(BACKLOG, root)
     full = dict(limits, max_subtasks=SUBTASKS_PER_PLAN,
-                subtask_skills=[SUBTASK_SKILL] if owner and any(t["skill"] == owner for t in tasks) else [])
+                subtask_skills=[SUBTASK_SKILL] if owner and any(t.get("skill") == owner for t in tasks) else [])
     flow = routes[0]["checked"].get("flow") if len(routes) == 1 else DELIVERIES_FLOW if routes else None
     shown = None if several or not routes else {k: v for k, v in routes[0].items() if k not in ("checked", "title")}
     built = None
     if tasks:
-        built = build(request, tasks, shown, "router", full, past, flow=flow, deliveries=deliveries, unrouted=unrouted)
+        built = build(request, tasks, shown, "router", full, past, flow=flow, deliveries=deliveries, unrouted=unrouted,
+                      project_language=project_language)
     return {"plan": built, "tasks": tasks, "deliveries": deliveries, "unrouted": unrouted, "limits": full}
 
 

@@ -38,12 +38,14 @@ nothing outside them is touched, and a block is never edited by hand. Each table
                         CODE_KEYS and PRICE_KEYS (computed from PRICE_KINDS) of runtime/project_config.py,
                         AGENT_KEYS and BOUNDS_KEYS of runtime/autonomy.py, ENTRY_KEYS and the names of RECIPES of
                         runtime/deps.py; names only, no configuration is opened and no value is read
-  flow-files            each flows/*.json: the flow, its title, and its tasks' keys and skills in order
+  flow-files            each flows/*.json: the flow, its title, and its tasks' keys and skills (or step kinds) in order
   roles                 runtime/roles.json: each key and its value (names of skills, areas and packs)
   held-reasons          REASONS of runtime/dispatcher.py: its text literals and the module's own text constants
   channel-groups        GROUPS of runtime/operations.py with the operations and the decision kind of each, where each is
-                        valid and which are in DEFAULT_POLICY; BRAKES and the channel constants in a head line: the
-                        literals are read with ast.literal_eval, runtime/operations.py is never imported
+                        valid (the ceiling, and the grants of GRANTS; PAGE_ONLY_GROUPS and MESSAGING_ONLY_GROUPS) and which are in
+                        DEFAULT_POLICY, with what each gives (GROUP_TEXT, when the file has it); BRAKES and the channel
+                        constants in a head line, then, when the file has GRANTS, the table of the grants with what each gives
+                        away (GRANT_TEXT): the literals are read with ast.literal_eval, runtime/operations.py is never imported
   messenger-capabilities  each shipped implementation of the class messenger:<platform> (providers/resolve.py) and the
                         capabilities it declares: a CAPABILITIES literal, else the dict its `capabilities` function
                         returns, parsed with ast (a value the provider computes from its settings is shown as such);
@@ -234,7 +236,7 @@ def provider_classes(root):
     rows = []
     for cls in classes:
         folder = resolve.folder(cls)
-        names = resolve.implementations_in(folder, root=root)
+        names = resolve.implementations(cls, root=root)      # a writer declares `SERVES = "writer:<x>"`: it is listed under that class only
         if not names:
             rows.append([_code(cls), _code(f"{folder}/"), "none ships", NONE])
             continue
@@ -615,7 +617,7 @@ def flow_files(root):
     for rel in _files(root, "flows", ".json"):
         try:
             flow = json.loads(_read(root, rel))
-            tasks = ", ".join(f"{_code(t['key'])} ({_code(t['skill'])})" for t in flow["tasks"])
+            tasks = ", ".join(f"{_code(t['key'])} ({_code(t['skill']) if 'skill' in t else 'step ' + _code(t['step'])})" for t in flow["tasks"])
             rows.append([_code(flow["flow"]), flow["title"], tasks or NONE])
         except (ValueError, KeyError, TypeError) as e:
             raise SourceError(f"{rel}: not a flow file ({type(e).__name__}: {e})") from None
@@ -681,28 +683,43 @@ def channel_groups(root):
         raise SourceError("runtime/operations.py: DEFAULT_POLICY, BRAKES, EFFECT_CHANNELS and POLICY_CHANNELS must be literals")
     must_read = _literal_set(tree, "MUST_READ") or []
     page_only = _literal_set(tree, "PAGE_ONLY_GROUPS") or []
+    messaging_only = _literal_set(tree, "MESSAGING_ONLY_GROUPS") or []
+    group_text = _constant(tree, "GROUP_TEXT") if isinstance(_constant(tree, "GROUP_TEXT"), dict) else {}
     never = _literal_set(tree, "NEVER_NARROWED") or []
+    grants = _constant(tree, "GRANTS") if isinstance(_constant(tree, "GRANTS"), dict) else {}
+    grant_text = _constant(tree, "GRANT_TEXT") if isinstance(_constant(tree, "GRANT_TEXT"), dict) else {}
     ceiling = {row["name"]: row["channels"] for row in rows}
     out = []
     for name, group in groups.items():
         ops = group["operations"]
-        valid = [c for c in policy_channels if (name not in page_only or c == "page")
-                 and any(c in ceiling.get(op, ()) for op in ops)]
+        kind = group.get("kind") or ""
+        model_client = kind == "effect" or kind.startswith("effect:") or kind == "plan:networked"    # never valid on the MCP mode
+        valid = [c for c in policy_channels if (name not in page_only or c == "page") and (name not in messaging_only or c == "messaging")
+                 and (any(c in ceiling.get(op, ()) for op in ops) or name in grants.get(c, ()))
+                 and not (c == "mcp" and model_client) and not (kind == "plan:networked" and c != "messaging")]
         listed = [c for c, names in default.items() if name in names]
         out.append([_code(name), _names(ops), _code(group["kind"]) if group.get("kind") else NONE,
-                    _names(valid), _names(listed)])
+                    _names(valid), _names(listed)] + ([_cell(group_text.get(name, ""))] if group_text else []))
     head = (f"Channels with a policy (`POLICY_CHANNELS`): {_names(policy_channels)}. Never narrowed (`NEVER_NARROWED`): "
             f"{_names(never)}. A policy for {_names(must_read)} must list `read` (`MUST_READ`). A channel with no entry in the "
             f"project's `channels` takes its `DEFAULT_POLICY`: "
             + ("; ".join(f"{_code(c)}: {_names(g)}" for c, g in default.items()) or NONE)
             + f"; any other channel keeps its whole ceiling. Valid on the page only (`PAGE_ONLY_GROUPS`): {_names(page_only)}. "
-            f"An effect is approved only from (`EFFECT_CHANNELS`): {_names(effect)}. Brakes (`BRAKES`), permitted on the page "
+            f"Valid on a messaging app only (`MESSAGING_ONLY_GROUPS`): {_names(messaging_only)}. "
+            f"An effect is approved with no grant from (`EFFECT_CHANNELS`): {_names(effect)}. Brakes (`BRAKES`), permitted on the page "
             f"whatever its policy says: {_names(brakes)}.\n\n")
-    return head + _table(["Group", "Operations", "Decision kind", "Valid on", "In the default policy of"], out)
+    table = _table(["Group", "Operations", "Decision kind", "Valid on", "In the default policy of"] + (["What it gives"] if group_text else []), out)
+    if not grants:
+        return head + table
+    rows_of_grants = [[_code(c), _code(g), _cell(grant_text.get(f"{c}:{g}", ""))] for c, names in grants.items() for g in names]
+    return (head + table.rstrip("\n") + "\n\nA grant (`GRANTS`) widens a channel and counts only when the project's own entry for the channel lists it, "
+            "never through the default policy; accepting a file that gives a channel or a sender any group the accepted file did not effectively give "
+            "them, a grant or not, asks for the hash of the widening list (`accept-config --widen`).\n\n"
+            + _table(["Channel", "Grant", "What it gives away"], rows_of_grants))
 
 
 CAPABILITY_KEYS = ("max_text", "buttons", "max_buttons", "max_button_label", "lists", "max_list_rows", "url_buttons",
-                   "reply_context", "documents", "listen")
+                   "reply_context", "documents", "listen", "actions_need_reply", "attachments", "max_attachment_bytes", "typing", "send_files", "max_send_bytes")
 
 
 def _capability_text(value):
@@ -773,7 +790,7 @@ def messenger_capabilities(root):
         caps = _capabilities_of(root, f"providers/messenger/{name}.py")
         for platform in resolve.served_platforms("messenger:<platform>", name, root=root) or [NONE]:
             rows.append([_code(platform), _code(f"{name}.py")] + [_capability_text(caps.get(k)) for k in CAPABILITY_KEYS])
-    head = ("`yes` and `no` are booleans; a key a provider leaves out is `no` (`listen` is optional); `configured` is a value "
+    head = ("`yes` and `no` are booleans; a key a provider leaves out is `no` (`listen`, `actions_need_reply`, `attachments`, `max_attachment_bytes`, `typing`, `send_files` and `max_send_bytes` are optional; a provider that declares `send_files` also declares `max_photo_bytes`, `photo_types` and `send_types`, which providers/messenger/README.md describes); `configured` is a value "
             "the provider computes from its saved settings, not a constant.\n\n")
     return head + _table(["Platform", "Provider"] + [_code(k) for k in CAPABILITY_KEYS], rows)
 

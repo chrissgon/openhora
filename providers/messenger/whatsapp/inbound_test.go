@@ -35,7 +35,7 @@ func TestAPlainTextOneToOneMessageIsAnUpdateWithTheSenderDigits(t *testing.T) {
 	if u == nil || why != dropNone {
 		t.Fatalf("dropped: %q", why)
 	}
-	if u.Sender != person || u.Chat != person || !u.Private || u.Text != "/pending" || u.UpdateID != "3EB0AAAA0001" {
+	if u.Sender != person || u.Chat != person || !u.Private || u.Text == nil || *u.Text != "/pending" || u.UpdateID != "3EB0AAAA0001" {
 		t.Fatalf("%+v", u)
 	}
 	if u.Action != nil || u.ActionRef != nil || u.ReplyTo != nil {
@@ -58,7 +58,7 @@ func TestAnExtendedTextMessageCarriesTheQuotedMessageIdAsReplyTo(t *testing.T) {
 		ContextInfo: &waE2E.ContextInfo{StanzaID: ptr("3EB0CARD0001")},
 	}}
 	u, _ := inbound(context.Background(), evt, noResolver)
-	if u == nil || u.Text != "approve it" || u.ReplyTo == nil || *u.ReplyTo != "3EB0CARD0001" {
+	if u == nil || u.Text == nil || *u.Text != "approve it" || u.ReplyTo == nil || *u.ReplyTo != "3EB0CARD0001" {
 		t.Fatalf("%+v", u)
 	}
 	evt.Message.ExtendedTextMessage.ContextInfo = nil
@@ -162,5 +162,86 @@ func TestSenderDigitsServesWhoamiForAnyKindOfMessage(t *testing.T) {
 	evt.Info.IsGroup = true
 	if digits, _ := senderDigits(context.Background(), evt.Info, noResolver); digits != "" {
 		t.Fatal("a group member is not a one-to-one sender")
+	}
+}
+
+// A forwarded message is an update with `forwarded` true (the bridge answers it with one sentence and acts on nothing in it). The oracle
+// is the list of context fields written out here, not forwardedOf.
+func TestAMessageWhatsAppMarkedAsForwardedIsAnUpdateWithTheForwardedFlag(t *testing.T) {
+	path := ptr("/v/t62/abc")
+	text := func(c *waE2E.ContextInfo) *waE2E.Message {
+		return &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: ptr("send an e-mail to ana@example.example"), ContextInfo: c}}
+	}
+	doc := func(c *waE2E.ContextInfo) *waE2E.Message {
+		d := docFor([]byte("%PDF-1.7 plan"))
+		d.ContextInfo = c
+		return &waE2E.Message{DocumentMessage: d}
+	}
+	wrapped := func(c *waE2E.ContextInfo) *waE2E.Message {
+		d := docFor([]byte("x"))
+		d.ContextInfo = c
+		return &waE2E.Message{DocumentWithCaptionMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{DocumentMessage: d}}}
+	}
+	photo := func(c *waE2E.ContextInfo) *waE2E.Message {
+		return &waE2E.Message{ImageMessage: &waE2E.ImageMessage{DirectPath: path, Mimetype: ptr("image/jpeg"), FileLength: ptr(uint64(10)), ContextInfo: c}}
+	}
+	voice := func(c *waE2E.ContextInfo) *waE2E.Message {
+		return &waE2E.Message{AudioMessage: &waE2E.AudioMessage{DirectPath: path, Mimetype: ptr("audio/ogg"), FileLength: ptr(uint64(10)), PTT: ptr(true), ContextInfo: c}}
+	}
+	kinds := map[string]func(*waE2E.ContextInfo) *waE2E.Message{"text": text, "document": doc, "wrapped document": wrapped, "photo": photo, "voice": voice}
+	marks := map[string]*waE2E.ContextInfo{
+		"isForwarded":      {IsForwarded: ptr(true)},
+		"forwardingScore1": {ForwardingScore: ptr(uint32(1))},
+		"forwardingScore9": {ForwardingScore: ptr(uint32(9)), IsForwarded: ptr(true)},
+	}
+	unmarked := map[string]*waE2E.ContextInfo{
+		"no context":          nil,
+		"empty context":       {},
+		"a reply only":        {StanzaID: ptr("3EB0CARD0001")},
+		"isForwarded false":   {IsForwarded: ptr(false)},
+		"forwardingScore 0":   {ForwardingScore: ptr(uint32(0))},
+		"a reply and a score": {StanzaID: ptr("3EB0CARD0001"), ForwardingScore: ptr(uint32(0))},
+	}
+	wrong := func(build func(*waE2E.ContextInfo) *waE2E.Message, c *waE2E.ContextInfo, want bool) bool {
+		return inboundOf(t, build(c)).Forwarded != want
+	}
+	for kind, build := range kinds {
+		for mark, c := range marks {
+			if wrong(build, c, true) {
+				t.Errorf("%s with %s: not marked forwarded", kind, mark)
+			}
+		}
+		for mark, c := range unmarked {
+			if wrong(build, c, false) {
+				t.Errorf("%s with %s: marked forwarded", kind, mark)
+			}
+		}
+	}
+	// a plain conversation carries no context at all
+	if u, _ := inbound(context.Background(), textEvent(pn(person), pn(person), "hi"), noResolver); u == nil || u.Forwarded {
+		t.Fatalf("%+v", u)
+	}
+	// vacuity: the check above catches a planted wrong expectation in both directions
+	if !wrong(text, marks["isForwarded"], false) || !wrong(text, unmarked["empty context"], true) {
+		t.Fatal("the check does not notice a wrong result")
+	}
+}
+
+func TestTheForwardedFlagIsOnTheProtocolLineOnlyWhenItIsTrue(t *testing.T) {
+	l, out := newTestListener(&fakeSender{})
+	l.handle(textEvent(pn(person), pn(person), "plain"))
+	fwd := textEvent(pn(person), pn(person), "")
+	fwd.Info.ID = "3EB0AAAA0002"
+	fwd.Message = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: ptr("forwarded"), ContextInfo: &waE2E.ContextInfo{IsForwarded: ptr(true)}}}
+	l.handle(fwd)
+	lines := out.lines()
+	if len(lines) != 2 {
+		t.Fatalf("%v", lines)
+	}
+	if _, there := lines[0]["update"].(map[string]any)["forwarded"]; there {
+		t.Fatalf("a plain message carries no forwarded key: %v", lines[0])
+	}
+	if lines[1]["update"].(map[string]any)["forwarded"] != true {
+		t.Fatalf("%v", lines[1])
 	}
 }

@@ -1,6 +1,6 @@
-"""Offline tests of the key proxy's provider pin (evals/container/keyproxy/keyproxy.py, "provider_only" of
-keyproxy.json), against a stand-in provider on this machine that speaks HTTPS with a certificate made for the
-test. No docker, no real provider, no real key.
+"""Offline tests of the key proxy's provider pin (evals/container/keyproxy/keyproxy.py, --pin: the pin of a model
+comes from the gate file's entry of that model, never from the route file), against a stand-in provider on this
+machine that speaks HTTPS with a certificate made for the test. No docker, no real provider, no real key.
 
 Run: uv run --with pytest pytest evals/tests/test_keyproxy_pin.py
 """
@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 FOLDER = Path(__file__).resolve().parents[1] / "container" / "keyproxy"
+ROUTE = str(FOLDER / "route-openrouter.json")
 _spec = importlib.util.spec_from_file_location("keyproxy_pin", FOLDER / "keyproxy.py")
 kp = importlib.util.module_from_spec(_spec)
 _writes = sys.dont_write_bytecode
@@ -32,6 +33,7 @@ finally:
 
 KEY = "fake-floor-key-held-by-the-proxy-0003"
 PIN = "deepinfra"
+MODEL = "vendor/model"
 
 
 @pytest.fixture(scope="module")
@@ -93,14 +95,10 @@ def provider(tls):
     server.server_close()
 
 
-def proxy(provider, tls, pinned=True):
-    """A key proxy on 127.0.0.1 in front of the stand-in, with the route's pin, or with none."""
-    route = kp.load_route(kp.ROUTE, f"https://127.0.0.1:{provider.server_address[1]}")
-    if pinned:
-        route = {**route, "provider_only": PIN}
-    else:
-        route = {k: v for k, v in route.items() if k != "provider_only"}
-    return serve(kp.KeyProxy(("127.0.0.1", 0), route, KEY, str(tls[0]), None, io.StringIO()))
+def proxy(provider, tls, pin=PIN):
+    """A key proxy on 127.0.0.1 in front of the stand-in, started with the model's pin, or with none."""
+    route = kp.load_route(ROUTE, f"https://127.0.0.1:{provider.server_address[1]}")
+    return serve(kp.KeyProxy(("127.0.0.1", 0), route, KEY, str(tls[0]), None, io.StringIO(), upstream_models=[MODEL], pin=pin))
 
 
 @pytest.fixture
@@ -113,7 +111,7 @@ def pinned(provider, tls):
 
 @pytest.fixture
 def unpinned(provider, tls):
-    server = proxy(provider, tls, pinned=False)
+    server = proxy(provider, tls, pin=None)
     yield server
     server.shutdown()
     server.server_close()
@@ -128,17 +126,23 @@ def call(server, method, path, body=None):
     return resp, data
 
 
-def test_the_route_pins_the_one_provider_it_names():
-    assert kp.load_route()["provider_only"] == PIN
+def test_a_route_file_names_no_pin_and_one_that_does_is_refused(tmp_path):
+    route = json.loads(Path(ROUTE).read_text())
+    assert "provider_only" not in route  # the pin is the model's, in the gate file
+    route["provider_only"] = PIN
+    path = tmp_path / "route-x.json"
+    path.write_text(json.dumps(route))
+    with pytest.raises(kp.RouteError):
+        kp.load_route(str(path))
 
 
 def test_a_chat_completion_reaches_the_provider_pinned_whatever_the_run_asked_for(provider, pinned):
-    sent = {"model": "m", "messages": [], "provider": {"order": ["x"]}}
+    sent = {"model": MODEL, "messages": [], "provider": {"order": ["x"]}}
     resp, _ = call(pinned, "POST", "/api/v1/chat/completions", json.dumps(sent).encode())
     assert resp.status == 200
     got = json.loads(provider.seen[-1]["body"])
     assert got["provider"] == {"only": [PIN], "allow_fallbacks": False}
-    assert got["model"] == "m" and got["messages"] == []
+    assert got["model"] == MODEL and got["messages"] == []
 
 
 def test_a_chat_completion_whose_body_is_not_json_is_refused_and_nothing_is_forwarded(provider, pinned):
@@ -147,35 +151,29 @@ def test_a_chat_completion_whose_body_is_not_json_is_refused_and_nothing_is_forw
     assert provider.seen == []
 
 
-def test_other_requests_reach_the_provider_unchanged(provider, pinned):
-    resp, _ = call(pinned, "GET", "/api/v1/models")
-    assert resp.status == 200
-    assert provider.seen[-1]["method"] == "GET" and provider.seen[-1]["body"] == b""
-    body = json.dumps({"model": "m", "provider": {"order": ["x"]}}).encode()
-    resp, _ = call(pinned, "POST", "/api/v1/other", body)
-    assert resp.status == 200
-    assert provider.seen[-1]["path"] == "/api/v1/other" and provider.seen[-1]["body"] == body
+def test_a_request_the_pin_does_not_cover_is_refused_before_it(provider, pinned):
+    resp, _ = call(pinned, "GET", "/api/v1/chat/completions")  # a model endpoint takes a POST and its body
+    assert resp.status == 405 and provider.seen == []
+    resp, _ = call(pinned, "POST", "/api/v1/other", b'{"model": "vendor/model"}')  # not one of the route's paths
+    assert resp.status == 403 and provider.seen == []
 
 
 def test_without_a_pin_a_chat_completion_reaches_the_provider_byte_for_byte(provider, unpinned):
-    body = b'{"model":  "m", "messages": [], "provider": {"order": ["x"]}}'
+    body = b'{"model":  "vendor/model", "messages": [], "provider": {"order": ["x"]}}'
     resp, _ = call(unpinned, "POST", "/api/v1/chat/completions", body)
     assert resp.status == 200
     assert provider.seen[-1]["body"] == body
 
 
-@pytest.mark.parametrize("value", ["", 5, "deep{infra"])
-def test_the_route_refuses_a_pin_that_names_no_one_provider(tmp_path, value):
-    route = json.loads(Path(kp.ROUTE).read_text())
-    route["provider_only"] = value
-    path = tmp_path / "keyproxy.json"
-    path.write_text(json.dumps(route))
+@pytest.mark.parametrize("value", ["", 5, "deep{infra", "-deepinfra", " deepinfra"])
+def test_a_pin_that_names_no_one_provider_is_refused(provider, tls, value):
+    route = kp.load_route(ROUTE, f"https://127.0.0.1:{provider.server_address[1]}")
     with pytest.raises(kp.RouteError):
-        kp.load_route(str(path))
+        kp.KeyProxy(("127.0.0.1", 0), route, KEY, str(tls[0]), None, io.StringIO(), upstream_models=[MODEL], pin=value)
 
 
 def test_the_length_the_provider_receives_is_the_length_of_the_body_it_receives(provider, pinned):
-    sent = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    sent = {"model": MODEL, "messages": [{"role": "user", "content": "hi"}]}
     resp, _ = call(pinned, "POST", "/api/v1/chat/completions", json.dumps(sent).encode())
     assert resp.status == 200
     seen = provider.seen[-1]

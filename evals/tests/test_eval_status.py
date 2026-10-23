@@ -3,6 +3,7 @@ and of the eval-status check in scripts/validate.py. No model is called: evidenc
 score and the bands are tested in test_bands.py."""
 import importlib.util
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -154,7 +155,7 @@ def test_only_the_tests_folder_directly_under_scripts_is_left_out(root):
 
 def test_nothing_writes_or_reads_a_record_any_more(root, capsys):
     """The runner writes evidence; the command that built a record is gone (default 27), and since the snapshot
-    tables replaced the generated block (B16) nothing reads one: the 48 old records are history."""
+    tables replaced the generated block (B16) nothing reads one: the 48 old records were removed on 2026-10-15."""
     with pytest.raises(SystemExit) as e:
         es.main(["record", "--skill", "core-demo", "--benchmark", "b.json"], root=str(root))
     assert e.value.code == 2
@@ -232,9 +233,19 @@ def check(root):
 
 # --- the eval gate configuration (evals/eval-gate.json) -----------------------------------------
 
+ENTRY = {"aliases": [], "adapter": "h", "pass_env": [], "route": None, "provider_pin": None, "upstream_models": ["x"],
+         "price_source": "https://example.test/price", "run_token_budget": 1000}
+
+
+def entries(**aliases):
+    """The models of a valid gate file: s-model and f-model (which holds a key), with the aliases given by id."""
+    return {"s-model": {**ENTRY, "aliases": aliases.get("s-model", [])},
+            "f-model": {**ENTRY, "adapter": "fh", "pass_env": ["FLOOR_KEY"], "route": "openrouter",
+                        "aliases": aliases.get("f-model", [])}}
+
+
 def configure(root, **changes):
-    config = {"strong_model": "s-model", "strong_harness": "h", "floor_model": "f-model", "floor_harness": "fh",
-              "floor_pass_env": ["FLOOR_KEY"], "strong_pass_env": [], "grader": "s-model", "threshold": 0.8, "strong_tolerance": 0,
+    config = {"grader": "s-model", "threshold": 0.8, "tolerance": 0, "models": entries(), "lab_models": ["s-model", "f-model"],
               "measurement_version": 2, "measurement_floor": 2, "measurement_sha256": "0" * 64, **changes}
     config = {k: v for k, v in config.items() if v is not None}  # None leaves a key out
     (root / "evals").mkdir(exist_ok=True)
@@ -243,7 +254,7 @@ def configure(root, **changes):
 
 @pytest.mark.parametrize("content, why", [
     ("{not json", "not valid JSON"),
-    ('{"floor_model": "f"}', "missing field 'strong_model'"),
+    ('{"floor_model": "f"}', "unknown field 'floor_model'"),
     (None, "threshold must be between 0 and 1"),
 ])
 def test_validate_fails_on_an_invalid_gate_configuration(root, content, why):
@@ -256,7 +267,7 @@ def test_validate_fails_on_an_invalid_gate_configuration(root, content, why):
 
 
 def test_the_repository_gate_configuration_is_valid():
-    assert es.gate_problems(str(REPO)) == [] and es.load_gate(str(REPO))["floor_model"]
+    assert es.gate_problems(str(REPO)) == [] and es.load_gate(str(REPO))["lab_models"]
 
 
 # --- the gate asks the threshold of both models; a record says how it was measured ----------------
@@ -302,11 +313,13 @@ def test_the_repository_measurement_is_at_version_5_or_later_with_its_floor(root
 
 def test_the_control_of_an_event_has_defaults_and_the_gate_file_overrides_them(root):
     assert es.event_config({}) == {"runs": 3, "timeout_seconds": 900, "retries": 2, "max_resumes": 3, "total_jobs": 10,
-                                   "web_jobs": {"strong": 2, "floor": 2}, "baseline_runs": 3, "baseline_margin": None}
-    configure(root, runs=5, max_resumes=1, web_jobs={"strong": 1, "floor": 4})
+                                   "web_jobs": {}, "web_jobs_default": 2, "baseline_runs": 3, "baseline_margin": None}
+    configure(root, runs=5, max_resumes=1, web_jobs={"s-model": 1, "f-model": 4})
     assert es.gate_problems(str(root)) == []
     control = es.event_config(es.load_gate(str(root)))
-    assert (control["runs"], control["max_resumes"], control["web_jobs"], control["retries"]) == (5, 1, {"strong": 1, "floor": 4}, 2)
+    assert (control["runs"], control["max_resumes"], control["web_jobs"], control["retries"]) == (5, 1, {"s-model": 1, "f-model": 4}, 2)
+    configure(root, web_jobs={"f-model": 4})  # a model it does not list takes the default
+    assert es.event_config(es.load_gate(str(root)))["web_jobs"] == {"f-model": 4} and es.WEB_JOBS_DEFAULT == 2
 
 
 @pytest.mark.parametrize("change, why", [
@@ -316,11 +329,13 @@ def test_the_control_of_an_event_has_defaults_and_the_gate_file_overrides_them(r
     ({"retries": 6}, "retries must be a whole number from 0 to 5"),
     ({"max_resumes": -1}, "max_resumes must be a whole number"),
     ({"total_jobs": 0}, "total_jobs must be a whole number"),
-    ({"web_jobs": {"strong": 2}}, "web_jobs must give a whole number"),
-    ({"web_jobs": {"strong": 2, "floor": 0}}, "web_jobs must give a whole number"),
+    ({"web_jobs": {"nobody": 2}}, "web_jobs names a model that is not an id of models"),
+    ({"web_jobs": {"s-model": 0}}, "web_jobs must map a model id to a whole number"),
+    ({"web_jobs": {"s-model": 65}}, "web_jobs must map a model id to a whole number"),
+    ({"web_jobs": ["s-model"]}, "web_jobs must map a model id to a whole number"),
     ({"web_cases": {"core-demo": []}}, "web_cases must map a skill name"),
     ({"web_cases": ["core-demo"]}, "web_cases must map a skill name"),
-    ({"strong_web_pass_env": ["not a name"]}, "strong_web_pass_env must list variable names"),
+    ({"models": {**entries(), "s-model": {**ENTRY, "web_pass_env": ["not a name"]}}}, "web_pass_env must list variable names"),
     ({"run": 3}, "unknown field 'run'"),
 ])
 def test_a_control_key_outside_its_form_makes_the_gate_file_invalid(root, change, why):
@@ -414,17 +429,17 @@ def test_a_model_is_written_under_its_listed_id_and_anything_else_as_unknown(roo
     gate = es.load_gate(str(root))
     assert es.model_id(gate, "s-model") == "s-model" and es.model_id(gate, "f-model") == "f-model"
     assert es.model_id(gate, "a-private-model-name") == "unknown"
-    configure(root, models={"s-model": ["provider/s-model"], "f-model": ["vendor/f-model", "f"], "third": []})
+    configure(root, models={**entries(**{"s-model": ["provider/s-model"], "f-model": ["vendor/f-model", "f"]}), "third": []})
     gate = es.load_gate(str(root))
     assert gate and es.model_id(gate, "provider/s-model") == "s-model" and es.model_id(gate, "f") == "f-model"
     assert es.model_id(gate, "third") == "third" and es.model_id(gate, "fourth") == "unknown"
 
 
 @pytest.mark.parametrize("models, why", [
-    ({"s-model": [], "f-model": ["s-model"]}, "names an id or an alias twice"),
-    ({"s-model": []}, "floor_model 'f-model' is not in models"),
-    ({"s-model": "alias", "f-model": []}, "models must map each known model id"),
-    ({"s-model": [], "f-model": [], "unknown": []}, "models must map each known model id"),
+    ({"s-model": ENTRY, "f-model": {**ENTRY, "aliases": ["s-model"]}}, "names an id or an alias twice"),
+    ({"f-model": ENTRY}, "grader 's-model' is not in models"),
+    ({"s-model": "alias", "f-model": ENTRY}, "models must map each known model id"),
+    ({"s-model": ENTRY, "f-model": ENTRY, "unknown": ENTRY}, "models must map each known model id"),
     ({}, "models must map each known model id"),
 ])
 def test_the_model_list_names_every_configured_model_once(root, models, why):
@@ -532,9 +547,11 @@ def test_a_well_formed_evidence_file_is_valid_and_changes_no_status(root, capsys
     ({"skill": "Core Demo"}, "skill must be a skill name"),
     ({"version": "1.0"}, "version must be X.Y.Z"),
     ({"content_sha256": "abc"}, "content_sha256 must be 64 hexadecimal characters"),
-    ({"model": "a-private-model"}, "model must be an id of the gate file's model list"),
+    ({"model": "a private model"}, "model must be a well-formed model id"),
+    ({"model": "a-private-model"}, "model is not one of the event's models"),
+    ({"model": "unknown"}, "model is not one of the event's models"),
     ({"adapter": "../h"}, "adapter must be an adapter's folder name"),
-    ({"kind": "smoke"}, "kind must be full or partial"),
+    ({"kind": "smoke"}, "kind must be full, partial or quick"),
     ({"date": "2030-13-01"}, "date must be YYYY-MM-DD"),
     ({"date": "02/01/2030"}, "date must be YYYY-MM-DD"),
     ({"measurement_version": "5"}, "measurement_version must be a whole number"),
@@ -557,7 +574,6 @@ def test_a_well_formed_evidence_file_is_valid_and_changes_no_status(root, capsys
     ({"test": "20300102T030405Z-ffffffff"}, "test differs from the event line of the file"),
     ({"kind": "partial"}, "kind differs from the event line of the file"),
     ({"measurement_sha256": H["a"]}, "measurement_sha256 differs from the event line of the file"),
-    ({"model": "unknown"}, "model is not one of the event's models"),
     ({"adapter": "other"}, "adapter is not one of the event's adapters"),
     ({"case": 3}, "case and case_sha256 are not a case of the event line"),
     ({"case_sha256": H["f"]}, "case and case_sha256 are not a case of the event line"),
@@ -576,10 +592,10 @@ def test_a_run_line_with_an_unknown_key_or_a_value_outside_its_form_is_an_error(
     ({"record": "run"}, "record must be \"test\""),
     ({"test": "yesterday"}, "test must be a test id"),
     ({"models": {"floor": "f-model"}}, "models must be"),
-    ({"models": {"strong": "a-private-model", "floor": "f-model"}}, "models must be"),
+    ({"models": {"strong": "a private model", "floor": "f-model"}}, "models must be"),
     ({"adapters": {"strong": "h"}}, "adapters must be an adapter's folder name for each tier"),
     ({"adapter_sha256": {"h": H["b"]}}, "adapter_sha256 must be the sha256 of the run-prompt.sh of each adapter"),
-    ({"grader": "a-private-grader"}, "grader must be a listed model id"),
+    ({"grader": "a private grader"}, "grader must be a well-formed model id"),
     ({"runs": 0}, "runs must be a whole number, 1 or more"),
     ({"retries": -1}, "retries must be a whole number, 0 or more"),
     ({"image_digest": None}, "image_digest must be sha256:"),
@@ -610,19 +626,27 @@ def test_an_event_line_with_an_unknown_key_or_a_value_outside_its_form_is_an_err
     assert problems and problems[0].startswith("line 1: ") and why in problems[0], problems
 
 
-def test_an_event_with_another_number_of_runs_than_the_configured_one_is_no_evidence(root, capsys):
-    """A trial of 2 runs per case, copied into a skill by hand, is refused: evidence comes only from an event
-    that used the configured values, and its score and gate would otherwise be computed from it."""
+def test_an_event_is_judged_by_its_own_runs_never_by_the_configured_number(root):
+    """Backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`): a later change of the gate file's "runs" invalidates no committed file. The event's "runs"
+    is checked against its range and against its own lines."""
     configure(root)  # no "runs" key: the default, 3
     path = evidence(root, [event_line(runs=2), run_line()])
-    assert es.evidence_file_problems(str(path), str(root)) == [
-        'line 1: runs is 2, and the configured number is 3 ("runs" of evals/eval-gate.json): an event with another '
-        "number of runs is a trial, and writes no evidence"]
-    assert es.main(["evidence"], root=str(root)) == 1 and "runs is 2, and the configured number is 3" in capsys.readouterr().err
-    configure(root, runs=2)  # the number the gate file configures is the one an event line must carry
     assert es.evidence_file_problems(str(path), str(root)) == []
-    path = evidence(root, [event_line(), run_line()])
-    assert "runs is 3, and the configured number is 2" in es.evidence_file_problems(str(path), str(root))[0]
+    configure(root, runs=5)
+    assert es.evidence_file_problems(str(path), str(root)) == []
+    assert "runs must be a whole number, 1 or more" in es.evidence_file_problems(
+        str(evidence(root, [event_line(runs=0), run_line()])), str(root))[0]
+    assert "runs must be a whole number from 1 to 10" in es.evidence_file_problems(
+        str(evidence(root, [event_line(runs=11), run_line()])), str(root))[0]
+    # No case has more lines with the skill, on one model, than the event's own runs.
+    path = evidence(root, [event_line(runs=2), run_line(), run_line(), run_line()])
+    problems = es.evidence_file_problems(str(path), str(root))
+    assert len(problems) == 1 and "case 1 has 3 lines with the skill on s-model (h), more than the event's \"runs\", 2" in problems[0]
+    path = evidence(root, [event_line(runs=2)] + [run_line(variant="without", score=0.0, results=[0, 0])] * 3)
+    assert "3 lines without the skill on s-model (h), more than the event's \"runs\", 2" in es.evidence_file_problems(str(path), str(root))[0]
+    # A count is by case, model, adapter and variant: the same case on two adapters is two counts.
+    path = evidence(root, [event_line(runs=1), run_line(), run_line(adapter="fh")])
+    assert es.evidence_file_problems(str(path), str(root)) == []
 
 
 def test_the_forms_that_are_optional_or_depend_on_the_kind(root):
@@ -633,6 +657,10 @@ def test_the_forms_that_are_optional_or_depend_on_the_kind(root):
                                                                             adapter_sha256={"h": H["b"]}, counts={})):
         assert es.event_line_problems(line, {"s-model", "f-model"}) == [], line
     assert es.run_line_problems(run_line(model="unknown")) == [] and es.run_line_problems(run_line(case="a-case"), None, None) == []
+    # "unknown" is a model of a run line only when the event line's header names it.
+    assert es.run_line_problems(run_line(model="unknown"), event_line()) == ["model is not one of the event's models"]
+    assert es.run_line_problems(run_line(model="unknown"), event_line(models={"strong": "unknown"}, adapters={"strong": "h"},
+                                                                       adapter_sha256={"h": H["b"]}, counts={})) == []
 
 
 def test_a_file_that_is_no_evidence_file_is_an_error(root, capsys):
@@ -664,17 +692,21 @@ def test_the_hash_command_prints_the_content_hash_the_version_and_the_case_hashe
     assert out == {"skill": "core-demo", "content_sha256": es.content_hash(skill), "version": "0.4.0", "cases": es.case_hashes(skill)}
 
 
-def test_the_48_old_records_stay_as_history_and_no_evidence_is_converted_from_them():
-    records = sorted(REPO.glob("skills/*/evals/result.json"))
-    assert len(records) >= 48
-    # Evidence exists only as files the runner wrote for a test event (lab-<UTC start>-<hex>.jsonl), never as a
-    # conversion of an old record, and every committed file is valid.
+def test_the_old_records_are_removed_and_no_evidence_is_converted_from_them():
+    # The 48 records of the first round were removed on 2026-10-15 (see the head of evals/eval_status.py).
+    assert sorted(REPO.glob("skills/*/evals/result.json")) == []
+    # Evidence exists only as files of the three kinds the reliability model names, never as a conversion of an
+    # old record, and every committed file is valid: a lab file the runner wrote for a test event
+    # (lab-<UTC start>-<hex>.jsonl), a contributed field file (field-<12 hexadecimal characters>.jsonl) and a
+    # community file with its manifest and attestation (community-<repository id>-<run id>-<attempt>).
+    allowed = re.compile(r"lab-.+\.jsonl|field-[0-9a-f]{12}\.jsonl|community-[0-9]+-[0-9]+-[0-9]+(\.jsonl|\.manifest\.json|\.sigstore\.json)")
     evidence = list(REPO.glob("skills/*/evals/evidence/*"))
-    assert all(p.name.startswith("lab-") and p.suffix == ".jsonl" for p in evidence), evidence
+    assert all(allowed.fullmatch(p.name) for p in evidence), evidence
     assert es.evidence_problems(str(REPO))[0] == {}
     gate = es.load_gate(str(REPO))
-    assert set(gate["models"]) >= {gate["strong_model"], gate["floor_model"], gate["grader"]}
-    assert es.model_id(gate, "deepseek/deepseek-v4.1-flash") == gate["floor_model"]  # the same model without the router's prefix
+    assert set(gate["models"]) >= set(gate["lab_models"]) | {gate["grader"]}
+    # The same model without the router's prefix:
+    assert es.model_id(gate, "deepseek/deepseek-v4.1-flash") == "openrouter/deepseek/deepseek-v4.1-flash"
 
 
 # --- the gate from the lines: epochs, the floor, a major version ---------------------------------------
@@ -693,7 +725,7 @@ def gate_tree(root, events, cfg_changes=None, version="1.2.0"):
         evidence(root, [event] + [run_line(test=test, kind=kind, version=ver, date=d, case=c, case_sha256=hashes[str(c)],
                                            variant=v, score=sc, results=[1] if sc == 1 else [0]) for c, v, sc, d in lines],
                  name=f"lab-{test}.jsonl")
-    cfg = {"strong_model": "s-model", "floor_model": "f-model", "grader": "s-model", "threshold": 0.8, "strong_tolerance": 0.05,
+    cfg = {"lab_models": ["s-model", "f-model"], "grader": "s-model", "threshold": 0.8, "tolerance": 0.05,
            "measurement_floor": 5, **(cfg_changes or {})}
     return str(skill), cfg
 
@@ -824,7 +856,7 @@ def measured(root, **changes):
     (root / "evals").mkdir(exist_ok=True)
     (root / "evals" / "grading-prompt.md").write_text("template\n")
     (root / "evals" / "measure.py").write_text("# measures\n")
-    configure(root, measurement_version=5, measurement_floor=5, models={"s-model": ["provider/s-model"], "f-model": []},
+    configure(root, measurement_version=5, measurement_floor=5, models=entries(**{"s-model": ["provider/s-model"]}),
               measurement_sha256=es.measurement_fingerprint(str(root)), **changes)
 
 

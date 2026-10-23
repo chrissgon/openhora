@@ -95,3 +95,25 @@ def test_the_design_chain_has_one_owner_each_and_every_skill_of_a_pack_in_use_ha
     for skill in ("product-prd", "design-execute", "design-handoff"):
         assert skill in manifest.skills_in_use(str(REPO))
         assert manifest.load(str(REPO), skill)["skill"] == skill
+
+
+# --- the optional key `answer` (package AQ-1): the skill that answers a question from the sources ------------------------
+
+
+def test_the_key_answer_is_optional_and_a_checkout_that_names_none_answers_none(tmp_path):
+    data = good()
+    assert roles.load(file=write(tmp_path, data)).get("answer") == data.get("answer")      # the checkout's own file, whichever it holds
+    data.pop("answer", None)
+    assert roles.answer(file=write(tmp_path, data)) is None
+
+
+def test_the_key_answer_names_a_skill_of_the_checkout_and_is_checked_only_when_it_is_there(tmp_path):
+    data = dict(good(), answer="core-orchestrator")      # any skill of the checkout will do for the check of the folder
+    assert roles.answer(file=write(tmp_path, data)) == "core-orchestrator"
+    for bad in ("no-such-skill", 3, ""):
+        with pytest.raises(roles.RolesError) as raised:
+            roles.load(file=write(tmp_path, dict(good(), answer=bad)))
+        assert "`answer` is" in str(raised.value)
+    with pytest.raises(roles.RolesError) as raised:
+        roles.load(file=write(tmp_path, dict(good(), answered="x")))
+    assert "unknown key `answered`" in str(raised.value)

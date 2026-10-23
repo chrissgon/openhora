@@ -33,8 +33,8 @@ PACKS = {"biz": ["demo-asks", "demo-writes"], "code": ["demo-code"], "default": 
 AGENTS = {"business": {"pack": "biz", "mode": "supervised", "max_runs_per_day": 3, "max_usd_per_day": 2.5},
           "engineering": {"pack": "code", "mode": "autonomous-with-policy", "max_runs_per_day": 1, "max_usd_per_day": 0.5},
           "design": {"pack": "code", "enabled": False, "max_runs_per_day": 2}}
-PRICES = {"m": {"input_usd_per_mtok": 3.0, "output_usd_per_mtok": 15.0, "cache_read_usd_per_mtok": 0.3,
-                "cache_write_usd_per_mtok": 3.75, "source": "https://prices.example/models", "date": "2026-10-01"}}
+PRICES = {"models": {"m": {"input_usd_per_mtok": 3.0, "output_usd_per_mtok": 15.0, "cache_read_usd_per_mtok": 0.3,
+                           "cache_write_usd_per_mtok": 3.75, "source": "https://prices.example/models", "accessed": "2025-12-31"}}}
 PLANTED_ONE = "invented-floor-key-0001-never-shown"
 PLANTED_TWO = "invented-model-key-0002-never-shown"
 
@@ -44,12 +44,9 @@ def tree(tmp_path, monkeypatch):
     built = st.build(tmp_path, monkeypatch, lab)
     monkeypatch.setattr(ops_core, "ROOT", str(built["tree"]))
     monkeypatch.setattr(plan, "resolve_pack", lambda pack, root: list(PACKS[pack]))
-    # The stand-in tree gives both tiers the model "m"; the daily caps tell the tiers apart by model, so the floor tier
-    # has a model of its own here.
-    tiers = {"strong": "m", "floor": "fm"}
-    monkeypatch.setattr(lab, "reference", lambda tier="strong": {
-        "tier": tier, "model": tiers[tier], "adapter": "h", "pass_env": [], "timeout_seconds": 60, "retries": 2,
-        "control": {"total_jobs": 2, "web_jobs": {"strong": 1, "floor": 1}}})
+    # The stand-in tree lists two models, "m" and "fm"; the daily caps tell their runs apart by the billing of the model's
+    # credential, so "fm" passes the invented variable the stand-in manifest declares metered.
+    st.set_models(monkeypatch, lab, passes={"fm": ["STANDIN_FLOOR_PASS"]})
     (built["tree"] / "flows" / "single.json").write_text(json.dumps({"flow": "single", "title": "Single", "tasks": [
         {"key": "profile", "skill": "demo-writes", "title": "Profile", "text": "write the profile."}]}), encoding="utf-8")
     configure(built, AGENTS)
@@ -128,7 +125,7 @@ def test_the_agents_operation_reports_each_agents_mode_caps_and_use_of_today_fro
     del raw["area_agents"]
     (tree["project"] / "docs" / "workbench" / "runtime.json").write_text(json.dumps(raw), encoding="utf-8")
     ops.accept_config(path, ops.project_config.load(path)["sha256"])
-    assert ops.agents(path) == {"agents": []}
+    assert ops.agents(path) == {"agents": [], "steps": {"agent": "runtime", "mode": "autonomous"}}
 
 
 # --- conversation -----------------------------------------------------------------------------------------------------
@@ -199,19 +196,22 @@ def test_the_skills_operation_reports_the_proof_as_the_proof_module_gives_it(tre
         ("0.1.0", "business", True, 0), ("0.1.0", "engineering", True, 0), ("0.1.0", "business", True, 0)]
     for skill in found["skills"]:
         entry = proof_rules.row(cfg, skill["name"])
-        assert skill["proof"] == [{key: pair[key] for key in ("tier", "model", "adapter", "band", "cause", "score", "mean", "runs")}
-                                  for pair in entry["pairs"]]
-        assert [(p["tier"], p["model"], p["band"]) for p in skill["proof"]] == [("strong", "m", "reliable"), ("floor", "fm", "needs a test")]
+        assert [{key: pair[key] for key in ("model", "adapter", "band", "cause", "score", "mean", "runs")} for pair in skill["proof"]] == [
+            {key: pair[key] for key in ("model", "adapter", "band", "cause", "score", "mean", "runs")} for pair in entry["pairs"]]
+        assert [(p["model"], p["band"]) for p in skill["proof"]] == [("m", "reliable"), ("fm", "needs a test")]
+        assert skill["recommended"] == "m"  # the cheapest reliable pair with a key, a price and a measured usage
+    assert [(m["model"], m["skills"], m["reliable"]) for m in found["models"]] == [("m", 3, 3), ("fm", 3, 0)]
     assert found["checks"] == {"measurement": "ok", "image": "ok"}
     # What the proof module gives is what is reported, never a recomputation: a canned entry comes out as it is.
-    canned = {"inputs_sha256": "x", "skill_version": "9.9.9", "web_measured": False, "evidence_images": [st.STANDIN_IMAGE],
+    canned = {"inputs_sha256": "x", "skill_version": "9.9.9", "evidence_images": [st.STANDIN_IMAGE],
               "pairs": [{"tier": "strong", "model": "invented-model", "adapter": "invented-adapter", "band": "watch",
                          "cause": "invented cause", "score": 0.42, "mean": 0.5, "runs": 7, "extra": "not reported"}]}
     with monkeypatch.context() as patched:
         patched.setattr(proof_rules, "row", lambda cfg_, name: canned)
-        assert ops.skills(path)["skills"][0]["proof"] == [{"tier": "strong", "model": "invented-model", "adapter": "invented-adapter",
-                                                           "band": "watch", "cause": "invented cause", "score": 0.42, "mean": 0.5,
-                                                           "runs": 7}]
+        (shown,) = ops.skills(path)["skills"][0]["proof"]
+        assert {k: shown[k] for k in ("model", "adapter", "band", "cause", "score", "mean", "runs", "source")} == {
+            "model": "invented-model", "adapter": "invented-adapter", "band": "watch", "cause": "invented cause", "score": 0.42,
+            "mean": 0.5, "runs": 7, "source": None} and "extra" not in shown
     # The runs of the skill in this project, the manifest, and the two checks.
     planned(tree, "single")
     ops.run_next(path)
@@ -236,8 +236,10 @@ def test_the_skills_operation_reports_the_proof_as_the_proof_module_gives_it(tre
 # --- costs ------------------------------------------------------------------------------------------------------------
 
 
-def test_the_costs_operation_recomputes_from_the_prices_and_counts_what_is_unknown(tree, utc):
+def test_the_costs_operation_recomputes_from_the_prices_and_counts_what_is_unknown(tree, utc, monkeypatch):
     path = str(tree["project"])
+    prices = st.load("prices")
+    monkeypatch.setattr(prices, "load", lambda path=None: {"models": {}})  # no price yet in the one price table
     planned(tree, "single")
     run = ops.run_next(path)
     assert run["status"] == "ok"
@@ -263,10 +265,11 @@ def test_the_costs_operation_recomputes_from_the_prices_and_counts_what_is_unkno
     with open(os.path.join(run["run_dir"], "outputs", "raw.json"), "w", encoding="utf-8") as f:
         json.dump(event, f)
     assert ops.costs(path)["rows"][0]["recomputed_usd"] is None  # no price yet: unknown, never a guess
-    configure(tree, AGENTS, model_prices=PRICES)
+    monkeypatch.setattr(prices, "load", lambda path=None: PRICES)  # the one price table gets a price: nothing in runtime.json
     (row,) = ops.costs(path)["rows"]
     assert row["recomputed_usd"] == pytest.approx(0.078) and row["unknown_runs"] == 0
-    assert row["price"] == {"source": PRICES["m"]["source"], "date": PRICES["m"]["date"]}
+    assert row["price"]["source"] == PRICES["models"]["m"]["source"] and row["price"]["accessed"] == "2025-12-31"
+    assert row["price"]["stale"] is True and row["price"]["age_days"] > 90  # a price older than price_max_age_days is shown as stale
     # A run folder outside the data folder's task-runs is not read.
     elsewhere = tree["data"].parent / "elsewhere"
     shutil.copytree(run["run_dir"], elsewhere)
@@ -300,10 +303,8 @@ def test_the_connections_operation_never_returns_a_secrets_value(tree, monkeypat
     with_needs(tree, "integration:vcs, search:web, generator:image")
     resolver = ops_core._load("workbench_secret_resolver_runtime", str(tree["tree"] / "providers" / "secrets" / "resolver.py"))
     monkeypatch.setattr(resolver, "_keyring", lambda: None)  # the OS secret store is not asked in a test
-    monkeypatch.setattr(lab, "reference", lambda tier="strong": {
-        "tier": tier, "model": "m", "adapter": "h", "pass_env": ["INVENTED_MODEL_KEY"], "timeout_seconds": 60, "retries": 2,
-        "control": {"total_jobs": 2, "web_jobs": {"strong": 1, "floor": 1}}})
-    monkeypatch.setenv("WB_RUNTIME_FLOOR_KEY", PLANTED_ONE)
+    st.set_models(monkeypatch, lab, passes={"m": ["INVENTED_MODEL_KEY"]})
+    monkeypatch.setenv("WB_RUNTIME_KEY_OPENROUTER_API_KEY", PLANTED_ONE)
     monkeypatch.setenv("INVENTED_MODEL_KEY", PLANTED_TWO)
     monkeypatch.setattr(lab, "image", lambda: {"name": "standin", "digest": st.STANDIN_IMAGE, "platform": "linux/arm64",
                                                "evidence_platform": "linux/arm64"})
@@ -323,8 +324,9 @@ def test_the_connections_operation_never_returns_a_secrets_value(tree, monkeypat
     for missing in ("search:web", "generator:image"):
         assert classes[missing]["found"] is False and classes[missing]["provider"] is None and classes[missing]["note"]
     secrets = {s["name"]: s for s in found["secrets"]}
-    assert set(secrets["WB_RUNTIME_FLOOR_KEY"]) == {"name", "found", "where"}
-    assert secrets["WB_RUNTIME_FLOOR_KEY"]["found"] is True and secrets["WB_RUNTIME_FLOOR_KEY"]["where"] == "environment (WB_RUNTIME_FLOOR_KEY)"
+    assert set(secrets["WB_RUNTIME_KEY_OPENROUTER_API_KEY"]) == {"name", "found", "where"}
+    assert secrets["WB_RUNTIME_KEY_OPENROUTER_API_KEY"]["found"] is True
+    assert secrets["WB_RUNTIME_KEY_OPENROUTER_API_KEY"]["where"] == "environment (WB_RUNTIME_KEY_OPENROUTER_API_KEY)"
     assert secrets["INVENTED_MODEL_KEY"] == {"name": "INVENTED_MODEL_KEY", "found": True, "where": "environment or secret store"}
     assert any(not s["found"] and s["where"] is None for s in found["secrets"])  # the providers' credentials, not set here
     assert os.environ["INVENTED_MODEL_KEY"] == PLANTED_TWO  # the environment is as it was
@@ -439,7 +441,7 @@ def test_the_status_task_rows_carry_their_title_and_agent(tree):
     # new, and a request row the request it runs after.
     assert set(row["tasks"][0]) == {"id", "key", "title", "agent", "skill", "state", "note", "on_board", "open_comments",
                                     "waiting_for", "holds_slot"}
-    assert set(row) == {"id", "title", "flow", "state", "on_board", "open_comments", "after", "tasks", "routing"}   # R4-L1: routing, the router's run on the request or None
+    assert set(row) == {"id", "title", "flow", "state", "on_board", "open_comments", "after", "tasks", "routing", "model"}   # R4-L1: routing, the router's run on the request or None; P3: the model named on the request or None
     # Without area agents the agent of a task planned now is None; the title is still there.
     without_area_agents(tree)
     later = planned(tree, "single")
@@ -586,3 +588,63 @@ def test_a_resolved_decision_in_the_task_read_carries_the_text_the_person_saved(
     ops.approve(path, approved_plan, ops.pending(path, approved_plan)["payload"]["plan_sha256"])
     row = next(p for p in ops.task(path, approved)["pending"] if p["id"] == approved_plan)
     assert (row["resolution"], row["answer"]) == ("approved", None), "an approval saves no text"
+
+
+# --- one price table, read by each production reader from the file (review of P3) ----------------------------------------------
+
+
+REAL_LOAD = st.load("prices").load  # the reader itself, before the stand-in tree replaces it with a table in memory
+
+
+def test_the_auto_estimate_a_runs_cost_and_the_proof_page_read_one_price_table_each_through_its_own_reader_from_the_file(tree, monkeypatch, tmp_path):
+    """The auto estimate (proof), the proof page (skills), the proof read (proof) and the costs read each load the table
+    themselves from runtime/prices.json: no object is shared between them. The file is pointed at a copy in tmp_path; when its
+    price changes, every reader follows it, and when its date is old, every one shows the price as stale."""
+    prices = st.load("prices")
+    table = tmp_path / "prices.json"
+
+    def write(input_price, accessed):
+        table.write_text(json.dumps({"models": {"m": {"input_usd_per_mtok": input_price, "output_usd_per_mtok": 2.0, "cache_read_usd_per_mtok": 0.1,
+                                                       "cache_write_usd_per_mtok": 1.0, "source": "https://prices.example/models", "accessed": accessed},
+                                                "fm": {"input_usd_per_mtok": 50.0, "output_usd_per_mtok": 50.0, "cache_read_usd_per_mtok": 0.1,
+                                                       "cache_write_usd_per_mtok": 1.0, "source": "https://prices.example/models", "accessed": accessed}}}),
+                         encoding="utf-8")
+
+    monkeypatch.setattr(prices, "load", REAL_LOAD)
+    monkeypatch.setattr(prices, "FILE", str(table))
+    path = str(tree["project"])
+    usage = {"input": 1000, "output": 200}
+
+    def readers():
+        skill = next(s for s in ops.skills(path)["skills"] if s["name"] == "demo-writes")
+        pair = next(p for p in skill["proof"] if p["model"] == "m")
+        routed = ops.proof(path, "demo-writes")["skills"]["demo-writes"]
+        shown = next(p for p in routed["pairs"] if p["model"] == "m")
+        planned_run = proof_rules.route(ops.project_config.load(path), "demo-writes", {"web": False})
+        return {"page": pair["expected_cost"], "page_stale": pair["price"]["stale"], "proof_read": shown["expected_cost"],
+                "proof_read_stale": shown["price"]["stale"], "auto": planned_run["expected_cost"], "auto_model": planned_run["model"],
+                "recomputed": costs.recompute(usage, prices.price_of(prices.load(), ["m"]))}
+
+    today = datetime.date.today().isoformat()
+    write(1.0, today)
+    found = readers()
+    cost = (1000 * 1.0 + 200 * 2.0) / 1e6
+    assert found["auto_model"] == "m"  # the cheaper pair of the file
+    assert (found["page"], found["proof_read"], found["auto"], found["recomputed"]) == (pytest.approx(cost),) * 4
+    assert found["page_stale"] is False and found["proof_read_stale"] is False
+    write(3.0, today)  # the one file changes: no reader keeps the old price
+    found = readers()
+    cost = (1000 * 3.0 + 200 * 2.0) / 1e6
+    assert (found["page"], found["proof_read"], found["auto"], found["recomputed"]) == (pytest.approx(cost),) * 4
+    write(3.0, "2020-01-01")  # an old date: stale on the page and on the proof read
+    found = readers()
+    assert found["page_stale"] is True and found["proof_read_stale"] is True
+    # the costs read loads the same file for a run of the model
+    planned(tree, "single")
+    run = ops.run_next(path)
+    assert run["status"] == "ok"
+    (row,) = ops.costs(path)["rows"]
+    assert row["price"]["accessed"] == "2020-01-01" and row["price"]["stale"] is True and row["price"]["source"] == "https://prices.example/models"
+    write(3.0, today)
+    (row,) = ops.costs(path)["rows"]
+    assert row["price"]["stale"] is False

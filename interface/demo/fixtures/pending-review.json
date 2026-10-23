@@ -44,24 +44,35 @@
     ],
     "routing": {
       "adapter": "h",
-      "autonomy": true,
+      "autonomy": "proven",
       "bands": {
-        "floor": "needs a test",
-        "strong": "reliable"
+        "fm": "needs a test",
+        "m": "reliable"
       },
       "billing": "subscription",
+      "candidates": [
+        {
+          "expected_cost": 0.002,
+          "model": "m",
+          "score": 0.9,
+          "source": "lab"
+        }
+      ],
       "checks": {
         "image": null,
         "measurement": null
       },
-      "key": null,
+      "consent": false,
+      "expected_cost": 0.002,
+      "key": "lab",
+      "key_missing": false,
+      "mode": "auto",
       "model": "m",
+      "named_by": "default",
+      "outside_provider": [],
       "proven": true,
-      "reasons": [
-        "the band on the floor model is needs a test",
-        "no key for the floor model: the runtime's own key (WB_RUNTIME_FLOOR_KEY) is not stored; the gate file names no variable for the floor model's key"
-      ],
-      "tier": "strong",
+      "reasons": [],
+      "source": "lab",
       "web": false
     },
     "run_dir": "/home/demo/.openhora/data/northwind-shop/task-runs/2",
@@ -79,6 +90,7 @@
   "created_at": "2026-10-01T09:00:00Z",
   "resolved_at": null,
   "resolved_by": null,
+  "acted_by": null,
   "agent": "planning",
   "actions": [
     "answered",

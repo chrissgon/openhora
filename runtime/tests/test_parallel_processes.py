@@ -38,7 +38,7 @@ def real(tmp_path, monkeypatch):
               for name in ("business", "brand")}
     (project / "docs" / "workbench" / "runtime.json").write_text(json.dumps({
         "workbench": REPO, "data_dir": str(data), "store_db": str(tmp_path / "store" / "tasks.sqlite"),
-        "area_agents": agents, "max_running": 3}), encoding="utf-8")
+        "sources_dir": str(tmp_path / "sources"), "area_agents": agents, "max_running": 3}), encoding="utf-8")
     path = str(project)
     ops.accept_config(path, ops.project_config.load(path)["sha256"])
     ctx = ops_core.context(path)
@@ -54,7 +54,7 @@ def real(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep)
                                                if p and not os.path.exists(os.path.join(p, "docker"))))
     assert_cannot_reach_a_model(os.environ)
-    monkeypatch.setattr(ops, "_credential_stop", lambda: None)
+    monkeypatch.setattr(ops, "_credential_stop", lambda model=None: None)
     monkeypatch.setattr(ops, "_image_stop", lambda: None)
     monkeypatch.setattr(ops_runs, "SPAWNED", [])
     monkeypatch.setattr(ops_runs, "STOPPING", threading.Event())
@@ -67,11 +67,12 @@ def real(tmp_path, monkeypatch):
 
 
 def model_variables() -> list:
-    """Every variable the lab passes to a model's provider, for both tiers, and the runtime's own key."""
-    lab = st.load("lab")
-    names = {"WB_RUNTIME_FLOOR_KEY"}
-    for tier in ("strong", "floor"):
-        names |= set(lab.reference(tier)["pass_env"])
+    """Every variable the lab passes to a model's provider, for each model of the gate file, and the runtime's own key for it."""
+    lab, core = st.load("lab"), st.load("ops_core")
+    names = set()
+    for model in lab.models():
+        for variable in lab.reference(model)["pass_env"]:
+            names |= {variable, core.own_key_name(variable)}
     return sorted(names)
 
 
@@ -142,7 +143,7 @@ ROUND = """
 import json, sys, threading, time
 sys.path.insert(0, %(runtime)r)
 import ops, ops_runs
-ops._credential_stop = lambda: None
+ops._credential_stop = lambda model=None: None
 ops._image_stop = lambda: None
 def watch():
     while len(ops_runs.SPAWNED) < 2:

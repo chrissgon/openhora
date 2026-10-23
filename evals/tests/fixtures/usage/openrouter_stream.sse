@@ -1,0 +1,10 @@
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-fixture","object":"chat.completion.chunk","created":1,"model":"deepseek/deepseek-v4.1-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"pong from"},"finish_reason":null}]}
+
+data: {"id":"gen-fixture","object":"chat.completion.chunk","created":1,"model":"deepseek/deepseek-v4.1-flash","choices":[{"index":0,"delta":{"content":" the fixture"},"finish_reason":"stop"}]}
+
+data: {"id":"gen-fixture","object":"chat.completion.chunk","created":1,"model":"deepseek/deepseek-v4.1-flash","choices":[],"usage":{"prompt_tokens":321,"completion_tokens":40,"total_tokens":361,"prompt_tokens_details":{"cached_tokens":100}}}
+
+data: [DONE]
+

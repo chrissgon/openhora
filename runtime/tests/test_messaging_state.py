@@ -328,6 +328,8 @@ def driver(tmp_path, args, marker):
                         "messaging": {{"senders": {{"telegram": ["4242"]}}}}}}
             def pending(self, project, pending_id=None):
                 return {{"pending": []}}
+            def reminders_due(self, project, platform):
+                return {{"send": [], "missed": 0, "dropped": 0}}
             def stop_runs(self):
                 open({str(marker)!r}, "w").write("stopped")
                 return {{}}

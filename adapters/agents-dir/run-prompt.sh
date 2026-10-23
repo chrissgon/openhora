@@ -6,8 +6,15 @@
 #
 # Writes <out>/response.md, the assistant's last message (the reply the grader is given), <out>/timing.json
 # (the tokens and the cost the runner's step events report; "skills_loaded", the skills of the case folder
-# the events show the model loading) and <out>/stream.jsonl, the runner's whole event stream (`run --format
-# json`), kept beside the reply and never shown to the grader. A custom runner (RUN_PROMPT_CMD) prints text:
+# the events show the model loading: the skill tool, or any tool that reads <skills folder>/<name>/SKILL.md
+# (read, grep or bash naming the SKILL.md of one skill); and "skills_used" (R12), every skill whose folder a command,
+# a path or a pattern names (never a write's content or a subagent's prompt), a script run by its path, a reference
+# read, a listing of the folder: a superset of "skills_loaded", so a
+# follow-up run that ran a script without reading the skill's text is used and not loaded; one command or grep that names
+# the SKILL.md of two skills loads neither, an under-report: both are used; the folder ends at "/", whitespace, a
+# quote, a backtick, one of ; | ) & < > : or the end) and
+# <out>/stream.jsonl, the runner's whole event stream (`run --format json`), kept beside the reply and never
+# shown to the grader. A custom runner (RUN_PROMPT_CMD) prints text:
 # that text is the reply, and its tokens are unknown (null). It installs nothing: the eval
 # runner stages the skill under test and a case's dependency skills in <cwd>/.agents/skills/<name>
 # before this script starts ("skills_dir" of this adapter's eval.json names that folder). The runner refuses
@@ -29,6 +36,8 @@
 # A model id "ollama/<name>" runs a local model served by Ollama (http://127.0.0.1:11434, or
 # RUN_PROMPT_OLLAMA_URL): the provider entry is written into the throwaway HOME, never into the case
 # folder. Give the model a context that fits the runner's own prompt and the skill (see README.md).
+# A model id "local/<name>@<12 hex>" (the weights' hash) runs a model the eval container serves beside the run, on the
+# run's internal network (LOCAL_MODEL_BASE_URL, LOCAL_MODEL_CONTEXT; see the block below and README.md).
 # A model id "openrouter/<vendor>/<model>" with OPENROUTER_BASE_URL set (the eval container's key proxy) sends
 # its calls to that base URL; the key is the proxy's, and OPENROUTER_API_KEY in the run holds a placeholder.
 # Stopping this script (TERM, INT, HUP) stops the runner and everything it started.
@@ -51,7 +60,7 @@ while [[ $# -gt 0 ]]; do
       need "$@"
       [[ "$2" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "Error: --max-cost-usd needs a number, e.g. 0.50." >&2; exit 2; }
       CAPPED=1; shift 2 ;;
-    --help|-h) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Error: unknown option '$1'. See --help." >&2; exit 2 ;;
   esac
 done
@@ -106,6 +115,24 @@ name, url = sys.argv[1], sys.argv[2]
 print(json.dumps({"$schema": "https://opencode.ai/config.json", "provider": {"ollama": {
     "npm": "@ai-sdk/openai-compatible", "name": "Ollama (local)", "options": {"baseURL": url},
     "models": {name: {"name": name}}}}}))
+PY
+fi
+# A model id "local/<name>@<12 hex>" runs a model served by the model server the eval container starts beside the run
+# (evals/executor.py, "A local model"): LOCAL_MODEL_BASE_URL is the server's address on the run's internal network (a plain
+# http://<host>:<port>/v1 URL), LOCAL_MODEL_CONTEXT its context in tokens. The provider entry (provider "local", the
+# OpenAI-compatible SDK the runner ships) is written into the throwaway HOME; no key is needed and none is passed.
+if [[ "$MODEL" == local/* && -z "${RUN_PROMPT_CMD:-}" ]]; then
+  [[ "$MODEL" =~ ^local/[a-z0-9][a-z0-9._-]{0,63}@[0-9a-f]{12}$ ]] || { echo "Error: a local model id is local/<name>@<12 hex> (the name in lowercase letters, digits and . _ -)." >&2; exit 2; }
+  [[ "${LOCAL_MODEL_BASE_URL:-}" =~ ^http://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$ ]] || { echo "Error: LOCAL_MODEL_BASE_URL must be a plain http://<host>:<port>/v1 URL (the container that runs this script sets it)." >&2; exit 2; }
+  [[ "${LOCAL_MODEL_CONTEXT:-}" =~ ^[0-9]{2,8}$ ]] || { echo "Error: LOCAL_MODEL_CONTEXT must be the model's context in tokens (the container that runs this script sets it)." >&2; exit 2; }
+  [[ -n "$ISO_HOME" ]] || { echo "Error: a local model needs the throwaway HOME (unset RUN_PROMPT_KEEP_HOME)." >&2; exit 2; }
+  mkdir -p "$XDG_CONFIG_HOME/opencode"
+  python3 - "${MODEL#local/}" "$LOCAL_MODEL_BASE_URL" "$LOCAL_MODEL_CONTEXT" > "$XDG_CONFIG_HOME/opencode/opencode.json" <<'PY'
+import json, sys
+name, url, context = sys.argv[1], sys.argv[2], int(sys.argv[3])
+print(json.dumps({"$schema": "https://opencode.ai/config.json", "provider": {"local": {
+    "npm": "@ai-sdk/openai-compatible", "name": "Local model", "options": {"baseURL": url},
+    "models": {name: {"name": name, "limit": {"context": context, "output": max(1, min(8192, context // 4))}}}}}}))
 PY
 fi
 # The eval container's key proxy holds the OpenRouter key: the run has a placeholder in OPENROUTER_API_KEY and
@@ -174,21 +201,44 @@ for e in events:
         cost += float(part.get("cost") or 0)
 if seen:
     timing.update(total_tokens=tokens, cost_usd=round(cost, 6))
-loaded = []
+# The skills the model touched. Loaded: the skill tool's input, or a tool that reads <skills folder>/<name>/SKILL.md
+# (read's filePath, grep's path, bash's command), when that one input names the SKILL.md of a single skill: a grep or
+# a command over several skills' SKILL.md loads none of them. Used: every skill whose folder a tool input that names
+# files names (a command, a path, a pattern: never a write's content, an edit's text or a subagent's prompt).
+NAME = r"([A-Za-z0-9][A-Za-z0-9._-]*)"   # never "." or ".."
+FOLDER_RE = re.compile(r"(?<![A-Za-z0-9._-])\.agents/skills/" + NAME + r"(?=[/\s'\"`;|)&<>:]|$)")
+SKILL_RE = re.compile(r"(?<![A-Za-z0-9._-])\.agents/skills/" + NAME + r"/SKILL\.md(?![A-Za-z0-9._-])")
+READS = {"read": ("filePath", "file_path"), "grep": ("path",), "bash": ("command",)}
+NAMING_FIELDS = ("command", "filePath", "file_path", "path", "pattern", "include", "glob")
+
+
+def note(into, names):
+    for n in names:
+        if n not in into:
+            into.append(n)
+
+
+loaded, used = [], []
 for e in events:
     part = e.get("part") or {}
     if e["type"] != "tool_use":
         continue
     args = (part.get("state") or {}).get("input") or {}
-    name = None
-    if part.get("tool") == "skill":
-        name = args.get("name")
-    elif part.get("tool") == "read":
-        m = re.search(r"\.agents/skills/([^/]+)/SKILL\.md$", str(args.get("filePath") or args.get("file_path") or ""))
-        name = m.group(1) if m else None
-    if isinstance(name, str) and name and name not in loaded:
-        loaded.append(name)
+    names = []
+    if part.get("tool") == "skill" and isinstance(args, dict) and isinstance(args.get("name"), str) and args["name"]:
+        names.append(args["name"])
+    for field in READS.get(part.get("tool"), ()) if isinstance(args, dict) else ():
+        chunk = args.get(field)
+        targets = {m.group(1) for m in SKILL_RE.finditer(chunk)} if isinstance(chunk, str) else set()
+        names += sorted(targets) if len(targets) == 1 else []
+    note(loaded, names)
+    note(used, names)
+    for field in NAMING_FIELDS if isinstance(args, dict) else ():
+        chunk = args.get(field)
+        if isinstance(chunk, str):
+            note(used, [m.group(1) for m in FOLDER_RE.finditer(chunk)])
 timing["skills_loaded"] = loaded
+timing["skills_used"] = used
 errors = [e.get("error") for e in events if e["type"] == "error"]
 if errors:  # an error the runner reported as an event: beside its own diagnostics, where the harness looks
     with open(os.path.join(out, "stderr.log"), "a", encoding="utf-8") as f:

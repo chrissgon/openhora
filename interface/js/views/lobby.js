@@ -26,6 +26,7 @@ import { createComposer } from "./lobby-composer.js";
 import { createLobbyDesk, createLobbyViewer } from "./lobby-desk.js";
 import { createForm } from "./lobby-form.js";
 import { createLobbyInbox } from "./lobby-inbox.js";
+import { createProposal } from "./lobby-instructions.js";
 import {
   NOT_ACCEPTED_TEXT, QUEUED_NOTICE, cancelCount, canvasLabel, hasQueued, inboxParts, isNamed, lobbyDecisions, mergeMessages, noticeFor, notRoutedNotice, placeBlocks,
   RESOLVED_LINES, TABS, inboxBodies, pollInterval, readAfter, roomModel, runNote, signatureOf, tabOf, wantedBodies,
@@ -53,6 +54,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   let turn = null;                    // the job of a `say` that is running, or null
   const routing = new Set();          // request ids whose `route` job is running
   const chosenFlow = new Map();       // request id -> the flow chosen in the form (for "Route it" after a busy answer)
+  const chosenParams = new Map();     // request id -> the flow's parameters as "name=value" (a file's name included), for the same
   const bodies = new Map();           // request id -> {sig, body}
   const reading = new Map();          // request id -> the read of its `task` body that is running
   let last = { snapshot: null, route: null, now: new Date(), projectName: "" };
@@ -61,6 +63,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   let timer = null;
   let readingConversation = false;
   let flowsAsked = false;
+  let modelsAsked = false;            // the models of the gate file, read once with the `skills` operation: the form's "Model" select
   let commandsAsked = false;
   let commandsKey = null;             // what the page could do when the "/" list was last asked for: the service filters the list by the policy, so it is read again when this changes (accept-config), not on every reload
   let commandsSeq = 0;                // the newest ask: an older answer that arrives late is dropped
@@ -118,7 +121,9 @@ export function createLobbyView(frame, { project, onChanged }) {
     tabPanels[id] = h("div", { class: "wb-lobby-tabpanel wb-lobby-scroll", role: "tabpanel", id: tabs.panelId(id), "aria-labelledby": tabs.tabId(id), hidden: true }, part.waiting, part.body);
   }
   const composer = createComposer({ onSend: (text) => send(text), onNew: () => openForm() });
-  const footer = h("div", { class: "wb-lobby-footer" }, composer.el);
+  // the proposal a turn may carry (`instruction_proposal`): the person's own line, offered for the project's instructions with "Add to instructions"
+  const proposal = createProposal({ api, get project() { return project; }, may: (op) => may(op), refresh });
+  const footer = h("div", { class: "wb-lobby-footer" }, proposal.el, composer.el);
   const cancelDialog = createCancelDialog({ api, project, onChanged: refresh });
   panel.body.classList.add("wb-lobby-body");
   panel.body.append(conversationPanel, tabPanels.inbox, tabPanels.desk, tabPanels.tasks, tabPanels.agent);
@@ -406,6 +411,7 @@ export function createLobbyView(frame, { project, onChanged }) {
       notice = { title: "The turn failed", text: failureText(e) };
     }
     turn = null;
+    proposal.show(done && done.result ? done.result.instruction_proposal : null);
     if (done && done.state === "failed") {
       const failure = done.error || {};
       notice = noticeFor({ status: failure.status, word: failure.error, message: failure.message }, "job");
@@ -482,6 +488,7 @@ export function createLobbyView(frame, { project, onChanged }) {
       return;
     }
     if (values.flow) chosenFlow.set(result.request, values.flow);
+    if (result.params) chosenParams.set(result.request, result.params);      // the files are already handed over: a second route needs only these
     if (result.unrouted) {
       redraw();
     } else if (result.error) {
@@ -500,7 +507,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   async function routeAgain(request, flow) {
     if (routing.has(request.id) || !may("route")) return;
     routeNotices.delete(request.id);
-    const outcome = await routeRequest(api, project, request.id, flow || chosenFlow.get(request.id), { signal });
+    const outcome = await routeRequest(api, project, request.id, flow || chosenFlow.get(request.id), { params: chosenParams.get(request.id), signal });
     if (outcome.error) {
       routeNotices.set(request.id, notRoutedNotice(request.id, failureText(outcome.error)));
       redraw();
@@ -601,6 +608,10 @@ export function createLobbyView(frame, { project, onChanged }) {
       if (accepted && !flowsAsked && Date.now() - flowsFailedAt >= RETRY_READ_MS) {
         flowsAsked = true;
         api.flows(project, { signal }).then((got) => { flows = Array.isArray(got.flows) ? got.flows : []; form.setFlows(got.flows); redraw(); }).catch(() => { flowsAsked = false; flowsFailedAt = Date.now(); });
+      }
+      if (accepted && !modelsAsked && Date.now() - flowsFailedAt >= RETRY_READ_MS) {
+        modelsAsked = true;
+        api.skills(project, { signal }).then((got) => { form.setModels(got.models, got.default_model, got.recommended_model); form.setLanguage(got.language); }).catch(() => { modelsAsked = false; flowsFailedAt = Date.now(); });
       }
       if (status) readBodies(status.requests || [], status.pending || []);
       redraw();

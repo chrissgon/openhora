@@ -122,22 +122,22 @@ def test_a_narrowing_that_finds_the_file_changed_under_it_is_not_accepted(tree, 
     assert cursor(tree, project_config.ACCEPTED) == accepted_before
 
 
-def test_the_acceptance_cursor_is_written_by_one_function_that_two_operations_call_and_a_narrowing_guards():
-    tree_ = ast.parse((st.RUNTIME / "ops_config.py").read_text(encoding="utf-8"))  # R4-C3: the two operations live here
+def test_the_acceptance_cursor_is_written_by_one_function_that_two_steps_call_and_a_narrowing_guards():
+    tree_ = ast.parse((st.RUNTIME / "ops_config.py").read_text(encoding="utf-8"))  # R4-C3: the operations live here
     functions = {f.name: f for f in ast.walk(tree_) if isinstance(f, ast.FunctionDef)}
     writers = [name for name, f in functions.items() for n in ast.walk(f)
                if isinstance(n, ast.Call) and "cursor_set" in ast.unparse(n) and "project_config.ACCEPTED" in ast.unparse(n)]
     assert writers == ["_record_acceptance"], writers
     callers = sorted(name for name, f in functions.items() for n in ast.walk(f)
                      if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance")
-    assert callers == ["accept_config", "set_mode"], callers
-    # the only call inside set_mode sits under the test of a narrowing, or of the person's flag (test_set_mode_accept.py
+    assert callers == ["_change_agent", "accept_config"], callers  # the locked step set_mode and set_model share, and the person's accept-config
+    # the only call inside that step sits under the test of a narrowing, or of the person's flag (test_set_mode_accept.py
     # shows that flag refused from any channel but the terminal)
-    guarded = [n for n in ast.walk(functions["set_mode"]) if isinstance(n, ast.If)
+    guarded = [n for n in ast.walk(functions["_change_agent"]) if isinstance(n, ast.If)
                and ("narrowing" in ast.unparse(n.test) or "autonomy.narrows" in ast.unparse(n.test))
                and any(isinstance(c, ast.Call) and ast.unparse(c.func) == "_record_acceptance" for b in n.body for c in ast.walk(b))]
     assert len(guarded) == 1
-    inside = [n for n in ast.walk(functions["set_mode"]) if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance"]
+    inside = [n for n in ast.walk(functions["_change_agent"]) if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance"]
     assert len(inside) == 1
 
 

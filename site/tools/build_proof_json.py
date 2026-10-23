@@ -57,12 +57,13 @@ def main():
                 "band": c[2], "cause": None if c[3] == "-" else c[3], "gate": c[4],
                 "score": c[5], "mean": c[6], "runs": c[7]}
 
+    entries = gate["models"]
     out = {
         "source": "docs/inventory.md, Evaluation status (band table and model table)",
         "generated_at_commit": commit,
-        "reference_model": gate["strong_model"], "reference_adapter": gate["strong_harness"],
-        "floor_model": gate["floor_model"], "floor_adapter": gate["floor_harness"],
-        "threshold": gate["threshold"], "tolerance": gate["strong_tolerance"], "runs_per_case": gate["runs"],
+        # the lab models in the gate file's order, each with the adapter its entry names: there is no reference model and no floor model
+        "lab_models": [{"model": m, "adapter": entries[m]["adapter"]} for m in gate["lab_models"]],
+        "threshold": gate["threshold"], "tolerance": gate["tolerance"], "runs_per_case": gate["runs"],
         "skills": sorted(skills.values(), key=lambda s: s["skill"]),
     }
     with open(a.out, "w") as f:

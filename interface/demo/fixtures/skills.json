@@ -7,26 +7,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.5, 3.2 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.6,
           "mean": 0.96,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -36,26 +77,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.87,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.5 have no run in the current set",
+          "score": 0.61,
           "mean": 0.97,
-          "runs": 18
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.74,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.5,
           "mean": 0.87,
-          "runs": 18
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -65,26 +147,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.6, 2.1, 2.2, 2.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -94,26 +217,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.4, 2.7, 3.7 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.82,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.63,
           "mean": 0.98,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -123,26 +287,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.8,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.3, 1.4, 2.1, 2.5, 3.1 have no run in the current set",
+          "score": 0.61,
           "mean": 0.97,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.75,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.57,
           "mean": 0.94,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -152,26 +357,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.76,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.10, 2.1, 2.6 have no run in the current set",
+          "score": 0.63,
           "mean": 0.98,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.76,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.63,
           "mean": 0.98,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -181,26 +427,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.4, 1.5, 2.8, 2.9, 3.8, 3.9 have no run in the current set",
+          "score": 0.6,
           "mean": 0.96,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.77,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.59,
           "mean": 0.95,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -210,26 +497,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.4, 1.5, 2.6 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -239,26 +567,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.75,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 2.1, 2.2 have no run in the current set",
+          "score": 0.57,
           "mean": 0.93,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.75,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.57,
           "mean": 0.93,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -268,26 +637,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.5, 2.1, 2.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -297,55 +707,137 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 3.1, 3.2, 3.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.75,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+          "score": 0.55,
           "mean": 0.91,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
       "name": "core-orchestrator",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "area": "core",
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.92,
-          "mean": 0.98,
-          "runs": 30
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.4, 2.4, 3.4, 4.3, 4.4, 4.6, 5.1, 6.4, 7.4, 7.5, 8.4, 8.5, 9.3, 9.4 have no run in the current set",
+          "score": 0.59,
+          "mean": 0.96,
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.93,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5, 6, 7, 8",
+          "score": 0.64,
           "mean": 0.99,
-          "runs": 30
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -355,26 +847,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.4, 5.4 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -384,26 +917,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 2.1, 5.1, 5.3, 5.4 have no run in the current set",
+          "score": 0.6,
           "mean": 0.97,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
+          "score": 0.6,
           "mean": 0.97,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -413,26 +987,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.1, 1.2, 2.1, 2.2, 2.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 3",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -442,26 +1057,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.72,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.1, 1.2, 1.3, 2.6, 4.7 have no run in the current set",
+          "score": 0.5,
           "mean": 0.87,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "watch",
-          "cause": "case(s) 2, 3, 4 changed after the newest full test and wait for their runs (case 2 had 3 run(s) of mean 0.944; case 3 had 3 run(s) of mean 0.667; case 4 had 3 run(s) of mean 1.000)",
-          "score": 0.83,
-          "mean": 0.96,
-          "runs": 15
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1",
+          "score": 0.58,
+          "mean": 0.94,
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -471,26 +1127,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 2.1, 2.3, 2.4 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.81,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.62,
           "mean": 0.98,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -500,26 +1197,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.1, 1.3, 2.3, 2.5, 3.4, 4.1, 4.2, 4.3 have no run in the current set",
+          "score": 0.64,
           "mean": 0.99,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -529,26 +1267,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.9, 2.2 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -558,26 +1337,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.83,
-          "mean": 0.97,
-          "runs": 12
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.2, 1.6, 2.1, 2.2, 2.4, 3.1, 3.2 have no run in the current set",
+          "score": 0.62,
+          "mean": 0.98,
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.8,
-          "mean": 0.94,
-          "runs": 12
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.6,
+          "mean": 0.96,
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -587,26 +1407,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.71,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.5, 2.2, 2.3 have no run in the current set",
+          "score": 0.58,
           "mean": 0.94,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "needs a test",
-          "cause": "guard assertion(s) 1.5 failed in the current set",
-          "score": 0.57,
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.46,
           "mean": 0.83,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -616,26 +1477,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 2.1 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+          "score": 0.62,
           "mean": 0.98,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -645,26 +1547,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.5, 2.5, 3.6, 4.2, 4.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -674,26 +1617,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.5, 2.1, 2.3, 3.2 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "needs a test",
-          "cause": "guard assertion(s) 1.5 failed in the current set",
-          "score": 0.81,
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.62,
           "mean": 0.98,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -703,26 +1687,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.8,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.7, 2.1 have no run in the current set",
+          "score": 0.58,
           "mean": 0.94,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "watch",
-          "cause": "the pessimistic score 0.68 is under 0.70",
-          "score": 0.68,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.48,
           "mean": 0.85,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -732,26 +1757,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.6, 2.2, 3.1, 3.2, 3.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -761,26 +1827,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.4, 2.3, 2.4, 3.1, 4.2 have no run in the current set",
+          "score": 0.63,
           "mean": 0.98,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.81,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+          "score": 0.6,
           "mean": 0.96,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -790,26 +1897,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.6, 2.1, 2.2, 2.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.71,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.54,
           "mean": 0.91,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -819,26 +1967,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.5, 2.3, 2.4, 3.2 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -848,26 +2037,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.6, 2.2, 2.4, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3 have no run in the current set",
+          "score": 0.62,
           "mean": 0.98,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -877,26 +2107,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.4, 1.5, 1.7, 2.1, 2.3, 2.4, 2.5, 3.2, 3.3, 3.4, 4.3, 4.4, 4.5 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -906,26 +2177,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.6, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -935,55 +2247,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.1, 1.6, 2.1, 2.2, 2.3, 2.4, 3.1, 3.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
-      "runs_here": 0
-    },
-    {
-      "name": "flow-fix-bug",
-      "version": "1.2.0",
-      "area": "core",
-      "manifest": true,
-      "proof": [
-        {
-          "tier": "strong",
-          "model": "reference-model",
-          "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
-          "mean": 0.98,
-          "runs": 21
-        },
-        {
-          "tier": "floor",
-          "model": "floor-model",
-          "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.93,
-          "mean": 1.0,
-          "runs": 21
-        }
-      ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -993,26 +2317,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.5, 1.6, 1.7, 2.1, 2.2, 2.4, 2.5 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.79,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 6
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1022,26 +2387,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
-          "mean": 1.0,
-          "runs": 15
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.3, 4.3, 4.4, 5.4 have no run in the current set",
+          "score": 0.64,
+          "mean": 0.99,
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.84,
-          "mean": 0.96,
-          "runs": 15
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
+          "score": 0.58,
+          "mean": 0.94,
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1051,26 +2457,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.2, 2.1, 3.1, 3.2, 3.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.74,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.56,
           "mean": 0.93,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1080,84 +2527,179 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.1, 1.5, 1.6, 1.8, 3.2, 4.4 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 3, 4",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
       "name": "mkt-social-copy",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "area": "marketing",
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.77,
-          "mean": 0.92,
-          "runs": 12
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no evidence on this model",
+          "score": null,
+          "mean": null,
+          "runs": 0,
+          "web_measured": false,
+          "usage_mean": null,
+          "source": null,
+          "price": null,
+          "expected_cost": null,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "needs a test",
-          "cause": "guard assertion(s) 2.3 failed in the current set",
-          "score": 0.7,
-          "mean": 0.87,
-          "runs": 12
+          "cause": "no evidence on this model",
+          "score": null,
+          "mean": null,
+          "runs": 0,
+          "web_measured": false,
+          "usage_mean": null,
+          "source": null,
+          "price": null,
+          "expected_cost": null,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
       "name": "mkt-vote-round",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "area": "marketing",
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.78,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.3, 1.5, 2.4, 3.5, 3.7 have no run in the current set",
+          "score": 0.59,
           "mean": 0.96,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.82,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.63,
           "mean": 0.98,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1167,26 +2709,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.1, 1.4, 2.1, 2.3, 3.2, 3.4, 3.5, 4.4 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.89,
-          "mean": 1.0,
-          "runs": 15
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+          "score": 0.63,
+          "mean": 0.99,
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1196,26 +2779,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.3, 1.8, 2.1, 2.2, 2.3, 3.3, 4.4 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 2, 3, 4",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1225,26 +2849,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.92,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.4, 1.5, 2.4, 2.5, 3.1, 4.1, 4.2, 4.3, 4.4, 5.4 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 18
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
+          "score": 0.62,
           "mean": 0.98,
-          "runs": 18
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1254,26 +2919,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.83,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.6, 2.2, 2.3, 2.4, 2.5, 3.2, 3.3 have no run in the current set",
+          "score": 0.6,
           "mean": 0.97,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.88,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 2, 3",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 12
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1283,26 +2989,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 2.1, 2.3, 3.2, 4.1, 4.2, 4.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.9,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 15
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1312,26 +3059,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.7, 2.1, 2.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.81,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.62,
           "mean": 0.98,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1341,26 +3129,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.3, 1.7, 2.1, 2.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     },
     {
@@ -1370,26 +3199,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.3, 2.1, 3.1, 3.3 have no run in the current set",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
-          "band": "reliable",
-          "cause": null,
-          "score": 0.85,
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+          "score": 0.65,
           "mean": 1.0,
-          "runs": 9
+          "runs": 3,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": null,
       "runs_here": 0
     }
   ],
@@ -1397,8 +3267,52 @@
     "measurement": "ok",
     "image": "ok"
   },
+  "models": [
+    {
+      "model": "demo-model-a",
+      "adapter": "adapter",
+      "provider": null,
+      "skills": 47,
+      "reliable": 0,
+      "community_only": 0,
+      "expected_cost": 0.0124,
+      "price": {
+        "input": 3.0,
+        "output": 15.0,
+        "cache_read": 0.3,
+        "cache_write": 3.75,
+        "source": "https://prices.example/models",
+        "accessed": "2026-10-01",
+        "age_days": 14,
+        "stale": false
+      },
+      "band": "needs a test"
+    },
+    {
+      "model": "demo-model-b",
+      "adapter": "adapter",
+      "provider": null,
+      "skills": 47,
+      "reliable": 0,
+      "community_only": 0,
+      "expected_cost": 0.0006,
+      "price": {
+        "input": 0.1,
+        "output": 0.5,
+        "cache_read": 0.01,
+        "cache_write": 0.125,
+        "source": "https://prices.example/models",
+        "accessed": "2026-10-01",
+        "age_days": 14,
+        "stale": false
+      },
+      "band": "needs a test"
+    }
+  ],
+  "default_model": null,
+  "recommended_model": null,
   "snapshot": {
-    "commit": "6ffd720ce5fd",
+    "commit": "54f08b5f0417",
     "source": "docs/inventory.md"
   }
 }

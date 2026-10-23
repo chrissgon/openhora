@@ -9,7 +9,7 @@
 
 MIT licence · self-hosted · no telemetry
 
-Harness-agnostic skills, agents and workflows that let an AI build a digital solution end to end: business, product, brand, design, engineering, delivery, marketing, and AI inside the product. A skill reads and writes artifacts in the target project's `docs/` folder, so later phases, other skills and other people find what earlier ones produced.
+Harness-agnostic skills, agents and flows that let an AI build a digital solution end to end: business, product, brand, design, engineering, delivery, marketing, and AI inside the product. A skill reads and writes artifacts in the target project's `docs/` folder, so later phases, other skills and other people find what earlier ones produced.
 
 The skills, their areas and how each one stands under the reliability model are listed in [docs/inventory.md](docs/inventory.md); the areas and how they chain are in [docs/area-map.md](docs/area-map.md). The rules every file follows are in [AGENTS.md](AGENTS.md).
 
@@ -41,30 +41,50 @@ shared/references/  security.md, the one cross-cutting reference, and platforms/
 shared/scripts/     the one source of every script more than one skill carries; scripts/sync_copies.py writes the copies
 contracts/          what skills read and write in a target project: project-layout.md, state.md, environment.md, runtime.md, secrets.md, vote-data.md
 providers/          native implementations of requirement classes, resolved by providers/resolve.py: reader:email, publisher:<platform>,
-                    messenger:<platform>, scheduler:job, store:runtime, integration:vcs, integration:issue-tracker, integration:documents;
+                    messenger:<platform>, scheduler:job, store:runtime, integration:vcs, integration:issue-tracker, integration:documents
+                    (Notion and Google Drive files as sources), converter:document (the container that turns a source into text), exporter:document (the container that renders a CSV, workbook, Word or PDF file);
                     the interface is providers/CONTRACT.md
 templates/          capability.SKILL.md, flow.SKILL.md and agent.md, used by scripts/new-skill.sh
 packs/              installation subsets: default (every area but the optional ones), all, assistant, business, brand, design, planning, code, marketing, content
 adapters/           one folder per AI tool: claude-code and agents-dir install the skills; api runs the agent runtime with one model call and no tools;
                     openclaw is documentation only (the runtime's MCP mode from an OpenClaw gateway), not an adapter
 evals/              the eval harness: eval_run.py (the runner), executor.py and container/ (every run executes in a container),
-                    eval_status.py (status, hashes, the inventory table), eval-gate.json (models, grader, gate, measurement version), tests/
+                    eval_status.py (status, hashes, the inventory table), eval-gate.json (models, grader, gate, measurement version),
+                    image-lock.json (the published eval image), community.json (community evidence), tests/
 scripts/            repository tooling: validate.py, security_scan.py, sync_copies.py, owner_table.py, architecture_tables.py, new-skill.sh,
-                    install-hooks.sh, select_skills.py, stage_skills.py, test_dirs.py, doctor.py, evidence.py, redact.py, build_demo.py and
-                    demo_fixtures.py (the interface's demo mode), and the agent runtime (runtime.py, runtime_vote.py, vote_job.py)
-runtime/            the task runtime: a request becomes tasks, each task runs one skill in the eval container, a person decides
-                    through pending decisions; lab.py is the one file that imports the eval runner, ops.py the operations, cli.py the shell
+                    install-hooks.sh, select_skills.py, stage_skills.py, test_dirs.py, doctor.py (with doctor_ops.py: `--unattended`), evidence.py,
+                    verify_community.py and community_pack.py (community evidence), image_lock.py (the eval image's lock file),
+                    update_prices.py (the price table), skill_import.py (a skill from outside: fetch, check, vet, test), redact.py,
+                    build_demo.py and demo_fixtures.py (the interface's demo mode),
+                    and the agent runtime (runtime.py, runtime_vote.py, vote_job.py)
+runtime/            the task runtime: a request becomes tasks, each task runs one skill in the eval container (or, for a step task, code
+                    with no model), a person decides through pending decisions; lab.py is the one file that imports the eval runner,
+                    ops.py the operations, cli.py the shell (runtime/README.md lists the modules)
 interface/          the local interface the runtime's service serves: an isometric 3D scene (City, Building, floor) with plain panels as the
                     equivalent of every scene action, vendored libraries only, no build step, and a demo mode with fictional data and no service
                     (interface/README.md)
 site/               the public website: static pages, its own styles and fonts, its tests and tools (site/README.md); its Interface page embeds
                     the demo, which is built into site/demo/ at deploy time by scripts/build_demo.py and is not committed
 netlify.toml        how Netlify publishes site/ (the build command and the response headers, the content security policy among them)
-flows/              one data file per flow: the tasks and their written dependencies, read by the task runtime
+flows/              one data file per flow: the tasks, their written dependencies and parameters, read by the task runtime (a project's own are docs/workbench/flows/ in the project)
 .github/            CI workflows, the code owners file, the dependency-update configuration and brand/ (the banner and social images, the mark)
 .githooks/          the versioned pre-commit hook
 docs/               area map, decisions, inventory, backlog, and architecture notes (plans, reviews, findings, the platform pages)
 ```
+
+## The task runtime
+
+The runtime (`runtime/`, [layer page](docs/architecture/platform/runtime.md), contract in [contracts/runtime.md](contracts/runtime.md)) turns a request into a plan the person approves by its hash, then runs each task in the container its skill was proven in. What a project gives it and how it runs:
+
+- **Sources.** A project reads uploaded files (PDF, Word, spreadsheet, presentation, CSV, HTML, text), Notion pages and Google Drive files (chosen in Google's Picker, `drive.file` scope, files only) that sit, as immutable versions, in a sources folder (`sources_dir` of `runtime.json`) a run never sees whole. The planner reads a catalog built from the converted text and names, for each task, the sources it needs; the plan shows them. [sources.md](docs/architecture/platform/sources.md).
+- **Model choice.** A request, a task or an area agent names a model of `evals/eval-gate.json`, or `auto`, which picks the cheapest model on which the skill is `reliable`; a model the person names runs, supervised unless it is proven. Fixing a model on an agent that works in an autonomous mode needs the person's consent for that agent. [contracts/runtime.md](contracts/runtime.md), "The choice of the model".
+- **Step tasks.** A task can be a step that code runs with no skill and no model: `ingest` (import or refresh a source), the exports below and `write-back`. [runtime.md](docs/architecture/platform/runtime.md).
+- **Outputs.** A task's result becomes a CSV file, a workbook, a Word document or a PDF in `docs/outputs/`, made in a container with no network (a cell that starts like a formula is written as text); a project document can replace a Notion page only after the person approves the hash of the exact content, in the terminal, on the page, or on a messaging app the project allows. The converter flags text a person cannot see in a source. [outputs.md](docs/architecture/platform/outputs.md).
+- **Flows.** A flow file holds tasks (skills or steps), their dependencies, parameters the request fills in and the dates `{today}` and `{week}`; a project keeps its own in `docs/workbench/flows/`, and an approved plan can be saved as one. A flow can run on a schedule as a **routine**, which fires nothing until the person approves the hash of its exact content and stops to ask when anything it hashed changes. [contracts/runtime.md](contracts/runtime.md), "Flows" and "Routines".
+- **Running unattended.** Secrets for a machine with no desktop session (a credentials directory), retention of old runs and source versions, the sweep of orphan containers, one writer at a time for a synced sources folder, and `python3 scripts/doctor.py --unattended`. [unattended.md](docs/architecture/platform/unattended.md).
+- **Community evidence.** Anyone can test a skill on a model the maintainer has not tested, with their own keys, in a fork; the attested result ranks the model and never releases work on its own. [docs/community-evidence.md](docs/community-evidence.md).
+
+In progress, not built: a project script ([the plan](docs/architecture/delegation-platform-plan-2026-10-14.md)).
 
 ## Install
 
@@ -91,8 +111,8 @@ A new skill starts from `bash scripts/new-skill.sh --name <prefix-name> --kind c
 
 ## How a skill is judged
 
-Every skill is tested in the lab: its eval cases (`skills/<name>/evals/evals.json`) run in a container, with the skill and without it, and a grader judges each assertion. Under the reliability model ([docs/architecture/reliability-model-2026-10-02.md](docs/architecture/reliability-model-2026-10-02.md)), a skill is ranked by the evidence of the tests it has passed rather than by a single pass: a full test (`python3 evals/eval_run.py --skill <name>`) runs every case and evaluates the gate on the reference model named in `evals/eval-gate.json` (the mean with the skill at the threshold or above, and not below the baseline without the skill by more than the tolerance); a partial test (`--cases <ids>`) carries a small change; each run leaves an evidence line, and the skill's band (`reliable`, `watch` or `needs a test`) is computed from that evidence, never ticked. `python3 evals/eval_status.py status` prints each skill's band with its cause and the command that clears it. Check a skill's cases without calling a model with `python3 evals/eval_run.py --skill <name> --check-cases`.
+Every skill is tested in the lab: its eval cases (`skills/<name>/evals/evals.json`) run in a container, with the skill and without it, and a grader judges each assertion. Under the reliability model ([docs/architecture/reliability-model-2026-10-02.md](docs/architecture/reliability-model-2026-10-02.md)), a skill is ranked by the evidence of the tests it has passed rather than by a single pass: a full test (`python3 evals/eval_run.py --skill <name>`) runs every case and evaluates the gate on each model of `lab_models` in `evals/eval-gate.json` (the mean with the skill at the threshold or above, and not below the baseline without the skill by more than the tolerance); a partial test (`--cases <ids>`) carries a small change; each run leaves an evidence line, and the skill's band (`reliable`, `watch` or `needs a test`) is computed from that evidence, never ticked. `python3 evals/eval_status.py status` prints each skill's band with its cause and the command that clears it. Check a skill's cases without calling a model with `python3 evals/eval_run.py --skill <name> --check-cases`.
 
 ## Status
 
-What is built and how each skill stands: [docs/inventory.md](docs/inventory.md). What remains: [docs/backlog.md](docs/backlog.md) and the plan in [docs/architecture/final-plan-2026-10-02.md](docs/architecture/final-plan-2026-10-02.md).
+What is built and how each skill stands: [docs/inventory.md](docs/inventory.md). What remains: [docs/backlog.md](docs/backlog.md) and the plan in `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`).

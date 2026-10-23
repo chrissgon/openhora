@@ -31,12 +31,12 @@ def scanned_files() -> list:
 
 
 def known_model_ids() -> set:
-    """Every model id the gate file names: the reference and floor models, the grader, and each id of its
-    `models` table with its aliases. The gate file is the one place that names them (rule R19)."""
+    """Every model id the gate file names: the grader, the lab models and each id of its `models` table with its
+    aliases. The gate file is the one place that names them (rule R19)."""
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
-    ids = {gate[key] for key in ("strong_model", "floor_model", "grader") if isinstance(gate.get(key), str)}
-    for name, aliases in (gate.get("models") or {}).items():
-        ids |= {name, *aliases}
+    ids = {gate["grader"], *(gate.get("lab_models") or [])}
+    for name, entry in (gate.get("models") or {}).items():  # a list of aliases, or an object that holds them (and the model's route)
+        ids |= {name, *(entry["aliases"] if isinstance(entry, dict) else entry)}
     return {i for i in ids if i}
 
 
@@ -222,8 +222,11 @@ def test_ops_core_imports_no_other_file_of_the_operations_layer():
 def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
     """ops.py imports its siblings; a sibling reaches an operation of ops.py at call time, so that no import cycle
     exists. ops_say.py imports neither sibling above it; ops_reads.py imports ops_say.py (the conversation's name)."""
-    allowed = {"ops_say.py": {"ops_core"}, "ops_reads.py": {"ops_core", "ops_say"}, "ops_config.py": {"ops_core"},
-               "ops_runs.py": {"ops_core", "ops_waits"}}
+    # ops_actor is a leaf (operations and ops_core only): it can close no cycle
+    allowed = {"ops_say.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_natural.py": {"ops_core", "ops_actor"},
+               "ops_natural_writes.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_interpret.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_natural_calendar.py": {"ops_core", "ops_actor"}, "ops_natural_files.py": {"ops_core", "ops_actor"}, "ops_natural_mail.py": {"ops_core"},
+               "ops_items.py": {"ops_core", "ops_actor"}, "ops_reads.py": {"ops_core", "ops_say", "ops_models"},
+               "ops_config.py": {"ops_core", "ops_models"}, "ops_contained.py": {"ops_core", "ops_instructions"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
     for name, may in allowed.items():
         tree = ast.parse((RUNTIME / name).read_text(encoding="utf-8"))
         at_top = set()
@@ -233,6 +236,8 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
             elif isinstance(node, ast.ImportFrom):
                 at_top.add(node.module or "")
         assert {n for n in at_top if n == "ops" or n.startswith("ops_")} <= may, name
+    assert set(allowed) == {"ops_say.py", "ops_natural.py", "ops_reads.py", "ops_config.py", "ops_contained.py", "ops_runs.py", "ops_models.py", "ops_natural_mail.py", "ops_natural_writes.py",
+                            "ops_natural_calendar.py", "ops_natural_files.py", "ops_items.py", "ops_interpret.py"}, "the guard covers each of its files"
 
 
 # The size budget (CONS-1B). ops.py held 3,514 lines before the move; after it, 2,676. The budget is that count plus

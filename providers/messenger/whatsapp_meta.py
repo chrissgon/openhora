@@ -8,15 +8,19 @@ the two providers load by path (next to themselves), not a provider.
 
 It holds what does not depend on who carries the messages: the neutral errors, the state folder and its private files, the
 store of handled ids, windows and identities, the rendering of the bridge's Markdown for WhatsApp, the local HTTP server and
-its limits, the send gate (the 24-hour window and the reminder template), the listen mode's process wiring and the verbs'
-shell. A provider supplies its webhook (the signature and the payload), its API client, its sender and its settings.
+its limits, the send gate (the 24-hour window and the reminder template), the fetch of a file a sender sent (the stream into
+`<out>/content`, the byte cap, the declared hash, the host check), the listen mode's process wiring and the verbs' shell. A provider
+supplies its webhook (the signature and the payload), its API client, its sender and its settings.
 
 Standard library only, Python 3.9 or later. Nothing here reads a credential: the providers hand their secrets in.
 """
 from __future__ import annotations
 
+import base64
 import collections
+import hashlib
 import hmac
+import http.client
 import importlib.util
 import json
 import os
@@ -31,6 +35,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
@@ -63,6 +68,14 @@ TITLE_LIMIT = 20
 BUTTONS_LINE = "Choose an action for the card above."
 PRUNE_EVERY = 86400.0                           # seconds between two prunings of the state while running
 LOG_EVERY = 60.0                                # a diagnostic of one class is written at most this often
+CONTENT = "content"                             # the one file a fetch writes, in the folder the bridge made: a fixed name, never one the platform gave
+FETCH_CHUNK = 65536
+FETCH_CONNECT = 10.0                            # seconds for a connection or a read of a fetch
+FETCH_DEADLINE = 120.0                          # seconds for a whole fetch
+URL_SHAPE = re.compile(r"[\x21-\x7e]{1,2048}")   # an address from a platform: printable ASCII, no space, no control character
+MIME_SHAPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}")
+HASH_HEX, HASH_B64 = re.compile(r"[0-9a-fA-F]{64}"), re.compile(r"[A-Za-z0-9+/]{43}=")
+NAME_LIMIT = 255
 
 
 class ProviderError(Exception):
@@ -79,6 +92,17 @@ class ApiError(ProviderError):
     def __init__(self, text: str, status: int, error_code, refused: bool):
         super().__init__(text, EXIT_NOT_CONFIGURED if refused else EXIT_SERVICE, "not-configured" if refused else "failed")
         self.status, self.error_code = status, error_code
+
+
+class SentId(str):
+    """The id of the message a send answered, with whether the document that was to follow it did not go out (`document_failed`): the text is
+    delivered, so the send does not fail (the bridge would send the text twice), and the answer to the bridge says so, which a card that
+    needs its whole text delivered (an effect to approve) reads."""
+
+    def __new__(cls, value, document_failed: bool = False):
+        found = super().__new__(cls, value)
+        found.document_failed = bool(document_failed)
+        return found
 
 
 class Deferred(Exception):
@@ -135,6 +159,20 @@ STORE_MISSING = ("the OS secret store is not available in this Python (the keyri
 def store_missing_note(resolver) -> str:
     """STORE_MISSING when the resolver says the OS secret store cannot be read at all (its `store_available()` is False: the
     keyring library cannot be imported), else "". A resolver without that function (a stand-in) is taken as having a store."""
+    unsafe = getattr(resolver, "unsafe_note", None)   # a credentials directory that is refused is not a token that is absent (package P-OPS)
+    try:
+        refused = "" if unsafe is None else unsafe()
+    except Exception:  # a broken check must not hide the real error
+        refused = ""
+    if isinstance(refused, str) and refused:
+        return f"the credentials directory is unsafe, so no secret is read from it: {refused}. "
+    locked = getattr(resolver, "store_locked_note", None)   # a locked store is not a missing token (package P-OPS)
+    try:
+        said = "" if locked is None else locked()
+    except Exception:  # a broken check must not hide the real error
+        said = ""
+    if isinstance(said, str) and said:
+        return said + ". "
     available = getattr(resolver, "store_available", None)
     try:
         return "" if available is None or available() else STORE_MISSING
@@ -908,6 +946,24 @@ def as_list(value) -> list:
     return value if isinstance(value, list) else []
 
 
+def forwarded_context(message: dict) -> bool:
+    """Whether a Cloud API webhook message is marked as forwarded: its `context` holds `forwarded` (forwarded five times or fewer) or `frequently_forwarded`
+    (more than five times). A key with a value but `null` or `false` counts (fail closed); a `context` that holds only `id` is a reply, which is the person's own."""
+    context = as_dict(message.get("context"))
+    return any(context.get(key) not in (None, False) for key in ("forwarded", "frequently_forwarded"))
+
+
+def forwarded_field(fields: dict) -> bool:
+    """Whether a Twilio inbound webhook is marked as forwarded: `Forwarded` ("true" if forwarded once) or `FrequentlyForwarded` (frequently forwarded, per
+    WhatsApp's forwarding limits), documented at https://www.twilio.com/docs/messaging/guides/webhook-request. Absent, empty or "false" is not a forward;
+    any other value counts (fail closed)."""
+    for key in ("Forwarded", "FrequentlyForwarded"):
+        value = fields.get(key)
+        if value is not None and str(value).strip().lower() not in ("", "false", "0"):
+            return True
+    return False
+
+
 def resolve_identity(store, digits, uid):
     """(chat, business-scoped id) of a sender: the phone digits when valid, else the digits remembered for the id, else the id
     itself; (None, None) when neither is valid. The pair is learned whenever both arrive together."""
@@ -941,6 +997,154 @@ class HookBase:
         return resolve_identity(self.store, digits, uid)
 
 
+# --- media: what a file a sender sent is fetched with ------------------------------------------------------------------------
+
+
+def clean_name(value):
+    """The file name the platform declared, as text only: control characters removed, at most NAME_LIMIT characters, None when nothing is left.
+    It is shown by the bridge and never used as a path here: a fetch writes one fixed name."""
+    if not isinstance(value, str):
+        return None
+    text = "".join(c for c in value if c.isprintable()).strip()
+    return text[:NAME_LIMIT].strip() or None
+
+
+def clean_mime(value):
+    """The media type the platform declared, without parameters and in lower case, or None when it is not of the form type/subtype."""
+    if not isinstance(value, str):
+        return None
+    found = value.split(";", 1)[0].strip().lower()
+    return found if MIME_SHAPE.fullmatch(found) else None
+
+
+def type_for_mime(value):
+    """The `type` of an update's attachment for a media type: `photo`, `audio` or `video` for the kinds the bridge refuses before it downloads,
+    else the media type itself; None when it is not one."""
+    mime = clean_mime(value)
+    if mime is None:
+        return None
+    return {"image": "photo", "audio": "audio", "video": "video"}.get(mime.split("/", 1)[0], mime)
+
+
+def url_on_hosts(url, hosts):
+    """The address `url` rebuilt from its parsed parts, when it is an https address on exactly one of `hosts` (no user information, the default port
+    or none, printable ASCII, at most 2048 characters); else None. The rebuilt text is what a request is made to, so a parser that reads the
+    original differently cannot reach another host."""
+    if not isinstance(url, str) or not URL_SHAPE.fullmatch(url) or "\\" in url:
+        return None
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return None
+    if "[" in parts.netloc or "]" in parts.netloc or parts.scheme != "https" or host not in hosts or parts.username is not None or parts.password is not None or port not in (None, 443):
+        return None
+    return urllib.parse.urlunsplit(("https", host, parts.path, parts.query, ""))
+
+
+def declared_digest(value):
+    """The 32 bytes of a SHA-256 the platform declared, in hex or in base64; None when nothing was declared. A value of any other shape is a
+    failure: a hash that cannot be read is not a hash that matched."""
+    if value is None:
+        return None
+    if isinstance(value, str) and HASH_HEX.fullmatch(value):
+        return bytes.fromhex(value)
+    if isinstance(value, str) and HASH_B64.fullmatch(value):
+        try:
+            found = base64.b64decode(value, validate=True)
+        except ValueError:
+            found = b""
+        if len(found) == 32:
+            return found
+    raise ProviderError("the hash the platform declared for the file is not a SHA-256 in hex or base64", EXIT_SERVICE, "failed")
+
+
+def too_large() -> ProviderError:
+    return ProviderError("the file is larger than the byte cap", EXIT_USAGE, "usage")
+
+
+def open_folder(path) -> int:
+    """A descriptor of the folder a fetch writes into: an absolute path to a real directory (never a link) owned by this user. A usage error otherwise."""
+    problem = ProviderError("the folder to write into must be an absolute path to a directory of this user", EXIT_USAGE, "usage")
+    if not isinstance(path, str) or not path or not os.path.isabs(path):
+        raise problem
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except (OSError, ValueError):
+        raise problem from None
+    try:
+        if os.fstat(fd).st_uid != os.getuid():
+            raise problem
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def read_some(response, n: int) -> bytes:
+    """Up to `n` bytes of the body, returned after ONE receive: `read1` where the response has it. `read(n)` blocks until `n` bytes have arrived (or the
+    body ends), so a host that sends a byte at a time would hold a fetch past its deadline; with `read1` the deadline is looked at after every receive."""
+    reader = getattr(response, "read1", None) or response.read
+    return reader(n)
+
+
+def save_stream(response, out_dir, max_bytes: int, declared=None, until=None, clock=time.monotonic) -> dict:
+    """Write the body of `response` (an object with `read(n)` and, optionally, `headers`) as `<out_dir>/content` and return {"bytes", "sha256"}.
+    The file is created with O_EXCL and O_NOFOLLOW, mode 0600, in the folder opened by descriptor, so an existing file or a link is never written
+    through. The bytes are counted while they stream: a body over `max_bytes` stops the read at the first byte over (a usage error), a declared
+    length over it is refused before a byte is read, and `until` (a time of `clock`) is the deadline of the whole fetch. `declared` is the 32 bytes of
+    a SHA-256 the platform declared; a body that does not match is a failure. On any failure the partial file is removed. Errors name a kind and
+    never a byte of the body or of the exchange."""
+    headers = getattr(response, "headers", None)
+    length = headers.get("Content-Length") if headers is not None and hasattr(headers, "get") else None
+    if isinstance(length, str) and length.strip().isascii() and length.strip().isdigit() and int(length) > max_bytes:
+        raise too_large()
+    end = clock() + FETCH_DEADLINE if until is None else until
+    folder = open_folder(out_dir)
+    try:
+        try:
+            fd = os.open(CONTENT, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+        except FileExistsError:
+            raise ProviderError("the folder already holds a file named content", EXIT_USAGE, "usage") from None
+        except OSError as e:
+            raise ProviderError(f"the file cannot be created in the folder ({e.__class__.__name__})", EXIT_SERVICE, "failed") from None
+        done = False
+        try:
+            digest, total = hashlib.sha256(), 0
+            try:
+                f = os.fdopen(fd, "wb")
+            except BaseException:
+                os.close(fd)
+                raise
+            with f:
+                while True:
+                    if clock() > end:
+                        raise ProviderError("the download took too long", EXIT_SERVICE, "failed")
+                    try:
+                        chunk = read_some(response, min(FETCH_CHUNK, max_bytes - total + 1))
+                    except (OSError, ValueError, http.client.HTTPException) as e:
+                        raise ProviderError(f"the download failed ({type(e).__name__})", EXIT_SERVICE, "failed") from None
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise too_large()
+                    digest.update(chunk)
+                    f.write(chunk)
+            if declared is not None and not hmac.compare_digest(digest.digest(), declared):
+                raise ProviderError("the file does not match the hash the platform declared for it", EXIT_SERVICE, "failed")
+            done = True
+            return {"bytes": total, "sha256": digest.hexdigest()}
+        finally:
+            if not done:
+                try:
+                    os.unlink(CONTENT, dir_fd=folder)
+                except OSError:
+                    pass
+    finally:
+        os.close(folder)
+
+
 # --- the listen mode --------------------------------------------------------------------------------------------------
 
 
@@ -952,6 +1156,7 @@ class Listener:
     refused_reason = "the platform refused the credentials"          # the answer to the bridge's request
     refused_fatal = "the platform refused the credentials: store new ones"
     rate_codes = ()                                                  # error codes after which the sender pauses
+    can_fetch = False                                                # a provider that serves attachments sets it and defines fetch()
 
     def __init__(self, settings: dict, secrets: dict, store, *, out, stdin, clock=time.time, rate_wait=RATE_WAIT,
                  deadline=REQUEST_DEADLINE, limit=MAX_HANDLERS, log=None, prune_every=PRUNE_EVERY, max_body=MAX_BODY):
@@ -962,6 +1167,7 @@ class Listener:
         self.note = Notes(self.log)
         self.sender = None
         self.requests = queue.Queue()
+        self.fetches = queue.Queue()      # the `fetch` requests: their own thread, so that a slow download never holds up a send
         self.stop = threading.Event()
         self.lock = threading.Lock()
         self.code = None
@@ -1008,6 +1214,8 @@ class Listener:
     def begin(self) -> None:
         """Ready: the sender and the pruning threads start, the server accepts calls, the bridge is told."""
         threading.Thread(target=self.work, daemon=True).start()
+        if self.can_fetch:
+            threading.Thread(target=self.fetch_work, daemon=True).start()
         threading.Thread(target=self.prune_daily, daemon=True).start()
         self.hook.accepting = True
         self.out.write({"event": "ready"})
@@ -1037,7 +1245,10 @@ class Listener:
                 except ValueError:
                     self.log("dropped a request line that is not JSON")
                     continue
-                self.requests.put(("send", request))
+                if self.can_fetch and isinstance(request, dict) and request.get("op") == "fetch":
+                    self.fetches.put(request)
+                else:
+                    self.requests.put(("send", request))
         except (OSError, ValueError):
             pass
         self.finish(EXIT_OK)
@@ -1093,9 +1304,53 @@ class Listener:
         except ProviderError as e:
             self.answer(rid, False, kind=e.kind, reason=redact(e, self.known))
         else:
-            self.answer(rid, True, message_id=message_id)
+            self.answer(rid, True, message_id=str(message_id),
+                        **({"document_failed": True} if getattr(message_id, "document_failed", False) else {}))
         if pause:
             self.stop.wait(self.rate_wait)
+
+    # the fetch of a file a sender sent
+    def fetch(self, ref, out_dir, max_bytes: int) -> dict:
+        """Download the file `ref` names into `<out_dir>/content`, at most `max_bytes`: {"bytes", "sha256"}. A provider that sets `can_fetch` defines it."""
+        raise NotImplementedError
+
+    def fetch_work(self) -> None:
+        """The fetch thread: one request at a time, beside the sender's. It answers every request, and a failure it did not foresee is a fixed sentence."""
+        while not self.stop.is_set():
+            try:
+                request = self.fetches.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                self.handle_fetch(request)
+            except ApiError as e:
+                if e.kind == "not-configured":
+                    self.fatal(EXIT_NOT_CONFIGURED, "not-configured", self.refused_fatal)
+            except Exception as e:  # nothing else may print a traceback
+                self.log(f"a fetch failed unexpectedly ({type(e).__name__})")
+                if type(request.get("id")) is int:
+                    self.answer(request["id"], False, kind="failed", reason="the fetch failed unexpectedly")
+
+    def handle_fetch(self, request: dict) -> None:
+        rid = request.get("id")
+        if type(rid) is not int:
+            self.log("dropped a request with no integer id")
+            return
+        ref, folder, cap = request.get("ref"), request.get("out"), request.get("max_bytes")
+        try:
+            if not isinstance(ref, str) or not 1 <= len(ref) <= 512 or not isinstance(folder, str) or not folder \
+                    or type(cap) is not int or cap < 1:
+                raise ProviderError("a fetch names a reference, a folder and a positive byte cap", EXIT_USAGE, "usage")
+            found = self.fetch(ref, folder, cap)
+        except ApiError as e:
+            if e.kind == "not-configured":
+                self.answer(rid, False, kind="not-configured", reason=self.refused_reason)
+                raise
+            self.answer(rid, False, kind="failed", reason=redact(e, self.known))
+        except ProviderError as e:
+            self.answer(rid, False, kind=e.kind, reason=redact(e, self.known))
+        else:
+            self.answer(rid, True, bytes=found["bytes"], sha256=found["sha256"])
 
     def run(self) -> int:
         try:

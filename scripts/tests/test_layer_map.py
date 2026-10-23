@@ -17,7 +17,7 @@ the targets that a provider resolution returns at run time (providers/resolve.py
 paths in code). A new way of reaching a file is added to `scan` with its own case in the self-test below.
 
 ALLOWED is the rules of the layer diagram. TOLERATED is every edge the code has today that ALLOWED refuses, each
-named after the finding of docs/architecture/platform/review-2026-10-06.md that removes it (or that names the
+named after the finding of the platform review (removed on 2026-10-14: git show d3e60770:docs/architecture/platform/review-2026-10-06.md) that removes it (or that names the
 rule it breaks), so that the list only shrinks: the test fails on an edge that is neither allowed nor tolerated,
 and on a tolerated row the scan no longer finds. NOT_A_DEPENDENCY lists the paths the scan finds that are not a
 dependency (a path read as text, a name in a table), each with the reason, held to the same staleness rule.
@@ -231,12 +231,15 @@ ALLOWED = (
     # the messaging bridge (MSG-1): a shell over ops.py and the kit, with its own modules; the modules reach the kit and the
     # resolver of providers (the one function that runs a messenger provider's verb), never ops.py
     ("runtime/messaging.py", ("runtime/ops.py", "runtime/shell_kit.py", "runtime/messaging_*.py")),
-    ("runtime/messaging_*.py", ("runtime/messaging_*.py", "runtime/shell_kit.py", "providers/resolve.py", "scripts/redact.py")),
+    # (ATT-1b: the modules also read runtime/attachments.py, the limits, sentences and folders of the files a sender sends: pure helpers and the one fetch lock,
+    # which reach the intake and the sources inside runtime/, never the operations layer; RM-1: and runtime/reminders.py, the pure words of a reminder; LR-1: and runtime/phrases.py, the table of sentences in the project's language; NR-1: and runtime/natural.py, a line in the person's own words matched to a reminder operation by code; NR-5: and runtime/natural_writes.py, the pure reading of a line that asks for a write to the person's accounts; S2: and runtime/card_words.py, the pure reading of a line that is an approve or reject word; S5: and runtime/greeting.py, the pure reading of a line that is a greeting or a help form; S10: and runtime/phone_refusal.py, the plain sentence of a refusal on a phone; S14: and runtime/phone_errors.py, the operations layer's errors told in the language, and runtime/phone_questions.py, a question cleaned as a phone shows it)
+    ("runtime/messaging_*.py", ("runtime/messaging_*.py", "runtime/shell_kit.py", "runtime/attachments.py", "runtime/reminders.py", "runtime/phrases.py", "runtime/natural.py", "runtime/natural_time.py", "runtime/natural_writes.py", "runtime/drafts.py", "runtime/card_words.py", "runtime/command_words.py", "runtime/greeting.py", "runtime/phone_refusal.py", "runtime/phone_errors.py", "runtime/phone_questions.py", "runtime/phone_delete.py", "runtime/line_stage.py", "providers/resolve.py", "scripts/redact.py")),
     # the handlers: the resolver of providers and the shell's verbs, nothing imported from runtime/
     # a handler reaches the resolver, the terminal shell, the shared credential formats and its sibling handlers
     ("runtime/handlers/*.py", ("providers/resolve.py", "runtime/cli.py", "scripts/redact.py", "runtime/handlers/")),
     # layer 6, the runtime: runtime/lab.py is the one file that reaches evals/ and, through the lab, the adapters
-    ("runtime/lab.py", ("runtime/", "evals/", "adapters/") + RUNTIME_OUTSIDE),
+    # (it also loads scripts/image_lock.py, the one reading of the published eval image's lock file: no other module does)
+    ("runtime/lab.py", ("runtime/", "evals/", "adapters/", "scripts/image_lock.py") + RUNTIME_OUTSIDE),
     # the one runner of a skill's script, as an isolated subprocess with a scrubbed environment; no other module of
     # runtime/ reaches skills/ as code (runtime/tests/test_isolated.py holds that)
     ("runtime/isolated.py", ("runtime/", "skills/*/scripts/*") + RUNTIME_OUTSIDE),

@@ -136,6 +136,27 @@
 .wb-facts a:hover { text-decoration: underline; }
 .wb-sec { display: grid; gap: 6px; min-width: 0; outline: none; }
 .wb-sec[hidden] { display: none; }
+.wb-steps-sec { display: grid; gap: 6px; min-width: 0; }
+.wb-steps-sec[hidden] { display: none; }
+.wb-steps-head { margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; }
+.wb-steps-line, .wb-steps-note { margin: 0; padding: 0 4px; font-size: 12px; color: var(--pui-muted, inherit); }
+.wb-steps-btn { justify-self: start; }
+.wb-rt-sec[hidden], .wb-rt-new[hidden], .wb-rt-preview[hidden] { display: none; }      /* the routines of the project (P6b) */
+.wb-rt-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.wb-rt-item { min-width: 0; overflow-wrap: anywhere; padding: 0 4px; }
+.wb-rt-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
+.wb-rt-preview { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; padding: 6px 4px; border-top: 1px solid var(--pui-border, currentColor); }
+.wb-rt-preview .wb-hash { overflow-wrap: anywhere; }
+.wb-rt-content { display: grid; grid-template-columns: max-content 1fr; gap: 2px 8px; margin: 0; font-size: 12px; min-width: 0; }
+.wb-rt-content dt { color: var(--pui-muted, inherit); }
+.wb-rt-content dd { margin: 0; overflow-wrap: anywhere; }
+.wb-at-sec[hidden] { display: none; }      /* the files people sent through a messaging app (ATT-1) */
+.wb-at-list, .wb-at-latest { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.wb-at-item, .wb-at-done { min-width: 0; overflow-wrap: anywhere; padding: 0 4px; }
+.wb-at-name, .wb-at-line { margin: 0; }
+.wb-in-sec[hidden], .wb-in-problem[hidden], .wb-in-changed[hidden] { display: none; }      /* the project's standing instructions */
+.wb-in-field { width: 100%; box-sizing: border-box; min-height: 8rem; resize: vertical; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-in-count, .wb-in-changed { overflow-wrap: anywhere; }
 .wb-sec-head { margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; }
 .wb-sec-empty { margin: 0; padding: 0 4px; font-size: 12px; }
 .wb-rq-list, .wb-fl-list { display: grid; gap: 2px; min-width: 0; margin: 0; padding: 0; list-style: none; }

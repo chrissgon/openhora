@@ -1,5 +1,5 @@
 """Offline tests of the score and the bands (the reliability model, sections 4 to 7; item B7b of
-docs/architecture/final-plan-2026-10-02.md): the pessimistic score against the model's worked examples and its
+the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md): the pessimistic score against the model's worked examples and its
 backtest, the current set and the inherited sets, the three causes of `needs a test`, the causes of `watch`, the
 field columns and the field signal, and the validator's lines. No model is called: evidence is written here.
 
@@ -27,9 +27,11 @@ def load(name, folder):
 
 es, validate = load("eval_status", "evals"), load("validate", "scripts")
 H = {c: c * 64 for c in "abcdef"}
-CFG = {"strong_model": "s-model", "strong_harness": "h", "floor_model": "f-model", "floor_harness": "fh",
-       "floor_pass_env": [], "strong_pass_env": [], "grader": "s-model", "threshold": 0.8, "strong_tolerance": 0.05,
-       "measurement_version": 5, "measurement_floor": 5, "models": {"s-model": [], "f-model": [], "old-model": []}}
+ENTRY = {"aliases": [], "adapter": "h", "pass_env": [], "route": None, "provider_pin": None, "upstream_models": ["x"],
+         "price_source": "https://example.test/price", "run_token_budget": 1000}
+CFG = {"grader": "s-model", "threshold": 0.8, "tolerance": 0.05, "lab_models": ["s-model", "f-model"],
+       "measurement_version": 5, "measurement_floor": 5,
+       "models": {"s-model": ENTRY, "f-model": {**ENTRY, "adapter": "fh"}, "old-model": ENTRY}}
 
 
 # --- the pessimistic score: the model's worked examples (section 6) and its backtest -------------------------
@@ -94,14 +96,14 @@ def results(score, count=10):
 SEQ = iter(range(1, 10 ** 6))
 
 
-def event(folder, kind, version, date, runs, complete=True, grader="s-model", strong="s-model", mv=5, gate=None):
+def event(folder, kind, version, date, runs, complete=True, grader="s-model", strong="s-model", mv=5, gate=None, floor="f-model"):
     """Write one evidence file. runs: [(case, variant, score, extra)] with extra a dict of run-line keys (model,
     context_sha256, guard_failed, results, date...)."""
     test = f"{date.replace('-', '')}T000000Z-{next(SEQ):08x}"
     hashes = es.case_hashes(str(folder))
     cases = sorted({str(c) for c, _, _, _ in runs} | (set(hashes) if kind == "full" else set()))
     line = {"record": "test", "skill": folder.name, "test": test, "kind": kind, "version": version, "content_sha256": H["a"],
-            "date": date, "models": {"strong": strong, "floor": "f-model"}, "adapters": {"strong": "h", "floor": "fh"},
+            "date": date, "models": {"strong": strong, "floor": floor}, "adapters": {"strong": "h", "floor": "fh"},
             "adapter_sha256": {"h": H["b"], "fh": H["c"]}, "grader": grader, "runs": 3, "timeout_seconds": 900,
             "retries": 2, "measurement_version": mv, "measurement_sha256": H["d"], "image_digest": "sha256:" + H["e"],
             "image_platform": "linux/arm64", "grading_template_sha256": H["f"], "tools": {},
@@ -314,13 +316,15 @@ def test_another_context_or_an_earlier_grader_makes_a_run_inherited(root):
     assert (row["current_runs"], row["inherited_runs"], row["runs"]) == (9, 6, 12)
 
 
-def test_the_earlier_reference_models_runs_count_on_the_new_one_as_inherited(root):
+def test_a_models_inherited_lines_are_its_own_only(root):
+    """No model's lines count in another's pool: the lines an old event ran on its first tier under another id are that
+    id's, and the lead model of the gate file inherits none of them."""
     folder = skill(root)
     full(folder, strong="old-model")
     row = band(root, folder)
-    assert row["band"] == "needs a test"  # the gate is the new reference model's: it has no full test
-    assert (row["current_runs"], row["inherited_runs"], row["runs"]) == (0, 9, 3)
-    assert row["models"]["old-model"]["current_runs"] == 9
+    assert row["band"] == "needs a test"  # the gate is the lead model's: it has no full test
+    assert (row["current_runs"], row["inherited_runs"], row["runs"]) == (0, 0, 0)
+    assert row["models"]["old-model"]["current_runs"] == 9 and row["models"]["old-model"]["inherited_runs"] == 0
 
 
 def test_the_floor_model_has_its_own_row_and_no_rule_reads_it(root):
@@ -537,9 +541,9 @@ def test_the_validator_fails_on_an_evidence_file_that_is_not_valid(root):
 
 
 def test_the_repository_reads_needs_a_test_for_every_skill_until_it_has_a_full_test():
-    """Phase B's exit: a band for each of the 48 skills, computed from evidence; none has a full test yet."""
+    """Phase B's exit: a band for each of the 47 skills, computed from evidence; none has a full test yet."""
     out = es.all_status(str(REPO))
-    assert len(out["skills"]) >= 48
+    assert len(out["skills"]) >= 47
     no_evidence = [r for r in out["skills"] if not list((REPO / "skills" / r["skill"] / "evals" / "evidence").glob("lab-*"))]
     assert all(r["band"] == "needs a test" and r["kind"] == "no passing full test" for r in no_evidence)
 

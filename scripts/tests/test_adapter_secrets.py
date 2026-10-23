@@ -10,11 +10,14 @@ Run: uv run --with pytest pytest scripts/tests/test_adapter_secrets.py
 """
 from __future__ import annotations
 
+import atexit
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -39,6 +42,23 @@ BEFORE = {
     "GMAIL_CLIENT_SECRET": ((), "gmail-client-secret", ("providers/mailbox/auth.py", "providers/mailbox/gmail.py")),
     # The platform's token joined the core registry on 2026-10-06 (stage 3 of the platform plan, WP-3.10).
     "NOTION_TOKEN": ((), "notion", ("providers/issue-tracker/notion.py", "providers/documents/notion.py")),
+    # G1 (SPEC-SECRETARY-INTEGRATIONS): the person's Google calendar as a source; one record of its own (token, client), two read scopes.
+    "GOOGLE_CALENDAR_TOKEN": ((), "calendar-google", ("providers/calendar/google.py", "providers/calendar/google_auth.py")),
+    # ACCT-G (decision of 2026-10-18): one token for the person's own Google account, the platform's four scopes, read first by the three readers.
+    "GOOGLE_ACCOUNT_TOKEN": ((), "google-account", ("providers/mailbox/gmail.py", "providers/calendar/google.py", "providers/documents/gdrive.py",
+                                                     "providers/_google.py", "providers/accounts/google_auth.py", "providers/writer/gdrive.py", "providers/mailer/gmail.py")),
+    # Decision D13 and secret S7 of the delegation plan (P4): the read-only token of the pages chosen as sources, never the one that writes.
+    "NOTION_SOURCES_TOKEN": ((), "notion-sources", ("providers/documents/notion.py",)),
+    # P7: the Google Drive files the person picked as sources; one record (token, client, Picker key), scope drive.file.
+    "GDRIVE_SOURCES_TOKEN": ((), "gdrive-sources", ("providers/documents/gdrive.py", "providers/documents/gdrive_auth.py")),
+    # O1: the OneDrive files the person chose as sources; one record (refresh token, client id, tenant), scope Files.Read.
+    "ONEDRIVE_SOURCES_TOKEN": ((), "onedrive-sources", ("providers/documents/onedrive.py", "providers/documents/onedrive_auth.py")),
+    # M1: the person's Outlook mail and calendar as sources, each its own record and its own Microsoft app registration (Mail.Read; Calendars.ReadBasic).
+    "OUTLOOK_MAIL_TOKEN": ((), "outlook-mail", ("providers/mailbox/outlook.py", "providers/mailbox/outlook_auth.py")),
+    "OUTLOOK_CALENDAR_TOKEN": ((), "outlook-calendar", ("providers/calendar/outlook.py", "providers/calendar/outlook_auth.py")),
+    # ACCT-M: the person's own Microsoft account, one record for the platform's whole set (decision of 2026-10-18).
+    "MICROSOFT_ACCOUNT_TOKEN": ((), "microsoft-account", ("providers/accounts/microsoft_auth.py", "providers/_msgraph.py", "providers/documents/onedrive.py",
+                                                          "providers/mailbox/outlook.py", "providers/calendar/outlook.py", "providers/writer/onedrive.py", "providers/mailer/outlook.py")),
     "MESSENGER_TELEGRAM_BOT_TOKEN": ((), "messenger-telegram", ("providers/messenger/telegram.py",)),
     "MESSENGER_DISCORD_BOT_TOKEN": ((), "messenger-discord", ("providers/messenger/discord.py",)),
     "MESSENGER_WHATSAPP_CLOUD_TOKEN": ((), "messenger-whatsapp-cloud", ("providers/messenger/whatsapp-cloud.py",)),
@@ -47,15 +67,21 @@ BEFORE = {
     "MESSENGER_WHATSAPP_TWILIO_API_KEY_SID": ((), "messenger-whatsapp-twilio-api-key-sid", ("providers/messenger/whatsapp-twilio.py",)),
     "MESSENGER_WHATSAPP_TWILIO_API_KEY_SECRET": ((), "messenger-whatsapp-twilio-api-key-secret", ("providers/messenger/whatsapp-twilio.py",)),
     "MESSENGER_WHATSAPP_TWILIO_AUTH_TOKEN": ((), "messenger-whatsapp-twilio-auth-token", ("providers/messenger/whatsapp-twilio.py",)),
+    # EMAIL-SEND: the password of the outbox account that sends the e-mails the person approved.
+    "MAILER_SMTP_PASSWORD": ((), "mailer-smtp", ("providers/mailer/smtp.py",)),
+    "MESSENGER_EMAIL_PASSWORD": ((), "messenger-email", ("providers/messenger/email-imap.py",)),
+    # S16: the sign-in of the password manager (1Password), found only in the environment, the credentials directory or the OS store.
+    "OP_SERVICE_ACCOUNT_TOKEN": ((), "password-manager-1password", ("providers/secrets/resolver.py",)),
     # The key proxy of the eval network became a reader of the floor key on 2026-10-03: it holds the value of an eval run.
     "OPENROUTER_API_KEY": ((), "openrouter", ("evals/eval_run.py --pass-env", "adapters/agents-dir/run-prompt.sh",
                                               "evals/container/keyproxy/keyproxy.py", "adapters/api/run_agent.py")),
-    "CLAUDE_CODE_OAUTH_TOKEN": ((), "claude-code-oauth", ("evals/eval_run.py strong_pass_env",
-                                                          "adapters/claude-code/run-prompt.sh")),
-    "DEEPSEEK_API_KEY": ((), "deepseek", ("evals/eval_run.py --floor-pass-env", "adapters/agents-dir/run-prompt.sh")),
+    # ACCT-A: the lab facade (runtime/lab.py) hands the token to the adapter's text runner for a test on the person's own account.
+    "CLAUDE_CODE_OAUTH_TOKEN": ((), "claude-code-oauth", ("evals/eval_run.py models[<id>].pass_env",
+                                                          "adapters/claude-code/run-prompt.sh", "runtime/lab.py")),
+    "DEEPSEEK_API_KEY": ((), "deepseek", ("evals/eval_run.py --pass-env", "adapters/agents-dir/run-prompt.sh")),
     "ANTHROPIC_API_KEY": ((), "anthropic", ("adapters/api/run_agent.py",)),
     # Added since: the low-limit key of the eval cases that use the open network.
-    "CLAUDE_CODE_WEB_API_KEY": ((), "claude-code-web-evals", ("evals/eval_run.py strong_web_pass_env",
+    "CLAUDE_CODE_WEB_API_KEY": ((), "claude-code-web-evals", ("evals/eval_run.py models[<id>].web_pass_env",
                                                               "adapters/claude-code/run-prompt.sh")),
 }
 ADAPTER_SECRETS = {"OPENROUTER_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY",
@@ -121,22 +147,58 @@ def test_every_adapter_secret_names_readers_that_exist_and_its_own_adapter():
     assert seen == ADAPTER_SECRETS
 
 
-def test_the_names_passed_into_eval_runs_are_registered_by_the_adapter_of_their_tier(merged):
-    """The gate file is the one home of the pass-through names; the registry only confirms them."""
+def test_the_names_passed_into_eval_runs_are_registered_by_the_adapter_of_their_model(merged):
+    """The gate file is the one home of the pass-through names (each model's entry); the registry only confirms them."""
     gate = json.loads((ROOT / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
-    for tier in ("floor", "strong"):
-        manifest = json.loads((ROOT / "adapters" / gate[f"{tier}_harness"] / "adapter.json").read_text(encoding="utf-8"))
+    for model, found in gate["models"].items():
+        manifest = json.loads((ROOT / "adapters" / found["adapter"] / "adapter.json").read_text(encoding="utf-8"))
         registered = {entry["name"] for entry in manifest.get("secrets", [])}
-        for name in gate[f"{tier}_pass_env"] + (gate.get("strong_web_pass_env", []) if tier == "strong" else []):
-            assert name in registered, f"{name} is passed to the {tier} runs and its adapter does not register it"
+        for name in found["pass_env"] + found.get("web_pass_env", []):
+            assert name in registered, f"{name} is passed to the runs of {model} and its adapter does not register it"
             assert any(r.startswith("evals/eval_run.py") for r in merged.REGISTRY[name].readers)
     for manifest in MANIFESTS:
         keys = set(json.loads(manifest.read_text(encoding="utf-8")))
         assert not {k for k in keys if "pass_env" in k}, "an adapter's manifest holds no list of variables to pass"
 
 
+EMPTY_HOME = tempfile.mkdtemp(prefix="wb-doctor-home-")   # a child gets an empty home and config folder, never the person's (S16)
+atexit.register(shutil.rmtree, EMPTY_HOME, ignore_errors=True)
+
+
+def child_env(**more):
+    return {"PATH": os.environ["PATH"], "HOME": EMPTY_HOME, "XDG_CONFIG_HOME": EMPTY_HOME, **more}
+
+
+def test_the_doctor_child_never_reaches_a_mapping_under_the_real_home(tmp_path, monkeypatch):
+    """The reviewer's probe: a fake home with a 0600 mapping for several registered names, a recording FAKE `op` first on the PATH and
+    XDG_CONFIG_HOME unset: the doctor started the way the test above starts it makes zero calls."""
+    import importlib.util as util
+    spec = util.spec_from_file_location("fake_op_for_adapter_secrets", ROOT / "providers" / "secrets" / "tests" / "fake_op.py")
+    fake = util.module_from_spec(spec)
+    sys.modules[spec.name] = fake
+    spec.loader.exec_module(fake)
+    op = fake.FakeOp(tmp_path / "bin")
+    op.answer("*", stdout=SENTINEL)
+    home = tmp_path / "home"
+    (home / ".config" / "openhora").mkdir(parents=True)
+    mapping = home / ".config" / "openhora" / "password-manager.json"
+    names = ("VCS_GITHUB_TOKEN", "NOTION_TOKEN", "GMAIL_CLIENT_ID", "LINKEDIN_CLIENT_ID")
+    mapping.write_text(json.dumps({"backend": "1password", "references": {n: "op://Example Vault/item/credential" for n in names}}),
+                       encoding="utf-8")
+    mapping.chmod(0o600)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", f"{op.folder}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    for name in BEFORE:
+        monkeypatch.delenv(name, raising=False)
+    out = subprocess.run([sys.executable, str(ROOT / "scripts" / "doctor.py"), "--json"], capture_output=True, text=True,
+                         env=child_env(), timeout=180)
+    assert out.returncode == 0 and SENTINEL not in out.stdout + out.stderr
+    assert op.calls() == []
+
+
 def test_the_doctor_lists_core_and_adapter_secrets_without_a_value():
-    env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), **{name: SENTINEL for name in BEFORE}}
+    env = child_env(**{name: SENTINEL for name in BEFORE})
     out = subprocess.run([sys.executable, str(ROOT / "scripts" / "doctor.py"), "--json"], capture_output=True, text=True,
                          env=env, timeout=120)
     assert out.returncode == 0, out.stderr

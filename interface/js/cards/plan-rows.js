@@ -22,20 +22,36 @@ export function milestoneWord(task) {
   return task.milestone ? "yes" : "no";
 }
 
-/** The rows of the tasks table: #, Task, Skill, Agent, After, Milestone, Web. */
+/** The source ids a task receives (the plan carries them, so its hash covers them): a list of text, [] when the task has none. */
+export function sourcesOf(task) {
+  return Array.isArray(task.sources) ? task.sources.filter((id) => typeof id === "string" && id) : [];
+}
+
+/** The rows of the tasks table: #, Task, Skill, Agent, After, Milestone, Web (and, for a task that receives sources, `sources`: their ids). */
 export function taskRows(item) {
   const tasks = Array.isArray(payloadOf(item).tasks) ? payloadOf(item).tasks : [];
   const keys = new Map(tasks.map((t, i) => [t.key, i + 1]));
-  return tasks.map((t, i) => ({
-    n: String(i + 1),
-    task: typeof t.title === "string" && t.title ? t.title : String(t.key || DASH),
-    skill: typeof t.skill === "string" && t.skill ? t.skill : DASH,
-    agent: typeof t.agent === "string" && t.agent ? t.agent : DASH,
-    after: afterOf(t, keys),
-    milestone: milestoneWord(t),
-    web: t.web ? "yes" : "no",
-  }));
+  return tasks.map((t, i) => {
+    const sources = sourcesOf(t);
+    return {
+      n: String(i + 1),
+      task: typeof t.title === "string" && t.title ? t.title : String(t.key || DASH),
+      skill: typeof t.skill === "string" && t.skill ? t.skill : DASH,
+      agent: typeof t.agent === "string" && t.agent ? t.agent : DASH,
+      after: afterOf(t, keys),
+      milestone: milestoneWord(t),
+      web: t.web ? "yes" : "no",
+      ...(sources.length ? { sources } : {}),
+    };
+  });
 }
+
+/** Whether a row is a task that uses the web and receives sources: the plan card highlights it (decision D16, manual use). */
+export function webWithSources(row) {
+  return row.web === "yes" && Array.isArray(row.sources) && row.sources.length > 0;
+}
+
+export const WEB_SOURCES_NOTE = "This task uses the open web and receives sources: what it reads of them is visible to a run with the open network. Approving the plan is your choice about that.";
 
 export const COLUMNS = Object.freeze(["#", "Task", "Skill", "Agent", "After", "Milestone", "Web"]);
 
@@ -52,6 +68,30 @@ export function limitsLine(item) {
   const estimate = payload.estimate && typeof payload.estimate === "object" ? payload.estimate : {};
   if (Number.isFinite(estimate.runs_at_least)) parts.push(`At least ${estimate.runs_at_least} run${estimate.runs_at_least === 1 ? "" : "s"}.`);
   return parts.join(" ");
+}
+
+/**
+ * The language line of a plan, before the person approves: "Language: pt-BR" (the project's setting, which the plan's `project_language` states) when no task
+ * asks for one, "Language: en (requested)" when every task that runs a skill asks for the same, else the groups ("Language: pt-BR for tasks 1, 3; en (requested)
+ * for task 2"). The tasks' `language` is part of what the hash covers. "" for a plan that predates the field (no `project_language`). The rule is the operation's
+ * (runtime/language.py plan_line); this only words what the payload holds.
+ */
+export function languageLine(item) {
+  const payload = payloadOf(item);
+  if (typeof payload.project_language !== "string" || !payload.project_language) return "";
+  const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+  const groups = new Map();
+  tasks.forEach((t, i) => {
+    if (!t || t.step) return;
+    const tag = typeof t.language === "string" && t.language ? t.language : "";
+    groups.set(tag, [...(groups.get(tag) || []), i + 1]);
+  });
+  if (groups.size <= 1) {
+    const tag = groups.size ? [...groups.keys()][0] : "";
+    return tag ? `Language: ${tag} (requested)` : `Language: ${payload.project_language}`;
+  }
+  const parts = [...groups].map(([tag, at]) => `${tag ? `${tag} (requested)` : payload.project_language} for ${at.length === 1 ? "task" : "tasks"} ${at.join(", ")}`);
+  return `Language: ${parts.join("; ")}`;
 }
 
 /** The hash shown and sent: `payload.plan_sha256`, or "" when the decision carries none (the card then offers no approval). */
@@ -80,6 +120,6 @@ export function stackedRow(row) {
     head: `${row.n}  ${row.task}`,
     skill: row.skill,
     agent: row.agent === DASH ? "" : row.agent,
-    tail: `After ${row.after} · Milestone ${row.milestone} · Web ${row.web}`,
+    tail: `After ${row.after} · Milestone ${row.milestone} · Web ${row.web}${Array.isArray(row.sources) && row.sources.length ? ` · Sources ${row.sources.join(", ")}` : ""}`,
   };
 }

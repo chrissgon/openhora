@@ -24,6 +24,18 @@ the side-effect word the skill's manifest names in its gate. This module holds w
 payload, the error, the effect file and its hash, the call of a provider, the row of the state file, and the registry.
 A new kind is a module and a row of KINDS; runtime/ops.py does not change.
 
+A kind may also be opened by a step task and not by a skill's gate (package P8, runtime/steps.py Gate): the STEP path. The kind
+module then has STEP = True and its own document, check, title, body, describe, summary and execute (runtime/effect_write.py lists
+them); the approval and the execution are runtime/ops_step_effects.py, called from ops.approve for an `effect` decision of a step
+task. Its GATE and POLICY are False. Beside the names above, a STEP kind exposes the three that runtime/ops_step_effects.py asks of every
+one, so that the approval names no platform: `preflight(cfg, doc, root)` ((exit code, sentence) when the project is not configured for
+this effect now, else None), `caller(cfg, root)` (the `call(verb, args)` that reaches its provider) and `idempotency_key(doc, default)`
+(the key the execution carries); and, optional, `is_long(doc)`, `FORGETS_KEYS` (False when the provider's ledger never forgets a key) and
+`on_cards(doc)` (False when the whole effect cannot be on a messaging card). `write` is the write-back of a document (runtime/effect_write.py),
+`send` an e-mail from the project's outbox (runtime/effect_send.py) and `publish` a post (runtime/effect_publish.py), which is also the one word with
+both paths: its module is a facade over the reply to a comment under a standing approval (runtime/effect_reply.py, POLICY) and the post of a step
+task (STEP), and `describe` answers for both documents.
+
 The registry has one key per kind, and the key is a word of the side-effect vocabulary (contracts/environment.md,
 SIDE_EFFECTS of scripts/validate.py): the gate path reads the word a skill's manifest names in its gate, the policy
 path reads the word of the effect document a handler hands to ops.execute_under_policy, and both find the same module.
@@ -67,7 +79,7 @@ A kind of one path alone has only that path's names. EFFECT_KEYS and RESERVED_FL
 document a handler hands over and the flags the operation adds and a handler never may.
 
 Public names: recover_payload(reply, tmp_dir, readable), EffectError, KINDS, EFFECT_KEYS, RESERVED_FLAGS,
-module_for(kind), gate_kind(word, requires), policy_kinds(), write(run_dir, doc), read_document(effect_file, sha256),
+module_for(kind), gate_kind(word, requires), policy_kinds(), step_only_words(), write(run_dir, doc), read_document(effect_file, sha256),
 provider_call(provider, args[, run]), approval_row(approval, doc).
 
 Usage (a library): python3 runtime/effects.py --help
@@ -146,7 +158,9 @@ def recover_payload(reply: str, tmp_dir, readable) -> dict:
 # The registry of the kinds of effect: a word of the side-effect vocabulary -> the module of runtime/ that holds the
 # kind. For the gate path the word is the one a skill's manifest names in its gate (gate.effect); a word not here
 # opens a review, never an effect. For the policy path it is the kind of the document a handler hands over.
-KINDS = {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_reply"}
+KINDS = {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_publish", "write": "effect_write", "send": "effect_send",
+         "calendar": "effect_calendar",
+         "files": "effect_files", "mailbox": "effect_mailbox"}
 
 # The keys of the effect document a handler hands to ops.execute_under_policy, and no others; and the flags only the
 # operation adds to the provider's verb, never a handler.
@@ -159,7 +173,8 @@ PROVIDER_TIMEOUT = 600
 
 class EffectError(Exception):
     """kind is "deviation" (something moved since the gate), "provider" (the code provider failed), "not-configured"
-    or "usage"."""
+    or "usage"; and, for a write-back (runtime/effect_write.py), "stale" (the target was edited since it was read) and
+    "unknown" (the write call failed, so whether the target holds the content is not known)."""
 
     def __init__(self, kind: str, reason: str):
         super().__init__(reason)
@@ -188,6 +203,12 @@ def gate_kind(word, requires):
     if getattr(module, "GATE", False) is not True or getattr(module, "PROVIDER_CLASS", None) not in (requires or ()):
         return None
     return module
+
+
+def step_only_words() -> list:
+    """The words of the registry whose module is a STEP kind and may not run under a standing approval (STEP true, POLICY not true), sorted: a bound
+    can never name them. A word that is both (`publish`: a post on the step path, a reply under a policy) is not among them."""
+    return sorted(word for word in KINDS if getattr(module_for(word), "STEP", False) is True and getattr(module_for(word), "POLICY", False) is not True)
 
 
 def policy_kinds() -> list:
@@ -240,8 +261,12 @@ def _subprocess(argv):
 
 def approval_row(approval: dict, doc: dict) -> list:
     """The generated copy of an approval for the state file's ## Approvals table (contracts/state.md): Scope, What,
-    Payload hash, Approved, Expires, Status."""
+    Payload hash, Approved, Expires, Status. An approval made on a messaging app says on which platform and with which profile; the sender's id is
+    in the store alone (a phone number never enters the project's repository)."""
     what = module_for(doc["effect"]).describe(doc)
+    parts = str(approval.get("actor") or "").split(":", 3)
+    if len(parts) == 4 and parts[0] == "messaging":   # POL-2: the platform and the PROFILE of a person on a messaging app, never the sender's id (the file is versioned)
+        what += f" (approved on {parts[1]}, profile {parts[2]})"
     clean = lambda text: " ".join(str(text).replace("|", "/").split())
     return [approval["scope"], clean(what), f"sha256:{approval['payload_sha256']}", approval["approved_at"][:10],
             approval.get("expires_at") or "after execution", approval["status"]]

@@ -54,10 +54,10 @@ Keys are read only through `providers/secrets/resolver.py` (`contracts/secrets.m
 ## Costs
 
 - **Before the call:** input tokens are estimated as characters / 3.5. It is an estimate, not a tokenizer count; newer Claude tokenizers produce about 30% more tokens for the same text (https://platform.claude.com/docs/en/about-claude/pricing). When the estimate times the model's input price already exceeds `--max-cost-usd`, nothing is sent (`exit_code` 3).
-- **After the call:** `cost_usd` is OpenRouter's `usage.cost` when present; for the Anthropic endpoint, the reported tokens times `prices.json` (cache tokens at their own prices, though this adapter never asks for caching).
-- **Unknown price:** a model missing from `prices.json` runs with a warning in `stderr.log`, no pre-call check, and `cost_usd` null for the Anthropic endpoint. The first runtime's `today_spend` (`scripts/runtime.py`) counts that run as `max_cost_usd_per_run`, so add the price before using a new model: each entry has its source URL and access date.
+- **After the call:** `cost_usd` is OpenRouter's `usage.cost` when present; for the Anthropic endpoint, the reported tokens times the price in `runtime/prices.json`, the workbench's one price table that the runtime reads too (cache tokens at their own prices, though this adapter never asks for caching).
+- **Unknown price:** a model missing from `runtime/prices.json` (by its id or an alias) runs with a warning in `stderr.log`, no pre-call check, and `cost_usd` null for the Anthropic endpoint. The first runtime's `today_spend` (`scripts/runtime.py`) counts that run as `max_cost_usd_per_run`, so add the price before using a new model (`python3 scripts/update_prices.py` writes OpenRouter's): each entry has its source URL and access date.
 
-`prices.json`, accessed 2026-09-30: Claude Sonnet 5.5 $2 / $10 and Claude Haiku 4.5 $1 / $5 per million input / output tokens (https://platform.claude.com/docs/en/about-claude/pricing); DeepSeek V3.2 on OpenRouter $0.28 / $0.42 (https://openrouter.ai/api/v1/models).
+`runtime/prices.json` holds, with the dates they were read: Claude Sonnet 5.5 $2 / $10 and Claude Haiku 4.5 $1 / $5 per million input / output tokens (https://platform.claude.com/docs/en/about-claude/pricing, 2026-09-30); DeepSeek V3.2 on OpenRouter $0.28 / $0.42 and DeepSeek V4.1 Flash on OpenRouter (https://openrouter.ai/api/v1/models, 2026-09-30 and 2026-10-15).
 
 ## Tests
 

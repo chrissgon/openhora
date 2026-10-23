@@ -25,6 +25,7 @@ import fcntl
 import importlib.util
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -37,6 +38,8 @@ import autonomy  # noqa: E402
 import billing  # noqa: E402
 import lab  # noqa: E402
 import operations  # noqa: E402
+import policy_grants  # noqa: E402
+import policy_widening  # noqa: E402
 import project_config  # noqa: E402
 
 STORE_CLASS = "store:runtime"
@@ -66,9 +69,11 @@ CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 # The recorder of uses and verdicts (scripts/evidence.py of the checkout, ROOT, when None; a test points it at a
 # stand-in). The runtime records a use of every run and the person's verdict with it, and builds nothing of its own.
 EVIDENCE = None
-# The one secret the runtime owns: its own key for the floor model's provider, with a spend cap set there. When it
-# is not stored, a floor run uses the lab's key for the floor model (_floor_key).
-FLOOR_KEY = "WB_RUNTIME_FLOOR_KEY"
+# The secrets the runtime owns: its own key for a model's provider, with a spend cap set there. There is one for each variable a
+# model of the gate file passes (pass_env), named KEY_PREFIX + the variable; the registry runtime/secrets.json lists the ones
+# of today's models, and a name it lacks is registered here from the same pattern. When one is not stored, a run on the model
+# uses the lab's key for it (_model_key).
+KEY_PREFIX = "WB_RUNTIME_KEY_"
 
 
 class OpsError(Exception):
@@ -112,7 +117,7 @@ def store_module():
     return _load("workbench_store_" + found["implementation"], found["path"])
 
 
-def _command(name: str, project: str, **args) -> str:
+def _command(name: str, project: str, /, **args) -> str:
     """The terminal's command for one operation, as a sentence of this layer names it: absolute, from the checkout
     this process runs from (ROOT), with the uv prefix when it was started through uv (operations.command_line, the
     one place that spells the syntax)."""
@@ -132,13 +137,32 @@ def _config_of(project: str) -> dict:
     return cfg
 
 
-def _accepted(cfg: dict, accepted) -> None:
-    """Refuse (code 3) a configuration whose hash is not the accepted one."""
+class NotAccepted(OpsError):
+    """The configuration is not the accepted one (code 3). Its text is a path, two hashes, the widening lines when the file widens something, and the command that gets past it:
+    a log keeps it whole (runtime/service.py `fault_text`)."""
+
+
+def _accepted(cfg: dict, accepted, widening=None) -> None:
+    """Refuse (code 3) a configuration whose hash is not the accepted one. `widening` is (the hash `accept-config --widen` takes, the lines of the widening list) when the file widens
+    what a channel or a sender may do, else None (S12). The hash never travels without its list: the person reads what the file gives away in the same text, before the command."""
     if accepted != cfg["sha256"]:
-        command = _command("accept-config", cfg["project"], sha256=cfg["sha256"])
-        raise OpsError(f"the configuration {cfg['path']} has the hash {cfg['sha256']} and the accepted one is "
-                       f"{accepted or 'none: no configuration was accepted yet'}. Read the file; when it is what you "
-                       f"want, run: {command}", 3, next=command)
+        command = _command("accept-config", cfg["project"], sha256=cfg["sha256"], **({"widen": widening[0]} if widening else {}))
+        given = ("\nThe file widens what a channel may do or what a listed sender may do (or where the platform may write in your accounts). It gives, and the accepted file did not:"
+                 + widening[1] + "\n") if widening else " "
+        raise NotAccepted(f"the configuration {cfg['path']} has the hash {cfg['sha256']} and the accepted one is "
+                          f"{accepted or 'none: no configuration was accepted yet'}.{given}Read the file; when it is what you "
+                          f"want, run: {command}", 3, next=command)
+
+
+def _widening(cfg: dict, store, conn, accepted):
+    """(the hash of the widening list `config` shows, the list's lines as the terminal prints them) for this file, or None when it widens nothing or it cannot be worked out."""
+    try:
+        got = lambda name: store.cursor_get(conn, name)
+        view = policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None, got(policy_widening.ACCOUNTS),
+                                  got(policy_widening.KEY) or policy_widening.PENDING_SECRET)
+        return (view["widening_sha256"], policy_widening.lines(view["widening"])) if view["widening"] else None
+    except Exception:      # noqa: BLE001 - a refusal is never held back by this hint: the command is then the plain one
+        return None
 
 
 def context(project: str, *, check_config: bool = True) -> dict:
@@ -159,7 +183,7 @@ def context(project: str, *, check_config: bool = True) -> dict:
             accepted = store.cursor_get(conn, project_config.ACCEPTED)
         except store.StoreError as e:
             raise OpsError(f"the store at {cfg['store_db']}: {e}", e.code) from None
-        _accepted(cfg, accepted)
+        _accepted(cfg, accepted, None if accepted == cfg["sha256"] else _widening(cfg, store, conn, accepted))
     return {"cfg": cfg, "store": store, "conn": conn, "root": ROOT}
 
 
@@ -178,80 +202,131 @@ def _text(value, what: str) -> str:
     return CONTROL.sub(" ", value.replace("\r\n", "\n").replace("\r", "\n")).strip()
 
 
-def _own_key() -> tuple:
-    """(value or None, reason or None): the runtime's own key for the floor model, through the secret resolver
-    (providers/secrets/resolver.py) with the registry runtime/secrets.json. The value is never printed, logged,
-    stored or put in a message."""
+def own_key_name(variable: str) -> str:
+    """The name of the runtime's own secret for the variable a model's credential travels under."""
+    return KEY_PREFIX + variable
+
+
+def _own_key(variable: str) -> tuple:
+    """(value or None, reason or None): the runtime's own key for the credential variable of a model, through the secret
+    resolver (providers/secrets/resolver.py) with the registry runtime/secrets.json, and, for a variable it does not list, an
+    entry registered from the same pattern (store username runtime-<the variable in lower case, hyphens>). The environment is
+    looked at first, then the OS secret store. The value is never printed, logged, stored or put in a message."""
+    name = own_key_name(variable)
     try:
         resolver = _load("workbench_secret_resolver_runtime", os.path.join(ROOT, "providers", "secrets", "resolver.py"))
         resolver.register_file(os.path.join(ROOT, "runtime", "secrets.json"))
-        found = resolver.resolve(FLOOR_KEY)
+        if name not in resolver.REGISTRY:
+            resolver.register([{"name": name, "purpose": f"the task runtime's own key for the models whose credential is {variable}; when it is "
+                                                        "stored, every run the runtime routes to such a model uses it, and otherwise such a run uses "
+                                                        "the lab's key for the model",
+                                "permission": "optional: a key used only by the task runtime, with a spend cap set at the provider",
+                                "readers": ["runtime/ops_core.py"],
+                                "store_username": "runtime-" + variable.lower().replace("_", "-")}], origin="the runtime")
+        got = resolver.resolve_state(name)
     except Exception as e:  # an interpreter the resolver does not run on, a missing store library, a bad registry
         sys.modules.pop("workbench_secret_resolver_runtime", None)
         return None, f"the secret resolver could not be used: {type(e).__name__}"
-    if not found:
-        return None, None
-    return found[0], None
+    if got.state in ("locked", "unsafe"):   # a store that cannot be read is not a key that is not stored (finding I3)
+        return None, got.detail
+    return (got.value, None) if got.state == "found" else (None, None)
 
 
-def _floor_key() -> dict:
-    """The key a floor run would use: {"value", "source", "reason"}, in this order.
-    source "runtime": the runtime's own key (_own_key), when it is stored and the floor tier passes exactly one
-      variable, under which it travels (_key_in_environment). It wins: a person who wants a capped key of the
-      runtime's own stores it.
-    source "lab": no key of its own, and every variable the gate file names for the floor tier is set or found in
-      the secret store, by the lab's own lookup (lab.credential_missing). value is None: the value stays the lab's,
-      which run_skill passes as it does for a lab run.
-    source None: neither, and reason says why; the run stays on the reference model.
+def _model_key(model: str) -> dict:
+    """The key a run on the model would use: {"value", "source", "reason"}, in this order.
+    source "runtime": the runtime's own key for the model's credential variable (_own_key), when it is stored and the model
+      passes exactly one variable, under which it travels (ops._key_in_environment). It wins: a person who wants a capped key of
+      the runtime's own stores it.
+    source "lab": no key of its own, and every variable the gate file names for the model is set or found in the secret
+      store, by the lab's own lookup (lab.credential_missing). value is None: the value stays the lab's, which run_skill passes
+      as it does for a lab run. A model whose entry names no variable needs none and is "lab".
+    source None: neither, and reason says why.
     Only the source is shown, by name; the value is never printed, logged, stored or put in a message."""
     reasons = []
-    value, reason = _own_key()
-    if reason:
-        reasons.append(reason)
     try:
-        names = lab.reference("floor")["pass_env"]
+        names = lab.reference(model)["pass_env"]
+        value, reason = (_own_key(names[0]) if names else (None, None))
+        if reason:
+            reasons.append(reason)
         if value is not None:
             if len(names) == 1:
                 return {"value": value, "source": "runtime", "reason": None}
-            reasons.append(f"the floor tier passes {len(names)} variables; the runtime's own key travels under one")
-        missing = lab.credential_missing("floor") if names else None
-    except Exception as e:  # a gate file the facade refuses, a resolver that does not run on this interpreter
-        reasons.append(f"the lab's key for the floor model could not be looked up: {type(e).__name__}")
-        missing = None
+            reasons.append(f"{model} passes {len(names)} variables; the runtime's own key travels under one")
+        missing = lab.credential_missing(model) if names else []
+    except Exception as e:  # a gate file the facade refuses, a model it does not list, a resolver that does not run here
+        return {"value": None, "source": None, "reason": f"the key for {model} could not be looked up: {type(e).__name__}"}
     if missing == []:
         return {"value": None, "source": "lab", "reason": None}
-    if value is None and not reason:
-        reasons.append(f"the runtime's own key ({FLOOR_KEY}) is not stored")
-    if not names:
-        reasons.append("the gate file names no variable for the floor model's key")
-    elif missing:
-        reasons.append(f"the lab's key for the floor model ({', '.join(missing)}) is neither set nor in the secret store")
-    return {"value": None, "source": None, "reason": "no key for the floor model: " + "; ".join(reasons)}
+    if value is None and not reasons:
+        reasons.append(f"the runtime's own key ({own_key_name(names[0])}) is not stored")
+    if missing:
+        reasons.append(f"the lab's key for {model} ({', '.join(missing)}) is neither set nor in the secret store")
+    return {"value": None, "source": None, "reason": f"no key for {model}: " + "; ".join(reasons)}
 
 
-def _tier_billing(tier: str, adapter=None, manifests=None):
-    """How the credential a run on this tier uses is billed: "subscription", "metered" or "free", or None when no manifest
-    says (runtime/billing.py). The variables are those the gate file names for the tier (what lab.run_skill passes, the
-    runtime's own key for the floor model travelling under the first of them); adapter is the route's, else the tier's;
-    manifests are read once by a caller that asks for several tiers (billing.load)."""
-    found = lab.reference(tier)
+class Keys:
+    """The keys of the models of the gate file, looked up when asked and once: keys[model] is _model_key(model). A model the
+    gate file does not list has no key (source None) and a reason. found(model) is whether one was found. One object is made
+    for a round, a run or a read, so a secret store is asked once for each model."""
+
+    def __init__(self):
+        self._found = {}
+
+    def __getitem__(self, model: str) -> dict:
+        if model not in self._found:
+            self._found[model] = _model_key(model)
+        return self._found[model]
+
+    def get(self, model: str, default=None) -> dict:
+        return self[model] if model else default
+
+    def found(self, model: str) -> bool:
+        return self[model]["source"] is not None
+
+
+def _keys() -> Keys:
+    """A new set of lookups of the models' keys (Keys)."""
+    return Keys()
+
+
+def _model_billing(model: str, adapter=None, manifests=None):
+    """How the credential a run on this model uses is billed: "subscription", "metered" or "free", or None when no manifest
+    says (runtime/billing.py). The variables are those the gate file names for the model (what lab.run_skill passes, the
+    runtime's own key travelling under the first of them); adapter is the route's, else the model's; manifests are read once
+    by a caller that asks for several models (billing.load). The price table decides nothing here: a model is metered
+    when its credential is declared metered."""
+    found = lab.reference(model)
     return billing.of_route(manifests or billing.load(ROOT), adapter or found["adapter"], found["pass_env"])
 
 
-def _caps_in_use(runs, key: dict) -> dict:
+def _metered_models(manifests=None) -> set:
+    """The ids of the gate file's models whose credential is billed by use: the rule of a run recorded before the billing
+    column (autonomy.history_billing), a run on a metered model is metered. A model whose billing no manifest says is not in it."""
+    manifests = manifests or billing.load(ROOT)
+    return {model for model in lab.models() if _model_billing(model, manifests=manifests) == "metered"}
+
+
+def attributed(runs, owners: dict) -> list:
+    """The rows of runs_since with the agent a run of a REQUEST counts against: a run whose task is a request has no agent (a router
+    run, an answer run), and `owners` ({skill: agent}) says whose it is: the planning agent for the router's skill, the owner of the
+    answer skill for an answer run. A run that has an agent keeps it; a skill that is not in `owners` stays with none. The one place
+    both the planning agent's cap check and the day's use of every agent read, so that the two cannot differ."""
+    return [dict(r, agent=owners[r["skill"]]) if r.get("agent") is None and r.get("skill") in owners else r for r in runs]
+
+
+def _caps_in_use(runs, keys) -> dict:
     """{"runs": bool, "spend": bool}: whether each daily cap has something to count in this project, so that a page draws
     only the meters that mean something. A cap is in use when a run of the day (runs, with their billing filled in) used a
-    credential billed that way, or when a tier the runtime can run on has such a credential: the reference model's always,
-    the floor model's when a key for it was found (key, the caller's _floor_key). When nothing says either (the reference tier's
-    billing unknown and no floor key) both are in use, so that a page shows both meters as it does for a service that sends none.
-    Names no tier and no model."""
+    credential billed that way, or when a model the runtime can run on has such a credential: the default model's always, any
+    other model's when a key for it was found (keys, the caller's Keys). When nothing says either (the default model's billing
+    unknown and no other key) both are in use, so that a page shows both meters as it does for a service that sends none.
+    Names no model."""
     words, manifests = {run.get("billing") for run in runs}, billing.load(ROOT)
-    words.add(_tier_billing("strong", manifests=manifests))
-    try:
-        if key["source"] is not None:
-            words.add(_tier_billing("floor", manifests=manifests))
-    except Exception:  # a floor tier the facade refuses has no key to count: the reference tier's meter stays
-        pass
+    default = lab.default_model()
+    words.add(_model_billing(default, manifests=manifests))
+    for model in lab.models():
+        if model != default and keys is not None and keys.found(model):
+            words.add(_model_billing(model, manifests=manifests))
     use = {"runs": bool(words & set(autonomy.RUNS_BILLINGS)), "spend": bool(words & set(autonomy.SPEND_BILLINGS))}
     return use if any(use.values()) else {"runs": True, "spend": True}
 
@@ -321,7 +396,8 @@ def _task_lock(cfg: dict, task_id: int):
         raise OpsError(f"task {task_id} is already being run by another process", 1)
     try:
         os.ftruncate(fd, 0)
-        os.write(fd, f"{os.getpid()} {os.getpgrp()}\n".encode("ascii"))
+        started = _process_start(os.getpid())   # a cancel or a stop signals only a process whose start time is this one (R18)
+        os.write(fd, f"{os.getpid()} {os.getpgrp()}{' ' + started if started else ''}\n".encode("ascii"))
         yield
     finally:
         try:
@@ -338,9 +414,31 @@ def _lock_owner(cfg: dict, task_id: int):
             words = f.read(64).split()
     except OSError:
         return None
-    if len(words) != 2 or not all(w.isdigit() and int(w) > 1 for w in words):
+    if len(words) not in (2, 3) or not all(w.isdigit() and int(w) > 1 for w in words[:2]):
         return None
     return int(words[0]), int(words[1])
+
+
+def _process_start(pid: int):
+    """The start time of a process as `ps` gives it, five words joined by "_" (Fri_Oct_16_00:38:12_2026), or None when it cannot be asked:
+    with its pid it names a process for good, as the pid alone cannot (a pid is reused)."""
+    try:
+        done = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))], capture_output=True, text=True, timeout=10, check=False,
+                              env={**os.environ, "LC_ALL": "C"})      # in the C locale `lstart` is five words in every language (ja_JP prints four)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    words = done.stdout.split()
+    return "_".join(words) if len(words) == 5 else None
+
+
+def _lock_start(cfg: dict, task_id: int):
+    """The start time of the holder a task lock's text names (the third word), or None: an older text, or a holder that could not be asked."""
+    try:
+        with open(os.path.join(_locks_dir(cfg), f"task-{task_id}.lock"), encoding="ascii", errors="replace") as f:
+            words = f.read(128).split()
+    except OSError:
+        return None
+    return words[2] if len(words) == 3 else None
 
 
 def _lock_pgid(cfg: dict, task_id: int):

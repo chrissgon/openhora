@@ -1,6 +1,7 @@
-"""Tests of runtime/proof.py: the proof file, its two checks, and the choice of the model a run goes to; and of
-the operation and the shell command that show it. Offline: the facade's four functions (lab.standing,
-lab.proof_inputs, lab.image, lab.measurement_problem) are replaced by stand-ins; every name is invented.
+"""Tests of runtime/proof.py: the proof file (one pair for each model), its two checks, and the choice of the model a run goes
+to (a model the person names, or `auto`); and of the operation and the shell command that show it. Offline: the facade's
+functions (lab.standing, lab.proof_inputs, lab.image, lab.measurement_problem, lab.models and the rest of the model table)
+are replaced by stand-ins and the price table is a table of invented prices; every name is invented.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_proof_routing.py
 """
@@ -16,6 +17,7 @@ import standin_tree as st
 
 lab = st.load("lab")
 proof = st.load("proof")
+prices = st.load("prices")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 cli = st.load("cli")
@@ -24,23 +26,34 @@ IMAGE = "sha256:" + "a" * 64
 OTHER = "sha256:" + "b" * 64
 WEB = {"web": True}
 NO_WEB = {"web": False}
+USAGE = {"input": 1000.0, "output": 200.0, "cache_read": 0.0, "cache_write": 0.0}
+ADAPTERS = {"cheap": "cheap-adapter", "dear": "dear-adapter", "free": "free-adapter"}
 
 
-def standing(floor_band="reliable", web_cases=(1,), images=(IMAGE,)):
-    models = {"ref-model": {"band": "reliable", "cause": None, "score": 0.9, "mean": 0.97, "runs": 12}}
-    if floor_band is not None:
-        models["floor-model"] = {"band": floor_band, "cause": None if floor_band == "reliable" else "a cause",
-                                 "score": 0.8, "mean": 0.9, "runs": 12}
-    return {"skill": "demo", "version": "1.0.0", "models": models,
-            "tiers": {"strong": {"model": "ref-model", "adapter": "ref-adapter"},
-                      "floor": {"model": "floor-model", "adapter": "floor-adapter"}},
-            "web_cases": list(web_cases), "evidence_images": list(images)}
+def figures(band="reliable", score=0.8, source="lab", usage=USAGE, web=True):
+    return {"band": band, "cause": None if band == "reliable" else "a cause", "score": score, "mean": 0.9, "runs": 12,
+            "web_measured": web, "usage_mean": usage, "source": source}
+
+
+def standing(models=None, web_cases=(1,), images=(IMAGE,), local=None):
+    """The standing of a skill: "dear" and "cheap" have evidence, "free" has none."""
+    found = models if models is not None else {"cheap": figures(), "dear": figures(score=0.9)}
+    return {"skill": "demo", "version": "1.0.0", "lab_models": list(ADAPTERS), "adapters": dict(ADAPTERS), "models": found,
+            "local": local or {}, "web_cases": list(web_cases), "evidence_images": list(images)}
+
+
+def table(**by_model):
+    """A price table of invented prices: cheap costs 1/10 of dear."""
+    base = {"cache_read_usd_per_mtok": 0.1, "cache_write_usd_per_mtok": 1.0, "source": "https://prices.example/models", "accessed": "2026-10-01"}
+    given = {"cheap": (1.0, 2.0), "dear": (10.0, 20.0), **by_model}
+    return {"models": {m: {**base, "input_usd_per_mtok": p[0], "output_usd_per_mtok": p[1]} for m, p in given.items() if p is not None}}
 
 
 @pytest.fixture
 def facade(monkeypatch):
-    """The facade's four functions, replaced. Returns the knobs a test turns and the count of standing calls."""
-    knobs = {"standing": standing(), "inputs": "inputs-1", "measurement": None, "digest": IMAGE, "calls": 0}
+    """The facade's functions and the price table, replaced. Returns the knobs a test turns and the count of standing calls."""
+    knobs = {"standing": standing(), "inputs": "inputs-1", "measurement": None, "digest": IMAGE, "calls": 0,
+             "source": "local", "published": [], "setup": None, "table": table()}
 
     def fake_standing(skill):
         knobs["calls"] += 1
@@ -49,79 +62,266 @@ def facade(monkeypatch):
     monkeypatch.setattr(lab, "standing", fake_standing)
     monkeypatch.setattr(lab, "proof_inputs", lambda skill: knobs["inputs"])
     monkeypatch.setattr(lab, "measurement_problem", lambda: knobs["measurement"])
-    monkeypatch.setattr(lab, "image", lambda: {"name": "img", "digest": knobs["digest"], "platform": "linux/arm64"})
+    monkeypatch.setattr(lab, "image", lambda: {"name": "img", "digest": knobs["digest"], "platform": "linux/arm64",
+                                               "source": knobs["source"], "setup": knobs["setup"]})
+    monkeypatch.setattr(lab, "published_digests", lambda: list(knobs["published"]))
+    monkeypatch.setattr(lab, "models", lambda: list(ADAPTERS))
+    monkeypatch.setattr(lab, "names_of", lambda model: [model])
+    monkeypatch.setattr(lab, "reference", lambda model=None: {"model": model or "cheap", "adapter": ADAPTERS.get(model or "cheap"),
+                                                              "route": "invented" if model != "free" else "other"})
+    monkeypatch.setattr(prices, "load", lambda path=None: knobs["table"])
     return knobs
 
 
 @pytest.fixture
 def cfg(tmp_path):
-    return {"data_dir": str(tmp_path / "data")}
+    return {"data_dir": str(tmp_path / "data"), "default_model": None}
 
 
-def test_a_skill_reliable_on_the_floor_model_runs_there_when_both_checks_pass_and_the_runtime_has_its_key(facade, cfg):
-    r = proof.route(cfg, "demo", WEB, floor_key=True)
-    assert (r["tier"], r["model"], r["adapter"], r["proven"], r["autonomy"]) == ("floor", "floor-model", "floor-adapter", True, True)
-    assert r["checks"] == {"measurement": None, "image": None} and r["bands"] == {"strong": "reliable", "floor": "reliable"}
+# --- a model the person names -------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("band", ["watch", "needs a test", None])
-def test_a_skill_that_is_not_reliable_on_the_floor_model_runs_on_the_reference_model(facade, cfg, band):
-    facade["standing"] = standing(floor_band=band)
-    r = proof.route(cfg, "demo", WEB, floor_key=True)
-    expected = band or "needs a test"
-    assert (r["tier"], r["model"], r["adapter"], r["proven"]) == ("strong", "ref-model", "ref-adapter", True)
-    assert r["bands"]["floor"] == expected and f"the band on the floor model is {expected}" in r["reasons"]
+def test_a_named_model_runs_there_and_its_band_informs_the_person_without_gating_the_choice(facade, cfg):
+    r = proof.route(cfg, "demo", WEB, model="dear", named_by="request")
+    assert (r["model"], r["adapter"], r["mode"], r["proven"], r["autonomy"], r["named_by"]) == ("dear", "dear-adapter", "named", True, "proven", "request")
+    assert r["checks"] == {"measurement": None, "image": None} and r["bands"] == {"cheap": "reliable", "dear": "reliable", "free": "needs a test"}
+    unproven = proof.route(cfg, "demo", WEB, model="free", named_by="request")  # no evidence: it runs all the same, supervised
+    assert (unproven["model"], unproven["mode"], unproven["proven"], unproven["autonomy"]) == ("free", "named", False, "supervised")
+    assert "the band on free is needs a test: it is unproven and runs supervised" in unproven["reasons"]
 
 
-def test_when_the_measurement_files_differ_the_skill_runs_on_the_reference_model_and_without_autonomy(facade, cfg):
+def test_a_model_the_gate_file_does_not_list_is_refused(facade, cfg):
+    with pytest.raises(ValueError):
+        proof.route(cfg, "demo", WEB, model="invented-model")
+
+
+def test_a_named_model_whose_key_is_missing_is_marked_so(facade, cfg):
+    r = proof.route(cfg, "demo", WEB, model="dear", key_found=lambda model: model != "dear")
+    assert r["key_missing"] is True and "no key was found for dear" in r["reasons"]
+    assert proof.route(cfg, "demo", WEB, model="dear", key_found=lambda model: True)["key_missing"] is False
+
+
+def test_a_pair_is_proven_by_the_persons_own_tests_too_and_not_by_community_evidence(facade, cfg):
+    facade["standing"] = standing({"cheap": figures(), "dear": figures(source="local"), "free": figures(source="community")})
+    assert proof.route(cfg, "demo", WEB, model="dear")["proven"] is True
+    assert proof.route(cfg, "demo", WEB, model="free")["proven"] is False  # reliable only through community evidence: reviewed
+
+
+def test_when_the_measurement_files_differ_nothing_is_proven(facade, cfg):
     facade["measurement"] = "the measurement fingerprint of this checkout differs"
-    r = proof.route(cfg, "demo", WEB, floor_key=True)
-    assert (r["tier"], r["proven"], r["autonomy"]) == ("strong", False, False)
+    r = proof.route(cfg, "demo", WEB, model="dear")
+    assert (r["model"], r["proven"], r["autonomy"]) == ("dear", False, "supervised")
     assert r["checks"]["measurement"] in r["reasons"]
 
 
 @pytest.mark.parametrize("digest, reason", [
     (None, "the eval image is not on this machine"),
-    (OTHER, "the image on this machine is not the one the evidence was measured in"),
+    (OTHER, "the image on this machine is not the one the evidence was measured in (evidence measured in a locally "
+            "built image holds on the machine that built it only; the published image is the one every machine can have)"),
 ])
-def test_when_the_image_is_not_the_evidences_the_skill_runs_on_the_reference_model_and_without_autonomy(facade, cfg, digest, reason):
+def test_when_the_image_is_not_the_evidences_nothing_is_proven(facade, cfg, digest, reason):
     facade["digest"] = digest
-    r = proof.route(cfg, "demo", WEB, floor_key=True)
-    assert (r["tier"], r["proven"], r["autonomy"], r["checks"]["image"]) == ("strong", False, False, reason)
+    r = proof.route(cfg, "demo", WEB, model="dear")
+    assert (r["proven"], r["autonomy"], r["checks"]["image"]) == (False, "supervised", reason)
     assert reason in r["reasons"]
 
 
-def test_a_skill_measured_without_the_web_runs_without_it(facade, cfg):
-    facade["standing"] = standing(web_cases=())
-    r = proof.route(cfg, "demo", WEB)
+def test_a_skill_measured_without_the_web_runs_without_it_on_that_model(facade, cfg):
+    facade["standing"] = standing({"cheap": figures(web=False), "dear": figures(web=True)})
+    r = proof.route(cfg, "demo", WEB, model="cheap")
     assert r["web"] is False
     assert "the skill requires the web and was measured without it: it runs without it" in r["reasons"]
-    facade["standing"], facade["inputs"] = standing(), "inputs-2"
-    assert proof.route(cfg, "demo", WEB)["web"] is True and proof.route(cfg, "demo", NO_WEB)["web"] is False
+    assert proof.route(cfg, "demo", WEB, model="dear")["web"] is True  # the measurement is a pair's own
+    assert proof.route(cfg, "demo", NO_WEB, model="dear")["web"] is False
 
 
-def test_the_person_can_ask_for_the_reference_model_and_never_for_the_floor_model(facade, cfg, tmp_path, capsys):
-    r = proof.route(cfg, "demo", WEB, force="strong", floor_key=True)
-    assert (r["tier"], r["model"]) == ("strong", "ref-model") and "the person asked for the reference model" in r["reasons"]
-    with pytest.raises(ValueError):
-        proof.route(cfg, "demo", WEB, force="floor", floor_key=True)
-    assert cli.main(["run-next", "--project", str(tmp_path), "--tier", "floor"]) == 2
-    with pytest.raises(ops.OpsError) as refused:
-        ops.run_next(str(tmp_path), "floor")
-    assert refused.value.code == 2
+# --- auto -----------------------------------------------------------------------------------------------------------------
+
+
+def test_auto_picks_the_cheaper_of_the_reliable_pairs(facade, cfg):
+    r = proof.route(cfg, "demo", WEB, model="auto", key_found=lambda model: True)
+    assert (r["model"], r["adapter"], r["mode"], r["proven"], r["autonomy"]) == ("cheap", "cheap-adapter", "auto", True, "proven")
+    assert [c["model"] for c in r["candidates"]] == ["cheap", "dear"] and r["candidates"][0]["expected_cost"] < r["candidates"][1]["expected_cost"]
+    assert r["expected_cost"] == pytest.approx((1000 * 1.0 + 200 * 2.0) / 1e6)  # the mean usage times the price of each kind
+    assert proof.route(cfg, "demo", WEB, model=None, default="auto")["model"] == "cheap"  # no model, a default of auto: the same
+
+
+def test_a_tie_goes_to_the_higher_pessimistic_score(facade, cfg):
+    facade["table"] = table(dear=(1.0, 2.0))  # as cheap as the other
+    facade["standing"] = standing({"cheap": figures(score=0.7), "dear": figures(score=0.9)})
+    assert proof.route(cfg, "demo", WEB, model="auto")["model"] == "dear"
+    facade["standing"], facade["inputs"] = standing({"cheap": figures(score=0.95), "dear": figures(score=0.9)}), "inputs-2"
+    assert proof.route(cfg, "demo", WEB, model="auto")["model"] == "cheap"
+
+
+def test_a_pair_that_is_not_reliable_is_not_a_candidate_however_cheap(facade, cfg):
+    facade["standing"] = standing({"cheap": figures(band="watch"), "dear": figures()})
+    r = proof.route(cfg, "demo", WEB, model="auto")
+    assert (r["model"], r["mode"]) == ("dear", "auto") and [c["model"] for c in r["candidates"]] == ["dear"]
+
+
+def test_a_reliable_pair_without_a_key_a_price_or_a_measured_usage_is_left_out_with_the_reason(facade, cfg):
+    facade["table"] = table(cheap=None)  # no price for the cheaper one
+    r = proof.route(cfg, "demo", WEB, model="auto")
+    assert r["model"] == "dear" and "cheap is reliable for this skill but no price is known for it: it is not a candidate" in r["reasons"]
+    facade["table"], facade["inputs"] = table(), "inputs-2"
+    facade["standing"] = standing({"cheap": figures(usage=None), "dear": figures()})
+    r = proof.route(cfg, "demo", WEB, model="auto")
+    assert r["model"] == "dear"
+    assert "cheap is reliable for this skill but its runs measured no usage, so there is no expected cost: it is not a candidate" in r["reasons"]
+    facade["standing"], facade["inputs"] = standing(), "inputs-3"
+    r = proof.route(cfg, "demo", WEB, model="auto", key_found=lambda model: model == "dear")
+    assert r["model"] == "dear" and "cheap is reliable for this skill but no key was found for it: it is not a candidate" in r["reasons"]
+
+
+def test_a_price_that_lacks_a_kind_the_runs_used_leaves_the_pair_out(facade, cfg):
+    facade["table"] = table()
+    del facade["table"]["models"]["cheap"]["cache_read_usd_per_mtok"]
+    facade["standing"] = standing({"cheap": figures(usage={**USAGE, "cache_read": 500.0}), "dear": figures()})
+    r = proof.route(cfg, "demo", WEB, model="auto")
+    assert r["model"] == "dear" and "its price lacks a kind its runs used" in " ".join(r["reasons"])
+
+
+def test_when_none_qualifies_auto_falls_back_to_the_project_default_supervised_with_the_reason(facade, cfg):
+    facade["standing"] = standing({"cheap": figures(band="needs a test"), "dear": figures(band="watch")})
+    r = proof.route({**cfg, "default_model": "dear"}, "demo", WEB, model="auto", default="dear")
+    assert (r["model"], r["mode"], r["proven"], r["autonomy"]) == ("dear", "fallback", False, "supervised")
+    assert any("no model qualifies for auto" in reason and "dear runs, supervised" in reason for reason in r["reasons"])
+    # no default model of the project: the first lab model
+    r = proof.route(cfg, "demo", WEB, model="auto")
+    assert (r["model"], r["mode"], r["autonomy"]) == ("cheap", "fallback", "supervised")
+
+
+def test_when_the_proof_does_not_hold_here_auto_has_no_candidate_and_falls_back(facade, cfg):
+    facade["digest"] = OTHER
+    r = proof.route(cfg, "demo", WEB, model="auto")
+    assert (r["mode"], r["proven"], r["autonomy"]) == ("fallback", False, "supervised")
+
+
+def test_a_pair_reliable_only_through_community_evidence_is_chosen_and_held_for_review(facade, cfg):
+    facade["standing"] = standing({"cheap": figures(source="community"), "dear": figures(source="lab")})
+    r = proof.route(cfg, "demo", WEB, model="auto")
+    assert (r["model"], r["mode"], r["source"]) == ("cheap", "auto", "community")  # it counts for ranking
+    assert (r["proven"], r["autonomy"]) == (False, "supervised")  # and never for release
+    assert any("reliable only through community evidence" in reason for reason in r["reasons"])
+
+
+def test_the_community_column_ranks_a_pair_the_lab_has_not_proven_and_never_releases_it(facade, cfg):
+    """P10 through the proof file: the lab's reliable figures win, then the person's own, then the community's; a pair that
+    rests on the community column alone is reliable, ranked, chosen by auto, and its output is held for review."""
+    community = figures(source="community", score=0.95) | {"community_only": True}
+    facade["standing"] = standing({"cheap": figures(band="needs a test"), "dear": figures(score=0.9)}, local=None)
+    facade["standing"]["community"] = {"cheap": community, "dear": figures(source="community")}
+    entry = proof.row(cfg, "demo")
+    by_model = {p["model"]: p for p in entry["pairs"]}
+    assert (by_model["cheap"]["band"], by_model["cheap"]["source"]) == ("reliable", "community"), "the community column fills a pair the lab leaves unproven"
+    assert by_model["dear"]["source"] == "lab", "the lab's reliable figures win over the community's"
+    route = proof.route(cfg, "demo", WEB)
+    assert (route["model"], route["mode"], route["source"], route["proven"], route["autonomy"]) == ("cheap", "auto", "community", False, "supervised")
+    assert any("reliable only through community evidence" in r for r in route["reasons"])
+    named = proof.route(cfg, "demo", WEB, model="cheap")
+    assert (named["proven"], named["autonomy"]) == (False, "supervised"), "named by the person, the pair is still not released"
+
+
+def test_the_image_is_checked_against_the_images_of_the_pair_s_own_evidence_by_source(facade, cfg):
+    """Review of P3: evidence images are kept for each model and source. A pair proven by the person's own tests holds on the
+    image those tests were made in; a pair proven by the lab holds on the lab's; neither holds on the other's."""
+    facade["standing"] = standing({"cheap": figures(band="needs a test", source="lab") | {"images": [IMAGE]},
+                                   "dear": figures(score=0.9) | {"images": [IMAGE]}},
+                                  local={"cheap": figures(source="local", score=0.8) | {"images": [OTHER]}})
+    facade["digest"] = OTHER  # this machine has the image the person's own tests were made in
+    entry = proof.row(cfg, "demo")
+    assert {p["model"]: (p["source"], p["images"]) for p in entry["pairs"]} == {
+        "cheap": ("local", [OTHER]), "dear": ("lab", [IMAGE]), "free": (None, [IMAGE])}
+    assert sorted(entry["evidence_images"]) == sorted([IMAGE, OTHER]), "the entry lists every image any pair rests on"
+    cheap = proof.route(cfg, "demo", WEB, model="cheap")
+    assert (cheap["proven"], cheap["autonomy"], cheap["source"], cheap["checks"]["image"]) == (True, "proven", "local", None)
+    dear = proof.route(cfg, "demo", WEB, model="dear")
+    assert (dear["proven"], dear["autonomy"]) == (False, "supervised")
+    assert dear["checks"]["image"] and "not the one the evidence was measured in" in dear["checks"]["image"]
+    auto = proof.route(cfg, "demo", WEB)
+    assert (auto["model"], auto["mode"], auto["proven"]) == ("cheap", "auto", True)
+    assert [c["model"] for c in auto["candidates"]] == ["cheap"], "the lab's pair is not a candidate on the person's image"
+    assert any("the image on this machine is not the one" in r for r in auto["reasons"])
+    facade["digest"] = IMAGE  # the lab's image: the lab's pair holds, the person's does not
+    cheap = proof.route(cfg, "demo", WEB, model="cheap")
+    assert (cheap["proven"], cheap["autonomy"]) == (False, "supervised") and cheap["checks"]["image"]
+    dear = proof.route(cfg, "demo", WEB, model="dear")
+    assert (dear["proven"], dear["checks"]["image"]) == (True, None)
+    auto = proof.route(cfg, "demo", WEB)
+    assert (auto["model"], auto["proven"]) == ("dear", True) and [c["model"] for c in auto["candidates"]] == ["dear"]
+
+
+def test_a_local_only_proven_pair_passes_on_a_matching_image_and_fails_on_another(facade, cfg):
+    facade["standing"] = standing({"cheap": figures(band="needs a test") | {"images": []}, "dear": figures(band="needs a test") | {"images": []}},
+                                  local={"dear": figures(source="local") | {"images": [OTHER]}})
+    facade["digest"] = OTHER
+    assert proof.route(cfg, "demo", WEB, model="dear")["proven"] is True
+    facade["digest"] = IMAGE
+    failed = proof.route(cfg, "demo", WEB, model="dear")
+    assert failed["proven"] is False and failed["checks"]["image"]
+    facade["digest"] = None
+    gone = proof.route(cfg, "demo", WEB, model="dear")
+    assert gone["proven"] is False and gone["checks"]["image"] == "the eval image is not on this machine"
+    # the model-wide check of the entry reads every pair's images (the skills read)
+    assert proof.checks(proof.row(cfg, "demo"))["image"] == "the eval image is not on this machine"
+    facade["digest"] = OTHER
+    entry = proof.row(cfg, "demo")
+    assert proof.checks(entry)["image"] is None and proof.checks(entry, entry["pairs"][1])["image"] is None
+    assert proof.checks(entry, entry["pairs"][0])["image"] is not None, "a pair with no image of its own holds on none"
+
+
+def test_evidence_from_the_persons_own_tests_ranks_and_releases(facade, cfg):
+    facade["standing"] = standing({"cheap": figures(band="needs a test"), "dear": figures()},
+                                  local={"cheap": figures(source="local")})
+    entry = proof.row(cfg, "demo")
+    assert {p["model"]: (p["band"], p["source"]) for p in entry["pairs"]}["cheap"] == ("reliable", "local")
+    r = proof.route(cfg, "demo", WEB, model="auto")
+    assert (r["model"], r["proven"], r["source"]) == ("cheap", True, "local")
+
+
+def test_auto_stays_inside_the_approved_providers_of_a_routine_and_lists_what_it_left_out(facade, cfg):
+    r = proof.route(cfg, "demo", WEB, model="auto", approved={"other"})  # only the "free" model's provider: it has no evidence
+    assert r["mode"] == "fallback" and r["outside_provider"] == ["cheap", "dear"]
+    r = proof.route(cfg, "demo", WEB, model="auto", approved={"invented"})
+    assert r["model"] == "cheap" and r["outside_provider"] == []
+
+
+# --- the proof file -------------------------------------------------------------------------------------------------------
 
 
 def test_the_proof_file_is_rebuilt_when_the_evidence_or_the_gate_file_changed(facade, cfg):
     first = proof.row(cfg, "demo")
     assert proof.row(cfg, "demo") == first and facade["calls"] == 1
     saved = json.loads((Path(cfg["data_dir"]) / "proof.json").read_text(encoding="utf-8"))
-    assert saved["version"] == 1 and saved["skills"]["demo"]["inputs_sha256"] == "inputs-1"
+    assert saved["version"] == proof.VERSION == 5 and saved["skills"]["demo"]["inputs_sha256"] == "inputs-1"
+    assert [p["model"] for p in first["pairs"]] == ["cheap", "dear", "free"]  # one pair for each model the gate file lists
+    assert first["pairs"][2]["band"] == "needs a test" and first["pairs"][2]["runs"] == 0 and first["pairs"][2]["source"] is None
+    assert first["pairs"][0]["usage_mean"] == USAGE and first["pairs"][0]["names"] == ["cheap"]
     facade["inputs"] = "inputs-2"
     proof.row(cfg, "demo")
     assert facade["calls"] == 2
     # The two checks are never cached: they run on every route.
     facade["digest"] = OTHER
-    assert proof.route(cfg, "demo", WEB, floor_key=True)["tier"] == "strong" and facade["calls"] == 2
+    assert proof.route(cfg, "demo", WEB, model="auto")["mode"] == "fallback" and facade["calls"] == 2
+
+
+def test_a_proof_file_of_the_earlier_form_is_read_as_empty(facade, cfg):
+    path = Path(cfg["data_dir"]) / "proof.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"version": 2, "skills": {"demo": {"inputs_sha256": "inputs-1", "pairs": [{"tier": "strong"}]}}}), encoding="utf-8")
+    assert [p["model"] for p in proof.row(cfg, "demo")["pairs"]] == ["cheap", "dear", "free"] and facade["calls"] == 1
+
+
+def test_a_pair_is_shown_with_the_price_its_date_and_the_expected_cost(facade, cfg):
+    entry = proof.row(cfg, "demo")
+    shown = proof.pair_view(entry["pairs"][0], facade["table"], today="2026-10-15", max_days=90)
+    assert shown["price"]["input"] == 1.0 and shown["price"]["accessed"] == "2026-10-01" and shown["price"]["stale"] is False
+    assert shown["expected_cost"] == pytest.approx((1000 * 1.0 + 200 * 2.0) / 1e6)
+    old = proof.pair_view(entry["pairs"][0], facade["table"], today="2026-10-15", max_days=7)
+    assert old["price"]["stale"] is True and old["price"]["age_days"] == 14
+    none = proof.pair_view(entry["pairs"][2], facade["table"], today="2026-10-15")  # a model with no usage: no expected cost
+    assert none["expected_cost"] is None and none["price"] is None
 
 
 def test_the_run_row_and_the_pending_decision_carry_the_routing(tmp_path, monkeypatch):
@@ -131,13 +331,16 @@ def test_the_run_row_and_the_pending_decision_carry_the_routing(tmp_path, monkey
     ops.accept_config(path, ops.project_config.load(path)["sha256"])
     ops.request(path, "Tell me which market to go after first.", "demo")
     out = ops.run_next(path)
-    assert (out["routing"]["tier"], out["routing"]["model"], out["routing"]["adapter"]) == ("strong", "m", "h")
+    assert (out["routing"]["model"], out["routing"]["adapter"], out["routing"]["mode"]) == ("m", "h", "auto")
+    assert (out["routing"]["autonomy"], out["routing"]["billing"]) == ("proven", "subscription")
     ctx = ops_core.context(path)
     row = ctx["store"].task_runs_list(ctx["conn"], out["ran"])[0]
-    assert (row["model"], row["adapter"], row["web"]) == ("m", "h", 0)
+    assert (row["model"], row["adapter"], row["web"], row["autonomy"]) == ("m", "h", 0, "proven")
     assert ops.pending(path, out["pending_id"])["payload"]["routing"] == out["routing"]
     shown = ops.proof(path, "demo-asks")["skills"]["demo-asks"]
-    assert (shown["tier"], shown["proven"], shown["checks"]) == ("strong", True, {"measurement": None, "image": None})
+    assert (shown["model"], shown["proven"], shown["checks"]) == ("m", True, {"measurement": None, "image": None})
+    assert shown["recommended"] == "m" and [p["model"] for p in shown["pairs"]] == ["m", "fm"]
+    assert shown["pairs"][0]["price"]["source"] == "https://prices.example/models"
 
 
 def test_no_operation_of_ops_has_the_name_of_a_module_it_imports():
@@ -148,3 +351,33 @@ def test_no_operation_of_ops_has_the_name_of_a_module_it_imports():
             imported.update(alias.asname or alias.name for alias in node.names)  # the name the module is bound to
     operations = {node.name for node in tree.body if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")}
     assert "proof" in operations and not operations & imported, operations & imported
+
+
+# --- the published image (P2d): identity is the repo digest, and local evidence is local-only (D21) --------------------
+
+def test_a_published_image_that_is_not_pulled_names_the_command(facade, cfg):
+    facade["digest"], facade["source"], facade["setup"] = None, "published", "python3 scripts/image_lock.py pull"
+    found = proof.checks(proof.row(cfg, "demo"))
+    assert found["image"] == "the published eval image is not on this machine: run python3 scripts/image_lock.py pull"
+
+
+def test_the_image_holds_when_the_published_digest_here_is_the_one_the_evidence_recorded(facade, cfg):
+    facade["digest"], facade["source"], facade["published"] = IMAGE, "published", [IMAGE]
+    assert proof.checks(proof.row(cfg, "demo"))["image"] is None
+    r = proof.route(cfg, "demo", WEB, model="auto")
+    assert (r["model"], r["proven"], r["checks"]["image"]) == ("cheap", True, None)
+
+
+def test_evidence_measured_in_a_published_image_is_not_called_local_when_the_machine_has_another(facade, cfg):
+    """The machine has a local build; the evidence names a published image: the plain reason, no local-only note."""
+    facade["digest"], facade["source"], facade["published"] = OTHER, "local", [IMAGE]
+    assert proof.checks(proof.row(cfg, "demo"))["image"] == "the image on this machine is not the one the evidence was measured in"
+
+
+def test_evidence_measured_in_a_local_image_holds_on_that_machine_and_says_so_elsewhere(facade, cfg):
+    facade["digest"], facade["source"] = IMAGE, "local"
+    assert proof.checks(proof.row(cfg, "demo"))["image"] is None  # the machine that built it
+    facade["digest"] = OTHER  # another machine, or a rebuild
+    reason = proof.checks(proof.row(cfg, "demo"))["image"]
+    assert reason.startswith("the image on this machine is not the one the evidence was measured in")
+    assert "locally built image holds on the machine that built it only" in reason

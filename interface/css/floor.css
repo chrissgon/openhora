@@ -61,6 +61,20 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-wider-box .wb-copy-status:empty { display: none; }
 .wb-wider-note { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 13px; }
 .wb-wider-note > .wb-icon { margin-top: 2px; }
+/* P3: the agent's model: what it is fixed to, the person's consent when there is one, a select of the service's commands and Set model beside Copy */
+.wb-model-box:empty { display: none; }
+.wb-model { display: grid; gap: 8px; }
+.wb-model .wb-wider-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+.wb-model .wb-card-line { margin: 0; font-size: 13px; }
+.wb-model-consent { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 13px; }
+.wb-model-consent > .wb-icon { margin-top: 2px; }
+.wb-model-code { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.wb-model-code[hidden] { display: none; }
+.wb-set-model[hidden] { display: none; }
+.wb-give-consent[hidden] { display: none; }
+.wb-give-consent { justify-self: start; }
+.wb-model-warning { display: block; }
+.wb-model-consent-line:empty { display: none; }
 .wb-runs-total { margin: 0; padding: 0 4px; font-size: 12px; }
 .wb-held-detail { margin: 0; font-size: 12px; }
 .wb-held { display: grid; gap: 6px; }

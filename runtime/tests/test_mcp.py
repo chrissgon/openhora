@@ -139,8 +139,8 @@ def test_the_tools_are_the_rows_of_the_table_that_list_the_mcp_channel_and_the_t
     names = [t["name"] for t in answer["result"]["tools"]]
     rows = [r["name"] for r in operations.OPERATIONS if "mcp" in r["channels"]]
     assert names == rows + ["projects", "job"] and answer["id"] == 7
-    assert names == ["request", "route", "status", "task", "flows", "progress", "pending", "answer", "release", "say",
-                     "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "version", "projects", "job"]
+    assert names == ["request", "route", "status", "task", "flows", "flow-check", "progress", "pending", "answer", "release", "say",
+                     "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "version", "sources", "instructions", "routines", "projects", "job"]
     # what the table does not list for the channel has no tool: the decisions of the terminal and the page
     for never in ("accept-config", "run-next", "deps", "proof", "approve-policy", "revoke-policy", "standing",
                   "execute-under-policy", "contained-run", "poll", "handler", "pin", "stop-runs", "set-mode", "hand-over",
@@ -187,11 +187,12 @@ def test_every_read_tool_returns_what_the_operation_returned_with_the_arguments_
         before = len(world.fake.calls)
         found = result_of(tool(world.server, name, arguments))
         assert found == {"answer": name, "text": "line one\nline two with a   separator"}, name
-        assert world.fake.calls[before:] == [(operations.by_name(name)["call"], path, arguments)], name
+        expected = {**arguments, "channel": "mcp"} if name in ("conversation", "task", "pending") else arguments      # the answer to a /ask is shown by the channel that reads (L50); a calendar card's current text is not for the MCP mode (W1)
+        assert world.fake.calls[before:] == [(operations.by_name(name)["call"], path, expected)], name
     # an optional argument that was left out is not passed
     world.fake.calls.clear()
     result_of(tool(world.server, "pending"))
-    assert world.fake.calls == [("pending", path, {})]
+    assert world.fake.calls == [("pending", path, {"channel": "mcp"})]
 
 
 def test_the_text_of_a_project_is_returned_as_text_and_never_as_a_line_of_the_protocol(world):
@@ -212,7 +213,7 @@ def test_request_route_answer_release_and_say_go_through_the_operations_layer(wo
     world.fake.answers["request"] = {"request_id": 5}
     assert result_of(tool(world.server, "request", {"text": "make a plan", "flow": "demo", "title": "T"})) == {"request_id": 5}
     assert result_of(tool(world.server, "answer", {"pending_id": 2, "text": "yes", "with_comments": True})) == \
-        {"op": "answer", "args": {"pending_id": 2, "text": "yes", "with_comments": True}}
+        {"op": "answer_proposing", "args": {"pending_id": 2, "text": "yes", "with_comments": True, "channel": "mcp"}}
     for name, arguments in (("route", {"request_id": 5, "flow": "demo"}), ("release", {"pending_id": 2}), ("say", {"text": "hello"})):
         started = result_of(tool(world.server, name, arguments))
         assert started["op"] == name and started["project"] == world.projects[0]["id"]
@@ -221,9 +222,9 @@ def test_request_route_answer_release_and_say_go_through_the_operations_layer(wo
     while len(world.fake.calls) < 5 and time.monotonic() < deadline:
         time.sleep(0.01)
     assert world.fake.calls[0] == ("request", path, {"text": "make a plan", "flow": "demo", "title": "T"})
-    assert world.fake.calls[1] == ("answer", path, {"pending_id": 2, "text": "yes", "with_comments": True})
+    assert world.fake.calls[1] == ("answer_proposing", path, {"pending_id": 2, "text": "yes", "with_comments": True, "channel": "mcp"})
     assert sorted(c[0] for c in world.fake.calls[2:]) == ["release", "route", "say"]
-    assert {c[0]: c[2] for c in world.fake.calls[2:]} == {"route": {"request_id": 5, "flow": "demo", "channel": "mcp"}, "release": {"pending_id": 2},
+    assert {c[0]: c[2] for c in world.fake.calls[2:]} == {"route": {"request_id": 5, "flow": "demo", "channel": "mcp"}, "release": {"pending_id": 2, "channel": "mcp"},
                                                           "say": {"text": "hello", "channel": "mcp"}}
     for name in ("request", "route", "answer", "release", "say"):
         assert "mcp" in operations.by_name(name)["channels"], name
@@ -326,10 +327,13 @@ def test_say_is_called_as_the_channel_mcp_and_the_client_cannot_change_it(world)
     [(_, _, kwargs)] = world.fake.named("say")
     assert kwargs == {"text": "hello", "channel": "mcp"}
     assert "mcp" not in ops.EFFECT_CHANNELS  # the rule of the operations layer, which this shell does not restate
-    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "approve", "set-mode", "dispatch", "say"]
+    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "task", "pending", "answer", "release", "approve", "reject", "retry", "cancel", "stop-task", "set-mode", "set-model", "give-consent", "dispatch", "say", "ask", "conversation", "source-add", "attachments", "items", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore", "file-create", "file-replace", "file-save", "file-trash", "file-read", "research", "instructions-set",
+                                                                                         "instructions-add", "routine-create", "routine-change", "routine-pause", "event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"]
     assert "mcp" not in operations.by_name("approve")["channels"]
     # set-mode takes the channel (R4-C3) to refuse `accept` from any but the terminal; it has no tool and no chat command
     assert "mcp" not in operations.by_name("set-mode")["channels"] and "chat" not in operations.by_name("set-mode")["channels"]
+    # the page's consent (give-consent, D38) is the page's alone: no tool, no chat command, no messaging
+    assert operations.by_name("give-consent")["channels"] == ("page",)
     # `dispatch` takes the channel to know whether the shell can wait for the runs it starts (the page cannot); the MCP mode has no tool for it
     assert "mcp" not in operations.by_name("dispatch")["channels"]
     # `route` takes the channel only to know whether the shell drains the queue (A-23): the MCP mode does not
@@ -523,13 +527,13 @@ def test_a_folder_that_is_not_a_project_ends_the_start_and_an_unaccepted_configu
     assert listed["id"] == mcp.project_id(path) == service.project_id(path)
     assert listed["config"] == {"sha256": digest, "accepted": False} and "accept-config" in listed["message"]
     offered = [r for r in operations.OPERATIONS if "mcp" in r["channels"]]
-    assert len(offered) == 18
+    assert len(offered) == 22
     for row in offered:  # every tool of the table, reads and writes alike
         arguments = {a["name"]: (1 if a["kind"] == "int" else "docs/x.md" if a["name"] == "path" else "x")
                      for a in row["args"] if a.get("required")}
         sentence = refusal_of(tool(server, row["name"], arguments))
         assert digest in sentence and "accept-config" in sentence, row["name"]
-    ops.accept_config(path, digest)
+    ops.accept_config(path, digest, widen=ops.config(path)["widening_sha256"])
     [listed] = result_of(tool(server, "projects"))["projects"]
     assert listed["config"]["accepted"] is True and listed["open_pending"] == 0 and listed["running_task"] is None
     assert result_of(tool(server, "status"))["pending"] == []

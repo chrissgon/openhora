@@ -445,7 +445,7 @@ import * as model from "@JS@/views/control-model.js";
 import { createConnectionsTab } from "@JS@/views/control-connections.js";
 
 const START = "uv run --with keyring==25.7.0 python3 /ck/runtime/service.py --project /work/shop";
-const service = { secret_store: "this interpreter cannot read the secret store: start with uv", credential: "the reference model's credential (KEY) is neither set nor found in the secret store", docker: "ok", image: "the eval image x is not on this machine", dispatch: "off", problems: ["lab: boom"], start: START, at: "2026-10-08T11:00:00Z" };
+const service = { secret_store: "this interpreter cannot read the secret store: start with uv", credential: "the default model's credential (KEY) is neither set nor found in the secret store", docker: "ok", image: "the eval image x is not on this machine", dispatch: "off", problems: ["lab: boom"], start: START, at: "2026-10-08T11:00:00Z" };
 const out = {};
 out.rows = model.serviceRows(service).map((r) => [r.what, r.sentence, r.command]);
 out.ok = model.serviceRows({ ...service, secret_store: "ok", credential: "ok", image: "ok", dispatch: "every 30 s", problems: [] });
@@ -588,7 +588,7 @@ def test_every_notice_that_needs_the_terminal_uses_the_one_component_and_the_pag
         # `keyring==` is the library's version pin, which every command of the service carries. A-22: the credential's commands are the fields
         # `held[].commands` the service gives (command.js no longer reads them out of a sentence), so no module holds a pattern of one.
         assert "cli.py" not in text and "keyring==" not in text and "accept-config --" not in text and "run-next --" not in text, f"{path.name}: a command is the service's, never built on the page"
-    assert (JS / "floor/agent-tab.js").read_text(encoding="utf-8").count('"select"') == 1, "A-17 took the mode select away; R-35 brings back one, for the wider modes only"
+    assert (JS / "floor/agent-tab.js").read_text(encoding="utf-8").count('"select"') == 2, "A-17 took the mode select away; R-35 brings back one, for the wider modes only; P3 adds the model's"
 
 
 @needs_node
