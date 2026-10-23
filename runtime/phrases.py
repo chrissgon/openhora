@@ -595,6 +595,7 @@ TABLE = {
         "CARD_CAL_CREATE": "Code creates this event after your approval, and nothing else.",
         "CARD_CAL_CHANGE": "Code changes this event after your approval, only if it is still as read at {read_at}.",
         "CARD_CAL_CANCEL": "Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days (Google Calendar, Trash); this has not been verified yet.",
+        "CARD_CAL_CANCEL_OUTLOOK": "Code removes this event after your approval. Outlook may not keep a copy of a removed event; once approved, it may not be possible to recover it.",
         "CARD_CAL_EVENT": "Event: {event_id}",
         "CARD_CAL_NOW_WHEN": "The event now is at: {when}",
         "CARD_CAL_NOW_TITLE": "The event now: {title}",
@@ -863,7 +864,6 @@ TABLE = {
         "PHONE_NOT_PLANNED": "Not planned {n}: {item}.",
         "NOT_OPEN_DONE": "Request #{number} was already {status}.",
         "PHONE_NO_FILE_DELETE": "I cannot delete files from a message yet. You can delete it in Google Drive or OneDrive.",
-        "FAIL_OUTLOOK_REMOVE": "I cannot delete events from an Outlook calendar from here yet. You can delete it in Outlook itself.",
         "PEND_CARD_TITLE": "Question from the assistant",
         "PEND_NOT_UNDERSTOOD_TITLE": "Request not understood",
         # --- a question of general information answered by a web search (slice R2-F1: runtime/ops_research.py, runtime/research_reply.py) ---

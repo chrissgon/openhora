@@ -6,8 +6,10 @@ the approval (`ops_step_effects.approve`). What these tests do is catch the plai
 
   L57  No writer script holds a permanent-delete call: no `permanentDelete`, `batchDelete`, `emptyTrash`, no HTTP DELETE (in a string, in any case, joined from
        pieces, as bytes, as a method name of a library, or as a name of a function), no `trashed` set to anything but false. The only removals are moves to a place
-       the person restores from. The one pair a later package may add: the Google calendar's `events/{id}` DELETE, which Google sends to the calendar's trash for
-       30 days. It is honoured only as a pair of the file's own constant, `ALLOWED = (("DELETE", r"<the approved regex>"), ...)`, with the regex the allow-list
+       the person restores from. The pairs that are allowed: the Google calendar's `events/{id}` DELETE, which Google is expected to send to the calendar's trash
+       for 30 days, and the Outlook calendar's two `events/{id}` DELETEs (the default calendar's and a calendar's by id), added by slice S21 on the maintainer's
+       choice of 2026-10-22: Microsoft does not say where a removed event goes and nobody has checked, so that one may NOT be recoverable, and its card says so.
+       Each is honoured only as a pair of the file's own constant, `ALLOWED = (("DELETE", r"<the approved regex>"), ...)`, with the regex the allow-list
        below names for that file; a DELETE written anywhere else in that file (a call with the path in another argument, a decoy) is a finding.
        R2-A adds two moves to the trash a person restores from, each honoured in one file only: the OneDrive writer's DELETE of an item (`/drives/{drive}/items/{item}`),
        which Graph documents as a move to the recycle bin, as a pair of its constant; and the Drive writer's `trashed` set to true, only as the dict that is the module
@@ -32,9 +34,12 @@ REPO = st.REPO
 # L57 -- the files the scan reads (writers, the mailers of the person's own account, the shared helpers, the authorize scripts and the readers, which send GET only)
 SCANNED = ["providers/writer/**/*.py", "providers/mailer/gmail.py", "providers/mailer/outlook.py", "providers/_*.py", "providers/accounts/**/*.py",
            "providers/mailbox/*.py", "providers/calendar/*.py", "providers/documents/gdrive*.py", "providers/documents/onedrive*.py"]
-# (relative file, the approved path regex). W1: the Google calendar writer's one removal, an event of a calendar, which Google sends to the calendar's trash
-# for 30 days (the person restores it there); the pair is honoured only in that file's own constant ALLOWED.
+# (relative file, the approved path regex). W1: the Google calendar writer's one removal, an event of a calendar, which Google is expected to send to the
+# calendar's trash for 30 days (the person restores it there); S21: the Outlook calendar writer's two removals of one event, which may be unrecoverable (not
+# verified); each pair is honoured only in that file's own constant ALLOWED.
 ALLOWED_DELETE = (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),
+                  ("providers/writer/outlook-calendar.py", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+                  ("providers/writer/outlook-calendar.py", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
                   ("providers/writer/onedrive.py", r"/drives/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}/items/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}"))      # R2-A: Graph moves the item to the recycle bin
 ALLOWED_TRASH_BODY = (("providers/writer/gdrive.py", "TRASH_BODY"),)      # R2-A: the one dict `{"trashed": True}` of the Drive writer, the move to the trash
 WORD = re.compile(r"(?<![A-Za-z])delete(?![A-Za-z])", re.I)               # the word `delete` alone (not `deleted`, `deleteditems`)
@@ -187,8 +192,11 @@ def test_limit_57_measure_no_script_of_the_writers_helpers_or_readers_holds_a_pe
     assert scanned, "the scan reads no file"
     found = [f for path in scanned for f in delete_findings(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))]
     assert found == [], found
-    assert ALLOWED_DELETE == (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"), ("providers/writer/onedrive.py", r"/drives/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}/items/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}")), \
-        "no other pair is allowed until the package that needs it adds it, with the reason"
+    assert ALLOWED_DELETE == (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),
+                              ("providers/writer/outlook-calendar.py", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+                              ("providers/writer/outlook-calendar.py", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"),
+                              ("providers/writer/onedrive.py", r"/drives/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}/items/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}")), "no other pair is allowed until the package that needs it adds it, with the reason"
+    assert any("outlook-calendar" in str(path) for path in scanned)
     assert ALLOWED_TRASH_BODY == (("providers/writer/gdrive.py", "TRASH_BODY"),)
 
 
@@ -306,3 +314,22 @@ def test_limit_57_r2a_the_onedrive_item_delete_is_honoured_as_a_pair_of_its_own_
 def test_r2a_the_writers_of_files_name_no_permanent_delete_call_in_any_spelling():
     for path in (REPO / "providers" / "writer" / "gdrive.py", REPO / "providers" / "writer" / "onedrive.py", REPO / "providers" / "writer" / "_files_common.py"):
         assert not any("permanent" in f[2] or "name for deleting" in f[2] for f in delete_findings(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))), path
+
+
+OUTLOOK_FILE = "providers/writer/outlook-calendar.py"
+OUTLOOK_PAIRS = r"""ALLOWED = (("GET", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"), ("DELETE", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"), ("DELETE", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"))
+REMOVE_DEFAULT, REMOVE_IN = ALLOWED[1], ALLOWED[2]
+"""
+
+
+def test_limit_57_measure_the_outlook_writers_two_event_pairs_are_honoured_in_its_own_file_and_nothing_else_is():
+    assert delete_findings(OUTLOOK_PAIRS, OUTLOOK_FILE) == []
+    assert delete_findings(OUTLOOK_PAIRS, "providers/writer/outlook-mail.py") != [], "another file does not inherit them"
+    wider = OUTLOOK_PAIRS.replace('("DELETE", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+")', '("DELETE", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"), ("DELETE", r"/me/messages/[^/]+")')
+    assert any("HTTP DELETE" in f[2] for f in delete_findings(wider, OUTLOOK_FILE)), "a third pair is a finding"
+    looser = OUTLOOK_PAIRS.replace('r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+"), ("DELETE", r"/me/calendars', 'r"/me/calendar/events/.*"), ("DELETE", r"/me/calendars')
+    assert looser != OUTLOOK_PAIRS and delete_findings(looser, OUTLOOK_FILE) != [], "a regex the allow-list does not name is a finding"
+    decoy = OUTLOOK_PAIRS + "\nrequest('DELETE', '/me/messages/' + message)\n"
+    assert any("HTTP DELETE" in f[2] for f in delete_findings(decoy, OUTLOOK_FILE))
+    assert any("name for deleting" in f[2] for f in delete_findings(OUTLOOK_PAIRS + "\nrequests.delete(url)\n", OUTLOOK_FILE))
+    assert any("permanent-delete" in f[2] for f in delete_findings(OUTLOOK_PAIRS + "\nverb = 'permanentDelete'\n", OUTLOOK_FILE))
