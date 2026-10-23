@@ -399,7 +399,7 @@ OPERATIONS = (
     # S8: the text of one file, found by its name in the folders the project lists under `accounts.<account>.folders`. A read: nothing is written, nothing is sent to a model, and the
     # text is shown to the channel that asked and kept nowhere. The group read-files is in no default policy and never on the MCP mode (no row lists it).
     # R2-A: move a file of the person's own Drive or OneDrive to the trash, found by its name in the folders the project lists (the search of `file-read`). It only PREPARES a card of the exact
-    # file and writes nothing until the person approves the card's hash (limit L55); the group is files-write (in no default policy, never on the MCP mode). The trash is the service's own.
+    # file and writes nothing until the person approves the card's hash (limit L55); the group is files-trash (in no default policy, never on the MCP mode). The trash is the service's own.
     {"name": "file-trash", "call": "file_trash",
      "args": ({"name": "file", "kind": "str", "required": True},
               {"name": "account", "kind": "choice", "choices": ("google", "microsoft")},
@@ -592,7 +592,11 @@ GROUPS = {
     # W4a: new files and new revisions in the person's own Drive and OneDrive. In no default policy: a messaging app takes it only when the project's configuration
     # lists the group (accept-config --widen confirms it); never on the MCP mode. Each operation only prepares a card; the write waits for approve-effect-files or the
     # terminal and the page.
-    "files-write": {"operations": ("file-create", "file-replace", "file-save", "file-trash"), "kind": None},
+    "files-write": {"operations": ("file-create", "file-replace", "file-save"), "kind": None},
+    # R2-A: the move of a file the person names to the service's trash. A group of its own, in no default policy: a project that accepted `files-write` does not gain it (accept-config shows it
+    # as a widening with a hash when it is added), and it needs `read-files` beside it (project_config: the search lists file names, as a read does). The approval of its card is the
+    # grant `approve-effect-files`, like every file write (account_start.OPERATION_GROUP gates the operation by this group while the card is an effect of the word `files`).
+    "files-trash": {"operations": ("file-trash",), "kind": None},
     "approve-effect-files": {"operations": ("approve",), "kind": "effect:files"},          # a file in the person's own Drive or OneDrive (effect_files.py APPROVAL_GROUP)
     # W2: e-mail from the person's own account (SPEC-SECRETARY-WRITES 5). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
     # --widen; never on the MCP mode. It prepares a card and sends nothing: the send is the approval of the card's hash (`approve-effect-send` on a messaging app).
@@ -714,7 +718,8 @@ GROUP_TEXT = {
     "calendar-write": "prepares changes to your own calendars (create, change, remove an event); each one waits for approval of its card",
     "mail-send": "prepares e-mails from your own accounts (a new e-mail, a reply to a message of a mail snapshot); each one waits for approval of its card",
     "reminders": "makes, lists and forgets reminders: one-shot lines of the sender's own words that the bridge sends back to their own chat at the time they chose",
-    "files-write": "prepares new files and revisions in your own Drive and OneDrive, saves a file you sent, and moves a file you name to the trash (restorable); each waits for approval of its card",
+    "files-write": "prepares new files and new revisions in your own Drive and OneDrive, and the saving of a file you sent; each one waits for approval of its card",
+    "files-trash": "moves a file you name to the trash of your Google Drive or OneDrive, after you approve its card; recoverable while it is in the trash (adds to read-files)",
     "mail-organize": "prepares changes to your mailbox (a draft, archive, a move to a folder, read state, the trash); each one waits for approval of its card, and nothing is sent or deleted for good",
     "interpret": "sends the plain lines no list takes to the interpreter's model service, which reads them in any language; retention: the route's terms (adds to talk, never grants it)",
     "read-files": "shows the text of the files in your configured Drive and OneDrive folders in the chat, found by their names; a messaging app's servers see it as they see any message, and no model reads it",

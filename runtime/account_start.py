@@ -53,6 +53,7 @@ import project_config  # noqa: E402
 import steps  # noqa: E402
 
 GROUP_OF_WORD = {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write", "send": "mail-send"}      # the policy group that holds the operations of each effect word
+OPERATION_GROUP = {"file-trash": "files-trash"}      # an operation of an effect word that its own group gates (R2-A: the move to the trash is not in `files-write`, so a project that accepted that group does not gain it)
 WORDS = tuple(GROUP_OF_WORD)      # the effect words of a write to a person's own account; `send` is a mail from the person's own account (package W2; the outbox's send is not started here)
 KEY = re.compile(r"[a-z]+(-[a-z]+){0,5}")
 TITLE_KEY = re.compile(r"TITLE_[A-Z0-9_]{1,40}")
@@ -112,9 +113,10 @@ def _gate_word(kind_name, operation: str) -> str:
     if len(gates) != 1 or gates[0][1].word not in WORDS or kind.order[-1] != gates[0][0]:
         raise core.OpsError(f"the step kind {kind.name} does not open a write to a person's own account", 2)
     word = gates[0][1].word
-    group = operations.GROUPS.get(GROUP_OF_WORD[word])
+    name = OPERATION_GROUP.get(operation, GROUP_OF_WORD[word])
+    group = operations.GROUPS.get(name)
     if group is None or operation not in group["operations"]:
-        raise core.OpsError(f"the operation {operation} is not one of the group {GROUP_OF_WORD[word]}, which holds the writes of the effect {word}", 2)
+        raise core.OpsError(f"the operation {operation} is not one of the group {name}, which holds the writes of the effect {word}", 2)
     return word
 
 

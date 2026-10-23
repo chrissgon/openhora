@@ -398,6 +398,38 @@ def test_limit_58_the_request_function_refuses_every_method_and_path_outside_its
             module.send(session, {"method": method, "path": path, "query": {}})
 
 
+def sent(module, method, path, query, body):
+    session = module.Session("http://127.0.0.1:1", "token", {})
+    return module.send(session, {"method": method, "path": path, "query": query}, body)
+
+
+def test_limit_58_the_one_patch_of_a_file_sends_only_the_trash_body_and_the_fields_query():
+    """The pair of ALLOWED names the path; the rest of the rule is bound at `send`: a rename, a parent change, another query and the trash itself are refused before any connection."""
+    module = writer_module()
+    body = json.dumps(module.TRASH_BODY).encode("ascii")
+    fields = {"fields": module.FILE_FIELDS}
+    path = "/drive/v3/files/File_ID_0001"
+    module.guard_trash("PATCH", path, fields, body)      # the legitimate request passes the guard
+    for what, args in (("a rename", (path, fields, b'{"name": "x"}')), ("the trash body with a rename", (path, fields, b'{"trashed": true, "name": "x"}')),
+                       ("trashed false", (path, fields, b'{"trashed": false}')), ("no body", (path, fields, None)), ("an empty body", (path, fields, b"{}")),
+                       ("addParents", (path, {**fields, "addParents": "Other_ID_0001"}, body)), ("removeParents", (path, {**fields, "removeParents": "Folder_ID_01"}, body)),
+                       ("another field list", (path, {"fields": "id"}, body)), ("no query", (path, None, body)), ("a supportsAllDrives", (path, {**fields, "supportsAllDrives": "true"}, body)),
+                       ("the trash itself", ("/drive/v3/files/trash", fields, body)), ("pretty json", (path, fields, b'{"trashed": true }'))):
+        with pytest.raises(module.WriterError, match="allow-list"):
+            sent(module, "PATCH", *args)
+        assert what
+    for method, other in (("PATCH", "/drive/v3/files"), ("PATCH", "/drive/v3/files/File_ID_0001/permissions"), ("DELETE", "/drive/v3/files/trash"), ("DELETE", path),
+                          ("POST", "/drive/v3/files/trash"), ("POST", "/drive/v3/files/File_ID_0001/trash")):
+        with pytest.raises(module.WriterError, match="allow-list"):
+            sent(module, method, other, fields, body)
+
+
+def test_the_patch_of_a_revision_and_the_upload_patch_are_not_the_trash_and_keep_their_own_rules():
+    module = writer_module()
+    for path in ("/drive/v3/files/File_ID_0001/revisions/rev_1", "/upload/drive/v3/files/File_ID_0001"):
+        module.guard_trash("PATCH", path, {"uploadType": "multipart"}, b"anything")      # the guard of the trash does not read them: their allow-list pair does
+
+
 def test_limit_57_the_writer_holds_no_delete_no_emptying_of_the_trash_and_no_permanent_removal():
     """R2-A: the one removal is the move to the trash (`trashed` true, one constant); nothing deletes for good."""
     module = writer_module()

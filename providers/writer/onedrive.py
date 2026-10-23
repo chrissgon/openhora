@@ -107,7 +107,7 @@ ALLOWED = (
     ("PUT", r"/me/drive/root:(/" + SEG + r")+:/content"),
     ("POST", r"/drives/" + SEG + r"/items/" + SEG + r"/createUploadSession"),
     ("PUT", UPLOAD_PATH),
-    ("DELETE", r"/drives/[^/]+/items/[^/]+"),
+    ("DELETE", r"/drives/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}/items/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}"),   # the item's own path: an id segment is percent-encoded, holds no `/`, `:` or `?`, and is never only dots or %2E (no `..`, no `root:`)
 )
 REMOVE = ALLOWED[-1]
 

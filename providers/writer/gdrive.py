@@ -230,11 +230,25 @@ def failure(status: int, headers, body: bytes, what: str) -> WriterError:
     return WriterError(f"Drive returned {status} ({what}){detail}", EXIT_REFUSED, status)
 
 
+TRASH_PATH = re.compile(r"/drive/v3/files/(" + ID + r")")
+
+
+def guard_trash(method: str, path: str, query, body) -> None:
+    """The one PATCH of a file's metadata this writer sends is the move to the trash (R2-A): its body is exactly TRASH_BODY and its query is the fields list alone, so it cannot rename a file, add
+    or remove a parent, or reach the trash itself (L58). The pair of ALLOWED names only the path; this is the rest of the rule, at the one function that sends."""
+    found = TRASH_PATH.fullmatch(path) if method == "PATCH" else None
+    if found is None:
+        return
+    if found.group(1) == "trash" or query != {"fields": FILE_FIELDS} or body != json.dumps(TRASH_BODY).encode("ascii"):
+        raise WriterError(f"the writer refuses {method} {path[:80]}: the one PATCH of a file it sends moves it to the trash, with that body and no other change (it is not on its allow-list)", EXIT_REFUSED)
+
+
 def send(session: Session, step: dict, body: bytes | None = None, extra: dict | None = None) -> tuple:
     """Send one request of a plan: (status, headers, at most RESPONSE_LIMIT bytes). Refused unless ALLOWED lists the method and the path (L58). A
     connection that failed or timed out is a WriterError with status None."""
     method, path = step["method"], step["path"]
     common.guarded(ALLOWED, method, path)
+    guard_trash(method, path, step.get("query"), body)
     url = session.base + path + (("?" + query_string(step["query"])) if step.get("query") else "")
     headers = {"Authorization": f"Bearer {session.token}", "Accept": "application/json", "User-Agent": USER_AGENT, **(extra or {})}
     request = urllib.request.Request(url, data=body, method=method, headers=headers)

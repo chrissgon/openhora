@@ -35,7 +35,7 @@ SCANNED = ["providers/writer/**/*.py", "providers/mailer/gmail.py", "providers/m
 # (relative file, the approved path regex). W1: the Google calendar writer's one removal, an event of a calendar, which Google sends to the calendar's trash
 # for 30 days (the person restores it there); the pair is honoured only in that file's own constant ALLOWED.
 ALLOWED_DELETE = (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),
-                  ("providers/writer/onedrive.py", r"/drives/[^/]+/items/[^/]+"))      # R2-A: Graph moves the item to the recycle bin
+                  ("providers/writer/onedrive.py", r"/drives/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}/items/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}"))      # R2-A: Graph moves the item to the recycle bin
 ALLOWED_TRASH_BODY = (("providers/writer/gdrive.py", "TRASH_BODY"),)      # R2-A: the one dict `{"trashed": True}` of the Drive writer, the move to the trash
 WORD = re.compile(r"(?<![A-Za-z])delete(?![A-Za-z])", re.I)               # the word `delete` alone (not `deleted`, `deleteditems`)
 METHODISH = re.compile(r"\s*delete(?![A-Za-z-])", re.I)                    # a string that starts with the method: "DELETE", "delete /x"
@@ -187,7 +187,7 @@ def test_limit_57_measure_no_script_of_the_writers_helpers_or_readers_holds_a_pe
     assert scanned, "the scan reads no file"
     found = [f for path in scanned for f in delete_findings(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))]
     assert found == [], found
-    assert ALLOWED_DELETE == (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"), ("providers/writer/onedrive.py", r"/drives/[^/]+/items/[^/]+")), \
+    assert ALLOWED_DELETE == (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"), ("providers/writer/onedrive.py", r"/drives/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}/items/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}")), \
         "no other pair is allowed until the package that needs it adds it, with the reason"
     assert ALLOWED_TRASH_BODY == (("providers/writer/gdrive.py", "TRASH_BODY"),)
 
@@ -271,7 +271,7 @@ def test_limit_58_measure_only_the_effect_modules_and_the_seam_name_a_writer_at_
 TRASH_FILE = "providers/writer/gdrive.py"
 TRASH_LEGIT = 'TRASH_BODY = {"trashed": True}\n\ndef plan(i):\n    return {"body": TRASH_BODY}\n'
 ONEDRIVE = "providers/writer/onedrive.py"
-ONEDRIVE_APPROVED = r"/drives/[^/]+/items/[^/]+"
+ONEDRIVE_APPROVED = r"/drives/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}/items/(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}"
 ONEDRIVE_LEGIT = f'''ALLOWED = (("GET", r"/drives/[^/]+/items/[^/]+"), ("DELETE", r"{ONEDRIVE_APPROVED}"))
 REMOVE = ALLOWED[-1]
 

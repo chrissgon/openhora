@@ -21,8 +21,9 @@ runtime/step_files.py, runtime/effect_files.py), approved by its hash like every
 the writer's `trash` verb, only if the grant still holds (the folder is still listed under its name and the file is still found under it) and the file is still the version the card was
 made from. The trash is the service's own: the person restores the file from there, and no verb of any writer deletes for good (limit L57).
 
-Who may ask: the group `files-write` (the operation is one of its rows) for a messaging sender; the page and the terminal follow the table of operations. A sender without it gets the
-refusal sentence and no provider is called. What is kept (limits L50, L61 and L63): the conversation stores a neutral word for the reply; the list a number answers is held in process memory
+Who may ask: the group `files-trash` (a group of its own, in no default policy and never part of `files-write`, so a project that accepted that group does not gain the trash) AND `read-files`
+beside it (the search lists file names, as a read does; the configuration refuses one without the other, and the right is asked again here). A messaging sender without them gets the refusal
+sentence, or for a line that asks to delete a file the plain sentence that it is not done from a message, and no provider is called; the page and the terminal follow the table of operations. What is kept (limits L50, L61 and L63): the conversation stores a neutral word for the reply; the list a number answers is held in process memory
 only (runtime/ops_file_read.py), and nothing here logs, prints or stores a name or a folder.
 
 Sibling of runtime/ops.py, which exposes `file_trash` under its name. The shared names come from ops_core, read as `core.<name>`. Standard library only. Runs on Python 3.9:
@@ -87,6 +88,17 @@ def _outcome(cfg: dict, wanted: str, account, said) -> dict:
     return dict({"status": "one", "match": matches[0]}, **notes)
 
 
+def _may_list(ctx: dict, channel, sender) -> None:
+    """The right to see file names, asked beside the right to trash (a search and a list show the names of the person's files): `read-files` for a messaging sender and for the page; the terminal is
+    never narrowed. core.OpsError with the sentence of the read's refusal otherwise."""
+    where = "terminal" if channel in (None, "chat", "terminal") else channel
+    if where == "terminal":
+        return
+    refused = operations.refusal("file-read", where, ctx["cfg"]["channels"], sender=sender)
+    if refused:
+        raise core.OpsError(refused, 1)
+
+
 def start_card(project: str, cfg: dict, match: dict, exact: bool, channel=None, sender=None) -> dict:
     """Open the card of one file found by the search: the step task `file-write` with the operation `trash`, prepared with no model, stopped at the card. The file's id and the granted
     folder come from the search, never from the person's words. core.OpsError when it cannot be prepared (its message is the sentence the person reads)."""
@@ -98,10 +110,11 @@ def start_card(project: str, cfg: dict, match: dict, exact: bool, channel=None, 
 
 
 def file_trash(project: str, file: str, account: str | None = None, folder: str | None = None, channel: str | None = None, sender: str | None = None) -> dict:
-    """The operation `file-trash`. From a messaging app the sender's profile must hold the group `files-write`. Returns {"status": "card", "request", "task", "pending", "word", "on_cards"}
+    """The operation `file-trash`. From a messaging app the sender's profile must hold the groups `files-trash` and `read-files`. Returns {"status": "card", "request", "task", "pending", "word", "on_cards"}
     for one file, or the outcome of the search for several ({"status": "several", "matches", "count"}) and for none; nothing is moved before the card's hash is approved."""
     ctx = core.context(project)
     ops_actor.guard(ctx, OP, channel, sender)
+    _may_list(ctx, channel, sender)
     if not isinstance(file, str) or not natural.normal(file) or len(file) > natural.SPAN_MAX:
         raise core.OpsError("--file is the name of a file (1 to 300 characters)", 2)
     if account is not None and account not in reader.SERVICES:
@@ -156,6 +169,9 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     file opens its card; several are listed and remembered for the sender's next line; none is one sentence. Else the fixed ask-again sentence and nothing is searched."""
     cfg = ctx["cfg"]
     _private(ctx, extras)
+    refused = operations.refusal("file-read", "terminal" if channel in (None, "chat") else channel, cfg["channels"], sender=sender)      # the names of files are listed only to one who may read files
+    if refused:
+        return phone_refusal.said(refused, channel, cfg)
     wanted, account, again = reader.line_target(cfg, args, said)
     if again:
         return again
@@ -175,7 +191,7 @@ def pick(project: str, ctx: dict, match: dict, channel, sender, extras: dict) ->
     file was found under must still be one of the configuration in force, else the plain no-folder sentence and nothing is prepared. The person chose the file, so the card does not ask whether it is the one."""
     cfg = ctx["cfg"]
     _private(ctx, extras)
-    refused = operations.refusal(OP, "messaging", cfg["channels"], sender=sender)
+    refused = operations.refusal(OP, "messaging", cfg["channels"], sender=sender) or operations.refusal("file-read", "messaging", cfg["channels"], sender=sender)
     if refused:
         return phone_refusal.said(refused, channel, cfg)
     granted = {(service, ident) for service in reader.SERVICES for ident in ((project_config.account_entry(cfg, service) or {}).get("folders") or {}).values()}
@@ -189,8 +205,10 @@ def pick(project: str, ctx: dict, match: dict, channel, sender, extras: dict) ->
 
 
 def permitted(ctx: dict, channel, sender) -> bool:
-    """Whether this messaging sender may ask for a file to be moved to the trash under the project's policy now."""
-    return channel == "messaging" and isinstance(sender, str) and operations.permitted(OP, "messaging", ctx["cfg"]["channels"], None, sender)
+    """Whether this messaging sender may ask for a file to be moved to the trash under the project's policy now (the groups `files-trash` and `read-files`)."""
+    channels = ctx["cfg"]["channels"]
+    return (channel == "messaging" and isinstance(sender, str) and operations.permitted(OP, "messaging", channels, None, sender)
+            and operations.permitted("file-read", "messaging", channels, None, sender))      # the trash AND the right to see names: a profile with one alone gets the plain sentence
 
 
 def catches(ctx: dict, said: str, channel, sender) -> bool:

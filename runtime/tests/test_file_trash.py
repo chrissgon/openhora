@@ -35,10 +35,11 @@ operations = st.load("operations")
 phone_delete = st.load("phone_delete")
 phrases = st.load("phrases")
 
-OWNER, PLAIN = "55119000000031", "55119000000032"
-OWNER_KEY, PLAIN_KEY = f"telegram:{OWNER}", f"telegram:{PLAIN}"
-PROFILES = {"owner": ["read", "talk", "interpret", "files-write", "approve-effect-files"], "plain": ["read", "talk", "interpret"]}
-SENDERS = {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": PLAIN, "policy": "plain"}]}
+OWNER, PLAIN, WRITER = "55119000000031", "55119000000032", "55119000000033"
+OWNER_KEY, PLAIN_KEY, WRITER_KEY = f"telegram:{OWNER}", f"telegram:{PLAIN}", f"telegram:{WRITER}"
+PROFILES = {"owner": ["read", "talk", "interpret", "files-trash", "read-files", "approve-effect-files"], "plain": ["read", "talk", "interpret"],
+            "writer": ["read", "talk", "interpret", "files-write", "approve-effect-files"]}      # the writer holds files-write (the writes of new files) and neither files-trash nor read-files
+SENDERS = {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": PLAIN, "policy": "plain"}, {"id": WRITER, "policy": "writer"}]}
 ACCOUNTS = {"google": {"address": "pat@example.com", "folders": {"default": fdw.FOLDER_ID}},
             "microsoft": {"address": "casey.rivera@mail.example", "folders": {"default": "/Documents/openhora"}}}
 PNG = b"\x89PNG\r\n\x1a\n the fictional mark"
@@ -426,3 +427,97 @@ def test_vacuity_a_file_line_is_caught_for_both_senders(desk):
                                             ("por favor apague logo.png do onedrive", "logo.png"), ("apague o arquivo do drive", None), ("remova o evento de amanhã", None)])  # validate: allow english-only -- the lines under test
 def test_the_name_code_reads_from_a_line_that_asks_to_delete_a_file(line, expected):
     assert phone_delete.name(line) == expected
+
+
+# --- the group of its own (the independent review of #541) --------------------------------------------------------------------------------------
+
+
+PROBE = "apague o arquivo e"      # the reviewer's probe: one letter fits a part of nearly every name
+
+
+def test_the_reviewers_probe_gives_the_plain_sentence_and_lists_no_name_to_a_sender_with_files_write_and_no_read_files(desk):
+    desk["gd"].add_file("Probe_ID_0001", "exame-medico.pdf", b"x", mime="application/pdf", parents=(SUB,))
+    desk["gd"].add_file("Probe_ID_0002", "senhas.txt", b"x", mime="text/plain", parents=(SUB,))
+    out = say(desk, PROBE, WRITER_KEY)
+    assert out["reply"] == NO_DELETE and "resend" not in out and out["pending_id"] is None
+    assert "exame" not in out["reply"] and "senhas" not in out["reply"] and "openhora-mark" not in out["reply"]
+    assert desk["search"].calls == [] and desk["gd"].requests == [] and open_cards(desk) == []
+    for line in ("Remova o arquivo openhora-mark.png do drive", "apague o arquivo senhas"):
+        assert say(desk, line, WRITER_KEY)["reply"] == NO_DELETE
+    assert desk["search"].calls == []
+
+
+def test_vacuity_a_sender_who_holds_files_trash_and_read_files_is_listed_the_names_the_probe_fits(desk):
+    desk["gd"].add_file("Probe_ID_0001", "exame-medico.pdf", b"x", mime="application/pdf", parents=(SUB,))
+    out = say(desk, PROBE, OWNER_KEY)
+    assert out["reply"] != NO_DELETE and "exame-medico.pdf" in out["reply"], "the oracle can fail: the same probe, for the sender who may see names, lists them"
+
+
+def test_the_typed_operation_and_the_interpreter_also_refuse_a_sender_with_files_write_alone(desk):
+    with pytest.raises(ops.OpsError) as typed:
+        ops.file_trash(desk["path"], "e", channel="messaging", sender=WRITER_KEY)
+    assert "is not enabled for this channel" in str(typed.value)
+    desk["answer"]["text"] = json.dumps({"v": 1, "kind": "op", "op": "file-trash", "slots": {"file": "e"}})
+    out = say(desk, "Mande para a lixeira o e", WRITER_KEY)
+    assert "exame" not in out["reply"] and "resend" not in out and desk["search"].calls == [] and open_cards(desk) == []
+
+
+def test_the_right_to_see_names_is_asked_again_in_code_when_a_profile_holds_files_trash_without_it(desk, monkeypatch):
+    """The configuration refuses that pair at accept; if one slipped through (the file edited by hand), `permitted` and the reply still ask `read-files`."""
+    ctx = ctx_of(desk)
+    assert ops_file_trash.permitted(ctx, "messaging", OWNER_KEY) is True
+    real = operations.permitted
+    monkeypatch.setattr(operations, "permitted", lambda op, *a, **k: False if op == "file-read" else real(op, *a, **k))
+    assert ops_file_trash.permitted(ctx, "messaging", OWNER_KEY) is False
+    monkeypatch.setattr(operations, "refusal", lambda op, *a, **k: "error: /file-read is not enabled for this channel" if op == "file-read" else None)
+    out = ops_file_trash.reply(desk["path"], ctx, {"file": "e"}, PROBE, "messaging", OWNER_KEY, {})
+    assert "exame" not in out and desk["search"].calls == []
+
+
+def test_files_write_no_longer_holds_the_trash_and_the_new_group_holds_only_it():
+    assert operations.GROUPS["files-write"] == {"operations": ("file-create", "file-replace", "file-save"), "kind": None}
+    assert operations.GROUPS["files-trash"] == {"operations": ("file-trash",), "kind": None}
+    assert "files-trash" not in operations.DEFAULT_POLICY["messaging"] and "files-write" not in operations.DEFAULT_POLICY["messaging"]
+    assert [g for g, v in operations.GROUPS.items() if "file-trash" in v["operations"]] == ["files-trash"]
+    assert operations.permitted("file-trash", "messaging", {"messaging": ["read", "talk", "files-write", "approve-effect-files"]}) is False
+    assert operations.permitted("file-trash", "messaging", {"messaging": ["read", "talk", "files-trash"]}) is True
+    assert operations.GROUP_TEXT["files-trash"] == ("moves a file you name to the trash of your Google Drive or OneDrive, after you approve its card; "
+                                                    "recoverable while it is in the trash (adds to read-files)")
+    assert "trash" not in operations.GROUP_TEXT["files-write"], "the widening line of files-write is as it was"
+    assert operations.group_refusal("messaging", "files-trash") is None
+
+
+def test_a_project_that_accepted_files_write_sees_files_trash_as_a_widening_with_a_hash_when_it_is_added(desk):
+    """The accept-config record keeps group names: a group that is added is a widening, and the hash of its list is typed to accept it."""
+    import policy_widening
+    path = desk["path"]
+    before = ops.config(path)
+    assert [w for w in before["widening"] if w["group"] == "files-trash"] == []
+    raw = json.loads((Path(path) / "docs" / "workbench" / "runtime.json").read_text(encoding="utf-8"))
+    raw["policies"]["writer"] = raw["policies"]["writer"] + ["read-files", "files-trash"]
+    (Path(path) / "docs" / "workbench" / "runtime.json").write_text(json.dumps(raw), encoding="utf-8")
+    after = ops.config(path)
+    mine = [w for w in after["widening"] if w["group"] == "files-trash"]
+    assert len(mine) == 1 and mine[0]["place"] == WRITER_KEY and mine[0]["means"] == operations.GROUP_TEXT["files-trash"] == policy_widening.means("messaging", "files-trash")
+    assert after["widening_sha256"] and after["widening_sha256"] != before["widening_sha256"]
+    with pytest.raises(ops.OpsError):
+        ops.accept_config(path, after["sha256"])      # without the hash of the list it is not accepted
+    ops.accept_config(path, after["sha256"], widen=after["widening_sha256"])
+    assert say(desk, "Remova o arquivo openhora-mark.png do drive", WRITER_KEY)["reply"] != NO_DELETE
+
+
+def test_files_trash_without_read_files_is_refused_when_the_file_is_accepted_and_with_it_is_accepted(desk):
+    path = desk["path"]
+    for place in ("profile", "channel"):
+        raw = json.loads((Path(path) / "docs" / "workbench" / "runtime.json").read_text(encoding="utf-8"))
+        if place == "profile":
+            raw["policies"]["writer"] = ["read", "talk", "files-trash"]
+        else:
+            raw["policies"] = {}
+            raw["messaging"] = {"senders": {"telegram": [WRITER]}}
+            raw["channels"] = {"messaging": ["read", "talk", "files-trash"]}
+        (Path(path) / "docs" / "workbench" / "runtime.json").write_text(json.dumps(raw), encoding="utf-8")
+        with pytest.raises(Exception) as refused:
+            ops.accept_config(path, ops.config(path)["sha256"])
+        assert "'files-trash' needs 'read-files' beside it" in str(refused.value), place
+    accept(path, policies=dict(PROFILES, writer=["read", "talk", "files-trash", "read-files"]), messaging={"senders": SENDERS}, accounts=ACCOUNTS, language="pt-BR", channels=None)      # the vacuity: both groups are accepted

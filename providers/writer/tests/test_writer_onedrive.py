@@ -392,11 +392,30 @@ def test_limit_58_the_request_function_refuses_every_method_and_path_outside_its
             m.send(session, {"method": method, "path": path, "query": {}})
 
 
+DEL_SEG = r"(?!(?:\.|%2[eE])+(?:/|$))[A-Za-z0-9_%.~=-]{1,600}"      # an id segment of the one DELETE: percent-encoded, no `/`, `:` or `?`, never only dots or %2E
+
+
+@pytest.mark.parametrize("path", ["/drives/d/items/..", "/drives/../items/i", "/drives/d/items/%2E%2E", "/drives/%2e%2E/items/i", "/drives/d/items/.", "/drives/d/items/root:",
+                                  "/drives/d/items/root:/x", "/drives/d/items/i?permanent=true", "/drives/d/items/i/", "/drives/d/items/", "/drives//items/i", "/drives/d/items/i/children",
+                                  "/drives/d/items/i/permanentDelete", "/drives/d/items/a b", "/drives/d/items/i%2Fj/x", "/me/drive/items/i"])
+def test_limit_58_the_one_delete_refuses_a_traversal_a_root_path_an_encoded_dot_and_a_query_at_the_guard(path):
+    m = module()
+    with pytest.raises(m.common.WriterError, match="allow-list"):
+        m.common.guarded(m.ALLOWED, "DELETE", path)
+
+
+def test_the_one_delete_accepts_the_item_the_writer_encodes_and_nothing_a_sibling_pattern_would_not():
+    m = module()
+    m.common.guarded(m.ALLOWED, "DELETE", f"/drives/{m.enc(fod.DRIVE)}/items/{m.enc(fod.FILE_ID)}")
+    m.common.guarded(m.ALLOWED, "DELETE", "/drives/b%21Drive_1/items/01FILE.000001%21102")
+    assert r"/drives/" + DEL_SEG + r"/items/" + DEL_SEG == m.REMOVE[1]
+
+
 def test_limit_57_the_writer_holds_one_delete_of_an_item_that_goes_to_the_recycle_bin_no_move_and_no_permanent_removal():
     """R2-A: the one DELETE is `/drives/{drive}/items/{item}` (Graph moves the item to the recycle bin); the permanent call is not here."""
     m = module()
     assert {method for method, _ in m.ALLOWED} == {"GET", "PUT", "POST", "DELETE"}
-    assert [pair for pair in m.ALLOWED if pair[0] == "DELETE"] == [("DELETE", r"/drives/[^/]+/items/[^/]+")]
+    assert [pair for pair in m.ALLOWED if pair[0] == "DELETE"] == [("DELETE", r"/drives/" + DEL_SEG + r"/items/" + DEL_SEG)]
     source = WRITER.read_text(encoding="utf-8")
     for word in ("permanentDelete", "batchDelete", "emptyTrash", "'DELETE'", '"PATCH"', "recycleBin", "restore"):
         assert word not in source, word
