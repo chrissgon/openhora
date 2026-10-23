@@ -464,7 +464,7 @@ def test_a_file_request_is_a_file_read_and_runs_no_research(research):
 @pytest.mark.parametrize("line", ["mostra minha agenda", "liste meus emails", "quais sao meus arquivos de marco?", "what is on my calendar tomorrow", "lis mes e-mails de ce matin", "zeig mir meinen Kalender"])  # validate: allow english-only -- lines under test
 def test_a_question_about_the_persons_own_calendar_mail_or_files_does_not_run_research_even_when_the_model_says_so(research, line):
     research["answer"]["text"] = op("research", {"question": line})
-    assert phone(research, line) in (NO_QUESTION, MAIL_NONE)      # a form of code claims "liste meus emails" before the model is asked; every other line is refused by the guard
+    assert phone(research, line) in (NO_QUESTION, MAIL_NONE, AGENDA_NONE)      # a form of code claims "liste meus emails" and the agenda lines before the model is asked; every other line is refused by the guard
     assert research["run"].calls == [] and runs(research) == [] and st.calls(research["adapter"]) == []
     assert ops.research(research["path"], line, channel="terminal")["status"] == "personal" and research["run"].calls == []
 
