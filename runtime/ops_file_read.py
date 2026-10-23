@@ -40,10 +40,9 @@ line alone. A question about the file is NOT answered from it: the answer from s
 
 The file itself (S18): when the sender holds the group `send-files` (beside `read-files`) and the bridge says the messaging app can carry a file (`extras["can_send"]`, the messenger's
 capabilities: the most it takes, the most it takes as a photo, the image types it shows as a photo, the types it takes), the reply of a found file carries the file as
-`extras["attachment"]` = {"name", "kind": "photo" | "document", "data"}: a photo for a jpeg or png image under the photo limit, a document otherwise. A readable text file keeps today's
-preview as the message text. Before it, in code: the right and the folder grant are asked again (a pick reads the configuration in force now), the size and the type are checked against
-what the app takes (a file over the limit gets one sentence, and the preview when it has text), and the text of every file the converter turns into text, a PDF or an Office file
-included, passes the credential scan (limit L14): a hit withholds the file AND the preview. A file with no text to scan (an image, or a document the converter gives no text for) is sent
+`extras["attachment"]` = {"name", "kind": "photo" | "document", "data"}: a photo for a jpeg or png image under the photo limit, a document otherwise. The file goes with ONE short caption (S18b: "Here is the file <name> (<account>, folder <folder>).", pt-BR in the phrase table) and never with a preview of its text: the person asked for the file. Before it, in code: the right and the folder grant are asked again (a pick reads the configuration in force now), the size and the type are checked against
+what the app takes (a file over the limit gets one sentence and nothing of its text), and the text of every file the converter turns into text, a PDF or an Office file
+included, passes the credential scan (limit L14): a hit withholds the file and says so in one sentence. A file that is withheld for any reason (a credential, its size, its type, a send that failed, a right that changed) gets its sentence and never the text. A file with no text to scan (an image, or a document the converter gives no text for) is sent
 as it is (its bytes pass `runtime/send_scan.py`: a credential in the raw bytes of a text file, in any XML part of an Office package, or in a PDF's strings or inflated streams withholds the file, and so does a
 package with an embedding or a PDF it cannot read to the end). The bytes live in memory for the length of the call and then in the bridge's one temporary file for the length of the send (runtime/messaging_bridge.py); nothing is
 stored, logged or kept here, and the neutral word the conversation keeps is the same. Without the group, or on a page or a terminal, nothing changes: the reply is the text it always was.
@@ -86,7 +85,7 @@ LABEL_MAX = 120          # characters of a folder's or file's name that are kept
 LIST_WINDOW_S = 600      # seconds after a list of files in which a bare number picks one
 PATH_JOIN = " › "        # between the names of the folders of a path, as the reply shows it
 REST_MAX = 12            # words after a word for "folder" that may name it
-ROOT_NAME_SECONDS = 2.0  # seconds the read of the configured folders' real names may take (S17b); a name not back is the service's name
+ROOT_NAME_SECONDS = 6.0  # seconds the read of the configured folders' real names may take, all at once and before the walk's own time starts (S17b, S18b: 2 s, taken from the walk, was too short for a provider that starts a process and refreshes a token); a name not back is left out of the reply, never replaced by the service's name
 ID_LIKE = re.compile(r"(?=[^0-9]*[0-9])(?=[^A-Za-z]*[A-Za-z])[A-Za-z0-9_!-]{20,}")      # a Drive or OneDrive item id: a long run of letters and digits with both
 GENERIC = {"drive"}      # a word for a cloud folder that names no service
 FOLDER_WORDS = {"pasta", "folder", "directory", "carpeta", "dossier", "repertoire", "ordner", "verzeichnis", "cartella"}      # the closed words for "folder" a line may be written with  # validate: allow english-only -- the closed words of the languages a line may be written in
@@ -195,7 +194,6 @@ def _walk(cfg: dict, account=None, names_only: bool = False, only_root=None) -> 
     jobs = [(service, name, ident) for service in services for name, ident in ((project_config.account_entry(cfg, service) or {}).get("folders") or {}).items()
             if only_root is None or ident == only_root]
     out = {"roots": [], "info": {}, "files": [], "dirs": [], "failed": 0, "truncated": 0, "cut": None}
-    started = clock()
 
     def one(node, timeout):
         try:
@@ -204,7 +202,7 @@ def _walk(cfg: dict, account=None, names_only: bool = False, only_root=None) -> 
             return None
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS)
     try:
-        wait = min(ROOT_NAME_SECONDS, MAX_SECONDS / 4)          # the names never take more than a quarter of the time
+        wait = min(ROOT_NAME_SECONDS, MAX_SECONDS * 0.8)          # the names are read at once, with a time of their own (never more than four fifths of the walk's, so a silent provider is still given up): the walk's MAX_SECONDS starts after them
         asked = {(service, ident): pool.submit(_root_name, cfg, service, ident, wait) for service, _, ident in jobs}
         concurrent.futures.wait(list(asked.values()), timeout=wait)
         for service, alias, ident in jobs:
@@ -212,6 +210,7 @@ def _walk(cfg: dict, account=None, names_only: bool = False, only_root=None) -> 
             real = future.result() if future.done() and not future.cancelled() and future.exception() is None else None
             out["info"][(service, ident)] = {"alias": alias, "real": real, "lead": real or _label_of(cfg, service)}
             out["roots"].append((service, real))
+        started = clock()
         frontier = [(service, ident, (out["info"][(service, ident)]["lead"],), 0, ident) for service, _, ident in jobs]
         reached = {(service, ident) for service, _, ident in jobs}
         walked = 0
@@ -247,7 +246,7 @@ def _walk(cfg: dict, account=None, names_only: bool = False, only_root=None) -> 
                         if not isinstance(ident, str) or not isinstance(label, str):
                             continue
                         if item.get("kind") == "file":
-                            out["files"].append({"service": service, "path": path, "root": root, "id": ident, "name": _label(label), "supported": item.get("supported") is True,
+                            out["files"].append({"service": service, "path": path, "root": root, "id": ident, "name": _label(label), "supported": item.get("supported") is True, "named": out["info"][(service, root)]["real"] is not None,
                                              "size": item.get("size") if type(item.get("size")) is int and item["size"] >= 0 else None, "modified": _label(item.get("modified") or "")})
                         elif item.get("kind") == "folder" and (service, ident) not in reached:
                             reached.add((service, ident))
@@ -386,12 +385,12 @@ def _find(tree: dict, wanted: str, folder) -> dict:
 
 
 def _matches_of(found: list) -> list:
-    return [{"service": f["service"], "folder": PATH_JOIN.join(f["path"]), "root": f["root"], "id": f["id"], "name": f["name"], "supported": f["supported"],
+    return [{"service": f["service"], "folder": PATH_JOIN.join(f["path"] if f["named"] else f["path"][1:]), "root": f["root"], "id": f["id"], "name": f["name"], "supported": f["supported"],
              "size": f["size"], "modified": f["modified"], "exact": f["exact"]} for f in found]
 
 
 def _search(cfg: dict, wanted: str, account=None, said=None) -> dict:
-    """{"folders": [(service, real folder name or None)] searched, "matches": [{"service", "folder" (the real names, " › " between them), "root", "id", "name", "supported"}], "failed",
+    """{"folders": [(service, real folder name or None)] searched, "matches": [{"service", "folder" (the real names, " › " between them; the configured folder's own name is left out when it could not be read, so it is "" for a file at the root, S18b), "root", "id", "name", "supported"}], "failed",
     "truncated", "cut", "no_folder", "folder_missing", "incomplete"}. `account` google or microsoft narrows the search to one account; `said` is the line the folder named in it comes from
     (None: no folder). Only files under the folders the configuration lists are returned. A folder named in the line that none of the walked folders carries does not stop the search: the file
     is looked for in the whole walked tree and `folder_missing` is the name the person typed (the reply says so); `no_folder` (a refusal) is only for a folder that points outside, see `_outside`."""
@@ -564,7 +563,7 @@ def _attachment(match: dict, got: dict, send: dict):
 
 def _read_match(cfg: dict, match: dict, send=None) -> dict:
     """The outcome of reading the one file chosen: {"status": "text", ...} | {"status": "unreadable", "name", "account", "why"}. With `send` (the messenger's limits, S18) a file that
-    goes carries "attach" ({"name", "kind", "data"}), a text file keeps its preview, a file with no text is {"status": "sent", ...}, and `sending` is true in every outcome so that
+    goes carries "attach" ({"name", "kind", "data"}), the outcome is {"status": "sent", ...} (the text was read only to be scanned; a file that does not go is {"status": "unreadable"}, never a preview), and `sending` is true in every outcome so that
     the sentences are the ones about sending."""
     flag = {"sending": True} if send is not None else {}
     if not match["supported"]:
@@ -578,13 +577,9 @@ def _read_match(cfg: dict, match: dict, send=None) -> dict:
     if send is None:
         return dict(base, status="text", text=shown, remaining=remaining)
     attach, why = _attachment(match, got, send)
-    if attach is None:
-        if not shown:
-            return {"status": "unreadable", "name": match["name"], "account": match["service"], "why": why, **flag}
-        return dict(base, status="text", text=shown, remaining=remaining, too_big=True, **flag)
-    if not shown:
-        return dict(base, status="sent", attach=attach, **flag)
-    return dict(base, status="text", text=shown, remaining=remaining, attach=attach, **flag)
+    if attach is None:          # S18b: the person asked for the file, so a file that does not go gets its sentence and never the preview
+        return {"status": "unreadable", "name": match["name"], "account": match["service"], "why": why, **flag}
+    return dict(base, status="sent", attach=attach, **flag)          # the file goes with one short caption; its text was read only to be scanned
 
 
 def _find_and_read(cfg: dict, wanted: str, account=None, said=None, send=None) -> dict:
@@ -756,14 +751,13 @@ def _render(cfg: dict, got: dict, pick: bool = True) -> str:
     status = got["status"]
     notes = ([t("FR_FOLDER_MISSING", folder=got["folder_missing"])] if got.get("folder_missing") else []) + ([t("FR_INCOMPLETE")] if got.get("incomplete") else [])
     if status == "text":
-        head = t("FR_HEAD", name=got["name"], account=_label_of(cfg, got["account"]), folder=got["folder"])
+        head = t("FR_HEAD" if got["folder"] else "FR_HEAD_ACCOUNT", name=got["name"], account=_label_of(cfg, got["account"]), folder=got["folder"])
         more = "\n\n" + t("FR_MORE", remaining=got["remaining"]) if got["remaining"] else ""
-        large = "\n\n" + t("FS_TOO_BIG", name=got["name"], account=_label_of(cfg, got["account"])) if got.get("too_big") else ""
-        return f"{head}\n\n{got['text']}{more}{large}" + "".join("\n\n" + n for n in notes)
+        return f"{head}\n\n{got['text']}{more}" + "".join("\n\n" + n for n in notes)
     if status == "sent":
-        return t("FS_SENT", name=got["name"], account=_label_of(cfg, got["account"]), folder=got["folder"]) + "".join("\n\n" + n for n in notes)
+        return t("FS_FILE" if got["folder"] else "FS_FILE_ACCOUNT", name=got["name"], account=_label_of(cfg, got["account"]), folder=got["folder"]) + "".join("\n\n" + n for n in notes)
     if status == "several":
-        rows = [t("FR_ITEM", n=n, name=m["name"], folder=m["folder"], account=_label_of(cfg, m["service"])) for n, m in enumerate(got["matches"], 1)]
+        rows = [t("FR_ITEM" if m["folder"] else "FR_ITEM_ACCOUNT", n=n, name=m["name"], folder=m["folder"], account=_label_of(cfg, m["service"])) for n, m in enumerate(got["matches"], 1)]
         return "\n".join([t("FR_SEVERAL_PICK" if pick else "FR_SEVERAL_NAME", count=got["count"])] + rows + notes)
     if status in ("none", "no-folder"):
         named = []          # the real names of the configured folders; one whose name could not be read is the service's own name, once

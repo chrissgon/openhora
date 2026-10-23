@@ -660,10 +660,11 @@ def test_vacuity_a_walk_that_named_the_folders_by_their_alias_would_show_it_and_
     assert any("default" in r for r in conversations(real))
 
 
-def test_a_name_the_provider_could_not_give_is_the_services_own_name_and_the_drive_root_is_my_drive(real):
+def test_a_name_the_provider_could_not_give_is_left_out_not_replaced_by_the_services_name_and_the_drive_root_is_my_drive(real):
+    """S18b: the service's own name used to stand for a folder whose name was not read ("pasta Google Drive"); it names no folder, so the reply names the account alone, and a subfolder keeps its own name."""
     real["drives"].names.clear()
     says(real, WANTED, "google drive")
-    assert phone(real, f"Me traga o arquivo {WANTED} do google drive") == f"{WANTED} (Google Drive, pasta Google Drive › openhora):\n\n" + DOC.strip()
+    assert phone(real, f"Me traga o arquivo {WANTED} do google drive") == f"{WANTED} (Google Drive, pasta openhora):\n\n" + DOC.strip()
     accept(real["path"], policies=FILE_PROFILES, messaging={"senders": FILE_SENDERS}, accounts={"google": {"address": "ana@mail.example", "folders": {"default": "root"}},
                                                                                            "microsoft": ACCOUNTS["microsoft"]}, language="pt-BR")
     real["drives"].folders[("google", "root")] = [item("gdoc0000000001", WANTED)]
