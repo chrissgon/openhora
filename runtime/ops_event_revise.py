@@ -99,7 +99,7 @@ def _words(text: str) -> set:
 def names_another(line: str, spans: dict, doc: dict) -> bool:
     """Whether the line, outside its title and time spans, the closed words and the words of the card's own title, names something else: another event (see STOP)."""
     own = _words(doc["event"].get("title")) | _words((doc.get("before") or {}).get("title"))
-    left = _words(line) - _words(spans.get("title")) - _words(spans.get("time")) - own - STOP - mail_revise.CHANGE_WORDS
+    left = _words(line) - _words(spans.get("title")) - _words(spans.get("time")) - own - STOP - mail_revise.ORIGINAL_WORDS      # the words that have always asked for a change, not the verbs S13b added: an event called "Sign Day" is still another event's name
     return any(not any(c.isdigit() for c in word) for word in left)
 
 
@@ -129,11 +129,24 @@ def _cleaned(obj, line: str, lookup):
     return None
 
 
+RELATIVE = re.compile(r"(?<![a-z])(?:daqui|dentro de|em|in|en|dans|fra|tra|binnen|nach|apos|depois de|after)\s+(?:a\s+)?(?:\d+|um|uma|one|una|un|une|ein|eine|dois|duas|two|meia|half)(?![a-z])")
+
+
+def is_relative(line: str) -> bool:
+    """Whether the line gives its time as a distance from now ("daqui 2 horas", "em 30 minutos", "in 2 hours", "dentro de uma hora", "dans 2 heures"...): the natural time engine says so,
+    or one of the closed forms of the six languages does. Such a time is never put on the day of the card: it is a moment counted from the clock, and it is asked."""
+    nt = importlib.import_module("natural_time")
+    collapsed = " ".join(line.split())
+    return any(hit.get("kind") == "relative" for hit in nt.find(collapsed)["hits"]) or bool(RELATIVE.search(mail_revise._fold(collapsed)))
+
+
 def _from_code(line: str, now, zone: str, interpreter, lookup):
     """The decision for a line whose leading verb changes an event and whose time code reads by itself (the natural time engine, through the interpreter's own rule for who may decide a
     time), or a clarify when the engine asks, or None when the line holds no time code can read. Only the time: the card names the event."""
-    if lookup.verb_op(line) != "event-change":
-        return None
+    if lookup.verb_op(line) != "event-change" or line.rstrip().endswith("?"):
+        return None      # a question is no change; asked again
+    if is_relative(line):
+        return {"kind": "clarify", "error": None, "why": "time-ask", "slot": "time", "ops": None}      # a distance from now never takes the card's day: asked
     nt = importlib.import_module("natural_time")
     local = interpreter._local_now(now, zone)
     parsed = nt.parse(" ".join(line.split()), local)
@@ -180,6 +193,8 @@ def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict):
             else:
                 return strict      # a route, a none, a refusal, another operation: not for the card
         obj = interpreter.parse(got.get("text"))[0]
+        if isinstance(obj, dict) and obj.get("kind") in ("route", "none", "answer"):
+            return strict      # the model said the line is not for an operation (a private line it routes is a clarify here): the line is not read for the card by code either
         cleaned = _cleaned(obj, line, lookup)
         if cleaned is not None:
             again = interpreter.check(cleaned, line, None, interpreter.SERVED, now, zone, allowed)
@@ -208,8 +223,6 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
     if decision.get("kind") == "clarify":
         return base.say(ctx, interpret.WHY_SENTENCE.get(decision.get("why")) or "IX_ASK_AGAIN", pending_id)
     spans, time_ = decision.get("spans") or {}, decision.get("time")
-    if decision.get("kind") in ("route", "none") and mail_revise.names_object(line):
-        return base.say(ctx, "RV_NOT_UNDERSTOOD_CARD", pending_id)      # it names the card and no decision is for it: told so, with the card again, never the conversation (S13b)
     if decision.get("kind") != "op" or decision.get("op") != "event-change" or names_another(line, spans, doc):
         base.remember(project, channel, sender, line, decision)      # not a change of this card: the turn that follows reads the decision that was made
         return {"pass": True}
@@ -222,6 +235,8 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
         return base.say(ctx, "EV_CHANGE_WHAT", pending_id)
     event = doc["event"]
     start, end = event.get("start"), event.get("end")
+    if time_ and is_relative(line):
+        return base.say(ctx, interpret.WHY_SENTENCE["time-ask"], pending_id)      # "daqui 2 horas" is a moment counted from now, not an hour of the card's day: asked, whoever read it
     if time_:
         named = lookup._day_named(spans.get("time") or "", ops_natural._clock())[0]
         got = _times(event, time_["local"], named)

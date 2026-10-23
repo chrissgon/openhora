@@ -285,6 +285,9 @@ SPELLING_KEPT = [      # (typed, the model's subject): the typed subject stays
     ("Meeting tomorow", "Meeting tomorrow, urgent"),
     ("Opnehora", "Openhora"),      # an edit of a word typed with a capital
     ("Reuniao sobre o Openhora", "Reunao sobre o Openhora"),
+    ("Reuniao com a Ana", "Reuni\u00e3o com o Ana"),      # a short word replaced: another word, not a case, keeps the whole typed subject (as S12 did)
+    ("Reuniao amanha", "Reuni\u00e3o hoje"),      # a word replaced
+    ("pagar conta nao", "pegar conta sim"),      # one word taken by the rule (pagar -> pegar), another replaced (nao -> sim): the whole typed subject stays
     ("aprovado", "reprovado"), ("possivel", "impossivel"), ("can attend", "cant attend"), ("is legal", "is illegal"),      # a letter added at the start, or a short word changed
     ("pago", "pagou"), ("ver", "vez"),
     ("Reuniao amanha", "Reuniao amanha."), ("Reuniao amanha", "Reuniao  amanha ?"),
@@ -539,8 +542,6 @@ SPELLING_MERGED = [      # (typed, the model's subject, the subject that stays):
     ("Reuniao sobre Openhora", "Reuni\u00e3o sobre openhora", "Reuni\u00e3o sobre Openhora"),
     ("Reuniao sobre openhora", "Reuni\u00e3o sobre Openhora", "Reuni\u00e3o sobre openhora"),
     ("reuniao sobre Openhora", "reuni\u00e3o sobre OPENHORA", "reuni\u00e3o sobre Openhora"),
-    ("Reuniao com a Ana", "Reuni\u00e3o com o Ana", "Reuni\u00e3o com a Ana"),      # a short word replaced stays as typed
-    ("Reuniao amanha", "Reuni\u00e3o hoje", "Reuni\u00e3o amanha"),      # a word replaced stays as typed
     ("reuniao ana", "Reuniao Ana", "Reuniao ana"),      # the capital of the first word is taken, the name's is not
     ("Reuniao dia 12 Openhora", "Reuni\u00e3o dia 12 OpenHora", "Reuni\u00e3o dia 12 Openhora"),
 ]
@@ -570,3 +571,10 @@ def test_a_subject_whose_every_word_fails_the_rule_stays_as_typed_byte_for_byte(
                                           ("Reuniao sobre o Openhora", "Re: Reuni\u00e3o sobre o OpenHora")])
 def test_the_checks_of_the_whole_subject_still_come_before_any_word_is_taken(typed, shown):
     assert mail_compose.spelled(typed, shown) == typed      # an invisible character, a decomposed accent, a new mark, a word removed, another script, a digit, an address, a reply mark: nothing is taken
+
+
+def test_only_a_word_refused_for_its_case_alone_lets_the_other_words_be_taken():
+    assert mail_compose.spelled("pagar conta nao", "pegar conta sim") == "pagar conta nao", "a word refused for being another word keeps the whole typed subject"
+    assert mail_compose.spelled("pagar conta nao", "pegar conta nao") == "pegar conta nao", "vacuity: with no such word the model's words are taken"
+    assert mail_compose.spelled("Reuniao sobre o Openhora", "Reuni\u00e3o sobre o OpenHora") == "Reuni\u00e3o sobre o Openhora", "a capital inside a name is refused for its case alone: the accent is taken"
+    assert mail_compose.spelled("Reuniao OpenHora ana", "Reuni\u00e3o Openhora Eva") == "Reuniao OpenHora ana", "a case and another word together: the whole typed subject"

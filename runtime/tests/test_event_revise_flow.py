@@ -32,6 +32,7 @@ ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_interpret = st.load("ops_interpret")
 ops_card_revise = st.load("ops_card_revise")
+event_revise = st.load("ops_event_revise")
 interpreter_route = st.load("interpreter_route")
 phrases = st.load("phrases")
 
@@ -391,3 +392,55 @@ def test_an_hour_the_engine_cannot_decide_alone_is_asked_and_a_moment_in_the_pas
     past, past_sha = create(world, account="microsoft", title="corte de cabelo", start="2026-10-21T08:00", end="2026-10-21T09:00")
     asked = revise(world, past, past_sha, MUDA)
     assert asked == {"say": phrases.text("IX_ASK_PAST", ops_core.context(world["path"])["cfg"]), "resend": past}
+
+
+# --- the review round: a route or none is never answered for the card; a distance from now never takes the card's day; the name of another event ---------------------
+
+
+NOT_FOR_THE_CARD = ["lista o email do João", "resume o texto do contrato", "traduz o texto para inglês", "me manda o evento de ontem", "o card de ontem foi aprovado?"]      # validate: allow english-only -- lines under test
+
+
+@pytest.mark.parametrize("answer", ['{"v": 1, "kind": "route"}', '{"v": 1, "kind": "none"}'])
+@pytest.mark.parametrize("line", NOT_FOR_THE_CARD)
+def test_a_line_the_interpreter_answers_with_a_route_or_none_goes_on_to_its_own_path_and_the_card_is_not_touched(world, monkeypatch, answer, line):
+    build(world, monkeypatch, answer)
+    old, sha = haircut_card(world)
+    assert revise(world, old, sha, line) == {"pass": True}
+    assert open_cards(world) == [old] and status(world, old) == "open"
+
+
+@pytest.mark.parametrize("shape", ["invalid-json", "empty-object", "event-change-relative"])
+@pytest.mark.parametrize("line", ["muda para daqui 2 horas", "muda para em 30 minutos", "muda para in 2 hours", "muda para dentro de uma hora"])      # validate: allow english-only -- lines under test
+def test_a_distance_from_now_never_takes_the_day_of_the_card_and_is_asked(world, monkeypatch, shape, line):
+    answers = dict(SHAPES, **{"event-change-relative": op_text("event-change", {"time": line[len("muda para "):]}, time_iso="2026-10-21T17:00", weekday="wed")})
+    build(world, monkeypatch, answers[shape])
+    old, sha = haircut_card(world)      # Fri 23/10 14:00-15:00, now Wed 21/10 15:00
+    got = revise(world, old, sha, line)
+    assert got["resend"] == old and got["say"] and open_cards(world) == [old] and status(world, old) == "open"
+    assert "14:00-15:00" in " ".join(body(world, old)), "the card is as it was"
+
+
+@pytest.mark.parametrize("shape", ["invalid-json", "empty-object"])
+def test_the_fallback_from_the_line_refuses_a_question(world, monkeypatch, shape):
+    build(world, monkeypatch, SHAPES[shape])
+    old, sha = haircut_card(world)
+    got = revise(world, old, sha, "muda para as 10h?")      # validate: allow english-only -- the Portuguese line under test
+    assert got["resend"] == old and open_cards(world) == [old]
+    assert revise(world, old, sha, MUDA)["resend"] != old, "vacuity: without the question mark the same line is a change"
+
+
+def test_the_fallback_is_not_used_when_the_model_answered_a_route_or_none(world, monkeypatch):
+    for answer in ('{"v": 1, "kind": "route"}', '{"v": 1, "kind": "none"}'):
+        build(world, monkeypatch, answer)
+        old, sha = haircut_card(world)
+        got = revise(world, old, sha, MUDA)      # a private line the model routes is asked again, as any line is: the fallback of the card does not read it
+        assert (got == {"pass": True} or got["resend"] == old) and "Pronto" not in str(got.get("say")) and open_cards(world) == [old]
+        ops_interpret.forget_all()
+        ops_card_revise.forget_all()
+        ops.reject(world["path"], old, channel="terminal")
+
+
+def test_a_word_that_is_a_verb_of_the_gate_in_the_name_of_another_event_still_counts_as_a_name():
+    doc = {"event": {"title": "evento social"}, "before": None}
+    assert event_revise.names_another("muda o sign day para as 10h", {"time": "as 10h"}, doc) is True      # validate: allow english-only -- the Portuguese line under test
+    assert event_revise.names_another("muda o evento social para as 10h", {"time": "as 10h"}, doc) is False      # validate: allow english-only -- the Portuguese line under test

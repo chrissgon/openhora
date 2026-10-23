@@ -150,19 +150,19 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
         return None
     if item.get("status", "open") != "open":
         # a card this feature replaced, and a line that asks for a change of it: the person is told it was replaced (the bridge asks this only for a reply to the card)
-        asked = mail_revise.has_change_word(line) or bool(mail_revise.literals(line))
+        asked = mail_revise.asks_change(line) or bool(mail_revise.literals(mail_revise.instruction(text)))
         return ("replaced", None, line, None, None) if asked and item.get("answer") == NOTE and item.get("resolution") == "rejected" else None
     kind, doc, mail = _shape(ctx, item)
     if not isinstance(doc, dict):
         return None
     if kind == "sentence":
-        return ("sentence", None, line, doc, None) if mail_revise.has_change_word(line) and not _recognised(ctx, line, sender) else None
+        return ("sentence", None, line, doc, None) if mail_revise.asks_change(line) and not _recognised(ctx, line, sender) else None
     if _recognised(ctx, line, sender) and not (kind == "event" and _is_event_change(line)):
         return None
     raw = mail_revise.instruction(text)
-    asks = mail_revise.has_change_word(line) or bool(mail_revise.literals(raw)) or mail_revise.recipient_words(raw)
-    if kind == "mail" and not asks and not mail_revise.names_object(line):
-        return None      # a line that asks for no change and names no object of the card never reaches the model (limit L63): a request or a thought, not an instruction for this card
+    asks = mail_revise.asks_change(line) or bool(mail_revise.literals(raw)) or mail_revise.recipient_words(raw)
+    if kind == "mail" and not asks:
+        return None      # a line that asks for no change never reaches the model (limit L63): a request or a thought, not an instruction for this card
     entry = entry_of(ctx, channel, sender, revise=kind == "mail")
     if entry is None:
         return None
@@ -173,8 +173,6 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
     wanted = OPERATION[mail["kind"]] if kind == "mail" else "event-" + ("create" if doc["operation"] == "create" else "change")
     if operations.refusal(wanted, CHANNEL, ctx["cfg"]["channels"], sender=sender):
         return None
-    if kind == "mail" and not asks:
-        return "unclear", entry, line, doc, mail      # it names the card (the e-mail, the text...) and asks nothing the gate reads: told so, with no model call (S13b)
     return kind, entry, raw if kind == "mail" else line, doc, mail
 
 
@@ -279,8 +277,6 @@ def card_revise(project: str, pending_id: int, sha256: str, text: str, channel: 
     kind, entry, line, doc, mail = taken
     if kind == "replaced":
         return say(ctx, "RV_REPLACED")
-    if kind == "unclear":
-        return say(ctx, "RV_NOT_UNDERSTOOD_CARD", pending_id)
     if kind == "sentence":
         return say(ctx, "RV_NOT_REVISABLE")
     if kind == "mail":

@@ -182,12 +182,17 @@ def _same_words(typed: str, shown: str) -> bool:
 
 
 def _merged(typed: str, shown: str) -> str:
-    """The typed subject with every word the model's version may stand for replaced by the model's word, and every other word as typed (S13b: one word that fails does not keep the whole
-    subject unaccented). The whole subject must pass `_frame_ok` first; what is not a word (spaces, digits, punctuation) is the typed subject's own."""
+    """The typed subject with the model's words taken where the rule allows, when every word the rule refuses was refused for its CASE alone (S13b): "Reuniao sobre o Openhora" answered as
+    "Reuni\u00e3o sobre o OpenHora" becomes "Reuni\u00e3o sobre o Openhora", the capital inside the name staying as typed. A word refused for being ANOTHER word ("pagar conta nao" answered as
+    "pegar conta sim") keeps the whole typed subject, as it did before. The whole subject must pass `_frame_ok` first; what is not a word (spaces, digits, punctuation) is the typed one's."""
     if not _frame_ok(typed, shown):      # on the texts as they are: a decomposed accent is not NFKC-stable, and is refused
         return typed
     typed, shown = unicodedata.normalize("NFC", typed), unicodedata.normalize("NFC", shown)
-    words = iter(enumerate(re.findall(r"[^\W_]+", shown)))
+    before, after = re.findall(r"[^\W_]+", typed), re.findall(r"[^\W_]+", shown)
+    for at, (old, new) in enumerate(zip(before, after)):
+        if not _word_ok(at, old, new) and _fold(old).lower() != _fold(new).lower():
+            return typed      # a word refused for being another word
+    words = iter(enumerate(after))
 
     def pick(match):
         at, new = next(words)
