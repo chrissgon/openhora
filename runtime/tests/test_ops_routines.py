@@ -178,6 +178,26 @@ def test_a_missed_slot_is_run_once_inside_the_window_skipped_and_noted_outside_i
     assert tick(world, clock.to(days=3, hours=4)) == [], "what was skipped is not tried again"
 
 
+def test_a_routine_paused_from_a_messaging_app_records_who_paused_it_and_a_sender_without_the_group_changes_nothing(world, clock):
+    """Slice S20 (review round): the pause asked in words is guarded as the bridge guards it, and its actor is kept beside the routine."""
+    from test_ops_natural import KEY, PROFILES, SENDERS, with_senders
+    with_senders(world)
+    made = make(world)
+    approve(world, made["id"])
+    with pytest.raises(ops_core.OpsError):
+        ops.routine_pause(world["path"], made["id"], channel="messaging", sender=KEY["plain"])      # the profile `plain` holds read and talk only
+    assert ops.routines_read(world["path"], made["id"])["state"] == "active"
+    PROFILES["owner"].append("routine-brakes")
+    try:
+        from test_ask import accept
+        accept(world["path"], policies=PROFILES, messaging={"senders": SENDERS})
+        assert ops.routine_pause(world["path"], made["id"], channel="messaging", sender=KEY["owner"])["state"] == "paused"
+    finally:
+        PROFILES["owner"].remove("routine-brakes")
+    ctx = ctx_of(world)
+    assert ctx["store"].cursor_get(ctx["conn"], ops_routines.ROUTINE_MOVED_BY.format(id=made["id"])) == f"pause:messaging:telegram:owner:{KEY['owner'].split(':')[1]}"
+
+
 def test_a_paused_routine_fires_nothing_and_makes_up_nothing_a_cancelled_one_never_returns(world, clock):
     made = make(world)
     approve(world, made["id"])

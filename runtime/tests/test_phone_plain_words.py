@@ -263,8 +263,8 @@ HELP_PT = (  # validate: allow english-only -- the Portuguese help under test
     "Lembretes\n/remind <hora> <texto> \u2014 um lembrete enviado a você uma vez (15:00, 2026-10-20 09:30 ou in 2h)\n/reminders \u2014 os lembretes que esperam\n"  # validate: allow english-only -- the Portuguese text under test
     "/forget <n> \u2014 cancela um lembrete\n\n"
     "Projeto\n/project [nome] \u2014 escolhe o projeto para onde vão suas mensagens\n/help \u2014 esta lista\n\n"  # validate: allow english-only -- the Portuguese text under test
-    "Você também pode pedir com as suas palavras. Os comandos ativos dependem das suas permissões.")  # validate: allow english-only -- the Portuguese text under test
-HELP_EN_LAST = "You can also ask in your own words. Which of these are active depends on your permissions."
+    "Todo comando acima também pode ser pedido com as suas palavras. Os comandos ativos dependem das suas permissões.")  # validate: allow english-only -- the Portuguese text under test
+HELP_EN_LAST = "Every command above can also be asked for in your own words. Which of these are active depends on your permissions."
 
 
 def padded(text: str) -> list:

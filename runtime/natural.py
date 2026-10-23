@@ -1181,6 +1181,8 @@ def match(line: str, languages=None):
         return None
     op, hit = found[0]
     args = {}
+    if "n" in hit.groupdict() and hit.group("n") is not None and not plain_number(line, int(hit.group("n"))):
+        return None      # "rejeite 25%": a percentage, an amount: not the number of anything (slice S20, review round)
     if "n" in hit.groupdict() and hit.group("n") is not None:
         slot = next((v for v in NATURAL[op]["slots"].values() if v[0] == "int"), None)
         if slot is None:
@@ -1227,6 +1229,43 @@ def confirm_kind(said, languages=None):
 
 def _numbers(line: str) -> set:
     return {int(n) for n in re.findall(r"[0-9]+", unicodedata.normalize("NFKC", line)) if len(n) <= 9}
+
+
+# The words a number is counted in, or a time or a quantity is told in (folded, the six languages): "3 dias atras", "ha 2 horas", "em 2 semanas", "3 days ago", "25 euros", "10 kg". A
+# number followed by one of them is a quantity or a relative time, never the number of a decision (slice S20, review round).
+MEASURES = frozenset((
+    "dia dias hora horas minuto minutos segundo segundos semana semanas mes meses ano anos vez vezes real reais dolar dolares euro euros porcento "
+    "day days hour hours hr hrs minute minutes min mins second seconds sec secs week weeks month months year years time times dollar dollars percent pct usd brl eur gbp "
+    "ano jour jours heure heures semaine semaines mois an ans annee annees fois tag tage tagen stunde stunden minuten sekunden woche wochen monat monate monaten jahr jahre jahren mal "
+    "giorno giorni ora ore settimana settimane mese mesi anno anni volte kg km mg cm mm ml metros metres meters m g l x").split())
+CURRENCY_BEFORE = ("$", "\u20ac", "\u00a3", "\u00a5", "r$", "us$")
+CURRENCY_OR_MARK_AFTER = ("%", "\u2030", "\u00b0", "\u20ac", "$", "\u00a3", "\u00a5")
+
+
+def decision_numbers(said: str) -> list:
+    """The numbers of a line that can name a decision (slice S20): a whole word of digits ("25", "#25"), with its edge marks off, in a line that holds no date or time. A number glued
+    to a letter or a mark ("25h", "12:30", "10/25", "2026-10-22", "25%") is a time, a date or a quantity, never a decision; so is a number a unit follows or a currency stands by
+    ("3 dias atras", "ha 2 horas", "em 2 semanas", "3 days ago", "25 euros"), and so is every number of a line that says a date or a time ("rejeite 25 de outubro")."""
+    if nt.find(said)["hits"]:
+        return []
+    words = [word.strip(".,;:!?()[]\"'") for word in unicodedata.normalize("NFKC", said).split()]
+    found = []
+    for at, word in enumerate(words):
+        if not re.fullmatch(r"#?[0-9]{1,9}", word):
+            continue
+        after = ascii_normal(words[at + 1]) if at + 1 < len(words) else ""
+        before = words[at - 1].lower() if at else ""
+        if after.split(" ")[0] in MEASURES or (at + 1 < len(words) and words[at + 1].lstrip().startswith(CURRENCY_OR_MARK_AFTER)) or before.endswith(CURRENCY_BEFORE):
+            continue
+        found.append(int(word.lstrip("#")))
+    return found
+
+
+def plain_number(line: str, n: int) -> bool:
+    """Whether the number `n` of a line is written as a plain number: not a percentage, not an amount of money, not a degree ("rejeite 25%", "rejeite $25", "rejeite 25 euros")."""
+    raw = unicodedata.normalize("NFKC", line).lower()
+    digits = re.escape(str(n))
+    return not re.search(rf"(?<![0-9]){digits}\s*[%\u2030\u00b0\u20ac\u00a3\u00a5$]|[$\u20ac\u00a3\u00a5]\s*{digits}(?![0-9])|r\$\s*{digits}(?![0-9])", raw)
 
 
 def check_operation(name, slots: dict, when, line) -> dict:
