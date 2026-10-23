@@ -41,7 +41,8 @@ S12_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; th
 S13_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned)"      # the entry of slice S13
 PINS = ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")
 R2F1_STATUS_LINE = S13_STATUS_LINE + "; research added to the catalog 2026-10-22 (R2-F1)"      # the entry of slice R2-F1
-STATUS_LINE = R2F1_STATUS_LINE + "; file-trash added to the catalog 2026-10-22 (R2-A)"      # the newest entry (slice R2-A)
+S13B_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned, revise prompt re-pinned 2026-10-22)"      # the entry of slice S13b
+STATUS_LINE = S13B_STATUS_LINE + "; file-trash added to the catalog 2026-10-22 (R2-A)"      # the newest entry (slice R2-A)
 
 
 def status_module():
@@ -84,10 +85,15 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert by_line[COMPOSE_STATUS_LINE]["date"] == "2026-10-21" and by_line[COMPOSE_STATUS_LINE]["compose_prompt_sha256"] == "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf" and "revise_prompt_sha256" not in by_line[COMPOSE_STATUS_LINE]
     assert by_line[S12_STATUS_LINE]["date"] == "2026-10-22" and by_line[S12_STATUS_LINE]["compose_prompt_sha256"] != by_line[COMPOSE_STATUS_LINE]["compose_prompt_sha256"] and "revise_prompt_sha256" not in by_line[S12_STATUS_LINE]
     assert by_line[S13_STATUS_LINE]["date"] == "2026-10-22" and by_line[S13_STATUS_LINE]["compose_prompt_sha256"] == by_line[S12_STATUS_LINE]["compose_prompt_sha256"] and "revise_prompt_sha256" in by_line[S13_STATUS_LINE]
-    assert by_line[S13_STATUS_LINE]["catalog_sha256"] == "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1" != by_line[R2F1_STATUS_LINE]["catalog_sha256"] != entry["catalog_sha256"], "R2-F1 added `research` and R2-A `file-trash` to the catalog: each entry names its own hash"
-    assert {key: entry[key] for key in PINS} == \
-        {key: by_line[S13_STATUS_LINE][key] for key in PINS}, "every other pin of the newest entry stands as decided"
-    assert {key: by_line[R2F1_STATUS_LINE][key] for key in PINS} == {key: by_line[S13_STATUS_LINE][key] for key in PINS}, "R2-F1 kept every other pin"
+    assert by_line[S13_STATUS_LINE]["catalog_sha256"] == "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1" != by_line[R2F1_STATUS_LINE]["catalog_sha256"], "R2-F1 added `research` to the catalog: its entry names the new hash"
+    pins = ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")
+    assert {key: by_line[R2F1_STATUS_LINE][key] for key in pins} == {key: by_line[S13_STATUS_LINE][key] for key in pins}, "every other pin of the entry of R2-F1 stands as decided"
+    s13b = by_line[S13B_STATUS_LINE]
+    assert s13b["catalog_sha256"] == by_line[R2F1_STATUS_LINE]["catalog_sha256"] != entry["catalog_sha256"] == HASHES["catalog_sha256"], "S13b names the catalog of R2-F1; R2-A adds `file-trash` and its entry names the new hash"
+    assert by_line[S13_STATUS_LINE]["revise_prompt_sha256"] != s13b["revise_prompt_sha256"] and "revise_prompt_sha256" in s13b, "the revise prompt was re-pinned by the entry of S13b"
+    assert s13b["compose_prompt_sha256"] == by_line[S12_STATUS_LINE]["compose_prompt_sha256"], "and it carries the compose pin of S12"
+    assert {key: s13b[key] for key in ("route_sha256", "prompt_sha256", "protocol_sha256")} == {key: by_line[S13_STATUS_LINE][key] for key in ("route_sha256", "prompt_sha256", "protocol_sha256")}
+    assert {key: entry[key] for key in PINS} == {key: s13b[key] for key in PINS}, "the newest entry (R2-A) carries every pin of S13b, the re-pinned revise prompt included"
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():

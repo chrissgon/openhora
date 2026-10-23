@@ -240,14 +240,16 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
-    entries = enable.load()["entries"][:-2]      # without the two newest entries (R2-F1 adds `research`, R2-A adds `file-trash`), which only change the catalog and keep these pins: test_research.py reads them
-    newest, s12, s7, first = entries[-1], entries[-2], entries[-3], entries[-4]
-    assert {k: enable.load()["entries"][-1][k] for k in ("compose_prompt_sha256", "revise_prompt_sha256")} == {k: newest[k] for k in ("compose_prompt_sha256", "revise_prompt_sha256")}
-    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256() == s12["compose_prompt_sha256"]      # the newest decision (S13) carries the compose pin of the one before it (S12)
+    every = enable.load()["entries"]
+    entries = every[:-1]      # without the newest entry (R2-A), which adds `file-trash` to the catalog and carries every pin of the one before it
+    assert {k: every[-1][k] for k in ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")} == {k: entries[-1][k] for k in ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")}
+    newest, s12, s7, first = entries[-1], entries[-4], entries[-5], entries[-6]      # entries[-3] and [-2] are the first pin of the revise prompt (S13) and the entry of R2-F1
+    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256() == s12["compose_prompt_sha256"] == entries[-2]["compose_prompt_sha256"] == entries[-3]["compose_prompt_sha256"]      # the decisions after S12 carry its compose pin
     assert s12["date"] == "2026-10-22" and s12["basis"] == "maintainer-decision" and "a IA deve verificar a ortografia do assunto do email" in s12["reason"]
     assert s7["date"] == "2026-10-21" and "para emails eu iria pedir para a IA criar um texto melhor escrito" in s7["reason"], "the entry of the first compose prompt stays"
     assert s7["compose_prompt_sha256"] == "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf" and s7["compose_prompt_sha256"] != newest["compose_prompt_sha256"]
-    assert {k: newest[k] for k in enable.HASH_KEYS} == {k: s12[k] for k in enable.HASH_KEYS} == {k: s7[k] for k in enable.HASH_KEYS} == {k: first[k] for k in enable.HASH_KEYS}, "every hash of the earlier decisions stands"
+    assert {k: s12[k] for k in enable.HASH_KEYS} == {k: s7[k] for k in enable.HASH_KEYS} == {k: first[k] for k in enable.HASH_KEYS}, "every hash of the earlier decisions stands"
+    assert {k: newest[k] for k in enable.HASH_KEYS if k != "catalog_sha256"} == {k: s12[k] for k in enable.HASH_KEYS if k != "catalog_sha256"}, "and so does every one of the newest but the catalog, which R2-F1 changed"
     assert "compose_prompt_sha256" not in first and "revise_prompt_sha256" in newest and "revise_prompt_sha256" not in s12
 
 
@@ -293,12 +295,19 @@ def test_the_model_may_fix_the_spelling_of_the_typed_subject_and_the_card_shows_
     nothing_sent(world)
 
 
-@pytest.mark.parametrize("composed", ["Convite para reunião", "Reunião Openhora", "Reunião sobre o Openhora amanhã", "Reunião sobre o Openhora https://elsewhere.example", "Reunião sobre o openhora"])      # validate: allow english-only -- the stand-in model's Portuguese answers
+@pytest.mark.parametrize("composed", ["Convite para reunião", "Reunião Openhora", "Reunião sobre o Openhora amanhã", "Reunião sobre o Openhora https://elsewhere.example"])      # validate: allow english-only -- the stand-in model's Portuguese answers
 def test_a_model_subject_that_is_not_the_same_subject_with_its_spelling_fixed_leaves_the_typed_one_on_the_card(world, clock, monkeypatch, composed):
     with_subject_typed(world, monkeypatch, composed)
     out = phone(world, TYPED_LINE)
     lines = card_lines(world, out)
     assert out["resend"] and lines[3] == "Subject: " + TYPED_SUBJECT and text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
+
+
+def test_a_model_subject_with_one_word_that_fails_the_rule_still_fixes_the_accents_of_the_others_on_the_card(world, clock, monkeypatch):
+    with_subject_typed(world, monkeypatch, "Reunião sobre o OpenHora")      # validate: allow english-only -- the stand-in model's Portuguese answer
+    out = phone(world, TYPED_LINE)
+    lines = card_lines(world, out)
+    assert out["resend"] and lines[3] == "Subject: Reunião sobre o Openhora" and text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
 
 
 def test_a_composed_body_that_ends_with_a_closing_formula_alone_is_shown_without_it(world, clock, monkeypatch):

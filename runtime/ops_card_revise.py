@@ -150,17 +150,19 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
         return None
     if item.get("status", "open") != "open":
         # a card this feature replaced, and a line that asks for a change of it: the person is told it was replaced (the bridge asks this only for a reply to the card)
-        asked = mail_revise.has_change_word(line) or bool(mail_revise.literals(line))
+        asked = mail_revise.asks_change(line) or bool(mail_revise.literals(mail_revise.instruction(text)))
         return ("replaced", None, line, None, None) if asked and item.get("answer") == NOTE and item.get("resolution") == "rejected" else None
     kind, doc, mail = _shape(ctx, item)
     if not isinstance(doc, dict):
         return None
     if kind == "sentence":
-        return ("sentence", None, line, doc, None) if mail_revise.has_change_word(line) and not _recognised(ctx, line, sender) else None
+        return ("sentence", None, line, doc, None) if mail_revise.asks_change(line) and not _recognised(ctx, line, sender) else None
     if _recognised(ctx, line, sender) and not (kind == "event" and _is_event_change(line)):
         return None
-    if kind == "mail" and not (mail_revise.has_change_word(line) or mail_revise.literals(line) or mail_revise.recipient_words(line)):
-        return None      # a line that asks for no change never reaches the model (limit L63): what it says is a request or a thought, not an instruction for this card
+    raw = mail_revise.instruction(text)
+    asks = mail_revise.asks_change(line) or bool(mail_revise.literals(raw)) or mail_revise.recipient_words(raw)
+    if kind == "mail" and not asks:
+        return None      # a line that asks for no change never reaches the model (limit L63): a request or a thought, not an instruction for this card
     entry = entry_of(ctx, channel, sender, revise=kind == "mail")
     if entry is None:
         return None
@@ -171,7 +173,7 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
     wanted = OPERATION[mail["kind"]] if kind == "mail" else "event-" + ("create" if doc["operation"] == "create" else "change")
     if operations.refusal(wanted, CHANNEL, ctx["cfg"]["channels"], sender=sender):
         return None
-    return kind, entry, line, doc, mail
+    return kind, entry, raw if kind == "mail" else line, doc, mail
 
 
 def card_revise_check(project: str, pending_id: int, sha256: str, text: str, channel: str = CHANNEL, sender=None):
@@ -240,6 +242,8 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
         ok, revised = False, None
     interpret._record(ok)
+    if revised is not None and revised.get("same") and revised.get("holds"):
+        return say(ctx, "RV_ALREADY", pending_id)      # the card already holds every text the line asks for: told so, and the card is sent again
     if revised is None or revised.get("same"):
         return say(ctx, "RV_FAILED", pending_id)
     seed = {"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": list(mail["to"]), "subject": revised["subject"], "body": revised["body"]}}
