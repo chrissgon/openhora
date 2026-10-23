@@ -48,6 +48,7 @@ import flow_files  # noqa: E402
 import lab  # noqa: E402
 import operations  # noqa: E402
 import ops_cancel  # noqa: E402
+import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_flows  # noqa: E402
 import ops_instructions  # noqa: E402
@@ -378,10 +379,18 @@ def _close_stops(ctx: dict, routine_id: int) -> None:
                 pass      # already answered, cancelled or gone
 
 
-def routine_pause(project: str, routine_id: int) -> dict:
-    """Pause an active routine: no slot fires while it is paused, and the slots it passes are not made up (the window is not kept)."""
+ROUTINE_MOVED_BY = "routine-moved-by:{id}"      # who made the last move of a routine (S20), beside it: no column holds it; the actor label of runtime/ops_actor.py
+
+
+def routine_pause(project: str, routine_id: int, channel: str | None = None, sender: str | None = None) -> dict:
+    """Pause an active routine: no slot fires while it is paused, and the slots it passes are not made up (the window is not kept). From a messaging app the sender's profile must
+    cover `routine-pause` (checked here, as the bridge checks it) and the actor of the move is recorded beside the routine (`ROUTINE_MOVED_BY`)."""
     ctx = core.context(project)
+    ops_actor.guard(ctx, "routine-pause", channel, sender)
     core._stored(ctx, ctx["store"].routine_move, routine_id, "pause")
+    label = ops_actor.label(ctx["cfg"], channel, sender)
+    if label:
+        core._stored(ctx, ctx["store"].cursor_set, ROUTINE_MOVED_BY.format(id=routine_id), f"pause:{label}")
     return routines_read(project, routine_id)
 
 

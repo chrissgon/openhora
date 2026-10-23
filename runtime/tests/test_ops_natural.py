@@ -204,7 +204,7 @@ def test_a_decision_named_in_words_decides_nothing_and_sends_its_card_again_on_a
     out = phone(world, "owner", f"aprova a entrega {plan_id}")
     assert out["resend"] == plan_id and out["ran"] is False and out["reply"] == phrases.text("NAT_DECISION_CARD", None, id=plan_id)
     assert ops.pending(world["path"], plan_id)["status"] == "open" and ops.status(world["path"])["requests"][0]["state"] == "requested"
-    for verb in ("rejeita o pedido", "libera a entrega", "approve", "reject", "release"):
+    for verb in ("aprova o pedido", "approve", "aceita a decisao", "accept"):      # S20: only an approval is made from the card; a rejection and a release are run by their typed lines (test_commands_in_words.py)
         again = phone(world, "owner", f"{verb} {plan_id}")
         assert again.get("resend") == plan_id and ops.pending(world["path"], plan_id)["status"] == "open", verb
     assert [t for t in ops.status(world["path"])["requests"] if t["state"] != "requested"] == []
@@ -230,13 +230,13 @@ def test_a_decision_that_is_not_open_is_said_so_and_no_card_is_sent(world):
 def test_a_write_named_in_words_is_never_run_and_the_reply_is_the_command_to_send(world):
     with_senders(world)
     request = phone(world, "owner", "Which market first?")["request_id"]
-    out = phone(world, "owner", f"cancela o pedido {request}")
-    assert out["reply"] == phrases.text("NAT_TYPE_IT", None, command=f"/cancel {request}") and out["ran"] is False
-    assert ops.status(world["path"])["requests"][0]["state"] == "requested"
-    on_page = say(world, f"stop task 5")["reply"]
-    assert on_page == phrases.text("NAT_TYPE_IT", None, command="/stop-task 5")
-    assert phone(world, "owner", "add file 3")["reply"] == phrases.text("NAT_TYPE_IT", None, command="/add 3")
-    assert phone(world, "owner", "discard attachment 3")["reply"] == phrases.text("NAT_TYPE_IT", None, command="/discard 3")
+    on_page = say(world, f"cancela o pedido {request}")["reply"]      # S20: on a messaging app a write with a typed form is run by it (test_commands_in_words.py); the page and the terminal still get the command
+    assert on_page == phrases.text("NAT_TYPE_IT", None, command=f"/cancel {request}") and ops.status(world["path"])["requests"][0]["state"] == "requested"
+    assert say(world, f"stop task 5")["reply"] == phrases.text("NAT_TYPE_IT", None, command="/stop-task 5")
+    assert "attachment-add" in say(world, "add file 3")["reply"] and "attachment-discard" in say(world, "discard attachment 3")["reply"], "the page and the terminal get the terminal's command"
+    added, discarded = phone(world, "owner", "add file 3"), phone(world, "owner", "discard attachment 3")
+    assert (added["reply"], added["typed"], discarded["reply"], discarded["typed"]) == ("", "/add 3", "", "/discard 3"), "S20: on a messaging app the bridge is handed the typed line"
+    assert say(world, "reject the plan 4")["reply"] == phrases.text("NAT_NO_DECISION", None, id=4)
 
 
 def test_a_gated_act_named_in_words_is_never_run_and_the_reply_names_the_place_and_the_command(world):
@@ -308,9 +308,13 @@ def spy_all(monkeypatch):
     return seen
 
 
+RUNS_FROM_WORDS = ("cancel", "stop-task", "retry", "routine-pause")      # S20 (limit L54, amended): on a messaging app, and only there, the acts that take a brake or a retry run when named in words, after the policy check
+
+
 def test_limit_54_a_decision_a_gated_act_a_write_and_an_effect_on_an_account_named_by_a_line_run_nothing_on_any_channel(world, monkeypatch):
     """The walk of the table: every operation of class D, G, W or E, named on every channel, as an operation with every argument its
-    row has. Nothing is called, except that a decision reads `pending` to know whether its card exists."""
+    row has. Nothing is called, except that a decision reads `pending` to know whether its card exists, and (S20) that on a messaging app the four acts of RUNS_FROM_WORDS call
+    their own operation, once. No approval is ever called, whatever the class and the channel."""
     with_senders(world)
     spied = spy_all(monkeypatch)
     walked = 0
@@ -322,9 +326,12 @@ def test_limit_54_a_decision_a_gated_act_a_write_and_an_effect_on_an_account_nam
         for channel, sender in (("page", None), ("chat", None), ("terminal", None), ("mcp", None), ("messaging", KEY["owner"])):
             spied.clear()
             ctx = ops_core.context(world["path"])
-            reply = ops_natural.run(world["path"], ctx, name, args, "a line that names it", channel, sender, {})
-            assert isinstance(reply, str) and reply, (name, channel)
-            assert set(spied) <= ({"pending"} if cls == "D" else set()), (name, channel, sorted(spied))
+            extras = {}
+            reply = ops_natural.run(world["path"], ctx, name, args, "a line that names it", channel, sender, extras)
+            assert isinstance(reply, str) and (reply or extras.get("typed", "").startswith("/")), (name, channel)      # S20: a line the bridge answers itself is handed over as its typed line
+            allowed = {"pending"} if cls == "D" else {name} if channel == "messaging" and name in RUNS_FROM_WORDS else set()
+            assert set(spied) <= allowed, (name, channel, sorted(spied))
+            assert "approve" not in spied and "answer" not in spied, (name, channel)
             walked += 1
     assert walked == 5 * len([n for n, c in natural.CLASSES.items() if c in ("D", "G", "W", "E")]) >= 5 * 50
 

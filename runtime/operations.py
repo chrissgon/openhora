@@ -444,7 +444,7 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False,
      "help": "approve a routine by the sha256 of its exact content (schedule, flow template and fixed arguments, skill versions X.Y, eval image, model and consent, providers, and the sha256 of the project's instructions when the file is there): without --sha256 the preview and the hash; a stopped routine is approved again the same way"},
     {"name": "routine-pause", "call": "routine_pause", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
-     "channels": ("terminal", "page", "messaging"), "model": False, "help": "pause an active routine: nothing fires while it is paused, and the slots it passes are not made up"},
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "help": "pause an active routine: nothing fires while it is paused, and the slots it passes are not made up"},
     {"name": "routine-resume", "call": "routine_resume", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
      "channels": ("terminal", "page"), "model": False, "help": "resume a paused routine; its approval stands and every fire still compares the hash"},
     {"name": "routine-cancel", "call": "routine_cancel", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
