@@ -40,7 +40,8 @@ def test_the_time_and_the_id_of_the_event_are_not_private_but_its_title_is_and_i
     started = ops.event_cancel(world["path"], "google", f"created:{made['pending']}", channel="terminal")
     other = card_for(world, started["pending"], ["read", "approve-effect-calendar"], sender=OTHER)["message"]["text"]
     holder = card_for(world, started["pending"], ["read", "approve-effect-calendar", "ask-mail"], sender=OTHER)["message"]["text"]
-    assert "Event: ev0001" in other and "The event now is at: Mon 19/10/2026 13:00-14:00" in other
+    assert "Event: ev0001" not in other, "a phone is not shown the event's id (S16c): the terminal and the page are"
+    assert "The event now is at: Mon 19/10/2026 13:00-14:00" in other
     assert SECRET_TITLE not in other and "The event now:" not in other
     assert f"The event now: {SECRET_TITLE}" in holder, "the reader who holds ask-mail sees it, whoever created the card"
 

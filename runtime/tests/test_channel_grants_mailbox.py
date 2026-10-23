@@ -112,8 +112,9 @@ def test_a_sender_who_may_ask_may_not_approve_without_the_grant_and_the_grant_ne
     assert {w["group"] for w in accepted["widened"]} == {"approve-effect-mailbox"} and "mailbox" in accepted["widened"][0]["means"]      # the channel's list and the holder's profile both widen
     card = card_for(desk, started, ["read", "ask-mail", "approve-effect-mailbox"])
     assert EXPENSIVE in labels(card) and card["whole"] is True and card["approvable"] is True
-    for line in ("Archive: 2 message(s)", "1. 2026-10-17 06:00 · from ana@clinic.example · Appointment confirmed for Monday", "Read from your mailbox at"):
+    for line in ("Archive: 2 message(s)", "1. 2026-10-17 06:00 · from ana@clinic.example · Appointment confirmed for Monday", "Nothing is changed unless every message is still as listed."):
         assert line in card["message"]["text"], line
+    assert "Read from your mailbox at" not in card["message"]["text"], "a phone is not told the time the mailbox was read (S16c)"
     with pytest.raises(ops.OpsError) as wrong:
         ops.approve(desk["path"], started["pending"], "0" * 64, channel="messaging", sender=SENDER)
     assert "nothing was approved" in str(wrong.value) and desk["google"].writes() == []
@@ -134,7 +135,7 @@ def test_a_sender_who_does_not_hold_ask_mail_is_shown_no_subject_and_no_sender_a
     text = other["message"]["text"]
     for hidden in ("Appointment confirmed", "Your order", "ana@clinic.example", "bob@shop.example"):
         assert hidden not in text, hidden
-    for shown in ("Archive: 2 message(s)", "Account: google", "Read from your mailbox at", "Some of the addresses, subjects and text of the e-mail are not shown here"):
+    for shown in ("Archive: 2 message(s)", "Account: google", "Nothing is changed unless every message is still as listed.", "Some of the addresses, subjects and text of the e-mail are not shown here"):
         assert shown in text, shown
     assert other["approvable"] is False and EXPENSIVE not in labels(other), "a card that leaves a line out is not approved where it is partial"
     assert other["content_sha256"] == holder["content_sha256"], "the hash is the effect's, whatever is drawn"
@@ -155,7 +156,7 @@ def test_a_draft_card_hides_the_message_it_answers_from_a_sender_without_ask_mai
     holder_card = card_for(desk, started, ["read", "approve-effect-mailbox", "ask-mail"])
     holder = holder_card["message"]["text"]
     assert holder_card["approvable"] is True and "To: ana@clinic.example" in holder and "Subject: Re: Appointment confirmed for Monday" in holder
-    assert "Reply to: ana@clinic.example, the sender of inbox#1" in holder and "The message asks replies to go to desk@clinic.example" in holder
+    assert "Reply to: ana@clinic.example, the sender of the message (" in holder and "inbox#1" not in holder and "The message asks replies to go to desk@clinic.example" in holder
     own = ops.mail_draft(desk["path"], "google", **NEW_DRAFT)
     plain = card_for(desk, own, ["read", "approve-effect-mailbox"], sender=OTHER)
     assert plain["approvable"] is False and "Hello Joe," not in plain["message"]["text"] and "joe@shop.example" not in plain["message"]["text"] and "Haircut" not in plain["message"]["text"]
