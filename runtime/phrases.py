@@ -100,7 +100,7 @@ TABLE = {
                  "Reminders\n/remind <time> <text> \u2014 a reminder sent back to you once (15:00, 2026-10-20 09:30 or in 2h)\n/reminders \u2014 the reminders that wait\n"
                  "/forget <n> \u2014 cancel a reminder\n\n"
                  "Project\n/project [name] \u2014 choose the project your lines go to\n/help \u2014 this list\n\n"
-                 "You can also ask in your own words. Which of these are active depends on your permissions."),
+                 "Every command above can also be asked for in your own words. Which of these are active depends on your permissions."),
         "USAGE_APPROVE": "Usage: /approve <id>",
         "USAGE_REJECT": "Usage: /reject <id> [note]",
         "USAGE_RELEASE": "Usage: /release <id>",
@@ -389,7 +389,8 @@ TABLE = {
         "NAT_NO_DECISION": "There is no open decision #{id}.",
         "NAT_TYPE_IT": "This changes something, so it is done by its command, not by a line of words. Send: {command}",
         "NAT_DECISION_TYPED": "A decision is made by its command, never from a line of words. Send: {command}",
-        "NAT_DECISION_CARD": "A decision is made from its card, never from a line of words: use the button on the card of #{id}.",
+        "NAT_DECISION_CARD": "A decision is approved from its card, never from a line of words: I sent the card of #{id} again so that you see exactly what you approve; approve it with its button, or by saying \"approve\" right after it.",
+        "NAT_WHICH_DECISION": "Which decision? Say its number in the same line.",
         "NAT_DECISION_NO_CARD": "A decision is made from its card, never from a line of words, and its card could not be sent now. Send /pending.",
         "NAT_GATED": "That is not done from a line of words. Do it {place}{command}",
         "NAT_PLACE_TERMINAL": "in the terminal",
@@ -721,6 +722,8 @@ TABLE = {
         "CMD_STATUS_HELD": "Task {n} is held: {reason}.",
         "CMD_ATTACHMENTS": "Files waiting for your answer: {n}.",
         "CMD_DONE": "Done.",
+        "CMD_ROUTINE_PAUSED": "Routine {n} paused.",
+        "PHONE_ROUTINE_CANCEL": "To stop a routine for now, say \"pause routine\" and its number. A routine is cancelled for good {where}",
         # --- a plain line the interpreter reads (package S1: runtime/ops_interpret.py): fixed sentences, no word of the model is ever shown ---
         "IX_PRIVATE_LINE": "(a message)",
         "IX_NONE": "I did not see a request in that message.",
@@ -740,7 +743,7 @@ TABLE = {
         "IX_ASK_FAR": "That is more than a year away. Say a nearer day.",
         "IX_LONG_LINE": "That message is too long for me to read here. Send it in shorter parts.",
         "IX_ASK_AGAIN": "I was not sure what you meant, so I did nothing. Can you say it another way?",
-        "IX_USE_CARD": "A decision is made on its card: use the buttons of the card.",
+        "IX_ANSWER_ON_QUESTION": "A question is answered by replying to it: write your answer.",
         "IX_WRITE_LANGUAGE": "For now, ask for that in Portuguese or in English.",
         "IX_OUTAGE": "I could not understand that right now. Try again in a few minutes.",
         "IX_CANNOT_EVENT_CREATE": "I understood that you want to create an event, but I could not prepare it. Tell me the title, the day and the time.",

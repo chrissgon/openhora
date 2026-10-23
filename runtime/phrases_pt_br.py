@@ -53,7 +53,7 @@ TABLE = {
              "Lembretes\n/remind <hora> <texto> \u2014 um lembrete enviado a você uma vez (15:00, 2026-10-20 09:30 ou in 2h)\n/reminders \u2014 os lembretes que esperam\n"
              "/forget <n> \u2014 cancela um lembrete\n\n"
              "Projeto\n/project [nome] \u2014 escolhe o projeto para onde vão suas mensagens\n/help \u2014 esta lista\n\n"
-             "Você também pode pedir com as suas palavras. Os comandos ativos dependem das suas permissões."),
+             "Todo comando acima também pode ser pedido com as suas palavras. Os comandos ativos dependem das suas permissões."),
     "USAGE_APPROVE": "Uso: /approve <id>",
     "USAGE_REJECT": "Uso: /reject <id> [note]",
     "USAGE_RELEASE": "Uso: /release <id>",
@@ -342,7 +342,8 @@ TABLE = {
     "NAT_NO_DECISION": "Não há decisão aberta #{id}.",
     "NAT_TYPE_IT": "Isso muda algo, então é feito pelo comando, não por uma frase. Envie: {command}",
     "NAT_DECISION_TYPED": "Uma decisão é tomada pelo comando, nunca por uma frase. Envie: {command}",
-    "NAT_DECISION_CARD": "Uma decisão é tomada pelo card, nunca por uma frase: toque no botão do card de #{id}.",
+    "NAT_DECISION_CARD": "Uma decisão se aprova pelo card, nunca por uma frase: enviei de novo o card de #{id} para você ver exatamente o que aprova; aprove pelo botão dele, ou dizendo \"aprovo\" logo depois.",
+    "NAT_WHICH_DECISION": "Qual decisão? Diga o número dela na mesma frase.",
     "NAT_DECISION_NO_CARD": "Uma decisão é tomada pelo card, nunca por uma frase, e o card não pôde ser enviado agora. Envie /pending.",
     "NAT_GATED": "Isso não é feito por uma frase. Faça {place}{command}",
     "NAT_PLACE_TERMINAL": "no terminal",
@@ -674,6 +675,8 @@ TABLE = {
     "CMD_STATUS_HELD": "A tarefa {n} está retida: {reason}.",
     "CMD_ATTACHMENTS": "Arquivos esperando sua resposta: {n}.",
     "CMD_DONE": "Pronto.",
+    "CMD_ROUTINE_PAUSED": "Rotina {n} pausada.",
+    "PHONE_ROUTINE_CANCEL": "Para parar uma rotina por enquanto, diga \"pausa a rotina\" e o número dela. Uma rotina se cancela de vez {where}",
     # --- uma linha simples que o interpretador lê (pacote S1: runtime/ops_interpret.py): frases fixas, nenhuma palavra do modelo é mostrada ---
     "IX_PRIVATE_LINE": "(uma mensagem)",
     "IX_NONE": "Não vi um pedido nessa mensagem.",
@@ -693,7 +696,7 @@ TABLE = {
     "IX_ASK_FAR": "Isso está a mais de um ano. Diga um dia mais perto.",
     "IX_LONG_LINE": "Essa mensagem é longa demais para eu ler aqui. Envie em partes menores.",
     "IX_ASK_AGAIN": "Não tive certeza do que você quis dizer, então não fiz nada. Pode dizer de outro jeito?",
-    "IX_USE_CARD": "Uma decisão se toma no card dela: use os botões do card.",
+    "IX_ANSWER_ON_QUESTION": "Uma pergunta se responde respondendo a ela: escreva a sua resposta.",
     "IX_WRITE_LANGUAGE": "Por enquanto, peça isso em português ou em inglês.",
     "IX_OUTAGE": "Não consegui entender agora. Tente de novo em alguns minutos.",
     "IX_CANNOT_EVENT_CREATE": "Entendi que você quer criar um evento, mas não consegui montar o cartão. Diga o título, o dia e a hora.",
