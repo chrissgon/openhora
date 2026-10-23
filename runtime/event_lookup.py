@@ -571,10 +571,13 @@ def _brand_words() -> set:
     return {w for brands in _brands().values() for brand in brands for w in brand}
 
 
+TITLE_NOUNS = {"reuniao", "reunioes", "meeting", "meetings", "appointment", "appointments", "compromisso", "compromissos"}      # nouns of the tables that are also what titles are called: they are words of a title, never skipped
+
+
 def _noun_words() -> set:
     """The calendar nouns of the language tables ("evento", "compromisso"...): they name the kind of thing, so a line that says "o evento corte de cabelo" has the title "corte de cabelo"."""
     tables = natural._tables(None)
-    return {w for key in ("nouns", "nouns_plural") for phrase in nw.listed(tables, "calendar", key) for w in _words(phrase)}
+    return {w for key in ("nouns", "nouns_plural") for phrase in nw.listed(tables, "calendar", key) for w in _words(phrase)} - TITLE_NOUNS
 
 
 def _exact(title_words: list, line_words: list) -> bool:

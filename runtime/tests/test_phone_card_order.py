@@ -39,3 +39,27 @@ def test_without_a_lead_the_reply_is_as_it_was(world):
     texts = silence(world)
     assert LEAD in "\n".join(texts), texts
     assert not (texts[-2] == LEAD and "#5" in texts[-1]), "no separate line before the card"
+
+
+def test_a_card_sent_a_moment_ago_is_sent_again_after_the_line_so_that_the_card_is_still_the_last_message(world):
+    """RESEND_EVERY skips a card sent again less than a minute ago and answers True: the line would then be the last message. When a line was sent, the card goes again."""
+    world.items[5] = decision("plan", 5, title="Calendar: remove an event")
+    answers(world, lead=LEAD)
+    world.say("remova o evento corte de cabelos da agenda")
+    first = silence(world)
+    assert LEAD in first and "#5" in first[-1], first
+    world.say("remova o evento corte de cabelos da agenda")      # the same card, named again a moment later
+    texts = silence(world)[len(first):]
+    assert texts[0] == LEAD and "#5" in texts[-1] and LEAD not in texts[-1], texts
+    assert len(texts) == 2, "the line, then the card sent again: it is the last message"
+
+
+def test_without_a_line_a_card_named_again_within_the_minute_is_not_sent_again(world):
+    """Vacuity: with no lead the rule of RESEND_EVERY holds (the card is not flooded), so the test above is the line's doing."""
+    world.items[5] = decision("plan", 5, title="Calendar: remove an event")
+    answers(world)
+    world.say("remova o evento corte de cabelos da agenda")
+    first = silence(world)
+    world.say("remova o evento corte de cabelos da agenda")
+    texts = silence(world)[len(first):]
+    assert not any(t.startswith("northwind-shop") for t in texts), "no second card within the minute"

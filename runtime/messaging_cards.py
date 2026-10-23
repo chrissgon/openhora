@@ -139,12 +139,15 @@ PHONE_DROPPED = ("CARD_MAIL_HASH", "CARD_FILE_HASH")      # the hash line of a c
 # What a phone does not show of a card (slice S16c): the internals the page and the terminal keep. A raw id of an event, the name of a snapshot and the time it was read, the version of an
 # event or of a file, the id of a message, the path of a file on this machine and a file's hash are for the one who checks a card in the terminal; the card's hash and its effect document
 # are untouched, and the lines that carry the person's data (account, calendar, title, the time now and the time after, reminder, where a removed event goes) stay.
-PHONE_DROPPED += ("CARD_CAL_EVENT", "CARD_CAL_SNAPSHOT", "CARD_CAL_BASE", "CARD_MAIL_IN_REPLY", "CARD_BOX_SNAPSHOT", "CARD_FILE_SOURCE", "CARD_FILE_BASE")
+# A line that names the TARGET of the card is never dropped (review of #544): the source of a file to replace (the person's own label of it) stays, and so does the message a reply answers
+# (by its number in the person's list, its sender and its subject); what goes is an id, a version, a read time or a reference only code can use. A test builds two cards that differ only in
+# their target for each kind of card and asserts that the phone texts differ.
+PHONE_DROPPED += ("CARD_CAL_EVENT", "CARD_CAL_SNAPSHOT", "CARD_CAL_BASE", "CARD_MAIL_IN_REPLY", "CARD_BOX_SNAPSHOT")
 PHONE_LINE = {"CARD_FILE_SAVE": "PHONE_FILE_SAVE",      # the save line without the file's short hash
               "CARD_CAL_CHANGE": "PHONE_CAL_CHANGE", "CARD_CAL_DROP_WHERE": "PHONE_CAL_DROP_WHERE", "CARD_CAL_DROP_NOTES": "PHONE_CAL_DROP_NOTES",
               "CARD_MAIL_REPLY_TO": "PHONE_MAIL_REPLY_TO", "CARD_MAIL_ATTACHMENT": "PHONE_MAIL_ATTACHMENT", "CARD_BOX_READ_AT": "PHONE_BOX_READ_AT",
               "CARD_BOX_DRAFT_REPLY": "PHONE_BOX_DRAFT_REPLY", "CARD_FILE_CODE_REPLACE": "PHONE_FILE_CODE_REPLACE", "CARD_FILE_CODE_TRASH": "PHONE_FILE_CODE_TRASH",
-              "CARD_FILE_PROJECT": "PHONE_FILE_PROJECT"}
+              "CARD_FILE_PROJECT": "PHONE_FILE_PROJECT", "CARD_FILE_BASE": "PHONE_FILE_BASE"}
 PHONE_DUPLICATE = {"CARD_CAL_NOW_WHEN": ("CARD_CAL_WHEN",), "CARD_CAL_NOW_TITLE": ("CARD_CAL_DROP_TITLE",)}      # a removal says the event twice (as it is now, and as what is removed): the phone says it once
 
 

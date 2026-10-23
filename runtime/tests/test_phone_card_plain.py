@@ -178,9 +178,9 @@ def test_a_mail_reply_card_on_a_phone_leaves_off_the_snapshot_the_message_id_and
              ["CARD_MAIL_ATTACHMENT", {"name": "plan.pdf", "bytes": "120", "sha": "b" * 64, "path": "/srv/project/plan.pdf"}], ["CARD_MAIL_HASH", {"sha": "a" * 64}]]
     item = synthetic(lines)
     phone_text = cards.effect_card_text(item, PT, True, False, False)
-    for fragment in ("inbox#3", "2026-10-21T17:00:00Z", "abc123", "/srv/project", "b" * 64, "a" * 64):
+    for fragment in ("2026-10-21T17:00:00Z", "abc123", "/srv/project", "b" * 64, "a" * 64):
         assert fragment not in phone_text, (fragment, phone_text)
-    assert "Resposta para: ana@example.com, quem enviou a mensagem: Budget" in phone_text and "Anexo: plan.pdf, 120 bytes" in phone_text      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert "Resposta para: ana@example.com, quem enviou a mensagem inbox#3: Budget" in phone_text and "Anexo: plan.pdf, 120 bytes" in phone_text      # validate: allow english-only -- the Portuguese line or sentence under test
     terminal = cards.effect_card_text(item, {}, True, False, True)
     for fragment in ("inbox#3", "2026-10-21T17:00:00Z", "abc123", "/srv/project", "b" * 64, "a" * 64):
         assert fragment in terminal, ("vacuity: the terminal keeps", fragment)
@@ -193,8 +193,10 @@ def test_a_file_card_on_a_phone_leaves_off_the_read_time_the_revision_and_the_so
              ["CARD_FILE_PROJECT", {"path": "/srv/project/plan.docx", "size": "4 KB", "sha_short": "cafe0123"}]]
     item = synthetic(lines)
     phone_text = cards.effect_card_text(item, PT, True, False, False)
-    for fragment in ("2026-10-21T17:00:00Z", "r17", "drive-main", "/srv/project", "cafe0123"):
+    for fragment in ("2026-10-21T17:00:00Z", "r17", "/srv/project", "cafe0123"):
         assert fragment not in phone_text, (fragment, phone_text)
+    assert "Fonte: @drive-main" in phone_text, "the source of the file to replace is the person's own label of it: it stays"      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert "Substitui a versão de 2026-10-20T10:00:00Z." in phone_text, "the version it replaces is said by its date, not by the revision id"      # validate: allow english-only -- the Portuguese line or sentence under test
     assert "File: plan.docx" in phone_text or "Arquivo: plan.docx" in phone_text      # validate: allow english-only -- the Portuguese line or sentence under test
     terminal = cards.effect_card_text(item, {}, True, False, True)
     assert all(f in terminal for f in ("2026-10-21T17:00:00Z", "r17", "drive-main", "/srv/project", "cafe0123")), "vacuity: the terminal keeps every line"
@@ -212,7 +214,28 @@ def test_the_bridge_sends_the_line_before_the_card_and_the_card_is_the_last_mess
             sent.append(text)
             return True
     lead = "Encontrei: corte de cabelo, Sat 24/10/2026 10:00-11:00. É este?"      # validate: allow english-only -- the Portuguese line or sentence under test
-    said = bridge.Bridge.lead_first(Stub(), {}, "chat", {"lead": lead}, lead + "\n" + "O card #1 espera a sua aprovação.")      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert sent == [lead] and said == "O card #1 espera a sua aprovação.", "the line goes out first; what is left is the card's notice, which the caller drops after the card"      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert bridge.Bridge.lead_first(Stub(), {}, "chat", {}, "O card #1") == "O card #1" and sent == [lead], "vacuity: no lead, nothing is sent"
+    said, led = bridge.Bridge.lead_first(Stub(), {}, "chat", {"lead": lead}, lead + "\n" + "O card #1 espera a sua aprovação.")      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert led is True and sent == [lead] and said == "O card #1 espera a sua aprovação.", "the line goes out first; what is left is the card's notice, which the caller drops after the card"      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert bridge.Bridge.lead_first(Stub(), {}, "chat", {}, "O card #1") == ("O card #1", False) and sent == [lead], "vacuity: no lead, nothing is sent"
 
+
+
+def test_a_title_called_reuniao_is_not_skipped_as_a_noun_of_the_line():
+    """Review round: "reuniao" is a calendar noun of the tables and also a common title: `_exact` must not skip it, or the title "Google" would be taken for the whole span of a line
+    about the meeting "Reuniao do Google"."""
+    words = lambda text: event_lookup._words(text)      # noqa: E731
+    assert event_lookup._exact(words("Google"), words("cancela a reuniao do google")) is False
+    assert event_lookup._exact(words("Reuniao do Google"), words("cancela a reuniao do google")) is True, "vacuity: the title that holds it is exact"
+    assert event_lookup._exact(words("corte de cabelo"), words("remova o evento corte de cabelo da agenda")) is True, "the generic noun 'evento' is still skipped"
+    assert event_lookup._exact(words("Meeting"), words("cancel the meeting with Ana")) is False
+
+
+def test_natural_write_returns_the_lead_to_a_messaging_sender_only(world, monkeypatch):
+    google_world(world, monkeypatch)
+    line = "mude o corte de cabelos para as 15h"
+    Model(monkeypatch)
+    got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)
+    assert got["lead"] == "Encontrei: corte de cabelo, Sat 24/10/2026 10:00-11:00. \u00c9 este?" and got["resend"] == 1      # validate: allow english-only -- the Portuguese line or sentence under test
+    page = ops.natural_write(world["path"], line, channel="page", sender=None)
+    assert "lead" not in page, "vacuity: the same line from the page opens its card and carries no lead"
+    assert page.get("resend") == 2 or page.get("reply") is not None

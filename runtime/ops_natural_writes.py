@@ -601,7 +601,7 @@ def natural_write(project: str, line: str, *, channel: str = "messaging", sender
         extras["discarded"] = True          # a question of a reminder (or of an `ask`) is replaced by this line's, and the reply says so
     if reply is None:
         reply = open_line(project, ctx, said, channel, sender, extras, seed=seed)
-    return {"reply": reply, **({"resend": extras["resend"]} if "resend" in extras else {}), **({"lead": extras["lead"]} if "lead" in extras else {}), **({"cards": extras["cards"]} if "cards" in extras else {}), **({"silent": True} if extras.get("silent") else {}),
+    return {"reply": reply, **({"resend": extras["resend"]} if "resend" in extras else {}), **({"lead": extras["lead"]} if channel == "messaging" and "lead" in extras else {}), **({"cards": extras["cards"]} if "cards" in extras else {}), **({"silent": True} if extras.get("silent") else {}),
             "asked": bool(extras.get("asked"))}
 
 
