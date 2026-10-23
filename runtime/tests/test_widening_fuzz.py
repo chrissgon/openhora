@@ -94,6 +94,8 @@ def random_groups(channel, rng):
         out.append("approve-plans")
     if "read" in out and "read-limited" in out:
         out.remove("read-limited")
+    if "files-trash" in out and "read-files" not in out:
+        out.append("read-files")      # the configuration refuses the trash without the right to see names (R2-A), as it refuses send-files without read-files
     return out
 
 

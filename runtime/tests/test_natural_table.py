@@ -24,7 +24,7 @@ N = {"remind", "reminder-forget", "reminder-restore"}
 W = {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"}
 D = {"approve", "reject", "release", "answer", "go-ahead"}
 E = {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
-     "file-create", "file-replace", "file-save"}
+     "file-create", "file-replace", "file-save", "file-trash"}
 WORK = {"say", "request", "route", "ask"}
 CLASS_SET = {"R", "N", "W", "D", "E", "G", "work"}
 OPS = {row["name"] for row in operations.OPERATIONS}

@@ -4,20 +4,23 @@
 # dependencies = []
 # ///
 """The document of a write to the person's own Drive or OneDrive, and nothing that writes (package W4a): what the step kind `file-write` builds and the
-effect kind `files` approves. A new file in a folder (`create`), a new revision of a file the person registered as a source (`replace`), and a file the
-person sent through a messaging app, saved to a folder (`save`). The effect document (its keys, its checks, the credential scan of a text), the lines of
+effect kind `files` approves. A new file in a folder (`create`), a new revision of a file the person registered as a source (`replace`), a file the
+person sent through a messaging app, saved to a folder (`save`), and (slice R2-A) a file of the granted folders moved to the service's trash (`trash`). The effect document (its keys, its checks, the credential scan of a text), the lines of
 its card, the hash of the requests the writer will send (the dry run), the key the writer's ledger keeps, and the arguments of the writer's verbs. It holds
 no function that calls a provider or executes an effect: that is runtime/effect_files.py, reached from the operation `approve` only. The step kind imports
 this module and not that one, so a step kind has no function in reach that could write (limit L30; docs/architecture/platform/outputs.md).
 
-The document. `effect` ("files"), `operation` (create, replace, save), `task` (the step task that prepared it), `account` (google or microsoft),
+The document. `effect` ("files"), `operation` (create, replace, save, trash), `task` (the step task that prepared it), `account` (google or microsoft),
 `implementation` (gdrive or onedrive: the writer the account maps to), `address` (the account's address from the project's `accounts`), `target`
 ({"kind": "folder", "label": the name `accounts` lists, "id": the folder's id or, on OneDrive, its /path} for a new file; {"kind": "file", "label": the
-source id, "id": the Drive file id or the OneDrive "<drive id>/<item id>"} for a new revision), `name` (the name of the new file, or the current name of the
+source id, "id": the Drive file id or the OneDrive "<drive id>/<item id>"} for a new revision; {"kind": "file", "label": the name `accounts` lists for the granted
+folder the file was found under, "id": the file's id} for a trash), `name` (the name of the new file, or the current name of the
 file), `content` ({"kind": text, file or held; "bytes"; "sha256"; "media_type"; "text" (the text itself, kind text only); "path" (a file of the project's
 docs/: the file of kind `file`, or where a text came from); "attachment" (the held file's number, kind held only); "gdoc" (a Google Doc made from
 Markdown)}), `base` (the state of the file when it was read, for a replace: Drive version, modified time, type, md5 and head revision; OneDrive eTag, cTag
-and size; and `source_version`, the version of the source the person looked at; null for a new file), `read_at`, `dry_run_sha256` and `idempotency_key`.
+and size; and `source_version`, the version of the source the person looked at; null for a new file; for a trash, the file as the search found it and the runtime read it: Drive version,
+modified time, type and parent; OneDrive eTag, cTag, size, modified time and parent; and for both the granted folder's id (`root`), the file's folder path by real names
+(`path`), its size, and whether its name was the exact name the person gave (`exact`); a trash has `content` null: it writes no bytes), `read_at`, `dry_run_sha256` and `idempotency_key`.
 
 The hash the person approves is the hash of this document, so it covers the account, the writer, the target (the folder's id or the file's id), the name,
 every byte of the content (by its sha256, and the text itself when it is text), the base, and the exact list of requests the writer will send: the writer
@@ -44,7 +47,7 @@ import phrases  # noqa: E402
 import workcopy  # noqa: E402  (the credential formats, loaded from this checkout)
 
 WORD = "files"
-OPERATIONS = ("create", "replace", "save")
+OPERATIONS = ("create", "replace", "save", "trash")
 IMPLEMENTATION = {"google": "gdrive", "microsoft": "onedrive"}
 SERVICE_NAME = {"google": "Google Drive", "microsoft": "OneDrive"}
 KEYS = ("effect", "operation", "task", "account", "implementation", "address", "target", "name", "content", "base", "read_at", "dry_run_sha256",
@@ -65,7 +68,7 @@ TEXT_TYPES = ("text/markdown", "text/plain", "text/csv")
 CREATE_EXTENSIONS = ("md", "txt", "docx")      # plus the word `gdoc`, which makes a Google Doc from Markdown text
 SAVE_EXTENSIONS = tuple(SAVE_TYPES)
 GDOC_WORD = "gdoc"
-TITLE_KEY = {"create": "TITLE_FILE_CREATE", "replace": "TITLE_FILE_REPLACE", "save": "TITLE_FILE_SAVE"}
+TITLE_KEY = {"create": "TITLE_FILE_CREATE", "replace": "TITLE_FILE_REPLACE", "save": "TITLE_FILE_SAVE", "trash": "TITLE_FILE_TRASH"}
 SHA256 = re.compile(r"[0-9a-f]{64}")
 KEY = re.compile(r"files-[0-9a-f]{32}")
 LABEL = re.compile(r"[a-z0-9-]{1,32}")                       # the name `accounts` lists for a folder, or a source id (project_config.ACCOUNT_NAME, sources.SOURCE_ID)
@@ -213,8 +216,10 @@ def lines_as_lf(text: str) -> str:
 def key_of(doc: dict) -> str:
     """The idempotency key: `files-` and 32 hex digits of the sha256 of the task, the operation, the account, the writer, the target, the name, the
     content (by its hash) and the base, so one write is made once however many decisions reach it."""
+    content = doc["content"]      # None for a trash
     pieces = {"task": doc["task"], "operation": doc["operation"], "account": doc["account"], "implementation": doc["implementation"],
-              "target": doc["target"], "name": doc["name"], "content": doc["content"]["sha256"], "gdoc": doc["content"]["gdoc"], "base": doc["base"]}
+              "target": doc["target"], "name": doc["name"], "content": content["sha256"] if content else None, "gdoc": content["gdoc"] if content else False,
+              "base": doc["base"]}
     return "files-" + sha(json.dumps(pieces, sort_keys=True, ensure_ascii=True))[:32]
 
 
@@ -256,7 +261,7 @@ def _shape(doc) -> None:
     _target(doc["target"], operation, account)
     _content(doc, operation, account)
     _base(doc["base"], operation, account)
-    if operation == "replace":
+    if operation in ("replace", "trash"):
         if not isinstance(doc["name"], str) or not 1 <= len(doc["name"]) <= 200 or clean_display(doc["name"]) != doc["name"]:      # the current name is a service's word, shown cleaned
             raise _usage("the name of the file is one line without a control or invisible character")
         return
@@ -270,7 +275,7 @@ def _shape(doc) -> None:
 
 
 def _target(target, operation: str, account: str) -> None:
-    kind = "file" if operation == "replace" else "folder"
+    kind = "file" if operation in ("replace", "trash") else "folder"
     if not isinstance(target, dict) or set(target) != {"kind", "label", "id"} or target["kind"] != kind or not isinstance(target["label"], str) \
             or not LABEL.fullmatch(target["label"]) or not isinstance(target["id"], str):
         raise _usage(f"the target of a {operation} is a {kind}: its kind, the name the project lists (or the source id) and its id")
@@ -295,6 +300,10 @@ def _ms_path(value: str) -> bool:
 
 def _content(doc: dict, operation: str, account: str) -> None:
     content = doc["content"]
+    if operation == "trash":
+        if content is not None:
+            raise _usage("a trash writes no content")
+        return
     keys = {"kind", "bytes", "sha256", "media_type", "text", "path", "attachment", "gdoc"}
     if not isinstance(content, dict) or set(content) != keys or content["kind"] not in ("text", "file", "held"):
         raise _usage("content is text, a file of the project or a held file")
@@ -338,7 +347,34 @@ def _content(doc: dict, operation: str, account: str) -> None:
         raise _usage("a Google Doc is made from Markdown text, in a Google Drive, by a create")
 
 
+def _trash_common(base: dict) -> None:
+    """The pieces of a trash's base that both services carry: the granted folder's id, the file's folder path by real names, its size and the exactness of the name."""
+    if not isinstance(base["root"], str) or not (DRIVE_ID.fullmatch(base["root"]) or MS_FOLDER_ID.fullmatch(base["root"]) or _ms_path(base["root"])) \
+            or not isinstance(base["path"], str) or not 1 <= len(base["path"]) <= 400 or clean_display(base["path"], 400) != base["path"] \
+            or not isinstance(base["exact"], bool) or not (base["size"] is None or (_is_int(base["size"]) and base["size"] >= 0)):
+        raise _usage("the base of a trash names the granted folder, the file's folder path, its size and whether its name was the exact one")
+
+
+def _base_trash(base, account: str) -> None:
+    if account == "google":
+        keys = {"version", "modified", "mime", "parent", "root", "path", "size", "exact"}
+        if not isinstance(base, dict) or set(base) != keys or not all(isinstance(base[k], str) and 0 < len(base[k]) <= 200 and base[k].isprintable()
+                                                                      for k in ("version", "modified", "mime")) \
+                or not isinstance(base["parent"], str) or not DRIVE_ID.fullmatch(base["parent"]) or base["mime"].startswith(GOOGLE_PREFIX + "folder"):
+            raise _usage("the base of a Drive trash is the file's version, modified time, type and folder")
+    else:
+        keys = {"etag", "ctag", "size", "modified", "parent", "root", "path", "exact"}
+        if not isinstance(base, dict) or set(base) != keys or not all(isinstance(base[k], str) and ETAG.fullmatch(base[k]) for k in ("etag", "ctag")) \
+                or not isinstance(base["modified"], str) or not 0 < len(base["modified"]) <= 200 or not base["modified"].isprintable() \
+                or not isinstance(base["parent"], str) or not MS_ITEM_PART.fullmatch(base["parent"]) or not _is_int(base["size"]) or base["size"] < 0:
+            raise _usage("the base of a OneDrive trash is the file's eTag, cTag, size, modified time and folder")
+    _trash_common(base)
+
+
 def _base(base, operation: str, account: str) -> None:
+    if operation == "trash":
+        _base_trash(base, account)
+        return
     if operation != "replace":
         if base is not None:
             raise _usage("a new file has no base")
@@ -402,6 +438,15 @@ def requests(doc: dict) -> list:
     """The exact list of requests the writer sends for this document, in order: [{"method", "path", "query", "body"[, "if_match"]}]. Equal to what the
     writer's `--dry-run` prints (providers/writer/README.md; a test starts the writer and compares)."""
     operation, key, ident = doc["operation"], doc["idempotency_key"], doc["target"]["id"]
+    if operation == "trash":
+        if doc["implementation"] == "gdrive":
+            path = f"/drive/v3/files/{enc(ident)}"
+            return [{"method": "GET", "path": path, "query": {"fields": DRIVE_FILE_FIELDS}, "body": None},
+                    {"method": "PATCH", "path": path, "query": {"fields": DRIVE_FILE_FIELDS}, "body": {"trashed": True}}]
+        drive, item = ident.split("/")
+        path = f"/drives/{enc(drive)}/items/{enc(item)}"
+        return [{"method": "GET", "path": path, "query": {"$select": ONEDRIVE_ITEM_FIELDS}, "body": None},
+                {"method": "DELETE", "path": path, "query": {}, "if_match": doc["base"]["etag"], "body": None}]
     if doc["implementation"] == "gdrive":
         if operation in ("create", "save"):
             gdoc = doc["content"]["gdoc"]
@@ -450,6 +495,11 @@ def provider_args(doc: dict, content_file=None) -> tuple:
     """(the writer's verb, its flags) for this document, without --dry-run or --confirmed. `content_file` is the absolute path of the private copy of the
     content (omitted for a dry run, which reads no file)."""
     content, target, base = doc["content"], doc["target"], doc["base"]
+    if doc["operation"] == "trash":
+        tail = ["--base-parent", base["parent"], "--idempotency-key", doc["idempotency_key"], "--account", doc["address"]]
+        if doc["implementation"] == "gdrive":
+            return "trash", ["--id", target["id"], "--base-version", base["version"], "--base-modified", base["modified"], "--base-mime", base["mime"], *tail]
+        return "trash", ["--id", target["id"], "--base-etag", base["etag"], "--base-ctag", base["ctag"], "--base-size", str(base["size"]), *tail]
     common = ["--media-type", content["media_type"]] + (["--content-file", content_file] if content_file else []) \
         + ["--bytes", str(content["bytes"]), "--sha256", content["sha256"], "--idempotency-key", doc["idempotency_key"], "--account", doc["address"]]
     if doc["operation"] != "replace":
@@ -470,11 +520,13 @@ def meta_args(doc: dict) -> list:
 def unchanged(doc: dict, meta: dict) -> str:
     """"" when what the writer's `file-meta` printed is the file the document was made from; else the words of what moved. Replace only."""
     base = doc["base"]
+    trash = doc["operation"] == "trash"
     if doc["implementation"] == "gdrive":
-        pairs = (("version", meta.get("version"), base["version"]), ("modified time", meta.get("modified"), base["modified"]), ("type", meta.get("mime_type"), base["mime"]),
-                 ("checksum", meta.get("md5"), base["md5"]), ("head revision", meta.get("head_revision"), base["head_revision"]))
+        pairs = (("version", meta.get("version"), base["version"]), ("modified time", meta.get("modified"), base["modified"]), ("type", meta.get("mime_type"), base["mime"])) \
+            + ((("folder", meta.get("parents"), [base["parent"]]),) if trash else (("checksum", meta.get("md5"), base["md5"]), ("head revision", meta.get("head_revision"), base["head_revision"])))
     else:
-        pairs = (("eTag", meta.get("etag"), base["etag"]), ("cTag", meta.get("ctag"), base["ctag"]), ("size", meta.get("size"), base["size"]))
+        pairs = (("eTag", meta.get("etag"), base["etag"]), ("cTag", meta.get("ctag"), base["ctag"]), ("size", meta.get("size"), base["size"])) \
+            + ((("folder", meta.get("parent"), base["parent"]),) if trash else ())
     gone = meta.get("in_trash") is True or meta.get("folder") is True or meta.get("writable") is False
     unowned = meta.get("owned") is not True
     moved = [name for name, now, then in pairs if now != then] + (["it is in the trash, or is not a file"] if gone else []) \
@@ -525,9 +577,28 @@ def kept_line(doc: dict) -> str:
     return "CARD_FILE_KEPT_DOC" if doc["base"]["mime"].startswith(GOOGLE_PREFIX) else "CARD_FILE_KEPT_DRIVE"
 
 
+def trash_card_lines(doc: dict, digest: str) -> list:
+    """The card of a trash (slice R2-A), line by line: the first line asks "is this the one?" when the name found was not the exact name given; then what the code does, the
+    account, the file by its name, its folder by the real names of the folders, its size and last change where the listing gave them, where it goes, the hash and the approval."""
+    base, service = doc["base"], SERVICE_NAME[doc["account"]]
+    shown = clean_display(doc["name"])
+    lines = [] if base["exact"] else [["CARD_FILE_FOUND", {"name": shown, "folder": base["path"]}]]
+    lines += [["CARD_FILE_CODE_TRASH", {"read_at": doc["read_at"].replace("T", " ").replace("Z", " UTC")}], ["CARD_ACCOUNT", {"account": doc["account"], "address": doc["address"]}],
+              ["CARD_FILE_NAME", {"name": shown, "service": service}], ["CARD_FILE_FOLDER", {"folder": base["path"]}]]
+    if base["size"] is not None:
+        lines.append(["CARD_FILE_TRASH_SIZE", {"size": size_text(base["size"])}])
+    lines.append(["CARD_FILE_TRASH_MODIFIED", {"modified": clean_display(base["modified"])}])
+    lines.append(["CARD_FILE_TRASH_DRIVE" if doc["account"] == "google" else "CARD_FILE_TRASH_ONEDRIVE", {}])
+    lines.append(["CARD_FILE_HASH", {"sha": digest}])
+    lines.append(["CARD_FILE_APPROVE", {"command": operations.command_line("approve", "<project>", pending_id="<this pending decision's id>", sha256=digest)}])
+    return lines
+
+
 def card_lines(doc: dict, digest: str) -> list:
     """The card, line by line: [[phrase key, {field: text}], ...], every key of the family CARD_ (runtime/phrases.py). The values are the person's or a
     service's words and are never translated."""
+    if doc["operation"] == "trash":
+        return trash_card_lines(doc, digest)
     content, target, operation = doc["content"], doc["target"], doc["operation"]
     service = SERVICE_NAME[doc["account"]]
     lines = [[{"create": "CARD_FILE_CODE_NEW", "save": "CARD_FILE_CODE_SAVE"}.get(operation, "CARD_FILE_CODE_REPLACE"),
@@ -566,6 +637,8 @@ def describe(doc: dict) -> str:
     """What is approved, in one line (the state file's row and the approval's record, which the MCP mode can read): the kind of write, the service, the
     folder or source as `accounts` or the sources list names it, and the content's size and hash. The name of the file is the person's (or a sender's) text and
     is not in it."""
+    if doc["operation"] == "trash":
+        return f"move a file to the trash in {SERVICE_NAME[doc['account']]} (it can be restored from there), found under the folder {doc['target']['label']}"
     where = f"the folder {doc['target']['label']}" if doc["operation"] != "replace" else f"the source {doc['target']['label']}"
     verb = {"create": "create a file", "save": "save a file the person sent", "replace": "write a new revision of a registered file"}[doc["operation"]]
     return f"{verb} ({doc['content']['bytes']} bytes, sha256 {doc['content']['sha256'][:12]}) in {SERVICE_NAME[doc['account']]}, {where}"
@@ -573,15 +646,18 @@ def describe(doc: dict) -> str:
 
 def summary(doc: dict) -> dict:
     """What the pending decision's payload records of the effect: closed words and numbers, never the text."""
-    return {"operation": doc["operation"], "account": doc["account"], "target": doc["target"]["kind"], "bytes": doc["content"]["bytes"],
-            "content_sha256": doc["content"]["sha256"], "dry_run_sha256": doc["dry_run_sha256"]}
+    content = doc["content"] or {}      # a trash has none
+    return {"operation": doc["operation"], "account": doc["account"], "target": doc["target"]["kind"], "bytes": content.get("bytes", 0),
+            "content_sha256": content.get("sha256"), "dry_run_sha256": doc["dry_run_sha256"]}
 
 
 def facts(doc: dict, result: dict) -> dict:
     """What the execution records of a write that landed: closed words, numbers, hashes and the service's ids. Never a name: the name of a file is the
     person's text (a sender's, for a save), and this record is read by every channel."""
+    content = doc["content"] or {}
     return {"written": True, "replayed": bool(result.get("replayed")), "operation": doc["operation"], "account": doc["account"], "id": result.get("id"),
-            "bytes": result.get("bytes"), "sha256": doc["content"]["sha256"], "idempotency_key": doc["idempotency_key"]}
+            "bytes": result.get("bytes"), "sha256": content.get("sha256"), "idempotency_key": doc["idempotency_key"],
+            **({"moved_to_trash": True} if doc["operation"] == "trash" else {})}
 
 
 if __name__ == "__main__":

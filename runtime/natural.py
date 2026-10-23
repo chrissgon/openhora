@@ -930,7 +930,7 @@ CLASSES = {
     "approve": "D", "reject": "D", "release": "D", "answer": "D", "go-ahead": "D",
     # E: effects on the person's own accounts, each ending in a card
     "event-create": "E", "event-change": "E", "event-cancel": "E", "mail-send": "E", "mail-reply": "E", "mail-draft": "E", "mail-archive": "E", "mail-move": "E",
-    "mail-mark": "E", "mail-trash": "E", "file-create": "E", "file-replace": "E", "file-save": "E",
+    "mail-mark": "E", "mail-trash": "E", "file-create": "E", "file-replace": "E", "file-save": "E", "file-trash": "E",
     # G: gated elsewhere
     "give-consent": "G", "set-mode": "G", "set-model": "G", "config": "G", "accept-config": "G", "routine-approve": "G", "routine-resume": "G",
     "instructions-set": "G", "instructions-add": "G", "source-add": "G", "source-import": "G", "source-refresh": "G", "source-describe": "G",
@@ -1001,6 +1001,7 @@ NATURAL = {
     "file-create": {"slots": {"name": ["word", "file_name"], "content": ["span", "content"], "folder": ["word", "folder"]}, "what": "a card that creates a file in the person's own drive"},
     "file-replace": {"slots": {"file": ["span", "file"], "content": ["span", "content"]}, "what": "a card that writes a new revision of a file that is a source"},
     "file-save": {"slots": {"attachment": ["int", "attachment"], "folder": ["word", "folder"]}, "what": "a card that saves a file someone sent"},
+    "file-trash": {"slots": {"file": ["span", "file"], "service": ["word", "account"], "folder": ["span", "folder"]}, "what": "a card that moves a file of the person's own Drive or OneDrive to the trash, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive; the folder only when the line names one)"},
     "give-consent": {"slots": {}, "what": "the consent an autonomous agent needs"},
     "set-mode": {"slots": {}, "what": "move an agent's autonomy mode"},
     "set-model": {"slots": {}, "what": "fix an agent to a model"},

@@ -1471,8 +1471,11 @@ class Bridge(shell_kit.Jobs):
             except (Refused, self.ops.OpsError):
                 pass
             else:
-                self.reply(chat, self.t("PHONE_NO_FILE_DELETE", project=project), project)
-                return
+                try:
+                    self.allow(project, "file-trash", None, chat)      # R2-A: a sender who may move a file to the trash is not told it cannot be done: the line goes on, and the conversation opens the file's card
+                except (Refused, self.ops.OpsError):
+                    self.reply(chat, self.t("PHONE_NO_FILE_DELETE", project=project), project)
+                    return
         found = None if text.lstrip().startswith("/") else natural.match(text)
         if found is not None and natural.class_of(found["op"]) in ("D", "W"):      # a decision or an act said in a closed form (S20) is answered by code with no model: it takes no model slot, so a brake said in words works while the planning agent answers, as the typed /reject does
             self.start(project, chat, found["op"], self.line(project, chat, text, None))

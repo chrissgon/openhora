@@ -36,6 +36,10 @@ mensagens message messages correo correos courriel rascunho rascunhos draft draf
 POLITE = frozenset("""por favor pode poderia voce please can could you would kindly puedes podrias favor peux pourrais tu pouvez vous s il plait kannst konntest du bitte
 koennen sie puoi potresti per favore ti ok entao agora oi ola""".split())
 NEGATION = frozenset("nao no not dont don never nunca ne pas nicht kein keine non mai nada".split())
+ARTICLES = frozenset("""o a os as um uma uns umas esse essa esses essas este esta the this that these those my meu minha el la los las le les un une der die das dem den ein eine
+il lo gli i il""".split())      # what may stand between the word for a file and its name ("o arquivo esse aqui" is not read: only these words are skipped)
+NAME_STOPS = frozenset("""do da dos das de no na nos nas em dentro pelo pela para por from in on of at to into inside within del en desde du des dans sur von aus im dal dalla dallo di nel nella
+nello drive onedrive google microsoft nuvem cloud pasta folder diretorio directory carpeta dossier ordner cartella""".split())      # the name of a file read by code ends at one of these
 NEAR = 4      # the thing is named within this many words after the verb ("o arquivo", "esse arquivo aqui", "o arquivo logo.png")
 WORDS = 20    # a longer line is not a plain request to delete a file
 
@@ -67,6 +71,62 @@ def asks(text) -> bool:
         if word in FILES:
             return True
     return bool(EXTENSIONS & set(words[start + 1:]))      # no thing named in the first words, but a name that ends as a file does: "remova logo.png do drive"
+
+
+def _edge(token: str) -> str:
+    return token.strip(".,;:!?()[]")
+
+
+def name(text):
+    """The name of the file a line that asks to delete one names, read by code alone, or None (a line whose name is not plainly after the word for a file, or after the verb when it ends as a file
+    does). Slice R2-A: a sender who may move a file to the trash is answered by the operation `file-trash`, and the name is the span of the line it searches for. The name is the one word after
+    the word for a file and its articles ("o arquivo openhora-mark.png"), or the words in quotes ("o arquivo \"contrato de locacao\""); with no word for a file, the first word that ends as a
+    file does. It stops at a word that starts the place ("do drive", "em /openhora", "from my drive"). Case, accents and the dots of the name are kept."""
+    if not asks(text):
+        return None
+    tokens = text.split()
+    folded = [" ".join(_words(_edge(t))) for t in tokens]
+    start = 0
+    while start < len(tokens) and folded[start] in POLITE:
+        start += 1
+    if start >= len(tokens):
+        return None
+    begin = None
+    for at in range(start + 1, min(len(tokens), start + 1 + NEAR)):
+        if folded[at] in OTHER:
+            return None
+        if folded[at] in FILES:
+            begin = at + 1
+            break
+    if begin is None:      # no word for a file: the first word that ends as a file does
+        begin = next((at for at in range(start + 1, len(tokens)) if _edge(tokens[at]).rpartition(".")[2].lower() in EXTENSIONS and "." in _edge(tokens[at])), None)
+    if begin is None:
+        return None
+    while begin < len(tokens) and folded[begin] in ARTICLES:
+        begin += 1
+    if begin >= len(tokens):
+        return None
+    first = tokens[begin]
+    quote = first[:1] if first[:1] in "\"'\u201c\u2018" else ""
+    if quote:
+        closing = {"\"": "\"", "'": "'", "\u201c": "\u201d", "\u2018": "\u2019"}[quote]
+        found = []
+        for token in tokens[begin:]:
+            found.append(token)
+            if len(found) > 1 or len(token) > 1:
+                if token.rstrip(".,;:!?)").endswith(closing):
+                    break
+        else:
+            return None
+        said = " ".join(found).strip()
+        said = said[1:].rstrip(".,;:!?)")
+        said = said[:-1] if said.endswith(closing) else said
+        picked = said.strip()
+    else:
+        if folded[begin] in NAME_STOPS or not _edge(first):
+            return None
+        picked = _edge(first)
+    return picked if 1 <= len(picked) <= 300 else None
 
 
 def main(argv=None) -> int:

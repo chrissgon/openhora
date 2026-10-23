@@ -398,6 +398,14 @@ OPERATIONS = (
      "help": "prepare the saving of a file someone sent through a messaging app (--attachment is the number of a held file, see attachments) in a folder of your Drive or OneDrive, named as it was sent or by --name, and ask for the approval of its card, which names the file, its size and its hash; from a messaging app, only a file you sent, approved only by you; the held file stays held (add or discard it as before)"},
     # S8: the text of one file, found by its name in the folders the project lists under `accounts.<account>.folders`. A read: nothing is written, nothing is sent to a model, and the
     # text is shown to the channel that asked and kept nowhere. The group read-files is in no default policy and never on the MCP mode (no row lists it).
+    # R2-A: move a file of the person's own Drive or OneDrive to the trash, found by its name in the folders the project lists (the search of `file-read`). It only PREPARES a card of the exact
+    # file and writes nothing until the person approves the card's hash (limit L55); the group is files-trash (in no default policy, never on the MCP mode). The trash is the service's own.
+    {"name": "file-trash", "call": "file_trash",
+     "args": ({"name": "file", "kind": "str", "required": True},
+              {"name": "account", "kind": "choice", "choices": ("google", "microsoft")},
+              {"name": "folder", "kind": "str"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "prepare the move of a file of your Google Drive (account google) or OneDrive (account microsoft) to the service's trash, found by its name (case, accents and the extension do not matter) in the folders the project lists under accounts.<account>.folders in runtime.json and the folders inside them, and ask for the approval of its card, which shows the file, its folder by the real names, the account, its size and last change, and where it goes; without --account both accounts are searched, --folder narrows the search to a folder by name or path; several matches are listed to choose from, none says which folders were searched; the file is only moved to the trash (you restore it from there), never deleted for good, and nothing is moved until you approve the card's hash, and not if the file changed or left the listed folders since"},
     {"name": "file-read", "call": "file_read",
      "args": ({"name": "file", "kind": "str", "required": True},
               {"name": "account", "kind": "choice", "choices": ("google", "microsoft")}),
@@ -585,6 +593,10 @@ GROUPS = {
     # lists the group (accept-config --widen confirms it); never on the MCP mode. Each operation only prepares a card; the write waits for approve-effect-files or the
     # terminal and the page.
     "files-write": {"operations": ("file-create", "file-replace", "file-save"), "kind": None},
+    # R2-A: the move of a file the person names to the service's trash. A group of its own, in no default policy: a project that accepted `files-write` does not gain it (accept-config shows it
+    # as a widening with a hash when it is added), and it needs `read-files` beside it (project_config: the search lists file names, as a read does). The approval of its card is the
+    # grant `approve-effect-files`, like every file write (account_start.OPERATION_GROUP gates the operation by this group while the card is an effect of the word `files`).
+    "files-trash": {"operations": ("file-trash",), "kind": None},
     "approve-effect-files": {"operations": ("approve",), "kind": "effect:files"},          # a file in the person's own Drive or OneDrive (effect_files.py APPROVAL_GROUP)
     # W2: e-mail from the person's own account (SPEC-SECRETARY-WRITES 5). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
     # --widen; never on the MCP mode. It prepares a card and sends nothing: the send is the approval of the card's hash (`approve-effect-send` on a messaging app).
@@ -707,6 +719,7 @@ GROUP_TEXT = {
     "mail-send": "prepares e-mails from your own accounts (a new e-mail, a reply to a message of a mail snapshot); each one waits for approval of its card",
     "reminders": "makes, lists and forgets reminders: one-shot lines of the sender's own words that the bridge sends back to their own chat at the time they chose",
     "files-write": "prepares new files and new revisions in your own Drive and OneDrive, and the saving of a file you sent; each one waits for approval of its card",
+    "files-trash": "moves a file you name to the trash of your Google Drive or OneDrive, after you approve its card; recoverable while it is in the trash (adds to read-files)",
     "mail-organize": "prepares changes to your mailbox (a draft, archive, a move to a folder, read state, the trash); each one waits for approval of its card, and nothing is sent or deleted for good",
     "interpret": "sends the plain lines no list takes to the interpreter's model service, which reads them in any language; retention: the route's terms (adds to talk, never grants it)",
     "read-files": "shows the text of the files in your configured Drive and OneDrive folders in the chat, found by their names; a messaging app's servers see it as they see any message, and no model reads it",

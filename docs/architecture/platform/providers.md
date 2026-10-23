@@ -60,8 +60,8 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `writer:calendar` | `writer/` | `outlook-calendar.py` | `--check`, `event-get`, `event-create`, `event-patch`, `event-delete` |
 | `writer:mailbox` | `writer/` | `gmail.py` | `--check`, `message-meta`, `modify`, `trash`, `draft-create` |
 | `writer:mailbox` | `writer/` | `outlook-mail.py` | `--check`, `message-meta`, `folder-get`, `move`, `mark`, `draft-create`, `draft-reply` |
-| `writer:files` | `writer/` | `gdrive.py` | `--check`, `file-meta`, `create`, `update` |
-| `writer:files` | `writer/` | `onedrive.py` | `--check`, `file-meta`, `create`, `replace` |
+| `writer:files` | `writer/` | `gdrive.py` | `--check`, `file-meta`, `create`, `update`, `trash` |
+| `writer:files` | `writer/` | `onedrive.py` | `--check`, `file-meta`, `create`, `replace`, `trash` |
 | `generator:image` | `generator/` | none ships | - |
 | `generator:video` | `generator/` | none ships | - |
 | `search:web` | `search/` | none ships | - |
