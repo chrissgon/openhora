@@ -352,7 +352,7 @@ event-change  prepares a change to an event of your own calendar (--account, --e
           read from the calendar first and must be yours alone: organized by you, with no other attendee, not repeating. It is written only if it
           is still as it was read. A start alone moves the event and keeps its length. Nobody is told. It calls no model.
 event-cancel  prepares the removal of such an event (--account, --event, optionally --calendar) and stops at a card. Google is expected to move it to the
-          calendar's trash, where it stays 30 days (to verify live); removing an event from Outlook is not available yet. Nobody is told. It calls no model.
+          calendar's trash, where it stays 30 days (to verify live); a removed Outlook event may not be recoverable (not verified). Nobody is told. It calls no model.
 file-create  prepares a NEW file in a folder of your Google Drive (--account google) or OneDrive (--account microsoft) and stops at its card: the account, the
           file, the folder and the text whole, with the hash you approve. --name ends in .md, .txt or .docx (or .gdoc: a Google Doc made from Markdown text);
           the content is a text (--content, or --content-file to read it from a file; at most 64 KiB) or a file of the project (--from docs/<path>); --folder is

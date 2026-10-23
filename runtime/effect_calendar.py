@@ -17,8 +17,7 @@ module of this path exposes, besides the names of runtime/effect_write.py (the d
     NOTHING_DONE                         "nothing was written": how a refusal of the approval starts
     FORGETS_KEYS                         False: the writer's ledger keeps a key; the age of a decision is no reason to refuse it
     preflight(cfg, doc, root)            the account is one the project's `accounts` lists, with the address of the document; the calendar is one of its `calendars`
-                                         under the same name and id (limit L55); the writer of the document serves the class; removing an Outlook event is not
-                                         offered ((exit code, sentence) or None)
+                                         under the same name and id (limit L55); the writer of the document serves the class ((exit code, sentence) or None)
     caller(cfg, root)                    the `call(verb, args, implementation=)` that reaches the writer with the account's token in its environment and nothing
                                          else of the secrets
     idempotency_key(doc, default)        the document's own key: one request is done once, however many decisions reach it
@@ -131,8 +130,6 @@ def preflight(cfg: dict, doc: dict, root: str):
         return 1, f"nothing was written: {why}"
     if found != doc.get("calendar_id"):
         return 1, "nothing was written: the id of the calendar is not the one the change was prepared for"
-    if doc["account"] == "microsoft" and doc["operation"] == "cancel":
-        return 1, "nothing was written: removing an event from an Outlook calendar is not available yet"
     why = serves(root, doc["implementation"])
     if why:
         return 3, f"nothing was written: {why}"

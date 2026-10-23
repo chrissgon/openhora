@@ -548,6 +548,7 @@ TABLE = {
     "CARD_CAL_CREATE": "O código cria este evento depois da sua aprovação, e nada mais.",
     "CARD_CAL_CHANGE": "O código altera este evento depois da sua aprovação, só se ele ainda estiver como foi lido em {read_at}.",
     "CARD_CAL_CANCEL": "O código remove este evento depois da sua aprovação. O Google deve movê-lo para a lixeira da agenda, de onde você pode restaurá-lo por 30 dias (Google Agenda, Lixeira); isso ainda não foi verificado.",
+    "CARD_CAL_CANCEL_OUTLOOK": "O código remove este evento depois da sua aprovação. O Outlook pode não guardar uma cópia do evento apagado; depois de aprovado, pode não ser possível recuperá-lo.",
     "CARD_CAL_EVENT": "Evento: {event_id}",
     "CARD_CAL_NOW_WHEN": "O evento agora é em: {when}",
     "CARD_CAL_NOW_TITLE": "O evento agora: {title}",
@@ -804,7 +805,6 @@ TABLE = {
     "PHONE_NOT_PLANNED": "Não planejado {n}: {item}.",
     "NOT_OPEN_DONE": "O pedido #{number} já foi {status}.",
     "PHONE_NO_FILE_DELETE": "Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive.",
-    "FAIL_OUTLOOK_REMOVE": "Ainda não consigo apagar eventos da agenda do Outlook por aqui. Você pode apagar pelo próprio Outlook.",
     "PEND_CARD_TITLE": "Pergunta do assistente",
     "PEND_NOT_UNDERSTOOD_TITLE": "Pedido não entendido",
     # --- uma pergunta de informação geral respondida por uma pesquisa na web (fatia R2-F1: runtime/ops_research.py, runtime/research_reply.py) ---

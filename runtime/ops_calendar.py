@@ -16,7 +16,7 @@ runtime/effect_calendar.py `execute`, reached only by `approve` with the hash of
         snapshot, once the index of the snapshots is in the checkout) or `created:<decision>` (an event this runtime created). The calendar is the one the
         reference puts the event on (it must be one the project's `accounts` lists); `calendar` names it when the person wants to be sure, and a different one is refused
   event_cancel(project, account, event[, calendar])
-        remove such an event: Google is expected to send it to the calendar's trash (30 days; to verify live); on Outlook this is not available yet
+        remove such an event: Google is expected to send it to the calendar's trash (30 days; to verify live); on Outlook it may not be recoverable (not verified)
 
 Who may call what is the table of operations (runtime/operations.py: the group `calendar-write`, in no default policy, never on the MCP mode) and, for a messaging
 sender, runtime/account_start.py (the profile of THAT sender, read from the configuration loaded for this call). The words of the person (a title, notes) reach a

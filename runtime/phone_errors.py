@@ -68,9 +68,7 @@ def spoken(body: str, cfg=None) -> bool:
 
 
 # Texts that carry a fact the phone is told by a sentence of its own wherever they appear in the text (the writer's refusal, a usage line, an effect's "nothing was written: ...").
-SEARCHED = (
-    (re.compile(r"removing an event from an Outlook calendar is not available"), "FAIL_OUTLOOK_REMOVE"),
-)
+SEARCHED = ()      # (pattern, phrase key) pairs; none today: the refusal of an Outlook removal that was here is gone since S21
 
 
 def english(cfg=None) -> bool:
