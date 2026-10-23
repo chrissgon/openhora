@@ -48,6 +48,8 @@ DEADLINE_MS = 8000
 INSTRUCTION_MAX = 600       # characters of the person's line that are read; a longer text is a new request, not a change
 BODY_MAX = 4000             # characters of a card's body that are sent; a longer card is not revised (the validator accepts at most this much back)
 WHITE = re.compile(r"\s+")
+OBJECT = re.compile(r"(?<![a-z])(?:a\s+mensagem|(?:o|este|esta|esse|essa|the|this|that|el|la|le|der|die|das|il|lo)\s+(?:e-?mail|mensagem|mensaje|message|texto|text|assunto|asunto|subject|sujet|betreff|oggetto|corpo|cuerpo|body|"
+                    r"corps|evento|event|evenement|termin|card|cartao|correo|courriel|nachricht|messaggio|testo))(?![a-z])")
 QUOTED = re.compile(r"\"([^\"]+)\"|“([^”]+)”")
 ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 # The words of a request to change who receives the e-mail, folded (lower case, no accents), whole words. A closed list that only improves the sentence the person is told:
@@ -59,11 +61,21 @@ RECIPIENT_PHRASES = ("mande para", "manda para", "mandar para", "envie para", "e
 
 # The words that ask for a change, folded, in the six languages of the platform: a closed list that decides only whether a line after a card that cannot be revised, or that the model
 # declined, was meant as a change (then one sentence is said) or is something else (then it goes on as it always did). No safety reads it.
-CHANGE_WORDS = frozenset({"mude", "muda", "mudar", "altere", "altera", "alterar", "troque", "troca", "trocar", "ajuste", "ajusta", "ajustar", "corrija", "corrige", "corrigir", "edite", "edita",
-                          "editar", "coloque", "coloca", "colocar", "adicione", "adiciona", "acrescente", "acrescenta", "remova", "remove", "tire", "tira", "substitua", "substitui", "inclua",
-                          "inclui", "renomeie", "renomeia", "change", "edit", "adjust", "fix", "replace", "add", "remove", "put", "insert", "update", "rename", "cambia", "cambie", "modifica",
-                          "modifique", "anade", "anada", "quita", "quite", "reemplaza", "modifie", "modifiez", "corrigez", "ajoute", "ajoutez", "remplace", "remplacez", "andere", "korrigiere",
-                          "fuge", "ersetze", "aggiungi", "correggi", "sostituisci", "rimuovi"})
+ORIGINAL_WORDS = frozenset({"mude", "muda", "mudar", "altere", "altera", "alterar", "troque", "troca", "trocar", "ajuste", "ajusta", "ajustar", "corrija", "corrige", "corrigir", "edite", "edita",
+                            "editar", "coloque", "coloca", "colocar", "adicione", "adiciona", "acrescente", "acrescenta", "remova", "remove", "tire", "tira", "substitua", "substitui", "inclua",
+                            "inclui", "renomeie", "renomeia", "change", "edit", "adjust", "fix", "replace", "add", "remove", "put", "insert", "update", "rename", "cambia", "cambie", "modifica",
+                            "modifique", "anade", "anada", "quita", "quite", "reemplaza", "modifie", "modifiez", "corrigez", "ajoute", "ajoutez", "remplace", "remplacez", "andere", "korrigiere",
+                            "fuge", "ersetze", "aggiungi", "correggi", "sostituisci", "rimuovi"})
+# S13b: the verbs that write, end or sign a text ("Escreva ao final do email: ..."). They are also the verbs of ordinary requests ("escreva para a Ana", "termina a tarefa 3", "deixa pra la",      # validate: allow english-only -- Portuguese examples of the ordinary requests
+# "sign me up"), so they open the gate only beside a locator ("ao final") or an object of the card ("o email") in the same line. "pôr" is not here: folded it is "por".
+WIDE_VERBS = frozenset({"escreva", "escreve", "escrever", "reescreva", "reescreve", "reescrever", "ponha", "poe", "deixe", "deixa", "deixar", "termine", "termina", "terminar", "finalize",
+                        "finaliza", "finalizar", "encerre", "encerra", "encerrar", "assine", "assina", "assinar", "acrescentar", "incluir", "retire", "retira", "retirar",
+                        "write", "rewrite", "sign", "end", "finish", "append", "escribe", "escriba", "pon", "ponga", "firma", "firme", "ecris", "ecrivez", "mets", "mettez", "signe", "signez",
+                        "schreibe", "schreib", "setze", "beende", "unterschreibe", "scrivi", "metti"})
+CHANGE_WORDS = ORIGINAL_WORDS | WIDE_VERBS
+# Where in the e-mail a text is asked for, folded: the end and the start. A closed list in the six languages.
+END_LOCATORS = ("ao final", "no fim", "no final", "na assinatura", "at the end", "al final", "a la fin", "am ende", "alla fine", "ao fim", "no fim do")
+START_LOCATORS = ("no comeco", "no inicio", "ao comeco", "ao inicio", "at the start", "at the beginning", "al principio", "al inicio", "au debut", "am anfang", "all inizio", "all'inizio")
 
 
 def prompt_template() -> str:
@@ -116,9 +128,76 @@ def clean(line):
     return one if one and len(one) <= INSTRUCTION_MAX else None
 
 
-def literals(line: str) -> list:
-    """The texts between quotation marks, in the order they come, each as written (surrounding white space removed)."""
-    return [(a or b).strip() for a, b in QUOTED.findall(line or "") if (a or b).strip()]
+BLOCK = re.compile(r"^(.*?):[ \t]*\n\s*(\S.*)$", re.S)      # "...:" at the end of a line, and a text after it (a colon with the text on the same line is no block)
+
+
+def instruction(text):
+    """The instruction as the person wrote it, line breaks kept (a line's trailing white space and runs of blank lines cut), or None when it is empty or longer than INSTRUCTION_MAX. The
+    model is shown this form, and `literals` reads its text block."""
+    if not isinstance(text, str):
+        return None
+    lines = [" ".join(line.split()) for line in text.replace("\r\n", "\n").replace("\r", "\n").strip().split("\n")]
+    one = re.sub(r"\n{3,}", "\n\n", "\n".join(lines))
+    return one if one and len(one) <= INSTRUCTION_MAX else None
+
+
+def _words_of(line: str) -> set:
+    return set(re.findall(r"[a-z]+", _fold(line or "")))
+
+
+def _has_phrase(line: str, phrases) -> bool:
+    folded = _fold(line or "")
+    return any(re.search(r"(?<![a-z])" + re.escape(p) + r"(?![a-z])", folded) for p in phrases)
+
+
+def has_locator(line: str) -> bool:
+    """Whether the line says WHERE in the e-mail ("ao final", "no fim", "at the end", "no comeco"...: END_LOCATORS and START_LOCATORS)."""
+    return _has_phrase(line, END_LOCATORS + START_LOCATORS)
+
+
+def has_change_word(line: str) -> bool:
+    """Whether the line holds a word that has always asked for a change (ORIGINAL_WORDS: "muda", "troca", "ajusta", "corrige"...)."""
+    return bool(_words_of(line) & ORIGINAL_WORDS)
+
+
+def asks_change(line: str) -> bool:
+    """Whether the line asks for a change of the e-mail: a word of ORIGINAL_WORDS, or a verb that writes, ends or signs a text (WIDE_VERBS) together with a locator or an object of the
+    card in the same line ("escreva ao final", "assine o email"). "escreva para a Ana", "termina a tarefa 3" and "sign me up" ask nothing of the card."""
+    words = _words_of(line)
+    return bool(words & ORIGINAL_WORDS) or bool(words & WIDE_VERBS and (has_locator(line) or names_object(line)))
+
+
+def split_block(text: str) -> tuple:
+    """(the instruction before its text block, the block or ""): the block is what follows the first line that ends with a colon, with its line breaks (see `literals`)."""
+    found = BLOCK.match(text or "")
+    return (found.group(1) + ":", found.group(2).strip()) if found else (text or "", "")
+
+
+def _block_asked(before: str) -> bool:
+    """Whether the line before a colon asks for the block as text of the e-mail: a verb that changes or writes (any of the two lists) and, in the same line, a locator or an object of the
+    card. "Pensando aqui:", "Lista de compras:" and "Me ajuda com isso:" ask for nothing."""      # validate: allow english-only -- Portuguese examples
+    return bool(_words_of(before) & CHANGE_WORDS) and (has_locator(before) or names_object(before))
+
+
+def literal_items(text: str) -> list:
+    """[(text, is_block)]: the texts between quotation marks, as written, in the order they come, and the block after a colon and a line break when the line before it asks for it
+    (`_block_asked`); each with the white space around it cut. With no such block a text between quotation marks counts wherever it stands. Read the instruction with its line breaks
+    (`instruction`): once it is one line there is no block."""
+    before, block = split_block(text)
+    if block and _block_asked(before):
+        return [((a or b).strip(), False) for a, b in QUOTED.findall(before) if (a or b).strip()] + [(block, True)]
+    return [((a or b).strip(), False) for a, b in QUOTED.findall(text or "") if (a or b).strip()]
+
+
+def literals(text: str) -> list:
+    """The texts the instruction asks for as they are written (see `literal_items`)."""
+    return [t for t, _ in literal_items(text)]
+
+
+def names_object(line: str) -> bool:
+    """Whether the line names the card's object with a definite article ("o email", "a mensagem", "the subject", "el asunto"...), in the singular: a line about THE card, whatever its verb.
+    "os emails" (a list), "um email" (a new one) and "emails" are not. A closed list in the six languages; it only decides whether a sentence is said."""
+    return bool(OBJECT.search(_fold(line or "")))
 
 
 def _fold(text: str) -> str:
@@ -126,7 +205,8 @@ def _fold(text: str) -> str:
 
 
 def _outside(line: str) -> str:
-    return QUOTED.sub(" ", line or "")
+    """The instruction without its quoted texts and without its text block (what the person asks for is not what the person says about the card)."""
+    return QUOTED.sub(" ", split_block(line)[0])
 
 
 def has_address(line: str) -> bool:
@@ -145,13 +225,8 @@ def asks_recipients(line: str) -> bool:
     return has_address(line) or recipient_words(line)
 
 
-def has_change_word(line: str) -> bool:
-    """Whether the line holds a word that asks for a change (see CHANGE_WORDS)."""
-    return bool(set(re.findall(r"[a-z]+", _fold(line or ""))) & CHANGE_WORDS)
-
-
 def message(language: str, subject: str, body: str, line: str) -> str:
-    """The one user message of the model call: four parts and nothing else (see the module's text)."""
+    """The one user message of the model call: four parts and nothing else (see the module's text). The instruction keeps its line breaks, so that a text block can be told."""
     return f"language: {language}\nsubject: {subject}\ninstruction: {line}\nbody:\n{body}"
 
 
@@ -166,6 +241,11 @@ def _own_addresses(*texts) -> list:
             if match not in found:
                 found.append(match)
     return found
+
+
+def _flat(text: str) -> str:
+    """The text with every run of white space one space and the accents composed: how a text asked for is looked for in the card (a line break more or less is no difference)."""
+    return WHITE.sub(" ", unicodedata.normalize("NFC", text)).strip()
 
 
 def _model_field(text, name: str):
@@ -202,15 +282,42 @@ def accept(text, to, subject: str, body: str, line: str):
         return None
     old = body.replace("\r\n", "\n").replace("\r", "\n").strip()
     got = dict(got, body=_kept_close(got["body"], text, old))
+    items = literal_items(line)
+    seen = lambda fixed, new_text, new_subject: all((_flat(t) in _flat(new_subject + "\n" + new_text)) if block else (unicodedata.normalize("NFC", t) in unicodedata.normalize("NFC", new_subject + "\n" + new_text))
+                                                    for t, block in items)
+    old_flat = _flat(old)
+    # a model that writes again, at the end, the very text the card already ends with, has changed nothing the person asked for
+    for t, _ in items:
+        flat = _flat(t)
+        if old_flat.endswith(flat) and _flat(got["body"]) == old_flat + " " + flat:
+            got = {"subject": subject, "body": old}
+            break
     new_body = unicodedata.normalize("NFC", got["body"])
     new_subject = unicodedata.normalize("NFC", got["subject"])
     if new_subject == unicodedata.normalize("NFC", subject) and new_body == unicodedata.normalize("NFC", old):
-        return {"same": True}      # nothing changed: the instruction was not applied
-    for wanted in literals(line):
-        wanted = unicodedata.normalize("NFC", wanted)
-        if wanted not in new_subject and wanted not in new_body:
-            return None
+        # nothing changed: the instruction was not applied; `holds` says the card already holds every text the line asks for AT THE PLACE asked (then the card is already as asked)
+        return {"same": True, "holds": bool(items) and _holds(items, line, subject, old)}
+    if not seen(None, new_body, new_subject):
+        return None
     return {"subject": got["subject"], "body": got["body"]}
+
+
+def _holds(items: list, line: str, subject: str, old: str) -> bool:
+    """Whether the card already holds every text of `items` where the line asks for it: at the end of the body for "ao final", at the start for "no inicio", anywhere when the line says
+    no place. A quoted text is looked for as written, a block with its white space as one space."""
+    old_flat, whole = _flat(old), unicodedata.normalize("NFC", subject + "\n" + old)
+    at_start, at_end = _has_phrase(line, START_LOCATORS), _has_phrase(line, END_LOCATORS)
+    for t, block in items:
+        flat = _flat(t)
+        if at_start and not at_end:
+            ok = old_flat.startswith(flat)
+        elif at_end and not at_start:
+            ok = old_flat.endswith(flat)
+        else:
+            ok = (flat in old_flat) if block else (unicodedata.normalize("NFC", t) in whole)
+        if not ok:
+            return False
+    return True
 
 
 def call(entry: dict, system: str, user: str) -> dict:

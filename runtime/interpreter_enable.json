@@ -78,6 +78,20 @@
    "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned); research added to the catalog 2026-10-22 (R2-F1)",
    "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
    "revise_prompt_sha256": "0d8e9ef055270765d32a2abd7ec7beff75a51d0f468e8ed740b304ec0a0eba3c"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "fd05b3d27bf994935dae860053652fdeeae10a90e23bb1bc75aa8c29081eedc7",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Re-pins the e-mail revise prompt (runtime/mail_revise_prompt.txt) after the live test of 2026-10-22: a text after a colon and a line break is a text asked for, and an e-mail that already says what is asked is returned as it is. Every other hash stands (the catalog is the one of R2-F1), so the interpreter stays on. The maintainer: \"Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível\".",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned, revise prompt re-pinned 2026-10-22)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
   }
  ]
 }

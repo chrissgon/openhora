@@ -38,13 +38,14 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     raw = (st.RUNTIME / "mail_revise_prompt.txt").read_bytes()
     assert mail_revise.prompt_sha256() == hashlib.sha256(raw).hexdigest()
     every = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    entries = every[:-1]      # without the newest entry (R2-F1), which adds `research` to the catalog and keeps both prompt pins
-    newest = entries[-1]
-    assert every[-1]["revise_prompt_sha256"] == newest["revise_prompt_sha256"] and every[-1]["compose_prompt_sha256"] == newest["compose_prompt_sha256"]
+    newest, first_revise = every[-1], next(e for e in every if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
     assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == mail_revise.prompt_sha256()
-    assert "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in newest["reason"]
-    assert all("revise_prompt_sha256" not in e for e in entries[:-1]) and newest["compose_prompt_sha256"] == mail_compose.prompt_sha256(), "the newest decision carries the compose pin too"
-    assert [e["catalog_sha256"] for e in every[-1:]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]], "and every current hash of the checkout (the entry of R2-F1 names the catalog with `research`)"
+    assert "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in first_revise["reason"] and "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in newest["reason"]
+    assert first_revise is not newest and first_revise["revise_prompt_sha256"] != newest["revise_prompt_sha256"], "the older pin stays as it was decided"
+    pinned = [e for e in every if "revise_prompt_sha256" in e]
+    assert pinned == [first_revise, every[-2], newest] and every[-2]["revise_prompt_sha256"] == first_revise["revise_prompt_sha256"], "the entry of R2-F1 between them keeps the older pin"
+    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256(), "the newest decision carries the compose pin too"
+    assert [e["catalog_sha256"] for e in every[-1:]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]], "and every current hash of the checkout (the catalog is the one of R2-F1)"
     assert interpreter_enable.revise_active("pt-BR") is not None and interpreter_enable.compose_active("pt-BR") is not None
 
 
@@ -91,9 +92,9 @@ def test_an_answer_that_is_not_the_change_is_refused(text):
 
 
 def test_a_valid_answer_that_changes_nothing_is_the_same_card_and_not_a_change():
-    assert accept(answer(BODY)) == {"same": True}
-    assert accept(answer(BODY), line="Ajuste o tom") == {"same": True}      # validate: allow english-only -- a Portuguese line under test
-    assert accept(answer(BODY + " ")) == {"same": True}, "white space at the end is not a change"
+    assert accept(answer(BODY)) == {"same": True, "holds": False}
+    assert accept(answer(BODY), line="Ajuste o tom") == {"same": True, "holds": False}      # validate: allow english-only -- a Portuguese line under test
+    assert accept(answer(BODY + " ")) == {"same": True, "holds": False}, "white space at the end is not a change"
 
 
 def test_the_address_the_cards_text_holds_stays_and_a_new_one_never_comes():
@@ -161,4 +162,4 @@ def test_a_closing_the_card_ended_with_stays_when_the_model_keeps_it_and_one_the
     assert got["body"].endswith("Atenciosamente,") and "Poderíamos" in got["body"], "the card's own closing is not dropped by the validator's rule against a dangling closing"      # validate: allow english-only -- a Portuguese text under test
     without = "Olá,\n\nPodemos marcar uma reunião?"      # validate: allow english-only -- a Portuguese card under test
     added = accept(answer(without + "\n\nAtenciosamente,"), line='Troque a primeira palavra por "Poderíamos"', body=without)      # validate: allow english-only -- a Portuguese text under test
-    assert added == {"same": True}, "a closing with nothing after it is dropped as it is in a text the model writes: the card is unchanged"
+    assert added == {"same": True, "holds": False}, "a closing with nothing after it is dropped as it is in a text the model writes: the card is unchanged"
