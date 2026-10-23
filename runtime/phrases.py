@@ -820,6 +820,8 @@ TABLE = {
         "FR_CUT": "I stopped looking before the end (the folders are deeper or larger than I search in one go), so the file may be further in.",
         "FR_INCOMPLETE": "I did not look through everything (the folders are deeper or larger than I search in one go, or one did not answer), so another file may fit as well.",
         "FR_SEVERAL_NAME": "I found {count} files that fit. Which one? Write its full name, or say the folder or the account it is in.",
+        "FR_FOLDER_MISSING": "I did not find the folder \"{folder}\"; I looked in all your folders.",
+        "FR_DRIVE_ROOT": "My Drive",
         "FS_SENT": "Here is {name} ({account}, folder {folder}).",
         "FS_WITHHELD": "I found {name} ({account}), but I will not send it here: the file seems to hold a password or a key.",
         "FS_TOO_BIG": "I found {name} ({account}), but it is too big to send here.",

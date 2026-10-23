@@ -773,6 +773,8 @@ TABLE = {
     "FR_CUT": "Parei de procurar antes do fim (as pastas são mais fundas ou maiores do que procuro de uma vez), então o arquivo pode estar mais adiante.",
     "FR_INCOMPLETE": "Não olhei tudo (as pastas são mais fundas ou maiores do que procuro de uma vez, ou alguma não respondeu), então outro arquivo pode combinar também.",
     "FR_SEVERAL_NAME": "Encontrei {count} arquivos que combinam. Qual deles? Escreva o nome completo, ou diga a pasta ou a conta em que ele está.",
+    "FR_FOLDER_MISSING": "Não achei a pasta \"{folder}\"; procurei em todas as suas pastas.",
+    "FR_DRIVE_ROOT": "Meu Drive",
     "FS_SENT": "Aqui está {name} ({account}, pasta {folder}).",
     "FS_WITHHELD": "Encontrei {name} ({account}), mas não envio por aqui: o arquivo parece conter uma senha ou uma chave.",
     "FS_TOO_BIG": "Encontrei {name} ({account}), mas ele é grande demais para eu enviar por aqui.",
