@@ -37,13 +37,15 @@ def accept(text, line=LINE, subject=SUBJECT, body=BODY):
 def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_stands():
     raw = (st.RUNTIME / "mail_revise_prompt.txt").read_bytes()
     assert mail_revise.prompt_sha256() == hashlib.sha256(raw).hexdigest()
-    entries = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    newest, first_revise = entries[-1], next(e for e in entries if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
+    every = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
+    newest, first_revise = every[-1], next(e for e in every if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
     assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == mail_revise.prompt_sha256()
     assert "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in first_revise["reason"] and "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in newest["reason"]
     assert first_revise is not newest and first_revise["revise_prompt_sha256"] != newest["revise_prompt_sha256"], "the older pin stays as it was decided"
-    assert [e for e in entries if "revise_prompt_sha256" in e] == [first_revise, newest] and newest["compose_prompt_sha256"] == mail_compose.prompt_sha256(), "the newest decision carries the compose pin too"
-    assert [e["catalog_sha256"] for e in entries[-1:]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]], "and every current hash of the checkout"
+    pinned = [e for e in every if "revise_prompt_sha256" in e]
+    assert pinned == [first_revise, every[-2], newest] and every[-2]["revise_prompt_sha256"] == first_revise["revise_prompt_sha256"], "the entry of R2-F1 between them keeps the older pin"
+    assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256(), "the newest decision carries the compose pin too"
+    assert [e["catalog_sha256"] for e in every[-1:]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]], "and every current hash of the checkout (the catalog is the one of R2-F1)"
     assert interpreter_enable.revise_active("pt-BR") is not None and interpreter_enable.compose_active("pt-BR") is not None
 
 

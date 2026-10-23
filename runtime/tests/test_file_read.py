@@ -54,8 +54,8 @@ SECRET_MARK = "ZEBRA-CLAUSE-7-UNIQUE-MARK"
 ACTIVITIES = f"Atividades da semana\n\nSegunda: ensaio do coral.\nQuarta: visita as familias. {SECRET_MARK}\n"
 LINE_1 = f"Me traga o conteudo do arquivo {WANTED}"
 LINE_2 = f'Leia o arquivo do meu onedrive com o nome "{WANTED}"'
-HEAD = f"{WANTED} (OneDrive, pasta default):\n\n"
-NONE = "Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas e nas pastas dentro delas: default (Google Drive), contratos (Google Drive), default (OneDrive)."  # validate: allow english-only -- the Portuguese sentence or name under test
+HEAD = f"{WANTED} (OneDrive, pasta Documentos):\n\n"
+NONE = "Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas e nas pastas dentro delas: Arquivos (Google Drive), Contratos 2026 (Google Drive), Documentos (OneDrive)."  # validate: allow english-only -- the Portuguese sentence or name under test
 REFUSAL = "error: /file-read is not enabled for this channel; the project's configuration (channels.messaging) turns it on"
 
 
@@ -76,6 +76,7 @@ class Drives:
                       ("google", "gfile0000000001"): b"x", ("google", "gfile0000000002"): b"%PDF-1.7 fake body for the converter",
                       ("google", "gfile0000000009"): b"the file outside the folders",
                       ("microsoft", "drv1/it!9"): b"the private folder"}
+        self.names = {("google", "GDRIVEFOLDER0001"): "Arquivos", ("google", "GDRIVEFOLDER0002"): "Contratos 2026"}      # the real names `stat` gives the configured Google folders
         self.calls = []
         self.markdown = set()      # (service, id) read as a Google Doc exported to Markdown
 
@@ -83,6 +84,11 @@ class Drives:
         service = "google" if kw.get("implementation") == "gdrive" else "microsoft"
         self.calls.append((service, verb, tuple(args)))
         value = lambda flag: args[args.index(flag) + 1]  # noqa: E731
+        if verb == "stat":
+            name = self.names.get((service, value("--id")))
+            if name is None:
+                raise RuntimeError("Drive said: no such folder")
+            return {"id": value("--id"), "name": name, "mime_type": "application/vnd.google-apps.folder", "supported": False}
         if verb == "children":
             folder = value("--id") if "--id" in args else value("--path") if "--path" in args else value("--folder-id")
             return {"items": list(self.folders.get((service, folder), [])), "count": len(self.folders.get((service, folder), [])), "truncated": False}
@@ -168,7 +174,7 @@ def test_vacuity_a_search_that_also_listed_an_unconfigured_folder_would_be_seen(
 def test_several_files_with_the_name_are_listed_as_a_numbered_list_and_nothing_is_read(drives):
     drives["drives"].folders[("google", "GDRIVEFOLDER0002")].append(item("gfile0000000003", WANTED))
     assert phone(drives, LINE_1) == ("Encontrei 2 arquivos que combinam. Qual deles? Diga o número, por exemplo \"o 2\".\n"  # validate: allow english-only -- the Portuguese sentence or name under test
-                                      f"1. {WANTED} - pasta contratos, Google Drive\n2. {WANTED} - pasta default, OneDrive")
+                                      f"1. {WANTED} - pasta Contratos 2026, Google Drive\n2. {WANTED} - pasta Documentos, OneDrive")
     assert drives["drives"].reads() == []
 
 
@@ -179,7 +185,7 @@ def test_no_file_with_the_name_gets_one_sentence_naming_the_folders_by_their_con
 
 def test_the_name_may_be_typed_without_case_accents_or_the_extension(drives):
     drives["answer"]["text"] = op("file-read", {"file": "LISTA DE PRESENÇA"})  # validate: allow english-only -- the Portuguese sentence or name under test
-    assert phone(drives, "mostre o arquivo LISTA DE PRESENÇA") == "Lista de presenca.txt (OneDrive, pasta default):\n\nAna\nBeto"  # validate: allow english-only -- the Portuguese sentence or name under test
+    assert phone(drives, "mostre o arquivo LISTA DE PRESENÇA") == "Lista de presenca.txt (OneDrive, pasta Documentos):\n\nAna\nBeto"  # validate: allow english-only -- the Portuguese sentence or name under test
 
 
 @pytest.mark.parametrize("wanted, found, same", [
@@ -213,7 +219,7 @@ def test_the_group_read_files_is_in_no_default_and_the_widening_says_what_it_mea
 
 def test_the_page_and_the_terminal_read_by_the_typed_operation_and_a_messaging_sender_needs_the_group(drives):
     out = ops.file_read(drives["path"], WANTED, account="microsoft", channel="page")
-    assert out == {"status": "text", "name": WANTED, "folder": "default", "account": "microsoft", "text": ACTIVITIES.strip(), "remaining": 0}
+    assert out == {"status": "text", "name": WANTED, "folder": "Documentos", "account": "microsoft", "text": ACTIVITIES.strip(), "remaining": 0}
     with pytest.raises(ops_core.OpsError) as refused:
         ops.file_read(drives["path"], WANTED, channel="messaging", sender=PLAIN_KEY)
     assert str(refused.value) == REFUSAL[len("error: "):]
@@ -243,7 +249,7 @@ def test_a_google_doc_exported_as_markdown_is_shown_without_its_pictures(drives)
     drives["drives"].files[("google", "gdoc0000000001")] = b"# Atividades\n\n![logo](data:image/png;base64,AAAA)\n\nSegunda: ensaio.\n"
     drives["drives"].markdown.add(("google", "gdoc0000000001"))
     reply = phone(drives, LINE_1)
-    assert reply.startswith(f"{WANTED} (Google Drive, pasta contratos):\n\n# Atividades\n\n")
+    assert reply.startswith(f"{WANTED} (Google Drive, pasta Contratos 2026):\n\n# Atividades\n\n")
     assert "base64" not in reply and reply.endswith("Segunda: ensaio.")
 
 
@@ -256,7 +262,7 @@ def test_a_pdf_goes_through_the_converter_of_a_source_and_a_text_file_does_not(d
         return {"converter": "stand-in"}
     monkeypatch.setattr(ops_file_read, "converter", converter)
     drives["answer"]["text"] = op("file-read", {"file": "Contrato de locacao"})
-    assert phone(drives, "mostre o arquivo Contrato de locacao") == "Contrato de locacao.docx (Google Drive, pasta contratos):\n\nContrato de locacao\n\nClausula 3: o prazo e de doze meses."
+    assert phone(drives, "mostre o arquivo Contrato de locacao") == "Contrato de locacao.docx (Google Drive, pasta Contratos 2026):\n\nContrato de locacao\n\nClausula 3: o prazo e de doze meses."
     assert converted == ["pdf"]
     drives["answer"]["text"] = op("file-read", {"file": "Lista de presenca"})
     phone(drives, "mostre o arquivo Lista de presenca")
@@ -349,7 +355,7 @@ def test_the_served_catalog_has_the_operation_as_a_read_with_a_span_and_a_word()
 def test_the_interpreter_stays_on_with_the_newest_entry_and_is_off_when_its_catalog_hash_is_wrong(tmp_path):
     data = json.loads((REPO / "runtime" / "interpreter_enable.json").read_text(encoding="utf-8"))
     before = "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d"      # the catalog before this slice: an earlier entry still names it
-    served = "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1"
+    served = "fd05b3d27bf994935dae860053652fdeeae10a90e23bb1bc75aa8c29081eedc7"
     assert any(e["catalog_sha256"] == before for e in data["entries"][:-1])
     newest = data["entries"][-1]
     assert interpreter.SERVED_SHA256 == served and newest["catalog_sha256"] == served

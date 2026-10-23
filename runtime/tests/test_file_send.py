@@ -48,12 +48,12 @@ LIMITS = {"max_bytes": 20971520, "photo_max_bytes": 10485760, "photo_types": ["p
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64 + b"coral"
 PDF = b"%PDF-1.7 a report about the choir budget"
 KEY_BLOCK = b"notes\n-----BEGIN PRIV" + b"ATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIV" + b"ATE KEY-----\n"
-SENT_TEXT = "Aqui está Foto do coral.png (OneDrive, pasta default)."  # validate: allow english-only -- the Portuguese sentence or name under test
+SENT_TEXT = "Aqui está Foto do coral.png (OneDrive, pasta Documentos)."  # validate: allow english-only -- the Portuguese sentence or name under test
 WITHHELD = "Encontrei {name} ({account}), mas não envio por aqui: o arquivo parece conter uma senha ou uma chave."  # validate: allow english-only -- the Portuguese sentence or name under test
 TOO_BIG = "Encontrei {name} ({account}), mas ele é grande demais para eu enviar por aqui."  # validate: allow english-only -- the Portuguese sentence or name under test
 NOT_SENT_KIND = "Encontrei {name} ({account}), mas não consigo enviar esse tipo de arquivo por aqui."  # validate: allow english-only -- the Portuguese sentence or name under test
 NO_FOLDER = ("Não encontrei essa pasta dentro das pastas configuradas para as suas contas, e não procuro fora delas: "  # validate: allow english-only -- the Portuguese sentence or name under test
-             "default (Google Drive), contratos (Google Drive), default (OneDrive).")
+             "Google Drive, OneDrive.")
 WIDENING_LINE = ("sends the found file itself to the chat, not only its text: the whole file leaves your drive for the messaging app's servers; one whose text looks like a password or a key is "
                  "not sent (adds to read-files)")
 
@@ -98,6 +98,20 @@ def test_a_text_file_comes_as_a_document_and_keeps_its_preview_as_the_message_te
     assert sending["drives"].reads() == [("microsoft", "drv1/it!1")]
 
 
+def test_a_text_file_in_a_subfolder_named_as_the_person_sees_it_comes_as_text_and_as_a_file(sending):
+    """S17b: "/openhora" is a folder the person sees in the Drive, not the configuration's alias; the plain text comes as before and, with `send-files`, the file comes too."""
+    made = sending["drives"]
+    made.folders[("google", "GDRIVEFOLDER0001")] = made.folders[("google", "GDRIVEFOLDER0001")] + [item("gdir_openhora", "openhora", kind="folder")]
+    made.folders[("google", "gdir_openhora")] = [item("gmark00000000001", "openhora-mark.txt")]
+    made.files[("google", "gmark00000000001")] = "marca do coral".encode("utf-8")
+    line = "Me traga o arquivo openhora-mark da pasta /openhora"
+    result = ask(sending, line, "openhora-mark")
+    assert result["reply"] == "openhora-mark.txt (Google Drive, pasta Arquivos › openhora):\n\nmarca do coral"
+    assert result["attachment"] == {"name": "openhora-mark.txt", "kind": "document", "data": "marca do coral".encode("utf-8")}
+    plain = ask(sending, line, "openhora-mark", key=READER_KEY)          # without `send-files`: the same text and no file
+    assert plain["reply"] == result["reply"] and "attachment" not in plain
+
+
 def test_vacuity_a_file_sent_as_a_photo_or_without_its_preview_would_be_seen(sending, monkeypatch):
     """The planted fault: every file is a photo. The oracle above (a document) then fails."""
     monkeypatch.setattr(ops_file_read, "_attachment", lambda match, got, send: ({"name": match["name"], "kind": "photo", "data": got["data"]}, ""))
@@ -121,7 +135,7 @@ def test_vacuity_an_image_over_the_photo_limit_is_a_document_and_a_type_the_app_
 
 def test_a_pdf_comes_as_a_document_and_its_converted_text_is_the_preview(sending):
     result = ask(sending, "Me traga o relatorio do coral", "Relatorio do coral.pdf")
-    assert result["reply"] == "Relatorio do coral.pdf (Google Drive, pasta default):\n\nRelatorio do coral\n\nTotal: 10 vozes."
+    assert result["reply"] == "Relatorio do coral.pdf (Google Drive, pasta Arquivos):\n\nRelatorio do coral\n\nTotal: 10 vozes."
     assert result["attachment"] == {"name": "Relatorio do coral.pdf", "kind": "document", "data": PDF}
 
 
@@ -132,14 +146,14 @@ def test_a_google_doc_exported_as_markdown_gets_an_ending_and_is_a_document(send
     made.files[("google", "gdoc0000000001")] = b"# Ata\n\nPresentes: 10.\n"
     made.markdown.add(("google", "gdoc0000000001"))
     result = ask(sending, "Me traga o arquivo Ata do coral", "Ata do coral")
-    assert result["reply"] == "Ata do coral (Google Drive, pasta contratos):\n\n# Ata\n\nPresentes: 10."
+    assert result["reply"] == "Ata do coral (Google Drive, pasta Contratos 2026):\n\n# Ata\n\nPresentes: 10."
     assert result["attachment"] == {"name": "Ata do coral.md", "kind": "document", "data": b"# Ata\n\nPresentes: 10.\n"}
 
 
 def test_a_file_with_no_text_to_scan_is_sent_as_it_is_and_says_so_in_one_sentence(sending):
     sending["converted"]["text"] = "  \n"
     result = ask(sending, "Me traga o relatorio do coral", "Relatorio do coral.pdf")
-    assert result["reply"] == "Aqui está Relatorio do coral.pdf (Google Drive, pasta default)."  # validate: allow english-only -- the Portuguese sentence or name under test
+    assert result["reply"] == "Aqui está Relatorio do coral.pdf (Google Drive, pasta Arquivos)."  # validate: allow english-only -- the Portuguese sentence or name under test
     assert result["attachment"] == {"name": "Relatorio do coral.pdf", "kind": "document", "data": PDF}
 
 
@@ -170,7 +184,7 @@ def test_the_limits_are_ignored_off_a_messaging_app_and_the_typed_operation_retu
     assert ops_file_read._sending(ops_core.context(sending["path"]), "page", SENDER_KEY, {"can_send": LIMITS}) is None
     assert ops_file_read._sending(ops_core.context(sending["path"]), "messaging", SENDER_KEY, {"can_send": LIMITS}) == dict(LIMITS, types=list(LIMITS["types"]))
     out = ops.file_read(sending["path"], WANTED, account="microsoft", channel="messaging", sender=SENDER_KEY)
-    assert out == {"status": "text", "name": WANTED, "folder": "default", "account": "microsoft", "text": ACTIVITIES.strip(), "remaining": 0}
+    assert out == {"status": "text", "name": WANTED, "folder": "Documentos", "account": "microsoft", "text": ACTIVITIES.strip(), "remaining": 0}
 
 
 # --- the group in the configuration ------------------------------------------------------------------------------------------------------------
@@ -296,7 +310,7 @@ def two(sending):
 
 
 LIST = ('Encontrei 2 arquivos que combinam. Qual deles? Diga o número, por exemplo "o 2".'  # validate: allow english-only -- the Portuguese sentence or name under test
-        "\n1. Plano do coral.txt - pasta default, Google Drive\n2. Plano do coral.txt - pasta default, OneDrive")
+        "\n1. Plano do coral.txt - pasta Arquivos, Google Drive\n2. Plano do coral.txt - pasta Documentos, OneDrive")
 
 
 def pick(world, number=2, key=SENDER_KEY, limits=LIMITS):
@@ -306,7 +320,7 @@ def pick(world, number=2, key=SENDER_KEY, limits=LIMITS):
 def test_a_pick_after_a_list_sends_the_file_it_names_as_a_document_with_its_preview(two):
     assert ask(two, "Me traga o arquivo Plano do coral", "Plano do coral")["reply"] == LIST
     picked = pick(two)
-    assert picked["reply"] == "Plano do coral.txt (OneDrive, pasta default):\n\nPlano do OneDrive."
+    assert picked["reply"] == "Plano do coral.txt (OneDrive, pasta Documentos):\n\nPlano do OneDrive."
     assert picked["attachment"] == {"name": "Plano do coral.txt", "kind": "document", "data": b"Plano do OneDrive.\n"}
 
 
@@ -314,7 +328,7 @@ def test_a_pick_after_send_files_left_the_policy_sends_nothing(two):
     assert ask(two, "Me traga o arquivo Plano do coral", "Plano do coral")["reply"] == LIST
     accept(two["path"], policies=dict(SEND_PROFILES, sender=["read", "talk", "interpret", "read-files"]), messaging={"senders": SEND_SENDERS})
     picked = pick(two)
-    assert picked["reply"] == "Plano do coral.txt (OneDrive, pasta default):\n\nPlano do OneDrive."
+    assert picked["reply"] == "Plano do coral.txt (OneDrive, pasta Documentos):\n\nPlano do OneDrive."
     assert "attachment" not in picked
 
 
@@ -339,7 +353,7 @@ def test_a_pick_after_the_folder_was_removed_sends_nothing(two):
     accept(two["path"], accounts={"google": ACCOUNTS["google"], "microsoft": {"address": "ana@outlook.example", "folders": {"outra": "/Outra"}}})
     picked = pick(two)
     assert picked["reply"] == ("Não encontrei essa pasta dentro das pastas configuradas para as suas contas, e não procuro fora delas: "  # validate: allow english-only -- the Portuguese sentence or name under test
-                               "default (Google Drive), contratos (Google Drive), outra (OneDrive).")
+                               "Google Drive, OneDrive.")
     assert "attachment" not in picked
     assert two["drives"].reads() == []
 

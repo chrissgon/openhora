@@ -63,6 +63,7 @@ ON_SYSTEM_PYTHON = [
     "runtime/sources.py", "runtime/sources_onedrive.py", "runtime/sources_mail.py", "runtime/snapshot_text.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # References to one item of a mail or calendar snapshot (SNAP-IDX): read through the index of the newest version.
     "runtime/item_refs.py",
+    "runtime/items_mail.py",
     # Files sent through a messaging app (ATT-1): the limits and folders of the hold, and the operations over it.
     "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",
     # The start of a write to the person's own accounts (FND): the one function an operation of the family calls.
@@ -83,7 +84,7 @@ ON_SYSTEM_PYTHON = [
     "runtime/ops_natural.py", "runtime/source_resolve.py", "runtime/drafts.py",
     # Natural writes (NR-5): the pure families and the card-opening path.
     "runtime/natural_writes.py", "runtime/natural_writes_calendar.py", "runtime/natural_writes_files.py", "runtime/ops_natural_writes.py",
-    "runtime/ops_natural_calendar.py", "runtime/ops_natural_files.py", "runtime/ops_items.py", "runtime/ops_file_read.py",
+    "runtime/ops_natural_calendar.py", "runtime/ops_natural_files.py", "runtime/ops_items.py", "runtime/ops_file_read.py", "runtime/ops_research.py", "runtime/research_reply.py", "runtime/research_guard.py",
     # A mail write asked in words (NR-5b): the closed forms of the mail family (pure) and the resolution of what they read.
     "runtime/natural_writes_mail.py", "runtime/ops_natural_mail.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state

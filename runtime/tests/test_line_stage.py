@@ -191,7 +191,8 @@ def test_every_word_published_in_the_runtime_is_in_the_closed_list_and_every_sta
     words, other = scan()
     assert other == []      # no call passes a variable: no word of the person can become a stage
     assert set(words) <= set(THE_EIGHT)
-    assert set(words) == set(THE_EIGHT) - {"research"}      # `research` is chosen by `for_kinds` where an answer reads other sources
+    assert set(words) == set(THE_EIGHT)      # `research` is published by name where a web research starts (R2-F1, ops_research) and chosen by `for_kinds` where an answer reads other sources
+    assert 'line_stage.publish("research")' in (st.RUNTIME / "ops_research.py").read_text(encoding="utf-8")
     source = (st.RUNTIME / "ops_ask.py").read_text(encoding="utf-8")
     assert "line_stage.publish(line_stage.for_kinds(" in source
 

@@ -359,7 +359,7 @@ def test_muda_para_as_10h_revises_the_event_card_whatever_the_shape_of_the_model
     assert reads_only(world) == []
 
 
-@pytest.mark.parametrize("shape", ["event-create", "event-create-time-only", "invalid-json", "empty-object"])
+@pytest.mark.parametrize("shape", ["event-create", "event-create-time-only"])      # S16b made the interpreter read an unreadable answer by the line's own verb (invalid JSON, `{}`) too; an event-create answer is still not a change
 def test_vacuity_the_interpreter_alone_refuses_these_shapes_so_the_card_is_not_revised_without_the_card_reading(world, monkeypatch, shape):
     build(world, monkeypatch, SHAPES[shape])
     ctx = ops_core.context(world["path"])
