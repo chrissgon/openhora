@@ -1422,8 +1422,11 @@ class Bridge(shell_kit.Jobs):
             except (Refused, self.ops.OpsError):
                 pass
             else:
-                self.reply(chat, self.t("PHONE_NO_FILE_DELETE", project=project), project)
-                return
+                try:
+                    self.allow(project, "file-trash", None, chat)      # R2-A: a sender who may move a file to the trash is not told it cannot be done: the line goes on, and the conversation opens the file's card
+                except (Refused, self.ops.OpsError):
+                    self.reply(chat, self.t("PHONE_NO_FILE_DELETE", project=project), project)
+                    return
         if not queueable(text):
             self.start(project, chat, "say", self.line(project, chat, text, None))
             return

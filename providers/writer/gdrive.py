@@ -3,12 +3,15 @@
 # requires-python = ">=3.10"
 # dependencies = ["keyring==25.7.0"]
 # ///
-"""Writer provider on Google Drive (class writer:files, package W4a): create a file in a folder of the person's Drive, and write a new revision of a
-file they have, after the runtime showed them the exact content and they approved its hash. Nothing here is called by a skill or a step: only the
+"""Writer provider on Google Drive (class writer:files, package W4a): create a file in a folder of the person's Drive, write a new revision of a
+file they have, and (slice R2-A) move a file they own to the Drive trash, after the runtime showed them the exact content or the exact file and they approved
+its hash. Nothing here is called by a skill or a step: only the
 runtime's effect module for the word `files` (runtime/effect_files.py) starts it, and a read-only seam (`file-meta`) before that.
 
-What it never does (limits L57 and L58): it never deletes a file, never trashes one, never empties the trash, never changes a file's name, parents or
-sharing, and never writes to a file or a folder it was not asked for. Its constant ALLOWED lists the only requests its one request function will send;
+What it never does (limits L57 and L58): it never deletes a file for good (Drive's call that deletes for good is not in its allow-list), never
+empties the trash, never changes a file's name, parents or sharing, and never writes to a file or a folder it was not asked for. The one removal it has is
+`trash`: `PATCH /drive/v3/files/{id}` with the body `{"trashed": true}` and nothing else, which moves a file the account owns to the trash, where the person can
+restore it (R2-A; the body is a module constant, TRASH_BODY, and the allow-list scan of runtime/tests/test_limits_account_writes.py honours it only there). Its constant ALLOWED lists the only requests its one request function will send;
 the content a write sends is the bytes of `--content-file`, checked against the byte count and the sha256 the flags state.
 
 Usage:
@@ -20,6 +23,8 @@ Usage:
         --bytes <n> --sha256 <hex> --idempotency-key <key> --account <address> (--dry-run | --confirmed)
   uv run providers/writer/gdrive.py update --id <file id> --media-type <type> --content-file <abs path> --bytes <n> --sha256 <hex>
         --base-version <v> --base-modified <time> --base-mime <type> [--base-md5 <hex>] [--base-head-revision <id>]
+        --idempotency-key <key> --account <address> (--dry-run | --confirmed)
+  uv run providers/writer/gdrive.py trash --id <file id> --base-version <v> --base-modified <time> --base-mime <type> --base-parent <folder id>
         --idempotency-key <key> --account <address> (--dry-run | --confirmed)
 
   --account   the address of the account the document names. Every verb but --check reads it and compares it with the account of the token record: another
@@ -37,6 +42,11 @@ Usage:
               is marked keepForever BEFORE the content is written (Drive purges an old revision after 30 days otherwise; at most 200 revisions per
               file can be kept); a Google-native file keeps its own history. Drive v3 has no precondition on a media update, so the gap between the
               read and the write is a few hundred milliseconds wide and is said in providers/writer/README.md.
+  trash       move ONE file to the trash (R2-A). The file is read again first: its version, modified time, type and parent must be the base the runtime
+              read, it must be a file (not a folder), owned by the account and not already in the trash, else exit 1 `changed:` and nothing is changed. Then
+              one `PATCH` sets `trashed` to true. The file is not deleted: Drive keeps it in the trash, from where the owner restores it (Drive's help says
+              a trashed file is deleted for good after 30 days; to verify live). A lost answer is found again: a key an earlier attempt left pending, and a
+              file that is in the trash now, is the earlier attempt's own and is answered `replayed`.
 
 The dry run (`--dry-run`) reads no credential, opens no connection and prints {"dry_run": true, "requests": [...], "would_sha256", "ledger"}: the
 exact list of requests `--confirmed` sends, in order, and the sha256 of its canonical text. `--confirmed` sends exactly that list.
@@ -93,12 +103,15 @@ REVISION_RE = re.compile(REVISION)
 NAME_MAX = 120
 NAME_EXTRA = " ._-()"       # besides letters and digits of any script
 RESPONSE_LIMIT = 4 * 1024 * 1024
+TRASH_BODY = {"trashed": True}      # the whole body of the one request that moves a file to the trash (R2-A): the file stays in the trash, restorable by its owner
 
-# Limit L58: the only requests this writer sends. Every one is on a path under /drive/v3/files or /upload/drive/v3/files. There is no DELETE, no
-# request that sets `trashed`, no call on the trash, no change of a file's metadata outside the media upload's own mark, and no permission call.
+# Limit L58: the only requests this writer sends. Every one is on a path under /drive/v3/files or /upload/drive/v3/files. There is no DELETE (Drive's
+# call that deletes for good), no call on the trash (no emptying it), no change of a file's metadata outside the media upload's own mark and the one PATCH that
+# moves a file to the trash (TRASH_BODY), and no permission call.
 ALLOWED = (
     ("GET", r"/drive/v3/files"),
     ("GET", r"/drive/v3/files/" + ID),
+    ("PATCH", r"/drive/v3/files/" + ID),
     ("PATCH", r"/drive/v3/files/" + ID + r"/revisions/" + REVISION),
     ("POST", r"/upload/drive/v3/files"),
     ("PATCH", r"/upload/drive/v3/files/" + ID),
@@ -324,6 +337,12 @@ def plan_update(file_id: str, media_type: str, count: int, sha: str, key: str, n
     return steps
 
 
+def plan_trash(file_id: str) -> list:
+    """file read, then the one PATCH that moves it to the trash."""
+    return [{"method": "GET", "path": f"/drive/v3/files/{encode(file_id)}", "query": {"fields": FILE_FIELDS}, "body": None},
+            {"method": "PATCH", "path": f"/drive/v3/files/{encode(file_id)}", "query": {"fields": FILE_FIELDS}, "body": TRASH_BODY}]
+
+
 def multipart(boundary: str, metadata: dict, media_type: str, data: bytes) -> bytes:
     head = f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".encode("ascii")
     mid = f"\r\n--{boundary}\r\nContent-Type: {media_type}\r\n\r\n".encode("ascii")
@@ -538,6 +557,45 @@ def cmd_update(a) -> int:
     return emit(out)
 
 
+def cmd_trash(a) -> int:
+    file_id = drive_id(a.id, "--id")
+    key = common.check_key(a.idempotency_key)
+    base_mime = a.base_mime if isinstance(a.base_mime, str) and 3 <= len(a.base_mime) <= 120 and a.base_mime.isprintable() else None
+    parent = drive_id(a.base_parent, "--base-parent") if a.base_parent else None
+    if base_mime is None or not a.base_version or not a.base_modified or parent is None:
+        raise WriterError("--base-version, --base-modified, --base-mime and --base-parent state the file as the runtime read it", EXIT_USAGE)
+    steps = plan_trash(file_id)
+    if a.dry_run:
+        return dry_run(steps, key)
+    ledger = common.Ledger(IMPLEMENTATION)
+    claim = ledger.claim(key, common.would_sha256(steps))
+    if claim["state"] == "done":
+        return emit({**claim["result"], "replayed": True})
+    try:
+        session = open_session(check_account_flag(a.account))
+        current = described(read_json(session, steps[0], "files.get"))
+        if current["in_trash"] and claim["state"] == "pending":      # an earlier attempt of this very approval landed and its answer was lost
+            out = {"written": True, "replayed": True, "id": current["id"], "moved_to_trash": True, "version": current["version"], "modified": current["modified"]}
+            ledger.done(key, out)
+            return emit(out)
+        moved = [field for field, now, then in (("version", current["version"], a.base_version), ("modified time", current["modified"], a.base_modified),
+                                                ("type", current["mime_type"], base_mime), ("folder", current["parents"], [parent])) if now != then]
+        if current["in_trash"] or current["folder"] or not current["owned"] or moved:
+            raise WriterError("changed: the file is not the one the runtime read ("
+                              + (", ".join(moved) if moved else "it is in the trash, is a folder, or is not owned by the account") + "): nothing was changed")
+        answer = write_request(session, steps[1], json.dumps(steps[1]["body"]).encode("ascii"), {"Content-Type": "application/json"}, "files.update (trash)")
+        done = described(answer)
+        if done["id"] != file_id or not done["in_trash"]:
+            raise WriterError("Drive's answer does not say the file is in the trash: the outcome is unknown", EXIT_UNKNOWN)
+        out = {"written": True, "replayed": False, "id": done["id"], "moved_to_trash": True, "version": done["version"], "modified": done["modified"]}
+    except WriterError as e:
+        if e.code != EXIT_UNKNOWN and claim["state"] == "new":
+            ledger.release(key)
+        raise
+    ledger.done(key, out)
+    return emit(out)
+
+
 # --- the command line --------------------------------------------------------------------------------------------------------------------
 
 
@@ -548,10 +606,10 @@ class Parser(argparse.ArgumentParser):
 
 def build_parser() -> Parser:
     p = Parser(prog="gdrive.py", add_help=False)
-    p.add_argument("verb", nargs="?", choices=["file-meta", "create", "update"])
+    p.add_argument("verb", nargs="?", choices=["file-meta", "create", "update", "trash"])
     p.add_argument("--check", action="store_true")
     for flag in ("account", "id", "folder", "name", "media-type", "content-file", "bytes", "sha256", "idempotency-key", "base-version", "base-modified", "base-mime",
-                 "base-md5", "base-head-revision"):
+                 "base-md5", "base-head-revision", "base-parent"):
         p.add_argument("--" + flag)
     for flag in ("gdoc", "dry-run", "confirmed"):
         p.add_argument("--" + flag, action="store_true")
@@ -573,6 +631,13 @@ def main(argv=None) -> int:
             raise WriterError("give a verb or --check; see --help", EXIT_USAGE)
         if a.verb == "file-meta" and a.account is None:
             raise WriterError("--account is required", EXIT_USAGE)
+        if a.verb == "trash":
+            if a.account is None and not a.dry_run:
+                raise WriterError("--account is required with --confirmed", EXIT_USAGE)
+            if a.dry_run == a.confirmed:
+                raise WriterError("give exactly one of --dry-run and --confirmed", EXIT_USAGE)
+            if a.idempotency_key is None or a.id is None:
+                raise WriterError("--id and --idempotency-key are required", EXIT_USAGE)
         if a.verb in ("create", "update"):
             if a.account is None and not a.dry_run:
                 raise WriterError("--account is required with --confirmed", EXIT_USAGE)
@@ -583,7 +648,7 @@ def main(argv=None) -> int:
             for flag in ("media_type", "bytes", "sha256", "idempotency_key"):
                 if getattr(a, flag) is None:
                     raise WriterError(f"--{flag.replace('_', '-')} is required", EXIT_USAGE)
-        return {"file-meta": cmd_file_meta, "create": cmd_create, "update": cmd_update}[a.verb](a)
+        return {"file-meta": cmd_file_meta, "create": cmd_create, "update": cmd_update, "trash": cmd_trash}[a.verb](a)
     except WriterError as e:
         print(f"error: {_google.scrub(str(e))}", file=sys.stderr)
         return e.code

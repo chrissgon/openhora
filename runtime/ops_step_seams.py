@@ -38,6 +38,8 @@ module builds those services, once, for the process that runs the task (runtime/
   files_read       FilesReader (package W4a): `meta(account, args)`, the ONE verb of the writers of files a step kind reaches, `file-meta`, a read of one
                    file or of a name in a folder of the person's own Drive or OneDrive (limit L58: the seam exposes only this; the write verbs are
                    runtime/effect_files.py's alone)
+  file_grant       FileGrant (slice R2-A): `locate(account, root, id)`, whether a file is under a folder the project lists, by the walk the search makes (a read; it
+                   writes nothing)
   held_files       HeldFiles (package W4a): `meta(attachment id)`, what a file a sender sent waits as (name, size, sha256, kind), read from the hold and
                    checked against its bytes; it moves nothing out of the hold
   file_source      FileSources (package W4a): `lookup(source id)`, a registered source's type, origin and the version of its newest copy
@@ -591,6 +593,18 @@ class FilesReader:
             raise StepServiceError("refused" if e.exit_code == 1 or e.kind == "usage" else "provider_failed", e.reason) from None
 
 
+class FileGrant:
+    """The grant of a folder, asked again (slice R2-A): is this file under that configured folder, by the walk the search makes (runtime/ops_file_read.py `locate`)? A reader of the
+    person's own folders through the documents providers; it writes nothing."""
+
+    def __init__(self, cfg: dict):
+        self._cfg = cfg
+
+    def locate(self, account: str, root: str, ident: str):
+        import ops_file_read  # noqa: PLC0415  (loaded when a trash is prepared)
+        return ops_file_read.locate(self._cfg, account, root, ident)
+
+
 class HeldFiles:
     """The files a listed sender sent through a messaging app and that wait for an answer (ATT-1), as a step kind may ask about one: what it is, never the
     sender. It reads the bytes of the held file to check them against the hash the hold recorded, and keeps nothing."""
@@ -654,7 +668,7 @@ def services(ctx: dict) -> dict:
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
             "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx),
-            "files_read": FilesReader(cfg, root), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx), "mailbox_read": MailboxReader(ctx)}
+            "files_read": FilesReader(cfg, root), "file_grant": FileGrant(cfg), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx), "mailbox_read": MailboxReader(ctx)}
 
 
 if __name__ == "__main__":

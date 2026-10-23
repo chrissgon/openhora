@@ -78,6 +78,20 @@
    "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned); research added to the catalog 2026-10-22 (R2-F1)",
    "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
    "revise_prompt_sha256": "0d8e9ef055270765d32a2abd7ec7beff75a51d0f468e8ed740b304ec0a0eba3c"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90877edd84f53f4c91ce546a94e96bd42ddfeb7959c075d75d216c44a665a212",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "R2-A adds the operation file-trash (class E: a card that moves a file of the person's own Drive or OneDrive to the service's trash) on top of the catalog with research, so the served catalog changed; every other pin stands and this entry carries them all. The maintainer on 2026-10-22 (translated): \"Yes: start R2-A (move a file to the trash) as soon as S17b is in.\" Earlier basis unchanged: IX-3b go false, the maintainer chose to proceed. Nothing is moved before the person approves the card's hash.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned); research added to the catalog 2026-10-22 (R2-F1); file-trash added to the catalog 2026-10-22 (R2-A)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "0d8e9ef055270765d32a2abd7ec7beff75a51d0f468e8ed740b304ec0a0eba3c"
   }
  ]
 }

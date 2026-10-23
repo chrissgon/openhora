@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import subprocess
+import urllib.parse
 import sys
 from pathlib import Path
 
@@ -379,7 +380,8 @@ def test_the_requests_a_confirmed_run_sent_are_those_its_dry_run_printed(fake, h
 def test_limit_58_the_request_function_refuses_every_method_and_path_outside_its_allow_list():
     m = module()
     session = m.Session(m.msgraph.GraphClient(m.PROFILE, "http://127.0.0.1:1", "token", True), (), True)
-    refused = [("DELETE", "/me/drive/items/x"), ("DELETE", "/drives/d/items/i"), ("PATCH", "/me/drive/items/x"), ("PATCH", "/drives/d/items/i"),
+    refused = [("DELETE", "/me/drive/items/x"), ("DELETE", "/drives/d/items/i/children"), ("DELETE", "/drives/d/items/i/content"), ("DELETE", "/me/drive/special/recyclebin"),
+               ("POST", "/drives/d/items/i/permanentDelete"), ("DELETE", "/drives/d/items/i/permanentDelete"), ("PATCH", "/me/drive/items/x"), ("PATCH", "/drives/d/items/i"),
                ("POST", "/me/drive/items/x/copy"), ("POST", "/me/drive/items/x/createLink"), ("POST", "/me/drive/items/x/invite"),
                ("POST", "/drives/d/items/i/restore"), ("PUT", "/me/drive/items/x/content"), ("PUT", "/me/drive/items/x:/y"), ("GET", "/me/drive/items/.."),
                ("GET", "/me/drive/root:/../x"), ("GET", "/me/drive/items/a/b"), ("GET", "/me/messages"), ("GET", "/me/drive/recent"),
@@ -390,12 +392,15 @@ def test_limit_58_the_request_function_refuses_every_method_and_path_outside_its
             m.send(session, {"method": method, "path": path, "query": {}})
 
 
-def test_limit_57_the_writer_holds_no_delete_no_move_and_no_permanent_removal():
+def test_limit_57_the_writer_holds_one_delete_of_an_item_that_goes_to_the_recycle_bin_no_move_and_no_permanent_removal():
+    """R2-A: the one DELETE is `/drives/{drive}/items/{item}` (Graph moves the item to the recycle bin); the permanent call is not here."""
     m = module()
-    assert {method for method, _ in m.ALLOWED} == {"GET", "PUT", "POST"}
+    assert {method for method, _ in m.ALLOWED} == {"GET", "PUT", "POST", "DELETE"}
+    assert [pair for pair in m.ALLOWED if pair[0] == "DELETE"] == [("DELETE", r"/drives/[^/]+/items/[^/]+")]
     source = WRITER.read_text(encoding="utf-8")
-    for word in ("permanentDelete", "batchDelete", "emptyTrash", '"DELETE"', "'DELETE'", '"PATCH"', "recycleBin", "restore"):
+    for word in ("permanentDelete", "batchDelete", "emptyTrash", "'DELETE'", '"PATCH"', "recycleBin", "restore"):
         assert word not in source, word
+    assert source.count('"DELETE"') == 1, "the word is spelled once, in the allow-list pair"
     assert "conflictBehavior" in source and '"fail"' in source
 
 
@@ -499,3 +504,104 @@ def test_a_replace_whose_upload_landed_and_whose_answer_was_lost_is_replayed_on_
     fake.lose_answer = None
     done = run(args, fake, home)
     assert done.returncode == 0 and json.loads(done.stdout)["replayed"] is True
+
+
+# --- trash (slice R2-A): a file of the account's own drive goes to the recycle bin, never for good ---------------------------------------------------
+
+
+def trash_args(fake, ident=ITEM, key=KEY, mode="--confirmed", etag=None, ctag=None, size=None, parent=None):
+    item = fake.items[fod.FILE_ID]
+    return ["trash", "--id", ident, "--base-etag", etag or fake.etag(item), "--base-ctag", ctag or fake.ctag(item), "--base-size", str(len(item["content"]) if size is None else size),
+            "--base-parent", parent or item["parent"], "--idempotency-key", key, mode]
+
+
+def test_a_trash_dry_run_prints_the_exact_requests_and_touches_nothing(fake, home):
+    seeded(fake)
+    done = run(trash_args(fake, mode="--dry-run"), fake, home)
+    assert done.returncode == 0, done.stderr
+    out = json.loads(done.stdout)
+    etag = fake.etag(fake.items[fod.FILE_ID])
+    path = f"/drives/{urllib.parse.quote(fod.DRIVE, safe='')}/items/{urllib.parse.quote(fod.FILE_ID, safe='')}"
+    assert out["requests"] == [{"method": "GET", "path": path, "query": {"$select": ITEM_FIELDS}, "body": None},
+                               {"method": "DELETE", "path": path, "query": {}, "if_match": etag, "body": None}]
+    assert fake.requests == [] and fod.FILE_ID in fake.items
+
+
+def test_a_confirmed_trash_reads_the_item_and_sends_one_delete_with_if_match_and_the_item_is_in_the_bin_not_gone(fake, home):
+    seeded(fake)
+    etag = fake.etag(fake.items[fod.FILE_ID])
+    done = run(trash_args(fake), fake, home)
+    assert done.returncode == 0, done.stderr
+    assert [(m, p) for m, p, _ in fake.listing()] == [("GET", f"/v1.0/drives/{fod.DRIVE}/items/{fod.FILE_ID}"), ("GET", "/v1.0/me/drive"),
+                                                      ("DELETE", f"/v1.0/drives/{fod.DRIVE}/items/{fod.FILE_ID}")]
+    assert fake.requests[2]["if_match"] == etag and fake.violations == []
+    assert fod.FILE_ID not in fake.items and fake.bin[fod.FILE_ID]["content"] == OLD, "in the recycle bin with its content"
+    out = json.loads(done.stdout)
+    assert out["written"] is True and out["replayed"] is False and out["moved_to_trash"] is True and out["id"] == ITEM
+
+
+def test_vacuity_a_trash_that_skipped_the_comparison_would_trash_the_moved_file(fake, home):
+    seeded(fake)
+    for field, value in (("etag", '"{x},9"'), ("ctag", '"c:{x},9"'), ("size", 99), ("parent", "01OTHER00000!999")):
+        done = run(trash_args(fake, **{field: value}), fake, home)
+        assert done.returncode == 1 and "changed:" in done.stderr and "nothing was changed" in done.stderr, field
+    assert "DELETE" not in {r["method"] for r in fake.requests} and fod.FILE_ID in fake.items
+
+
+def test_a_trash_refuses_a_folder_and_an_item_that_is_not_in_the_accounts_own_drive(fake, home):
+    seeded(fake)
+    fake.add_folder("01SUB0000000!150", "sub", fod.FOLDER_ID)
+    item = fake.items["01SUB0000000!150"]
+    done = run(["trash", "--id", f"{fod.DRIVE}/01SUB0000000!150", "--base-etag", fake.etag(item), "--base-ctag", fake.ctag(item), "--base-size", "0",
+                "--base-parent", fod.FOLDER_ID, "--idempotency-key", KEY, "--confirmed"], fake, home)
+    assert done.returncode == 1 and "changed:" in done.stderr and "DELETE" not in {r["method"] for r in fake.requests}
+    fake.requests.clear()
+    other = run(trash_args(fake, ident=f"OTHERDRIVE0001/{fod.FILE_ID}"), fake, home)
+    assert other.returncode == 1 and "DELETE" not in {r["method"] for r in fake.requests}
+
+
+def test_a_precondition_failure_412_is_changed_and_nothing_is_gone(fake, home):
+    seeded(fake)
+    item = fake.items[fod.FILE_ID]
+
+    def edit():
+        item["n"] += 1
+    fake.edit_during = edit
+    done = run(trash_args(fake), fake, home)
+    assert done.returncode == 1 and "changed:" in done.stderr and fod.FILE_ID in fake.items
+
+
+def test_a_trash_whose_answer_was_lost_is_unknown_and_approving_again_finds_the_item_gone_and_deletes_nothing_twice(fake, home):
+    seeded(fake)
+    args = trash_args(fake)
+    fake.lose_answer = "DELETE"
+    first = run(args, fake, home)
+    assert first.returncode == 4 and "unknown" in first.stderr and fod.FILE_ID in fake.bin
+    fake.lose_answer = None
+    fake.requests.clear()
+    again = run(args, fake, home)
+    assert again.returncode == 0, again.stderr
+    assert json.loads(again.stdout)["replayed"] is True and "DELETE" not in {r["method"] for r in fake.requests}
+
+
+def test_a_done_trash_is_answered_again_from_the_ledger_with_no_request(fake, home):
+    seeded(fake)
+    args = trash_args(fake)
+    assert run(args, fake, home).returncode == 0
+    fake.requests.clear()
+    again = run(args, fake, home)
+    assert again.returncode == 0 and json.loads(again.stdout)["replayed"] is True and fake.requests == []
+
+
+def test_a_missing_item_with_a_new_key_is_a_refusal_not_a_replay(fake, home):
+    seeded(fake)
+    args = trash_args(fake)
+    fake.items.pop(fod.FILE_ID)
+    done = run(args, fake, home)
+    assert done.returncode == 1 and "replayed" not in done.stdout
+
+
+def test_a_trash_needs_the_base_the_runtime_read(fake, home):
+    seeded(fake)
+    done = run(["trash", "--id", ITEM, "--idempotency-key", KEY, "--confirmed"], fake, home)
+    assert done.returncode == 2 and fake.requests == []

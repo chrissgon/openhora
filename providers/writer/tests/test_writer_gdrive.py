@@ -388,7 +388,7 @@ def test_limit_58_the_request_function_refuses_every_method_and_path_outside_its
     module = writer_module()
     session = module.Session("http://127.0.0.1:1", "token", {})
     refused = [("DELETE", "/drive/v3/files/File_ID_0001"), ("DELETE", "/drive/v3/files"), ("PUT", "/upload/drive/v3/files/File_ID_0001"),
-               ("PATCH", "/drive/v3/files/File_ID_0001"), ("POST", "/drive/v3/files"), ("POST", "/drive/v3/files/File_ID_0001/copy"),
+               ("POST", "/drive/v3/files"), ("PATCH", "/drive/v3/files/File_ID_0001/permissions"), ("PATCH", "/drive/v3/files"), ("DELETE", "/drive/v3/files/File_ID_0001/revisions/r1"), ("POST", "/drive/v3/files/File_ID_0001/copy"),
                ("GET", "/drive/v3/about"), ("GET", "/drive/v3/files/a/b"), ("GET", "/drive/v3/files/File_ID_0001/permissions"),
                ("POST", "/drive/v3/files/trash"), ("DELETE", "/drive/v3/files/trash"), ("POST", "/drive/v3/files/emptyTrash"),
                ("PATCH", "/drive/v3/files/File_ID_0001/revisions/"), ("GET", "/drive/v3/files/%2e%2e"), ("PATCH", "/upload/drive/v3/files/a/../b"),
@@ -398,12 +398,15 @@ def test_limit_58_the_request_function_refuses_every_method_and_path_outside_its
             module.send(session, {"method": method, "path": path, "query": {}})
 
 
-def test_limit_57_the_writer_holds_no_delete_no_trash_and_no_permanent_removal():
+def test_limit_57_the_writer_holds_no_delete_no_emptying_of_the_trash_and_no_permanent_removal():
+    """R2-A: the one removal is the move to the trash (`trashed` true, one constant); nothing deletes for good."""
     module = writer_module()
     assert {m for m, _ in module.ALLOWED} == {"GET", "POST", "PATCH"}
     source = WRITER.read_text(encoding="utf-8") + (HERE.parent / "_files_common.py").read_text(encoding="utf-8")
-    for word in ("permanentDelete", "batchDelete", "emptyTrash", "files.delete", '"DELETE"', "'DELETE'", "trashed\": True", "trashed=True"):
+    for word in ("permanentDelete", "batchDelete", "emptyTrash", "files.delete", '"DELETE"', "'DELETE'", "trashed=True", "/trash"):
         assert word not in source, word
+    assert source.count('"trashed": True') == 1 and 'TRASH_BODY = {"trashed": True}' in source, "the one trashed=true is the constant"
+    assert module.TRASH_BODY == {"trashed": True}
     assert "keepForever" in source
 
 
@@ -462,3 +465,115 @@ def test_a_name_taken_at_the_write_is_said_with_the_word_the_runtime_answers_the
     fake.add_file(fdw.FILE_ID, "CV 2026.md", b"the person's own text\n")
     done = run(create_args(TEXT, home), fake, home)
     assert done.returncode == 1 and done.stderr.startswith("error: taken: a file named")
+
+
+# --- trash (slice R2-A): a file the account owns goes to the trash, never for good -------------------------------------------------------------
+
+
+def trash_args(ident=fdw.FILE_ID, key=KEY, mode="--confirmed", version="3", modified="2026-10-10T09:00:00.000Z", mime="text/markdown", parent=fdw.FOLDER_ID):
+    return ["trash", "--id", ident, "--base-version", version, "--base-modified", modified, "--base-mime", mime, "--base-parent", parent, "--idempotency-key", key, mode]
+
+
+def test_a_trash_dry_run_prints_the_exact_requests_and_touches_nothing(fake, home):
+    seeded(fake)
+    done = run(trash_args(mode="--dry-run"), fake, home, GOOGLE_ACCOUNT_TOKEN="")
+    assert done.returncode == 0, done.stderr
+    out = json.loads(done.stdout)
+    assert out["dry_run"] is True and out["requests"] == [
+        {"method": "GET", "path": f"/drive/v3/files/{fdw.FILE_ID}", "query": {"fields": FIELDS}, "body": None},
+        {"method": "PATCH", "path": f"/drive/v3/files/{fdw.FILE_ID}", "query": {"fields": FIELDS}, "body": {"trashed": True}}]
+    assert fake.requests == [] and fake.token_forms == [] and fake.files[fdw.FILE_ID]["trashed"] is False
+
+
+def test_a_confirmed_trash_reads_the_file_again_and_sends_exactly_one_trashed_patch(fake, home):
+    seeded(fake)
+    done = run(trash_args(), fake, home)
+    assert done.returncode == 0, done.stderr
+    assert [(m, p, q) for m, p, q in fake.listing()] == [("GET", f"/drive/v3/files/{fdw.FILE_ID}", {"fields": FIELDS}),
+                                                         ("PATCH", f"/drive/v3/files/{fdw.FILE_ID}", {"fields": FIELDS})]
+    assert json.loads(fake.requests[1]["body"]) == {"trashed": True} and fake.violations == []
+    assert fake.files[fdw.FILE_ID]["trashed"] is True and fake.files[fdw.FILE_ID]["content"] == b"old text\n", "moved to the trash: the file and its content are still there"
+    out = json.loads(done.stdout)
+    assert out["written"] is True and out["replayed"] is False and out["moved_to_trash"] is True and out["id"] == fdw.FILE_ID
+
+
+def test_vacuity_a_trash_that_skipped_the_comparison_would_trash_the_moved_file(fake, home):
+    """The planted fault: the base the runtime read is not the file's now. The refusal is the only thing between the card and the trash."""
+    seeded(fake)
+    for field, value in (("version", "2"), ("modified", "2026-10-09T09:00:00.000Z"), ("mime", "application/pdf"), ("parent", "Other_Folder_01")):
+        done = run(trash_args(**{field: value}), fake, home)
+        assert done.returncode == 1 and "changed:" in done.stderr and "nothing was changed" in done.stderr, field
+    assert [r["method"] for r in fake.requests] == ["GET"] * 4 and fake.files[fdw.FILE_ID]["trashed"] is False
+
+
+@pytest.mark.parametrize("trouble", ["folder", "foreign", "readonly", "trashed"])
+def test_a_trash_refuses_a_folder_a_file_of_someone_else_a_file_it_may_not_edit_and_a_file_already_in_the_trash(fake, home, trouble):
+    meta, _ = seeded(fake)
+    if trouble == "folder":
+        fake.add_folder("Folder_ID_02", "sub", [fdw.FOLDER_ID])
+        ident, mime = "Folder_ID_02", fdw.FOLDER
+    else:
+        ident, mime = fdw.FILE_ID, "text/markdown"
+        if trouble == "foreign":
+            meta["owned"] = False
+        if trouble == "readonly":
+            meta["can_edit"] = False
+        if trouble == "trashed":
+            meta["trashed"] = True
+    done = run(trash_args(ident=ident, mime=mime, version="1" if trouble == "folder" else "3", modified="2026-10-01T08:00:00.000Z" if trouble == "folder" else "2026-10-10T09:00:00.000Z"), fake, home)
+    assert done.returncode == 1 and "changed:" in done.stderr
+    assert [r["method"] for r in fake.requests] == ["GET"], "nothing but the read was sent"
+
+
+def test_a_trash_whose_answer_was_lost_is_unknown_and_approving_again_trashes_nothing_twice(fake, home):
+    seeded(fake)
+    fake.lose_answer = "TRASH"
+    first = run(trash_args(), fake, home)
+    assert first.returncode == 4 and "unknown" in first.stderr
+    assert fake.files[fdw.FILE_ID]["trashed"] is True
+    fake.lose_answer = None
+    fake.requests.clear()
+    again = run(trash_args(), fake, home)
+    assert again.returncode == 0, again.stderr
+    out = json.loads(again.stdout)
+    assert out["replayed"] is True and out["moved_to_trash"] is True
+    assert [r["method"] for r in fake.requests] == ["GET"], "the second approval only looked: no second PATCH"
+
+
+def test_a_done_trash_is_answered_again_from_the_ledger_with_no_request(fake, home):
+    seeded(fake)
+    assert run(trash_args(), fake, home).returncode == 0
+    fake.requests.clear()
+    again = run(trash_args(), fake, home)
+    assert again.returncode == 0 and json.loads(again.stdout)["replayed"] is True and fake.requests == []
+
+
+def test_a_trash_the_service_refuses_changes_nothing_and_gives_the_key_back(fake, home):
+    seeded(fake)
+    fake.fail_write = 403
+    done = run(trash_args(), fake, home)
+    assert done.returncode == 1 and fake.files[fdw.FILE_ID]["trashed"] is False
+    assert run(trash_args(), fake, home).returncode == 0, "the key went back: the next attempt starts clean"
+
+
+def test_a_server_error_on_the_trash_is_unknown_not_a_refusal(fake, home):
+    seeded(fake)
+    fake.fail_write = 500
+    done = run(trash_args(), fake, home)
+    assert done.returncode == 4 and "unknown" in done.stderr
+
+
+def test_a_trash_needs_the_base_the_runtime_read(fake, home):
+    seeded(fake)
+    done = run(["trash", "--id", fdw.FILE_ID, "--idempotency-key", KEY, "--confirmed"], fake, home)
+    assert done.returncode == 2 and fake.requests == []
+
+
+def test_limit_57_a_trash_of_the_writer_is_never_a_permanent_delete_every_request_is_on_the_list_and_no_other_was_served(fake, home):
+    seeded(fake)
+    run(trash_args(), fake, home)
+    module = writer_module()
+    for r in fake.requests:
+        module.common.guarded(module.ALLOWED, r["method"], r["path"])
+    assert {r["method"] for r in fake.requests} == {"GET", "PATCH"} and fake.violations == []
+    assert fake.files[fdw.FILE_ID]["trashed"] is True, "the file is in the trash, not gone"

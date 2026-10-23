@@ -362,6 +362,16 @@
    "what": "a card that saves a file someone sent"
   },
   {
+   "class": "E",
+   "op": "file-trash",
+   "slots": {
+    "file": "span",
+    "folder": "span",
+    "service": "word"
+   },
+   "what": "a card that moves a file of the person's own Drive or OneDrive to the trash, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive; the folder only when the line names one)"
+  },
+  {
    "class": "work",
    "op": "ask",
    "slots": {},

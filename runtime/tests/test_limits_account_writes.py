@@ -9,6 +9,9 @@ the approval (`ops_step_effects.approve`). What these tests do is catch the plai
        the person restores from. The one pair a later package may add: the Google calendar's `events/{id}` DELETE, which Google sends to the calendar's trash for
        30 days. It is honoured only as a pair of the file's own constant, `ALLOWED = (("DELETE", r"<the approved regex>"), ...)`, with the regex the allow-list
        below names for that file; a DELETE written anywhere else in that file (a call with the path in another argument, a decoy) is a finding.
+       R2-A adds two moves to the trash a person restores from, each honoured in one file only: the OneDrive writer's DELETE of an item (`/drives/{drive}/items/{item}`),
+       which Graph documents as a move to the recycle bin, as a pair of its constant; and the Drive writer's `trashed` set to true, only as the dict that is the module
+       constant `TRASH_BODY` and holds nothing else. Neither is a permanent delete, and the scan still finds one.
   L58  A writer is named (`writer:`) only by the effect modules of the writes and by the one read-only seam module: nothing else of runtime/, at any depth, does.
 
 Offline, no model.
@@ -31,7 +34,9 @@ SCANNED = ["providers/writer/**/*.py", "providers/mailer/gmail.py", "providers/m
            "providers/mailbox/*.py", "providers/calendar/*.py", "providers/documents/gdrive*.py", "providers/documents/onedrive*.py"]
 # (relative file, the approved path regex). W1: the Google calendar writer's one removal, an event of a calendar, which Google sends to the calendar's trash
 # for 30 days (the person restores it there); the pair is honoured only in that file's own constant ALLOWED.
-ALLOWED_DELETE = (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),)
+ALLOWED_DELETE = (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),
+                  ("providers/writer/onedrive.py", r"/drives/[^/]+/items/[^/]+"))      # R2-A: Graph moves the item to the recycle bin
+ALLOWED_TRASH_BODY = (("providers/writer/gdrive.py", "TRASH_BODY"),)      # R2-A: the one dict `{"trashed": True}` of the Drive writer, the move to the trash
 WORD = re.compile(r"(?<![A-Za-z])delete(?![A-Za-z])", re.I)               # the word `delete` alone (not `deleted`, `deleteditems`)
 METHODISH = re.compile(r"\s*delete(?![A-Za-z-])", re.I)                    # a string that starts with the method: "DELETE", "delete /x"
 DANGEROUS = re.compile(r"permanent_?delete|batch_?delete|empty_?trash", re.I)
@@ -100,7 +105,18 @@ def _declared(tree, name: str, allowed, file: str) -> tuple:
     return ids, held
 
 
-def delete_findings(source: str, name: str = "<sample>", allowed=ALLOWED_DELETE) -> list:
+def _trash_bodies(tree, name: str, allowed) -> set:
+    """The ids of the dicts that are the approved constant of this file: a module-level `NAME = {"trashed": True}` where the allow-list names this file and this NAME, and the dict holds that one key."""
+    ids = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Dict) \
+                and any(name.endswith(f) and node.targets[0].id == n for f, n in allowed) and len(node.value.keys) == 1 and _fold(node.value.keys[0]) == "trashed" \
+                and isinstance(node.value.values[0], ast.Constant) and node.value.values[0].value is True:
+            ids.add(id(node.value))
+    return ids
+
+
+def delete_findings(source: str, name: str = "<sample>", allowed=ALLOWED_DELETE, trash_body=ALLOWED_TRASH_BODY) -> list:
     """What breaks L57 in a Python source, as (file, line, what). Every string that is not a docstring is read after it is joined from its pieces, in any case and
     as bytes; every name, attribute, argument and keyword is read by its words (`event_delete` has the word `delete`); a comment is not code and is not read. In a
     file with no approved pair the word `delete` anywhere is a finding. In a file that holds an approved pair in its constant `ALLOWED` the word may name a
@@ -108,6 +124,7 @@ def delete_findings(source: str, name: str = "<sample>", allowed=ALLOWED_DELETE)
     tree = ast.parse(source)
     skip = _docstrings(tree)
     approved, holds_pair = _declared(tree, "ALLOWED", allowed, name)
+    trash_ok = _trash_bodies(tree, name, trash_body)
     found = set()
 
     def add(node, what):
@@ -122,7 +139,7 @@ def delete_findings(source: str, name: str = "<sample>", allowed=ALLOWED_DELETE)
                 add(node, "trashed set to true")
             if (holds_pair and METHODISH.match(text) or not holds_pair and WORD.search(text)) and not LOCAL_RECORD_TEXT.search(text):
                 add(node, "an HTTP DELETE")
-        if isinstance(node, ast.Dict):
+        if isinstance(node, ast.Dict) and id(node) not in trash_ok:
             for key, value in zip(node.keys, node.values):
                 if key is not None and _fold(key) == "trashed" and not _falsy(value):
                     add(node, "trashed set to true")
@@ -170,7 +187,9 @@ def test_limit_57_measure_no_script_of_the_writers_helpers_or_readers_holds_a_pe
     assert scanned, "the scan reads no file"
     found = [f for path in scanned for f in delete_findings(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))]
     assert found == [], found
-    assert ALLOWED_DELETE == (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"),), "no other pair is allowed until the package that needs it adds it, with the reason"
+    assert ALLOWED_DELETE == (("providers/writer/google-calendar.py", r"/calendar/v3/calendars/[^/]+/events/[^/]+"), ("providers/writer/onedrive.py", r"/drives/[^/]+/items/[^/]+")), \
+        "no other pair is allowed until the package that needs it adds it, with the reason"
+    assert ALLOWED_TRASH_BODY == (("providers/writer/gdrive.py", "TRASH_BODY"),)
 
 
 SAMPLES = {
@@ -245,3 +264,45 @@ def test_limit_58_measure_only_the_effect_modules_and_the_seam_name_a_writer_at_
     assert any(p.parent.name == "handlers" for p in modules) and (REPO / "runtime" / "ops.py") in modules
     found = sorted(p.name for p in modules if "writer:" in p.read_text(encoding="utf-8"))
     assert set(found) <= set(WRITER_NAMERS), found
+
+
+# --- R2-A: the two moves to the trash, and nothing near a permanent delete ---------------------------------------------------------------------
+
+TRASH_FILE = "providers/writer/gdrive.py"
+TRASH_LEGIT = 'TRASH_BODY = {"trashed": True}\n\ndef plan(i):\n    return {"body": TRASH_BODY}\n'
+ONEDRIVE = "providers/writer/onedrive.py"
+ONEDRIVE_APPROVED = r"/drives/[^/]+/items/[^/]+"
+ONEDRIVE_LEGIT = f'''ALLOWED = (("GET", r"/drives/[^/]+/items/[^/]+"), ("DELETE", r"{ONEDRIVE_APPROVED}"))
+REMOVE = ALLOWED[-1]
+
+def plan_trash(item):
+    return {{"method": REMOVE[0], "path": item}}
+'''
+
+
+def test_limit_57_r2a_the_approved_trash_body_in_the_drive_writer_is_honoured_and_only_there():
+    assert delete_findings(TRASH_LEGIT, TRASH_FILE) == []
+    assert any("trashed" in f[2] for f in delete_findings(TRASH_LEGIT, "providers/writer/gmail.py"))      # not the file the allow-list names
+
+
+def test_vacuity_r2a_a_trash_body_that_is_not_exactly_the_constant_is_a_finding():
+    assert any("trashed" in f[2] for f in delete_findings('TRASH_BODY = {"trashed": True, "permanent": True}\n', TRASH_FILE))
+    assert any("trashed" in f[2] for f in delete_findings('OTHER_BODY = {"trashed": True}\n', TRASH_FILE))
+    assert any("trashed" in f[2] for f in delete_findings(TRASH_LEGIT + 'body = {"trashed": True}\n', TRASH_FILE))
+    assert any("trashed" in f[2] for f in delete_findings(TRASH_LEGIT + 'TRASH_BODY2 = dict(trashed=True)\n', TRASH_FILE))
+    assert any("trashed" in f[2] for f in delete_findings('TRASH_BODY = {"trashed": flag}\n', TRASH_FILE))
+    assert any("permanent-delete" in f[2] for f in delete_findings(TRASH_LEGIT + "\nverb = 'emptyTrash'\n", TRASH_FILE))
+
+
+def test_limit_57_r2a_the_onedrive_item_delete_is_honoured_as_a_pair_of_its_own_constant_and_nothing_else():
+    assert delete_findings(ONEDRIVE_LEGIT, ONEDRIVE) == []
+    assert delete_findings(ONEDRIVE_LEGIT, "providers/writer/gdrive.py") != []                                  # not the file the allow-list names
+    assert delete_findings(ONEDRIVE_LEGIT.replace(ONEDRIVE_APPROVED, r"/me/drive/items/[^/]+"), ONEDRIVE) != []   # not the regex the allow-list names
+    assert any("HTTP DELETE" in f[2] for f in delete_findings(ONEDRIVE_LEGIT + "\nrequest('DELETE', '/drives/' + d)\n", ONEDRIVE))
+    assert any("permanent-delete" in f[2] for f in delete_findings(ONEDRIVE_LEGIT + "\npath = '/items/x/permanentDelete'\n", ONEDRIVE))
+    assert any("name for deleting" in f[2] for f in delete_findings(ONEDRIVE_LEGIT + "\nrequests.delete(url)\n", ONEDRIVE))
+
+
+def test_r2a_the_writers_of_files_name_no_permanent_delete_call_in_any_spelling():
+    for path in (REPO / "providers" / "writer" / "gdrive.py", REPO / "providers" / "writer" / "onedrive.py", REPO / "providers" / "writer" / "_files_common.py"):
+        assert not any("permanent" in f[2] or "name for deleting" in f[2] for f in delete_findings(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))), path

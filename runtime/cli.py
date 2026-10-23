@@ -72,6 +72,7 @@ Usage:
   python3 runtime/cli.py file-save --project <dir> --account google|microsoft --attachment <held file number> [--name <name>] [--folder <name>]
   python3 runtime/cli.py file-read --project <dir> --file <name> [--account google|microsoft]
   python3 runtime/cli.py research --project <dir> --question <words>
+  python3 runtime/cli.py file-trash --project <dir> --file <name> [--account google|microsoft] [--folder <name or path>]
   python3 runtime/cli.py mail-send --project <dir> --account google|microsoft --to <addresses> [--cc <addresses>] [--bcc <addresses>] --subject <one line> (--text <words> | --text-file <path>) [--attach <docs/...>]...
   python3 runtime/cli.py mail-reply --project <dir> --account google|microsoft --message <source>#<n> (--text <words> | --text-file <path>)
   python3 runtime/cli.py mail-draft --project <dir> --account google|microsoft (--to <addresses> --subject <text> [--cc <addresses>] [--bcc <addresses>] | --message <source>#<n>) --body <text>
@@ -369,6 +370,10 @@ research  answers a question of general information (the weather, a price or quo
           code, bounded by the project's runtime.json key `research` (max_cost_usd per run, timeout_seconds per run, max_per_day runs in a local day; the defaults are 0.25, 300
           and 10). The question is sent to a web search service and to the model that runs the research; no file of the project and none of your standing instructions are. A question that holds "my calendar", "my e-mails", "my files" or the like does not run. The reply is the answer in plain words
           with its sources as links, and is not stored (the conversation holds a neutral word); the run folder keeps the prompt, which holds the question, and the brief for run_retention_days, outside git. From a messaging app the sender needs the group research.
+file-trash  prepares the move of a file of your Google Drive or OneDrive to the service's trash, found by its --file name by the search of file-read (the folders the project lists
+          under accounts.<account>.folders and the folders inside them; --account and --folder narrow it), and stops at its card, which shows the file, its folder by the real names, the
+          account, its size and last change, and where it goes. Several matches are listed; none says which folders were searched. The file goes to the TRASH of the service, where you
+          restore it: nothing is deleted for good. Nothing is moved until you approve the card's hash, and nothing is if the file changed or left the listed folders since. No model.
 file-save  prepares the saving of a file someone sent through a messaging app (--attachment is the number of a held file, see attachments), named as it was
           sent or by --name, in a folder the project lists (--folder), and stops at its card, which names the file, its size and its hash. The held file stays held.
           No model.

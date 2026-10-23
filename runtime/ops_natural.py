@@ -598,7 +598,7 @@ PHONE_FAMILY = {
     "reminder-restore": "PHONE_RESTORE",
 }
 for _name in ("event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
-              "file-create", "file-replace", "file-save"):
+              "file-create", "file-replace", "file-save", "file-trash"):
     PHONE_FAMILY[_name] = "PHONE_ACCOUNT_WRITE"
 
 

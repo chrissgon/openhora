@@ -183,16 +183,17 @@ def _root_name(cfg: dict, service: str, ident: str, timeout):
     return _label(urllib.parse.unquote(names[-1])) if names else None
 
 
-def _walk(cfg: dict, account=None, names_only: bool = False) -> dict:
+def _walk(cfg: dict, account=None, names_only: bool = False, only_root=None) -> dict:
     """The tree under the configured folders, breadth first: {"roots": [(service, real name or None)], "info": {(service, folder id): {"alias", "real", "lead"}], "files": [{"service",
     "path", "root", "id", "name", "supported"}], "dirs": [(service, path, root)], "failed": folders that could not be listed, "truncated": folders listed in part, "cut": the first limit that
     stopped the walk or None ("depth", "items", "time")}. `path` is the tuple of folder names from the configured folder down, the first one the folder's REAL name as the person sees it
-    (`lead`: read once from the provider, else the service's own name; the configuration's alias is never shown and only helps to match) and `root` the configured folder's id. A folder
+    (`lead`: read once from the provider, else the service's own name; the configuration's alias is never shown and only helps to match) and `root` the configured folder's id. With `only_root` (R2-A) only the configured folder with that id is walked. A folder
     is listed only when it is a configured one or an item of kind folder found in a folder that was listed. The limits are MAX_DEPTH, MAX_ITEMS (counted item by item, so the walk stops at the
     item that reaches it, inside a listing too) and MAX_SECONDS (read from the module at call time): each listing is asked with a timeout of at most the time left, and a listing that is not
     back when the time is spent is given up. With `names_only` nothing is listed (a line that is refused still names the folders by their real names)."""
     services = [account] if account in SERVICES else list(SERVICES)
-    jobs = [(service, name, ident) for service in services for name, ident in ((project_config.account_entry(cfg, service) or {}).get("folders") or {}).items()]
+    jobs = [(service, name, ident) for service in services for name, ident in ((project_config.account_entry(cfg, service) or {}).get("folders") or {}).items()
+            if only_root is None or ident == only_root]
     out = {"roots": [], "info": {}, "files": [], "dirs": [], "failed": 0, "truncated": 0, "cut": None}
     started = clock()
 
@@ -246,7 +247,8 @@ def _walk(cfg: dict, account=None, names_only: bool = False) -> dict:
                         if not isinstance(ident, str) or not isinstance(label, str):
                             continue
                         if item.get("kind") == "file":
-                            out["files"].append({"service": service, "path": path, "root": root, "id": ident, "name": _label(label), "supported": item.get("supported") is True})
+                            out["files"].append({"service": service, "path": path, "root": root, "id": ident, "name": _label(label), "supported": item.get("supported") is True,
+                                             "size": item.get("size") if type(item.get("size")) is int and item["size"] >= 0 else None, "modified": _label(item.get("modified") or "")})
                         elif item.get("kind") == "folder" and (service, ident) not in reached:
                             reached.add((service, ident))
                             if depth + 1 > MAX_DEPTH:
@@ -380,11 +382,12 @@ def _find(tree: dict, wanted: str, folder) -> dict:
     fits = [f for f in inside if _fits(wanted, f["name"])]
     exact = [f for f in fits if _same_name(wanted, f["name"])]
     key = lambda f: (len(f["path"]), [natural.normal(p) for p in f["path"]], natural.normal(f["name"]), f["service"])  # noqa: E731
-    return {"matches": sorted(exact or fits, key=key), "no_folder": no_folder}
+    return {"matches": [dict(f, exact=bool(exact)) for f in sorted(exact or fits, key=key)], "no_folder": no_folder}
 
 
 def _matches_of(found: list) -> list:
-    return [{"service": f["service"], "folder": PATH_JOIN.join(f["path"]), "root": f["root"], "id": f["id"], "name": f["name"], "supported": f["supported"]} for f in found]
+    return [{"service": f["service"], "folder": PATH_JOIN.join(f["path"]), "root": f["root"], "id": f["id"], "name": f["name"], "supported": f["supported"],
+             "size": f["size"], "modified": f["modified"], "exact": f["exact"]} for f in found]
 
 
 def _search(cfg: dict, wanted: str, account=None, said=None) -> dict:
@@ -422,6 +425,19 @@ def _search(cfg: dict, wanted: str, account=None, said=None) -> dict:
                 out["folder_missing"] = missing[0]["shown"]
                 return out
     return out
+
+
+def locate(cfg: dict, service: str, root: str, ident: str):
+    """The file with this id under the configured folder with this id, by the same walk the search makes (R2-A: the grant asked again when a file is to be trashed): its record
+    ({"service", "folder" (the real names, " › " between them), "root", "id", "name", "size", "modified"}), None when the walk finished and the file is not under that folder, or
+    "unproven" when it did not finish (cut, a folder that did not answer) and the file was not met: a file is trashed only when it was seen under the folder."""
+    if service not in SERVICES:
+        return None
+    tree = _walk(cfg, service, only_root=root)
+    for f in tree["files"]:
+        if f["service"] == service and f["root"] == root and f["id"] == ident:
+            return {"service": service, "folder": PATH_JOIN.join(f["path"]), "root": root, "id": ident, "name": f["name"], "size": f["size"], "modified": f["modified"]}
+    return "unproven" if tree["cut"] or tree["truncated"] or tree["failed"] or not tree["roots"] else None
 
 
 # --- the read ----------------------------------------------------------------------------------------------------------------------------------
@@ -624,12 +640,12 @@ def _slot(ctx: dict, channel, sender) -> tuple:
     return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
 
 
-def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False) -> None:
+def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False, purpose: str = "read") -> None:
     now = _natural()._clock()
     with _lock:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
-        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "seen": 0, "pending": importlib.import_module("event_lookup")._last_pending(ctx)}
+        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "purpose": purpose, "seen": 0, "pending": importlib.import_module("event_lookup")._last_pending(ctx)}
 
 
 def _drop(ctx: dict, channel, sender) -> None:
@@ -702,6 +718,8 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     if form is None or form["verb"] is not None or not 1 <= form["n"] <= len(record["items"]):
         return None
     cfg = ctx["cfg"]
+    if record.get("purpose") == "trash":      # R2-A: the list was of files to move to the trash: the number opens that file's card (runtime/ops_file_trash.py)
+        return importlib.import_module("ops_file_trash").pick(project, ctx, record["items"][form["n"] - 1], channel, sender, extras)
     refused = operations.refusal("file-read", "messaging", cfg["channels"], sender=sender)
     if refused:
         return phone_refusal.said(refused, channel, cfg)
@@ -766,6 +784,22 @@ def _render(cfg: dict, got: dict, pick: bool = True) -> str:
     return t("FR_UNAVAILABLE")
 
 
+def line_target(cfg: dict, args: dict, said: str) -> tuple:
+    """(the name span, the account or None, the ask-again sentence or None) of a line that names a file: the name is checked to be a span of the line; the service word (when there
+    is one) must name exactly one service and agree with the account the line itself names; "drive" alone names none (both accounts are searched)."""
+    wanted = args.get("file")
+    word = args.get("account")
+    if not isinstance(wanted, str) or not natural.normal(wanted) or natural.normal(wanted) not in natural.normal(said) or len(wanted) > natural.SPAN_MAX:
+        return None, None, phrases.text("IX_ASK_AGAIN", cfg)
+    named = _accounts_of_line(said, wanted)
+    if word and natural.ascii_normal(str(word)) in GENERIC:
+        word = None          # "drive" alone names no service: both accounts are searched
+    account = _service_of(word) if word else (next(iter(named)) if len(named) == 1 else None)
+    if word and (account is None or (named and named != {account})):          # a word no table reads, or one that does not agree with the line (a line that names both accounts agrees with neither)
+        return None, None, phrases.text("IX_ASK_AGAIN", cfg)
+    return wanted, account, None
+
+
 def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extras: dict) -> str:
     """The reply of `file-read` chosen by a tier or by the interpreter (runtime/ops_natural.py `run` has already asked the policy). The name is checked to be a span of the
     line; the service word (when there is one) must name exactly one service and agree with the account the line itself names ("do google drive"; a line that names both searches both,
@@ -773,16 +807,9 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     narrows the search. Else the fixed ask-again sentence and nothing is listed. The conversation keeps a neutral word."""
     cfg = ctx["cfg"]
     extras["stored"] = phrases.text("NAT_READ_REPLY", cfg)
-    wanted = args.get("file")
-    word = args.get("account")
-    if not isinstance(wanted, str) or not natural.normal(wanted) or natural.normal(wanted) not in natural.normal(said) or len(wanted) > natural.SPAN_MAX:
-        return phrases.text("IX_ASK_AGAIN", cfg)
-    named = _accounts_of_line(said, wanted)
-    if word and natural.ascii_normal(str(word)) in GENERIC:
-        word = None          # "drive" alone names no service: both accounts are searched
-    account = _service_of(word) if word else (next(iter(named)) if len(named) == 1 else None)
-    if word and (account is None or (named and named != {account})):          # a word no table reads, or one that does not agree with the line (a line that names both accounts agrees with neither)
-        return phrases.text("IX_ASK_AGAIN", cfg)
+    wanted, account, again = line_target(cfg, args, said)
+    if again:
+        return again
     line_stage.publish("file")      # S19: the name is checked, the folders are searched
     got = _find_and_read(cfg, wanted, account, said, _sending(ctx, channel, sender, extras))
     if got["status"] == "several" and channel == "messaging":

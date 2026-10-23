@@ -4,8 +4,8 @@
 # dependencies = []
 # ///
 """The effect kind of writing a file to the person's own Drive or OneDrive (package W4a): a new file in a folder the project lists, a new revision of a
-file the person registered as a source, or a file the person sent through a messaging app, written once, after the person approved the hash of the exact
-document.
+file the person registered as a source, a file the person sent through a messaging app, or (slice R2-A) a file of the granted folders moved to the service's
+trash, done once, after the person approved the hash of the exact document.
 
 It is registered under the side-effect word `files` (runtime/effects.py KINDS; contracts/environment.md: a word that arrived with the runtime, not with a
 skill) and is the STEP path of an effect, like the e-mail (runtime/effect_send.py): a step task of the kind `file-write` (runtime/step_files.py) writes this
@@ -24,7 +24,11 @@ first, and what it prints must hash to the document's `dry_run_sha256` (a writer
 the verb is called with `--confirmed`. Results: `written`; `replayed` (an earlier attempt of this approval landed and its answer was lost: the writer found its
 own mark and wrote nothing again); `unknown` (exit code 4, or a call that timed out: the file may or may not be there; the effect stays open and approving it
 again meets the writer's ledger); or a refusal with nothing changed (the writer's exit 1 guarantees it). A replace never deletes: the earlier revision stays in
-the service's history (Drive: marked keepForever before the write; OneDrive: the version history), and nothing here asks a service to remove anything (L57).
+the service's history (Drive: marked keepForever before the write; OneDrive: the version history). A trash (R2-A) is the one removal, and it is a move to the service's
+trash, from where the person restores the file: it carries no content, reads the file again (`file-meta`) and compares it with the base in the document (version, modified
+time, type and folder on Drive; eTag, cTag, size and folder on OneDrive; `stale` when it moved), and the writer's `trash` verb reads it once more and refuses a moved base
+itself. Before it, `preflight` asks the grant again: the folder the project lists under the document's name must still be the one the file was found under, and the file must
+still be under it (runtime/ops_file_read.py `locate`, the walk the search makes). No verb of a writer deletes for good, and nothing here can name one (L57).
 
 What a kind module of this path exposes, besides the names of runtime/effect_send.py:
 
@@ -107,6 +111,8 @@ def is_long(doc) -> bool:
 def on_cards(doc) -> bool:
     """Whether the whole write can be on a messaging card: the text is; a save is (Q9: the card names the file, its size and its hash, the bytes are the ones the
     sender just sent, and only that sender approves it); a file of the project that is not text is not (the hash covers bytes the card does not carry)."""
+    if isinstance(doc, dict) and doc.get("operation") == "trash":
+        return doc.get("content") is None      # the card names the file, its folder, its account and where it goes: the whole effect is on it
     if not isinstance(doc, dict) or not isinstance(doc.get("content"), dict):
         return False
     return doc.get("operation") == "save" or doc["content"].get("kind") == "text"
@@ -136,6 +142,18 @@ def serves(root: str, implementation: str):
     return None
 
 
+def grant_problem(cfg: dict, doc: dict):
+    """The words of why a file to trash is not provably under the folder the project grants now, or None: the walk the search makes (runtime/ops_file_read.py `locate`) from
+    that folder must reach the file's id. A walk that was cut, or a folder that did not answer, proves nothing, so it is a problem too."""
+    import ops_file_read  # noqa: PLC0415  (a reader of the person's own folders: loaded when a trash is approved)
+    found = ops_file_read.locate(cfg, doc["account"], doc["base"]["root"], doc["target"]["id"])
+    if found == "unproven":
+        return "the folders could not be looked through to the end, so the file is not shown to be inside the granted folder"
+    if found is None:
+        return "the file is not inside the granted folder any more"
+    return None
+
+
 def preflight(cfg: dict, doc: dict, root: str):
     """(exit code, sentence) when the project is not configured for this write now, else None: the account is listed in `accounts`, its address is the one the
     document was prepared for, a new file's folder is still the one the project lists under that name (limit L55), and the writer resolves and serves the
@@ -151,7 +169,16 @@ def preflight(cfg: dict, doc: dict, root: str):
     if not same:
         return 1, "nothing was written: the account's address in the project's configuration is not the one the file was prepared for"
     target = doc.get("target") or {}
-    if doc.get("operation") != "replace":
+    if doc.get("operation") == "trash":      # the granted folder is the document's `root`: it must still be listed under its name, and the file must still be under it
+        ident, why = project_config.account_target(cfg, account, "folders", target.get("label"))
+        if why:
+            return 1, f"nothing was changed: {why}"
+        if ident != (doc.get("base") or {}).get("root"):
+            return 1, "nothing was changed: the folder the project lists under that name is not the one the file was found under"
+        problem = grant_problem(cfg, doc)
+        if problem:
+            return 1, f"nothing was changed: {problem}"
+    elif doc.get("operation") != "replace":
         ident, why = project_config.account_target(cfg, account, "folders", target.get("label"))
         if why:
             return 1, f"nothing was written: {why}"
@@ -218,6 +245,30 @@ def content_bytes(doc: dict, work_dir, project) -> bytes:
     return data
 
 
+def _trash(doc: dict, call, implementation: str) -> dict:
+    """The move of a file to the service's trash: the file is read again and compared with the base (StaleError when it moved; a read that cannot be made, or a file already in
+    the trash, is left to the writer, which compares the base itself and knows by its ledger whether an earlier attempt of this approval made the move), the writer is asked for a
+    dry run that must hash to the document's, and the verb is called with --confirmed."""
+    try:
+        meta = call("file-meta", files_document.meta_args(doc), implementation)
+    except StaleError:
+        raise
+    except effects.EffectError:
+        meta = None
+    if isinstance(meta, dict):
+        moved = files_document.unchanged(doc, meta)
+        if moved and meta.get("in_trash") is not True:
+            raise StaleError(f"the file is not the one the task read ({moved})")
+    verb, args = files_document.provider_args(doc)
+    shown = call(verb, args + ["--dry-run"], implementation)
+    if not isinstance(shown, dict) or shown.get("would_sha256") != doc["dry_run_sha256"]:
+        raise effects.EffectError("deviation", "the writer would send something other than what was approved: nothing was changed")
+    done = call(verb, args + ["--confirmed"], implementation)
+    if not isinstance(done, dict) or done.get("written") is not True or done.get("moved_to_trash") is not True:
+        raise UnknownError("the writer's answer is not a file in the trash: the file may or may not be there")
+    return files_document.facts(doc, done)
+
+
 def execute(doc: dict, approval: dict, call, key: str, work_dir=None, project=None) -> dict:
     """The write, and the only place it is made. It refuses unless `approval` is the person's approval of exactly this document: scope action, status
     pending-execution, and a payload_sha256 equal to the hash of the document's canonical text (EffectError deviation), and unless `key` is the document's own.
@@ -232,6 +283,8 @@ def execute(doc: dict, approval: dict, call, key: str, work_dir=None, project=No
     if key != doc["idempotency_key"]:
         raise effects.EffectError("deviation", "the key is not the one this write derives: nothing is written")
     implementation = doc["implementation"]
+    if doc["operation"] == "trash":
+        return _trash(doc, call, implementation)
     data = content_bytes(doc, work_dir, project)
     if doc["operation"] == "replace":
         meta = call("file-meta", files_document.meta_args(doc), implementation)

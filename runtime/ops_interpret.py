@@ -348,6 +348,8 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
         elif op in event_lookup.OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES:
             opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, writes, ops_natural._clock())
+        elif op == "file-trash":          # R2-A: the file is found by the words of the line, by the search of `file-read`, and its card opens (runtime/ops_file_trash.py)
+            opened = importlib.import_module("ops_file_trash").reply(project, ctx, decision["args"], said, CHANNEL, sender, extras)
         else:
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
         return _said(opened if opened is not None else _cannot(ctx, op), extras)
