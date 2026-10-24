@@ -100,8 +100,13 @@ def test_a_verdict_is_one_of_three_words_and_no_code_path_gives_one(tree):
     holders = []
     for file in sorted((REPO / "runtime").glob("*.py")):
         text = file.read_text(encoding="utf-8")
+        if "--verdict" not in text:      # a function whose text holds the word is in a file whose text holds it
+            continue
+        lines = text.splitlines()
         for node in ast.walk(ast.parse(text)):
-            if isinstance(node, ast.FunctionDef) and "--verdict" in (ast.get_source_segment(text, node) or ""):
+            # the lines of the function hold all of its source segment, so the cheap look never drops a function the exact one would keep
+            if isinstance(node, ast.FunctionDef) and "--verdict" in "\n".join(lines[node.lineno - 1:node.end_lineno]) \
+                    and "--verdict" in (ast.get_source_segment(text, node) or ""):
                 holders.append(f"{file.stem}.{node.name}")
     assert set(holders) <= {"ops.verdict", "cli.run"} and "ops.verdict" in holders
 
