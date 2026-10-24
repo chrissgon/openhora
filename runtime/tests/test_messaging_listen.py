@@ -30,7 +30,7 @@ shell_kit = st.load("shell_kit")
 messaging = st.load("messaging")
 
 FIXTURE = st.RUNTIME / "tests" / "fixtures" / "messenger_listen_standin.py"
-SENDER = "4242"
+SENDER = "830461975213"
 FAST = dict(ready_seconds=30, send_seconds=10, backoff=(0.02, 0.05), stdin_wait=5, term_wait=2, join_wait=3)
 
 
@@ -444,7 +444,7 @@ class Fake:
     operations = operations
     def config(self, project):
         return {{"path": project, "sha256": "a" * 64, "accepted": True, "data_dir": {data!r},
-                "messaging": {{"senders": {{"chirp": ["4242"]}}}}, "channels": {{"messaging": ["read"]}}}}
+                "messaging": {{"senders": {{"chirp": ["830461975213"]}}}}, "channels": {{"messaging": ["read"]}}}}
     def pending(self, project, pending_id=None):
         return {{"pending": []}}
     def reminders_due(self, project, platform):
@@ -488,7 +488,7 @@ def test_sigterm_of_the_bridge_and_the_end_of_its_stdin_stop_the_provider_after_
                 proc.kill()
                 proc.wait()
         assert (r.base / "stopped").read_text() == "stopped" and not alive(pid)
-        assert b"4242" not in proc.stderr.read()
+        assert b"830461975213" not in proc.stderr.read()
 
 
 def test_a_killed_bridge_cannot_leave_the_provider_behind_because_its_stdin_ends(tmp_path, monkeypatch, rig):

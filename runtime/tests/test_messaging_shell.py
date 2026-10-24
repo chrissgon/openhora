@@ -120,7 +120,7 @@ def test_a_stop_signal_right_after_the_start_line_still_ends_the_runs(tmp_path):
 
         def config(self, project):
             return {"path": project, "sha256": "a" * 64, "accepted": True, "data_dir": str(tmp_path / "data"),
-                    "messaging": {"senders": {"telegram": ["4242"]}}}
+                    "messaging": {"senders": {"telegram": ["830461975213"]}}}
 
         def stop_runs(self):
             ended.append(1)
@@ -159,7 +159,7 @@ def test_sigterm_stops_the_loop_and_ends_the_runs(tmp_path):
             operations = operations
             def config(self, project):
                 return {{"path": project, "sha256": "a" * 64, "accepted": True, "data_dir": {str(tmp_path / "data")!r},
-                        "messaging": {{"senders": {{"telegram": ["4242"]}}}}}}
+                        "messaging": {{"senders": {{"telegram": ["830461975213"]}}}}}}
             def pending(self, project, pending_id=None):
                 return {{"pending": []}}
             def reminders_due(self, project, platform):
@@ -184,7 +184,7 @@ def test_sigterm_stops_the_loop_and_ends_the_runs(tmp_path):
         first = proc.stdout.readline().decode("utf-8")
         started = json.loads(first)
         assert started["platform"] == "telegram" and [list(p) for p in started["projects"]] == [["id", "name"]]
-        assert "4242" not in first and "token" not in first.lower()
+        assert "830461975213" not in first and "token" not in first.lower()
         proc.send_signal(signal.SIGTERM)
         code = proc.wait(timeout=30)
     finally:
@@ -192,4 +192,4 @@ def test_sigterm_stops_the_loop_and_ends_the_runs(tmp_path):
             proc.kill()
     err = proc.stderr.read()
     assert code == 0 and marker.read_text() == "stopped", (code, err)
-    assert b"4242" not in err
+    assert b"830461975213" not in err

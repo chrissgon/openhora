@@ -154,7 +154,7 @@ def approve(world, started_or_item, channel="terminal"):
     pending = started_or_item["pending"] if "pending" in started_or_item else started_or_item["id"]
     ctx = ops_core.context(world["path"])
     item = ctx["store"].pending_get(ctx["conn"], pending)
-    return ops.approve(world["path"], pending, sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+    return ops.approve(world["path"], pending, sha256=item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
 
 
 def effect_doc(world, started, cycle=0):

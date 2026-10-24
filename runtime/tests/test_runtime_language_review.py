@@ -142,7 +142,7 @@ def test_an_update_a_tick_and_a_drain_each_run_inside_one_scope(world):
     world.items[1] = decision("plan", 1)
     world.bridge.tick()
     world.say("/pending")
-    world.bridge.keep(world.projects[0], "4242", "waiting")
+    world.bridge.keep(world.projects[0], "830461975213", "waiting")
     world.bridge.drain()
     assert inside == {"_tick": True, "_handle": True, "_drain": True}
     assert getattr(world.bridge.scope, "cache", None) is None, "the scope ends with the update"

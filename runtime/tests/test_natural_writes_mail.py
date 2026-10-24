@@ -467,8 +467,8 @@ def test_a_caller_who_may_not_read_the_snapshot_gets_the_sentence_of_item_refs_a
         assert "banco" not in str(why.value) and "Fatura" not in str(why.value)
     assert desk.reads == [] and desk.listed == [], "no snapshot was opened and no source was named to a caller who may not read"
     ok = Desk(monkeypatch, accounts=("google",), sources=(("inbox", "google"),))
-    assert resolve(ok, "arquiva os e-mails do banco", channel="messaging", sender="telegram:4242")["args"]["messages"] == "inbox#2,inbox#4"
-    assert ok.reads == [("inbox", "messaging", "telegram:4242")], "the snapshot is read with the caller's own channel and sender"
+    assert resolve(ok, "arquiva os e-mails do banco", channel="messaging", sender="telegram:830461975213")["args"]["messages"] == "inbox#2,inbox#4"
+    assert ok.reads == [("inbox", "messaging", "telegram:830461975213")], "the snapshot is read with the caller's own channel and sender"
 
 
 def test_the_listing_of_candidates_comes_only_after_read_index_accepted_the_caller(monkeypatch):

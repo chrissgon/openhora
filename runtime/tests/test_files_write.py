@@ -50,7 +50,7 @@ TEXT = "# CV 2026\n\nPat Example, engineer.\n"
 NEW = "# CV 2026\n\nPat Example, senior engineer.\n"
 GOOGLE = {"address": "pat@example.com", "folders": {"default": fdw.FOLDER_ID, "cv": "Cv_Folder_0001"}}
 MICROSOFT = {"address": "casey.rivera@mail.example", "folders": {"default": fod.FOLDER_ID, "docs": "/Documents/openhora"}}
-SENDER = "telegram:4242"
+SENDER = "telegram:830461975213"
 OTHER = "telegram:777"
 PDF = b"%PDF-1.4 the signed contract"
 TEST_VARIABLES = ("WRITER_GDRIVE_API_BASE", "WRITER_GDRIVE_TOKEN_URL", "WRITER_ONEDRIVE_API_BASE", "WRITER_ONEDRIVE_TOKEN_URL", "WRITER_ONEDRIVE_UPLOAD_HOSTS")
@@ -142,7 +142,7 @@ def seed_onedrive(world, data=b"old text\n", name="CV 2026.md"):
     return item
 
 
-def hold(world, data=PDF, name="Contract.pdf", sender="4242", kind="pdf"):
+def hold(world, data=PDF, name="Contract.pdf", sender="830461975213", kind="pdf"):
     """A file a sender sent, held as the bridge holds it: the row of the store, and the bytes under <data_dir>/attachments/held/<id>/."""
     ctx = ctx_of(world)
     row = ctx["store"].attachment_add(ctx["conn"], platform="telegram", ref_sha256=sha(f"ref-{sender}-{name}"), sender=sender, profile=None, name=name, declared_type=None,
@@ -507,7 +507,7 @@ def test_a_save_writes_exactly_the_held_bytes_and_leaves_the_hold_as_it_was(worl
     assert started["on_cards"] is True
     doc = effect_doc(world, started)
     assert doc["operation"] == "save" and doc["name"] == "Contract.pdf" and doc["content"]["kind"] == "held" and doc["content"]["attachment"] == number
-    assert doc["content"]["sha256"] == sha(PDF) and doc["content"]["text"] is None and "sender" not in json.dumps(doc) and "4242" not in json.dumps(doc)
+    assert doc["content"]["sha256"] == sha(PDF) and doc["content"]["text"] is None and "sender" not in json.dumps(doc) and "830461975213" not in json.dumps(doc)
     body = item_of(world, started)["body"]
     assert "Saves the file you sent: Contract.pdf, 28 B, sha256 " + sha(PDF)[:12] in body and PDF.decode() not in body
     done = approve(world, started)
@@ -538,7 +538,7 @@ def test_a_save_takes_a_name_and_a_listed_folder_and_refuses_a_type_the_bytes_ar
 
 def test_a_save_from_a_messaging_app_is_for_the_sender_who_sent_the_file_and_only_that_sender_approves_it(world):
     gd = world["gd"]
-    mine, theirs = hold(world, name="Mine.pdf", sender="4242"), hold(world, data=b"%PDF-1.4 theirs", name="Theirs.pdf", sender="777")
+    mine, theirs = hold(world, name="Mine.pdf", sender="830461975213"), hold(world, data=b"%PDF-1.4 theirs", name="Theirs.pdf", sender="777")
     accept(world["path"], {"messaging": ["read", "files-write", "approve-effect-files"]})
     with pytest.raises(ops.OpsError) as notmine:
         ops.file_save(world["path"], "google", theirs, channel="messaging", sender=SENDER)
@@ -869,7 +869,7 @@ def test_a_plan_or_a_flow_cannot_carry_a_file_write_step_and_the_refused_words_a
 def test_the_current_name_of_a_file_and_the_name_of_a_file_a_sender_sent_are_not_shown_to_a_reader_who_may_not_see_them(world):
     seed_drive(world)
     replace = ops.file_replace(world["path"], "google", "cv", content=NEW)
-    mine = hold(world, name="Private contract.pdf", sender="4242")
+    mine = hold(world, name="Private contract.pdf", sender="830461975213")
     save = ops.file_save(world["path"], "google", mine)
     accept(world["path"], {"messaging": ["read"]})
     for started, secret in ((replace, "CV 2026.md"), (save, "Private contract.pdf")):
@@ -935,7 +935,7 @@ def approved_world(world):
     """A replace and a save, approved at the terminal: the person's file name and the name of the file a sender sent are in the world now."""
     seed_drive(world, name="Divorce papers.md")
     replace = ops.file_replace(world["path"], "google", "cv", content=NEW)
-    mine = hold(world, name="Private contract.pdf", sender="4242")
+    mine = hold(world, name="Private contract.pdf", sender="830461975213")
     save = ops.file_save(world["path"], "google", mine)
     for started in (replace, save):
         approve(world, started)
@@ -967,12 +967,12 @@ def test_the_approval_row_the_state_file_and_the_artifact_hold_no_name_of_a_file
     assert any("write a new revision of a registered file" in what and "the source cv" in what for what in rows)
     assert any("save a file the person sent" in what and "the folder default" in what for what in rows)
     shown = json.dumps(ops.artifact(world["path"], "docs/workbench/state.md"))
-    assert "Private contract.pdf" not in shown and "Divorce papers.md" not in shown and "4242" not in shown
+    assert "Private contract.pdf" not in shown and "Divorce papers.md" not in shown and "830461975213" not in shown
 
 
 def test_a_refusal_made_when_the_card_is_prepared_does_not_echo_the_name_of_a_file(world):
     world["gd"].add_file("Taken_0001", "Private contract.pdf", b"x", mime="application/pdf")
-    mine = hold(world, name="Private contract.pdf", sender="4242")
+    mine = hold(world, name="Private contract.pdf", sender="830461975213")
     with pytest.raises(ops.OpsError) as taken:
         ops.file_save(world["path"], "google", mine, file_name="Private contract.pdf")          # a name the person chose is never changed
     assert "name_taken" in str(taken.value) and "Private contract.pdf" not in str(taken.value)
@@ -994,14 +994,14 @@ def test_a_refusal_made_when_the_card_is_prepared_does_not_echo_the_name_of_a_fi
 
 
 def test_a_decision_never_returns_the_senders_account_and_the_card_of_a_save_is_approved_by_that_sender_alone(world):
-    mine = hold(world, name="Private contract.pdf", sender="4242")
+    mine = hold(world, name="Private contract.pdf", sender="830461975213")
     save = ops.file_save(world["path"], "google", mine)
     for channel in (None, "terminal", "page", "chat", "mcp"):
-        assert "4242" not in json.dumps(ops.pending(world["path"], save["pending"], channel=channel)), channel
+        assert "830461975213" not in json.dumps(ops.pending(world["path"], save["pending"], channel=channel)), channel
     asked = ops.pending(world["path"], save["pending"], reader=SENDER)
-    assert asked["reader_sent_file"] is True and asked["effect_sender_only"] is True and "4242" not in json.dumps(asked)
+    assert asked["reader_sent_file"] is True and asked["effect_sender_only"] is True and "830461975213" not in json.dumps(asked)
     assert ops.pending(world["path"], save["pending"], reader=OTHER)["reader_sent_file"] is False
-    assert ops.pending(world["path"], save["pending"], reader="discord:4242")["reader_sent_file"] is False
+    assert ops.pending(world["path"], save["pending"], reader="discord:830461975213")["reader_sent_file"] is False
     assert "reader_sent_file" not in ops.pending(world["path"], save["pending"])
     policy = {"messaging": ["read", "approve-effect-files", "ask-mail"]}
 
@@ -1009,7 +1009,7 @@ def test_a_decision_never_returns_the_senders_account_and_the_card_of_a_save_is_
         item = ops.pending(world["path"], save["pending"], reader=reader)
         return cards.build("office", {**item, **more}, CAPS, policy, "text", None, operations=operations, sender=reader)
     assert built(SENDER)["approvable"] is True
-    for other in (OTHER, "telegram:4242 ", "Telegram:4242"):
+    for other in (OTHER, "telegram:830461975213 ", "Telegram:830461975213"):
         card = built(other)
         assert card["approvable"] is False and "Approve this exact content" not in [a["label"] for a in card["message"]["actions"]], other
     assert built(OTHER)["message"]["text"].count("Private contract.pdf") >= 1, "a reader of mail and calendar still reads the card"
@@ -1035,10 +1035,10 @@ def test_the_task_row_of_a_file_write_shows_a_reader_who_may_not_read_the_person
     seed_drive(world, name="Divorce papers.md")
     replace = ops.file_replace(world["path"], "google", "cv", content=NEW)
     created = ops.file_create(world["path"], "google", "Notes private.md", content=TEXT)
-    mine = hold(world, name="Private contract.pdf", sender="4242")
+    mine = hold(world, name="Private contract.pdf", sender="830461975213")
     save = ops.file_save(world["path"], "google", mine)
     accept(world["path"], {"messaging": ["read"]})
-    words = ("Notes private.md", "Pat Example", "Private contract.pdf", "Divorce papers.md", "4242")
+    words = ("Notes private.md", "Pat Example", "Private contract.pdf", "Divorce papers.md", "830461975213")
     for started in (replace, created, save):
         whole = ops.task(world["path"], started["task"])["task"]
         assert whole["step_args"].get("content") or whole["step_args"].get("attachment"), "the terminal and the page read the request itself"

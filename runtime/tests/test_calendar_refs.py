@@ -16,7 +16,7 @@ from test_calendar_write import (GRAPH_SEEDED, SEEDED, approve, create, effect_d
                                  ops_sources, ops_step_seams, phrases, seed_google, seed_graph, snapshot_event, world)
 from test_channel_grants import accept
 
-SENDER = "telegram:4242"
+SENDER = "telegram:830461975213"
 
 
 def test_a_change_by_a_reference_into_a_refreshed_calendar_snapshot_is_made_to_the_event_the_snapshot_numbered(world, monkeypatch):

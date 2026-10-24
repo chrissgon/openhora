@@ -20,7 +20,7 @@ from test_sender_profiles_bridge import CLERK, OTHER, POLICIES_ALL, configure, l
 bridge = st.load("messaging_bridge")
 providers = st.load("messaging_provider")
 
-REASON = "uid 4242 <a1b2@mail.example> could not be read at /Users/someone/Mail/x"
+REASON = "uid 905318264170 <qzxw@mail.example> could not be read at /Users/someone/Mail/x"
 POLICIES = {**POLICIES_ALL, "mute": ["talk"]}
 
 
@@ -61,7 +61,7 @@ def test_skipped_is_an_error_kind_that_is_counted_once_each_and_leaves_the_run_a
     session.take(run, event())
     assert session.take_unread() == 2
     joined = " ".join(logged)
-    assert "skipped" in joined and "4242" not in joined and "a1b2" not in joined and "/Users/someone" not in joined and "could not be read at" not in joined
+    assert "skipped" in joined and "905318264170" not in joined and "qzxw" not in joined and "/Users/someone" not in joined and "could not be read at" not in joined
 
 
 def test_a_burst_of_skipped_events_is_one_log_line_until_the_count_is_taken():
@@ -242,11 +242,11 @@ def test_the_sentence_is_the_bridges_own_and_holds_nothing_the_provider_said(lab
     session.take(providers.Run(None), event())
     lab.bridge.messenger.take_unread = session.take_unread
     lab.bridge.tick()
-    # the tick also sends the owner the cards of the open decisions, which carry a sha256 digest: four hex digits of it can spell "a1b2" or "4242"
-    # by chance, so the planted words are looked for in the notice lines alone, which are the bridge's sentence under test
+    # the tick also sends the owner the cards of the open decisions, which carry sha256 digests, so the planted words are looked for in
+    # the notice lines alone, which are the bridge's sentence under test
     sent = " ".join(unread_texts(lab, OWNER))
     assert bridge.UNREAD_ONE in sent
-    for planted in ("4242", "a1b2", "mail.example", "/Users/someone", "uid"):
+    for planted in ("905318264170", "qzxw", "mail.example", "/Users/someone", "uid"):
         assert planted not in sent and planted not in bridge.UNREAD_MANY.format(n=3)
 
 
@@ -271,8 +271,8 @@ def test_a_skipped_event_after_ready_makes_one_notice_to_a_listed_sender_and_the
     assert wait_for(lambda: bridge.UNREAD_ONE in r.texts())
     time.sleep(0.5)      # a few more notice periods: the hour has not passed
     assert r.texts().count(bridge.UNREAD_ONE) == 1 and len(r.starts()) == 1
-    assert r.sent()[0]["chat"] == "4242" and r.error == [] and r.thread.is_alive()
+    assert r.sent()[0]["chat"] == "830461975213" and r.error == [] and r.thread.is_alive()
     joined = " ".join(r.texts() + r.log)
-    for planted in ("a1b2", "mail.example", "/Users/someone"):
+    for planted in ("905318264170", "qzxw", "mail.example", "/Users/someone"):
         assert planted not in joined
     r.finish()
