@@ -257,8 +257,9 @@ def test_a_holder_this_process_cannot_signal_is_reported_stopping_and_its_rows_a
     assert ops.cancel(real["path"], rid)["already"] is True
 
 
-def test_a_stale_lock_text_cannot_get_an_unrelated_process_signalled_even_when_another_process_holds_the_lock(real):
+def test_a_stale_lock_text_cannot_get_an_unrelated_process_signalled_even_when_another_process_holds_the_lock(real, monkeypatch):
     """The recovery holds a task lock without writing its text, so a dead holder's text stays; its pid may be an innocent process's."""
+    monkeypatch.setattr(run_stop, "STOP_GRACE", 0.3)   # nothing is signalled here, so the grace is only waited out: a short one tests the same
     rid, ids = make_request(real, 1)
     running(real, ids["a"])
     innocent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)", "cli.py", "run-task", "--project", real["path"]], start_new_session=True)
