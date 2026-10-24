@@ -268,7 +268,7 @@ def test_the_private_card_of_a_calendar_change_a_holder_reads_is_not_kept_in_the
     """A messaging read of the card drawn for a holder of `ask-mail` (the title of the event as it is now) goes to that chat alone; the conversation keeps a neutral word."""
     from test_channel_grants_mailbox import accept as accept_holder      # the channel keeps the list without ask-mail; SENDER's profile `holder` lists it
     made = made_event(world, title=SECRET_TITLE)
-    accept_holder(world["path"], {"messaging": ["read", "talk", "calendar-write", "ask-mail"]})
+    accept_holder(world["path"], {"messaging": ["read", "talk", "calendar-write", "ask-mail", "confirm-reads-off"]})      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: this test is about what the read keeps, so the read runs at once
     started = ops.event_change(world["path"], "google", f"created:{made['pending']}", title="X", channel="messaging", sender=SENDER)
     neutral = phrases.text("NAT_READ_REPLY", None)
     typed = ops.say(world["path"], f"/pending {started['pending']}", channel="messaging", sender=SENDER)

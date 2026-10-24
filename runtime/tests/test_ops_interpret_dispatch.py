@@ -33,7 +33,7 @@ REAL_OPEN_LINE = ops_natural_writes.open_line
 ZONE = "America/Sao_Paulo"
 TODAY = "today: 2026-10-18 Sun\ntime: 14:00\nzone: America/Sao_Paulo\nframe: null\nline: "      # the clock of the stand-in world: Sunday 2026-10-18 14:00 at -03:00
 IX_PROFILES = dict(PROFILES, owner=PROFILES["owner"] + ["interpret", "mail-organize"], plain=["read", "talk", "interpret"], bare=["read", "talk"],
-                   mailer=["read", "talk", "ask", "ask-mail", "reminders", "interpret"])
+                   mailer=["read", "talk", "ask", "ask-mail", "reminders", "interpret", "confirm-reads-off"])      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: the mailer's reads here run at once
 IX_SENDERS = {"telegram": [*SENDERS["telegram"], {"id": "55119000000007", "policy": "bare"}]}
 BARE = "telegram:55119000000007"
 PLAIN = KEY["plain"]

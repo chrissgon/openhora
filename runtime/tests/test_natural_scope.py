@@ -78,7 +78,7 @@ def test_the_bridge_asks_a_non_talk_group_only_for_a_line_code_will_certainly_ta
 
 
 def test_the_words_of_a_reminder_listed_by_a_natural_read_are_not_in_the_conversation_the_mcp_mode_reads(world):
-    with_senders(world)
+    accept(world["path"], policies={**PROFILES, "owner": PROFILES["owner"] + ["confirm-reads-off"]}, messaging={"senders": SENDERS})      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: this test is about what the read keeps
     ops.remind(world["path"], "in 2h", "secret dentist words", to=KEY["owner"], channel="terminal")
     router_says(world, OPERATION.format(name="reminders"))
     out = phone(world, "owner", "what did I ask you to remind me of?")

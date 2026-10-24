@@ -73,6 +73,13 @@ def world(tmp_path, monkeypatch):
     ops_natural.forget_all()
 
 
+def ok_of(world, who, out):
+    """The sender's OK of the question a line met (D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py): the call `say` makes for the bridge's `plan_ok`; a reply that is no question is returned as it is."""
+    if "plan_confirm" not in out:
+        return out
+    return ops.say(world["path"], "sim", channel="messaging", sender=KEY[who], plan_ok={"item": out["plan_confirm"]["item"], "sha256": out["plan_confirm"]["sha256"]})
+
+
 def with_senders(world):
     accept(world["path"], policies=PROFILES, messaging={"senders": SENDERS})
 
@@ -154,7 +161,7 @@ def test_the_help_asks_no_policy_because_it_reads_nothing_of_the_project(world):
 
 
 def test_the_list_of_sources_a_messaging_sender_gets_has_no_heading_and_no_sample_value(docs):
-    with_senders(docs)
+    accept(docs["path"], policies={**PROFILES, "owner": PROFILES["owner"] + ["confirm-reads-off"]}, messaging={"senders": SENDERS})      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: this test is about the list itself
     out = phone(docs, "owner", "quais arquivos voce tem?")
     assert out["ran"] is False and "lease-contract" in out["reply"] and "Clausula" not in out["reply"] and "Renew" not in out["reply"]
     no_model(docs)
@@ -175,7 +182,7 @@ def test_a_profile_without_the_group_gets_the_typed_commands_refusal_and_the_ope
 
 
 def test_a_read_a_profile_may_do_is_done_without_the_group_talk(docs):
-    accept(docs["path"], policies={"readonly": ["read", "sources"]}, messaging={"senders": {"telegram": [{"id": READER, "policy": "readonly"}]}})
+    accept(docs["path"], policies={"readonly": ["read", "sources", "confirm-reads-off"]}, messaging={"senders": {"telegram": [{"id": READER, "policy": "readonly"}]}})      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: this test is about the group of the read
     out = phone(docs, "reader", "what files do you have?")
     assert out["reply"].startswith("- lease-contract") and out["ran"] is False
     refused = phone(docs, "reader", "Which market first?")      # not a form: a plain line is a model run, and needs talk (the bridge asks; the layer only records it)
@@ -234,7 +241,7 @@ def test_a_write_named_in_words_is_never_run_and_the_reply_is_the_command_to_sen
     assert on_page == phrases.text("NAT_TYPE_IT", None, command=f"/cancel {request}") and ops.status(world["path"])["requests"][0]["state"] == "requested"
     assert say(world, f"stop task 5")["reply"] == phrases.text("NAT_TYPE_IT", None, command="/stop-task 5")
     assert "attachment-add" in say(world, "add file 3")["reply"] and "attachment-discard" in say(world, "discard attachment 3")["reply"], "the page and the terminal get the terminal's command"
-    added, discarded = phone(world, "owner", "add file 3"), phone(world, "owner", "discard attachment 3")
+    added, discarded = ok_of(world, "owner", phone(world, "owner", "add file 3")), ok_of(world, "owner", phone(world, "owner", "discard attachment 3"))      # D5: an act in words asks first (BL2b); the sender says yes
     assert (added["reply"], added["typed"], discarded["reply"], discarded["typed"]) == ("", "/add 3", "", "/discard 3"), "S20: on a messaging app the bridge is handed the typed line"
     assert say(world, "reject the plan 4")["reply"] == phrases.text("NAT_NO_DECISION", None, id=4)
 

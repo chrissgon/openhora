@@ -232,8 +232,19 @@ def test_a_card_made_after_the_list_ends_it_so_a_number_for_that_card_opens_no_e
     assert model.calls == 1 and [i["title"] for i in rows(world)[1]] == ["Calendar: new event"], "no event cancel card was opened"
 
 
+def reads_at_once(world):
+    """D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: the tests below are about the numbered list and the form that follows it, so the senders hold `confirm-reads-off` (accepted with --widen)."""
+    path = world["path"] + "/docs/workbench/runtime.json"
+    raw = json.loads(open(path).read())
+    raw["policies"] = {name: [*groups, "confirm-reads-off"] for name, groups in raw["policies"].items()}
+    open(path, "w").write(json.dumps(raw))
+    shown = ops.config(world["path"])
+    ops.accept_config(world["path"], shown["sha256"], widen=shown["widening_sha256"])
+
+
 def test_a_question_about_the_entry_keeps_the_list_for_the_answer(world, monkeypatch):
     build(world, monkeypatch)
+    reads_at_once(world)
     Model(monkeypatch)
     say(world, "lista os eventos")
     assert say(world, "2") == WHAT
@@ -280,6 +291,7 @@ def test_a_refresh_that_changed_nothing_keeps_the_numbers_of_the_list(world, mon
 
 def test_after_the_items_list_a_verb_and_a_number_open_the_card_and_a_bare_number_asks_what_to_do(world, monkeypatch):
     build(world, monkeypatch)
+    reads_at_once(world)
     model = Model(monkeypatch)
     shown = say(world, "lista os eventos")
     assert "2. " in shown and "corte de cabelo" in shown, shown

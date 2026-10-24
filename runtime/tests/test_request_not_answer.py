@@ -90,7 +90,11 @@ def served(phone, wall, line):
     question = ask(phone, "pt-BR")
     wall.later(300)
     before = len(phone.texts(OWNER))
+    plans = len([c for c in phone.bridge.ledger.data["cards"] if c.get("kind") == "plan-confirm"])
     phone.say(OWNER, line)
+    if len([c for c in phone.bridge.ledger.data["cards"] if c.get("kind") == "plan-confirm"]) > plans:      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: the read asks first, and the owner says "sim" to the question
+        before = len(phone.texts(OWNER))
+        phone.say(OWNER, "sim")
     return question, phone.texts(OWNER)[before:]
 
 

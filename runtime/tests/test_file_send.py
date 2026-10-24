@@ -41,7 +41,8 @@ messaging_file = st.load("messaging_file")
 
 SENDER = "55119000000031"
 SENDER_KEY = f"telegram:{SENDER}"
-SEND_PROFILES = dict(FILE_PROFILES, sender=["read", "talk", "interpret", "read-files", "send-files"])
+# D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: these tests are about sending the file, and the read before it runs at once for a sender who holds `confirm-reads-off`
+SEND_PROFILES = dict(FILE_PROFILES, sender=["read", "talk", "interpret", "read-files", "send-files", "confirm-reads-off"])
 SEND_SENDERS = {"telegram": [{"id": READER, "policy": "reader"}, {"id": SENDER, "policy": "sender"}]}
 LIMITS = {"max_bytes": 20971520, "photo_max_bytes": 10485760, "photo_types": ["png", "jpeg"],
           "types": ["pdf", "docx", "xlsx", "pptx", "ooxml", "html", "csv", "text", "png", "jpeg", "webp", "gif"]}
@@ -197,7 +198,7 @@ def test_the_limits_are_ignored_off_a_messaging_app_and_the_typed_operation_retu
 
 
 def test_send_files_without_read_files_is_refused_when_the_file_is_accepted(drives):
-    write_config(drives["path"], policies=dict(FILE_PROFILES, sender=["read", "talk", "send-files"]), messaging={"senders": {"telegram": [{"id": SENDER, "policy": "sender"}]}})
+    write_config(drives["path"], policies=dict(FILE_PROFILES, sender=["read", "talk", "send-files", "confirm-reads-off"]), messaging={"senders": {"telegram": [{"id": SENDER, "policy": "sender"}]}})
     with pytest.raises(Exception) as refused:
         ops.accept_config(drives["path"], ops.config(drives["path"])["sha256"])
     assert "'send-files' needs 'read-files' beside it (it sends the file that reading files finds, so a policy that only sends is refused)" in str(refused.value)
@@ -209,7 +210,7 @@ def test_send_files_without_read_files_is_refused_when_the_file_is_accepted(driv
 
 def test_vacuity_a_policy_with_both_groups_is_accepted(drives):
     """The refusal above is of the missing `read-files` and of nothing else: the same profile with both groups is accepted."""
-    accept(drives["path"], policies=dict(FILE_PROFILES, sender=["read", "talk", "read-files", "send-files"]), messaging={"senders": {"telegram": [{"id": SENDER, "policy": "sender"}]}})
+    accept(drives["path"], policies=dict(FILE_PROFILES, sender=["read", "talk", "read-files", "send-files", "confirm-reads-off"]), messaging={"senders": {"telegram": [{"id": SENDER, "policy": "sender"}]}})
 
 
 def test_the_group_is_in_no_default_is_the_messaging_apps_alone_and_adds_to_read_files_without_granting_it(drives):
@@ -332,7 +333,7 @@ def test_a_pick_after_a_list_sends_the_file_it_names_as_a_document_with_its_capt
 
 def test_a_pick_after_send_files_left_the_policy_sends_nothing(two):
     assert ask(two, "Me traga o arquivo Plano do coral", "Plano do coral")["reply"] == LIST
-    accept(two["path"], policies=dict(SEND_PROFILES, sender=["read", "talk", "interpret", "read-files"]), messaging={"senders": SEND_SENDERS})
+    accept(two["path"], policies=dict(SEND_PROFILES, sender=["read", "talk", "interpret", "read-files", "confirm-reads-off"]), messaging={"senders": SEND_SENDERS})
     picked = pick(two)
     assert picked["reply"] == "Plano do coral.txt (OneDrive, pasta Documentos):\n\nPlano do OneDrive."
     assert "attachment" not in picked
@@ -341,14 +342,14 @@ def test_a_pick_after_send_files_left_the_policy_sends_nothing(two):
 def test_vacuity_a_pick_that_did_not_ask_the_group_again_would_send_the_file(two, monkeypatch):
     """The planted fault: the group is believed from the search. The file goes after the group was removed; the oracle above fails."""
     assert ask(two, "Me traga o arquivo Plano do coral", "Plano do coral")["reply"] == LIST
-    accept(two["path"], policies=dict(SEND_PROFILES, sender=["read", "talk", "interpret", "read-files"]), messaging={"senders": SEND_SENDERS})
+    accept(two["path"], policies=dict(SEND_PROFILES, sender=["read", "talk", "interpret", "read-files", "confirm-reads-off"]), messaging={"senders": SEND_SENDERS})
     monkeypatch.setattr(ops_file_read, "_sending", lambda ctx, channel, sender, extras: ops_file_read._limits(extras.get("can_send")))
     assert pick(two)["attachment"]["data"] == b"Plano do OneDrive.\n"
 
 
 def test_a_pick_after_read_files_left_the_policy_gets_the_refusal_and_sends_nothing(two):
     assert ask(two, "Me traga o arquivo Plano do coral", "Plano do coral")["reply"] == LIST
-    accept(two["path"], policies=dict(SEND_PROFILES, sender=["read", "talk", "interpret"]), messaging={"senders": SEND_SENDERS})
+    accept(two["path"], policies=dict(SEND_PROFILES, sender=["read", "talk", "interpret", "confirm-reads-off"]), messaging={"senders": SEND_SENDERS})
     picked = pick(two)
     assert picked["reply"] == PLAIN_REFUSAL_PT and "attachment" not in picked
     assert two["drives"].reads() == []

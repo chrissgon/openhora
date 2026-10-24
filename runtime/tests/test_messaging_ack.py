@@ -31,7 +31,7 @@ PT_BR = {
     "file": "Procurando o arquivo...",
     "compose": "Redigindo o e-mail...",
     "card": "Preparando o card...",
-    "research": "Pesquisando...",
+    "research": "Pesquisando... Digite 'Pare' para cancelar.",
     "plan": "Vou trabalhar nisso...",
     None: "Um momento, estou vendo isso...",      # validate: allow english-only -- the pt-BR sentence under test
 }
@@ -42,7 +42,7 @@ EN = {
     "file": "Looking for the file...",
     "compose": "Writing the e-mail...",
     "card": "Preparing the card...",
-    "research": "Searching...",
+    "research": "Searching... Send 'Stop' to cancel.",
     "plan": "I will work on that...",
     None: "One moment, I am looking into it...",
 }

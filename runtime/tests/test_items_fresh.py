@@ -45,6 +45,7 @@ def project(world, language="en", page_url=None):
     path = world["path"] + "/docs/workbench/runtime.json"
     raw = json.loads(open(path).read())
     raw["language"] = language
+    raw["policies"] = {name: [*groups, "confirm-reads-off"] for name, groups in raw["policies"].items()}      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: these tests are about the lists themselves, which run at once for a sender who holds the group (accepted with --widen below)
     if page_url:
         raw["messaging"]["page_url"] = page_url
     open(path, "w").write(json.dumps(raw))

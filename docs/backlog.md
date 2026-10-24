@@ -171,6 +171,8 @@ The goal decided on 2026-09-28 (`docs/decisions.md`): a company run by agents, o
   - Done when: an offline test stops a running stand-in run, the request ends `cancelled`, the run row records `stopped` with the person's stop in its error, the spend rule counts the run as before, and no effect is interrupted mid-execution; the same cancel works from the page, the terminal and the messaging channel where its policy allows it.
   - Plan: a package of the task runtime (`runtime/`, with a change to the store's `request_cancel`); it changes no skill, so it asks no test of one.
 
+- [x] **RESEARCH-LIMITS, item 1 (2026-10-24): stop a running search by words, and name the word.** Done by BL2a (the operations side: `ops_research.stop`, `plan_confirm.stop_form`, `RS_CANCELLED`) and BL2b (the bridge: `Bridge.research_stop_line`, after the card words; `ACK_RESEARCH` says "Send 'Stop' to cancel." / "Digite 'Pare' para cancelar."). Items 2 and 3 (the 0.60 default cap and its message) are RL1's (#551).
+
 - [ ] **INSTRUCTIONS. Per-project standing instructions.** A file of the project, `docs/workbench/instructions.md`, written only by the person, loaded into every model run of the task runtime, never overriding a stop rule or an approval, protected from runs (not returned, not mirrored) and capped in size; a proposal made in the chat is accepted by the person. It replaces the agent memory that the earlier R2 listed.
   - From: the maintainer's decision of 2026-10-15.
   - Plan: package INSTRUCTIONS of the delegation platform plan, spec SPEC-INSTRUCTIONS, in progress: pull request #430 (limit L40).

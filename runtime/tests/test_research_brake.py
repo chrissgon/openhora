@@ -14,7 +14,7 @@ import pytest
 
 import standin_tree as st
 from test_ask import accept
-from test_research import (ASKER_KEY, LINE_1, PLAIN_KEY, RESEARCH_PROFILES, RESEARCH_SENDERS, FakeRun, lab, ops, ops_core, ops_research, research, world)  # noqa: F401
+from test_research import (ASKER_KEY, LINE_1, PLAIN_KEY, RESEARCH_PROFILES, RESEARCH_SENDERS, FakeRun, lab, ops, ops_core, ops_research, phone, research, world)  # noqa: F401
 
 ops_cancel = st.load("ops_cancel")
 phrases = st.load("phrases")
@@ -46,7 +46,7 @@ class Blocked:
 
         monkeypatch.setattr(ops_cancel, "cancel_request", cancel)
         self.world = research
-        self.thread = threading.Thread(target=lambda: self.reply.append(ops.say(research["path"], LINE_1, channel="messaging", sender=ASKER_KEY)["reply"]), daemon=True)
+        self.thread = threading.Thread(target=lambda: self.reply.append(phone(research, LINE_1, ASKER_KEY)), daemon=True)      # the question, then the sender's OK of it (D5): the search begins after the OK
         self.thread.start()
         assert self.started.wait(20), "the stand-in run began"
 

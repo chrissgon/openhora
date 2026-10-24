@@ -110,6 +110,14 @@ the ones the typed line does not do either: an approval is never made (the reply
 and an answer keeps its words. A closed form of a decision or an act is answered by code, so `say` starts it without the project's model slot (a brake said in words works while the planning
 agent answers); `project_line` reads "muda para o projeto X" (runtime/command_words.py) and does what `/project X` does.
 
+The OK of a plan (D5, package BL2b, limits L64 and L65). A read or an act asked in words is answered by the operations layer with a question code wrote from the typed call ("I understood: ... Shall I
+go ahead?"; runtime/plan_confirm.py), and `line` sends it with `ask_plan` (a Yes and a No button when the platform has them, one line "reply yes" on e-mail) and records it in the ledger as a
+record of kind `plan-confirm` (ids, a hash and an operation name, never text). `plan_line` takes the OK, in the chain right before the card words, under the conditions of L64: a private line of
+a listed sender, not forwarded, a yes or no word code reads (`natural.confirm_kind`) when the question is the LAST message the platform sent to the chat or the line replies to it (e-mail: only a
+reply); a yes starts the confirmed call as a job with the plan's item and hash (`plan_ok`), a no drops the plan. The question's own buttons do the same (`plan_tapped`). Any other line goes on as
+it did; a correction reaches `say`, where the interpreter reads it with the plan as a typed frame item. A card that came after a question whose plan still waits is not decided by a bare word
+(`word_line`: `PLAN_TWO_OPEN`; a reply names the message it means). A research that runs is stopped by its asker's stop word (`research_stop_line`, in the chain right AFTER the card words).
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -186,8 +194,10 @@ QUEUE_POLL = 2        # seconds a polling loop waits for the messenger while a l
 QUEUE_STOP_WAIT = 10.0   # seconds, in all, the stop messages may take (they go out together); the runs end after that
 LIST_SECONDS = 600.0   # seconds the numbered list of cards waits for a position: the conversation spec's choice (3.5, LIST_TTL), not measured
 LIST_MAX = 10          # cards the numbered list names (the newest)
-NOT_DECISION = ("reminder", "question", "attachment")   # the kinds of ledger record that are not a decision card a word could decide
+NOT_DECISION = ("reminder", "question", "attachment", "plan-confirm")   # the kinds of ledger record that are not a decision card a word could decide
 RESEND_EVERY = 60.0   # seconds: a decision named in words has its card sent again at most this often to one chat
+SENT_IDS = 50   # message ids of each chat the bridge remembers having sent (memory only): an e-mail stop word must reply to one of them
+PLAN_TEXT = "plan"   # what the typing indicator and the acknowledgement are shown for a confirmed plan, whose line is a bare "yes" (a card word, which neither of them serves)
 QUEUE_COMMANDS = ("new", "ask")   # the slash commands that may wait: the ones that run the planning agent or the answer run; the others are not lines but acts
 
 
@@ -298,6 +308,7 @@ class Bridge(shell_kit.Jobs):
         self.monotonic = time.monotonic       # the clock of the waiting lines (a test moves it)
         self.resent = {}                      # (project id, chat, decision) -> when its card was last sent again to that chat (NR-2: at most once in RESEND_EVERY seconds)
         self.last_sent = {}                   # chat -> the id of the last message of any kind sent to it (memory only; S2, limit L64): a word decides a card only while the card is it
+        self.sent_ids = {}                    # chat -> the ids of the last SENT_IDS messages sent to it (memory only): on e-mail a stop word of a research must reply to one of them
         self.send_seq = {}                    # chat -> how many sends to it have started (memory only): `last_sent` is stored only by the send that started last
         self.send_lock = threading.Lock()     # guards `send_seq` and `last_sent`: the update thread and the job threads all send
         self.card_lists = {}                  # chat -> the numbered list of cards last sent: {"message_id", "at" (monotonic), "cards": [(project id, pending id, content hash)]} (memory only)
@@ -496,6 +507,9 @@ class Bridge(shell_kit.Jobs):
         with self.send_lock:
             if self.send_seq.get(chat) == seq:      # a send that started later decides what the last message is, whichever of the two the platform finished first
                 self.last_sent[chat] = str(sent) if sent else None
+            if sent:
+                self.sent_ids.setdefault(chat, []).append(str(sent))
+                del self.sent_ids[chat][:-SENT_IDS]
         return sent
 
     def guarded(self, kinds: list) -> None:
@@ -838,8 +852,12 @@ class Bridge(shell_kit.Jobs):
                     return
                 self.write_forget(project, chat)          # any other line drops it, and is handled as a new one; a question it asks says the previous one was discarded
                 self.remind.discarded.add(chat)
-        if kind in ("text", "natural", "reply") and self.word_line(update, intent, project, listed, sender, chat):
+        if kind in ("text", "natural", "reply") and self.plan_line(update, intent, kind, project, listed, sender, chat):
+            pass          # the OK of a plan ("Posso?") the operations layer asked, or its refusal, or a correction (D5, limits L64 and L65): before the card words, which it never touches (a plan is no decision card)
+        elif kind in ("text", "natural", "reply") and self.word_line(update, intent, project, listed, sender, chat):
             pass          # an approve or a reject word decided a decision card, or listed the cards to choose from (S2, limit L64)
+        elif kind in ("text", "natural", "reply") and self.research_stop_line(update, intent, kind, project, listed, chat):
+            pass          # a stop word of the sender's own running research (BL2b): after the card words, so that "nao" with a card as the last message still rejects the card
         elif self.revise_line(update, intent, kind, project, listed, chat):
             pass          # a change of the card that waits, said in words (S13, limit L64)
         elif self.project_line(intent, kind, listed, sender, chat):
@@ -910,6 +928,147 @@ class Bridge(shell_kit.Jobs):
             return False
         return True
 
+    # --- the OK of a plan, the question "Posso?" (D5, limits L64 and L65) ------------------------------------------------------------------------------------
+
+    def ask_plan(self, project: dict, chat: str, said: str, plan: dict) -> None:
+        """Send the question of a plan that the operations layer kept (`plan` is its {"item", "sha256", "op"}) and bind it in the ledger as a record of kind `plan-confirm`. On a
+        platform with buttons, and when the text fits one message, the question carries a Yes and a No button; otherwise it is sent as text, and on a platform whose acts are replies
+        (e-mail) a line says to reply yes. The record holds the project, the chat, the message, the two action ids, the plan's item, hash and operation, never a word of the question or of the
+        line. The question is the last message sent (`deliver` sets it), so that a "yes" that comes next is the OK under L64's rule. A question that could not be sent or bound drops the plan: nothing
+        waits for an OK the person was never shown."""
+        caps = self.messenger.capabilities()
+        cfg = self.cfg(project, chat)
+        text = said or self.t("NO_REPLY", project=project)
+        yes_no = bool(caps.get("buttons") and int(caps.get("max_buttons") or 0) >= 2 and len(text) <= int(caps.get("max_text") or 0))
+        actions, sent = {}, None
+        if yes_no:
+            seq = self.ledger.next_seq()
+            yes, no = f"{seq}:plan-yes", f"{seq}:plan-no"
+            message = {"text": text, "actions": [{"id": yes, "label": phrases.text("NT_BTN_YES", cfg)}, {"id": no, "label": phrases.text("PLAN_BTN_NO", cfg)}], "link": None, "document": None}
+            try:
+                sent = self.deliver(chat, message)
+            except provider.MessengerError as e:
+                if e.kind != "deferred":
+                    self.log(f"a question could not be sent ({e.kind})")
+            actions = {yes: "yes", no: "no"}
+            self.last_message[chat] = str(sent) if sent else None
+        else:
+            if caps.get("actions_need_reply"):
+                text = text + "\n" + phrases.text("PLAN_REPLY_HOW_EMAIL", cfg)
+            self.scope.replied = None
+            if self.reply(chat, text, project) is True:
+                sent = getattr(self.scope, "replied", None)
+        if not sent:
+            self.ops.plan_drop(project["path"], self.key(chat))
+            return
+        try:
+            self.ledger.add({"project": project["id"], "pending_id": None, "kind": "plan-confirm", "content_sha256": "", "chat": chat, "message_id": str(sent), "actions": actions,
+                             "sent_at": self.clock(), "whole": True, "approvable": False, "blocked": None, "effect_word": None,
+                             "plan_item": plan["item"], "plan_sha256": plan["sha256"], "plan_op": plan["op"]})
+        except OSError as e:
+            self.log(f"the ledger could not be written ({e.__class__.__name__})")
+            self.ops.plan_drop(project["path"], self.key(chat))
+
+    def plan_line(self, update: dict, intent: dict, kind: str, project: dict, listed: list, sender: str, chat: str) -> bool:
+        """A yes or no word that answers a "Posso?" (D5, limits L64 and L65): True when it was taken, False when the line goes on exactly as it did. It is taken only when ALL of these hold: the
+        line is not a command and not a forwarded message; it is a yes or no word as code reads it (`natural.confirm_kind`, the whole line; on e-mail its first line); the question it answers
+        is the one the line replies to, or, with no reply, the LAST message the platform sent to this chat (`last_sent`: None while a send is on its way, and after a restart); on a platform whose
+        acts are replies (e-mail) only a reply counts; the question's project lists the sender and its chat is this chat. A line that is neither word (a correction) is not taken: it reaches `say`,
+        which reads it with the plan as a frame item. A "no" drops the plan; a "yes" starts the confirmed call (`plan_decide`). A decision card is never touched here: only a record of kind
+        `plan-confirm` is taken, any other record returns False to the card words."""
+        said = intent.get("text") or ""
+        if not said.strip() or said.lstrip().startswith("/") or ("forwarded" in update and update["forwarded"] is not False):
+            return False
+        email = bool(self.messenger.capabilities().get("actions_need_reply"))
+        if email:
+            said = card_words.reply_line(said)      # an e-mail reply says its word on the first line; the signature and the quoted question are not words
+        word = natural.confirm_kind(said)
+        if word is None:
+            return False
+        replied = update.get("reply_to")
+        if replied:
+            rec = self.ledger.by_message(chat, replied) if isinstance(replied, str) else None
+        elif email:
+            return False      # e-mail: an OK is a reply to the question (rule 50)
+        else:
+            last = self.last_sent.get(chat)
+            rec = self.ledger.by_message(chat, last) if last else None      # a restart forgets the last message and a send in flight clears it: a word then decides nothing
+        if rec is None or rec.get("kind") != "plan-confirm" or rec.get("chat") != chat:
+            return False
+        target = next((p for p in listed if p["id"] == rec.get("project")), None)
+        if target is None:
+            return False
+        self.plan_decide(target, chat, rec, word, said)
+        return True
+
+    def plan_decide(self, target: dict, chat: str, rec: dict, word: str, said: str) -> None:
+        """The decision on a plan's question once the OK or the refusal was read (a word under L64's rule, or a button): "no" drops the sender's plan; "yes" starts the confirmed call as a job
+        labelled with the plan's operation (a read that calls no model takes no model slot; research and ask take it, and a busy project answers `STILL_WORKING`), but only while the
+        plan that is live is the one this question was drawn for (its item AND its hash); the operations layer takes it once and asks the policy again."""
+        key = self.key(chat)
+        try:
+            live = self.ops.plan_live(target["path"], key)
+        except self.ops.OpsError:
+            live = None
+        current = live is not None and live["item"] == rec.get("plan_item") and live["sha256"] == rec.get("plan_sha256")
+        if word == "no":
+            if current:
+                self.ops.plan_drop(target["path"], key)      # the plan THIS question was drawn for; a newer plan of the sender (an older question's No) is left to its own question
+            self.reply(chat, self.t("PLAN_DROPPED", project=target), target)      # whether or not one was live: the answer is the same sentence
+            return
+        if not current:
+            self.reply(chat, self.t("PLAN_GONE", project=target), target)
+            return
+        self.start(target, chat, rec["plan_op"], self.line(target, chat, said, None, plan_ok={"item": rec["plan_item"], "sha256": rec["plan_sha256"]}, allow_as=rec["plan_op"]))
+
+    def plan_tapped(self, project: dict, chat: str, rec: dict, word: str) -> None:
+        """A tap on the Yes or No button of a question: the same decision as the word (`plan_decide`); a button names its message, so it needs no last-message rule. The checks of `tapped`
+        (the record is this chat's, the sender is listed) came before."""
+        self.plan_decide(project, chat, rec, word, phrases.text("NT_BTN_YES", self.cfg(project, chat)) if word == "yes" else "")
+
+    def plan_waits_before(self, listed: list, chat: str, card: dict) -> bool:
+        """Whether a question of a plan whose plan still waits was sent to this chat BEFORE `card` (D5, the two-question guard of L64): then a bare word decides nothing, because it may be meant for
+        either. The order is the ledger's own (a record is added after its message was sent), which does not tie as a timestamp of a second may."""
+        with self.ledger.lock:
+            records = [dict(c) for c in self.ledger.data["cards"] if self.ledger._mine(c) and c.get("chat") == chat]
+        at = max((i for i, r in enumerate(records) if str(r.get("message_id")) == str(card.get("message_id"))), default=None)
+        for rec in records[:at] if at is not None else []:
+            target = next((p for p in listed if p["id"] == rec.get("project")), None) if rec.get("kind") == "plan-confirm" else None
+            if target is None:
+                continue
+            try:
+                live = self.ops.plan_live(target["path"], self.key(chat))
+            except self.ops.OpsError:
+                continue
+            if live is not None and live["item"] == rec.get("plan_item"):
+                return True
+        return False
+
+    def research_stop_line(self, update: dict, intent: dict, kind: str, project: dict, listed: list, chat: str) -> bool:
+        """A stop word ("pare", "stop", "cancela", a no word) that stops the sender's OWN running research (BL2b; the words are `command_words.STOP_WORDS`, and the research acknowledgement tells the
+        person to send one): True when a research run of this sender was running and was cancelled (the run answers `RS_CANCELLED` itself, so this says nothing), else False and the line goes on
+        as it did. It stands in the chain after `word_line`, so a "no" with a decision card as the last message still rejects the card (L64). The line is not a command and not forwarded; on a
+        platform whose acts are replies (e-mail) it must reply to a message this bridge sent to the chat. The operations layer checks the sender's key and policy: it never touches another
+        sender's run."""
+        said = intent.get("text") or ""
+        stopper = getattr(self.ops, "research_stop", None)
+        if stopper is None or not said.strip() or said.lstrip().startswith("/") or ("forwarded" in update and update["forwarded"] is not False):
+            return False
+        if self.messenger.capabilities().get("actions_need_reply"):
+            replied = update.get("reply_to")
+            if not (isinstance(replied, str) and replied in self.sent_ids.get(chat, ())):
+                return False
+            said = card_words.reply_line(said)
+        if not (command_words.stop_form(said) or natural.confirm_kind(said) == "no"):
+            return False
+        for target in [project] + [p for p in listed if p["id"] != project["id"]]:
+            try:
+                if stopper(target["path"], self.key(chat)):
+                    return True
+            except self.ops.OpsError:
+                continue
+        return False
+
     # --- words that decide a card (S2, limit L64) ---------------------------------------------------------------------------
 
     @staticmethod
@@ -970,6 +1129,9 @@ class Bridge(shell_kit.Jobs):
         newest = next((c for c in found if str(c[1]["message_id"]) == last), None)
         if newest is None:
             return False      # the last message is not a card a word could decide
+        if self.plan_waits_before(listed, chat, newest[1]):
+            self.reply(chat, self.t("PLAN_TWO_OPEN", project=newest[0]), newest[0])      # D5, L64: a "Posso?" still waits and a card came after it: a bare word may be meant for either, so it decides neither (a reply names the message it means)
+            return True
         if word["all"] and word["op"] == "approve":
             self.keep_cards(chat, self.t("WORD_ONE_AT_A_TIME", project=newest[0]), newest[0])
         elif len(found) > 1:
@@ -1252,6 +1414,9 @@ class Bridge(shell_kit.Jobs):
             return
         if card.get("kind") == "attachment":
             self.attach.tapped(project, chat, card, card["actions"][action_id])
+            return
+        if card.get("kind") == "plan-confirm":
+            self.plan_tapped(project, chat, card, card["actions"][action_id])
             return
         self.act(project, chat, card["actions"][action_id], card["pending_id"], card=card)
 
@@ -1581,10 +1746,12 @@ class Bridge(shell_kit.Jobs):
             self.attach.resend(project, chat, result["cards"])
         return result["resend"] if opened else None
 
-    def line(self, project: dict, chat: str, text: str, entry):
+    def line(self, project: dict, chat: str, text: str, entry, plan_ok=None, allow_as=None):
         """The call that runs one line through `say`. `entry` is the kept line this run answers (None: the line has just come); it leaves the waiting
         list when the run begins. The policy is read by `run_op` now; a kept line also needs the project to be accepted and its sender still listed in
-        it, else it is dropped with no reply, as an update from an unlisted sender is."""
+        it, else it is dropped with no reply, as an update from an unlisted sender is. `plan_ok` ({"item", "sha256"}, D5) makes the call the confirmed run of the plan those name,
+        which only `plan_line` and `plan_tapped` pass after they read the person's OK; `allow_as` is then the plan's operation, whose group the policy is asked for (the operations
+        layer asks it again) in place of `self.needs`."""
         def call():
             if entry is not None:
                 self.leave(entry)
@@ -1598,17 +1765,25 @@ class Bridge(shell_kit.Jobs):
                         self.log(DROPPED)
                         return
                 shown = acked = None
+                seen = text if plan_ok is None else PLAN_TEXT      # the person's "yes" is a card word: neither the indicator nor the acknowledgement serves it, and a research they confirmed must tell them the word that stops it
                 try:
                     try:
-                        shown = indicator.Typing(self.messenger).begin(chat, text)      # S10: "typing..." while the reply is prepared, on a platform that has it
+                        shown = indicator.Typing(self.messenger).begin(chat, seen)      # S10: "typing..." while the reply is prepared, on a platform that has it
                     except Exception:      # never a lost reply
                         shown = None
-                    acked = self.ack_begin(project, chat, text)      # S19: one short sentence if the reply takes more than a moment
-                    result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text, **self.send_arguments())
+                    acked = self.ack_begin(project, chat, seen)      # S19: one short sentence if the reply takes more than a moment
+                    if plan_ok is None:
+                        result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text, **self.send_arguments())
+                    else:
+                        result = self.run_op(project, "say", sender=chat, allow_as=allow_as, text=text, plan_ok=plan_ok, **self.send_arguments())
                 finally:
                     if shown is not None:
                         shown.stop()      # before anything is sent: no call is made after this
                     self.ack_end(acked)
+                planned = result.get("plan_confirm")
+                if isinstance(planned, dict):      # the reply is the question "Posso?" of a plan (D5): it is sent with its buttons and bound in the ledger
+                    self.ask_plan(project, chat, result.get("reply") or "", planned)
+                    return
                 typed = result.get("typed")
                 if typed and not result.get("reply"):      # a command asked for in words that the bridge answers itself (S20): it does what it does for the typed line
                     self.typed_line(project, chat, typed)
@@ -1647,7 +1822,7 @@ class Bridge(shell_kit.Jobs):
                 elif entry is not None:       # a kept line met the busy router again: it waits on, with its place and its time
                     if not self.keep(project, chat, text, entry=entry, retry=True):
                         self.reply(chat, self.t("QUEUE_STOPPED", project=project), project)       # the bridge is stopping
-                elif not queueable(text) or not self.keep(project, chat, text, retry=True):
+                elif plan_ok is not None or not queueable(text) or not self.keep(project, chat, text, retry=True):      # a confirmed plan is never kept as a line: its OK was spent
                     self.reply(chat, self.t("RUN_BUSY", project=project), project)
                 else:
                     self.reply(chat, self.t("QUEUED", project=project), project)

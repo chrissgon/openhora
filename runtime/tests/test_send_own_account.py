@@ -1057,7 +1057,7 @@ def test_the_private_card_a_holder_of_ask_mail_reads_is_not_kept_in_the_conversa
     """A messaging read drawn under the wider view of a holder of `ask-mail` (a typed /pending, a natural line) goes to that chat; the conversation keeps a neutral word,
     so the MCP mode, which reads it, never sees the recipient or the subject (limit L51)."""
     from test_channel_grants_mailbox import accept as accept_holder      # the channel keeps the list without ask-mail; SENDER's profile `holder` lists it
-    accept_holder(world["path"], {"messaging": ["read", "talk", "mail-send", "approve-effect-send-own", "ask-mail"]})
+    accept_holder(world["path"], {"messaging": ["read", "talk", "mail-send", "approve-effect-send-own", "ask-mail", "confirm-reads-off"]})      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: this test is about what the read keeps, so the read runs at once
     started = send(world, channel="messaging", sender=SENDER)
     neutral = phrases.text("NAT_READ_REPLY", None)
     typed = ops.say(world["path"], f"/pending {started['pending']}", channel="messaging", sender=SENDER)

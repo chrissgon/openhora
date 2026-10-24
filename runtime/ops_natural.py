@@ -310,12 +310,9 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         refused = operations.refusal("pending", where, policy, sender=sender)
         if refused:
             return phone_refusal.said(refused, channel, cfg)
-    if channel == "messaging" and routed and name in VETTED:      # S20 (review round): a decision or an act that a MODEL or the router chose is believed only when the line says the same
-        problem = command_words.vet(said, name, args.get(VETTED[name]))
-        if problem == "number":
+    if channel == "messaging" and routed and name in VETTED:      # S20 (review round): a decision or an act that a MODEL or the router chose is believed only for the number the line writes (what it means is the person's OK of the plan, L65)
+        if command_words.vet(said, name, args.get(VETTED[name])) == "number":
             return phrases.text("NAT_WHICH_DECISION" if cls == "D" else "NAT_ASK_ID", cfg)
-        if problem:
-            return phrases.text("IX_ASK_AGAIN", cfg)
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
         return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"))
     if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here
