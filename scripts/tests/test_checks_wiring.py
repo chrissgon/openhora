@@ -152,8 +152,8 @@ def test_the_selection_keeps_the_coverage_the_folder_map_of_the_hook_had():
 
 # The `if:` expressions of the jobs, read from the text of checks.yml and evaluated for the events that matter. GitHub's expression
 # language is small; the subset used here (&&, ||, !, ==, !=, contains of the label list, the five fields below) is translated to Python.
-def job_condition(name):
-    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+def job_condition(name, text=None):
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text() if text is None else text
     jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
     block = dict(zip(re.findall(r"^  ([\w-]+):\s*$", jobs, re.M), re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]))[name]
     lines = [line for line in block.splitlines() if not line.lstrip().startswith("#")]
@@ -172,9 +172,9 @@ def job_condition(name):
     return None
 
 
-def step_condition(job, step_name):
+def step_condition(job, step_name, text=None):
     """The `if:` of the step of that job with that name (None when it has none)."""
-    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text() if text is None else text
     lines = job_block(text, job).splitlines()
     start = next(i for i, line in enumerate(lines) if line.strip() == "- name: " + step_name)
     parts, found = [], False
@@ -196,6 +196,7 @@ def step_condition(job, step_name):
 def evaluate(expression, event_name, action=None, base_ref="", labels=(), label=None):
     if expression is None:
         return True  # a job without a condition runs
+    expression = expression.replace("always()", "True")  # the condition of the aggregator: it runs, whatever its needs ended in
     py = re.sub(r"contains\(github\.event\.pull_request\.labels\.\*\.name,\s*'([^']+)'\)", lambda m: "(%r in labels)" % m.group(1), expression)
     py = py.replace("github.event_name", "event_name").replace("github.event.action", "action").replace("github.base_ref", "base_ref")
     py = py.replace("github.event.label.name", "label")
@@ -234,7 +235,13 @@ EVENTS = {
 }
 
 
-WHOLE = "Scanner and provider tests, the whole suite"
+# The required status checks of the `main` ruleset (`gh api repos/chrissgon/openhora/rules/branches/main`, required_status_checks). This is
+# the one place of the tests to change, with the aggregator's `name:` line in .github/workflows/checks.yml, if the maintainer renames the
+# required check (and the ruleset itself, which is the maintainer's action).
+REQUIRED_CHECKS = ("validate", "tests")
+WHOLE = "Scanner and provider tests, the whole suite"  # the step of each shard that runs its part of the suite
+GATE = "The whole suite, every shard passed"  # the step of the aggregator that fails unless every shard did
+SHARDS = "tests-shard"
 SELECTED = "Selected scanner, provider, runtime and script tests"
 CHOOSE = "Choose the tests this pull request can reach"
 
@@ -259,34 +266,79 @@ WANTED_MODES = {
 }
 
 
-def test_the_one_tests_job_runs_the_whole_list_on_the_four_events_of_the_end_of_a_delivery_and_the_selection_otherwise():
-    """The required check of the main ruleset is `tests`: on a pull request into main it must run, and run every test folder."""
-    got = modes(job_condition("tests"), step_condition("tests", WHOLE), step_condition("tests", SELECTED))
+def squash(text):
+    return " ".join(text.split())
+
+
+def step_text(block, name):
+    """The text of the step of that block with that name: up to the next step, or the end of the job (a comment that sits above the
+    next job belongs to this block and is not part of the step)."""
+    lines = block.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == "- name: " + name)
+    out = [lines[start]]
+    for line in lines[start + 1:]:
+        if re.match(r"^      - ", line) or (line.strip() and not line.startswith("        ")):
+            break
+        out.append(line)
+    return "\n".join(out)
+
+
+def test_the_tests_job_gates_the_shards_of_the_whole_list_on_the_four_events_of_the_end_of_a_delivery_and_runs_the_selection_otherwise():
+    """The required check of the main ruleset is `tests`: on a pull request into main it must run, and it must fail unless every shard
+    of the whole list (every test folder) succeeded."""
+    got = modes(job_condition("tests"), step_condition("tests", GATE), step_condition("tests", SELECTED))
     assert got == WANTED_MODES
     assert step_condition("tests", CHOOSE) == step_condition("tests", SELECTED)  # the selector runs exactly when its targets are used
-    text = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "tests")
-    whole_step = text[text.index("- name: " + WHOLE):]
-    assert "$(python3 scripts/test_dirs.py)" in whole_step and 'WB_FULL_FUZZ: "1"' in whole_step and "select_tests" not in whole_step
-    selected_step = text[text.index("- name: " + SELECTED):text.index("- name: " + WHOLE)]
+    assert squash(step_condition("tests", GATE)) == squash(job_condition(SHARDS))  # the shards run exactly when the gate needs them
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    block = job_block(text, "tests")
+    gate = step_text(block, GATE)
+    assert "SHARDS: ${{ needs.tests-shard.result }}" in gate and 'test "$SHARDS" = "success"' in gate
+    assert re.search(r"^    needs: (tests-shard|\[.*\btests-shard\b.*\])\s*$", block, re.M) and re.search(r"^    if: always\(\)\s*$", block, re.M)
+    shard_block = job_block(text, SHARDS)
+    shard_step = step_text(shard_block, WHOLE)
+    assert "$(python3 scripts/test_dirs.py)" in shard_step and 'WB_FULL_FUZZ: "1"' in shard_step and "select_tests" not in shard_step
+    count = re.search(r'python scripts/shard_tests\.py --shard "\$SHARD/(\d+)"', shard_step)
+    assert count, "each shard starts the launcher with its K of an integer N"
+    assert matrix_of(shard_block) == list(range(1, int(count.group(1)) + 1)) and re.search(r"^      fail-fast: false\s*$", shard_block, re.M)
+    selected_step = step_text(block, SELECTED)
     assert "selected-tests.txt" in selected_step and "WB_FULL_FUZZ" not in selected_step
-    assert not re.search(r"^  full-suite:\s*$", (REPO / ".github" / "workflows" / "checks.yml").read_text(), re.M)  # no second job to be the only gate
+    assert not re.search(r"^  full-suite:\s*$", text, re.M)  # no second job to be the only gate
+
+
+def matrix_of(shard_block):
+    match = re.search(r"^        shard: \[(.*)\]\s*$", shard_block, re.M)
+    return [int(x) for x in match.group(1).split(",")] if match else None
 
 
 def test_the_required_jobs_are_never_skipped_and_a_pull_request_into_main_never_runs_the_selection():
     """`validate` and `tests` are the required checks of the main ruleset. A job skipped by its `if:` counts as passing on the same commit,
-    so a label added to a pull request must not be able to skip either; on a pull request into main every event runs the whole suite."""
-    assert job_condition("tests") is None and job_condition("validate") is None
+    so a label added to a pull request must not be able to skip either (`tests` has only `if: always()`, the condition that never skips);
+    on a pull request into main every event runs the whole suite."""
+    assert job_condition("tests") in (None, "always()") and job_condition("validate") is None
     selected = step_condition("tests", SELECTED)
     for name, event in EVENTS.items():
         if event.get("event_name") == "pull_request" and event.get("base_ref") == "main":
             assert evaluate(selected, **event) is False, name
     for action in ("opened", "synchronize", "reopened", "labeled"):
         event = dict(event_name="pull_request", action=action, base_ref="main", labels=["docs"], label="docs" if action == "labeled" else None)
-        assert evaluate(step_condition("tests", WHOLE), **event) is True and evaluate(selected, **event) is False, action
+        assert evaluate(step_condition("tests", GATE), **event) is True and evaluate(selected, **event) is False, action
+        assert evaluate(job_condition(SHARDS), **event) is True, action  # and the shards run, so the gate has something to wait for
+    # no other job takes the name of a required check: a shard is named `tests shard <k> of 3`, which is never `tests`
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
+    for name, block in zip(re.findall(r"^  ([\w-]+):\s*$", jobs, re.M), re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]):
+        if name in REQUIRED_CHECKS:
+            continue  # the required jobs: each holds its own name (the first assertion of the next test of this file)
+        match = re.search(r"^    name:\s*(.*?)\s*$", block, re.M)
+        assert match is None or match.group(1) not in REQUIRED_CHECKS, name
+    assert re.search(r"^    name: tests shard \$\{\{ matrix\.shard \}\} of \d+\s*$", job_block(text, SHARDS), re.M)
+    for required in REQUIRED_CHECKS:
+        assert re.search(r"^    name: %s\s*$" % re.escape(required), job_block(text, required), re.M), required
 
 
 def test_planted_workflows_that_skip_tests_or_select_on_a_pull_request_into_main_are_caught_by_the_oracle():
-    whole, selected = step_condition("tests", WHOLE), step_condition("tests", SELECTED)
+    whole, selected = step_condition("tests", GATE), step_condition("tests", SELECTED)
     # the design of the previous head: the job is skipped on a label other than full-suite (a skipped required check passes)
     skips_on_a_label = "github.event.action != 'labeled' || github.event.label.name == 'full-suite'"
     assert modes(skips_on_a_label, whole, selected) != WANTED_MODES
@@ -302,10 +354,42 @@ def test_planted_workflows_that_skip_tests_or_select_on_a_pull_request_into_main
         modes(None, whole, "github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-suite')")
 
 
+def gate_holds(text):
+    """True only when the aggregator is a gate that fails closed: it always runs, needs the shards, compares their result with success,
+    the shards run exactly when it needs them, and the matrix covers 1..N for the N the launcher is told."""
+    block, shard_block = job_block(text, "tests"), job_block(text, SHARDS)
+    if not (re.search(r"^    if: always\(\)\s*$", block, re.M) and re.search(r"^    needs: (tests-shard|\[.*\btests-shard\b.*\])\s*$", block, re.M)):
+        return False
+    gate = step_text(block, GATE)
+    if not ("SHARDS: ${{ needs.tests-shard.result }}" in gate and 'test "$SHARDS" = "success"' in gate):
+        return False
+    if squash(step_condition("tests", GATE, text) or "") != squash(job_condition(SHARDS, text) or ""):
+        return False
+    count = re.search(r'python scripts/shard_tests\.py --shard "\$SHARD/(\d+)"', shard_block)
+    return bool(count) and matrix_of(shard_block) == list(range(1, int(count.group(1)) + 1))
+
+
+def test_planted_gates_that_let_a_failed_or_missing_shard_pass_are_caught_by_the_oracle():
+    real = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    assert gate_holds(real)
+    shard_if = ("    if: >-\n      github.event_name != 'pull_request' || github.base_ref == 'main'\n"
+                "      || contains(github.event.pull_request.labels.*.name, 'full-suite')\n")
+    plants = {
+        "the aggregator is skipped when a shard fails": real.replace("    needs: tests-shard\n    if: always()\n", "    needs: tests-shard\n", 1),
+        "a shard is left out of the matrix": real.replace("[1, 2, 3]", "[1, 2]", 1),
+        "the gate does not compare the result": real.replace('test "$SHARDS" = "success"', "true", 1),
+        "the shards run on fewer events than the gate waits for": real.replace(
+            shard_if, "    if: >-\n      github.event_name != 'pull_request'\n", 1),
+    }
+    for name, planted in plants.items():
+        assert planted != real, name
+        assert not gate_holds(planted), name
+
+
 def test_an_unrelated_label_skips_the_optional_jobs_and_the_label_of_the_whole_suite_starts_them():
     other = EVENTS["another label just added"]
     full = EVENTS["the label full-suite just added"]
-    for name in ("python39", "changes"):
+    for name in ("python39", "changes", SHARDS):
         assert evaluate(job_condition(name), **other) is False, name
         assert evaluate(job_condition(name), **full) is True, name
 
