@@ -1,0 +1,118 @@
+# The nightly run (docs/decisions.md, the entry of T2b): what the selection of the hook and of a pull request leaves to the end of a
+# delivery, every night, so that a miss is seen within a day. The whole list of test folders with the full fuzz, in three shards (the
+# launcher of the whole-suite shards of checks.yml), and the python39 list of checks.yml in full. Three slow meta-tests run only here,
+# in the whole-suite runs and when the wiring changes (the selector's rule 5): the selector's import oracle, the CI wiring and the
+# whole-tree security scan. A failing test is run again up to three times: one that then passes is reported as a rerun, one that fails
+# every time fails the job. The report is each job's summary; GitHub mails a failed scheduled run to whoever last changed the cron line.
+# GitHub starts a schedule only from the default branch. While a delivery is open on an integration branch, the repository variable
+# NIGHTLY_REF names the branch the scheduled run tests (unset: the default branch). A manual run tests the branch it is started on, or
+# its input `ref`. The label `nightly` on a pull request runs it on that pull request: how a change to this file is tried.
+# Read-only: no secret, no write permission, no artifact. No job is named like a required check (validate, tests).
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # every day at 06:17 UTC (03:17 in Brasilia)
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch, tag or commit to test (empty: the branch this run is started on)"
+        required: false
+        default: ""
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  nightly-shard:
+    name: nightly shard ${{ matrix.shard }} of 3
+    if: github.event_name != 'pull_request' || github.event.label.name == 'nightly'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'schedule' && vars.NIGHTLY_REF || inputs.ref || '' }}
+          fetch-depth: 0 # as the whole suite has always run: tests may read the history
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.19"
+          python-version: "3.11"
+      - name: The whole suite with the full fuzz, a failure run again
+        env:
+          WB_FULL_FUZZ: "1"
+          SHARD: ${{ matrix.shard }}
+        shell: bash # bash -e -o pipefail: pytest's exit code, not tee's, ends the step
+        run: >-
+          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 --with pytest-rerunfailures==16.7
+          python scripts/shard_tests.py --shard "$SHARD/3" --
+          -q -n auto -o faulthandler_timeout=120 --durations=20 --reruns 3 --reruns-delay 2 -rfER
+          $(python3 scripts/test_dirs.py) 2>&1 | tee "$RUNNER_TEMP/pytest.log"
+      - name: Report
+        if: always()
+        env:
+          SHARD: ${{ matrix.shard }}
+        shell: bash
+        run: |
+          {
+            echo "### nightly shard $SHARD of 3"
+            grep -E '^(FAILED|ERROR|RERUN) ' "$RUNNER_TEMP/pytest.log" || echo "No failure and no rerun."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  nightly-python39:
+    name: nightly python39
+    if: github.event_name != 'pull_request' || github.event.label.name == 'nightly'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'schedule' && vars.NIGHTLY_REF || inputs.ref || '' }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.19"
+          python-version: "3.9"
+      - name: The python39 list of checks.yml in full, a failure run again
+        env:
+          WB_SKIP_JS_ONLY_TESTS: "1"
+        shell: bash
+        run: >-
+          uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 --with pytest-rerunfailures==16.0.1
+          pytest -q -n auto -o faulthandler_timeout=120 --durations=20 --reruns 3 --reruns-delay 2 -rfER
+          scripts/tests/test_runtime_python39.py scripts/tests/test_provider_resolve.py
+          scripts/tests/test_runtime.py scripts/tests/test_runtime_vote.py scripts/tests/test_stage_skills.py
+          skills/mkt-engage/scripts/tests skills/mkt-publish/scripts/tests
+          skills/mkt-vote-round/scripts/tests skills/brand-identity/scripts/tests
+          shared/scripts/tests
+          runtime/tests
+          providers/store/tests providers/scheduler/tests providers/mailer/tests providers/mailbox/tests providers/messenger/tests/test_whatsapp.py
+          providers/messenger/tests/test_messenger_email.py
+          providers/messenger/tests/test_forward_telegram.py providers/messenger/tests/test_forward_discord.py
+          providers/messenger/tests/test_forward_whatsapp_cloud.py providers/messenger/tests/test_forward_twilio.py
+          providers/messenger/tests/test_forward_email.py
+          providers/messenger/tests/test_whatsapp_cloud.py providers/messenger/tests/test_whatsapp_cloud_webhook.py
+          providers/messenger/tests/test_whatsapp_cloud_send.py providers/messenger/tests/test_whatsapp_cloud_render.py
+          providers/messenger/tests/test_whatsapp_twilio.py providers/messenger/tests/test_whatsapp_twilio_webhook.py
+          providers/messenger/tests/test_whatsapp_twilio_send.py providers/messenger/tests/test_whatsapp_twilio_render.py
+          providers/model/tests
+          2>&1 | tee "$RUNNER_TEMP/pytest.log"
+      - name: Report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### nightly python39"
+            grep -E '^(FAILED|ERROR|RERUN) ' "$RUNNER_TEMP/pytest.log" || echo "No failure and no rerun."
+          } >> "$GITHUB_STEP_SUMMARY"

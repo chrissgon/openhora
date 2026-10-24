@@ -15,7 +15,7 @@ person's own mailbox or calendar says WHICH message or event by a reference, nev
                        calendar of the event the runtime itself created, and nothing of any snapshot or of another person's words
 
 Code resolves a reference through the INDEX that runtime/sources_mail.py writes into the manifest of each snapshot version: {n, id, thread_id,
-message_id, from_address, reply_to_address, subject, change_key} for a message, {n, id, etag, calendar, organizer_self, attendees_other,
+message_id, from_address, reply_to_address, subject, change_key, received} for a message (`received`: the moment it came, UTC, or null: an index written before the key has none), {n, id, etag, calendar, organizer_self, attendees_other,
 recurring} for an event. The index is code's own record of what the provider printed; the text is another person's words and is never parsed
 for an id. A reference to a snapshot older than REF_MAX_AGE (the age limit L53 allows an unattended task, 26 hours) is refused with "refresh
 <id> first": a number from an old reading may name another item today. A version made before the index existed has none, and is refused the
@@ -61,7 +61,7 @@ import sources_mail  # noqa: E402
 
 REF_MAX_AGE = sources.SNAPSHOT_MAX_AGE            # seconds: 26 hours, the number of limit L53
 MANIFEST_CAP = 4 * 1024 * 1024                    # the most a manifest file may hold (a hundred messages are a few hundred KiB)
-INDEX_KEYS = {"mail": ("n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key"),
+INDEX_KEYS = {"mail": ("n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received"),
               "calendar": ("n", "id", "etag", "calendar", "organizer_self", "attendees_other", "recurring")}
 COUNT_KEY = {"mail": "messages", "calendar": "events"}
 SUBJECT_MAX = 120
@@ -77,6 +77,7 @@ CREATED_REF = re.compile(r"created:([1-9][0-9]{0,8})")
 ID = re.compile(r"[A-Za-z0-9_=+.-]{1,700}")
 KEY = re.compile(r"[\x21-\x7e]{1,200}")
 MESSAGE_ID = re.compile(r"[\x21-\x7e]{1,998}")
+RECEIVED = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")      # the moment a message came, in UTC (S16C-REPLY-DATE); an index written before the key has none
 CALENDAR = re.compile(r"[A-Za-z0-9._%+#@=-]{1,256}")
 
 
@@ -146,6 +147,11 @@ def _shaped(pattern, value):
     return value if isinstance(value, str) and pattern.fullmatch(value) else None
 
 
+def _received(value):
+    """The moment a message came as the index recorded it: the closed shape AND a date that exists (`2026-02-30T10:00:00Z` is none), else None."""
+    return value if _shaped(RECEIVED, value) is not None and text.parse_moment(value) is not None else None
+
+
 def _subject(value) -> str:
     """The subject of a stored entry as the write side made it: control, format and direction characters out, white space collapsed, at most
     SUBJECT_MAX characters. Links are NOT replaced again (the write side already replaced them; doing it twice would change `<link: host>` text that
@@ -166,7 +172,7 @@ def _entry(kind: str, n: int, raw) -> dict:
                 "message_id": _shaped(MESSAGE_ID, raw.get("message_id")), "from_address": text.plain_address(raw.get("from_address")),
                 "reply_to_address": text.plain_address(raw.get("reply_to_address")),
                 "subject": _subject(raw.get("subject")),
-                "change_key": _shaped(KEY, raw.get("change_key"))}
+                "change_key": _shaped(KEY, raw.get("change_key")), "received": _received(raw.get("received"))}
     others = raw.get("attendees_other")
     return {"n": n, "id": _shaped(ID, raw.get("id")), "etag": _shaped(KEY, raw.get("etag")), "calendar": _shaped(CALENDAR, raw.get("calendar")),
             "organizer_self": raw.get("organizer_self") is True, "attendees_other": others if type(others) is int and others >= 0 else None,

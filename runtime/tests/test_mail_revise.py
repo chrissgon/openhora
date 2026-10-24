@@ -38,7 +38,7 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     raw = (st.RUNTIME / "mail_revise_prompt.txt").read_bytes()
     assert mail_revise.prompt_sha256() == hashlib.sha256(raw).hexdigest()
     every = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    carried, every = every[-1], every[:-1]      # the newest entry (R2-A) adds `file-trash` to the catalog and carries every pin of the one before it
+    carried, every = every[-1], every[:-2]      # the two newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots) carry every pin of the one before them
     newest, first_revise = every[-1], next(e for e in every if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
     assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == mail_revise.prompt_sha256()
     assert "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in first_revise["reason"] and "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in newest["reason"]

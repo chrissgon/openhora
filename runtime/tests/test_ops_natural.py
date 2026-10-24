@@ -322,7 +322,10 @@ def test_limit_54_a_decision_a_gated_act_a_write_and_an_effect_on_an_account_nam
         cls = natural.CLASSES[name]
         if cls not in ("D", "G", "W", "E"):
             continue
-        args = {param: 1 for _slot, (_kind, param) in natural.NATURAL[name]["slots"].items()}
+        params = {param for _slot, (_kind, param) in natural.NATURAL[name]["slots"].items()}
+        real = {a["name"] for a in operations.by_name(name)["args"]}
+        assert params - real <= {"target", "day"}, name      # B''-lite: the words of an item and its day are slots read by code from the spans; no operation has them as an argument
+        args = {param: 1 for param in params & real}
         for channel, sender in (("page", None), ("chat", None), ("terminal", None), ("mcp", None), ("messaging", KEY["owner"])):
             spied.clear()
             ctx = ops_core.context(world["path"])

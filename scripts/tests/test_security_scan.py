@@ -401,15 +401,32 @@ def test_download_run_by_an_interpreter_or_process_substitution(tmp_path):
         ("a.sh", "pipe-to-shell"), ("b.sh", "pipe-to-shell"), ("c.sh", "pipe-to-shell"), ("d.sh", "pipe-to-shell")]
 
 
-def test_this_repository_has_no_security_warning():
-    """The hook and the validate job run the scan with --strict, so the tree must hold no warning."""
+def test_the_hook_and_the_validate_job_stop_on_any_security_warning():
+    """Every commit and every pull request is scanned with --strict, whatever tests are selected: hook step 2, before the tests are
+    chosen, and a step of the validate job, a required check with no condition. The whole-tree scan moved to test_security_scan_repo.py
+    (the nightly run, docs/decisions.md, the entry of T2b); test_cli_exit_codes_and_json above shows that --strict exits 1 on a warning."""
     repo = SCRIPT.parents[1]
-    _, active, _ = scanner.scan(str(repo))
-    assert [(f["path"], f["line"], f["rule"]) for f in active] == []
-    hook = (repo / ".githooks" / "pre-commit").read_text()
-    workflow = (repo / ".github" / "workflows" / "checks.yml").read_text()
-    assert "python3 scripts/security_scan.py --strict" in hook
-    assert "python3 scripts/security_scan.py --strict" in workflow.split("\n  tests:")[0]
+    hook = (repo / ".githooks" / "pre-commit").read_text(encoding="utf-8")
+    step = 'if ! out="$(python3 scripts/security_scan.py --strict 2>&1 >/dev/null)"; then'
+    assert "set -euo pipefail" in hook and step in hook
+    body = hook.split(step, 1)[1].split("\nfi\n", 1)[0]
+    assert 'echo "$out" >&2' in body and "\n  fail " in body
+    assert hook.index(step) < hook.index("scripts/select_tests.py --files-from -")
+    workflow = (repo / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+    validate = workflow.split("\n  validate:\n", 1)[1].split("\n  tests", 1)[0]
+    code = [line for line in validate.splitlines() if not line.lstrip().startswith("#")]
+    assert "        run: python3 scripts/security_scan.py --strict" in code
+    assert not [line for line in code if line.strip().startswith("if:")] and not [line for line in code if "continue-on-error" in line]
+
+
+def test_vacuity_a_condition_or_a_tolerated_failure_on_the_scan_step_is_seen():
+    workflow = (SCRIPT.parents[1] / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+    for planted in ("        if: false\n", "        continue-on-error: true\n"):
+        text = workflow.replace("      - name: Security scan, warnings included\n", "      - name: Security scan, warnings included\n" + planted, 1)
+        assert text != workflow
+        validate = text.split("\n  validate:\n", 1)[1].split("\n  tests", 1)[0]
+        code = [line for line in validate.splitlines() if not line.lstrip().startswith("#")]
+        assert [line for line in code if line.strip().startswith("if:") or "continue-on-error" in line]
 
 
 def test_the_data_and_fixtures_of_scripts_tests_are_not_read_as_scripts_by_the_effect_rule(tmp_path):

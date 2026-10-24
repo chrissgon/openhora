@@ -25,7 +25,8 @@ and the MIME boundaries are not content: the provider makes them.
 An e-mail from the person's own account (package W2, SPEC-SECRETARY-WRITES 3.2) is the same document with four keys more: `account` (`google` or `microsoft`),
 `thread_id` (Gmail's conversation of the message answered, else null), `references` (the Message-ID chain a reply names) and `reply` (null, or what the snapshot
 index recorded of the message answered: `ref`, `address` (its sender, the one recipient of the reply), `reply_to` (another address it asked replies to go to, shown
-and never used), `subject` (as the index cleaned it), `read_at`, `provider_id` and `message_id`). Its `from` is the account's address (`accounts.<account>.address`)
+and never used), `subject` (as the index cleaned it), `read_at`, `provider_id` and `message_id`, and `received` (the moment the message came, UTC, as the index recorded it)
+only when the index had it: S16C-REPLY-DATE, an optional key inside the hash, so a document made without it keeps its keys and its hash; the card shows it, nothing uses it). Its `from` is the account's address (`accounts.<account>.address`)
 and its `provider` is the mailer of the account (`gmail`, `outlook`). A document without `account` is the outbox's, with the keys and the hash it always had. The
 card of an own-account e-mail is said line by line (`card_lines`, the family CARD_MAIL_ of runtime/phrases.py): the person's text sits behind a gutter mark on every
 line, a line of it that could pass for the frame of the card is refused, and so is a hidden character. Recipients come only from the approved document: the
@@ -48,6 +49,7 @@ import effects  # noqa: E402  (the error class only)
 import mail_address  # noqa: E402
 import operations  # noqa: E402  (the command line the preview shows)
 import phrases  # noqa: E402  (the lines of the card of an e-mail from the person's own account)
+import snapshot_text  # noqa: E402  (the moment of a message, in the machine's zone, for the card)
 import workcopy  # noqa: E402  (the credential formats, loaded from this checkout)
 
 WORD = "send"
@@ -77,6 +79,9 @@ CONTROL_TEXT = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")       # a body ma
 ACCOUNTS = {"google": "gmail", "microsoft": "outlook"}      # the account of the person's own -> the mailer (an implementation of the class sender:email) that sends from it
 ACCOUNT_KEYS = ("account", "thread_id", "references", "reply")      # the keys an own-account document has beside KEYS
 REPLY_KEYS = ("ref", "address", "reply_to", "subject", "read_at", "provider_id", "message_id")
+REPLY_OPTIONAL = ("received",)      # S16C-REPLY-DATE: a key a reply document has only when the index recorded the time the message came; a document without it keeps its keys and its hash
+RECEIVED = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")      # as runtime/item_refs.py reads it back (this module imports no item_refs)
+ENGLISH_WEEKDAY = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")      # the shape phrases.localize_dates turns into the language's word on a phone
 THREAD_ID = re.compile(r"[A-Za-z0-9_=-]{1,200}")
 PROVIDER_ID = re.compile(r"[A-Za-z0-9=_+-]{1,700}")
 SNAPSHOT_REF = re.compile(r"[a-z0-9][a-z0-9-]{0,39}#[1-9][0-9]{0,3}")
@@ -178,10 +183,23 @@ def key_of(*, task_id: int, from_addr: str, to, cc, bcc, subject: str, body: str
     return "send-" + sha(json.dumps(said, sort_keys=True, ensure_ascii=True, separators=(",", ":")))[:32]
 
 
+def reply_of(facts: dict) -> dict:
+    """The `reply` of a document from the facts of the message answered (runtime/mail_refs.py reply_facts): the REPLY_KEYS, and `received` only when the index
+    recorded the time (a null one is no key: the document of such a message is the one it was before the key existed, with the hash it had)."""
+    reply = {k: facts[k] for k in REPLY_KEYS}
+    if facts.get("received") is not None:
+        reply["received"] = facts["received"]
+    return reply
+
+
+def _reply_part(reply: dict) -> dict:
+    """The keys of `reply` a document keeps: the seven, and an optional one only when it is there."""
+    return {k: reply.get(k) for k in REPLY_KEYS + tuple(k for k in REPLY_OPTIONAL if k in reply)}
+
+
 def _own_of(account, thread_id, references, reply):
     """What key_of adds for an own-account e-mail: nothing the card does not show or the service does not need."""
-    return {"account": account, "thread_id": thread_id, "references": list(references or []),
-            "reply": None if reply is None else {k: reply.get(k) for k in REPLY_KEYS}}
+    return {"account": account, "thread_id": thread_id, "references": list(references or []), "reply": None if reply is None else _reply_part(reply)}
 
 
 def message_id_of(key: str, from_addr: str) -> str:
@@ -204,7 +222,7 @@ def document(*, task_id: int, provider: str, from_addr: str, to: list, cc: list,
            "message_id": message_id_of(key, from_addr) if isinstance(from_addr, str) and "@" in from_addr else "", "idempotency_key": key,
            "dry_run_sha256": dry_run_sha256}
     if own is not None:
-        doc.update(account=account, thread_id=thread_id, references=list(references or []), reply=None if reply is None else {k: reply.get(k) for k in REPLY_KEYS})
+        doc.update(account=account, thread_id=thread_id, references=list(references or []), reply=None if reply is None else _reply_part(reply))
     check(doc)
     return doc
 
@@ -392,8 +410,11 @@ def _check_own(doc: dict) -> None:
         if thread is not None or references or doc["in_reply_to"] is not None:
             raise _usage("an e-mail that answers no message has no conversation and no references")
         return
-    if not isinstance(reply, dict) or set(reply) != set(REPLY_KEYS):
+    if not isinstance(reply, dict) or set(reply) not in (set(REPLY_KEYS), set(REPLY_KEYS) | set(REPLY_OPTIONAL)):
         raise _usage("the message answered has exactly its keys")
+    if "received" in reply and reply["received"] is not None and (not isinstance(reply["received"], str) or not RECEIVED.fullmatch(reply["received"])
+                                                                   or snapshot_text.parse_moment(reply["received"]) is None):      # the shape, and a date that exists
+        raise _usage("the message answered has the time it came, as the index recorded it")
     for name in ("address", "reply_to"):
         value = reply[name]
         if value is None and name == "reply_to":
@@ -426,6 +447,13 @@ def _check_own(doc: dict) -> None:
         raise _usage("a reply from a Microsoft account names the service's id of the message, and no conversation")
 
 
+def received_text(received: str) -> str:
+    """The moment a message came (the index's `received`, UTC) as the card says it, in the machine's zone: `Thu 22/10/2026 14:05`, with the English weekday that
+    phrases.localize_dates turns into the project's word on a phone. The value is the document's own, so the card shows exactly what the hash covers."""
+    moment = snapshot_text.to_zone(snapshot_text.parse_moment(received)[1], None)
+    return f"{ENGLISH_WEEKDAY[moment.weekday()]} {moment.day:02d}/{moment.month:02d}/{moment.year} {moment:%H:%M}"
+
+
 def card_lines(doc: dict, digest: str) -> list:
     """The card of an e-mail from the person's own account, line by line: [[phrase key, {field: text}], ...], every key of the family CARD_ (runtime/phrases.py).
     The sender (the account) and every recipient come first, so that nothing a long text can do hides one; the Bcc is listed; then the subject, the message answered
@@ -434,7 +462,11 @@ def card_lines(doc: dict, digest: str) -> list:
     own = [["CARD_MAIL_REPLY" if doc["reply"] else "CARD_MAIL_SEND", {}], ["CARD_MAIL_FROM_ACCOUNT", {"address": doc["from"], "account": doc["account"]}]]
     reply = doc["reply"]
     if reply:
-        own.append(["CARD_MAIL_REPLY_TO", {"address": reply["address"], "ref": reply["ref"], "read_at": reply["read_at"], "subject": reply["subject"] or "-"}])
+        said = {"address": reply["address"], "ref": reply["ref"], "read_at": reply["read_at"], "subject": reply["subject"] or "-"}
+        if reply.get("received"):      # S16C-REPLY-DATE: the time the message came, when the index had it; a reply made before shows the line it always showed
+            own.append(["CARD_MAIL_REPLY_TO_AT", {**said, "received": received_text(reply["received"])}])
+        else:
+            own.append(["CARD_MAIL_REPLY_TO", said])
         if reply["reply_to"]:
             own.append(["CARD_MAIL_REPLY_TO_DIFFERS", {"other": reply["reply_to"]}])
         own.append(["CARD_MAIL_IN_REPLY", {"message_id": doc["in_reply_to"]}])

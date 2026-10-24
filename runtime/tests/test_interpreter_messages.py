@@ -85,7 +85,8 @@ def test_the_catalog_is_rendered_one_line_per_op_then_the_refused_block():
     rendered = interp.render_catalog(kit.CATALOG).split("\n")
     assert rendered[0] == "- status [R] where the work stands; slots: none"
     assert "- remind [N] a reminder sent back once at a time; slots: text:span, when:when" in rendered
-    assert "- mail-archive [E] a card that takes messages out of the inbox; slots: messages:ints" in rendered
+    assert ("- mail-archive [E] a card that takes messages out of the inbox (the messages are named by their words in target: a sender or a subject, with the day in day; "
+            "messages only when the line writes their numbers); slots: messages:ints, target:span, day:span") in rendered
     assert "- ask [work] answer a question from the text of the project's sources (the question is the person's whole line); slots: none" in rendered
     at = rendered.index("refused:")
     assert at == 65 and len(rendered) == 65 + 1 + 21
