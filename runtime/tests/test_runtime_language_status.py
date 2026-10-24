@@ -37,7 +37,7 @@ def test_a_heading_code_wrote_whole_is_said_on_the_card_and_in_the_list_and_the_
     assert texts[1].startswith("northwind-shop · pergunta #3\n\nHours\n\n"), "a title that is the person's or the model's is not touched"
     assert texts[2].startswith("northwind-shop · aceite #4\n\nA entrega 2 não foi encaminhada depois do briefing\n\n")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     stored = world.items[2]
-    card = world.bridge.ledger.last_card(world.projects[0]["id"], 2, "4242")
+    card = world.bridge.ledger.last_card(world.projects[0]["id"], 2, "830461975213")
     assert card["content_sha256"] == cards.sha256_text("The router asks\n\nWhich flow do you want?") == cards.content_sha256(stored), "the hash is of the stored text"
     assert stored["title"] == "The router asks"
     world.say("/pending")
@@ -54,7 +54,7 @@ def test_the_body_of_an_unrecognised_route_is_stored_in_english_and_a_card_says_
     first, second = [s["message"]["text"] for s in world.sent()]
     assert first.startswith("northwind-shop · pergunta #6\n\nPedido não entendido\n\nNão entendi o pedido e não comecei nada. Pode dizer de outro jeito?")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
     assert "O agente de planejamento" not in second, "a body that is not exactly the one code wrote is a person's or a model's text and is not touched"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    card = world.bridge.ledger.last_card(world.projects[0]["id"], 6, "4242")
+    card = world.bridge.ledger.last_card(world.projects[0]["id"], 6, "830461975213")
     assert card["content_sha256"] == cards.sha256_text(stored["title"] + "\n\n" + stored["body"]), "the card is bound to the stored text"
     assert world.items[6]["body"] == stored["body"]
     world.config.pop("language")

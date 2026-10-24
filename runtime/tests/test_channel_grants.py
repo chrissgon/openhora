@@ -319,7 +319,7 @@ def test_a_granted_write_is_approved_on_messaging_after_accept_config_with_the_w
     assert shown["widening_sha256"] == digest and "documents platform" in shown["grants"][0]["means"]
     # before the acceptance the same approval is refused, and nothing is written
     with pytest.raises(ops.OpsError) as before:
-        ops.approve(path, item["id"], item["payload_sha256"], channel="messaging", sender="telegram:4242")
+        ops.approve(path, item["id"], item["payload_sha256"], channel="messaging", sender="telegram:830461975213")
     assert before.value.code == 3 and writes(world) == []
     # accept-config without the hash, with another, with the file's hash: nothing is accepted until the widening list's hash is typed
     for wrong in (None, "0" * 64, shown["sha256"]):
@@ -332,12 +332,12 @@ def test_a_granted_write_is_approved_on_messaging_after_accept_config_with_the_w
     assert ops.config(path)["widening"] == [] and ops.config(path)["widening_sha256"] is None and len(ops.config(path)["grants"]) == 1
     # the same approval now runs once, from a messaging app, with the hash of the exact content
     with pytest.raises(ops.OpsError) as no_hash:
-        ops.approve(path, item["id"], None, channel="messaging", sender="telegram:4242")
+        ops.approve(path, item["id"], None, channel="messaging", sender="telegram:830461975213")
     assert "with --sha256" in str(no_hash.value) and writes(world) == []
     with pytest.raises(ops.OpsError) as wrong_hash:
-        ops.approve(path, item["id"], "f" * 64, channel="messaging", sender="telegram:4242")
+        ops.approve(path, item["id"], "f" * 64, channel="messaging", sender="telegram:830461975213")
     assert "nothing was approved" in str(wrong_hash.value) and writes(world) == []
-    done = ops.approve(path, item["id"], item["payload_sha256"], channel="messaging", sender="telegram:4242")
+    done = ops.approve(path, item["id"], item["payload_sha256"], channel="messaging", sender="telegram:830461975213")
     assert done["task_state"] == "done" and done["result"]["written"] is True and len(writes(world)) == 1
     assert world["platform"].text(world["page"]).startswith("# Plan for the harbour market")
     ctx = ops_core.context(path)
@@ -346,7 +346,7 @@ def test_a_granted_write_is_approved_on_messaging_after_accept_config_with_the_w
     assert ctx["store"].pending_get(ctx["conn"], item["id"])["status"] == "resolved"
     assert "state" in done, "the record of the executed approval is the state file's generated row"
     with pytest.raises(ops.OpsError):
-        ops.approve(path, item["id"], item["payload_sha256"], channel="messaging", sender="telegram:4242")
+        ops.approve(path, item["id"], item["payload_sha256"], channel="messaging", sender="telegram:830461975213")
     assert len(writes(world)) == 1, "approved once, executed once"
 
 
@@ -356,15 +356,15 @@ def test_a_write_grant_does_not_approve_another_word_the_conversation_the_mcp_mo
     accept(path, {"messaging": ["read", "approve-effect-create", "approve-effect-send", "approve-effect-publish"]})     # every word but the one this effect has
     for channel in ("messaging", "chat", "mcp", None, "bogus"):
         with pytest.raises(ops.OpsError) as no:
-            ops.approve(path, item["id"], item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+            ops.approve(path, item["id"], item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
         assert "an effect is approved in the terminal, with its hash" in str(no.value) and "approve-effect-write" in str(no.value), channel
     accept(path, {"messaging": ["read", "approve-effect-write"], "page": ["read", "approve-effect-create"]})
     for channel in ("chat", "mcp", None):
         with pytest.raises(ops.OpsError):
-            ops.approve(path, item["id"], item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+            ops.approve(path, item["id"], item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
     # a line typed into say never approves an effect, whatever the policy grants
     for channel in ("messaging", "chat", "page"):
-        said = ops.say(path, f"/approve {item['id']} {item['payload_sha256']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"]
+        said = ops.say(path, f"/approve {item['id']} {item['payload_sha256']}", channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))["reply"]
         assert said.startswith("error: "), (channel, said)
     assert writes(world) == [] and ops.pending(path, item["id"])["status"] == "open"
     # the page, under a policy that lists only another word, is refused for this one; under its own word it approves
@@ -451,7 +451,7 @@ def test_limit_44_an_effect_is_approved_off_the_terminal_and_the_page_only_for_a
 
     def refused(channel, sha=digest):
         with pytest.raises(ops.OpsError):
-            ops.approve(path, item["id"], sha, channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+            ops.approve(path, item["id"], sha, channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
         assert writes(world) == [] and ops.pending(path, item["id"])["status"] == "open"
 
     # no grant: the default, every channel but the terminal and the page is refused before anything executes
@@ -467,7 +467,7 @@ def test_limit_44_an_effect_is_approved_off_the_terminal_and_the_page_only_for_a
     refused("messaging", "0" * 64)
     refused("messaging", None)
     for channel in ("messaging", "chat"):
-        assert ops.say(path, f"/approve {item['id']} {digest}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"].startswith("error: ")
+        assert ops.say(path, f"/approve {item['id']} {digest}", channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))["reply"].startswith("error: ")
     # a card that did not carry the whole text approves nothing: the card is built whole or not, and the bridge takes the hash from it
     full = ops.pending(path, item["id"])
     caps = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False}
@@ -477,7 +477,7 @@ def test_limit_44_an_effect_is_approved_off_the_terminal_and_the_page_only_for_a
     assert whole["whole"] is True and whole["approvable"] is True
     assert cut["whole"] is False and cut["approvable"] is False and counted["approvable"] is False
     # the granted channel, the right word, the exact hash: executes once
-    assert ops.approve(path, item["id"], digest, channel="messaging", sender="telegram:4242")["task_state"] == "done" and len(writes(world)) == 1
+    assert ops.approve(path, item["id"], digest, channel="messaging", sender="telegram:830461975213")["task_state"] == "done" and len(writes(world)) == 1
 
 # --- the facts of an effect -----------------------------------------------------------------------------------------------------------
 
@@ -521,15 +521,15 @@ def test_a_pull_request_effect_carries_its_word_and_no_card_approves_it_even_wit
     assert "effect_word" not in ops.pending(path)["pending"][0], "the list does not read every effect document"
     # the default: refused before anything executes, and the sentence is the one it always was
     with pytest.raises(ops.OpsError) as no:
-        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:4242")
+        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:830461975213")
     assert "an effect is approved in the terminal, with its hash" in str(no.value) and provider_calls(tree) == []
     accept(path, {"messaging": ["read", "approve-effect-write"]})          # the wrong word
     with pytest.raises(ops.OpsError):
-        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:4242")
+        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:830461975213")
     assert provider_calls(tree) == [] and ops.pending(path, effect["id"])["status"] == "open"
     accept(path, {"messaging": ["read", "approve-effect-create"]})
     with pytest.raises(ops.OpsError) as no:      # the grant is there and approves nothing yet: a card does not show the change
-        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:4242")
+        ops.approve(path, effect["id"], effect["payload_sha256"], channel="messaging", sender="telegram:830461975213")
     assert "more than a card can show" in str(no.value) and "the code of a change" in str(no.value)
     assert provider_calls(tree) == [] and ops.pending(path, effect["id"])["status"] == "open"
     done = ops.approve(path, effect["id"], effect["payload_sha256"], channel="terminal")

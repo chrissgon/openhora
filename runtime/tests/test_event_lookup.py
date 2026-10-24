@@ -28,9 +28,9 @@ ops_natural = st.load("ops_natural")
 event_lookup = st.load("event_lookup")
 interpreter_route = st.load("interpreter_route")
 
-OWNER, TALKER = "telegram:4242", "telegram:5151"
+OWNER, TALKER = "telegram:830461975213", "telegram:5151"
 PROFILES = {"owner": ["read", "talk", "calendar-write", "ask-mail", "interpret"], "talker": ["read", "talk", "calendar-write", "interpret"]}
-IDS = {"owner": "4242", "talker": "5151"}
+IDS = {"owner": "830461975213", "talker": "5151"}
 UTC = datetime.timezone.utc
 ZONE = "America/Sao_Paulo"
 LIVE = "Remova o corte de cabelo pra amanha da agenda"  # validate: allow english-only -- the Portuguese line or sentence under test

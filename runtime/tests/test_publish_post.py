@@ -152,7 +152,7 @@ def effect_doc(world, task):
 
 
 def approve(world, item, channel="terminal"):
-    return ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+    return ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
 
 
 def skill_job_argv(world, key=KEY):
@@ -269,7 +269,7 @@ def test_limit_43_a_post_without_the_approval_of_its_exact_text_is_refused_by_st
     task, item = opened(world)
     for channel in ("messaging", "mcp", "conversation", None):
         with pytest.raises(ops_core.OpsError) as refused:
-            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
         assert "approved in the terminal" in str(refused.value), channel
     with pytest.raises(ops_core.OpsError):
         ops.approve(world["path"], item["id"], sha256=None, channel="terminal")

@@ -136,7 +136,7 @@ def test_a_reply_that_quotes_data_is_not_cut_and_the_operations_layers_error_tex
     for thread in list(world.bridge.threads):
         thread.join(30)
     sent = world.texts()[-1]
-    assert guard.find(sent) == [] and "cli.py" not in sent and "--project" not in sent and sent.endswith(guard.sentence(world.bridge.cfg(chat="4242"))), sent
+    assert guard.find(sent) == [] and "cli.py" not in sent and "--project" not in sent and sent.endswith(guard.sentence(world.bridge.cfg(chat="830461975213"))), sent
 
 
 # --- 3. an unknown outcome is told as unknown --------------------------------------------------------------------------------------------

@@ -66,7 +66,7 @@ evidence = st.load("interpreter_evidence")
 pipeline = st.load("interpreter_pipeline")
 
 REPO = Path(__file__).resolve().parents[2]
-OWNER = "4242"
+OWNER = "830461975213"
 KEY = f"telegram:{OWNER}"
 SEED, SAMPLE = "20261024", 40
 ACCOUNTS = {"google": {"address": "owner@example.com", "calendars": {"personal": "owner@example.com", "gym": "gym@example.com"}, "folders": {"default": "folder-1"},
