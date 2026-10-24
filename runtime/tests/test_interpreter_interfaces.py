@@ -284,9 +284,9 @@ def test_the_frame_schema_has_its_definitions_and_seven_rules():
     assert doc["$id"] == "openhora:interpreter-frame:1" and doc["additionalProperties"] is False and doc["required"] == ["v", "items", "last"]
     assert set(doc["definitions"]) == {"id", "op", "slot", "words", "item", "last"}
     assert doc["properties"]["items"]["maxItems"] == 5
-    assert doc["definitions"]["item"]["properties"]["kind"]["enum"] == ["write-draft", "reminder-confirm", "router-question", "choice"]
+    assert doc["definitions"]["item"]["properties"]["kind"]["enum"] == ["write-draft", "reminder-confirm", "router-question", "choice", "plan-confirm"]      # BL2a: the fifth kind
     assert doc["definitions"]["item"]["properties"]["need"]["enum"] == ["slot", "confirm", "option", "text"]
-    assert [r.split(" ")[0] for r in doc["x-rules"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7"]
+    assert [r.split(" ")[0] for r in doc["x-rules"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]      # BL2a: R8, the plan-confirm item
     # every $ref resolves inside the document
     refs = []
 

@@ -11,10 +11,11 @@ the interpreter's (runtime/ops_interpret.py). `/project [name]` has none: it is 
                           ("muda de projeto"), {"name": <the words after the lead phrase>, "weak": False | True} for a line that changes it ("muda para o projeto northwind"; `weak`: the lead
                           may begin a request about something else, so the bridge takes the line only when the name is a project of the sender), else None
   resolve(name, projects) the exact name of the listed project whose name or id is `name` once both are folded (case, accents, punctuation), else None
-  vet(line, op, number)   None when a decision or an act that a MODEL or the router chose is also what the person's line says, else "number" or "again" (slice S20, review round): the
-                          line holds that one number and no other (`natural.decision_numbers`), its leading verb is one of the closed verbs of that operation in the six languages,
-                          the object it names is the operation's own (a request, a task, a file, a routine, a decision), and nothing in it is a negation, a condition, a time word or a
-                          question. The tier-1 forms are closed phrases that satisfy this by their shape; a model's reading is believed only when code can say the same
+  vet(line, op, number)   None when a decision or an act that a MODEL or the router chose is believed against the line, else "number" or "again" (slice S20, review round): the line holds
+                          that one number and no other (`natural.decision_numbers`). While D5 is not active (`plan_confirm.ACTIVE` False) it also holds the closed verb test: its leading verb
+                          is one of the closed verbs of that operation in the six languages, the object it names is the operation's own, and nothing in it is a negation, a condition, a
+                          time word or a question. Once D5 is active, what the line means is checked by the person, who is shown the sentence code wrote from the call and says yes (limit
+                          L65), so the closed verb lists go (the package that sets `ACTIVE` deletes them). The tier-1 forms are closed phrases that satisfy the verb test by their shape
 
 The lists are closed phrases in the six languages the interpreter reads (pt-BR, en, es, fr, de, it), folded the way tier 1 folds a line (`natural.ascii_normal`). A line is a form
 only when it is, whole, polite words, one lead phrase and then at most `NAME_WORDS` words of a name; a longer tail is a request ("usa o projeto como base para planejar a feira") and
@@ -25,6 +26,7 @@ Standard library only. Runs on Python 3.9: python3 runtime/command_words.py --he
 """
 from __future__ import annotations
 
+import importlib
 import os
 import re
 import sys
@@ -183,11 +185,18 @@ def names(line, op) -> bool:
     return not any(_bag(NOUNS[kind]) & set(rest) for kind in others if not (wanted is None and kind == "request"))
 
 
+def _active() -> bool:
+    """Whether D5 is switched on (runtime/plan_confirm.py `ACTIVE`), read at call time so that this module imports nothing of the operations layer at module level."""
+    return bool(importlib.import_module("plan_confirm").ACTIVE)
+
+
 def vet(line, op, number):
-    """None when the decision or act `op` on `number` that a model or the router chose is what the person's line plainly says; "number" when the line does not hold that one number
-    (none, another, or two); "again" when the line is not the plain command (see the module's text). Pure."""
+    """None when the decision or act `op` on `number` that a model or the router chose is believed against the person's line; "number" when the line does not hold that one number
+    (none, another, or two); "again" when D5 is not active and the line is not the plain command (see the module's text). Pure."""
     if not isinstance(number, int) or isinstance(number, bool) or natural.decision_numbers(line if isinstance(line, str) else "") != [number]:
         return "number"
+    if _active():
+        return None      # the person checks the meaning on the sentence code wrote from the call (limit L65)
     return None if names(line, op) else "again"
 
 

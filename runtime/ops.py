@@ -2688,7 +2688,7 @@ OpsError = core.OpsError  # a shell catches ops.OpsError; the class has one home
 DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this name
 
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
-from ops_say import chat_memory, natural_draft, natural_file_accounts, natural_forget, natural_needs, natural_reply, natural_write, route_queued, say  # noqa: E402,F401
+from ops_say import chat_memory, natural_draft, natural_file_accounts, natural_forget, natural_needs, natural_reply, natural_write, plan_drop, plan_live, route_queued, say  # noqa: E402,F401
 from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEAD, MEMORY_TAIL, MEMORY_TURNS, PLAN_NEXT  # noqa: E402,F401
 # The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
@@ -2708,7 +2708,7 @@ from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 # The text of a file found by its name in the folders the project lists for the person's accounts (runtime/ops_file_read.py, slice S8).
 from ops_file_read import file_read  # noqa: E402,F401
 # A question of general information answered by a web search, one run of the research skill with web access (runtime/ops_research.py, slice R2-F1).
-from ops_research import research  # noqa: E402,F401
+from ops_research import research, stop as research_stop  # noqa: E402,F401      # BL2a: `research_stop` ends the sender's own search by their stop word (not an operation of the table)
 # Move a file found by its name to the service's trash, behind a card (runtime/ops_file_trash.py, slice R2-A).
 from ops_file_trash import file_trash  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.

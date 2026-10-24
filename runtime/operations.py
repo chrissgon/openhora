@@ -608,6 +608,11 @@ GROUPS = {
     # S1: the plain lines no list takes go to the interpreter's model service (runtime/ops_interpret.py). A capability added to `say` that never grants it (KIND_ONLY): a profile lists
     # `talk` too. In no default policy: a messaging sender gets it only from a profile or channel entry accepted with --widen (which prints the route's retention beside it).
     "interpret": {"operations": ("say",), "kind": "interpret"},
+    # D5 (BL2a, the maintainer's decisions of 2026-10-24): on a messaging app a read asked in words is confirmed by the person ("I understood: ... Shall I go ahead?", runtime/plan_confirm.py) before it
+    # runs, for every sender, with no group needed: a group is a grant, so the confirmation cannot be the default "group absent" without turning it off for every profile that lists its groups.
+    # This group turns that question OFF for the reads, so it is a widening (accept-config --widen), in no default. It never grants `say` (KIND_ONLY) and never touches research, `ask` or an act
+    # asked in words (cancel, stop-task, retry, routine-pause, attachment-add, attachment-discard, reject, release): those always ask. In the documents it is "the policy confirm-reads".
+    "confirm-reads-off": {"operations": ("say",), "kind": "confirm-reads-off"},
     # S8: the text of a file in the folders the project lists under `accounts`, read by its name. In no default policy: a messaging sender gets it only from a profile or channel entry accepted
     # with --widen; never on the MCP mode (the row does not list it). It reads and shows; it writes nothing and sends nothing to a model.
     "read-files": {"operations": ("file-read",), "kind": None},
@@ -627,8 +632,8 @@ NEVER_NARROWED = ("terminal",)
 POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's configuration narrows; `chat` (local access, equal to the terminal) and `terminal` never are
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
-MESSAGING_ONLY_GROUPS = ("read-limited", "ask-mail", "interpret", "send-files")          # valid on a messaging app alone (the page and the MCP mode list `read`; the page and the terminal name a mail source with @<id> as they always did)
-KIND_ONLY = ("ask-mail", "interpret", "send-files")                           # groups that add a capability to an operation another group grants: they never grant the operation when no kind is asked (policy_allows)
+MESSAGING_ONLY_GROUPS = ("read-limited", "ask-mail", "interpret", "send-files", "confirm-reads-off")          # valid on a messaging app alone (the page and the MCP mode list `read`; the page and the terminal name a mail source with @<id> as they always did)
+KIND_ONLY = ("ask-mail", "interpret", "send-files", "confirm-reads-off")                           # groups that add a capability to an operation another group grants: they never grant the operation when no kind is asked (policy_allows)
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
@@ -723,6 +728,7 @@ GROUP_TEXT = {
     "mail-organize": "prepares changes to your mailbox (a draft, archive, a move to a folder, read state, the trash); each one waits for approval of its card, and nothing is sent or deleted for good",
     "interpret": "sends the plain lines no list takes to the interpreter's model service, which reads them in any language; retention: the route's terms (adds to talk, never grants it)",
     "read-files": "shows the text of the files in your configured Drive and OneDrive folders in the chat, found by their names; a messaging app's servers see it as they see any message, and no model reads it",
+    "confirm-reads-off": "turns off the question \u201cShall I go ahead?\u201d before a read asked in words on a messaging app: the read runs at once (a web search, an answer from the sources and an act such as cancel or reject still ask)",
     "send-files": "sends the found file itself to the chat, not only its text: the whole file leaves your drive for the messaging app's servers; one whose text looks like a password or a key is not sent (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
 }

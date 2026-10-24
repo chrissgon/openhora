@@ -7,6 +7,7 @@
 
   research(project, question, [channel, sender])          the operation (the terminal, a messaging app): {"reply", "ran", "status", "refusal", "request_id", "run_id", "links"}
   reply(project, ctx, args, said, channel, sender, extras) the reply a line in words gets (runtime/ops_natural.py `run` calls it for `research`)
+  stop(project, sender)                                    the brake (BL2a): the sender's own running search is cancelled; True when one was running (below)
 
 The interpreter picks `research` for a question of general information (the weather, a price or a quote, the news, a fact) that no file or source of the person's own answers. It is a
 read in the interpreter's catalog and the one read that calls a model: code, not the router, runs one task with the skill NAMED HERE (SKILL), so no question is put to the person first
@@ -27,6 +28,11 @@ The run (ops_contained.execute with open_web): the open network, the adapter's -
 prompt is the question in the person's words and a fixed task text that names the consumer (the chat): NOT the person's standing instructions either, because a page the run reads could
 ask it to send them out (a run on the open network gets nothing of the project, in its files or in its prompt). Nothing it writes comes back. Its brief is read from the copy (runtime/research_reply.py) to write the reply: a few plain lines, the sources as short links, cut to the limit of a
 message, with no skill, flow or file name and no code fence; a run that is not proven says so in one sentence. A failure (no web, a timeout, the cost cap, any other) is one plain sentence.
+
+The brake (BL2a, the maintainer's decision of 2026-10-24). On a messaging app a search that runs is recorded in memory for the sender who asked it (runtime/pending_items.py, kind `research-run`,
+the request id only); that sender's stop word (runtime/plan_confirm.py `stop_form`, a closed list; the messaging bridge reads it under L64's conditions) calls `stop`, which cancels THAT
+request through the cancel path that stops what runs (runtime/ops_cancel.py `cancel_request`: its watcher is the one `_run` passes to the run). It reaches no other sender's search and no request that
+is not a research. The reply is RS_CANCELLED. Nothing of the question is in the record.
 
 What is kept (limits L50 and L63): the question is the person's line, which the interpreter stores as a neutral word; the reply is stored as a neutral word too (RS_STORED), so the
 conversation, which the MCP mode reads, holds neither. The run is a row of the store as an answer run is (a request called "Question <n>" whose text is the neutral word "web research",
@@ -55,6 +61,7 @@ import ops_actor  # noqa: E402
 import ops_cancel  # noqa: E402
 import ops_contained  # noqa: E402
 import ops_core as core  # noqa: E402
+import pending_items  # noqa: E402
 import phrases  # noqa: E402
 import research_guard  # noqa: E402
 import research_reply  # noqa: E402
@@ -179,7 +186,15 @@ def _research(project: str, ctx: dict, question: str, channel, sender, line=None
                 started = core._stored(ctx, store.answer_run_start, skill=SKILL, model=routing["model"], adapter=routing["adapter"],
                                        skill_version=identity["version"], skill_sha256=identity["content_sha256"],
                                        billing=routing["billing"] or "unknown", autonomy=routing["autonomy"], title=store.ANSWER_TITLE, text=NEUTRAL, web=True)
-            return _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit)
+            running = None
+            if channel == "messaging":      # the brake: the sender's stop word reaches this run (`stop`)
+                running = pending_items.new_item("research-run", *_binding(project, sender), state={"request_id": started["request_id"]})
+                pending_items.put(running)
+            try:
+                return _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit)
+            finally:
+                if running is not None:
+                    pending_items.pop(running["id"])
         finally:
             shutil.rmtree(prepared_dir, ignore_errors=True)
             with contextlib.suppress(OSError):
@@ -196,7 +211,7 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
     def finish(**fields):
         """End the run and its request (one transaction). A request cancelled meanwhile has the run recorded cancelled: nothing is answered, and this returns the outcome that says so."""
         done = core._stored(ctx, store.answer_run_finish, run_id, run_dir=dest, **fields)
-        return _outcome(t("ASK_CANCELLED"), "cancelled", ran=True, **base) if done["cancelled"] else None
+        return _outcome(t("RS_CANCELLED"), "cancelled", ran=True, **base) if done["cancelled"] else None
 
     def fail(kind: str, reason: str, word: str, counts=None, image=None, reported=None) -> dict:
         return finish(status="failed", failure=kind, attempts=(counts or {}).get("attempts", 0), image_digest=image,
@@ -234,6 +249,26 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
     out = _outcome(shown, parsed["status"], ran=True, **base)
     out["links"] = _links(parsed, shown) if parsed["status"] == "answer" else []
     return out
+
+
+def _binding(project: str, sender) -> tuple:
+    """The key of a sender's running search in runtime/pending_items.py: (the project's id in the shells, "messaging", the sender)."""
+    return (importlib.import_module("ops_natural").project_key(project), "messaging", sender or "")
+
+
+def stop(project: str, sender) -> bool:
+    """The brake: cancel THIS sender's running web search. True when one was running and was cancelled; False for no search, a search of another sender, and a sender whose profile does not
+    hold `research` now (the policy again, as `_still_may` asks it). It says nothing to the person (the search's own reply, RS_CANCELLED, does) and keeps nothing. The cancel is the path that
+    stops what runs, called with the request id this sender's own record names; no other request can be named here. The call is not made as the messaging sender: that path would ask the
+    group `cancel`, which a sender who may search need not hold, and the stop word is the answer to this sender's own search."""
+    ctx = core.context(project)
+    if not operations.permitted("research", "messaging", ctx["cfg"]["channels"], None, sender):
+        return False
+    item = pending_items.find(_binding(project, sender), "research-run")
+    if item is None:
+        return False
+    ops_cancel.cancel_request(ctx, item["state"]["request_id"], by="person from messaging")
+    return True
 
 
 def _question(value, what: str = "the question") -> str:

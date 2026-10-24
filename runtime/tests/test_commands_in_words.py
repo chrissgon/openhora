@@ -403,10 +403,10 @@ def test_vacuity_an_approval_handed_over_as_the_typed_approve_is_noticed_by_the_
     plan = make_plan(rig)
     real = ops_natural._decision
 
-    def planted(project, ctx, name, args, channel, sender, extras):
+    def planted(project, ctx, name, args, channel, sender, extras, *more):      # `*more`: the line, the time, `routed` and `confirmed` that BL2a's D5 passes down
         if name == "approve" and channel == "messaging":
             return ops_natural.hand_over(project, ctx, f"/approve {args['pending_id']}", True, sender, extras)
-        return real(project, ctx, name, args, channel, sender, extras)
+        return real(project, ctx, name, args, channel, sender, extras, *more)
     monkeypatch.setattr(ops_natural, "_decision", planted)
     monkeypatch.setattr(bridge.Bridge, "typed_line", lambda self, project, chat, typed: self.act(project, chat, "approve", int(typed.split()[1])))
     rig.line(OWNER, f"approve {plan}" if rig.language == "en" else f"aprova o {plan}")
