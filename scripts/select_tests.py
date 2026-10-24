@@ -38,13 +38,16 @@ THE RULES (conservative: when the selector is unsure it selects more)
     are always run (rule 6).
  5. Whole-folder fallbacks: a conftest.py, pytest.ini, pyproject.toml, a test kit (a module that is not a test inside a tests/ folder),
     a module or data file that nothing references (the graph cannot resolve it) and a file that does not parse select the whole test
-    folder that owns it; a change to this script, to scripts/test_slots.py, .githooks/**, .github/**, packs/, templates/ or agents/
-    selects scripts/tests; a root conftest.py, pytest.ini or pyproject.toml selects every test folder.
+    folder that owns it; a change to this script, to scripts/test_slots.py, scripts/test_dirs.py, scripts/shard_tests.py,
+    scripts/pytest_plugins/**, .githooks/**, .github/**, packs/, templates/ or agents/ selects scripts/tests (and with it the slow
+    meta-tests that are no guard: the import oracle, the CI wiring and the whole-tree scan, which otherwise run in the nightly run and
+    the whole-suite runs); a root conftest.py, pytest.ini or pyproject.toml selects every test folder.
  6. The guards (GUARDS below) always run: the validator and the security scan, the layer map, the runtime rules, the Python 3.9
-    script check, the architecture tables, the wiring of the hook and of CI, the test isolation and this script's own tests.
+    script check, the architecture tables, the wiring of the hook (the CI wiring, test_checks_wiring.py, is not a guard: rule 5 and the
+    nightly run it), the test isolation and this script's own tests.
  7. A change inside skills/<name>/ other than scripts/ selects nothing beyond the guards (the lab measures skills, the validator
     checks them); skills/*/evals/runtime-manifest.json is the one data file of a skill that the runtime reads, so it follows rule 4.
- 8. Fuzz files run in their default sampled mode; only the whole-suite shards set WB_FULL_FUZZ=1.
+ 8. Fuzz files run in their default sampled mode; only the whole-suite shards and the nightly run set WB_FULL_FUZZ=1.
 A shared script, its generated copies and the identity tests of the copies (scripts/tests/test_script_copies.py, test_sync_copies.py)
 go together: a change to either selects the others' tests.
 
@@ -78,7 +81,6 @@ GUARDS = (
     "runtime/tests/test_runtime_rules.py",
     "scripts/tests/test_runtime_python39.py",
     "scripts/tests/test_architecture_tables.py",
-    "scripts/tests/test_checks_wiring.py",
     "scripts/tests/test_hook_parallel.py",
     "scripts/tests/test_test_isolation.py",
     "scripts/tests/test_select_tests.py",
@@ -99,8 +101,8 @@ COPY_IDENTITY_TESTS = ("scripts/tests/test_script_copies.py", "scripts/tests/tes
 # The tests of the wiring that a change to the hook, the workflows or this selector can break (rule 5).
 WIRING_FOLDER = "scripts/tests"
 # Files whose change selects scripts/tests whole (rule 5): the selector and the slot helper are the hook's own machinery.
-WIRING_FILES = ("scripts/select_tests.py", "scripts/test_slots.py")
-WIRING_DIRS = (".githooks/", ".github/", "packs/", "templates/", "agents/")
+WIRING_FILES = ("scripts/select_tests.py", "scripts/test_slots.py", "scripts/test_dirs.py", "scripts/shard_tests.py")
+WIRING_DIRS = (".githooks/", ".github/", "packs/", "templates/", "agents/", "scripts/pytest_plugins/")
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".workbench-local", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 # Areas whose non-Python files can be named by a test (rule 4). The files at the root (AGENTS.md, README.md) are not: they

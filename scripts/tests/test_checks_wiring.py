@@ -51,6 +51,16 @@ def test_every_test_folder_of_this_repository_is_in_the_list_ci_runs():
 
 
 WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.y*ml"))
+NIGHTLY = REPO / ".github" / "workflows" / "nightly.yml"
+NIGHTLY_WHOLE = "The whole suite with the full fuzz, a failure run again"
+NIGHTLY_PY39 = "The python39 list of checks.yml in full, a failure run again"
+PY39_STEP = "The scripts the scheduler starts, on Python 3.9"
+NIGHTLY_IF = "github.event_name != 'pull_request' || github.event.label.name == 'nightly'"
+
+
+def step_text(block, name):
+    """The text of the step of a job block with that name, up to the next step."""
+    return block.split("      - name: " + name + "\n", 1)[1].split("\n      - ", 1)[0]
 
 
 def named_paths(text, root=REPO):
@@ -517,3 +527,79 @@ def test_validate_reports_a_case_that_cites_a_file_it_does_not_ship(tmp_path):
     errors = errors_of(tree(tmp_path, "docs/missing.md"))
     assert len(errors) == 1 and errors[0].startswith("skills/core-demo/evals/evals.json: [eval-cases]")
     assert "docs/missing.md" in errors[0] and "--check-cases" in errors[0]
+
+
+# ---- the nightly run (.github/workflows/nightly.yml; docs/decisions.md, the entry of T2b) ----------------------------------------------------
+
+def nightly_problems(text):
+    """What is wrong with a text of the nightly workflow, as a list: a permission that writes, a secret, an artifact, a checkout that keeps
+    its credentials, a job whose condition is not the one that lets a label or the schedule start it, a job named like a required check,
+    and an expression `${{ }}` in the lines a shell runs (a script injection)."""
+    found = []
+    if "permissions:\n  contents: read\n" not in text:
+        found.append("the permissions are not exactly contents: read")
+    found += ["a permission set to write: " + line.strip() for line in text.splitlines() if re.match(r"^\s*[\w-]+:\s*write\b", line)]
+    found += [word for word in ("secrets.", "upload-artifact") if word in text]
+    if text.count("persist-credentials: false") != text.count("actions/checkout@") or "actions/checkout@" not in text:
+        found.append("a checkout keeps its credentials")
+    jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
+    blocks = re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]
+    for block in blocks:
+        condition = re.findall(r"^    if:\s*(.*?)\s*$", block, re.M)
+        if condition != [NIGHTLY_IF]:
+            found.append("a job whose condition is not the nightly one: %r" % condition)
+        name = re.search(r"^    name:\s*(.*?)\s*$", block, re.M).group(1)
+        if name in REQUIRED_CHECKS:
+            found.append("a job named like a required check: " + name)
+    for chunk in re.split(r"^\s*- (?:name|uses):", text, flags=re.M):
+        run = re.search(r"^\s*run:", chunk, re.M)
+        if run and "${{" in chunk[run.end():]:
+            found.append("an expression in a run line: " + chunk[run.end():].strip().splitlines()[0])
+    return found
+
+
+def test_the_nightly_runs_every_test_folder_with_the_full_fuzz_in_three_shards_and_runs_a_failure_again():
+    text = NIGHTLY.read_text(encoding="utf-8")
+    block = job_block(text, "nightly-shard")
+    step = step_text(block, NIGHTLY_WHOLE)
+    for wanted in ('WB_FULL_FUZZ: "1"', "$(python3 scripts/test_dirs.py)", 'python scripts/shard_tests.py --shard "$SHARD/3" --', "-n auto",
+                   "--with pytest-xdist==3.8.0", "--reruns 3", "shell: bash"):
+        assert wanted in step, wanted
+    assert re.search(r"--with pytest-rerunfailures==\d+(\.\d+)+\b", step)
+    assert "select_tests" not in text  # the whole list, never a selection
+    assert "        shard: [1, 2, 3]\n" in block + "\n" and "fail-fast: false" in block
+
+
+def test_the_nightly_python39_runs_the_whole_python39_list_of_checks():
+    ours = step_text(job_block(NIGHTLY.read_text(encoding="utf-8"), "nightly-python39"), NIGHTLY_PY39)
+    theirs = step_text(job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8"), "python39"), PY39_STEP)
+    assert named_paths(ours) == named_paths(theirs) != []
+    for wanted in ("--python 3.9", "--with pytest==8.4.2", 'WB_SKIP_JS_ONLY_TESTS: "1"', "--reruns 3"):
+        assert wanted in ours, wanted
+    assert re.search(r"--with pytest-rerunfailures==\d+(\.\d+)+\b", ours)
+
+
+def test_the_nightly_is_daily_by_hand_or_by_its_label_and_never_writes():
+    text = NIGHTLY.read_text(encoding="utf-8")
+    head = text.split("\npermissions:", 1)[0]
+    assert "schedule:" in head and "workflow_dispatch:" in head and "types: [labeled]" in head
+    assert re.search(r'- cron: "\d{1,2} \d{1,2} \* \* \*"', head)
+    assert nightly_problems(text) == []
+    assert text.count("persist-credentials: false") == text.count("actions/checkout@") == 2
+
+
+def test_no_nightly_job_is_named_like_a_required_check_and_no_run_line_holds_an_expression():
+    text = NIGHTLY.read_text(encoding="utf-8")
+    names = re.findall(r"^    name:\s*(.*?)\s*$", text, re.M)
+    assert names and not [n for n in names if n in REQUIRED_CHECKS]
+    assert [p for p in nightly_problems(text) if "required check" in p or "expression" in p] == []
+
+
+def test_vacuity_a_nightly_with_a_write_permission_or_an_expression_in_a_run_line_is_caught():
+    text = NIGHTLY.read_text(encoding="utf-8")
+    assert nightly_problems(text) == []
+    for old, new in (("contents: read", "contents: write"), ('--shard "$SHARD/3"', '--shard "${{ matrix.shard }}/3"'),
+                     ("persist-credentials: false", "persist-credentials: true"), ("    name: nightly python39", "    name: tests")):
+        planted = text.replace(old, new, 1)
+        assert planted != text, old
+        assert nightly_problems(planted), old
