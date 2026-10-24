@@ -27,6 +27,7 @@ reply to several messages is not taken either.
                                                  written); `need` lists, in the order they are asked, the slots the line leaves open (to, subject, body, state)
   answer(need, line, slots, tables, now=None, options=None)   {"slots": the update} that a line makes when it answers the question `need`, or None when it is not an answer
   match_words(entries, words, newest)            the entries of a snapshot's index whose from-address words and subject words hold EVERY one of `words`, as whole words
+  plural_mentioned(text, tables)                 whether `text` holds a noun of the tables' `plural` list ("e-mails", "mensagens"), the words the closed form reads as several messages
   target_words(span, tables)                     the content words of a `target` span the interpreter verified (B''-lite): the span's words without the tables' articles, polite
                                                  words, joiners, mail nouns, plural words, "of" words and "newest" words, in order, none twice; [] when more than TARGET_WORDS_MAX
                                                  are left (a sentence, not a name). They are compared with the index (`match_words`) only to choose a message, never an address
@@ -800,6 +801,18 @@ def target_words(span, tables) -> list:
                 drop.update(w for part in phrase for w in _words_of(part))
     found = [w for w in dict.fromkeys(_words_of(span)) if w not in drop]
     return found if len(found) <= TARGET_WORDS_MAX else []
+
+
+def plural_mentioned(text, tables) -> bool:
+    """Whether `text` (a `target` span, or the line) holds a noun of the tables' `plural` list, as whole words in a row: the same words the closed form reads as several messages
+    ("apague os e-mails do banco"). A line that names the message in the singular ("apague o e-mail do banco") holds none."""
+    words = _words_of(text)
+    for table in _tables_with_mail(tables):
+        for phrase in _data(table)["plural"]:
+            n = len(phrase)
+            if any(tuple(words[i:i + n]) == tuple(phrase) for i in range(len(words) - n + 1)):
+                return True
+    return False
 
 
 def match_words(entries, words, newest: bool = False) -> list:

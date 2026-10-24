@@ -52,10 +52,10 @@ def the_machine_zone_is_named(monkeypatch):
     monkeypatch.setattr(ops_interpret, "_zone", lambda now: "America/Sao_Paulo")
 
 
-def seed_of(op, spans, args=None):
+def seed_of(op, spans, args=None, said=""):
     """The seed `_carry_out` builds for a decision: the day span read by code (`ops_interpret._day_read`) with the stand-in clock."""
     day = ops_interpret._day_read(spans["day"], NOW) if spans.get("day") else None
-    return onm.mail_target_seed(op, {"op": op, "spans": spans, "args": args or {}}, day)
+    return onm.mail_target_seed(op, {"op": op, "spans": spans, "args": args or {}}, day, said)
 
 
 def entry(n, sender, subject, received=None):
@@ -75,8 +75,8 @@ def patched_index(monkeypatch, entries):
     return seen
 
 
-def resolve(op, spans, channel="chat", sender=None, args=None, ctx=None):
-    seed = seed_of(op, spans, args)
+def resolve(op, spans, channel="chat", sender=None, args=None, ctx=None, said=""):
+    seed = seed_of(op, spans, args, said)
     assert seed is not None
     return onm.resolve(ctx or {"cfg": {"accounts": {"google": {"address": "pat@example.com", "mail_folders": {"contas": "L1"}}}}}, op, seed["slots"], channel, sender)
 
@@ -99,8 +99,12 @@ def test_the_seed_holds_words_the_body_and_the_kind_of_object_and_never_a_number
     read = {"kind": "day", "value": "2026-10-26", "today": "2026-10-27", "zone": "America/Sao_Paulo"}
     reply = seed_of("mail-reply", {"target": TARGET, "day": "dia 26/10/2026", "body": BODY})      # validate: allow english-only -- the Portuguese line under test
     assert reply == {"op": "mail-reply", "by": "target", "slots": {"words": ["carla", "menezes", "contrato", "locacao"], "body": BODY, "day_read": read}}
-    assert seed_of("mail-archive", {"target": "e-mails da Livraria Pinho"}) == {"op": "mail-archive", "by": "target", "slots": {"words": ["livraria", "pinho"], "plural": True}}
-    assert seed_of("mail-move", {"target": "Fatura"}, {"folder": "contas"})["slots"] == {"words": ["fatura"], "plural": True, "folder_name": "contas"}
+    assert seed_of("mail-archive", {"target": "e-mails da Livraria Pinho"}) == {"op": "mail-archive", "by": "target", "slots": {"words": ["livraria", "pinho"], "plural": True}}, "a plural noun of the target"
+    assert seed_of("mail-archive", {"target": "Livraria Pinho"}, said="arquiva os e-mails da Livraria Pinho")["slots"] == {"words": ["livraria", "pinho"], "plural": True}, "a plural noun of the line"
+    assert seed_of("mail-archive", {"target": "e-mail da Livraria Pinho"}, said="arquiva o e-mail da Livraria Pinho")["slots"] == {"words": ["livraria", "pinho"]}, "singular: no `plural`"
+    assert seed_of("mail-move", {"target": "Fatura"}, {"folder": "contas"})["slots"] == {"words": ["fatura"], "folder_name": "contas"}
+    assert seed_of("mail-move", {"target": "Fatura"}, {"folder": "contas"}, said="move as mensagens da fatura para contas")["slots"]["plural"] is True      # validate: allow english-only -- the Portuguese line under test
+    assert "plural" not in seed_of("mail-reply", {"target": "e-mails da Fatura", "body": BODY}, said="responde os e-mails da fatura")["slots"], "a reply is always one message"
     assert seed_of("mail-mark", {"target": "Fatura", "state": "como lido"})["slots"]["state"] == "read"      # validate: allow english-only -- the Portuguese line under test
     assert "state" not in seed_of("mail-mark", {"target": "Fatura", "state": "talvez"})["slots"]
     assert seed_of("mail-reply", {"target": "o e-mail"}) is None, "no word and no day: nothing to look for"
@@ -176,8 +180,34 @@ def test_two_messages_fit_a_list_is_asked_only_after_the_right_to_read_and_none_
     assert seen == ["inbox"] and asked["sentence_key"] == "NW_MAIL_ASK_MESSAGE" and asked["fields"] == {"count": 2}
     assert [o["value"] for o in asked["options"]] == ["inbox#1", "inbox#2"] and asked["options"][0]["label"] == f"{CARLA} · Contrato de locação"      # validate: allow english-only -- an invented Portuguese subject
     assert resolve("mail-reply", {"target": "Dona Zenaide Almeida", "body": BODY})["say"]["sentence_key"] == "NW_MAIL_NONE"
-    # a plural object takes every match in one card
-    assert resolve("mail-archive", {"target": "Carla Menezes"})["args"] == {"account": "google", "messages": "inbox#1,inbox#2"}
+    # a plural object takes every match in one card; a singular one is asked among the matches, never taken together
+    assert resolve("mail-archive", {"target": "e-mails da Carla Menezes"})["args"] == {"account": "google", "messages": "inbox#1,inbox#2"}
+    assert resolve("mail-archive", {"target": "Carla Menezes"}, said="arquiva os e-mails da Carla Menezes")["args"] == {"account": "google", "messages": "inbox#1,inbox#2"}
+    assert resolve("mail-archive", {"target": "e-mail da Carla Menezes"})["ask"]["fields"] == {"count": 2}
+
+
+@pytest.mark.parametrize("op", ["mail-archive", "mail-trash", "mail-move", "mail-mark"])
+def test_a_singular_line_with_several_matches_is_a_numbered_list_and_its_number_picks_one_and_a_plural_line_is_one_card_with_every_message(monkeypatch, op):
+    entries = [entry(i, f"alerta{i}@banco.example", f"Banco aviso {i}") for i in range(1, 16)] + [entry(16, "rh@empresa.example", "Banco de horas de outubro")]
+    patched_index(monkeypatch, entries)
+    args = {"folder": "contas"} if op == "mail-move" else None
+    extra = {"state": "como lido"} if op == "mail-mark" else {}      # validate: allow english-only -- the Portuguese line under test
+    spans = {"target": "o e-mail do banco", **extra}
+    ctx = {"cfg": {"accounts": {"google": {"address": "pat@example.com", "mail_folders": {"contas": "L1"}}}}}
+    out = onm.resolve(ctx, op, seed_of(op, spans, args, said="apague o e-mail do banco")["slots"], "chat", None)
+    asked = out["ask"]
+    assert "args" not in out and asked["sentence_key"] == "NW_MAIL_ASK_MESSAGE" and asked["fields"] == {"count": 16}, "no card: the matches are a list"
+    assert [o["value"] for o in asked["options"]] == [f"inbox#{i}" for i in range(1, 6)], "the newest five"
+    picked = onw._option({"options": asked["options"], "multi": asked["multi"]}, "2")      # the question says "Answer with its number": the family's own pick, unchanged
+    assert picked == "inbox#2"
+    slots = dict(seed_of(op, spans, args, said="apague o e-mail do banco")["slots"], **{asked["slot"]: picked})
+    again = onm.resolve(ctx, op, slots, "chat", None)
+    assert again["args"]["messages"] == "inbox#2", "the pick is the one message"
+    many = onm.resolve(ctx, op, seed_of(op, {**spans, "target": "e-mails do banco"}, args, said="apague os e-mails do banco")["slots"], "chat", None)
+    assert many["args"]["messages"] == ",".join(f"inbox#{i}" for i in range(1, 17)) and len(many["args"]["messages"].split(",")) == 16, "a plural line: one card with every message"
+    one = [entry(1, "rh@empresa.example", "Banco de horas de outubro")]
+    patched_index(monkeypatch, one)
+    assert onm.resolve(ctx, op, seed_of(op, spans, args, said="apague o e-mail do banco")["slots"], "chat", None)["args"]["messages"] == "inbox#1", "singular and one match: the card"
 
 
 def test_a_sender_who_may_not_read_the_mailbox_learns_nothing_and_the_index_is_never_read(monkeypatch):
@@ -202,14 +232,14 @@ DAYS = [entry(1, CARLA, "Contrato", "2026-10-26T15:00:00Z"),      # Monday 12:00
 
 def test_a_day_keeps_the_messages_that_came_in_on_that_local_day_and_a_weekday_the_last_seven_days(monkeypatch):
     patched_index(monkeypatch, DAYS)
-    monday = resolve("mail-archive", {"target": "Carla contrato", "day": "dia 26/10/2026"})
+    monday = resolve("mail-archive", {"target": "e-mails da Carla contrato", "day": "dia 26/10/2026"})
     assert monday["args"]["messages"] == "inbox#1,inbox#3", "the local day: the message of 01:30 UTC on the 27th is Monday 22:30 here"
-    assert resolve("mail-archive", {"target": "Carla contrato", "day": "hoje"})["args"]["messages"] == "inbox#2"      # validate: allow english-only -- the Portuguese line under test
-    assert resolve("mail-archive", {"target": "Carla contrato", "day": "dia 20/10/2026"})["args"]["messages"] == "inbox#4"
-    assert resolve("mail-archive", {"target": "Carla contrato", "day": "de segunda"})["args"]["messages"] == "inbox#1,inbox#3", "Monday within the last 7 days: the 26th"      # validate: allow english-only -- the Portuguese line under test
-    assert resolve("mail-archive", {"target": "Carla contrato", "day": "de terça"})["args"]["messages"] == "inbox#2", "Tuesday within the last 7 days: today, not the 20th"      # validate: allow english-only -- the Portuguese line under test
+    assert resolve("mail-archive", {"target": "e-mails da Carla contrato", "day": "hoje"})["args"]["messages"] == "inbox#2"      # validate: allow english-only -- the Portuguese line under test
+    assert resolve("mail-archive", {"target": "e-mails da Carla contrato", "day": "dia 20/10/2026"})["args"]["messages"] == "inbox#4"
+    assert resolve("mail-archive", {"target": "e-mails da Carla contrato", "day": "de segunda"})["args"]["messages"] == "inbox#1,inbox#3", "Monday within the last 7 days: the 26th"      # validate: allow english-only -- the Portuguese line under test
+    assert resolve("mail-archive", {"target": "e-mails da Carla contrato", "day": "de terça"})["args"]["messages"] == "inbox#2", "Tuesday within the last 7 days: today, not the 20th"      # validate: allow english-only -- the Portuguese line under test
     assert resolve("mail-reply", {"target": "Carla contrato", "day": "dia 26/10/2026", "body": BODY})["ask"]["fields"] == {"count": 2}, "a singular object with two matches is a list"
-    assert resolve("mail-archive", {"target": "Carla contrato", "day": "dia 15/10/2026"})["say"]["sentence_key"] == "NW_MAIL_NONE"
+    assert resolve("mail-archive", {"target": "e-mails da Carla contrato", "day": "dia 15/10/2026"})["say"]["sentence_key"] == "NW_MAIL_NONE"
 
 
 def test_a_relative_past_day_the_engine_does_not_read_is_the_sentence_that_a_date_is_never_guessed(monkeypatch):
@@ -217,17 +247,17 @@ def test_a_relative_past_day_the_engine_does_not_read_is_the_sentence_that_a_dat
     for a day the engine cannot read). A reader of yesterday is a later change; until then these lines get the plain sentence they got before B''-lite."""
     patched_index(monkeypatch, DAYS)
     for day in ("de ontem", "yesterday", "anteontem"):      # validate: allow english-only -- the Portuguese line under test
-        assert resolve("mail-archive", {"target": "Carla contrato", "day": day})["say"] == {"sentence_key": "NW_MAIL_BY_DATE", "fields": {}}, day
+        assert resolve("mail-archive", {"target": "e-mails da Carla contrato", "day": day})["say"] == {"sentence_key": "NW_MAIL_BY_DATE", "fields": {}}, day
 
 
 def test_an_index_with_no_received_or_a_day_code_cannot_read_is_the_sentence_that_a_date_is_never_guessed(monkeypatch):
     patched_index(monkeypatch, DAYS[:2] + [entry(5, CARLA, "Contrato")])      # one candidate has no `received`
-    assert resolve("mail-archive", {"target": "Carla contrato", "day": "dia 26/10/2026"})["say"] == {"sentence_key": "NW_MAIL_BY_DATE", "fields": {}}
+    assert resolve("mail-archive", {"target": "e-mails da Carla contrato", "day": "dia 26/10/2026"})["say"] == {"sentence_key": "NW_MAIL_BY_DATE", "fields": {}}
     patched_index(monkeypatch, DAYS)
     for day in ("semana que vem talvez", "dia 40", "de manhã"):      # validate: allow english-only -- the Portuguese line under test
-        assert resolve("mail-archive", {"target": "Carla contrato", "day": day})["say"]["sentence_key"] == "NW_MAIL_BY_DATE", day
+        assert resolve("mail-archive", {"target": "e-mails da Carla contrato", "day": day})["say"]["sentence_key"] == "NW_MAIL_BY_DATE", day
     patched_index(monkeypatch, [entry(1, CARLA, "Contrato"), entry(2, "bob@loja.example", "Fatura")])
-    assert resolve("mail-archive", {"target": "Carla contrato"})["args"]["messages"] == "inbox#1", "no day, no `received` needed"
+    assert resolve("mail-archive", {"target": "e-mails da Carla contrato"})["args"]["messages"] == "inbox#1", "no day, no `received` needed"
 
 
 def test_a_folder_a_state_and_a_missing_state_follow_the_family(monkeypatch):

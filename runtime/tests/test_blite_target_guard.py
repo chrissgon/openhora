@@ -169,7 +169,7 @@ def test_a_believed_decision_reaches_its_path_the_words_for_a_message_the_number
     spies = Spies(world, monkeypatch, op("mail-archive", GOOD["mail-archive"]))
     assert spies.say(line) == "CARD-REPLY"
     assert [c for c in spies.calls if "open_line" in c] == [{"open_line": True, "said": line, "channel": "messaging", "sender": spies.calls[-1]["sender"],
-                                                             "seed": {"op": "mail-archive", "by": "target", "slots": {"words": ["carla"], "plural": True,
+                                                             "seed": {"op": "mail-archive", "by": "target", "slots": {"words": ["carla"],
                                                                       "day_read": {"kind": "none", "value": None, "today": "2026-10-18", "zone": ZONE}}},
                                                              "hint": None}]
     # a number written in the line is the exact form: the call is the one of before B''-lite (the operation as the hint, no seed)

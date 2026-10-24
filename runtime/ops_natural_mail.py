@@ -334,9 +334,10 @@ def _reference_args(ctx: dict, op: str, slots: dict, channel, sender):
     return {"args": args}
 
 
-def mail_target_seed(op: str, decision: dict, day=None):
+def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
     """The seed of a mail operation on a message the person named by its words (B''-lite), or None when the line gives no word to look for: `{"op", "by": "target", "slots"}`, the
-    slots the family reads (`words` from `natural_writes_mail.target_words` over the verified `target` span; `plural` for the operations that may take several messages; `body`
+    slots the family reads (`words` from `natural_writes_mail.target_words` over the verified `target` span; `plural` only when the target or the line `said` holds a noun of the tables'
+    plural list (one card for every match, as the closed form), else the singular rule: one match is the card, several are a numbered list; `body`
     of a reply or a draft; `folder_name`; `state`; `day_read`, the day the verified `day` span names as the caller read it, see `_on_day`: a `day` span with no reading is a day
     that was not read). Nothing here is an address, a recipient or a message number: the message is chosen by code from the index afterwards (`_by_words`), and a reply goes to
     the index's From (L60)."""
@@ -346,7 +347,7 @@ def mail_target_seed(op: str, decision: dict, day=None):
     if not words and not spans.get("day"):
         return None
     slots = {"words": words}
-    if op not in ("mail-reply", "mail-draft"):
+    if op not in ("mail-reply", "mail-draft") and (nwm.plural_mentioned(spans.get("target") or "", tables) or nwm.plural_mentioned(said, tables)):
         slots["plural"] = True
     if op in ("mail-reply", "mail-draft") and spans.get("body"):
         slots["body"] = spans["body"]

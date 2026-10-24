@@ -369,7 +369,7 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
         elif (op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and (decision["spans"].get("target") or decision["spans"].get("day"))
               and "message" not in decision["args"] and "messages" not in decision["args"]):          # B''-lite: a message named by its words (target, day), found by code in the index (runtime/ops_natural_mail.py)
             spans = decision["spans"]
-            seed = importlib.import_module("ops_natural_mail").mail_target_seed(op, decision, _day_read(spans["day"], ops_natural._clock()) if spans.get("day") else None)
+            seed = importlib.import_module("ops_natural_mail").mail_target_seed(op, decision, _day_read(spans["day"], ops_natural._clock()) if spans.get("day") else None, said)
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed) if seed is not None else None
         else:
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
