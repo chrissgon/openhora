@@ -207,7 +207,8 @@ def test_a_row_carries_the_class_the_what_and_the_slot_kinds():
     by = {r["op"]: r for r in snap["ops"]}
     assert by["ask"]["class"] == "work"
     assert by["remind"] == {"op": "remind", "class": "N", "what": "a reminder sent back once at a time", "slots": {"text": "span", "when": "when"}}
-    assert by["mail-archive"]["slots"] == {"messages": "ints"} and by["mail-archive"]["class"] == "E"
+    assert by["mail-archive"]["slots"] == {"messages": "ints", "target": "span", "day": "span"} and by["mail-archive"]["class"] == "E"      # B''-lite: the number slot stays, the words of the message are added
+    assert by["event-cancel"]["slots"] == {"event": "int", "target": "span", "day": "span"} and by["mail-draft"]["slots"]["target"] == "span" and "day" not in by["mail-draft"]["slots"]
     assert by["status"]["slots"] == {} and by["cancel"]["slots"] == {"id": "int"}
     for r in snap["refused"]:
         assert set(r) == {"op", "class", "what"} and "slots" not in r
