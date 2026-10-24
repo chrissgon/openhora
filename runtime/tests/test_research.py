@@ -40,6 +40,7 @@ line_stage = st.load("line_stage")
 operations = st.load("operations")
 policy_widening = st.load("policy_widening")
 project_config = st.load("project_config")
+phrases = st.load("phrases")
 
 REPO = Path(__file__).resolve().parents[2]
 ZONE = "America/Sao_Paulo"
@@ -95,7 +96,7 @@ UNPROVEN_PT = "Esta pesquisa ainda não passou por um teste completo neste model
 SENTENCES = {
     "no-web": "Não consegui acessar a web agora para pesquisar.",  # validate: allow english-only -- the Portuguese sentence under test
     "timeout": "A pesquisa demorou demais e foi interrompida.",
-    "cap": "A pesquisa chegou ao limite de custo e foi interrompida.",
+    "cap": "A pesquisa chegou ao limite de custo e foi interrompida. Tente de novo, ou aumente research.max_cost_usd no runtime.json do projeto e aceite a configuração de novo.",  # validate: allow english-only -- the Portuguese sentence under test
     "failed": "Não consegui fazer a pesquisa agora. Tente de novo em alguns minutos.",  # validate: allow english-only -- the Portuguese sentence under test
     "nothing": "Pesquisei, mas não encontrei uma resposta confiável para isso.",  # validate: allow english-only -- the Portuguese sentence under test
     "ask-again": "Não entendi o que procurar. Pode escrever a pergunta com mais detalhes (um lugar, uma data, um nome)?",  # validate: allow english-only -- the Portuguese sentence under test
@@ -198,7 +199,7 @@ def set_limits(world, **limits):
     accept(world["path"], research=limits)
 
 
-def expect_one_research(made, question, max_cost=0.25, timeout=300):
+def expect_one_research(made, question, max_cost=0.6, timeout=300):
     """The oracle of the first use: exactly one run, of the research skill, on the open network, bounded, with no file of the project and the question as the first paragraph."""
     assert len(made.calls) == 1
     call = made.calls[0]
@@ -354,7 +355,7 @@ def test_the_key_research_refuses_a_value_out_of_its_bounds(bad):
 
 
 def test_the_key_research_has_small_defaults_and_accepts_a_value_inside_its_bounds():
-    assert project_config._research(None) == {"max_cost_usd": 0.25, "timeout_seconds": 300, "max_per_day": 10} == project_config._research({})
+    assert project_config._research(None) == {"max_cost_usd": 0.6, "timeout_seconds": 300, "max_per_day": 10} == project_config._research({})
     assert project_config._research({"max_cost_usd": 1}) == {"max_cost_usd": 1, "timeout_seconds": 300, "max_per_day": 10}
     assert project_config._research({"max_cost_usd": 0.01, "timeout_seconds": 30, "max_per_day": 100}) == {"max_cost_usd": 0.01, "timeout_seconds": 30, "max_per_day": 100}
     with pytest.raises(project_config.ConfigError):
@@ -375,6 +376,25 @@ def test_a_run_that_fails_gives_one_plain_sentence(research, mode, word, capsys)
     assert row["status"] == "failed" and row["skill"] == "core-research"
     seen = capsys.readouterr()
     assert "exploded" not in seen.out + seen.err and "Como vai" not in seen.out + seen.err
+
+
+def test_the_cap_sentence_says_what_to_do_next_in_both_languages():
+    """RESEARCH-LIMITS (the maintainer, 2026-10-24): on the cap the person is told to try again or to raise the project's ceiling."""
+    en, pt = phrases.TABLE["en"]["RS_CAP"], phrases.TABLE["pt-BR"]["RS_CAP"]
+    assert "Try again" in en and "research.max_cost_usd" in en and "runtime.json" in en
+    assert "Tente de novo" in pt and "research.max_cost_usd" in pt and "runtime.json" in pt
+
+
+def test_vacuity_the_old_cap_sentence_named_no_next_step():
+    old = "A pesquisa chegou ao limite de custo e foi interrompida."
+    assert "Tente de novo" not in old and "research.max_cost_usd" not in old
+
+
+def test_the_default_cap_is_the_maintainers_and_a_project_value_still_wins(research):
+    assert project_config.RESEARCH_DEFAULTS["max_cost_usd"] == 0.6
+    set_limits(research, max_cost_usd=0.25)
+    phone(research, LINE_1)
+    expect_one_research(research["run"], LINE_1, max_cost=0.25)
 
 
 def test_a_pair_measured_without_the_web_runs_nothing_and_says_there_is_no_web(research):
