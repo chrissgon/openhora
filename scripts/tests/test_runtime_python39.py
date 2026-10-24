@@ -5,8 +5,9 @@ the scripts below with that same interpreter (providers/CONTRACT.md, "Python ver
    refuses, is either absent or deferred with `from __future__ import annotations`.
 2. Header: a script with an inline-metadata header declares a `requires-python` that admits 3.9, so the header
    never claims a newer interpreter than the one the scheduler starts it with.
-3. Execution: each file is imported by the interpreter running this test. CI runs this file, and the tests of the
-   scripts on this path, on Python 3.9 (.github/workflows/checks.yml, job python39), where the import is the real check.
+3. Execution: each file is imported by the interpreter running this test, on Python 3.9 only (.github/workflows/checks.yml and
+   nightly.yml, the python39 jobs), where the import is the real check; on a newer interpreter it is skipped, since each
+   module's own tests import it there.
 
 Providers that reach the network run through `uv run` under their own `requires-python` and are not listed.
 A new script the runtime or a scheduler starts with the system interpreter is added to ON_SYSTEM_PYTHON."""
@@ -226,6 +227,7 @@ def test_header_does_not_claim_a_newer_python_than_the_scheduler_uses(rel):
 
 
 @pytest.mark.parametrize("rel", ON_SYSTEM_PYTHON)
+@pytest.mark.skipif(sys.version_info[:2] != SYSTEM_PYTHON, reason="the import is the check only on Python 3.9, the interpreter the scheduler starts these with: the python39 job runs it on every pull request and at night")
 def test_imports_on_the_interpreter_running_the_tests(rel, tmp_path):
     """On the python39 CI job this is Python 3.9: definitions, annotations and imports are really evaluated."""
     path = REPO / rel

@@ -45,7 +45,6 @@ GUARDS = [
     "runtime/tests/test_runtime_rules.py",
     "scripts/tests/test_runtime_python39.py",
     "scripts/tests/test_architecture_tables.py",
-    "scripts/tests/test_checks_wiring.py",
     "scripts/tests/test_hook_parallel.py",
     "scripts/tests/test_test_isolation.py",
     "scripts/tests/test_select_tests.py",
@@ -303,7 +302,8 @@ def test_the_root_configuration_selects_every_folder(tree):
 
 def test_the_wiring_of_the_checks_selects_scripts_tests(tree):
     for changed in ("scripts/select_tests.py", "scripts/test_slots.py", ".githooks/pre-commit", ".github/workflows/checks.yml", "packs/default.txt",
-                    "templates/agent.md", "agents/reviewer.md"):
+                    "templates/agent.md", "agents/reviewer.md", "scripts/test_dirs.py", "scripts/shard_tests.py", "scripts/pytest_plugins/wb_shard.py",
+                    ".github/workflows/nightly.yml"):
         assert pick(tree, changed)[0] == expect("scripts/tests"), changed
 
 
@@ -426,50 +426,6 @@ def test_a_test_that_other_tests_import_selects_them_in_this_repository(real):
     assert "runtime/tests/test_ask_service.py" in got and "runtime/tests/test_agent_spend_fields.py" in got  # both `import test_service`
 
 
-def real_import_oracle(root, start, depth):
-    """The tests that really `import` the file, or a module that imports it, up to `depth` steps: only the `import` statements of the
-    Python files, read here with the test's own parser (never the selector's graph), a name resolved by stem within the importer's area first."""
-    import ast
-    files = [str(p.relative_to(root)).replace(os.sep, "/") for p in Path(root).rglob("*.py")
-             if not any(part in (".git", "node_modules", "__pycache__") for part in p.parts)]
-    files = [f for f in files if not f.startswith("skills/") or "/scripts/" in f]
-    by_stem = {}
-    for f in files:
-        by_stem.setdefault(os.path.basename(f)[:-3], []).append(f)
-    importers = {}
-    for f in files:
-        try:
-            tree = ast.parse((Path(root) / f).read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
-            continue
-        names = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                names.update(a.name.split(".")[-1] for a in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                names.update([node.module.split(".")[-1]] if node.module else [])
-                names.update(a.name for a in node.names)
-        for name in names:
-            candidates = by_stem.get(name, [])
-            area = f.split("/")[0]
-            for target in [c for c in candidates if c.split("/")[0] == area] or candidates:
-                if target != f:
-                    importers.setdefault(target, set()).add(f)
-    seen, frontier = {start}, [start]
-    for _ in range(depth):
-        frontier = [i for x in frontier for i in importers.get(x, ()) if i not in seen and not seen.add(i)]
-    return {f for f in seen if os.path.basename(f).startswith("test_") and "/tests/" in f}
-
-
-def test_every_test_that_really_imports_a_changed_file_within_three_steps_is_selected(real):
-    """The regression the review found: a selection that missed tests importing the changed module through another module."""
-    for changed in ("runtime/natural_time.py", "runtime/phrases_pt_br.py", "runtime/ops_core.py", "runtime/tests/test_service.py", "runtime/lease.py"):
-        got = set(real_pick(real, changed))
-        covered = lambda t: t in got or any(t.startswith(g + "/") for g in got)
-        missed = sorted(t for t in real_import_oracle(REPO, changed, 3) if not covered(t))
-        assert missed == [], (changed, missed[:5])
-
-
 def test_every_row_of_the_table_of_unlinked_modules_still_matches_files(real):
     import fnmatch
     assert sel.UNLINKED_MODULES
@@ -497,6 +453,26 @@ def test_the_wiring_and_the_test_configuration_of_this_repository_select_folders
 def test_a_script_run_by_path_in_this_repository_selects_the_tests_that_name_it(real):
     got = real_pick(real, "skills/mkt-publish/scripts/payload.py")
     assert any(t.startswith("skills/mkt-publish/scripts/tests/") for t in got)
+
+
+SLOW_META = ("scripts/tests/test_select_tests_oracle.py", "scripts/tests/test_checks_wiring.py", "scripts/tests/test_security_scan_repo.py")
+
+
+def test_the_slow_meta_tests_are_no_guard_and_run_when_the_wiring_the_selector_or_the_scanner_changes(real):
+    """docs/decisions.md, the entry of T2b: the three run in the nightly run and the whole-suite runs, and on these changes; never on every commit."""
+    assert not set(SLOW_META) & set(sel.GUARDS) and all((REPO / name).is_file() for name in SLOW_META)
+    for changed in (".github/workflows/checks.yml", ".github/workflows/nightly.yml", ".githooks/pre-commit", "scripts/select_tests.py",
+                    "scripts/test_slots.py", "scripts/test_dirs.py", "scripts/shard_tests.py"):
+        assert "scripts/tests" in real_pick(real, changed), changed
+    assert "scripts/tests/test_security_scan_repo.py" in real_pick(real, "scripts/security_scan.py")
+
+
+def test_vacuity_a_change_of_a_document_or_of_runtime_code_does_not_run_the_slow_meta_tests_as_a_folder_and_a_document_runs_none(real):
+    """A change that no import, name or wiring links to the meta-tests runs none of the three. A runtime module can still reach the oracle
+    and the scan test through the references the selector follows (the oracle names runtime/natural_time.py in a string), which is the
+    selector working: it is never the whole folder scripts/tests."""
+    assert not set(SLOW_META) & set(real_pick(real, "docs/decisions.md", "AGENTS.md", "skills/mkt-publish/SKILL.md"))
+    assert "scripts/tests" not in real_pick(real, "runtime/natural_time.py")
 
 
 # ---- the slot helper (scripts/test_slots.py) ---------------------------------------------------------------------------------------------

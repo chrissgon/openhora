@@ -442,6 +442,7 @@ TABLE = {
         "PHONE_CAL_DROP_WHERE": "Where: {location}",
         "PHONE_CAL_DROP_NOTES": "Notes: {notes}",
         "PHONE_MAIL_REPLY_TO": "Reply to: {address}, the sender of message {ref}: {subject}",
+        "PHONE_MAIL_REPLY_TO_AT": "Reply to: {address}, the sender of message {ref} of {received}: {subject}",
         "PHONE_FILE_BASE": "Replaces the version of {modified}.",
         "PHONE_MAIL_ATTACHMENT": "Attachment: {name}, {bytes} bytes",
         "PHONE_BOX_READ_AT": "Nothing is changed unless every message is still as listed.",
@@ -522,6 +523,7 @@ TABLE = {
         "CARD_MAIL_SUBJECT": "Subject: {subject}",
         "CARD_MAIL_SUBJECT_REPLY": "Subject: {subject}",
         "CARD_MAIL_REPLY_TO": "Reply to: {address}, the sender of {ref} (in the snapshot read at {read_at}): {subject}",
+        "CARD_MAIL_REPLY_TO_AT": "Reply to: {address}, the sender of {ref}, received {received} (in the snapshot read at {read_at}): {subject}",
         "CARD_MAIL_REPLY_TO_DIFFERS": "The message asks replies to go to {other}: this reply goes to the sender above, not there.",
         "CARD_MAIL_IN_REPLY": "In reply to the message {message_id}",
         "CARD_MAIL_COUNT": "Recipients in all: {count}",
@@ -910,7 +912,7 @@ TABLE = {
         "RS_NOTHING": "I searched but did not find a reliable answer to that.",
         "RS_ASK_AGAIN": "I could not tell what to look up. Can you write the question with more detail (a place, a date, a name)?",
         "RS_TIMEOUT": "The search took too long and was stopped.",
-        "RS_CAP": "The search reached its cost limit and was stopped.",
+        "RS_CAP": "The search reached its cost limit and was stopped. Try again, or raise research.max_cost_usd in the project's runtime.json and accept the configuration again.",
         "RS_FAILED": "I could not do the search right now. Try again in a few minutes.",
         "RS_LIMIT": "I already did {count} searches today, which is the limit for a day.",
         "RS_LIMIT_ONE": "I already did 1 search today, which is the limit for a day.",
@@ -1243,7 +1245,7 @@ CARD_LINES_MAX = 300        # lines in one card
 # e-mail (who it goes to, its subject, its text, the names of its attachments): a messaging app draws them only for a
 # sender who also holds the group CARD_PRIVATE_GROUP (the answer from mail and calendar), and a card with such a line left out is not whole, so it is not approved there.
 CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES")) + ("CARD_CAL_NOW_TITLE", "CARD_FILE_NOW") \
-    + ("CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY") \
+    + ("CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_AT", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY") \
     + ("CARD_BOX_ITEM", "CARD_BOX_DRAFT_REPLY", "CARD_BOX_DRAFT_REPLY_DIFFERS", "CARD_BOX_DRAFT_REPLY_TO", "CARD_BOX_DRAFT_REPLY_SUBJECT") \
     + ("CARD_BOX_DRAFT_TO", "CARD_BOX_DRAFT_CC", "CARD_BOX_DRAFT_BCC", "CARD_BOX_DRAFT_SUBJECT", "CARD_BOX_DRAFT_TEXT")      # W2: what a reply shows of the message answered; W3: the same of a mailbox card, and who a draft goes to, its subject and its text
 CARD_PRIVATE += ("CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_BCC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT")      # the maintainer's decision of 2026-10-19: who an e-mail goes to, its subject, its text and the names of its attachments
