@@ -54,7 +54,7 @@ def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_time_limit():
         assert "--durations=20" in block, name
 
 
-def test_the_shard_job_has_the_whole_suite_mode_with_the_full_fuzz_and_the_tests_job_keeps_a_longer_limit():
+def test_the_tests_job_has_the_whole_suite_mode_with_the_full_fuzz_and_a_longer_limit():
     assert re.search(r"^    timeout-minutes: 45\s*$", job_block("tests"), re.M)
     block = job_block("tests-shard")
     whole = block[block.index("- name: Scanner and provider tests, the whole suite"):]

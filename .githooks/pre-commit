@@ -16,7 +16,7 @@
 #    re-export it; the tests that name a changed data file; the whole test folder of a conftest, a test kit or a file nothing
 #    references), plus a fixed set of fast guards that always run. Rules and their limits: the text at the top of that script.
 #    The whole suite does not run here: it runs at the end of a large delivery (a pull request into main, a push to main, a manual
-#    run, a pull request labelled full-suite: .github/workflows/checks.yml, the job tests in its whole-suite mode), where it catches what the selection
+#    run, a pull request labelled full-suite: .github/workflows/checks.yml: three shard jobs, gated by the one required job `tests`), where it catches what the selection
 #    cannot see (a dynamic import, a long call chain without an import edge). At most WB_TEST_SLOTS (default 3) test runs share a
 #    machine: scripts/test_slots.py makes the hook wait for a slot, at most WB_TEST_SLOT_WAIT seconds (default 3600), and fails with
 #    the message if none frees. A provider class left without tests is refused.
