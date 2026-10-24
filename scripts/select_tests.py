@@ -4,7 +4,7 @@
 The repository standard (docs/decisions.md, 2026-10-20): during development only the SELECTED tests run (every commit, every
 pull request into an integration branch); the whole suite runs at the end of a large delivery (a pull request into main, a push to
 main, a manual run, a pull request labelled `full-suite`). The pre-commit hook and the `tests` job of .github/workflows/checks.yml
-call this script (the job runs the whole list instead on the four events above).
+call this script (on the four events above the whole list runs instead, in three shards that the job `tests` gates).
 
 Usage:
   python3 scripts/select_tests.py --files <path>...          # exactly these changed files (paths from the repository root)
@@ -44,7 +44,7 @@ THE RULES (conservative: when the selector is unsure it selects more)
     script check, the architecture tables, the wiring of the hook and of CI, the test isolation and this script's own tests.
  7. A change inside skills/<name>/ other than scripts/ selects nothing beyond the guards (the lab measures skills, the validator
     checks them); skills/*/evals/runtime-manifest.json is the one data file of a skill that the runtime reads, so it follows rule 4.
- 8. Fuzz files run in their default sampled mode; only the whole-suite job sets WB_FULL_FUZZ=1.
+ 8. Fuzz files run in their default sampled mode; only the whole-suite shards set WB_FULL_FUZZ=1.
 A shared script, its generated copies and the identity tests of the copies (scripts/tests/test_script_copies.py, test_sync_copies.py)
 go together: a change to either selects the others' tests.
 

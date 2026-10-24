@@ -51,7 +51,7 @@ def test_a_plain_e_mail_is_approved_on_messaging_after_the_grant_with_its_hash_a
     card = card_of(world, item)
     assert "Approve this exact content" in labels(card) and card["whole"] is True and card["approvable"] is True
     with pytest.raises(ops.OpsError) as wrong:
-        ops.approve(world["path"], item["id"], "0" * 64, channel="messaging", sender="telegram:4242")
+        ops.approve(world["path"], item["id"], "0" * 64, channel="messaging", sender="telegram:830461975213")
     assert "nothing was approved" in str(wrong.value) and sent(world) == []
     done = approve(world, item, "messaging")
     assert done["task_state"] == "done" and done["result"]["sent"] is True and len(sent(world)) == 1
@@ -80,7 +80,7 @@ def test_an_e_mail_with_an_attachment_is_not_approvable_on_messaging_even_with_t
             approve(world, item, channel)
     # a line typed into say never approves it, on any channel
     for channel in ("messaging", "chat"):
-        assert ops.say(world["path"], f"/approve {item['id']} {item['payload_sha256']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"].startswith("error: ")
+        assert ops.say(world["path"], f"/approve {item['id']} {item['payload_sha256']}", channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))["reply"].startswith("error: ")
     assert sent(world) == [] and ops.pending(world["path"], item["id"])["status"] == "open"
     # the terminal sends it, with its hash
     done = approve(world, item, "terminal")

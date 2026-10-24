@@ -22,6 +22,8 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 ops_interpret = st.load("ops_interpret")
 interpreter = st.load("interpreter")
@@ -42,9 +44,9 @@ IN_USE = {   # answers file -> (its evidence file, the counts of the categories 
                                                                                            {"clarify": 15, "correct": 32, "wrong_card": 2, "wrong_item_binding": 1}),
 }
 EARLIER = ("or-deepseek-v4.1-flash/iter-1-20261021T094443/20261021T124445Z-ea9f0c2f.answers.jsonl", "or-deepseek-v4.1-flash/iter-1-20261021T094736/20261021T124738Z-d0fc5d83.answers.jsonl")
-PROMPT_IN_USE = "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06"
+PROMPT_IN_USE = PINNED_HASHES["interpreter_prompt"]
 RECORDED_CATALOG = REPO / "evals" / "interpreter" / "replay" / "catalogs" / "catalog-a43735d2.json"
-RECORDED_CATALOG_SHA256 = "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d"      # a literal: the hash every in-use answers file names in its header
+RECORDED_CATALOG_SHA256 = PINNED_HASHES["interpreter_catalog_before_s8"]      # a literal: the hash every in-use answers file names in its header (scripts/tests/pinned_hashes.json)
 
 
 @pytest.fixture
@@ -110,7 +112,7 @@ def test_an_answers_file_at_the_earlier_prompt_is_refused_by_the_header_check(na
     header, _ = interpreter_measure.read_answers(str(REPLAY / name))
     items, data = interpreter_measure.load_corpus(str(CORPUS))
     wanted = interpreter_measure.header_of("", interpreter_route.find(header["route"]), header["corpus_sha256"], header["runs"], header["sequential"], header["sample"])
-    assert header["prompt_sha256"] == "c492b43b94bd1953d76b8d4921ef436564e8b7e1a379697e943bdcaab95b1497"
+    assert header["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_earlier"]
     assert interpreter_measure.differing(header, wanted) == "prompt_sha256"
 
 

@@ -28,7 +28,7 @@ import standin_tree as st
 from test_mailbox_write import NEW_DRAFT, approve, archive, effect_doc, item_of, ops, ops_core, operations, phrases, rows, world  # noqa: F401  (the mailbox world: `world` is a fixture the tests below use)
 from test_channel_grants import accept as accept_channels
 
-HOLDER = {"telegram": [{"id": "4242", "policy": "holder"}]}
+HOLDER = {"telegram": [{"id": "830461975213", "policy": "holder"}]}
 
 
 def accept(path, channels, **extra):
@@ -48,7 +48,7 @@ def accept(path, channels, **extra):
 
 cards = st.load("messaging_cards")
 account_start = st.load("account_start")
-SENDER = "telegram:4242"
+SENDER = "telegram:830461975213"
 OTHER = "telegram:777"
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
 EXPENSIVE = "Approve this exact content"
@@ -319,7 +319,7 @@ def test_a_mailbox_task_read_by_the_mcp_mode_or_a_messaging_reader_without_ask_m
     }
     accept(desk["path"], {"messaging": ["read"]})
     words = ("Appointment confirmed", "Your order", "ana@clinic.example", "bob@shop.example", "joe@shop.example", "amy@shop.example", "boss@shop.example", "Haircut on Monday",
-             "Hello Joe", "Yes, Monday works", "telegram:4242", "desk@clinic.example")
+             "Hello Joe", "Yes, Monday works", "830461975213", "desk@clinic.example")
     for name, one in started.items():
         whole = ops.task(desk["path"], one["task"])["task"]
         assert whole["step_kind"] == "mailbox-change" and steps.is_account_step(whole["step_kind"], whole["step_args"]), name

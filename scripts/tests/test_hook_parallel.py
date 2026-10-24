@@ -44,26 +44,28 @@ def test_the_hook_tells_a_missing_slot_from_pytests_own_exit_codes_and_reads_typ
 
 
 def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_time_limit():
-    for name, limit in (("tests", 45), ("python39", 25)):
+    # the shard runs pytest through the launcher, so its command reads `shard_tests.py ... -- -q -n auto`
+    for name, limit, command in (("tests", 45, r"pytest -q -n auto\b"), ("python39", 25, r"pytest -q -n auto\b"),
+                                 ("tests-shard", 30, r"-q -n auto\b")):
         block = job_block(name)
         assert re.search(r"^    timeout-minutes: %d\s*$" % limit, block, re.M), name
         assert "--with pytest-xdist==3.8.0" in block, name
-        assert re.search(r"pytest -q -n auto\b", block), name
+        assert re.search(command, block), name
         assert "--durations=20" in block, name
 
 
 def test_the_tests_job_has_the_whole_suite_mode_with_the_full_fuzz_and_a_longer_limit():
-    block = job_block("tests")
-    assert re.search(r"^    timeout-minutes: 45\s*$", block, re.M)
+    assert re.search(r"^    timeout-minutes: 45\s*$", job_block("tests"), re.M)
+    block = job_block("tests-shard")
     whole = block[block.index("- name: Scanner and provider tests, the whole suite"):]
     assert 'WB_FULL_FUZZ: "1"' in whole and "$(python3 scripts/test_dirs.py)" in whole
     assert "select_tests" not in whole  # the whole suite is not a selection
-    assert "pytest-xdist==3.8.0" in whole and re.search(r"pytest -q -n auto\b", whole) and "--durations=20" in whole
+    assert "pytest-xdist==3.8.0" in whole and "-n auto" in whole and "--durations=20" in whole and "scripts/shard_tests.py" in whole
 
 
 def test_the_selected_mode_runs_what_the_selector_prints_and_never_the_full_fuzz():
     block = job_block("tests")
-    selected = block[block.index("- name: Choose the tests"):block.index("- name: Scanner and provider tests, the whole suite")]
+    selected = block[block.index("- name: Choose the tests"):block.index("- name: The whole suite, every shard passed")]
     assert 'python3 scripts/select_tests.py --base "$BASE_SHA"' in selected and "fetch-depth: 0" in block
     assert "test_dirs.py" not in selected and "WB_FULL_FUZZ" not in selected
 
@@ -71,3 +73,4 @@ def test_the_selected_mode_runs_what_the_selector_prints_and_never_the_full_fuzz
 def test_only_the_python39_job_leaves_out_the_javascript_only_interface_tests():
     assert 'WB_SKIP_JS_ONLY_TESTS: "1"' in job_block("python39")
     assert "WB_SKIP_JS_ONLY_TESTS" not in job_block("tests")
+    assert "WB_SKIP_JS_ONLY_TESTS" not in job_block("tests-shard")

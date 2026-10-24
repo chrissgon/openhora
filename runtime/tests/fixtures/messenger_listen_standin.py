@@ -139,7 +139,7 @@ def listen(platform) -> int:
     for item in step.get("emit", []):
         emit(item)
     for _ in range(int(step.get("skipped_after_ready") or 0)):
-        write({"event": "error", "kind": "skipped", "reason": "uid 4242 <a1b2@mail.example> could not be read at /Users/someone/Mail/x"})
+        write({"event": "error", "kind": "skipped", "reason": "uid 905318264170 <qzxw@mail.example> could not be read at /Users/someone/Mail/x"})
     if step.get("paused_after_ready") is not None:
         write({"event": "error", "kind": "paused", "reason": step["paused_after_ready"]})
         return 3
