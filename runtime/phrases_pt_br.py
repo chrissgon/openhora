@@ -865,7 +865,7 @@ TABLE = {
     "RS_NOTHING": "Pesquisei, mas não encontrei uma resposta confiável para isso.",
     "RS_ASK_AGAIN": "Não entendi o que procurar. Pode escrever a pergunta com mais detalhes (um lugar, uma data, um nome)?",
     "RS_TIMEOUT": "A pesquisa demorou demais e foi interrompida.",
-    "RS_CAP": "A pesquisa chegou ao limite de custo e foi interrompida.",
+    "RS_CAP": "A pesquisa chegou ao limite de custo e foi interrompida. Tente de novo, ou aumente research.max_cost_usd no runtime.json do projeto e aceite a configuração de novo.",
     "RS_FAILED": "Não consegui fazer a pesquisa agora. Tente de novo em alguns minutos.",
     "RS_LIMIT": "Já fiz {count} pesquisas hoje, que é o limite do dia.",
     "RS_LIMIT_ONE": "Já fiz 1 pesquisa hoje, que é o limite do dia.",

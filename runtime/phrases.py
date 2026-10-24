@@ -912,7 +912,7 @@ TABLE = {
         "RS_NOTHING": "I searched but did not find a reliable answer to that.",
         "RS_ASK_AGAIN": "I could not tell what to look up. Can you write the question with more detail (a place, a date, a name)?",
         "RS_TIMEOUT": "The search took too long and was stopped.",
-        "RS_CAP": "The search reached its cost limit and was stopped.",
+        "RS_CAP": "The search reached its cost limit and was stopped. Try again, or raise research.max_cost_usd in the project's runtime.json and accept the configuration again.",
         "RS_FAILED": "I could not do the search right now. Try again in a few minutes.",
         "RS_LIMIT": "I already did {count} searches today, which is the limit for a day.",
         "RS_LIMIT_ONE": "I already did 1 search today, which is the limit for a day.",
