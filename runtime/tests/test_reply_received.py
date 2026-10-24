@@ -393,11 +393,9 @@ def test_two_replies_to_two_messages_of_the_same_sender_read_differently_on_a_ph
     assert phone(with_received(None)) != phone(with_received()), "the time is on the phone's line when there is one"
 
 
-# --- the whole way: the index, the facts, the preparation, the card, the approval (waits for one line of step_send_email.py, see the mark) ------------------------------------------------------------------
+# --- the whole way: the index, the facts, the preparation, the card, the approval ------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="runtime/step_send_email.py `_prepare_own` still builds the reply as `{k: facts[k] for k in send_document.REPLY_KEYS}`; the file is outside BL4's ownership "
-                                       "(SPEC-BLITE-INDEX 4): its one line becomes `reply = send_document.reply_of(facts)`, and this test then passes (strict: remove this mark with that line)")
 def test_a_reply_prepared_from_a_snapshot_carries_the_time_into_its_document_its_card_and_its_one_send(world, zone):  # noqa: F811
     started = reply(world, "inbox#1")
     doc = effect_doc(world, started)
