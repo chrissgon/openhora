@@ -1,0 +1,36 @@
+# The nightly bridge on the default branch (the maintainer, 2026-10-24: "Arquivo ponte"; on the integration branch, docs/decisions.md,
+# the entry of T2b). GitHub starts a schedule only from the default branch, and the full nightly run lives on the integration branch until
+# its release. This file only starts that run: each night it dispatches the workflow nightly.yml of the branch that the repository variable
+# NIGHTLY_REF names, and GitHub runs that branch's own copy of the file. Unset, or naming this branch, it starts nothing and says so, so it
+# can never start itself. No checkout, no action, no secret: the job's token may only start a workflow (actions: write). The release
+# replaces this file with the full one, and the maintainer then clears NIGHTLY_REF.
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # every day at 06:17 UTC (03:17 in Brasilia)
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  nightly-bridge:
+    name: nightly bridge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Start the nightly run of the branch NIGHTLY_REF names
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ vars.NIGHTLY_REF }}
+          HERE: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          if [ -z "$REF" ] || [ "$REF" = "$HERE" ] || [ "$REF" = "refs/heads/$HERE" ]; then
+            echo "NIGHTLY_REF is unset or names this branch ($HERE): no nightly run was started." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh workflow run nightly.yml --repo "$REPO" --ref "$REF"
+          echo "Started the nightly run of the branch $REF." >> "$GITHUB_STEP_SUMMARY"
