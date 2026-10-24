@@ -258,7 +258,7 @@ def _shaped(pattern, value):
 def mail_index_entry(n: int, message: dict, scan=None, moment=None) -> dict:
     """The index entry of the message the text numbers `n`: {n, id, thread_id, message_id, from_address, reply_to_address, subject, change_key, received}.
     Every value is a closed shape or null (INDEX_*); the subject is cleaned, its links replaced and cut at INDEX_SUBJECT_CHARS; no body, no name.
-    `received` is the moment the message came (`moment`, the aware datetime of the message's view) in UTC, `YYYY-MM-DDTHH:MM:SSZ`, null when the
+    `received` is the moment the message came (`moment`, the aware datetime of the message's view, which comes from the provider's received time: Outlook's `receivedDateTime`, Gmail's `internalDate`, else the sender's own `Date` header, a well-shaped time the sender chose; it injects no text and chooses no recipient) in UTC, `YYYY-MM-DDTHH:MM:SSZ`, null when the
     message has none: a reply card shows it beside the message answered, and it chooses nothing (S16C-REPLY-DATE). The entry is scanned for
     credentials as a whole (the Reply-To address was not part of the message's scan): a hit empties the entry's words and its time, never its number."""
     headers = message.get("headers") if isinstance(message.get("headers"), dict) else {}

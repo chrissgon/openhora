@@ -131,7 +131,7 @@ def test_a_document_with_the_time_has_it_inside_its_hash_and_one_character_of_it
 
 def test_the_time_is_a_closed_shape_a_hostile_value_is_refused_and_an_unknown_key_is_too():
     doc = with_received()
-    for value in ("yesterday", RECEIVED + "\n", "2026-10-22T17:05:00Z\x1b[2J", "2026-10-22 17:05:00", "2026-10-22T17:05:00+00:00", "2026-10-22", "", " " + RECEIVED, 7, ["x"], {"a": 1}):
+    for value in ("yesterday", RECEIVED + "\n", "2026-10-22T17:05:00Z\x1b[2J", "2026-10-22 17:05:00", "2026-02-30T10:00:00Z", "9999-99-99T99:99:99Z", "2026-10-22T25:00:00Z", "2026-10-22T17:05:00+00:00", "2026-10-22", "", " " + RECEIVED, 7, ["x"], {"a": 1}):
         edited = copy.deepcopy(doc)
         edited["reply"]["received"] = value
         with pytest.raises(effects.EffectError) as why:
@@ -150,7 +150,7 @@ def test_the_time_is_a_closed_shape_a_hostile_value_is_refused_and_an_unknown_ke
 
 
 def test_a_document_built_with_a_hostile_time_is_refused_before_it_has_a_key():
-    for value in ("yesterday", RECEIVED + "\n"):
+    for value in ("yesterday", RECEIVED + "\n", "2026-02-30T10:00:00Z", "9999-99-99T99:99:99Z"):
         with pytest.raises(effects.EffectError):
             send_document.document(**old_pieces({**send_document.reply_of(facts()), "received": value}))
 
@@ -256,7 +256,7 @@ def raw_entry(**change):
 def test_the_read_back_keeps_a_well_formed_time_and_drops_any_other_shape():
     assert item_refs.INDEX_KEYS["mail"][-1] == "received"
     assert item_refs._entry("mail", 1, raw_entry())["received"] == RECEIVED
-    for value in ("yesterday", RECEIVED + "\n", "2026-10-22T17:05:00+00:00", "2026-10-22 17:05:00", "", None, 5, ["x"], "\x1b[2J2026-10-22T17:05:00Z", RECEIVED + "Z"):
+    for value in ("yesterday", RECEIVED + "\n", "2026-10-22T17:05:00+00:00", "2026-10-22 17:05:00", "", None, 5, ["x"], "\x1b[2J2026-10-22T17:05:00Z", RECEIVED + "Z", "2026-02-30T10:00:00Z", "9999-99-99T99:99:99Z", "2026-13-01T00:00:00Z"):
         assert item_refs._entry("mail", 1, raw_entry(received=value))["received"] is None, repr(value)
     without = {k: v for k, v in raw_entry().items() if k != "received"}
     assert item_refs._entry("mail", 1, without)["received"] is None, "an entry written before the key had none"
@@ -408,3 +408,14 @@ def test_a_reply_prepared_from_a_snapshot_carries_the_time_into_its_document_its
     done = approve(world, started)
     assert done["task_state"] == "done" and len(world["gmail"].sent) == 1
     assert sent_message(world["gmail"])["To"] == "ana@clinic.example" and sent_message(world["gmail"])["Cc"] is None, "the time chose nothing about the recipient"
+
+
+def test_an_impossible_date_is_refused_with_a_usage_error_never_a_crash_on_the_card_and_a_real_one_still_passes():
+    for value in ("2026-02-30T10:00:00Z", "9999-99-99T99:99:99Z", "2026-04-31T00:00:00Z", "2026-10-22T24:00:00Z"):
+        with pytest.raises(effects.EffectError):
+            send_document.document(**old_pieces({**send_document.reply_of(facts()), "received": value}))
+        assert item_refs._entry("mail", 1, raw_entry(received=value))["received"] is None, value
+    doc = with_received("2028-02-29T10:00:00Z")      # a leap day exists
+    assert send_document.check(doc) is doc and the_line(send_document.card_lines(doc, "a" * 64), "CARD_MAIL_REPLY_TO_AT")
+    assert item_refs._entry("mail", 1, raw_entry(received="2028-02-29T10:00:00Z"))["received"] == "2028-02-29T10:00:00Z"
+    assert send_document.document(**old_pieces())["idempotency_key"] == OLD_REPLY_HASH, "the old fixture keeps its hash"

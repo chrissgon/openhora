@@ -147,6 +147,11 @@ def _shaped(pattern, value):
     return value if isinstance(value, str) and pattern.fullmatch(value) else None
 
 
+def _received(value):
+    """The moment a message came as the index recorded it: the closed shape AND a date that exists (`2026-02-30T10:00:00Z` is none), else None."""
+    return value if _shaped(RECEIVED, value) is not None and text.parse_moment(value) is not None else None
+
+
 def _subject(value) -> str:
     """The subject of a stored entry as the write side made it: control, format and direction characters out, white space collapsed, at most
     SUBJECT_MAX characters. Links are NOT replaced again (the write side already replaced them; doing it twice would change `<link: host>` text that
@@ -167,7 +172,7 @@ def _entry(kind: str, n: int, raw) -> dict:
                 "message_id": _shaped(MESSAGE_ID, raw.get("message_id")), "from_address": text.plain_address(raw.get("from_address")),
                 "reply_to_address": text.plain_address(raw.get("reply_to_address")),
                 "subject": _subject(raw.get("subject")),
-                "change_key": _shaped(KEY, raw.get("change_key")), "received": _shaped(RECEIVED, raw.get("received"))}
+                "change_key": _shaped(KEY, raw.get("change_key")), "received": _received(raw.get("received"))}
     others = raw.get("attendees_other")
     return {"n": n, "id": _shaped(ID, raw.get("id")), "etag": _shaped(KEY, raw.get("etag")), "calendar": _shaped(CALENDAR, raw.get("calendar")),
             "organizer_self": raw.get("organizer_self") is True, "attendees_other": others if type(others) is int and others >= 0 else None,

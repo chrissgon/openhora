@@ -412,7 +412,8 @@ def _check_own(doc: dict) -> None:
         return
     if not isinstance(reply, dict) or set(reply) not in (set(REPLY_KEYS), set(REPLY_KEYS) | set(REPLY_OPTIONAL)):
         raise _usage("the message answered has exactly its keys")
-    if "received" in reply and reply["received"] is not None and (not isinstance(reply["received"], str) or not RECEIVED.fullmatch(reply["received"])):
+    if "received" in reply and reply["received"] is not None and (not isinstance(reply["received"], str) or not RECEIVED.fullmatch(reply["received"])
+                                                                   or snapshot_text.parse_moment(reply["received"]) is None):      # the shape, and a date that exists
         raise _usage("the message answered has the time it came, as the index recorded it")
     for name in ("address", "reply_to"):
         value = reply[name]
