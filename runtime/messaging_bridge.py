@@ -116,7 +116,7 @@ record of kind `plan-confirm` (ids, a hash and an operation name, never text). `
 a listed sender, not forwarded, a yes or no word code reads (`natural.confirm_kind`) when the question is the LAST message the platform sent to the chat or the line replies to it (e-mail: only a
 reply); a yes starts the confirmed call as a job with the plan's item and hash (`plan_ok`), a no drops the plan. The question's own buttons do the same (`plan_tapped`). Any other line goes on as
 it did; a correction reaches `say`, where the interpreter reads it with the plan as a typed frame item. A card that came after a question whose plan still waits is not decided by a bare word
-(`word_line`: `PLAN_TWO_OPEN`; a reply names the message it means). A research that runs is stopped by its asker's stop word (`research_stop_line`, in the chain right AFTER the card words).
+(`word_line`: `PLAN_TWO_OPEN`, whichever of the two was recorded first; a reply names the message it means). A research that runs is stopped by its asker's stop word (`research_stop_line`, in the chain right AFTER the card words).
 
 Standard library only. Runs on Python 3.9.
 """
@@ -1026,14 +1026,14 @@ class Bridge(shell_kit.Jobs):
         (the record is this chat's, the sender is listed) came before."""
         self.plan_decide(project, chat, rec, word, phrases.text("NT_BTN_YES", self.cfg(project, chat)) if word == "yes" else "")
 
-    def plan_waits_before(self, listed: list, chat: str, card: dict) -> bool:
-        """Whether a question of a plan whose plan still waits was sent to this chat BEFORE `card` (D5, the two-question guard of L64): then a bare word decides nothing, because it may be meant for
-        either. The order is the ledger's own (a record is added after its message was sent), which does not tie as a timestamp of a second may."""
+    def plan_waits(self, listed: list, chat: str) -> bool:
+        """Whether a question of a plan whose plan still waits (live: inside its 600 s and neither taken nor dropped) has been sent to this chat (D5, the two-question guard of L64): then a bare word
+        on a decision card decides nothing, because it may be meant for either. No "before the card" condition: `last_sent` follows the order sends START and a ledger record is added when its send
+        RETURNS, so two threads can record the card first and the question after it; a question sent after the card is the last message and `plan_line` takes the word before it gets here."""
         with self.ledger.lock:
-            records = [dict(c) for c in self.ledger.data["cards"] if self.ledger._mine(c) and c.get("chat") == chat]
-        at = max((i for i, r in enumerate(records) if str(r.get("message_id")) == str(card.get("message_id"))), default=None)
-        for rec in records[:at] if at is not None else []:
-            target = next((p for p in listed if p["id"] == rec.get("project")), None) if rec.get("kind") == "plan-confirm" else None
+            records = [dict(c) for c in self.ledger.data["cards"] if self.ledger._mine(c) and c.get("chat") == chat and c.get("kind") == "plan-confirm"]
+        for rec in records:
+            target = next((p for p in listed if p["id"] == rec.get("project")), None)
             if target is None:
                 continue
             try:
@@ -1129,7 +1129,7 @@ class Bridge(shell_kit.Jobs):
         newest = next((c for c in found if str(c[1]["message_id"]) == last), None)
         if newest is None:
             return False      # the last message is not a card a word could decide
-        if self.plan_waits_before(listed, chat, newest[1]):
+        if self.plan_waits(listed, chat):
             self.reply(chat, self.t("PLAN_TWO_OPEN", project=newest[0]), newest[0])      # D5, L64: a "Posso?" still waits and a card came after it: a bare word may be meant for either, so it decides neither (a reply names the message it means)
             return True
         if word["all"] and word["op"] == "approve":

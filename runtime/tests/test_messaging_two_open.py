@@ -1,9 +1,9 @@
-"""Two questions wait and one bare "sim" answers neither (package BL2b, limit L64; runtime/messaging_bridge.py `word_line`, `plan_waits_before`).
+"""Two questions wait and one bare "sim" answers neither (package BL2b, limit L64; runtime/messaging_bridge.py `word_line`, `plan_waits`).
 
 A "Shall I go ahead?" (a plan the operations layer keeps) and a decision card that was sent AFTER it are both open. A bare "sim" may be meant for either: it decides NEITHER and the person is told
 to reply to the message they mean (`PLAN_TWO_OPEN`). A reply names its message, so a reply "sim" to the card decides the card (approved by its hash) and one to the question confirms the plan.
 Over the stand-in operations object and the stand-in messenger of test_messaging.py (the bridge asks only `plan_live` and `plan_drop` of the plan, which the test answers); every count is the
-stand-in's own literal. The order of the two messages is the ledger's own, which does not tie when both are sent in one second (the stand-in clock here never moves). Offline; invented names.
+stand-in's own literal. The guard holds whichever of the two records the ledger holds first (the race of two threads that send at once), not only a question recorded before the card. Offline; invented names.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_two_open.py
 """
@@ -88,6 +88,26 @@ def test_the_plan_line_never_decides_a_decision_card(open_two):
 
 
 def test_vacuity_without_the_guard_the_bare_sim_approves_the_card(open_two, monkeypatch):
-    monkeypatch.setattr(bridge.Bridge, "plan_waits_before", lambda self, listed, chat, card: False)
+    monkeypatch.setattr(bridge.Bridge, "plan_waits", lambda self, listed, chat: False)
     open_two.say("sim")
     assert approvals(open_two) == [(1, "a" * 64)], "the same counter that is empty in the first test sees the approval"
+
+
+def test_a_question_recorded_after_the_card_still_blocks_a_bare_sim(open_two):
+    """The race: the job thread started sending the question first, the tick thread's card returned and was recorded first, so the ledger holds the card, then the question, and the card is the last message."""
+    world = open_two
+    cards = world.bridge.ledger.data["cards"]
+    question = cards.pop(next(i for i, c in enumerate(cards) if c.get("kind") == "plan-confirm"))
+    cards.append(question)
+    assert world.bridge.last_sent[SENDER] == str([c["message_id"] for c in cards if c.get("kind") != "plan-confirm"][-1]), "the card is still the last message sent"
+    world.say("sim")
+    assert approvals(world) == [] and world.texts()[-1] == t(world, "PLAN_TWO_OPEN") and world.live["plan"] is not None
+
+
+def test_an_expired_or_taken_plan_no_longer_blocks_the_card(open_two):
+    world = open_two
+    cards = world.bridge.ledger.data["cards"]
+    cards.append(cards.pop(next(i for i, c in enumerate(cards) if c.get("kind") == "plan-confirm")))
+    world.live["plan"] = None      # expired, taken or dropped
+    world.say("sim")
+    assert approvals(world) == [(1, "a" * 64)]
