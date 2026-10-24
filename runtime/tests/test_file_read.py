@@ -47,7 +47,8 @@ ZONE = "America/Sao_Paulo"
 READER = "55119000000021"        # holds read-files
 PLAIN = "55119000000022"         # holds interpret and talk, not read-files
 READER_KEY, PLAIN_KEY = f"telegram:{READER}", f"telegram:{PLAIN}"
-FILE_PROFILES = dict(PROFILES, reader=["read", "talk", "interpret", "read-files"], plain=["read", "talk", "interpret"])
+# D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: these tests are about the file read itself, which runs at once for a sender who holds `confirm-reads-off` (accepted with --widen by `accept`).
+FILE_PROFILES = dict(PROFILES, reader=["read", "talk", "interpret", "read-files", "confirm-reads-off"], plain=["read", "talk", "interpret", "confirm-reads-off"])
 FILE_SENDERS = {"telegram": [{"id": READER, "policy": "reader"}, {"id": PLAIN, "policy": "plain"}]}
 ACCOUNTS = {"google": {"address": "ana@mail.example", "folders": {"default": "GDRIVEFOLDER0001", "contratos": "GDRIVEFOLDER0002"}},
             "microsoft": {"address": "ana@outlook.example", "folders": {"default": "/Documentos"}}}

@@ -835,7 +835,7 @@ TABLE = {
         "ACK_FILE": "Looking for the file...",
         "ACK_COMPOSE": "Writing the e-mail...",
         "ACK_CARD": "Preparing the card...",
-        "ACK_RESEARCH": "Searching...",
+        "ACK_RESEARCH": "Searching... Send 'Stop' to cancel.",
         "ACK_PLAN": "I will work on that...",
         "FR_GOOGLE": "Google Drive",
         "FR_MICROSOFT": "OneDrive",

@@ -414,7 +414,7 @@ def test_a_reader_who_cannot_approve_is_not_shown_the_line_that_says_how(desk):
 def test_the_private_card_of_a_mailbox_change_a_holder_reads_is_not_kept_in_the_conversation_the_mcp_mode_reads(desk):
     """A messaging read of the card drawn for a holder of `ask-mail` (the senders and subjects of the messages) goes to that chat alone; the conversation keeps a
     neutral word."""
-    accept(desk["path"], {"messaging": ["read", "talk", "mail-organize", "ask-mail"]})
+    accept(desk["path"], {"messaging": ["read", "talk", "mail-organize", "ask-mail", "confirm-reads-off"]})      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: this test is about what the read keeps, so the read runs at once
     started = archive(desk, channel="messaging", sender=SENDER)
     neutral = phrases.text("NAT_READ_REPLY", None)
     typed = ops.say(desk["path"], f"/pending {started['pending']}", channel="messaging", sender=SENDER)

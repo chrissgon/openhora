@@ -1,7 +1,7 @@
 """The acts asked in words ask first (package BL2a, limits L54 and L65): cancel, stop-task, retry, routine-pause, attachment-add, attachment-discard, reject and release run only after the
 person's OK of the sentence code wrote from the call, and the number rule stays: a model's decision is believed only for the one number WRITTEN in the line (`command_words.vet`).
 
-The verb lists of S20 are not dropped by this package (they go with the switch, in the package that sets `plan_confirm.ACTIVE`): with D5 on in these tests the verb test is off, so a
+The verb lists of S20 went with the switch (BL2b set `plan_confirm.ACTIVE`; before it these tests ran with D5 on and the verb test off): a
 line the lists refused ("quero cancelar o pedido 3", "nao cancela o pedido 3") now meets the question instead, and the question is where the person says no. Offline; invented names.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_plan_confirm_acts.py

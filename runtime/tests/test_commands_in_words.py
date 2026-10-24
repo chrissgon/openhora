@@ -6,6 +6,10 @@ utilizando linguagem natural". The rule these tests pin: a command asked for in 
 `approve` is never made from words (the decision's card is sent again) and `answer` keeps the words it had. The bridge side (the typed line is handled as typed, no model slot) is
 in test_commands_in_words_bridge.py; the pure reading of "muda para o projeto" is in test_command_words.py.
 
+D5 (BL2b, limit L65): a read or an act asked in words now meets the question "I understood: ... Shall I go ahead?" before it runs, and the closed verb lists that refused a negated or conditional line are gone.
+D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: here `rig.line` says "sim" to the question (the question is the last message, so it is the OK of L64) and returns what was
+sent after it, so every assertion about the act itself reads as it did; a test of a line the verb lists refused passes `confirm=False` and asserts the question and that nothing ran before the OK.
+
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_commands_in_words.py
 """
 from __future__ import annotations
@@ -36,6 +40,7 @@ interpreter_route = st.load("interpreter_route")
 natural = st.load("natural")
 command_words = st.load("command_words")
 ops_natural = st.load("ops_natural")
+phrases = st.load("phrases")
 
 ZONE = "America/Sao_Paulo"
 BARE, OTHER = "55119000000007", "55119000000008"
@@ -96,13 +101,29 @@ def rig(request, docs, tmp_path, monkeypatch):
     r.sent = sent
     r.texts = lambda chat=None: [s["message"]["text"] for s in sent() if chat is None or s["chat"] == chat]
 
-    def line(who, text, model=None):
-        """The sender types `text`; the bridge's jobs end; what was sent to that sender's chat since is returned."""
+    def plan_cards(who):
+        return [c for c in r.bridge.ledger.data["cards"] if c.get("kind") == "plan-confirm" and c["chat"] == who]
+    r.plan_cards = plan_cards
+
+    def answer(who, word):
+        """The sender says `word` (it does not reset the model's record); what was sent to that sender's chat since is returned."""
         before = len([s for s in sent() if s["chat"] == who])
+        r.bridge.handle({"update_id": 1, "sender": who, "chat": who, "private": True, "text": word, "action": None, "action_ref": None, "reply_to": None})
+        assert wait_for(lambda: not r.bridge.exclusive and all(not t.is_alive() for t in r.bridge.threads))
+        return [s["message"]["text"] for s in sent() if s["chat"] == who][before:]
+    r.answer = answer
+
+    def line(who, text, model=None, confirm=True):
+        """The sender types `text`; the bridge's jobs end; what was sent to that sender's chat since is returned. D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: when
+        the line met the question "Shall I go ahead?" and `confirm` is true, the sender says "sim" to it and what was sent after that is returned; with `confirm` false the question is returned."""
+        before = len([s for s in sent() if s["chat"] == who])
+        asked = len(plan_cards(who))
         r.asked.clear()
         r.model["text"] = model or '{"v":1,"kind":"none"}'
         r.bridge.handle({"update_id": 1, "sender": who, "chat": who, "private": True, "text": text, "action": None, "action_ref": None, "reply_to": None})
         assert wait_for(lambda: not r.bridge.exclusive and all(not t.is_alive() for t in r.bridge.threads))
+        if confirm and len(plan_cards(who)) > asked:
+            return answer(who, "sim")
         return [s["message"]["text"] for s in sent() if s["chat"] == who][before:]
     r.line = line
 
@@ -117,6 +138,18 @@ def rig(request, docs, tmp_path, monkeypatch):
 
 def say(rig, key):
     return rig.say_for[key]
+
+
+def question(rig, key, **fields):
+    """The question "I understood: ... Shall I go ahead?" for a sentence, by phrase key and values, in the project's language."""
+    cfg = {"language": rig.language}
+    return phrases.text("PLAN_HEAD", cfg, what=phrases.text(key, cfg, **fields)) + " " + phrases.text("PLAN_ASK", cfg)
+
+
+def nothing_ran_before_the_ok(rig, who, said, asked, nothing_changed):
+    """A line the verb lists refused meets the question now (the person reads the sentence and says no there): the reply is that question, `nothing_changed()` holds, and "nao" drops it."""
+    assert said == [asked] and nothing_changed()
+    assert rig.answer(who, "n\u00e3o") == [phrases.text("PLAN_DROPPED", {"language": rig.language})] and nothing_changed()
 
 
 def make_question(rig, token="Zircon77") -> int:
@@ -437,8 +470,11 @@ CANCEL_PROBES = {"en": ["no need to cancel the request {id}", "should I cancel t
 def test_a_cancel_the_model_chose_is_not_done_when_the_line_negates_asks_conditions_or_names_two_numbers(rig):
     request = make_request(rig)
     for line in probes(rig, CANCEL_PROBES):
-        said = rig.line(OWNER, line.format(id=request), op("cancel", {"id": str(request)}))
-        assert said == [say(rig, "again")] or said == [say(rig, "which_number")], line
+        said = rig.line(OWNER, line.format(id=request), op("cancel", {"id": str(request)}), confirm=False)
+        if natural.decision_numbers(line.format(id=request)) == [request]:      # the number rule stays: the line writes it once; what the line means is now the person's to read
+            nothing_ran_before_the_ok(rig, OWNER, said, question(rig, "UNDERSTOOD_CANCEL", id=request), lambda: request_state(rig, request) != "cancelled")
+        else:
+            assert said == [say(rig, "which_number")], line
         assert request_state(rig, request) != "cancelled", line
     assert len(rig.asked) == 1
 
@@ -446,7 +482,9 @@ def test_a_cancel_the_model_chose_is_not_done_when_the_line_negates_asks_conditi
 def test_a_cancel_the_model_chose_for_an_object_that_is_not_a_request_is_not_done(rig):
     request = make_request(rig)
     for line in (f"cancel task {request}", f"cancel the event {request}", f"cancela o {request}"):
-        rig.line(OWNER, line, op("cancel", {"id": str(request)}))
+        rig.line(OWNER, line, op("cancel", {"id": str(request)}), confirm=False)      # the verb and object lists are gone: a line that names another object meets the question, where the person says no
+        assert request_state(rig, request) != "cancelled", line      # nothing ran before the OK
+        rig.answer(OWNER, "n\u00e3o")
         assert request_state(rig, request) != "cancelled", line
 
 
@@ -458,7 +496,10 @@ def test_a_stop_the_model_chose_is_not_done_for_a_condition_a_negation_a_second_
     calls = []
     rig.monkeypatch.setattr(ops, "stop_task", lambda project, task_id, channel=None, sender=None: calls.append(task_id) or {"task": task_id, "already": False})
     for line in probes(rig, STOP_PROBES):
-        rig.line(OWNER, line.format(id=3), op("stop-task", {"id": "3"}))
+        said = rig.line(OWNER, line.format(id=3), op("stop-task", {"id": "3"}), confirm=False)
+        assert calls == [], line      # nothing ran before the OK
+        assert said == ([question(rig, "UNDERSTOOD_STOP_TASK", id=3)] if natural.decision_numbers(line.format(id=3)) == [3] else [say(rig, "which_number")]), line
+        rig.answer(OWNER, "n\u00e3o")
         assert calls == [], line
 
 
@@ -479,7 +520,9 @@ def test_a_routine_pause_the_model_chose_is_not_done_for_a_negation_or_a_conditi
     rig.monkeypatch.setattr(ops, "routine_pause", lambda project, routine_id, channel=None, sender=None: calls.append(routine_id) or {})
     for line in (("don't pause routine 4", "pause routine 4 if it runs late", "should I pause routine 4?") if rig.language == "en" else
                  ("não pause a rotina 4", "pause a rotina 4 se atrasar", "devo pausar a rotina 4?")):  # validate: allow english-only -- the Portuguese lines under test
-        rig.line(OWNER, line, op("routine-pause", {"id": "4"}))
+        said = rig.line(OWNER, line, op("routine-pause", {"id": "4"}), confirm=False)
+        assert calls == [] and said == [question(rig, "UNDERSTOOD_ROUTINE_PAUSE", id=4)], line      # nothing ran before the OK
+        rig.answer(OWNER, "n\u00e3o")
         assert calls == [], line
 
 
@@ -490,22 +533,25 @@ DECISION_PROBES = {"en": ["don't reject question {id}", "reject the question fro
 
 
 def test_a_rejection_the_model_chose_is_not_done_for_a_negation_a_relative_time_a_condition_a_question_or_a_percentage(rig):
-    question = make_question(rig)
+    question_id = make_question(rig)
     for line in probes(rig, DECISION_PROBES):
-        said = rig.line(OWNER, line.format(id=question), op("reject"))
-        assert said in ([say(rig, "again")], [say(rig, "which")]), (line, said)
-        assert status_of(rig, question) == "open", line
+        said = rig.line(OWNER, line.format(id=question_id), op("reject"), confirm=False)
+        if natural.decision_numbers(line.format(id=question_id)) == [question_id]:      # the number rule stays; the meaning is the person's to read in the question
+            nothing_ran_before_the_ok(rig, OWNER, said, question(rig, "UNDERSTOOD_REJECT", id=question_id), lambda: status_of(rig, question_id) == "open")
+        else:
+            assert said == [say(rig, "which")], (line, said)
+        assert status_of(rig, question_id) == "open", line
 
 
-def test_vacuity_without_the_check_of_the_line_the_negated_cancel_and_the_negated_rejection_are_done(rig, monkeypatch):
-    """The fault: the vetting of the model's reading is gone (the first S20 version). The same probes then act, and the checks above would have failed."""
-    request, question = make_request(rig), make_question(rig)
-    monkeypatch.setattr(command_words, "vet", lambda line, op_, number: None)
-    cancel, reject = (("no need to cancel the request {id}", "don't reject question {id}") if rig.language == "en" else
-                      ("não precisa cancelar o pedido {id}", "não rejeite a pergunta {id}"))  # validate: allow english-only -- the Portuguese lines under test
-    rig.line(OWNER, cancel.format(id=request), op("cancel", {"id": str(request)}))
-    rig.line(OWNER, reject.format(id=question), op("reject"))
-    assert request_state(rig, request) == "cancelled" and status_of(rig, question) != "open"
+def test_vacuity_without_the_check_of_the_number_in_the_line_a_cancel_with_two_numbers_is_asked_and_done(rig, monkeypatch):
+    """The fault: the vetting of the model's number is gone (the first S20 version). A line with two numbers, of which the model chose one, then reaches the question and, with the person's "sim", acts on
+    the one the model picked: the real behaviour (the number rule stays, L54) asks which number and does nothing."""
+    first, second = make_request(rig), make_request(rig)
+    line = f"cancel requests {first} and {second}" if rig.language == "en" else f"cancele os pedidos {first} e {second}"
+    assert rig.line(OWNER, line, op("cancel", {"id": str(first)})) == [say(rig, "which_number")] and request_state(rig, first) != "cancelled"
+    monkeypatch.setattr(command_words, "vet", lambda line_, op_, number: None)
+    assert rig.line(OWNER, line, op("cancel", {"id": str(first)})) == [say(rig, "cancelled").format(id=first)]
+    assert request_state(rig, first) == "cancelled" and request_state(rig, second) != "cancelled"
 
 
 def test_a_percentage_a_price_or_a_quantity_is_not_the_number_of_a_decision_in_a_closed_form_or_in_a_line():

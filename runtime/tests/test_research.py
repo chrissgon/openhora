@@ -172,7 +172,12 @@ def research(world, monkeypatch):
 
 
 def phone(world, line, key=ASKER_KEY):
-    return ops.say(world["path"], line, channel="messaging", sender=key)["reply"]
+    """The reply to a line on a phone. D5 is tested in test_plan_confirm*.py, test_messaging_plan_confirm.py and test_messaging_research_brake.py: a search always asks "Shall I go ahead?" first, so the
+    sender says yes to the question (the bridge's job: `plan_ok`) and the reply is the one that follows; a line that asks nothing is answered as it was."""
+    out = ops.say(world["path"], line, channel="messaging", sender=key)
+    if "plan_confirm" in out:
+        out = ops.say(world["path"], "sim", channel="messaging", sender=key, plan_ok={"item": out["plan_confirm"]["item"], "sha256": out["plan_confirm"]["sha256"]})
+    return out["reply"]
 
 
 def stored(world) -> list:
@@ -620,4 +625,4 @@ def test_a_sender_removed_while_the_run_goes_gets_nothing(research, monkeypatch)
 def test_the_path_the_interpreter_takes_stores_the_line_as_a_neutral_word(research):
     phone(research, LINE_1)
     users = [r["text"] for r in stored(research) if r["role"] == "user"]
-    assert users[-1] == "(uma mensagem)" and LINE_1 not in json.dumps(stored(research), ensure_ascii=False)
+    assert users[-2:] == ["(uma mensagem)", "sim"] and LINE_1 not in json.dumps(stored(research), ensure_ascii=False)      # the line, then the person's OK of the question (D5): the OK is stored as it was said

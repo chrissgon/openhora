@@ -220,6 +220,9 @@ def test_a_line_code_recognises_is_never_the_answer_for_a_sender_the_interpreter
     rig.says["text"] = text("answer", answers_item="i1")
     out = say(rig, "owner", f"cancel request {other}")
     assert rig.calls == [] and rig.spy == [], "code took the line: no model call, no route"
+    assert out["plan_confirm"]["op"] == "cancel" and "typed" not in out, "D5 (tested in test_plan_confirm*.py and test_messaging_plan_confirm.py): the act asks first, and nothing was cancelled yet"
+    out = ops.say(rig.world["path"], "sim", channel="messaging", sender=OWNER_KEY, plan_ok={"item": out["plan_confirm"]["item"], "sha256": out["plan_confirm"]["sha256"]})      # the person's OK, as the bridge passes it
+    assert rig.calls == [] and rig.spy == []
     assert out["typed"] == f"/cancel {other}" and json.loads(out["reply"])["request"] == other, "code's own act (S20): the typed /cancel, and its result"
     states = {r["id"]: r["state"] for r in ops.status(rig.world["path"])["requests"]}
     assert states[other] == "cancelled" and states[old] == "requested" and bound(rig) == pending_id and ops.pending(rig.world["path"], pending_id)["status"] == "open", "the question was not answered"

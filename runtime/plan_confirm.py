@@ -25,8 +25,8 @@ What is asked (the maintainer's decisions of 2026-10-24):
 Never asked: a greeting or the help, the answer to the platform's own question (a draft, the router's question, a number after a list), a button, a slash command, a card (it is the OK of
 an effect), a notice (a reminder keeps its own confirmation) and a routine or a fired reminder.
 
-THE SWITCH. `ACTIVE` is False in the package that adds this module (BL2a): until the messaging bridge can take a "sim" to a question there is none to ask, so `needed` is False and
-`command_words.vet` keeps its verb check. The bridge's package (BL2b) sets it True and drops the verb lists in the same change.
+THE SWITCH. `ACTIVE` was False in the package that added this module (BL2a) because the messaging bridge could not yet take a "sim" to a question; the bridge's package (BL2b) sets it True with the
+dispatcher that can (`Bridge.plan_line`), and dropped the S20 verb lists of `command_words.vet` in the same change. With it False `needed` is False (nothing is asked), which a test may use.
 
 Privacy: the plan lives in memory for at most PLAN_TTL seconds, in the store of runtime/pending_items.py; `said` and the person's spans are in it and nowhere else. Nothing here logs,
 prints or writes them; `repr` of an item shows its kind and id only. Standard library only. Runs on Python 3.9: python3 runtime/plan_confirm.py --help
@@ -49,7 +49,7 @@ import pending_items  # noqa: E402
 import phrases  # noqa: E402
 import snapshot_text  # noqa: E402
 
-ACTIVE = False      # the switch between BL2a and BL2b (see the module's text); a test sets it with monkeypatch
+ACTIVE = True       # the switch between BL2a and BL2b (see the module's text): on since BL2b; a test may set it False with monkeypatch
 PLAN_TTL = 600      # seconds a plan waits for its OK: the lifetime of a write draft and of a card list (ops_natural.DRAFT_TTL, messaging_bridge.LIST_SECONDS)
 VALUE_MAX = 80      # characters of one value of the person's words in the sentence
 ALWAYS = ("research", "ask")
@@ -66,18 +66,11 @@ SENTENCES = {      # the phrase key of each operation's sentence; the ones that 
     "attachment-add": "UNDERSTOOD_ATTACHMENT_ADD", "attachment-discard": "UNDERSTOOD_ATTACHMENT_DISCARD", "reject": "UNDERSTOOD_REJECT", "release": "UNDERSTOOD_RELEASE"}
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")      # the English abbreviation the operations layer writes (phrases.localize_dates turns it into the language's)
 
-# The stop words of a research that is running: the whole line, folded (`natural.ascii_normal`), polite words at its edges taken off. Closed lists by language; a line is a stop when it is in
-# the union, since a person may write in any language. The research acknowledgement tells the person to send 'Pare' (pt-BR) or 'Stop' (the other languages): a test of the package
-# that owns that text holds its word to be in the list of its language, so a word of the lists here is struck only with that text.
-STOP_WORDS = {
-    "pt-BR": ("cancela", "cancele", "cancelar", "para", "pare", "parar", "chega", "para a pesquisa", "pare a pesquisa", "cancela a pesquisa", "cancele a pesquisa", "esquece", "deixa pra la"),      # validate: allow english-only -- the stop words of a Portuguese list
-    "en": ("stop", "cancel", "stop it", "cancel it", "stop the search", "cancel the search", "never mind", "forget it"),
-    "es": ("para", "cancela", "detente", "stop", "cancela la busqueda", "olvidalo"),
-    "fr": ("arrete", "annule", "stop", "laisse tomber", "annule la recherche"),
-    "de": ("stopp", "stop", "abbrechen", "brich ab", "vergiss es"),
-    "it": ("basta", "ferma", "annulla", "stop", "lascia stare"),
-}
-_STOP = frozenset(word for words in STOP_WORDS.values() for word in words)
+# The stop words of a research that is running: the closed lists, and `stop_form`, live in runtime/command_words.py (a pure reading of one line, which the messaging bridge may import: the layer map
+# allows it that module and not this one) and are named here, where BL2a's interface has them. The research acknowledgement tells the person to send 'Pare' (pt-BR) or 'Stop' (the other languages): a
+# test of the package that owns that text holds its word to be in the list of its language, so a word of the lists is struck only with that text.
+STOP_WORDS = command_words.STOP_WORDS
+stop_form = command_words.stop_form
 
 
 def _ops_natural():
@@ -222,14 +215,6 @@ def frame_parts(item: dict) -> tuple:
     age = int(max(0, _age(item)))
     return ({"kind": "plan-confirm", "need": "confirm", "op": item["state"]["op"], "age_s": age},
             {"op": item["state"]["op"], "own_words": item["state"]["words"], "age_s": age})
-
-
-def stop_form(line) -> bool:
-    """Whether the whole line is a stop word (STOP_WORDS, any language): pure, reads no store."""
-    if not isinstance(line, str) or line.lstrip().startswith("/") or "@" in line:
-        return False
-    flat = command_words._trim(natural.ascii_normal(line))
-    return flat in _STOP
 
 
 def main(argv=None) -> int:

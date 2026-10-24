@@ -44,7 +44,8 @@ def rig(docs, tmp_path, monkeypatch):
     folder.mkdir()
     monkeypatch.setenv("STANDIN_DIR", str(folder))
     monkeypatch.setenv("OPENHORA_STATE_DIR", str(tmp_path / "state"))
-    accept(docs["path"], policies={**PROFILES, "viewer": ["read", "sources"]},
+    accept(docs["path"], policies={**PROFILES, "viewer": ["read", "sources", "confirm-reads-off"]},      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: these tests are about the read, which runs at once for a viewer who holds `confirm-reads-off`
+          
            messaging={"senders": {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": READER, "policy": "viewer"}]}})
     r = Rig()
     r.world, r.folder = docs, folder

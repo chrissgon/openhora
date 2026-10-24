@@ -788,7 +788,7 @@ TABLE = {
     "ACK_FILE": "Procurando o arquivo...",
     "ACK_COMPOSE": "Redigindo o e-mail...",
     "ACK_CARD": "Preparando o card...",
-    "ACK_RESEARCH": "Pesquisando...",
+    "ACK_RESEARCH": "Pesquisando... Digite 'Pare' para cancelar.",
     "ACK_PLAN": "Vou trabalhar nisso...",
     "FR_GOOGLE": "Google Drive",
     "FR_MICROSOFT": "OneDrive",

@@ -14,7 +14,7 @@ import pytest
 import standin_tree as st
 from test_ask import LEASE, NOTES, accept, add_source, run_files, run_prompt
 from test_ask_snapshots import INBOX, snapshot
-from test_ops_natural import KEY, OPERATION, OWNER, PROFILES, SENDERS, docs, phone, router_says, say, stored, with_senders, world  # noqa: F401
+from test_ops_natural import KEY, OPERATION, OWNER, PROFILES, SENDERS, docs, ok_of, phone, router_says, say, stored, with_senders, world  # noqa: F401
 
 ops = st.load("ops")
 ops_cancel = st.load("ops_cancel")
@@ -104,10 +104,10 @@ def test_ask_is_called_with_the_whole_line_and_the_sources_are_chosen_by_code_ne
     with_senders(docs)
     line = "qual o prazo do contrato?"
     router_says(docs, OPERATION.format(name="ask") + "Sources: meeting-notes\nLanguage: en\n")
-    out = phone(docs, "asker", line)
+    out = ok_of(docs, "asker", phone(docs, "asker", line))      # D5: an ask always asks first (BL2b); the sender says yes
     assert out["ran"] is True and "Quote" not in out["reply"] or out["reply"]
-    last = [m for m in stored(docs) if m["role"] == "assistant"][-1]
-    assert last["run_id"] and last["task_id"] is not None, "stored with the answer run and under the request code closed: only the asker reads it back (limit L50: the display keys on the run)"
+    asked, last = [m for m in stored(docs) if m["role"] == "assistant"][-2:]      # D5 (BL2b): the question "Shall I go ahead?" is stored under the request code closed; the answer, after the OK, with its run
+    assert last["run_id"] and asked["task_id"] is not None, "stored with the answer run and under the request code closed: only the asker reads it back (limit L50: the display keys on the run)"
     result = {"run_id": last["run_id"]}
     assert run_prompt(docs, result).startswith(line), "the question is the person's whole line, not a rewrite"
     copied = sorted(f for f in run_files(docs, result) if f.endswith("converted.md"))
@@ -130,7 +130,7 @@ def test_a_mail_snapshot_named_in_an_ask_from_a_messaging_app_is_snapshot_here_a
     with_senders(docs)
     snapshot(docs, "inbox", "mail", INBOX, "gmail:box=inbox;days=7;max=50")
     router_says(docs, OPERATION.format(name="ask"))
-    out = phone(docs, "asker", "what is the prazo in @inbox?")
+    out = ok_of(docs, "asker", phone(docs, "asker", "what is the prazo in @inbox?"))      # D5: an ask always asks first (BL2b); the sender says yes
     assert out["reply"] == ops_ask.SNAPSHOT_HERE
     assert st.calls(docs["adapter"]) == ["core-orchestrator 1"]
 
@@ -162,8 +162,9 @@ def test_the_router_naming_a_decision_a_gated_act_or_a_planned_effect_executes_n
     with_senders(world)
     plan_id = phone(world, "owner", "Which market first?")["pending_id"]
     router_says(world, OPERATION.format(name="approve") + f"Argument id: {plan_id}\n")
-    unread = phone(world, "owner", f"please sign off on number {plan_id}")      # S20: the router's reading is believed only when the line's own verb says the same; "sign off" is no verb of the list
-    assert unread["reply"] == phrases.text("IX_ASK_AGAIN", None) and "resend" not in unread
+    unread = phone(world, "owner", f"please sign off on number {plan_id}")      # the S20 verb lists are gone (BL2b): "sign off" is read like "approve": the card is sent again, never approved from words
+    assert unread["reply"] == phrases.text("NAT_DECISION_CARD", None, id=plan_id) and unread["resend"] == plan_id
+    assert ops.pending(world["path"], plan_id)["status"] == "open", "nothing was approved"
     out = phone(world, "owner", f"please approve number {plan_id}")
     assert out["reply"] == phrases.text("NAT_DECISION_CARD", None, id=plan_id) and out["resend"] == plan_id
     assert ops.pending(world["path"], plan_id)["status"] == "open"
