@@ -374,7 +374,8 @@ def temp_base(names=()):
 
 
 # Temporary run folders in use -> where their content goes back to, so a stop returns every one of them.
-RUN_ROOTS, RUN_ROOTS_LOCK = {}, threading.Lock()
+# Re-entrant: a stop handler may run on top of a return_run of its own thread (return_all_runs says why).
+RUN_ROOTS, RUN_ROOTS_LOCK = {}, threading.RLock()
 
 
 def new_run_root(dest, out_name="outputs", names=()):
@@ -411,8 +412,15 @@ def return_run(root):
 
 
 def return_all_runs():
-    for root in list(RUN_ROOTS):
-        return_run(root)
+    """Return every run folder still registered; called last by a stop, right before the process exits (os._exit).
+    The lock is taken first: a move that another thread has begun holds it, has already taken its root out of
+    RUN_ROOTS and must end before the exit, or the exit cuts it (the case folder not back, the temporary folder
+    left). The lock is re-entrant because a stop handler runs in the main thread, on top of whatever that thread
+    was doing, its own return_run included: it must not wait for itself. That one move, already out of RUN_ROOTS,
+    is the only one a stop can still cut."""
+    with RUN_ROOTS_LOCK:
+        for root in list(RUN_ROOTS):
+            return_run(root)
 
 
 def provider_refusal(out_dir, markers):

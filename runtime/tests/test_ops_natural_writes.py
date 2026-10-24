@@ -28,12 +28,12 @@ account_start = st.load("account_start")
 phrases = st.load("phrases")
 project_config = st.load("project_config")
 
-SENDER, READER = "telegram:4242", "telegram:5151"
+SENDER, READER = "telegram:830461975213", "telegram:5151"
 PLAIN = "telegram:6161"
 BLIND = "telegram:7171"
 GROUPS = ["read", "talk", "calendar-write"]
 PROFILES = {"owner": GROUPS + ["mail-organize"], "reader": GROUPS + ["ask-mail", "mail-organize"], "plain": ["read", "talk"], "blind": ["talk", "calendar-write"]}      # mail-organize: for the stand-in family of test_natural_writes_family.py
-IDS = {"owner": "4242", "reader": "5151", "plain": "6161", "blind": "7171"}
+IDS = {"owner": "830461975213", "reader": "5151", "plain": "6161", "blind": "7171"}
 OPEN = "waits for your approval"
 
 
@@ -74,7 +74,7 @@ def policy(world, page=("read", "calendar-write")):
     ops.accept_config(world["path"], shown["sha256"], widen=shown["widening_sha256"])
 
 
-def phone(world, text, sender="telegram:4242"):
+def phone(world, text, sender="telegram:830461975213"):
     return ops.natural_write(world["path"], text, channel="messaging", sender=sender)
 
 

@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 
 import standin_tree as st
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 REPO = Path(__file__).resolve().parents[2]
 RUNTIME = REPO / "runtime"
@@ -316,7 +318,7 @@ def test_the_taxonomy_has_its_lists_rules_metrics_and_one_example_per_rule():
                                                     "wrong_route_cost_usd"]
     assert len(doc["examples"]) == 32  # C0 wrote one per rule, first and in rule order; IX-1 added 23 when it froze the file
     nine = json.dumps(doc["examples"][:9], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    assert hashlib.sha256(nine).hexdigest() == "4a65bfbff03d8b8b8ade7f5d5058d7398a7ee48f7cb0b877a4ec19312343ca38"  # C0's nine, unchanged
+    assert hashlib.sha256(nine).hexdigest() == PINNED_HASHES["interpreter_interfaces_c0_nine_examples"]  # C0's nine, unchanged
     for e in doc["examples"]:
         assert set(e) == {"gold", "observed", "observed_detail", "category"}
         assert e["observed"] in OBSERVED and e["category"] in SEVERITY

@@ -572,7 +572,7 @@ def test_provenance_is_words_and_never_an_account():
     assert clean(None) is None
     assert clean({"channel": "messaging", "platform": "whatsapp-cloud", "profile": None, "attachment": 3}) == {
         "channel": "messaging", "platform": "whatsapp-cloud", "profile": None, "attachment": 3}
-    for bad in ({}, [], "x", {"sender": "4242"}, {"platform": "Telegram"}, {"platform": "tele gram"}, {"platform": "x" * 70}, {"attachment": 0},
+    for bad in ({}, [], "x", {"sender": "830461975213"}, {"platform": "Telegram"}, {"platform": "tele gram"}, {"platform": "x" * 70}, {"attachment": 0},
                 {"attachment": True}, {"attachment": "3"}, {"platform": None}, {"platform": "+5511912345678"}):
         with pytest.raises(sources.SourcesError):
             clean(bad)

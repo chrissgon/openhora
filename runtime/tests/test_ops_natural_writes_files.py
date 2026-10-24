@@ -23,11 +23,11 @@ drafts = st.load("drafts")
 account_start = st.load("account_start")
 phrases = st.load("phrases")
 
-OWNER = "telegram:4242"
+OWNER = "telegram:830461975213"
 OTHERS = "telegram:777"
 PLAIN = "telegram:6161"
 PROFILES = {"owner": ["read", "talk", "files-write"], "other": ["read", "talk", "files-write"], "plain": ["read", "talk"]}
-IDS = {"owner": "4242", "other": "777", "plain": "6161"}
+IDS = {"owner": "830461975213", "other": "777", "plain": "6161"}
 OPEN = "waits for your approval"
 
 
@@ -76,7 +76,7 @@ def body(world, out):
 
 def test_a_file_the_sender_sent_is_saved_by_a_line_that_names_it_and_the_card_is_the_w4a_save_card(world, clock, spy):
     policy(world)
-    hold(world, sender="4242")
+    hold(world, sender="830461975213")
     out = phone(world, "salva esse pdf no drive")
     assert out["resend"] and OPEN in out["reply"] and out["asked"] is False
     text = body(world, out)
@@ -89,8 +89,8 @@ def test_the_kind_the_line_names_picks_among_the_senders_files_several_are_liste
     policy(world)
     none = phone(world, "salva esse pdf no drive")
     assert none["reply"] == phrases.text("NW_NO_HELD", None) and spy == []
-    hold(world, name="Contract.pdf", sender="4242")
-    hold(world, data=b"PK-docx", name="Minutes.docx", sender="4242", kind="docx")
+    hold(world, name="Contract.pdf", sender="830461975213")
+    hold(world, data=b"PK-docx", name="Minutes.docx", sender="830461975213", kind="docx")
     only_pdf = phone(world, "salva esse pdf no drive")
     assert "Contract.pdf" in body(world, only_pdf)
     nothing = phone(world, "salva essa planilha no drive")
@@ -162,7 +162,7 @@ def test_a_new_file_opens_its_card_from_the_terminal_shell_and_the_page_with_the
     policy(world)
     reply = ops.say(world["path"], "cria um arquivo chamado ideias.md no drive com o texto: comprar tinta azul", channel=channel)["reply"]
     assert OPEN in reply and spy and spy[-1][2]["channel"] == carried and spy[-1][1]["operation"] == "create"
-    held = hold(world, sender="4242")
+    held = hold(world, sender="830461975213")
     saved = ops.say(world["path"], "salva o anexo %d no drive" % held, channel=channel)["reply"]
     assert OPEN in saved and spy[-1][1]["operation"] == "save" and spy[-1][2]["channel"] == carried
 

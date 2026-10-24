@@ -172,9 +172,13 @@ def test_a_waiting_round_that_gets_sigint_leaves_no_child_behind(real):
                 break
         assert len(pids) == 2 and all(alive(p) for p in pids)
         process.send_signal(signal.SIGINT)
+        for pid in pids:      # the round ends its children first: TERM, then KILL after its grace
+            until(lambda pid=pid: not alive(pid), ops_runs.STOP_GRACE + 15, f"child {pid} to be gone")
+        # Every child is gone, so none can claim. The round records their refusal under the claim lock (ops_runs.reap), which it would
+        # otherwise wait for up to ops_core.CLAIM_LOCK_WAIT seconds, and ends.
+        os.close(blocker)
+        blocker = None
         process.wait(60)
-        for pid in pids:
-            until(lambda pid=pid: not alive(pid), 30, f"child {pid} to be gone")
     finally:
         if process.poll() is None:  # the round and every child first, the claim lock last: a child that gets it would claim
             process.kill()
@@ -182,7 +186,8 @@ def test_a_waiting_round_that_gets_sigint_leaves_no_child_behind(real):
         for pid in pids:
             if alive(pid):
                 os.kill(pid, signal.SIGKILL)
-        os.close(blocker)
+        if blocker is not None:
+            os.close(blocker)
 
 
 # --- c: a refusal ------------------------------------------------------------------------------------------------------------------

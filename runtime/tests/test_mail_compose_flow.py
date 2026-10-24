@@ -24,6 +24,8 @@ import pytest
 import standin_tree as st
 from test_reminders import Clock
 from test_send_own_account import ACCOUNTS, world  # noqa: F401  (the own-account mail world)
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -247,7 +249,7 @@ def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_promp
     assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256() == s12["compose_prompt_sha256"] == entries[-2]["compose_prompt_sha256"] == entries[-3]["compose_prompt_sha256"]      # the decisions after S12 carry its compose pin
     assert s12["date"] == "2026-10-22" and s12["basis"] == "maintainer-decision" and "a IA deve verificar a ortografia do assunto do email" in s12["reason"]
     assert s7["date"] == "2026-10-21" and "para emails eu iria pedir para a IA criar um texto melhor escrito" in s7["reason"], "the entry of the first compose prompt stays"
-    assert s7["compose_prompt_sha256"] == "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf" and s7["compose_prompt_sha256"] != newest["compose_prompt_sha256"]
+    assert s7["compose_prompt_sha256"] == PINNED_HASHES["compose_prompt_s7"] and s7["compose_prompt_sha256"] != newest["compose_prompt_sha256"]
     assert {k: s12[k] for k in enable.HASH_KEYS} == {k: s7[k] for k in enable.HASH_KEYS} == {k: first[k] for k in enable.HASH_KEYS}, "every hash of the earlier decisions stands"
     assert {k: newest[k] for k in enable.HASH_KEYS if k != "catalog_sha256"} == {k: s12[k] for k in enable.HASH_KEYS if k != "catalog_sha256"}, "and so does every one of the newest but the catalog, which R2-F1 changed"
     assert "compose_prompt_sha256" not in first and "revise_prompt_sha256" in newest and "revise_prompt_sha256" not in s12

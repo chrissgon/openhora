@@ -85,9 +85,6 @@ def test_the_line_after_remind_is_a_time_and_the_words_to_send():
             split(bad)
         assert str(e.value) == rm.USAGE, bad
     assert split("buy milk") == ("buy", "milk"), "a line that is not a time is read as one; resolve refuses it"
-
-
-def test_the_usage_sentence_names_the_three_forms_and_the_clock():
     assert rm.USAGE == "Usage: /remind HH:MM <text>, /remind YYYY-MM-DD HH:MM <text> or /remind in <n>m|h|d <text> (24-hour clock, two digits)."
     assert rm.USAGE_FORGET == "Usage: /forget <n>"
 

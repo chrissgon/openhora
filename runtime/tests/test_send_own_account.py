@@ -59,7 +59,7 @@ cards = st.load("messaging_cards")
 steps = st.load("steps")
 
 ACCOUNTS = {"google": {"address": fgs.ACCOUNT}, "microsoft": {"address": fgg.ADDRESS}}
-SENDER = "telegram:4242"
+SENDER = "telegram:830461975213"
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
 SUBJECT = "Haircut on Monday"
 BODY = "Hello Ana,\n\nSee you on Monday at one.\n\nPat\n"
@@ -902,11 +902,11 @@ def test_the_task_row_of_an_email_from_an_own_account_is_cut_to_nothing_for_mcp_
         for channel, sender in BLIND:
             shown = ops.task(world["path"], started["task"], channel=channel, sender=sender)["task"]
             assert shown["step_args"] == {} and shown["step_kind"] == "send-email" and shown["step_state"]["steps"]["prepare"]["status"] == "done", (channel, sender)
-            for word in (TO, "lee@client.example", SUBJECT, "Hello Ana", "4242", "terminal", "inbox#1", "Appointment confirmed", "ana@clinic.example", "google"):
+            for word in (TO, "lee@client.example", SUBJECT, "Hello Ana", "830461975213", "terminal", "inbox#1", "Appointment confirmed", "ana@clinic.example", "google"):
                 assert word not in json.dumps(shown), (channel, sender, word)
     for channel, sender in BLIND:      # the reply card draws the message answered only for a reader of the mail: nowhere in what these readers get
         shown = json.dumps(ops.task(world["path"], answered["task"], channel=channel, sender=sender))
-        for word in ("ana@clinic.example", "desk@clinic.example", "Appointment confirmed", "4242"):
+        for word in ("ana@clinic.example", "desk@clinic.example", "Appointment confirmed", "830461975213"):
             assert word not in shown, (channel, sender, word)
 
 
@@ -962,7 +962,7 @@ def test_the_result_the_description_and_the_approval_of_an_email_from_an_own_acc
         approval = [a for a in ctx["store"].approvals_list(ctx["conn"]) if a["pending_id"] == started["pending"]][0]
         row = effects.approval_row(approval, doc)
         for kept in (effects.module_for("send").describe(doc), json.dumps(row), approval["what"]):      # the sender id is in the store alone (effects.approval_row)
-            for word in (TO, "lee@client.example", SUBJECT, "Appointment confirmed", "ana@clinic.example", "desk@clinic.example", "4242"):
+            for word in (TO, "lee@client.example", SUBJECT, "Appointment confirmed", "ana@clinic.example", "desk@clinic.example", "830461975213"):
                 assert word not in kept, (started["task"], word)
         assert "telegram" in row[1] or started is answered, "an approval on a messaging app says the platform and the profile, never the sender's id"
         whole = ops.pending(world["path"], started["pending"])
@@ -970,7 +970,7 @@ def test_the_result_the_description_and_the_approval_of_an_email_from_an_own_acc
             "sent", "replayed", "message_id", "recipients", "attachments", "bytes", "idempotency_key", "account", "reply", "service_message_id"}
         for channel, sender in BLIND:
             shown = json.dumps([ops.pending(world["path"], started["pending"], channel=channel, sender=sender), ops.task(world["path"], started["task"], channel=channel, sender=sender)["pending"]])
-            for word in (TO, "lee@client.example", SUBJECT, "Hello Ana", "4242", "ana@clinic.example", "desk@clinic.example", "Appointment confirmed"):
+            for word in (TO, "lee@client.example", SUBJECT, "Hello Ana", "830461975213", "ana@clinic.example", "desk@clinic.example", "Appointment confirmed"):
                 assert word not in shown, (channel, sender, started["task"], word)
 
 
