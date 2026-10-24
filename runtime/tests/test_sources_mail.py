@@ -992,7 +992,7 @@ def test_the_outlook_calendar_provider_is_read_through_the_runtime_in_the_zone_o
 # --- the index of a snapshot (package SNAP-IDX) ---------------------------------------------------------------------------------------------
 
 
-MAIL_KEYS = ["n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key"]
+MAIL_KEYS = ["n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received"]
 EVENT_KEYS = ["n", "id", "etag", "calendar", "organizer_self", "attendees_other", "recurring"]
 
 
@@ -1015,6 +1015,7 @@ def test_the_index_of_a_mail_snapshot_has_one_entry_for_each_numbered_message_in
     assert [e["message_id"] for e in index] == ["<a@clinic.example>", "<b@shop.example>", "<c@club.example>"]
     assert [e["from_address"] for e in index] == ["ana@clinic.example", "bob@shop.example", "cleo@club.example"]
     assert all(sorted(e) == sorted(MAIL_KEYS) for e in index) and all(e["reply_to_address"] is None and e["change_key"] is None for e in index)
+    assert [e["received"] for e in index] == ["2026-10-17T09:00:00Z", "2026-10-16T14:30:00Z", "2026-10-15T08:00:00Z"], "each entry has the moment its message came, in UTC (S16C-REPLY-DATE)"
     assert desk.manifest("inbox")["messages"] == len(index) == 3
 
 
