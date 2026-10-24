@@ -13,7 +13,8 @@ holds the two pure halves that both the operation (runtime/ops_mail_send.py, wit
                                       test holds the map equal to the codes the module raises). A caller's text is shown cleaned and cut, never used.
   reply_facts(found, account)         what the index recorded of the message answered, as the effect document keeps it: the address of its sender (the one
                                       recipient of the reply), another address it asked replies to go to (shown, never used), its subject as the index cleaned it,
-                                      the time of its snapshot, the service's id of the message, its Message-ID and, for Gmail, its conversation. MailRefError,
+                                      the time of its snapshot, the service's id of the message, its Message-ID, for Gmail its conversation and `received`, the moment
+                                      it came as the index recorded it (null when the index has none: a snapshot made before the key). MailRefError,
                                       with the sentence, when the message is of another account, has no single sender address, or lacks what the reply needs.
 
 External content is data: the index holds another person's addresses and subject in a closed shape (runtime/item_refs.py reads them back through it); an address
@@ -84,7 +85,7 @@ def reply_facts(found: dict, account: str) -> dict:
     subject = entry.get("subject") or ""
     return {"ref": reference, "address": sender, "reply_to": other if other and mail_address.address_key(other) != mail_address.address_key(sender) else None,
             "subject": subject, "read_at": found["read_at"], "provider_id": provider_id, "message_id": message_id,
-            "thread_id": thread if account == "google" else None}
+            "thread_id": thread if account == "google" else None, "received": entry.get("received")}
 
 
 def pin_of(found: dict):

@@ -429,7 +429,9 @@ def test_limit_60_a_reply_goes_to_the_sender_the_index_recorded_and_to_no_one_el
     lines = item["body"].splitlines()
     assert lines[0].startswith("Code sends this reply from your own account after your approval, to exactly the recipient below")
     assert lines[1] == f"From your own account: {fgs.ACCOUNT} (google)"
-    assert lines[2] == "Reply to: ana@clinic.example, the sender of inbox#1 (in the snapshot read at 2026-10-17T10:12:00Z): Appointment confirmed"
+    assert effect_doc(world, started)["reply"]["received"] == "2026-10-17T09:00:00Z"      # S16C-REPLY-DATE: the index's time is in the document the hash covers, and the line says it (in the machine's zone)
+    assert lines[2] == phrases.text("CARD_MAIL_REPLY_TO_AT", None, address="ana@clinic.example", ref="inbox#1", read_at="2026-10-17T10:12:00Z", subject="Appointment confirmed",
+                                    received=send_document.received_text("2026-10-17T09:00:00Z"))
     assert lines[3] == "The message asks replies to go to desk@clinic.example: this reply goes to the sender above, not there."
     assert lines[4] == "In reply to the message <a1@clinic.example>" and lines[5] == "Subject: Re: Appointment confirmed" and lines[6] == "Recipients in all: 1"
     doc = effect_doc(world, started)
@@ -811,7 +813,7 @@ def card_for(world, started, groups, channel=None):
 
 def test_every_line_that_shows_who_an_email_goes_to_what_it_says_or_which_files_it_carries_is_private_and_the_count_and_the_hash_are_not(world):
     private = set(phrases.CARD_PRIVATE)
-    reply_keys = ["CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY", "CARD_MAIL_MESSAGE"]
+    reply_keys = ["CARD_MAIL_REPLY_TO_AT", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY", "CARD_MAIL_MESSAGE"]
     new_keys = ["CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT"]
     assert set(reply_keys + new_keys + ["CARD_MAIL_BCC"]) <= private
     answered = reply(world)
