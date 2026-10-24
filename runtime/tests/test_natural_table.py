@@ -26,6 +26,7 @@ D = {"approve", "reject", "release", "answer", "go-ahead"}
 E = {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
      "file-create", "file-replace", "file-save", "file-trash"}
 WORK = {"say", "request", "route", "ask"}
+GROUNDING = {"target", "day"}      # the two slots that name an item of the person's own calendar or mailbox by its words (B''-lite); no operation has a parameter of that name
 CLASS_SET = {"R", "N", "W", "D", "E", "G", "work"}
 OPS = {row["name"] for row in operations.OPERATIONS}
 
@@ -108,6 +109,9 @@ def test_a_row_has_slots_of_known_kinds_that_fill_real_parameters_and_forms_belo
         assert row["what"], name
         for slot, (kind, param) in row["slots"].items():
             assert kind in ("int", "ints", "word", "span", "when"), (name, slot)
+            if slot in GROUNDING and name in E:      # B''-lite: the words of the item and its day are read by code from the spans (runtime/event_lookup.py, runtime/ops_natural_mail.py), never passed to the operation
+                assert param == slot and param not in {a["name"] for a in operations.by_name(name)["args"]}, (name, slot, param)
+                continue
             assert param in {a["name"] for a in operations.by_name(name)["args"]}, (name, slot, param)
     assert set(forms()) <= set(natural.NATURAL)
     assert not set(forms()) & {"remind", "reminders", "reminder-forget", "reminder-restore"}, "the reminders are the intents of `candidate`, not forms"

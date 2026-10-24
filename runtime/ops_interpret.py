@@ -324,6 +324,7 @@ def _refusal(ctx: dict, op: str, sender) -> str:
     return phrases.text("IX_ASK_AGAIN", ctx["cfg"])      # S10: a phone is told in one plain sentence, never "error:" or a command
 
 
+MAIL_TARGET_OPS = ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark")      # B''-lite: the mail operations whose message the person names by its words (target, day)
 CANNOT = {"event-create": "IX_CANNOT_EVENT_CREATE"}      # every other write: IX_CANNOT_WRITE (an event to change or cancel is answered by runtime/event_lookup.py)
 
 
@@ -333,6 +334,17 @@ def _cannot(ctx: dict, op: str) -> str:
     if _tag(ctx["cfg"]) not in ROUTE_LANGUAGES:
         return phrases.text("IX_WRITE_LANGUAGE", ctx["cfg"])
     return phrases.text(CANNOT.get(op, "IX_CANNOT_WRITE"), ctx["cfg"])
+
+
+def _day_read(span: str, now) -> dict:
+    """The day a verified `day` span names, read by code for the mail family, which reads no calendar and no clock (runtime/ops_natural_mail.py `_on_day`): {"kind": "day" | "weekday" |
+    "none" | "unread", "value" (an ISO date, a weekday number 0-6 or None), "today" (an ISO date), "zone" (the machine's IANA zone name, or None when none can be named)}."""
+    kind, value = event_lookup._day_named(span, now)
+    try:
+        zone = _zone(now)
+    except ValueError:
+        zone = None
+    return {"kind": kind, "value": value.isoformat() if kind == "day" else value, "today": now.date().isoformat(), "zone": zone}
 
 
 def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict) -> tuple:
@@ -354,6 +366,11 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, writes, ops_natural._clock())
         elif op == "file-trash":          # R2-A: the file is found by the words of the line, by the search of `file-read`, and its card opens (runtime/ops_file_trash.py)
             opened = importlib.import_module("ops_file_trash").reply(project, ctx, decision["args"], said, CHANNEL, sender, extras)
+        elif (op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and (decision["spans"].get("target") or decision["spans"].get("day"))
+              and "message" not in decision["args"] and "messages" not in decision["args"]):          # B''-lite: a message named by its words (target, day), found by code in the index (runtime/ops_natural_mail.py)
+            spans = decision["spans"]
+            seed = importlib.import_module("ops_natural_mail").mail_target_seed(op, decision, _day_read(spans["day"], ops_natural._clock()) if spans.get("day") else None)
+            opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed) if seed is not None else None
         else:
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
         return _said(opened if opened is not None else _cannot(ctx, op), extras)

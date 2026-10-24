@@ -27,6 +27,9 @@ reply to several messages is not taken either.
                                                  written); `need` lists, in the order they are asked, the slots the line leaves open (to, subject, body, state)
   answer(need, line, slots, tables, now=None, options=None)   {"slots": the update} that a line makes when it answers the question `need`, or None when it is not an answer
   match_words(entries, words, newest)            the entries of a snapshot's index whose from-address words and subject words hold EVERY one of `words`, as whole words
+  target_words(span, tables)                     the content words of a `target` span the interpreter verified (B''-lite): the span's words without the tables' articles, polite
+                                                 words, joiners, mail nouns, plural words, "of" words and "newest" words, in order, none twice; [] when more than TARGET_WORDS_MAX
+                                                 are left (a sentence, not a name). They are compared with the index (`match_words`) only to choose a message, never an address
   check_mail(mail, where)                        ValueError when the `mail` part of `requests.writes` of a language table is not of the shape below
   NEEDS                                          the needs this family asks (the draft of the ask-back dispatches an answer to `answer` for these)
 
@@ -65,6 +68,7 @@ NAME_WORDS_MAX = 3       # words of a recipient written as a name
 NUMBER_DIGITS_MAX = 9
 TEXT_WORDS_MAX = 12        # a subject is short: a longer line is a new line (natural.TEXT_MAX_WORDS, the limit of every text answer)
 FOLDER_MAX = 64          # characters of a folder name written in a line
+TARGET_WORDS_MAX = 6     # content words of a `target` span the interpreter verified: a message is named by a sender and a subject; a longer span is a sentence, not a name
 WORDS_CAP = 3            # content words of a message named by words ("o e-mail do banco itau"): a longer tail is a sentence, not a name
 MAIL_KEYS = ("send_verbs", "reply_verbs", "draft_verbs", "archive_verbs", "move_verbs", "mark_verbs", "trash_verbs", "nouns", "plural", "to", "subject", "body", "of",
              "folder", "read", "unread", "newest", "date_words")
@@ -782,6 +786,20 @@ def entry_words(entry: dict) -> set:
     for label in labels[:-1] if len(labels) > 1 else labels:
         words |= set(_words_of(label))
     return words | set(_words_of(entry.get("subject")))
+
+
+def target_words(span, tables) -> list:
+    """The words that name a message in a `target` span (B''-lite): the span's words folded as `_words_of` folds them, without the words of the tables' `articles`, `polite` and
+    `joiners`, and of the mail `nouns`, `plural`, `of` and `newest` lists, in order, none twice; [] when more than TARGET_WORDS_MAX are left (a sentence, not a name). Pure: they
+    only choose a message among the index's own (`match_words`); nothing here reads a message or returns an address."""
+    drop = set()
+    for table in _tables_with_mail(tables):
+        d = _data(table)
+        for lists in (d["shared"]["articles"], d["shared"]["polite"], d["shared"]["joiners"], d["mail"]["nouns"], d["mail"]["of"], d["mail"]["newest"], d["plural"]):
+            for phrase in lists:
+                drop.update(w for part in phrase for w in _words_of(part))
+    found = [w for w in dict.fromkeys(_words_of(span)) if w not in drop]
+    return found if len(found) <= TARGET_WORDS_MAX else []
 
 
 def match_words(entries, words, newest: bool = False) -> list:

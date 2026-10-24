@@ -799,11 +799,16 @@ def by_name(project: str, ctx: dict, said: str, sender, extras: dict, writes, no
 
 
 def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict, writes, now):
-    """The reply for a decision to change or cancel an event (module text). `writes` is the module ops_natural_writes, which opens the card."""
+    """The reply for a decision to change or cancel an event (module text). `writes` is the module ops_natural_writes, which opens the card. A number WRITTEN in the line
+    (`args["event"]`) is the numbered form; else the words the model took out of the line as the event's name and day (`spans` target, day: B''-lite, `_by_target`); else the
+    whole line is the search text, as before."""
     op, time_ = decision["op"], decision.get("time")
     if asks_again(said):          # a question, a condition, or two verbs: nothing is opened, whatever the model said
         extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
         return _text(ctx, "IX_ASK_AGAIN")
+    spans = decision.get("spans") or {}
+    if "event" not in (decision.get("args") or {}) and (spans.get("target") or spans.get("day")):
+        return _by_target(project, ctx, decision, said, sender, extras, writes, now)
     reading = nw.read(said, now, op=op)
     if reading is None or (not reading.get("say") and "event" in reading["slots"]):
         opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)          # the call as before: the numbered form, or nothing the family reads
@@ -812,7 +817,6 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
     extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
     if names_other_object(said):          # no number, and the line names a mail, a file, a reminder, a routine, a task, a folder or an address: it is not about an event, whoever read it
         return _text(ctx, "IX_CANNOT_WRITE")
-    spans = decision.get("spans") or {}
     text = " ".join(said.split())
     for key in (("time", "title") if op == "event-change" else ()):          # the new time and the new title are not the words of the event to change
         if spans.get(key):
@@ -822,6 +826,31 @@ def open_event(project: str, ctx: dict, decision: dict, said: str, sender, extra
     kind, value = _day_named(text, now)
     if kind == "unread":
         return _text(ctx, "EV_ASK_DAY")
+    return _found(project, ctx, op, time_, spans, said, sender, extras, writes, now, text, kind, value)
+
+
+def _by_target(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict, writes, now):
+    """The reply for a change or a removal whose event the model named by its words (B''-lite): `spans["target"]` is the event's name as the line writes it and
+    `spans["day"]` the day it is on, both pieces of the line that the check verified. Code finds the event with them (`_found`: the closest name over the snapshot rows and the
+    events created here), never with the model's word for a number: the new time and the new title are not part of the name, so nothing is cut from the target. A target with no
+    words is asked again, a target that names another object is no event, a day code cannot read is a question; none of them opens a card."""
+    op, time_ = decision["op"], decision.get("time")
+    spans = decision.get("spans") or {}
+    extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
+    text = " ".join(str(spans.get("target") or "").split())
+    if not text:
+        return _text(ctx, "IX_ASK_AGAIN")
+    if names_other_object(text):          # the TARGET names a mail, a file, an address...: it is not an event
+        return _text(ctx, "IX_CANNOT_WRITE")
+    kind, value = _day_named(spans["day"], now) if spans.get("day") else _day_named(text, now)
+    if kind == "unread" or (spans.get("day") and kind == "none"):          # a day span the engine cannot read is a question, never a guess
+        return _text(ctx, "EV_ASK_DAY")
+    return _found(project, ctx, op, time_, spans, said, sender, extras, writes, now, text, kind, value)
+
+
+def _found(project: str, ctx: dict, op: str, time_, spans: dict, said: str, sender, extras: dict, writes, now, text: str, kind: str, value):
+    """The search and its three results, shared by the whole-line path and the target path: `text` is the words that name the event, `kind` and `value` the day they name
+    (`_day_named`). One card (through the family path, never approved here), the numbered list of the events that fit, or one plain sentence; the calendar is read again once on a miss."""
     named = account_named(said, spans.get("title"))          # S11: "no outlook" narrows the search to that account's calendars
     account = named
     rows, problem = events(ctx, sender)

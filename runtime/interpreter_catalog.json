@@ -255,19 +255,23 @@
    "class": "E",
    "op": "event-change",
    "slots": {
+    "day": "span",
     "event": "int",
+    "target": "span",
     "time": "span",
     "title": "span"
    },
-   "what": "a card that changes an event of the person's own calendar"
+   "what": "a card that changes an event of the person's own calendar (the event is named by its words in target, with the day it is on now in day; the new time in time and the new name in title; event only when the line writes the event's number)"
   },
   {
    "class": "E",
    "op": "event-cancel",
    "slots": {
-    "event": "int"
+    "day": "span",
+    "event": "int",
+    "target": "span"
    },
-   "what": "a card that removes an event of the person's own calendar"
+   "what": "a card that removes an event of the person's own calendar (the event is named by its words in target, with the day the line gives in day; event only when the line writes the event's number)"
   },
   {
    "class": "E",
@@ -284,9 +288,11 @@
    "op": "mail-reply",
    "slots": {
     "body": "span",
-    "message": "int"
+    "day": "span",
+    "message": "int",
+    "target": "span"
    },
-   "what": "a card that sends a reply to an e-mail"
+   "what": "a card that sends a reply to an e-mail (the message is named by its words in target: its sender or its subject, with the day it came in day; message only when the line writes its number; the reply's text in body)"
   },
   {
    "class": "E",
@@ -295,43 +301,52 @@
     "body": "span",
     "message": "int",
     "subject": "span",
+    "target": "span",
     "to": "word"
    },
-   "what": "a card that saves a draft in the person's own mailbox"
+   "what": "a card that saves a draft in the person's own mailbox (to answer a message, the message is named by its words in target; message only when the line writes its number)"
   },
   {
    "class": "E",
    "op": "mail-archive",
    "slots": {
-    "messages": "ints"
+    "day": "span",
+    "messages": "ints",
+    "target": "span"
    },
-   "what": "a card that takes messages out of the inbox"
+   "what": "a card that takes messages out of the inbox (the messages are named by their words in target: a sender or a subject, with the day in day; messages only when the line writes their numbers)"
   },
   {
    "class": "E",
    "op": "mail-move",
    "slots": {
+    "day": "span",
     "folder": "word",
-    "messages": "ints"
+    "messages": "ints",
+    "target": "span"
    },
-   "what": "a card that moves messages to a folder"
+   "what": "a card that moves messages to a folder (named by their words in target, the day in day, or by the numbers the line writes in messages; the folder in folder)"
   },
   {
    "class": "E",
    "op": "mail-mark",
    "slots": {
+    "day": "span",
     "messages": "ints",
-    "state": "span"
+    "state": "span",
+    "target": "span"
    },
-   "what": "a card that marks messages read or unread"
+   "what": "a card that marks messages read or unread (named by their words in target, the day in day, or by the numbers the line writes in messages)"
   },
   {
    "class": "E",
    "op": "mail-trash",
    "slots": {
-    "messages": "ints"
+    "day": "span",
+    "messages": "ints",
+    "target": "span"
    },
-   "what": "a card that moves messages to the trash"
+   "what": "a card that moves messages to the trash (the messages are named by their words in target: a sender or a subject, with the day in day; messages only when the line writes their numbers)"
   },
   {
    "class": "E",

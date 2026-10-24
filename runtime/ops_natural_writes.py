@@ -357,6 +357,8 @@ def _read(ctx: dict, said: str, seed, hint):
             if seed.get("account"):          # the account the line names (runtime/event_lookup.py `seed_service`): the family does not ask which
                 slots["account"] = seed["account"]
             return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading}
+        if op in ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark") and seed.get("slots") is not None and seed.get("by") == "target":          # a message named by its words (runtime/ops_natural_mail.py `mail_target_seed`): its slots, never the closed forms
+            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
         if op in ("mail-send", "mail-draft") and seed.get("slots") is not None:          # a new e-mail the interpreter decided (runtime/mail_compose.py `seed`): its slots, never the closed forms
             return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
         if op == "file-save" and seed.get("attachment") is not None:          # a held file named by its number (the caption of a file, a button of its card): the text may add a folder

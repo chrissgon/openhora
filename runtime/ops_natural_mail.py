@@ -20,6 +20,10 @@ What is decided here, and from where:
   * a message is `<source>#<n>` from digits the person wrote, from the source the person wrote, the one registered mail source of the account, or the one the person chose; or
     it is found BY WORDS in the index of the newest snapshot: the words after "do/da/from" must all be whole words of the message's from-address or subject; a singular
     object needs exactly one match (several are listed, up to five, and asked), a plural object takes every match up to 20 (more are asked);
+  * a message named by the interpreter's `target` and `day` spans (B''-lite, `mail_target_seed`) is found the same way: the span's content words (`natural_writes_mail.target_words`)
+    must all be whole words of the from-address or the subject, and the day (`day_read`: read by the caller with the time engine, this module reads no calendar and no clock) keeps the
+    messages the index says came in on that local day (`received`, a UTC time) or, for a weekday, in the last 7 days; an index with no `received` for a candidate, or a day the engine
+    cannot read, is `NW_MAIL_BY_DATE`: a date is never guessed. The words only choose a message, they are never an address: a reply goes to the index's From (L60);
   * the snapshot is read, and a message is listed, only after `item_refs.read_index` accepted the caller (a messaging sender needs the group `ask-mail`): a caller who may not
     read it gets the sentence of `item_refs` and nothing of the mailbox, not even the names of its sources;
   * the account is the one named by a service word of the line (`google`, `gmail`, `outlook`...), or the account of the mailbox the message is in, or the only account the
@@ -33,8 +37,10 @@ Sibling of runtime/ops.py's family; imports no operation. Standard library only.
 """
 from __future__ import annotations
 
+import datetime
 import os
 import sys
+from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -42,6 +48,7 @@ if HERE not in sys.path:
 import item_refs  # noqa: E402
 import mail_compose  # noqa: E402
 import mail_refs  # noqa: E402
+import natural  # noqa: E402
 import natural_writes_mail as nwm  # noqa: E402
 import ops_core as core  # noqa: E402
 import phrases  # noqa: E402
@@ -166,6 +173,34 @@ def _entry_label(entry: dict) -> str:
     return f"{entry.get('from_address') or '?'} · {subject or '-'}"
 
 
+def _received_day(received, zone):
+    """The local date of a message's `received` (a UTC time as the index records it), or None when it is not a time with an offset."""
+    try:
+        moment = datetime.datetime.fromisoformat(str(received).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment.astimezone(zone).date() if moment.tzinfo is not None else None
+
+
+def _on_day(found: list, read: dict) -> list:
+    """The messages of `found` that came in on the day `read` names: {"kind": "day" | "weekday" | "none" | "unread", "value" (an ISO date, or a weekday number 0-6), "today" (an ISO
+    date), "zone" (an IANA name)}, made by the caller from the person's `day` span with the time engine (runtime/ops_interpret.py `_day_read`). A date keeps the messages that came in
+    on that local day, a weekday those of the last 7 days that fall on it. A day the engine cannot read, a zone that cannot be named, or a candidate whose index entry holds no
+    `received` (a snapshot made before it was recorded) is `NW_MAIL_BY_DATE`: a date is never guessed."""
+    try:
+        zone = ZoneInfo(read["zone"])
+        kind, value, today = read["kind"], read["value"], datetime.date.fromisoformat(read["today"])
+        value = datetime.date.fromisoformat(value) if kind == "day" else value
+    except (KeyError, TypeError, ValueError):
+        raise _say("NW_MAIL_BY_DATE") from None
+    days = [_received_day(e.get("received"), zone) for e in found]
+    if kind not in ("day", "weekday") or any(d is None for d in days):
+        raise _say("NW_MAIL_BY_DATE")
+    if kind == "day":
+        return [e for e, d in zip(found, days) if d == value]
+    return [e for e, d in zip(found, days) if today - datetime.timedelta(days=6) <= d <= today and d.weekday() == value]
+
+
 def _by_words(ctx: dict, slots: dict, source_id: str, channel, sender):
     """The references that the words of the line name in the newest snapshot of `source_id`: ([refs], None), or ([], the question), or raises when nothing matches. The index is
     read only now, after the caller's right to read it was checked by `read_index` itself."""
@@ -174,6 +209,10 @@ def _by_words(ctx: dict, slots: dict, source_id: str, channel, sender):
     found = nwm.match_words(snapshot["entries"], slots["words"], bool(slots.get("newest")))
     if not found:
         raise _say("NW_MAIL_NONE", source=source_id, words=words)
+    if slots.get("day_read"):
+        found = _on_day(found, slots["day_read"])
+        if not found:
+            raise _say("NW_MAIL_NONE", source=source_id, words=words)
     plural = bool(slots.get("plural")) and not slots.get("newest")
     if plural and len(found) <= nwm.MESSAGES_MAX:
         return [f"{source_id}#{e['n']}" for e in found], None
@@ -293,6 +332,33 @@ def _reference_args(ctx: dict, op: str, slots: dict, channel, sender):
             return _ask("state", "NW_MAIL_ASK_STATE", [(state, phrases.text(f"NW_MAIL_STATE_{state.upper()}", ctx["cfg"])) for state in nwm.STATES])
         args["state"] = slots["state"]
     return {"args": args}
+
+
+def mail_target_seed(op: str, decision: dict, day=None):
+    """The seed of a mail operation on a message the person named by its words (B''-lite), or None when the line gives no word to look for: `{"op", "by": "target", "slots"}`, the
+    slots the family reads (`words` from `natural_writes_mail.target_words` over the verified `target` span; `plural` for the operations that may take several messages; `body`
+    of a reply or a draft; `folder_name`; `state`; `day_read`, the day the verified `day` span names as the caller read it, see `_on_day`: a `day` span with no reading is a day
+    that was not read). Nothing here is an address, a recipient or a message number: the message is chosen by code from the index afterwards (`_by_words`), and a reply goes to
+    the index's From (L60)."""
+    spans, args = decision.get("spans") or {}, decision.get("args") or {}
+    tables = natural._tables(None)
+    words = nwm.target_words(spans.get("target") or "", tables)
+    if not words and not spans.get("day"):
+        return None
+    slots = {"words": words}
+    if op not in ("mail-reply", "mail-draft"):
+        slots["plural"] = True
+    if op in ("mail-reply", "mail-draft") and spans.get("body"):
+        slots["body"] = spans["body"]
+    if op == "mail-move" and args.get("folder"):
+        slots["folder_name"] = args["folder"]
+    if op == "mail-mark" and spans.get("state"):
+        got = nwm.answer("state", spans["state"], {}, tables)
+        if got:
+            slots["state"] = got["slots"]["state"]
+    if spans.get("day"):
+        slots["day_read"] = day or {"kind": "unread", "value": None, "today": None, "zone": None}
+    return {"op": op, "by": "target", "slots": slots}
 
 
 def _body_key(ctx: dict, channel, sender) -> str:

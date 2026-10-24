@@ -357,8 +357,9 @@ def test_the_served_catalog_has_the_operation_as_a_read_with_a_span_and_a_word()
 def test_the_interpreter_stays_on_with_the_newest_entry_and_is_off_when_its_catalog_hash_is_wrong(tmp_path):
     data = json.loads((REPO / "runtime" / "interpreter_enable.json").read_text(encoding="utf-8"))
     before = PINNED_HASHES["interpreter_catalog_before_s8"]      # the catalog before this slice: an earlier entry still names it
-    served = PINNED_HASHES["interpreter_catalog_s8"]
+    served = PINNED_HASHES["interpreter_catalog_blite"]
     assert any(e["catalog_sha256"] == before for e in data["entries"][:-1])
+    assert any(e["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_s8"] for e in data["entries"][:-1]), "an earlier entry (R2-A) names the catalog before B″-lite"
     newest = data["entries"][-1]
     assert interpreter.SERVED_SHA256 == served and newest["catalog_sha256"] == served
     assert {k: newest[k] for k in interpreter_enable.HASH_KEYS} == interpreter_enable.checkout_hashes(newest["route"])
