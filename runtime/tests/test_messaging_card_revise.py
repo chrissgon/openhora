@@ -10,15 +10,30 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_card_revise
 """
 from __future__ import annotations
 
+import time
+
 import pytest
 
 import standin_tree as st
-from test_messaging import SENDER, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
+from test_messaging import SENDER, WAIT, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 from test_messaging_card_words import GRANTED, HASH, OTHER, approvals, effect, message_ids, nothing_decided, went_to_say
 
 KEY = "telegram:" + SENDER
 LINE = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Christopher Gonçalves"'      # validate: allow english-only -- the live line, Portuguese
 NOT_REVISABLE = "To change this card, reject it and ask again."
+
+
+def settle(world, seconds=WAIT):
+    """Wait until every job thread of the bridge has ended (the revise job, an approval job): the point after which a word is decided, and
+    after which the fake's calls are complete. A reply is sent inside a job, so a reply seen is not yet the end of the job."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        alive = [t for t in list(world.bridge.threads) if t.is_alive()]
+        if not alive:
+            return True
+        for thread in alive:
+            thread.join(0.05)
+    return False
 
 
 class Revise:
@@ -62,7 +77,9 @@ def test_the_new_card_is_sent_after_one_sentence_and_is_the_last_message_so_a_wo
     assert wait_for(lambda: len(world.sent()) == 3)
     assert world.texts()[1] == "Done: the new one." and world.sent()[2]["message"]["text"].startswith("northwind-shop · request #8")      # the old card, the sentence, the new card
     assert wait_for(lambda: world.bridge.last_sent.get(SENDER) == message_ids(world)[-1])      # the job has finished sending: the new card is the last message
+    assert settle(world)
     world.say("sim")
+    assert settle(world)
     assert approvals(world) == [(8, "f" * 64)], "the word decides the new card, with the new card's hash"
 
 
@@ -92,6 +109,7 @@ def test_a_word_that_decides_a_card_goes_before_a_change_and_the_stand_in_is_nev
     mail_card(world)
     revise = Revise(world)
     world.say(word)
+    assert settle(world)
     assert revise.checks == [] and revise.changes == [] and world.calls("say") == []
     assert approvals(world) != [] or world.calls("reject") != []
 
@@ -116,6 +134,7 @@ def test_a_card_that_cannot_be_changed_by_words_gets_one_sentence_and_stays_the_
     world.say("Muda o texto para dizer outra coisa")      # validate: allow english-only -- the Portuguese line under test
     assert world.texts()[-1] == NOT_REVISABLE and revise.changes == [] and world.calls("say") == []
     world.say("sim")
+    assert settle(world)
     assert approvals(world) == [(7, HASH)], "the card is still the last message the person was shown"
 
 
@@ -192,7 +211,9 @@ def test_a_sentence_that_leaves_the_old_card_open_sends_the_card_again_so_a_word
         assert wait_for(lambda: len(world.sent()) == 1 + 2 * turn)      # the card, then (the sentence and the card again) once for each line
         assert wait_for(lambda: world.bridge.last_sent.get(SENDER) == message_ids(world)[-1])
     assert world.texts()[1] == "Sorry." and len(world.sent()) == 5 and world.sent()[2]["message"]["text"] == world.sent()[0]["message"]["text"]      # the card, the sentence, the same card, again
+    assert settle(world)
     world.say("sim")
+    assert settle(world)
     assert approvals(world) == [(7, HASH)], "the old card, with its own hash, is decided by the word"
 
 

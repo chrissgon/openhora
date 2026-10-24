@@ -93,16 +93,34 @@ def test_the_persons_verdict_is_recorded_on_the_use_of_that_run_and_only_once(tr
     assert cli.main(["verdict", "--project", tree["path"], "--run", str(out["run_id"]), "--word", "failed"]) == 1
 
 
+def verdict_holders(text, stem):
+    """The functions of one module whose source holds the word `--verdict`, found with two cheap looks and then the exact one."""
+    if "--verdict" not in text:      # a function whose text holds the word is in a file whose text holds it
+        return []
+    lines = re.split(r"\r\n|\r|\n", text)    # the line breaks ast counts; str.splitlines also splits on \f, \v and others, which would shift the lines
+    found = []
+    for node in ast.walk(ast.parse(text)):
+        # the lines of the function hold all of its source segment, so the cheap look never drops a function the exact one would keep
+        if isinstance(node, ast.FunctionDef) and "--verdict" in "\n".join(lines[node.lineno - 1:node.end_lineno]) \
+                and "--verdict" in (ast.get_source_segment(text, node) or ""):
+            found.append(f"{stem}.{node.name}")
+    return found
+
+
+def test_the_verdict_prefilter_keeps_a_function_after_a_line_break_ast_does_not_count():
+    for odd in ("\f", "\v", "\x1c", "\x85", "\u2028"):
+        text = f"# a note{odd}with a break the tokenizer ignores\n\ndef early():\n    return 1\n\n\ndef late():\n    return '--verdict'\n"
+        assert verdict_holders(text, "m") == ["m.late"], repr(odd)
+    assert verdict_holders("def a():\n    return 1\n", "m") == []
+
+
 def test_a_verdict_is_one_of_three_words_and_no_code_path_gives_one(tree):
     with pytest.raises(ops.OpsError) as wrong:
         ops.verdict(tree["path"], 1, "great")
     assert wrong.value.code == 2
     holders = []
     for file in sorted((REPO / "runtime").glob("*.py")):
-        text = file.read_text(encoding="utf-8")
-        for node in ast.walk(ast.parse(text)):
-            if isinstance(node, ast.FunctionDef) and "--verdict" in (ast.get_source_segment(text, node) or ""):
-                holders.append(f"{file.stem}.{node.name}")
+        holders += verdict_holders(file.read_text(encoding="utf-8"), file.stem)
     assert set(holders) <= {"ops.verdict", "cli.run"} and "ops.verdict" in holders
 
 

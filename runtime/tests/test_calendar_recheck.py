@@ -20,7 +20,7 @@ from test_channel_grants import accept
 
 cards = st.load("messaging_cards")
 ops_grants = st.load("ops_grants")
-SENDER = "telegram:4242"
+SENDER = "telegram:830461975213"
 OTHER = "telegram:9999"
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
 SECRET_TITLE = "Therapy with Dr Example"

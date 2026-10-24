@@ -589,15 +589,14 @@ def test_an_event_holds_the_lock_of_its_copy_for_its_whole_life_and_releases_it_
             with open(root / er.COPY_LOCK, "w") as probe:
                 try:
                     fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    seen.append("free")
+                    lock = "free"
                 except OSError:
-                    seen.append("held")
-            seen.append(json.loads((root / er.COPY_MARKER).read_text())["made_by"])
-            seen.append(oct(os.stat(root).st_mode & 0o777))
+                    lock = "held"
+            seen.append((lock, json.loads((root / er.COPY_MARKER).read_text())["made_by"], oct(os.stat(root).st_mode & 0o777)))
         return real(case_dir, eval_cfg, variant_dir, deps, case, platform)
     monkeypatch.setattr(er, "stage_run", spy)
     assert run_main(capsys, "--skill-dir", str(folder), "--quick", "--model", "m")[0] == 0
-    assert set(seen[0::3]) == {"held"} and set(seen[1::3]) == {"eval_run.py"} and set(seen[2::3]) == {"0o700"}
+    assert seen and {s[0] for s in seen} == {"held"} and {s[1] for s in seen} == {"eval_run.py"} and {s[2] for s in seen} == {"0o700"}
 
 
 def test_a_copy_damaged_during_the_event_writes_no_evidence(tmp_path, tmp_path_factory, monkeypatch, capsys):

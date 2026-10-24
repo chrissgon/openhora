@@ -41,7 +41,7 @@ ACCOUNTS = {"google": {"address": "Ana@Mail.example", "calendars": {"personal": 
 TITLE = "Calendar: new event"
 HIDDEN = "Dentist \u202e"      # a right-to-left override: a line that would not say what it does
 ARGS = {"account": "google", "title": "Dentist at 14:00, bring the x-rays", "start": "2026-10-20T14:00"}
-SENDER = "telegram:4242"
+SENDER = "telegram:830461975213"
 CALLS = []       # what the stand-in effect's execute was asked: it is the only thing in this file that "writes"
 
 

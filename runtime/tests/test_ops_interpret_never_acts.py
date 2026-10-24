@@ -28,7 +28,7 @@ ops_waits = st.load("ops_waits")
 interpreter_route = st.load("interpreter_route")
 EFFECT_MODULES = ("effect_calendar", "effect_files", "effect_mailbox", "effect_publish", "effect_send", "effect_write", "effect_commit", "effect_reply")
 
-OWNER = "telegram:4242"
+OWNER = "telegram:830461975213"
 EVERYTHING = ["read", "talk", "ask", "reminders", "brakes", "retry", "approve-plans", "answer", "release", "reject-cancel", "sources", "add-sources", "calendar-write", "mail-organize",
               "files-write", "mail-send", "interpret"]
 ZONE = "America/Sao_Paulo"
@@ -39,7 +39,7 @@ def configure(world):
     raw = json.loads(open(path).read())
     raw["policies"] = {"owner": EVERYTHING}
     raw["channels"] = {"page": ["read", "calendar-write"]}
-    raw["messaging"] = {"senders": {"telegram": [{"id": "4242", "policy": "owner"}]}}
+    raw["messaging"] = {"senders": {"telegram": [{"id": "830461975213", "policy": "owner"}]}}
     open(path, "w").write(json.dumps(raw))
     shown = ops.config(world["path"])
     ops.accept_config(world["path"], shown["sha256"], widen=shown["widening_sha256"])

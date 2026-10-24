@@ -13,16 +13,19 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+from pathlib import Path
 
 import interpreter_kit as kit
 import standin_tree as st
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 interp = st.load("interpreter")
 natural = kit.natural
 
 # The source of `natural.check_operation` at the commit this package branched from (sha256 of `inspect.getsource`): the validator calls it unchanged, so a change to it is a change of the
 # security of the layer and must be read, not merged by accident.
-CHECK_OPERATION_SHA256 = "ae0d63f27600795d660808369ea3971427ca60bd30cf5b6c19c6e128aec09a3e"
+CHECK_OPERATION_SHA256 = PINNED_HASHES["interpreter_check_operation_source"]
 
 
 def run(obj, line, frame=None, allowed=None, now=None, zone=kit.ZONE):

@@ -182,7 +182,7 @@ def test_a_channel_without_the_group_takes_no_file_and_nothing_is_fetched(world)
     world.send([world.file()])
     assert world.texts() == ["Files are not taken from this app for this project. Add it on the platform's page."]
     assert world.fetches() == [] and world.case.rows() == [] and world.incoming() == []
-    assert [x for x in world.log if "4242" in x or "r1" in x or "Q3" in x] == [], "one log line, no id"
+    assert [x for x in world.log if IDENT in x or "r1" in x or "Q3" in x] == [], "one log line, no id"
     assert any("takes none" in x for x in world.log)
     accept(world.case.path, channels=None)
     world.reset()

@@ -25,7 +25,7 @@ from test_channel_grants import accept
 cards = st.load("messaging_cards")
 account_start = st.load("account_start")
 steps = st.load("steps")
-SENDER = "telegram:4242"
+SENDER = "telegram:830461975213"
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
 
 
@@ -208,6 +208,6 @@ def test_the_task_row_of_a_calendar_write_shows_the_mcp_mode_and_a_reader_withou
             shown = ops.task(world["path"], what["task"], channel=channel, sender=sender)["task"]
             assert set(shown["step_args"]) <= set(steps.ACCOUNT_ARGS_SHOWN), (channel, sender)
             seen = json.dumps(shown)
-            for word in (TITLE, "Bring cash", "Main Street", "4242"):
+            for word in (TITLE, "Bring cash", "Main Street", "830461975213"):
                 assert word not in seen, (channel, sender, word)
             assert shown["step_args"]["operation"] == "create" and shown["step_kind"] == "calendar-event"
