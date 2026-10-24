@@ -17,6 +17,8 @@ import standin_tree as st
 from test_ask import accept, write_config
 from test_ops_interpret_dispatch import BARE, IX_PROFILES, IX_SENDERS, KEY, PLAIN, ROUTED, TODAY, ZONE, op, phone, prepare  # noqa: F401
 from test_ops_natural import world  # noqa: F401  (the real-operations world fixture)
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 ops_interpret = st.load("ops_interpret")
 interpreter_enable = st.load("interpreter_enable")
@@ -29,8 +31,8 @@ ops = st.load("ops")
 RUNTIME = Path(__file__).resolve().parents[1]
 NONE = '{"v":1,"kind":"none"}'
 PLAIN_LINE = "tell me something about the unicorns"
-HASHES = {"route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd", "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
-          "catalog_sha256": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d", "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504"}
+HASHES = {"route_sha256": PINNED_HASHES["route_or_deepseek_v4_1_flash"], "prompt_sha256": PINNED_HASHES["interpreter_prompt"],
+          "catalog_sha256": PINNED_HASHES["interpreter_catalog_before_s8"], "protocol_sha256": PINNED_HASHES["interpreter_protocol"]}
 FLIP = {"0": "1"}
 
 
