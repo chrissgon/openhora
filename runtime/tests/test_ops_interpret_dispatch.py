@@ -11,12 +11,15 @@ from __future__ import annotations
 from phone_literals import PLAIN_REFUSAL  # noqa: E402
 
 import json
+from pathlib import Path
 
 import pytest
 
 import standin_tree as st
 from test_ask import accept, write_config
 from test_ops_natural import KEY, PROFILES, SENDERS, world  # noqa: F401  (the real-operations world fixture)
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -187,7 +190,7 @@ def test_the_call_is_the_daily_route_with_the_protocols_settings_and_the_hash_it
     phone(world, "gracias, nada mas")
     sent = [c for c in calls if "route" in c]
     assert len(sent) == 1 and sent[0]["route"] == "or-deepseek-v4.1-flash"
-    assert sent[0]["kw"] == {"accepted": ["1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd"], "deadline_ms": 6000, "temperature": 0, "max_tokens": 300,
+    assert sent[0]["kw"] == {"accepted": [PINNED_HASHES["route_or_deepseek_v4_1_flash"]], "deadline_ms": 6000, "temperature": 0, "max_tokens": 300,
                              "reasoning": "off"}
 
 

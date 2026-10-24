@@ -26,6 +26,8 @@ import pytest
 import standin_tree as st
 from test_ask import accept
 from test_ops_natural import KEY, OWNER, PROFILES, SENDERS, world  # noqa: F401  (the real-operations world fixture)
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -354,8 +356,8 @@ def test_the_served_catalog_has_the_operation_as_a_read_with_a_span_and_a_word()
 
 def test_the_interpreter_stays_on_with_the_newest_entry_and_is_off_when_its_catalog_hash_is_wrong(tmp_path):
     data = json.loads((REPO / "runtime" / "interpreter_enable.json").read_text(encoding="utf-8"))
-    before = "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d"      # the catalog before this slice: an earlier entry still names it
-    served = "90877edd84f53f4c91ce546a94e96bd42ddfeb7959c075d75d216c44a665a212"
+    before = PINNED_HASHES["interpreter_catalog_before_s8"]      # the catalog before this slice: an earlier entry still names it
+    served = PINNED_HASHES["interpreter_catalog_s8"]
     assert any(e["catalog_sha256"] == before for e in data["entries"][:-1])
     newest = data["entries"][-1]
     assert interpreter.SERVED_SHA256 == served and newest["catalog_sha256"] == served

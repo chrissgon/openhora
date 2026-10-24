@@ -17,11 +17,13 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "runtime"))
 import interpreter_route as ir  # noqa: E402
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 KEY_NAME = "WB_RUNTIME_KEY_OPENROUTER_API_KEY"
 OTHER_SERVICE_KEY = "sk-ant-oat01-AAAA"      # security-scan: allow secret-assignment -- a fictional value in the shape of another service's key, to be refused
 RIGHT_KEY = "sk-or-v1-test"
-DEEPSEEK_HASH = "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd"     # the committed row, computed offline before this package
+DEEPSEEK_HASH = PINNED_HASHES["route_or_deepseek_v4_1_flash"]     # the committed row, computed offline before this package (scripts/tests/pinned_hashes.json)
 ROUTES = json.loads((REPO / "runtime" / "interpreter_routes.json").read_text(encoding="utf-8"))
 ROW = ROUTES["routes"][0]
 CLAUDE_WORDS = ("claude", "anthropic")        # the test's own list
