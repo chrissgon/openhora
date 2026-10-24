@@ -54,7 +54,7 @@ RELABEL_AGE_S = 60
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 MAX_LINE = 1000
 FRAME_ITEM_KEYS = frozenset(("id", "kind", "op", "need", "slot", "options", "values", "words", "age_s"))
-FRAME_KINDS = ("write-draft", "reminder-confirm", "router-question", "choice")
+FRAME_KINDS = ("write-draft", "reminder-confirm", "router-question", "choice", "plan-confirm")
 FRAME_NEEDS = ("slot", "confirm", "option", "text")
 FRAME_ID_RE = re.compile(r"^i[1-9]$")
 OP_RE = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
@@ -273,6 +273,8 @@ def frame_problems(frame, cat) -> list:
             out.append(f"{where}.age_s: not an integer 0..86400")
         if kind == "router-question" and (keys != {"id", "kind", "need", "age_s"} or need != "text"):
             out.append(f"{where}: a router question is id, kind, need text, age_s (R1)")
+        if kind == "plan-confirm" and (keys != {"id", "kind", "need", "op", "age_s"} or need != "confirm"):
+            out.append(f"{where}: a plan-confirm item is id, kind, need confirm, op, age_s (R8)")
         op = item.get("op")
         if op is not None and (not isinstance(op, str) or not OP_RE.match(op) or op not in cat["ops"]):
             out.append(f"{where}.op: not an op of the catalog (R2)")

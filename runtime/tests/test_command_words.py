@@ -124,3 +124,16 @@ def test_a_number_that_belongs_to_a_time_or_a_quantity_is_not_a_decision_number(
                  "rejeite por $25", "rejeite 25 reais", "rejeite a pergunta von 3 Tagen"):  # validate: allow english-only -- the Portuguese lines under test
         assert natural.decision_numbers(line) == [], line
     assert natural.decision_numbers("rejeite a pergunta 25") == [25] and natural.decision_numbers("reject question #7.") == [7]
+
+
+# --- BL2a: with D5 active the person checks the meaning, so the verb test is off and the number test stays ------------------------------------------------------------------
+
+def test_with_d5_active_vet_keeps_the_number_rule_and_drops_the_verb_test(monkeypatch):
+    plan_confirm = st.load("plan_confirm")
+    assert plan_confirm.ACTIVE is False, "committed off: every test above runs with the verb test"
+    assert command_words.vet("quero cancelar o pedido 3", "cancel", 3) == "again"      # validate: allow english-only -- the Portuguese line under test
+    monkeypatch.setattr(plan_confirm, "ACTIVE", True)
+    assert command_words.vet("quero cancelar o pedido 3", "cancel", 3) is None      # validate: allow english-only -- the Portuguese line under test
+    assert command_words.vet("quero cancelar o pedido 3 e o 4", "cancel", 3) == "number"      # validate: allow english-only -- the Portuguese line under test
+    assert command_words.vet("cancela o pedido", "cancel", 3) == "number" and command_words.vet("cancela o pedido 4", "cancel", 3) == "number"
+    assert command_words.vet("cancela o pedido 3", "cancel", True) == "number" and command_words.vet("cancela o pedido 3", "cancel", None) == "number"

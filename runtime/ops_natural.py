@@ -12,6 +12,9 @@ fixed (contracts/runtime.md, "Natural requests", limit L54):
   1. The operation has a class in runtime/natural.py `CLASSES`.
   2. The operation's row lists the channel that carries the line (else the typed command's sentence), and `operations.refusal(op, channel, policy,
      sender=sender)` has no refusal: the sentence the typed command gets, and no call. A decision (D) asks it for the operation AND for `pending`.
+  2b. D5 (package BL2a, limit L65; `plan_confirm.ACTIVE`): on a messaging app a read or an act is not run until the person said yes to the sentence code wrote from the call: `run`
+     returns "I understood: ... Shall I go ahead?" (`plan_confirm.ask`) unless the call is `confirmed` (`ops_say._confirmed`, from the bridge's `plan_ok`), and a decision (reject, release)
+     is asked about only when it is open (`_decision`). The number rule of step 4 stays whatever the person says.
   3. By class: R is called with the channel and sender as `_say_command` calls it and its result is written by code; N (a reminder) is asked first when the
      router chose it (below); W runs nothing (the reply is the exact command to send); D decides nothing (the reply points to the card, which the messaging
      bridge sends again); E and G run nothing (the reply is the exact operation or command and the place: an E operation ends in a card the person approves);
@@ -55,6 +58,7 @@ import ops_actor
 import phone_errors
 import phone_refusal
 import phrases
+import plan_confirm
 
 DRAFT_TTL = drafts.TTL       # seconds a question waits for its answer (this spec's choice, not measured)
 RENDER_MAX = 1800            # characters of a read written for a messaging app
@@ -278,10 +282,12 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     return run(project, ctx, found["op"], found["args"], said, channel, sender, extras)
 
 
-def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, sender, extras: dict, when=None, routed: bool = False) -> str:
+def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, sender, extras: dict, when=None, routed: bool = False, confirmed: bool = False) -> str:
     """Execute one operation chosen by a tier, and return the reply (see the module's text for the order). `args` are the arguments natural.py checked:
     {parameter: value}; `when` is the router's normalised time; `routed` says the router chose the operation: a notice or an own write it chose (a time
-    it normalised, a reminder to forget) always asks first, because no code can check the choice against the line."""
+    it normalised, a reminder to forget) always asks first, because no code can check the choice against the line. `confirmed` (D5, limit L65) says the person said yes
+    to the sentence code wrote from this very call (runtime/ops_say.py `_confirmed`, from the sender's `plan_ok`): on a messaging app a call that is not confirmed asks
+    "Posso?" instead of running (`plan_confirm.needed`), after the policy and the number have been checked."""
     cfg = ctx["cfg"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     cls = natural.class_of(name)
@@ -310,6 +316,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
             return phrases.text("NAT_WHICH_DECISION" if cls == "D" else "NAT_ASK_ID", cfg)
         if problem:
             return phrases.text("IX_ASK_AGAIN", cfg)
+    if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
+        return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"))
     if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here
         done = _typed(project, ctx, name, args, sender, extras, row)
         if done is not None:
@@ -328,7 +336,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         command = _command(ctx, name, args, channel, channel)
         return t("NAT_TYPE_IT", command=command) if command else phone_sentence(ctx, name)
     if cls == "D":
-        return _decision(project, ctx, name, args, channel, sender, extras)
+        return _decision(project, ctx, name, args, channel, sender, extras, said, when, routed, confirmed)
     if cls in ("G", "E"):      # run nothing: the place and the exact command (an E operation, run there, ends in a card of the exact content)
         return _gated(ctx, name, args, channel)
     if name == "ask":
@@ -637,7 +645,7 @@ def _stored_apart(reply: str, cfg: dict, row: dict, by_bridge: bool, extras: dic
     return reply
 
 
-def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, extras: dict) -> str:
+def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, extras: dict, said: str = "", when=None, routed: bool = False, confirmed: bool = False) -> str:
     """A decision named in words. `approve` is never made from words: on a messaging app the decision's card is sent again (S20: the sentence says so, and that the card is approved
     with its button or by the word that follows it); `reject` and `release` (the safe direction: nothing is sent, written or spent) are run by their typed lines (`hand_over`), so that
     the card the person was sent, the policy and the refusals are the typed command's own. A number that is not an open decision gets the one sentence NAT_NO_DECISION."""
@@ -657,6 +665,8 @@ def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, e
         return t("NAT_NO_DECISION", id=number)      # the same sentence for one that does not exist and one that is closed: a sender learns nothing of another's decisions
     if channel == "messaging":
         if name in ("reject", "release"):
+            if plan_confirm.needed(ctx, name, channel, sender, confirmed):      # D5: asked only about a decision that is open (above), never about one that does not exist or is closed
+                return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"))
             return hand_over(project, ctx, TYPED[name][0].format(n=number), True, sender, extras)
         extras["resend"] = number      # the bridge sends the decision's card again, to this chat, under the rules of any card; it says so only when it did
         extras["resend_forced"] = True      # S20: the sentence says the card was sent again, so it is sent again whatever was sent before (the bridge's flood rule is for lines nobody asked twice)

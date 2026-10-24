@@ -20,7 +20,10 @@ The typed frame (slice S4). When the sender has a router question bound to them 
 frame is the one item `{"id": "i1", "kind": "router-question", "need": "text", "age_s": <seconds>}` built by `interpreter.typed_frame`: the id, the kind, the need and the age
 and nothing else, so that neither the question's words nor its number ever reach the model. A decision `answer` of `i1` sets `extras["frame"] = "answer"` and returns None (the
 line is the answer to the question); a decision `route` sets `extras["frame"] = "new"` and returns None (a new request). `check` refuses any other item id (E_ITEM_UNKNOWN), and
-the sentence is IX_ASK_AGAIN with the question still open. Without a bound question the frame is none, as in S1.
+the sentence is IX_ASK_AGAIN with the question still open. Without a bound question the frame is none, as in S1. A sender with a live "Shall I go ahead?" (BL2a, limit L65: runtime/plan_confirm.py) has a second kind of item, `plan-confirm` (`frame_for`):
+its id (`i2` beside the router's `i1`, else `i1`), its need (`confirm`), the operation and the age and nothing else, and `last` holds the plan's own words (the spans code checked in the person's
+line), so that a correction ("no, for tomorrow") is a new turn that states a new plan or inherits a span of the old words. A decision `answer` of the plan item with `confirm` `no` drops the plan; with `yes`
+it runs nothing and says to reply to the question (`PLAN_NOT_LAST`): only code's reading of the person's yes, passed by the bridge as `plan_ok`, runs a plan.
 
 The steps of `turn`: `interpreter.precheck`; the limits below; `interpreter.build_messages` (the user turn is five lines made
 of the date, the time, the zone, the frame and the person's own collapsed line: nothing of any third party); one call to the daily route; `parse`; `check` against the line;
@@ -68,6 +71,7 @@ import operations
 import ops_natural
 import phone_refusal
 import phrases
+import plan_confirm
 
 CHANNEL = "messaging"
 RATE_MAX = 10          # calls per sender in RATE_WINDOW seconds
@@ -260,11 +264,37 @@ def lenient(line: str, text, strict: dict, now, zone: str, allowed, frame=None) 
     return _by_verb(line, strict, now, zone, allowed, frame, obj)
 
 
+def frame_for(age_s, plan=None):
+    """The typed frame for what the sender has open (BL2a): the router question bound to them (one item: `i1`, kind, need and age, none of its words), and their live plan, the
+    "Shall I go ahead?" code asked (a `plan-confirm` item: its operation and age, id `i2` when the router's item is there, else `i1`; `last` holds the plan's own words, the spans code
+    checked in their line, so that a correction may inherit one). None when nothing is open. A plan the frame cannot hold (an operation the catalog lacks) is left out."""
+    items = []
+    if age_s is not None:
+        items.append({"id": "i1", "kind": "router-question", "need": "text", "age_s": age_s})
+    last = None
+    if plan is not None:
+        item, last = plan_confirm.frame_parts(plan)
+        items.append(dict(item, id=plan_item_id(age_s)))
+    if not items:
+        return None
+    for attempt in ((items, last), (items, dict(last, own_words={})) if last else None, (items[:1], None) if age_s is not None else None):      # the plan with its words, the plan with none, the router's item alone
+        if attempt is None:
+            continue
+        try:
+            return interpreter.typed_frame(attempt[0], attempt[1], {})
+        except ValueError:
+            continue
+    return None
+
+
+def plan_item_id(age_s) -> str:
+    """The id the plan's item has in the frame: `i2` after the router's `i1`, else `i1`."""
+    return "i1" if age_s is None else "i2"
+
+
 def router_frame(age_s):
     """The typed frame for a router question bound to the sender: one item, the question's id (`i1`), kind, need and age, and none of its words (None: no question is bound)."""
-    if age_s is None:
-        return None
-    return interpreter.typed_frame([{"id": "i1", "kind": "router-question", "need": "text", "age_s": age_s}], None, {})
+    return frame_for(age_s, None)
 
 
 def _allowed(ctx: dict, sender) -> set:
@@ -407,8 +437,11 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     decision = interpreter.precheck(said)
     if decision is None:
         decision = importlib.import_module("ops_card_revise").decided(project, CHANNEL, sender, said)      # S13: the decision made while the line was checked as a change of a waiting card, once
+    plan = extras.get("plan_frame")      # D5: the sender's live "Shall I go ahead?" (runtime/ops_say.py), a typed item of the frame beside the router's question
+    frame = frame_for(age_s, plan)
+    plan_id = next((item["id"] for item in (frame or {"items": []})["items"] if item["kind"] == "plan-confirm"), None)
     if decision is None:
-        decision = _ask_model(ctx, entry["entry"], said, sender, router_frame(age_s)) if entry is not None and _admit(ctx, sender) else None
+        decision = _ask_model(ctx, entry["entry"], said, sender, frame) if entry is not None and _admit(ctx, sender) else None
     if decision is None:
         return _no_decision(ctx, said, extras)
     kind = decision.get("kind")
@@ -416,11 +449,18 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
         extras["interpreted"] = False
         extras["frame"] = "new"
         return None
+    if kind == "answer" and plan_id is not None and decision.get("item") == plan_id:
+        if decision.get("confirm") == "no":      # D5: a model's no drops the plan; a model's yes never runs it (only code's reading of the person's yes does: runtime/ops_say.py `_confirmed`)
+            plan_confirm.drop(project, sender)
+            return _said(phrases.text("PLAN_DROPPED", cfg), extras)
+        extras["plan_keep"] = True
+        return _said(phrases.text("PLAN_NOT_LAST", cfg), extras)
     if kind == "answer":
         extras["interpreted"] = False      # the line is sent to the planning agent as the answer to its question: the conversation keeps it
         extras["frame"] = "answer"
         return None
     if kind == "op":
+        extras["plan_words"] = dict(decision.get("spans") or {})      # D5: the spans code checked in the line become the new plan's own words (a correction may inherit one)
         return _carry_out(project, ctx, decision, said, sender, extras)
     if kind == "none":
         return _said(phrases.text("IX_NONE", cfg), extras)

@@ -94,7 +94,7 @@ KEYS = {"op": ({"v", "kind", "op", "slots"}, {"time_iso", "weekday", "inherit"})
         "clarify": ({"v", "kind"}, {"slot", "ops"}),
         "route": ({"v", "kind"}, set()),
         "none": ({"v", "kind"}, set())}
-FRAME_KINDS = ("write-draft", "reminder-confirm", "router-question", "choice")
+FRAME_KINDS = ("write-draft", "reminder-confirm", "router-question", "choice", "plan-confirm")
 FRAME_NEEDS = ("slot", "confirm", "option", "text")
 ITEM_KEYS = {"id", "kind", "op", "need", "slot", "options", "values", "words", "age_s"}
 ITEM_REQUIRED = {"id", "kind", "need", "age_s"}
@@ -244,7 +244,7 @@ def frame_problems(frame, catalog=None) -> list:
             seen_ids.add(item["id"])
         kind, need = item["kind"], item["need"]
         if kind not in FRAME_KINDS:
-            out.append(f"{where}: kind is not one of the four")
+            out.append(f"{where}: kind is not one of the five")
             continue
         if need not in FRAME_NEEDS:
             out.append(f"{where}: need is not one of the four")
@@ -266,6 +266,10 @@ def frame_problems(frame, catalog=None) -> list:
         if kind == "router-question":          # R1
             if set(item) != ITEM_REQUIRED or need != "text":
                 out.append(f"{where}: a router item is its id, kind, need (text) and age only")
+            continue
+        if kind == "plan-confirm":          # R8
+            if set(item) != ITEM_REQUIRED | {"op"} or need != "confirm" or op is None:
+                out.append(f"{where}: a plan-confirm item is its id, kind, need (confirm), op and age only")
             continue
         if kind in ("write-draft", "reminder-confirm"):          # R2
             if op is None:
@@ -353,6 +357,8 @@ def typed_frame(items, last, labels, catalog=None) -> dict:
             out["words"] = words
         if out.get("kind") == "router-question":
             out = {key: out[key] for key in ("id", "kind", "need", "age_s") if key in out}
+        if out.get("kind") == "plan-confirm":          # R8: the operation and the age, never a word (the plan's own words are `last`'s)
+            out = {key: out[key] for key in ("id", "kind", "need", "op", "age_s") if key in out}
         built.append(out)
     kept = None
     if isinstance(last, dict) and _is_int(last.get("age_s")) and last["age_s"] <= 3600:

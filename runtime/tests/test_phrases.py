@@ -97,7 +97,7 @@ def test_the_spaces_at_the_ends_of_a_sentence_are_the_same_in_both_languages_and
         assert (EN[key].startswith(" "), EN[key].endswith(" ")) == (PT[key].startswith(" "), PT[key].endswith(" ")), key
         assert "\r" not in PT[key] and "<b>" not in PT[key] and "**" not in PT[key], key
     spaced = sorted(key for key in EN if EN[key] != EN[key].strip(" "))
-    assert spaced == ["NAMES_MORE", "PROPOSES", "RM_COUNT_LATE", "RM_TEXT_LATE", "STATE_FINISHED", "STATE_HELD"]
+    assert spaced == ["NAMES_MORE", "PROPOSES", "RM_COUNT_LATE", "RM_TEXT_LATE", "STATE_FINISHED", "STATE_HELD", "UNDERSTOOD_ON_DAY", "UNDERSTOOD_SINCE"]      # BL2a: the two pieces put after the sentence's own text (a day, a since)
 
 
 # --- English as it was --------------------------------------------------------------------------------------------------------------------------------
