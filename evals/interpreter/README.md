@@ -15,6 +15,7 @@ format, and `scripts/interpreter_corpus_build.py`, the builders); the measuremen
 | `thresholds.json` | the gate: per-category bounds overall and per language | C0 | frozen when IX-1's data merges; its hash is in the decisions |
 | `dev-relabelled.jsonl` | the three older corpora of `runtime/tests` relabelled to the outcome schema, by code (`relabel`) | IX-1 tooling | never by hand: `runtime/tests/test_interpreter_corpus_schema.py` rebuilds it and compares byte for byte |
 | `dev.jsonl` | the new dev items (generated, written by an author session, adversarial), labelled blind and resolved | IX-1 data | frozen (`freeze --split dev`) |
+| `dev-long-v1.jsonl` | the long, information-rich dev lines of B-double-prime-lite (46 fictional lines: day words, articles, "da agenda", polite words, titles of several words; the new `target` and `day` slots and the `plan-confirm` frame); authored by the specification, not labelled blind: dev evidence, never the gate's held-out split | package BL3 | new file, never `dev.jsonl` (frozen; the replay gate draws its samples from it); `runtime/tests/test_interpreter_dev_long.py` holds its form |
 | `templates-dev.json`, `values-dev.json` | the templates and slot values `generate` builds the dev items from | IX-1 author session | with `dev.jsonl` |
 | `templates-dev-coverage.json` | dev-only templates, one per dev item still missing for a catalog op with fewer than 3 dev items (relabelled ones counted); generated once each with seed `20261023` | IX-1 author session | with `dev.jsonl` |
 | `adversarial.json` | the adversarial rules, their gold effects, the dev plan, the protected time words, and only the word-list entries the dev items used (the full lists are shared with the held-out test split and are committed after the measurement ran) | IX-1 author session | with `dev.jsonl` |
@@ -254,3 +255,44 @@ python3 runtime/interpreter_measure.py --corpus FILE --route ID --local-aggregat
   runs with no open item, counted as `unseeded` and stated beside the numbers (up to 5% of the split is accepted); a private line that asks for work is `route` in the corpus (L7)
   and `clarify private-route` in code, scored as a clarification by the frozen rules, with its count printed beside the clarify rate; a model confirm counts only when code reads
   the same yes or no, so a "sure thing" the model calls a yes is asked again.
+
+## The long-line dev file and its measurement plan (BL3)
+
+`dev-long-v1.jsonl` holds 46 long lines (pt-BR 24, en 10, es, fr, de and it 3 each), all fictional (invented people, places and titles; no address, no phone number), with golds written by the
+specification and a fixed clock, `2026-10-27T09:30` (a Tuesday; no line names Tuesday), in the zone of the line's language. By operation: event-cancel 10, event-change 6, mail-reply 4, mail-archive 2,
+mail-trash 2, mail-move 1, mail-mark 1, cancel 5, stop-task 1, items 6, file-read 2, research 3, answer 1, none 1, route 1. Five lines carry a `plan-confirm` frame (the question "Posso?" of the plan, answered
+by a number, a "sim" or a new request); 17 carry polite or extra words (`filler`). It measures what the catalog's `target` and `day` slots (BL1) and the plan-confirm frame (BL2a) changed; the frozen
+`dev.jsonl` and the replay gate (which read `dev.jsonl` only) are untouched. It is **dev evidence**: its golds were not labelled blind, so it is never the gate's held-out split and its result never replaces
+the frozen gate's.
+`runtime/tests/test_interpreter_dev_long.py` checks the form offline (canonical, sorted, ids in the 50000 range, every item and frame against the served catalog and `natural.NATURAL`, every span a piece of
+its line, no line of the frozen sets, the counts as literals). Reading the file costs no model call.
+
+**The measurement is written down here and NOT run by this package: it needs the maintainer's explicit "pode".** Run it from the supervisor's own clone of the integration branch with BL1, BL2a and BL3
+merged, one run at a time, never from the live checkout. A folder holds exactly one answers file, so each run records into a folder of its own, outside the repository
+(`--record /private/tmp/<session>/ix-blite/<route>/<run>/`); the harness writes the evidence to `evals/interpreter/evidence/` and the supervisor commits it, with the recorded answers copied under
+`evals/interpreter/replay/<route>/blite-<date>/` (an exact-path `english-only` line in `.security-scan-allow` for each file), in one pull request, so later code changes can be replayed against them with no call.
+
+| Run | Command (after `--corpus`) | Calls | Cost |
+|---|---|---|---|
+| M1a, the long set on the daily route | `evals/interpreter/dev-long-v1.jsonl --route or-deepseek-v4.1-flash --runs 2 --record <dir> --evidence-dir evals/interpreter/evidence` | 92 | about US$ 0.04 (92 x US$ 0.00044, the median of the 2026-10-21 event) |
+| M1b, the long set on the reference | the same with `--route acct-claude-sonnet-5.5` (the maintainer's account; Claude never goes through OpenRouter) | 92 | subscription quota, about 4 minutes at 2.5 s a call |
+| M2a, regression, daily | `evals/interpreter/dev.jsonl --route or-deepseek-v4.1-flash --sample 50 --seed 20261025 --runs 1 --record <dir>` (the draw of the recorded iteration-2 event) | 50 | about US$ 0.02 |
+| M2b, regression, reference | the same with `--route acct-claude-sonnet-5.5` | 50 | subscription quota |
+| M3 (optional) | `evals/interpreter/ix-test-v1.jsonl --route or-deepseek-v4.1-flash --runs 2 --record <dir outside the checkout>` (the spent split: regression only, never tuned against) | 1,600 | about US$ 0.70 |
+
+Metered cost without M3: about US$ 0.06; with M3: about US$ 0.76; plus the reference route's quota on the maintainer's account. M3 stays optional, at the same "pode".
+The recorded events to compare M2 with: DeepSeek `ix-20261021T155019Z-f148397b` (50 items, correct 46, clarify 4) and Sonnet `ix-20261021T184159Z-cda87ebe` (correct 48, clarify 2).
+
+**The pass rule, against the frozen `thresholds.json` (no threshold changes):**
+
+1. Hard: `wrong_effect_unconfirmed` is 0 in every event (M1 and M2). A card the person approves is not an unconfirmed effect; a plan that ran without its OK would be.
+2. M1, each route: `correct_direct` is at least 0.85 on the pt-BR items and on the en items. Spanish, French, German and Italian (3 items each) are reported as "not decidable at this n".
+3. M1: `clarify_rate` is at most 0.15; per language, the point rate of `wrong_card` is at most 0.03 (pt-BR and en); the point rates of `wrong_read`, `wrong_reminder_reading` and `wrong_item_binding` are reported beside it against the same 0.03.
+4. M1: the Wilson upper bounds of 0.02 (`wrong_card`, `wrong_read`, `wrong_reminder_reading`, `wrong_item_binding`) are not reachable at 92 runs (0 of 92 gives an upper bound of about 4.0%): reported as "not decidable at this n", as in IX-3b.
+5. M2, against the recorded events of the same draw: `correct` is not lower than the recorded count minus 2 (DeepSeek 46, so at least 44; Sonnet 48, so at least 46) and no `wrong_*` category is above its recorded count (0 for both): the
+   additive slots did not hurt the old lines.
+6. Daily route: p95 latency at most 4,000 ms and median cost at most US$ 0.002 per line (read from the event; a run that goes out `--jobs` calls at a time reads its latency under that load, which the result states).
+7. The current-pipeline arm is not run on the long set: the old catalog refuses golds with `target`, so "versus current" is read on M2 only.
+
+A rule not met is published as it is (principle 10) and the maintainer decides, as on 2026-10-21 for B-prime: the interpreter stays on only through the dated enabling entry BL1 added, whose status line says
+"served before its measurement". Never silently on, never a threshold edited, never a new evidence kind.
