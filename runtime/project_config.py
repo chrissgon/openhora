@@ -275,8 +275,8 @@ def _max_running(raw: dict) -> int:
     return value
 
 
-# The key "research" (slice R2-F1, runtime/ops_research.py): the bounds of each web research run, all optional. An object with any of three keys; absent keys take the default.
-RESEARCH_DEFAULTS = {"max_cost_usd": 0.25, "timeout_seconds": 300, "max_per_day": 10}
+# The key "research" (slice R2-F1, runtime/ops_research.py): the bounds of each web research run, all optional. An object with any of three keys; absent keys take the default; the default cost cap is 0.60 USD (the maintainer, 2026-10-24: one weather lookup on the reference model reached 0.25).
+RESEARCH_DEFAULTS = {"max_cost_usd": 0.6, "timeout_seconds": 300, "max_per_day": 10}
 RESEARCH_BOUNDS = {"max_cost_usd": (0.01, 5.0), "timeout_seconds": (30, 900), "max_per_day": (1, 100)}   # the dollars one run may spend, the seconds one run may last, the runs in a local day
 
 
