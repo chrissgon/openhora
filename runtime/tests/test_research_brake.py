@@ -75,6 +75,20 @@ def test_the_senders_own_search_is_cancelled_by_their_stop_and_its_reply_says_it
     cfg = ops_core.context(research["path"])["cfg"]
     assert run.end() == phrases.text("RS_CANCELLED", cfg)
     assert pending_items.find(key(research), "research-run") is None, "the record goes with the run"
+    ctx = ops_core.context(research["path"])
+    label = ctx["store"].task_get(ctx["conn"], item["state"]["request_id"])["stop_requested_by"]
+    assert label == "user from messaging, profile researcher" and ASKER_KEY not in label, "the label carries the sender's profile as R18's does, never the sender"
+
+
+def test_a_search_cancelled_by_any_other_path_keeps_its_own_sentence(research, monkeypatch):
+    """RS_CANCELLED says "as you asked": it is the reply only to a stop that came through `stop`; a cancel from the page, the terminal or the board gets ASK_CANCELLED as before."""
+    run = Blocked(research, monkeypatch)
+    item = pending_items.find(key(research), "research-run")
+    ctx = ops_core.context(research["path"])
+    ops_cancel.cancel_request(ctx, item["state"]["request_id"], by="user", channel="page")
+    cfg = ctx["cfg"]
+    reply = run.end()
+    assert reply == phrases.text("ASK_CANCELLED", cfg) and reply != phrases.text("RS_CANCELLED", cfg)
 
 
 def test_the_stop_of_another_sender_cancels_nothing_and_the_search_goes_on(research, monkeypatch):

@@ -191,7 +191,7 @@ def _research(project: str, ctx: dict, question: str, channel, sender, line=None
                 running = pending_items.new_item("research-run", *_binding(project, sender), state={"request_id": started["request_id"]})
                 pending_items.put(running)
             try:
-                return _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit)
+                return _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit, running)
             finally:
                 if running is not None:
                     pending_items.pop(running["id"])
@@ -201,7 +201,7 @@ def _research(project: str, ctx: dict, question: str, channel, sender, line=None
                 os.rmdir(dest)      # a refusal before the run leaves the folder it claimed empty: it goes (a folder with a run in it stays)
 
 
-def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit) -> dict:
+def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit, running=None) -> dict:
     cfg, store = ctx["cfg"], ctx["store"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     limits = cfg["research"]
@@ -211,7 +211,10 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
     def finish(**fields):
         """End the run and its request (one transaction). A request cancelled meanwhile has the run recorded cancelled: nothing is answered, and this returns the outcome that says so."""
         done = core._stored(ctx, store.answer_run_finish, run_id, run_dir=dest, **fields)
-        return _outcome(t("RS_CANCELLED"), "cancelled", ran=True, **base) if done["cancelled"] else None
+        if not done["cancelled"]:
+            return None
+        stopped = running is not None and running["state"].get("stopped") is True      # RS_CANCELLED says "as you asked": only a stop that came through `stop` (this sender's own word); a cancel from the page, the terminal or the board keeps its sentence
+        return _outcome(t("RS_CANCELLED" if stopped else "ASK_CANCELLED"), "cancelled", ran=True, **base)
 
     def fail(kind: str, reason: str, word: str, counts=None, image=None, reported=None) -> dict:
         return finish(status="failed", failure=kind, attempts=(counts or {}).get("attempts", 0), image_digest=image,
@@ -260,14 +263,16 @@ def stop(project: str, sender) -> bool:
     """The brake: cancel THIS sender's running web search. True when one was running and was cancelled; False for no search, a search of another sender, and a sender whose profile does not
     hold `research` now (the policy again, as `_still_may` asks it). It says nothing to the person (the search's own reply, RS_CANCELLED, does) and keeps nothing. The cancel is the path that
     stops what runs, called with the request id this sender's own record names; no other request can be named here. The call is not made as the messaging sender: that path would ask the
-    group `cancel`, which a sender who may search need not hold, and the stop word is the answer to this sender's own search."""
+    group `cancel`, which a sender who may search need not hold, and the stop word is the answer to this sender's own search. The stop label carries the sender's profile as R18's does
+    ("user from messaging, profile <name>", never the sender); the record is marked `stopped` first, so that only this path makes the reply RS_CANCELLED."""
     ctx = core.context(project)
     if not operations.permitted("research", "messaging", ctx["cfg"]["channels"], None, sender):
         return False
     item = pending_items.find(_binding(project, sender), "research-run")
     if item is None:
         return False
-    ops_cancel.cancel_request(ctx, item["state"]["request_id"], by="person from messaging")
+    item["state"]["stopped"] = True
+    ops_cancel.cancel_request(ctx, item["state"]["request_id"], by=f"user from messaging, profile {ops_actor.profile_of(ctx['cfg'], sender)}")
     return True
 
 

@@ -120,3 +120,33 @@ def test_the_frame_item_holds_only_the_operation_and_the_age_and_a_plan_the_cata
                                                                                     "state_question": False, "sha256": "0" * 64})
     assert ops_interpret.frame_for(None, ghost) is None and ops_interpret.frame_for(600, ghost)["items"] == [{"id": "i1", "kind": "router-question", "need": "text", "age_s": 600}]
     assert ops_interpret.router_frame(None) is None and ops_interpret.router_frame(5)["last"] is None
+
+
+def test_a_correction_that_inherits_earlier_words_keeps_them_in_the_plans_line_and_the_question_is_not_asked_again(rig, monkeypatch):
+    """The correction's own line holds none of the inherited span: only the earlier words the plan carries make the search's span check pass after the OK."""
+    ran = []
+    monkeypatch.setattr(ops_research, "_research", lambda project, ctx, question, channel, sender, line=None: ran.append((question, line)) or {"reply": "SEARCH-REPLY"})
+    rig.says["text"] = op("research", {"question": "weather in Lisbon tomorrow"})
+    say(rig, OWNER, LINE)
+    rig.says["text"] = op("research", {}, inherit={"question": "weather in Lisbon tomorrow"})
+    out = say(rig, OWNER, "make it the same one as before")      # the line holds nothing of the question
+    assert "weather" not in "make it the same one as before" and "plan_confirm" in out
+    item = pending_items.find(plan_confirm._key(rig.world["path"], OWNER), "plan-confirm")
+    assert item["state"]["said"] == "make it the same one as before weather in Lisbon tomorrow" and item["state"]["words"] == {"question": "weather in Lisbon tomorrow"}
+    done = say(rig, OWNER, "yes", plan_ok=ok_of(out))
+    assert done["reply"] == "SEARCH-REPLY" and ran and ran[0][0] == "weather in Lisbon tomorrow", "the inherited question is not asked again"
+
+
+def test_the_next_line_after_a_plan_with_string_arguments_sees_the_operation_and_none_of_the_values(rig, monkeypatch):
+    """Arguments a tier-1 call carries (a path, a question) are never words of the frame: `last.words` holds only spans the interpreter checked in the person's line, and the frame item only the operation and the age."""
+    ctx = ops_core.context(rig.world["path"])
+    marker = "ZQX-marker-plan.md"
+    for name, args in (("artifact", {"path": marker}), ("progress", {"since": marker}), ("research", {"question": marker})):
+        extras = {}
+        reply = ops_natural.run(rig.world["path"], ctx, name, args, "x", "messaging", OWNER, extras)
+        assert extras["plan_confirm"]["op"] == name
+        rig.says["text"] = text("none")
+        say(rig, OWNER, "make it the same one as before")
+        user = rig.calls[-1]["user"]
+        assert marker not in user, name
+        assert shown_frame(rig) == f'frame: {{"items":[{{"age_s":0,"id":"i1","kind":"plan-confirm","need":"confirm","op":"{name}"}}],"last":{{"age_s":0,"op":"{name}","words":{{}}}},"v":1}}', name
