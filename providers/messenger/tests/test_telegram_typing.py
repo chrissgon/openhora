@@ -22,6 +22,7 @@ def test_typing_asks_the_bot_api_for_the_typing_action_in_that_chat_and_nothing_
     assert len(opener.requests) == 1
     url, body = opener.requests[0][0], json.loads(opener.requests[0][1])
     assert url == f"https://api.telegram.org/bot{TOKEN}/sendChatAction" and body == {"chat_id": 4242, "action": "typing"}
+    assert telegram.CAPABILITIES["typing"] is True
 
 
 def test_a_group_chat_id_keeps_its_sign_and_a_wrong_one_would_be_seen(monkeypatch, capsys):
@@ -43,7 +44,3 @@ def test_a_refusal_of_the_service_is_exit_1_without_the_token(monkeypatch, capsy
     refused = urllib.error.HTTPError(url, 403, "Forbidden", {}, io.BytesIO(b'{"ok": false, "description": "bot was blocked by the user"}'))
     code, out, err = run(monkeypatch, capsys, Opener(refused), "typing", "--platform", "telegram", "--chat", "4242")
     assert code == 1 and out == "" and TOKEN not in err
-
-
-def test_the_capabilities_declare_typing_and_the_verb_is_listed():
-    assert telegram.CAPABILITIES["typing"] is True
