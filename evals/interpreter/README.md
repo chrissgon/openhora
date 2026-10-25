@@ -16,6 +16,8 @@ format, and `scripts/interpreter_corpus_build.py`, the builders); the measuremen
 | `dev-relabelled.jsonl` | the three older corpora of `runtime/tests` relabelled to the outcome schema, by code (`relabel`) | IX-1 tooling | never by hand: `runtime/tests/test_interpreter_corpus_schema.py` rebuilds it and compares byte for byte |
 | `dev.jsonl` | the new dev items (generated, written by an author session, adversarial), labelled blind and resolved | IX-1 data | frozen (`freeze --split dev`) |
 | `dev-long-v1.jsonl` | the long, information-rich dev lines of B-double-prime-lite (46 fictional lines: day words, articles, "da agenda", polite words, titles of several words; the new `target` and `day` slots and the `plan-confirm` frame); authored by the specification, not labelled blind: dev evidence, never the gate's held-out split | package BL3 | new file, never `dev.jsonl` (frozen; the replay gate draws its samples from it); `runtime/tests/test_interpreter_dev_long.py` holds its form |
+| `dev-long-v2.jsonl` | the 46 items of `dev-long-v1.jsonl` byte for byte except `gold`: every span slot's accepted values widened by rule W1 of 2026-10-25 (the value with or without its article, its preposition, the family noun and a body's lead-in, each piece a piece of the line; no content word removed; no time, int or op touched), written by `python3 scripts/interpreter_corpus.py widen-golds --in evals/interpreter/dev-long-v1.jsonl`; dev evidence, written after the v1 answers were seen, so a re-score under it is labelled not blind | package BL5A | `v1` stays frozen (the published result was scored on it); `runtime/tests/test_interpreter_blite_replay.py` rebuilds v2 from v1 and compares byte for byte |
+| `replay/<route>/blite-20261025/M1/`, `.../M2/` | the recorded raw answers of the B-double-prime-lite measurement of 2026-10-25 (M1 the long set on v1, M2 the 50-item draw of `dev.jsonl`, seed 20261025), one answers file per folder, for DeepSeek and for Sonnet; their evidence files are `evidence/ix-20261025T03*.jsonl` and the catalog they were recorded with is `replay/catalogs/catalog-a77f8a8f.json` | package BL5A | committed once, never edited; replayed with no call by `runtime/tests/test_interpreter_blite_replay.py` (published counts read from the evidence, replay counts of the current code kept apart) |
 | `templates-dev.json`, `values-dev.json` | the templates and slot values `generate` builds the dev items from | IX-1 author session | with `dev.jsonl` |
 | `templates-dev-coverage.json` | dev-only templates, one per dev item still missing for a catalog op with fewer than 3 dev items (relabelled ones counted); generated once each with seed `20261023` | IX-1 author session | with `dev.jsonl` |
 | `adversarial.json` | the adversarial rules, their gold effects, the dev plan, the protected time words, and only the word-list entries the dev items used (the full lists are shared with the held-out test split and are committed after the measurement ran) | IX-1 author session | with `dev.jsonl` |
@@ -218,7 +220,7 @@ go-ahead for the calls it makes. Run from a checkout of the integration branch, 
 
 ```
 python3 runtime/interpreter_measure.py --corpus FILE --route ID [--runs N] [--jobs N] [--sample N --seed S] [--sequential]
-                                       [--record DIR | --resume DIR | --replay DIR] [--evidence-dir DIR | --no-evidence] [--json]
+                                       [--record DIR | --resume DIR | --replay DIR [--golds FILE]] [--evidence-dir DIR | --no-evidence] [--json]
 python3 runtime/interpreter_measure.py --corpus FILE --route ID --local-aggregates [--evidence-dir DIR]
 ```
 
@@ -237,6 +239,11 @@ python3 runtime/interpreter_measure.py --corpus FILE --route ID --local-aggregat
   a folder holds exactly one answers file, so a loop over routes or iterations records each route and each iteration into a folder of its own (`.../replay/<route>/<iteration>`). Dev answers
   are fictional and may be committed (an exact-path `english-only` line in `.security-scan-allow` for each file); the test split's answers stay outside the repository until the
   split is committed.
+- `--golds FILE` (only with `--replay`) is a **labelled re-score**, never a measurement and never evidence. `--corpus` stays the file the answers were recorded on, so the header check is
+  unchanged; FILE must hold exactly the corpus's ids and, per id, every key but `gold` and `also` equal to the corpus item (else the run is refused, naming the first id and key, never a
+  value); the recorded runs are then scored with FILE's `gold` and `also`. The summary carries `rescore: true`, `golds_file` and `golds_sha256` (the human output's first line says "re-score
+  with golds <file>: not a measurement, no evidence"), and nothing is written. The first result of a run stays published as it was scored; a re-score is published beside it with its label.
+  Example, the B-double-prime-lite answers under the golds of rule W1: `--corpus evals/interpreter/dev-long-v1.jsonl --route or-deepseek-v4.1-flash --runs 2 --replay evals/interpreter/replay/or-deepseek-v4.1-flash/blite-20261025/M1 --golds evals/interpreter/dev-long-v2.jsonl`.
 - The test split: the corpus must hash to `test-split.json["sha256"]`, `--runs` must be the configured number, `--sample` needs `--sequential`, and `--record`, `--resume` or
   `--replay` is required with a directory outside the checkout. Nothing about a held-out line is printed: counts, categories, ids of the dev and test splits and `E_` codes only.
   An exception prints its class and the item's ordinal. A call that fails with `E_KEY`, `E_ROUTE` or `E_USAGE`, or whose first call of the process fails with `E_HTTP` (a revoked key, no credits,
