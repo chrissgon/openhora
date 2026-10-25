@@ -211,11 +211,12 @@ def _log_ask_again(decision: dict) -> None:
 def _event_slots_fixed(obj: dict, line: str):
     """The object of an event to change or cancel with the slots the check cannot believe left out, or None when nothing is left out (slice S16). The event of such a line is found
     from the words of the line (runtime/event_lookup.py), so a number slot that is not a number written in the line (the model wrote the event's name there), and, for a removal, any
-    slot the operation does not have (a title, a time) are dropped; a time or a title of a change that does not pass stays refused as before."""
+    slot the operation does not have (a title, a time) are dropped, while the event's name (`target`) and day (`day`) a removal does have are kept (BL5C); a time or a title of a change
+    that does not pass stays refused as before."""
     slots = dict(obj["slots"])
     fixed = {k: v for k, v in slots.items() if not (k == "event" and not natural.check_operation(obj["op"], {"event": v}, None, line)["ok"])}
     if obj["op"] == "event-cancel":
-        fixed = {k: v for k, v in fixed.items() if k == "event"}
+        fixed = {k: v for k, v in fixed.items() if k in ("event", "target", "day")}
     if fixed == slots:
         return None
     out = {k: v for k, v in obj.items() if k != "slots"}

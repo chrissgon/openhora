@@ -26,7 +26,7 @@
     "route_acct_haiku_4_5": "sha256 of the canonical JSON of the account-route row for Haiku 4.5; guards a security table or policy (the interpreter calls only an accepted route hash)",
     "route_account_status_test_row": "sha256 of the canonical JSON of the route row the account-status test builds; a review tripwire (it follows the row the test plants)",
     "interpreter_prompt": "sha256 of the interpreter's prompt file; guards a security table or policy (the interpreter is on only for the decided hashes)",
-    "interpreter_prompt_5bee": "sha256 of the interpreter's prompt file the B″-lite answers were recorded at (before rule 9 of BL5B); a review tripwire (it marks the prompt of the recorded answers, kept for the replay gate)",
+    "interpreter_prompt_5bee": "sha256 of the interpreter's prompt file as the B″-lite run of 2026-10-25 recorded it (the same value as interpreter_prompt on that day); read only by the test of that run's recorded answers, so that a later change of the prompt moves interpreter_prompt and not this pin; a review tripwire (the recorded answers name this prompt in their headers)",
     "interpreter_prompt_earlier": "sha256 of an earlier version of the interpreter's prompt file, kept for the replay gate; a review tripwire (it marks a prompt that is no longer current)",
     "interpreter_protocol": "sha256 of the interpreter's protocol file; guards a security table or policy (the interpreter is on only for the decided hashes)",
     "interpreter_catalog_before_s8": "sha256 of the interpreter's catalog before slice S8; guards a security table or policy (the interpreter is on only for the decided hashes)",

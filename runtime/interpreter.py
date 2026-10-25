@@ -69,6 +69,8 @@ DATE_SHAPE_RE = re.compile(r"(?<![0-9])[0-9]{1,2}[./-][0-9]{1,2}(?![0-9])")     
 
 # The slots that hold a time: (operation, slot). The model gives them `time_iso` and `weekday`; code decides who is believed (`time_source`).
 TIME_SLOTS = frozenset({("remind", "when"), ("event-create", "time"), ("event-change", "time")})
+TIME_DROPPED_OPS = ("event-cancel",)          # a removal has no time slot; a time the model added is dropped, never read (SPEC-BLITE-5C, 2026-10-25)
+EVENT_OPS = ("event-change", "event-cancel")          # the operations that name an event by its words: a day with no event named is asked for (`no-target`)
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")        # the weekday of the `today:` line: fixed, never the locale's
 FAR_DAYS = 366                 # a time further away than this is asked back
@@ -554,12 +556,19 @@ def _known_outside(found: dict) -> bool:
 
 
 def _cover(seen: str, piece: str, found: dict):
-    """Whether some occurrence of `piece` in `seen` holds every time phrase the engine found in `seen`."""
+    """Whether some occurrence of `piece` in `seen` holds every time phrase the engine found in `seen`. A time phrase the engine reads with a trigger word of a table before it ("para sexta",
+    "for tmrw") is held when the piece holds the phrase without that word, so long as the piece holds nothing but time phrases (every character of it lies inside a hit): the prompt tells
+    the model to keep the words around a value out of its span, and a span with a word that is no part of a time phrase ("3pm to call Dana") is still not the time of the line."""
     cuts = nt._spans(found)
+    origin, hits = found["origin"], found["hits"]
+    cores = [(origin[h.get("s0", h["s"])], origin[h["e"] - 1] + 1) for h in hits]
+    wholes = [(origin[h["s"]], origin[h["e"] - 1] + 1) for h in hits]
     start = seen.find(piece) if piece else -1
     while start != -1:
         end = start + len(piece)
         if all(start <= a and b <= end for a, b in cuts):
+            return True
+        if all(start <= a and b <= end for a, b in cores) and all(any(a <= i < b for a, b in wholes) for i in range(start, end) if not seen[i].isspace()):
             return True
         start = seen.find(piece, start + 1)
     return False
@@ -663,6 +672,44 @@ def _instant_problem(naive: datetime.datetime, tz, now_local):
     except (OverflowError, ValueError):
         return "time-far"
     return None
+
+
+def _occurrences(text: str, piece: str) -> list:
+    """The start of every occurrence of `piece` in `text`."""
+    found, at = [], text.find(piece) if piece else -1
+    while at != -1:
+        found.append(at)
+        at = text.find(piece, at + 1)
+    return found
+
+
+def _without_old_day(name: str, slots: dict, span: str, line: str) -> str:
+    """The line the time of an event change is classified against (SPEC-BLITE-5C C1a). A change has two days: the one the event is on now (the `day` slot) and the one it moves to (inside
+    the time span). The old day is the other slot, not a doubt about the new time, so for `event-change` only, the first occurrence of the `day` span is blanked (spaces of its length) in
+    the collapsed line when ALL hold: the time span holds a day of its own (a date or slash hit: "para sexta as 10h", so that a new day the model put in `day` is never blanked, whatever
+    stands between the two spans, and a clock-only time is asked as before); the day span ends before the time span begins and no occurrence of the time span overlaps it; it does not lie
+    inside the target ("Reuniao de Segunda"); the time engine reads it as a day and nothing else (every hit a date, no clock); and the engine does not doubt it. Anything else: `line`
+    unchanged, so the old day stays a time phrase outside the time span and the time is asked."""
+    day = slots.get("day") if name == "event-change" else None
+    if not isinstance(day, str) or not isinstance(span, str):
+        return line
+    seen, piece, mark = collapse(line), collapse(day), collapse(span)
+    at = seen.find(piece) if piece else -1
+    if at < 0 or not mark:
+        return line
+    end = at + len(piece)
+    times = _occurrences(seen, mark)
+    if not any(t >= end for t in times) or any(t < end and at < t + len(mark) for t in times):
+        return line
+    target = collapse(slots.get("target")) if isinstance(slots.get("target"), str) else ""
+    if any(t <= at and end <= t + len(target) for t in _occurrences(seen, target)):
+        return line
+    if not any(h["kind"] in ("date", "slash") for h in nt.find(mark)["hits"]):
+        return line
+    hits = nt.find(piece)["hits"]
+    if not hits or any(h["kind"] not in ("date", "slash") for h in hits) or nt.doubt(piece):
+        return line
+    return seen[:at] + " " * len(piece) + seen[end:]
 
 
 def _time(span, line, time_iso, weekday, now_local, zone):
@@ -812,12 +859,16 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
     if any(slot not in row for slot in list(slots) + list(inherit)):
         return _invalid("E_SLOT_UNKNOWN")
     time_slots = [slot for slot in slots if (name, slot) in TIME_SLOTS]
+    if name in TIME_DROPPED_OPS and not time_slots:
+        obj = {k: v for k, v in obj.items() if k not in ("time_iso", "weekday")}          # a removal has no time slot: the time the model added is dropped, never read nor kept
     if len(time_slots) > 1 or bool(time_slots) != ("time_iso" in obj):
         return _invalid("E_SHAPE")
     plain = {slot: value for slot, value in slots.items() if slot not in time_slots}
     args, error = _check_slots(name, plain, line)
     if error:
         return _invalid(error)
+    if name in EVENT_OPS and "day" in slots and not {"target", "event"} & (set(slots) | set(inherit)):
+        return _clarify("no-target", slot="target", op=name)          # a day and no event named: the runtime asks again (`natural`'s IX_ASK_AGAIN), and so does the measure
     spans = dict(plain)
     inherited = []
     if inherit:
@@ -839,7 +890,7 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         span = slots[time_slots[0]]
         if not _span_in_line(span, line) or len(span) > SPAN_MAX:
             return _invalid("E_SPAN")
-        time, disagree, problem = _time(span, line, obj["time_iso"], obj["weekday"], now_local, zone)
+        time, disagree, problem = _time(span, _without_old_day(name, slots, span, line), obj["time_iso"], obj["weekday"], now_local, zone)
         if problem:
             return _clarify(problem[0], slot=time_slots[0], error=problem[1], op=name)
         spans[time_slots[0]] = span

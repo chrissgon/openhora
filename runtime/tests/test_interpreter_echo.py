@@ -167,7 +167,7 @@ CODE_WINS = "the code reads the time itself and its reading wins over the echo's
 CONFIRM_RULE = "the confirm rule: the echo says yes or no, and code does not read the line as that yes or no, so it asks again (clarify)"
 FORWARD_OFF_MESSAGING = "the gold is `forwarded` but the channel is not messaging: a forward is read on the messaging channel only (as the current arm reads it), so the item reaches the model, and the echo's `forwarded` object is not a protocol kind (invalid, so clarify)"
 ALLOWED = {
-    "dev-en-00013": TIME_ASK, "dev-en-00036": TIME_ASK, "dev-es-00036": TIME_ASK, "dev-es-00043": TIME_ASK, "dev-fr-00018": TIME_ASK, "dev-it-00020": TIME_ASK,
+    "dev-es-00036": TIME_ASK, "dev-es-00043": TIME_ASK, "dev-fr-00018": TIME_ASK, "dev-it-00020": TIME_ASK,
     "dev-pt-br-00007": TIME_ASK, "dev-es-00016": TIME_ASK_GUARD,
     "dev-es-00005": CODE_WINS, "dev-es-00012": CODE_WINS, "dev-es-00033": CODE_WINS,
     "dev-en-00040": FORWARD_OFF_MESSAGING,
