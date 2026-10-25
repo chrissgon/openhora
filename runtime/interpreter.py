@@ -846,6 +846,26 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
     return {"kind": "op", "error": None, "op": name, "args": args, "spans": spans, "time": time, "inherited": inherited, "time_disagree": disagree}
 
 
+NO_LEAD = frozenset(("nao", "no", "nope", "nah"))          # the folded words that open a no, pt-BR and en (BL5B)
+THANKS = frozenset(("obrigado", "obrigada", "brigado", "brigada", "valeu", "vlw", "thanks", "thank", "thx"))          # a courtesy that closes a no ("no thanks"), folded
+COURTESY_FILL = frozenset(("muito", "very", "much", "so", "a", "lot", "you"))          # the words that may stand beside a thanks ("muito obrigado", "thank you", "thanks a lot")
+
+
+def starts_with_no(line) -> bool:
+    """Whether the line opens with a no word (the closed list `NO_LEAD`, folded: "Nao, a de amanha", "no, the one for Friday"). The line of a correction of an open plan; a new request
+    does not (BL5B)."""
+    words = natural.normal(line).split() if isinstance(line, str) else []
+    return bool(words) and words[0] in NO_LEAD
+
+
+def polite_no(line) -> bool:
+    """Whether the line is a no and a courtesy and nothing else ("nao, obrigado", "no thanks", "no, thank you", "nao, muito obrigado"): the closed lists `NO_LEAD`, `THANKS` and
+    `COURTESY_FILL`, folded. It is a bare no for the plan (the plan is dropped); "nao, obrigado, de amanha" holds more and is not (BL5B)."""
+    words = natural.normal(line).split() if isinstance(line, str) else []
+    rest = words[1:]
+    return bool(words) and words[0] in NO_LEAD and any(w in THANKS for w in rest) and all(w in THANKS or w in COURTESY_FILL for w in rest)
+
+
 def _plan_correction(obj, item, line, frame, ops, now_local, zone, allowed):
     """The decision for a model's `confirm: "no"` on a `plan-confirm` item when the line is a correction ("no, the one for tomorrow"), else None (the answer is checked as before). BL5B.
     Only a plan item of the operation the frame's `last` holds, only a no that is not a bare no, and never a yes: a model's yes is never turned into anything. The result is an `op`
@@ -858,7 +878,7 @@ def _plan_correction(obj, item, line, frame, ops, now_local, zone, allowed):
     last = (frame or {}).get("last")
     if item.get("kind") != "plan-confirm" or obj.get("confirm") != "no" or last is None or item.get("op") != last.get("op") or item["op"] not in ops:
         return None
-    if natural.confirm_kind(line) == "no":          # a bare no is a no
+    if natural.confirm_kind(line) == "no" or polite_no(line):          # a bare no, or a no with a courtesy ("no thanks"), is a no
         return None
     op, slots = item["op"], ops[item["op"]]["slots"]
     if obj.get("slot") in slots and isinstance(obj.get("span"), str):
@@ -896,6 +916,8 @@ def _check_answer(obj, line, frame, ops, now_local, zone, allowed) -> dict:
         corrected = _plan_correction(obj, item, line, frame, ops, now_local, zone, allowed)          # BL5B: a no that carries a new detail on a plan item is the corrected request
         if corrected is not None:
             return corrected
+        if obj["confirm"] == "no" and polite_no(line):          # BL5B: "no, thanks" is a no whatever the model made of the courtesy (a slot, a span): the plan is dropped
+            return {**out, "confirm": "no"}
         probe = line.replace(obj["span"], " ", 1) if "span" in obj else line          # the words that are left once the answer's own span is taken out
         if natural.confirm_kind(probe) != obj["confirm"]:
             return _clarify("model", item=item["id"])          # the line does not say what the model says: asked again, by code

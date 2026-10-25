@@ -22,7 +22,8 @@ and nothing else, so that neither the question's words nor its number ever reach
 line is the answer to the question); a decision `route` sets `extras["frame"] = "new"` and returns None (a new request). `check` refuses any other item id (E_ITEM_UNKNOWN), and
 the sentence is IX_ASK_AGAIN with the question still open. Without a bound question the frame is none, as in S1. A sender with a live "Shall I go ahead?" (BL2a, limit L65: runtime/plan_confirm.py) has a second kind of item, `plan-confirm` (`frame_for`):
 its id (`i2` beside the router's `i1`, else `i1`), its need (`confirm`), the operation and the age and nothing else, and `last` holds the plan's own words (the spans code checked in the person's
-line), so that a correction ("no, for tomorrow") is a new turn that states a new plan or inherits a span of the old words. A decision `answer` of the plan item with `confirm` `no` drops the plan; with `yes`
+line), so that a correction ("no, for tomorrow") is a new turn that states a new plan or inherits a span of the old words. A decision `answer` of the plan item with `confirm` `no` that carries a new detail (BL5B) is the corrected request and asks a NEW plan (`interpreter._plan_correction`; the prompt's rule 9
+asks the model for an op object); a bare no, a no with a courtesy ("no, thanks") or a no that changes nothing drops the plan; with `yes`
 it runs nothing and says to reply to the question (`PLAN_NOT_LAST`): only code's reading of the person's yes, passed by the bridge as `plan_ok`, runs a plan.
 
 The steps of `turn`: `interpreter.precheck`; the limits below; `interpreter.build_messages` (the user turn is five lines made
@@ -473,7 +474,8 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
             if decision.get("corrects") and _unchanged(decision, state, said):
                 plan_confirm.drop(project, sender)      # a correction that changes nothing is a no
                 return _said(phrases.text("PLAN_DROPPED", cfg), extras)
-            extras["plan_previous"] = dict(state["args"])      # the old plan's arguments, so that a corrected list keeps what the old line said and the new one does not (never logged, never sent anywhere)
+            if decision.get("corrects") or interpreter.starts_with_no(said):
+                extras["plan_previous"] = dict(state["args"])      # a CORRECTION's inheritance (it opens with a no): the old plan's arguments, so that a corrected list keeps what the old line said and the new one does not; a new request inherits nothing (never logged, never sent anywhere)
         extras["plan_words"] = dict(decision.get("spans") or {})      # D5: the spans code checked in the line become the new plan's own words (a correction may inherit one)
         return _carry_out(project, ctx, decision, said, sender, extras)
     if kind == "none":

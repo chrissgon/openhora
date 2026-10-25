@@ -303,3 +303,96 @@ def test_a_corrected_act_never_inherits_the_number_of_the_old_line():
     assert got["kind"] == "op" and got["args"] == {"request_id": 4} and got["inherited"] == [], "the number is the one the correcting line writes"
     old = interpreter.check(dict(no, span="3"), "não, é o pedido 4", frame, interpreter.SERVED, NOW, "America/Sao_Paulo", {"cancel"})      # validate: allow english-only -- the Portuguese line under test
     assert old["kind"] == "clarify", "the old number, which the line does not write, is refused"
+
+
+# --- 12. a courtesy after a no is a bare no (review fix) ----------------------------------------------------------------------------------------------
+
+
+POLITE = (("não, obrigado", "obrigado"), ("nao, obrigado", "obrigado"), ("não, valeu", "valeu"), ("nao valeu", "valeu"), ("não, muito obrigada", "obrigada"),      # validate: allow english-only -- the Portuguese lines under test
+          ("no thanks", "thanks"), ("No, thank you.", "thank you"), ("no, thanks a lot", "thanks"))
+
+
+def _plan_a_search(rig):
+    rig.says["text"] = op("research", {"question": "o tempo em Campinas amanhã"})      # validate: allow english-only -- the Portuguese line under test
+    say(rig, OWNER, "vai chover? o tempo em Campinas amanhã")      # validate: allow english-only -- the Portuguese line under test
+    rig.now[0] += 30
+
+
+@pytest.mark.parametrize("line,word", POLITE)
+@pytest.mark.parametrize("shape", ("bare", "slot-and-span"))
+def test_a_no_with_a_courtesy_drops_the_plan_whatever_the_model_made_of_the_courtesy(searched, line, word, shape):
+    _plan_a_search(searched)
+    answer = dict(answers_item="i1", confirm="no") if shape == "bare" else dict(answers_item="i1", confirm="no", slot="question", span=word)
+    searched.says["text"] = text("answer", **answer)
+    out = say(searched, OWNER, line)
+    assert out["reply"] == phrases.text("PLAN_DROPPED", searched.cfg) and "plan_confirm" not in out and ops.plan_live(searched.world["path"], OWNER) is None and searched.runs == []
+
+
+def test_a_no_that_says_thanks_and_names_a_new_question_is_still_a_correction(searched):
+    _plan_a_search(searched)
+    searched.says["text"] = text("answer", answers_item="i1", confirm="no", slot="question", span="o tempo em Jundiaí")      # validate: allow english-only -- the Portuguese line under test
+    out = say(searched, OWNER, "não, obrigado, o tempo em Jundiaí")      # validate: allow english-only -- the Portuguese line under test
+    assert out["reply"] == research_question(searched, "o tempo em Jundiaí") and searched.runs == []      # validate: allow english-only -- the Portuguese line under test
+
+
+def test_vacuity_without_the_courtesy_rule_a_no_thanks_would_ask_a_search_for_the_courtesy(searched, monkeypatch):
+    monkeypatch.setattr(interpreter, "polite_no", lambda line: False)
+    _plan_a_search(searched)
+    searched.says["text"] = text("answer", answers_item="i1", confirm="no", slot="question", span="obrigado")
+    out = say(searched, OWNER, "não, obrigado")      # validate: allow english-only -- the Portuguese line under test
+    assert out["reply"] == research_question(searched, "obrigado") and "plan_confirm" in out and searched.runs == []
+
+
+def test_polite_no_and_starts_with_no_are_closed_lists():
+    for line, _ in POLITE:
+        assert interpreter.polite_no(line) and interpreter.starts_with_no(line), line
+    for line in ("não, obrigado, de amanhã", "obrigado", "no", "não", "thanks, the one for Friday", "nope, thanks, request 4", "sim, obrigado"):      # validate: allow english-only -- the Portuguese lines under test
+        assert not interpreter.polite_no(line), line
+    assert [interpreter.starts_with_no(line) for line in ("Nao, a de amanha", "no, the one", "e quais e-mails chegaram?", "now what", "", None)] == [True, True, False, False, False, False]
+
+
+# --- 13. only a correction inherits from the plan it corrects (review fix) -----------------------------------------------------------------------------
+
+
+def _args(rig):
+    return live(rig)["state"]["args"]
+
+
+def test_a_new_request_of_the_same_operation_inherits_nothing_from_the_open_plan(rig):
+    spy_read(rig)
+    rig.world["clock"].set(TODAY)
+    rig.says["text"] = op("items")      # the model reads the line (an account and a day are no tier-1 form)
+    say(rig, OWNER, "mostra minha agenda do google de amanhã")      # validate: allow english-only -- the Portuguese line under test
+    assert _args(rig).get("account") == "google" and _args(rig)["first"] == "2026-10-26"
+    rig.now[0] += 30
+    rig.says["text"] = op("items")
+    say(rig, OWNER, "e quais e-mails chegaram?")      # validate: allow english-only -- the Portuguese line under test
+    assert _args(rig) == {"kind": "mail"}, "a new request: no invisible account, no invisible range"
+
+
+def test_a_correction_keeps_the_kind_and_the_account_and_takes_the_new_day(rig):
+    spy_read(rig)
+    rig.world["clock"].set(TODAY)
+    rig.says["text"] = op("items")      # the model reads the line (an account and a day are no tier-1 form)
+    say(rig, OWNER, "mostra minha agenda do google de amanhã")      # validate: allow english-only -- the Portuguese line under test
+    rig.now[0] += 30
+    for shape in ("op", "confirm"):
+        rig.says["text"] = ANSWERS[shape]
+        out = say(rig, OWNER, "não, a de hoje")      # validate: allow english-only -- the Portuguese line under test
+        assert _args(rig) == {"kind": "calendar", "account": "google", "first": "2026-10-25", "last": "2026-10-25"}, shape
+        assert out["reply"] == agenda(rig, "Sun 25/10/2026")
+        rig.now[0] += 30
+        rig.says["text"] = op("items")      # the model reads the line (an account and a day are no tier-1 form)
+        say(rig, OWNER, "mostra minha agenda do google de amanhã")      # validate: allow english-only -- the Portuguese line under test
+        rig.now[0] += 30
+
+
+def test_vacuity_if_every_line_counted_as_a_correction_a_new_request_would_inherit_the_account_and_the_range(rig, monkeypatch):
+    monkeypatch.setattr(interpreter, "starts_with_no", lambda line: True)
+    spy_read(rig)
+    rig.world["clock"].set(TODAY)
+    rig.says["text"] = op("items")
+    say(rig, OWNER, "mostra minha agenda do google de amanhã")      # validate: allow english-only -- the Portuguese line under test
+    rig.now[0] += 30
+    say(rig, OWNER, "e quais e-mails chegaram?")      # validate: allow english-only -- the Portuguese line under test
+    assert _args(rig).get("account") == "google" and _args(rig)["first"] == "2026-10-26", "the probe of the review: the filter the person never asked for"
