@@ -263,7 +263,7 @@ specification and a fixed clock, `2026-10-27T09:30` (a Tuesday; no line names Tu
 mail-trash 2, mail-move 1, mail-mark 1, cancel 5, stop-task 1, items 6, file-read 2, research 3, answer 1, none 1, route 1. Five lines carry a `plan-confirm` frame (the question "Posso?" of the plan, answered
 by a number, a "sim" or a new request); 17 carry polite or extra words (`filler`). It measures what the catalog's `target` and `day` slots (BL1) and the plan-confirm frame (BL2a) changed; the frozen
 `dev.jsonl` and the replay gate (which read `dev.jsonl` only) are untouched. It is **dev evidence**: its golds were not labelled blind, so it is never the gate's held-out split and its result never replaces
-the frozen gate's.
+the frozen gate's. The de and fr `event-change` lines (`dev-de-50001`, `dev-fr-50001`) stay asked after BL5C: the time engine has tables for pt-BR and en only, so the check's refusal to read their time is correct, and their golds still say `op` (what the platform should do); the miss is reported, not hidden.
 `runtime/tests/test_interpreter_dev_long.py` checks the form offline (canonical, sorted, ids in the 50000 range, every item and frame against the served catalog and `natural.NATURAL`, every span a piece of
 its line, no line of the frozen sets, the counts as literals). Reading the file costs no model call.
 
