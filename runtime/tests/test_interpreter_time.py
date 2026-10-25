@@ -405,7 +405,7 @@ def test_the_cover_is_only_widened_by_the_core_of_the_hits():
 
 def test_a_day_span_that_is_the_new_day_is_never_blanked_it_is_asked_as_before():
     """The model may put the NEW day in the `day` slot ("para amanhã às 10h"): blanked, the line would read an hour only and the change would keep the event's own day. The day span must end  # validate: allow english-only -- the Portuguese line under test
-    before the time span with a word between them, so that this line, and a day that follows the time, are asked."""
+    before the time span, and the time span must hold a day of its own (F2 of the review of #562), so that this line, and a day that follows the time, are asked."""
     zone = "America/Sao_Paulo"
     line = "muda o dentista para amanhã às 10h"          # validate: allow english-only -- the Portuguese line under test
     assert_clarify(run_change(line, zone, "dentista", "amanhã", "às 10h", "2026-10-28T10:00", "wed"), "time-ask")  # validate: allow english-only -- the Portuguese line under test
@@ -413,4 +413,41 @@ def test_a_day_span_that_is_the_new_day_is_never_blanked_it_is_asked_as_before()
     en = "America/New_York"
     assert_clarify(run_change("move the dentist to Friday at 10am", en, "the dentist", "Friday", "at 10am"), "time-ask")
     assert interp._without_old_day("event-change", {"day": "Friday", "time": "at 10am"}, "at 10am", "move the dentist to Friday at 10am") == "move the dentist to Friday at 10am"
-    assert interp._without_old_day("event-change", {"day": "tomorrow", "time": "Friday at 10am"}, "Friday at 10am", "move from tomorrow Friday at 10am") == "move from tomorrow Friday at 10am"
+    assert interp._without_old_day("event-change", {"day": "tomorrow", "time": "Friday at 10am"}, "Friday at 10am", "move the call Friday at 10am from tomorrow") == "move the call Friday at 10am from tomorrow"          # the day follows the time: asked
+
+
+# --- the old day is blanked only when the time span holds a day of its own (F2 of the review of #562) -------------------------------------------------------------------------------------------
+
+NEW_DAY_AS_DAY = [          # (line, target, day, time, time_iso, weekday): the model put the NEW day in `day`, and something stands between the two spans: base and code ask
+    ("muda a reunião para amanhã, às 10h", "reunião", "amanhã", "às 10h"),          # validate: allow english-only -- the Portuguese line under test
+    ("muda a reunião para amanhã mesmo às 10h", "reunião", "amanhã", "às 10h"),          # validate: allow english-only -- the Portuguese line under test
+    ("muda a reunião para amanhã - 10h", "reunião", "amanhã", "10h"),          # validate: allow english-only -- the Portuguese line under test
+    ("move the call to tomorrow, at 10am", "the call", "tomorrow", "at 10am"),
+    ("move the call to tomorrow then at 10am", "the call", "tomorrow", "at 10am"),
+    ("move the dentist appointment to tomorrow; 10am", "the dentist appointment", "tomorrow", "10am"),
+    ("muda o dentista pra amanhã. Às 10h", "dentista", "amanhã", "Às 10h"),          # validate: allow english-only -- the Portuguese line under test
+]
+
+
+@pytest.mark.parametrize("line,target,day,time", NEW_DAY_AS_DAY)
+def test_a_new_day_put_in_the_day_slot_is_never_blanked_whatever_stands_between_the_spans(line, target, day, time):
+    zone = "America/Sao_Paulo" if "muda" in line else "America/New_York"
+    assert_clarify(run_change(line, zone, target, day, time, "2026-10-28T10:00", "wed"), "time-ask")
+    assert interp._without_old_day("event-change", {"target": target, "day": day, "time": time}, time, line) == line
+
+
+def test_a_day_span_inside_the_target_is_never_blanked():
+    zone = "America/Sao_Paulo"
+    line = "muda a Reunião de Segunda para sexta às 10h"          # validate: allow english-only -- the Portuguese line under test
+    assert_clarify(run_change(line, zone, "Reunião de Segunda", "Segunda", "sexta às 10h"), "time-ask")          # validate: allow english-only -- the Portuguese line under test
+    assert interp._without_old_day("event-change", {"target": "Reunião de Segunda", "day": "Segunda", "time": "sexta às 10h"}, "sexta às 10h", line) == line          # validate: allow english-only -- the Portuguese line under test
+    # the same day word outside the target is the old day and is blanked
+    got = run_change("muda a reunião de segunda para sexta às 10h", zone, "reunião", "segunda", "sexta às 10h")          # validate: allow english-only -- the Portuguese line under test
+    assert got["kind"] == "op" and got["time"]["source"] == "code"
+
+
+def test_a_time_span_with_a_day_of_its_own_still_blanks_the_old_day_with_punctuation_between():
+    zone = "America/Sao_Paulo"
+    got = run_change("muda o dentista de amanhã, para sexta às 10h", zone, "dentista", "amanhã", "sexta às 10h")          # validate: allow english-only -- the Portuguese line under test
+    assert got["kind"] == "op" and got["time"] == {"local": "2026-10-30T10:00", "source": "code"}
+    assert interp._without_old_day("event-change", {"day": "amanhã", "time": "às 10h"}, "às 10h", "muda o dentista de amanhã para as 10h") == "muda o dentista de amanhã para as 10h"          # validate: allow english-only -- the Portuguese line under test

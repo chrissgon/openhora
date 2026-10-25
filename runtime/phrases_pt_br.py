@@ -718,7 +718,7 @@ TABLE = {
     "EV_NONE": "Não encontrei esse evento na sua agenda nos próximos {days} dias.",
     "EV_NONE_DAY": "Não encontrei esse evento na sua agenda nesse dia.",
     "EV_ASK_DAY": "Não consegui ler o dia que você quis dizer. Diga o nome do evento e o dia, por exemplo: amanhã ou 22/10.",
-    "EV_ASK_WHICH_DAY": "Você escreveu dois dias para este evento: {a} e {b}. Em qual dia ele está?",
+    "EV_ASK_WHICH_DAY": "Você escreveu dois dias para este evento: {a} e {b}. Diga o evento e o dia de novo.",
     "EV_MORE": "...e mais {k}. Diga o dia para eu separar.",
     "EV_MANY_CANCEL": "Mais de um evento combina. Qual deles você quer cancelar?",
     "EV_MANY_CANCEL_HOW": "Diga, por exemplo: cancela o evento {n}.",

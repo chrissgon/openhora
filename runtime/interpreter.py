@@ -686,9 +686,10 @@ def _occurrences(text: str, piece: str) -> list:
 def _without_old_day(name: str, slots: dict, span: str, line: str) -> str:
     """The line the time of an event change is classified against (SPEC-BLITE-5C C1a). A change has two days: the one the event is on now (the `day` slot) and the one it moves to (inside
     the time span). The old day is the other slot, not a doubt about the new time, so for `event-change` only, the first occurrence of the `day` span is blanked (spaces of its length) in
-    the collapsed line when ALL hold: the span is in the line and ends before the time span begins with at least one non-space character between them (so "para amanha às 10h", where the
-    day is the new one, is never blanked: it is asked as before); no occurrence of the time span overlaps it; the time engine reads it as a day and nothing else (every hit a date, no clock);
-    and the engine does not doubt it. Anything else: `line` unchanged, so the old day stays a time phrase outside the time span and the time is asked."""
+    the collapsed line when ALL hold: the time span holds a day of its own (a date or slash hit: "para sexta as 10h", so that a new day the model put in `day` is never blanked, whatever
+    stands between the two spans, and a clock-only time is asked as before); the day span ends before the time span begins and no occurrence of the time span overlaps it; it does not lie
+    inside the target ("Reuniao de Segunda"); the time engine reads it as a day and nothing else (every hit a date, no clock); and the engine does not doubt it. Anything else: `line`
+    unchanged, so the old day stays a time phrase outside the time span and the time is asked."""
     day = slots.get("day") if name == "event-change" else None
     if not isinstance(day, str) or not isinstance(span, str):
         return line
@@ -697,8 +698,13 @@ def _without_old_day(name: str, slots: dict, span: str, line: str) -> str:
     if at < 0 or not mark:
         return line
     end = at + len(piece)
-    later = [t for t in _occurrences(seen, mark) if t >= end]
-    if not later or any(t < end and at < t + len(mark) for t in _occurrences(seen, mark)) or not seen[end:later[0]].strip():
+    times = _occurrences(seen, mark)
+    if not any(t >= end for t in times) or any(t < end and at < t + len(mark) for t in times):
+        return line
+    target = collapse(slots.get("target")) if isinstance(slots.get("target"), str) else ""
+    if any(t <= at and end <= t + len(target) for t in _occurrences(seen, target)):
+        return line
+    if not any(h["kind"] in ("date", "slash") for h in nt.find(mark)["hits"]):
         return line
     hits = nt.find(piece)["hits"]
     if not hits or any(h["kind"] not in ("date", "slash") for h in hits) or nt.doubt(piece):

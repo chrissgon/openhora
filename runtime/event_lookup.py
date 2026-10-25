@@ -885,11 +885,26 @@ def _same_day(a, b):
     return day if day[1].weekday() == weekday[1] else None
 
 
-def _day_written(ctx: dict, kind: str, value) -> str:
-    """A day as a sentence writes it: a date as the operations layer writes it (`Wed 28/10/2026`, said in the project's language on a phone by `phrases.localize_dates`), a weekday as its word."""
-    if kind == "day":
-        return f"{ENGLISH_WEEKDAY[value.weekday()]} {value.strftime('%d/%m/%Y')}"
-    return _text(ctx, phrases.WEEKDAY_KEYS[value])
+def _day_written(ctx: dict, kind: str, value, now) -> str:
+    """A day as a sentence writes it, in one form for both kinds: the weekday's word of the project's language and a date (`Wed 28/10/2026`, `qua 28/10/2026`). A weekday with no date is shown
+    with the next date that falls on it, counting from today."""
+    if kind != "day":
+        today = now.date()
+        value = today + datetime.timedelta(days=(value - today.weekday()) % 7)
+    return f"{_text(ctx, phrases.WEEKDAY_KEYS[value.weekday()])} {value.strftime('%d/%m/%Y')}"
+
+
+WRITTEN_DATES = ("ymd", "md", "monthday")          # the `spec` kinds of a date written with numbers or a month name ("2026-10-25", "25 de outubro", "dia 25"), never a word like "amanha" or "sexta"
+
+
+def _written_day(rest: str, now):
+    """The day a date WRITTEN in `rest` names, as `_day_named` reads it, or ("none", None): only a slash date or a date of `WRITTEN_DATES` counts, never a day word ("amanha", "sexta"), since a
+    day word left in a line is as likely the day of something else ("... mas nao o de amanha") as the event's."""
+    hits = [h for h in nt.find(rest)["hits"] if h["kind"] in DAY_HITS]
+    if not hits or any(h["kind"] == "date" and not (isinstance(h.get("spec"), dict) and h["spec"].get("k") in WRITTEN_DATES) for h in hits):
+        return "none", None
+    got = _day_named(rest, now)
+    return got if got[0] == "day" else ("none", None)
 
 
 def _by_target(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict, writes, now):
@@ -898,11 +913,12 @@ def _by_target(project: str, ctx: dict, decision: dict, said: str, sender, extra
     events created here), never with the model's word for a number: the new time and the new title are not part of the name, so nothing is cut from the target. A target with no
     words is asked again, a target that names another object is no event, a day code cannot read is a question; none of them opens a card.
 
-    The day is read from two places (BL5C, 2026-10-25): `own`, the day span (else the target's own words), and `rest`, the line with the target, day, time and title spans cut out, so
-    that a date written elsewhere in the line is not lost when the model took another word for the day ("amanhas", a word of the title). `own` unread, or `rest` unread: a question. A
-    day and none: that day. The same day twice (a weekday equals a date on it): that day. Two different days: EV_ASK_WHICH_DAY names both and nothing is opened (L61: never a guess).
-    `own` none and `rest` a day: the day of the rest. `own` none with a day span and a `rest` with no day: a question (the model saw a day code cannot read). No day anywhere and no day
-    span: the window search. A `rest` that names another object (a mail, a file, an address: "o e-mail de 25/10") is ignored: its date is not the event's."""
+    With no day span the day is that of the target's own words, else the window search, exactly as before: the rest of the line is never read for a day ("cancela o dentista, mas nao o de
+    amanha" names no day of the event). With a day span (BL5C, 2026-10-25) the day is read from two places: `own`, the day span, and `rest`, the line with the target, day, time and title
+    spans cut out. `own` unread: a question. `own` a day and `rest` none: that day; the same day twice (a weekday equals a date on it): that day; two different days, or `rest` unread:
+    a question, EV_ASK_WHICH_DAY naming both for the first (nothing is opened: L61, never a guess). `own` none (the model took a word that is no day, "amanhas", for the day): the day of
+    a date WRITTEN in the rest (`_written_day`: a slash or numeric date, never a day word), else a question. A `rest` that names another object (a mail, a file, an address: "o e-mail
+    de 25/10") is ignored: its date is not the event's."""
     op, time_ = decision["op"], decision.get("time")
     spans = decision.get("spans") or {}
     extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
@@ -911,24 +927,33 @@ def _by_target(project: str, ctx: dict, decision: dict, said: str, sender, extra
         return _text(ctx, "IX_ASK_AGAIN")
     if names_other_object(text):          # the TARGET names a mail, a file, an address...: it is not an event
         return _text(ctx, "IX_CANNOT_WRITE")
-    own = _day_named(spans["day"], now) if spans.get("day") else _day_named(text, now)
+    if not spans.get("day"):          # no day span: the day of the target's own words, else the window search, as before; the rest of the line is never read for a day
+        own = _day_named(text, now)
+        if own[0] == "unread":
+            return _text(ctx, "EV_ASK_DAY")
+        return _found(project, ctx, op, time_, spans, said, sender, extras, writes, now, text, own[0], own[1])
+    own = _day_named(spans["day"], now)
     if own[0] == "unread":          # a day span the engine cannot read is a question, never a guess
         return _text(ctx, "EV_ASK_DAY")
     rest = _rest_of(said, spans)
     if rest is None:          # a span the line does not hold as written: no day is read from the unstripped line
         return _text(ctx, "EV_ASK_DAY")
-    other = ("none", None) if names_other_object(rest) else _day_named(rest, now)
+    if names_other_object(rest):          # the date of a mail is not the event's day
+        other = ("none", None)
+    elif own[0] == "none":          # the day span names no day: only a date written in the line may stand for it, never a day word of the rest
+        other = _written_day(rest, now)
+    else:
+        other = _day_named(rest, now)
     if other[0] == "unread":
         return _text(ctx, "EV_ASK_DAY")
     if own[0] == "none":
-        if other[0] != "none":
-            own = other
-        elif spans.get("day"):
+        if other[0] == "none":
             return _text(ctx, "EV_ASK_DAY")
+        own = other
     elif other[0] != "none":
         same = _same_day(own, other)
         if same is None:
-            return _text(ctx, "EV_ASK_WHICH_DAY", a=_day_written(ctx, *own), b=_day_written(ctx, *other))
+            return _text(ctx, "EV_ASK_WHICH_DAY", a=_day_written(ctx, *own, now), b=_day_written(ctx, *other, now))
         own = same
     return _found(project, ctx, op, time_, spans, said, sender, extras, writes, now, text, own[0], own[1])
 
