@@ -699,6 +699,7 @@ TABLE = {
         # --- a mail write asked in words (package NR-5b, runtime/ops_natural_mail.py): the questions of a line left open and the refusals of one that can never be answered as asked ---
         "NW_MAIL_NO_SOURCE": "No mail source of your mailbox is registered for this: add one with source-mail first, then ask again.",
         "NW_MAIL_NONE": "No message of the newest snapshot of {source} has all of these words: {words}.",
+        "NW_MAIL_REFRESH_FAILED": "I couldn't refresh {source} just now, so I did nothing. Try again in a little while; if it keeps failing, look on the platform's page.",
         "NW_MAIL_TOO_MANY": "One card takes at most {max} messages: name fewer.",
         "NW_MAIL_BY_DATE": "I cannot pick e-mails by date yet: say their numbers (ask for your e-mails to see the list).",
         "NW_MAIL_NO_FORWARD": "I cannot forward an e-mail yet, and '{name}' is not one of your mail folders ({names}). A move goes to one of them.",

@@ -26,6 +26,13 @@ What is decided here, and from where:
     cannot read, is `NW_MAIL_BY_DATE`: a date is never guessed. The words only choose a message, they are never an address: a reply goes to the index's From (L60);
   * the snapshot is read, and a message is listed, only after `item_refs.read_index` accepted the caller (a messaging sender needs the group `ask-mail`): a caller who may not
     read it gets the sentence of `item_refs` and nothing of the mailbox, not even the names of its sources;
+  * BL5E: a stale snapshot is read again once. When the index of the source the line needs is refused as older than 26 hours (or of a time that cannot be trusted), as missing
+    or as made before the index existed, and the line found its message BY WORDS or asked for the newest one, a messaging sender who holds `ask-mail` has the source read
+    again by the platform (runtime/mail_refresh.py `refresh_once`: one provider read for a line, because `resolve` opens one turn budget and `_read_snapshot` is the only caller;
+    only that source, in its own box, days and max; the provider bounded at 60 seconds; one read of a source at a time; a source that failed is not tried again for 120
+    seconds), and the index is asked again. A line that names a message number or a written reference never refreshes (a refresh renumbers the snapshot, and the number the person
+    saw would name another message). A refresh that fails, is too slow, or leaves the snapshot still refused is one plain sentence (`NW_MAIL_REFRESH_FAILED`): nothing is listed,
+    no card is opened. The terminal, the page and the conversation keep the sentence that says to refresh it (they have the command and the button);
   * the account is the one named by a service word of the line (`google`, `gmail`, `outlook`...), or the account of the mailbox the message is in, or the only account the
     project configures, or the account the project chose as its default (when the configuration has one); with two possible it is asked;
   * a mail folder is a name of `accounts.<account>.mail_folders`, folded equal; a name that is not configured lists the configured ones and asks, never a near match.
@@ -47,6 +54,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import item_refs  # noqa: E402
 import mail_compose  # noqa: E402
+import mail_refresh  # noqa: E402
 import mail_refs  # noqa: E402
 import natural  # noqa: E402
 import natural_writes_mail as nwm  # noqa: E402
@@ -156,11 +164,31 @@ def _first_written(slots: dict) -> str:
     return "your messages"
 
 
-def _read_snapshot(ctx: dict, source_id: str, channel, sender) -> dict:
+def _may_refresh(slots: dict) -> bool:
+    """A line that carries a message number, a written reference or a message the person chose never refreshes a snapshot: a refresh renumbers it."""
+    return not (slots.get("numbers") or slots.get("refs") or slots.get("chosen"))
+
+
+def _read_snapshot(ctx: dict, source_id: str, channel, sender, may_refresh: bool = False) -> dict:
+    """The index of the newest snapshot of `source_id` for the caller. With `may_refresh`, a snapshot refused as stale, missing or without an index is read again once
+    (runtime/mail_refresh.py); every other refusal, and every refusal when the refresh is not allowed, is the sentence it always was."""
     try:
         return item_refs.read_index(ctx, source_id, channel=channel, sender=sender, kinds=("mail",))
     except item_refs.ItemRefError as e:
-        raise _ref_say(e.code, source_id) from None
+        if may_refresh and e.code in mail_refresh.TRIGGERS:
+            done = mail_refresh.refresh_once(ctx, source_id, channel, sender)
+            if done == "refreshed":
+                try:
+                    return item_refs.read_index(ctx, source_id, channel=channel, sender=sender, kinds=("mail",))
+                except item_refs.ItemRefError as again:
+                    if again.code in mail_refresh.TRIGGERS:
+                        raise _say("NW_MAIL_REFRESH_FAILED", source=source_id) from None
+                    raise _ref_say(again.code, source_id) from None
+                except sources.SourcesError as again:
+                    raise core.OpsError(" ".join(str(again).split())[:200], 1) from None
+            if done in ("failed", "spent"):
+                raise _say("NW_MAIL_REFRESH_FAILED", source=source_id) from None
+        raise _ref_say(e.code, source_id) from None      # "not-allowed", a refusal no read cures, or a line that may not refresh: today's sentence
     except sources.SourcesError as e:
         raise core.OpsError(" ".join(str(e).split())[:200], 1) from None
 
@@ -204,7 +232,7 @@ def _on_day(found: list, read: dict) -> list:
 def _by_words(ctx: dict, slots: dict, source_id: str, channel, sender):
     """The references that the words of the line name in the newest snapshot of `source_id`: ([refs], None), or ([], the question), or raises when nothing matches. The index is
     read only now, after the caller's right to read it was checked by `read_index` itself."""
-    snapshot = _read_snapshot(ctx, source_id, channel, sender)
+    snapshot = _read_snapshot(ctx, source_id, channel, sender, _may_refresh(slots))
     words = " ".join(slots["words"])
     found = nwm.match_words(snapshot["entries"], slots["words"], bool(slots.get("newest")))
     if not found:
@@ -277,7 +305,7 @@ def _messages(ctx: dict, slots: dict, channel, sender):
                 return None, None, ask
             refs += found
         elif slots.get("newest"):
-            snapshot = _read_snapshot(ctx, source_id, channel, sender)      # also the age check: a snapshot older than the limit for an unattended task (L53) names nothing
+            snapshot = _read_snapshot(ctx, source_id, channel, sender, _may_refresh(slots))      # also the age check: a snapshot older than the limit for an unattended task (L53) names nothing
             if not snapshot["entries"]:
                 raise _say("NW_MAIL_NONE", source=source_id, words="-")
             refs.append(f"{source_id}#1")
@@ -400,13 +428,14 @@ def _compose_args(ctx: dict, op: str, slots: dict, channel=None, sender=None):
 def resolve(ctx: dict, op: str, slots: dict, channel, sender, said=None) -> dict:
     """See the module's text. `slots` is what the line and the answers so far gave; `said` is the person's lines so far (the caller keeps them for its own check)."""
     slots = dict(slots or {})
-    try:
-        if op in REF_OPS or (op == "mail-draft" and _has_reference(slots)):
-            return _reference_args(ctx, op, slots, channel, sender)
-        if op in ("mail-send", "mail-draft"):
-            return _compose_args(ctx, op, slots, channel, sender)
-    except Say as e:
-        return {"say": {"sentence_key": e.key, "fields": e.fields}}
+    with mail_refresh.turn():      # BL5E: one provider read at most for this resolution (the budget is cleared when it ends)
+        try:
+            if op in REF_OPS or (op == "mail-draft" and _has_reference(slots)):
+                return _reference_args(ctx, op, slots, channel, sender)
+            if op in ("mail-send", "mail-draft"):
+                return _compose_args(ctx, op, slots, channel, sender)
+        except Say as e:
+            return {"say": {"sentence_key": e.key, "fields": e.fields}}
     raise core.OpsError(f"{op} is not an operation of the mail family", 2)
 
 
