@@ -53,6 +53,8 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "person_line", "asks_natural", "holds_mail", "may_talk", "natural_needs", "natural_reply",
                   # ops_say.py and ops_items.py (NR-5): the bridge's entries for a write asked in words, and how the numbered items are written as lines
                   "natural_write", "natural_draft", "natural_forget", "render", "natural_file_accounts",
+                  # ops_items.py (BL5B): the whole arguments of a list call, which a plan binds and a correction completes from the plan it corrects
+                  "items_args",
                   # ops_file_read.py (S8): the reply a line in words gets for file-read, beside the operation
                   "reply",
                   # ops_items.py (S15c): the mark an approved calendar or mailbox effect leaves, so that the next list reads the provider again

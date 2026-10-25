@@ -303,3 +303,11 @@ The recorded events to compare M2 with: DeepSeek `ix-20261021T155019Z-f148397b` 
 
 A rule not met is published as it is (principle 10) and the maintainer decides, as on 2026-10-21 for B-prime: the interpreter stays on only through the dated enabling entry BL1 added, whose status line says
 "served before its measurement". Never silently on, never a threshold edited, never a new evidence kind.
+
+### The prompt in use after BL5B (2026-10-25)
+
+The prompt gained rule 9 and three worked examples (a no that changes the request after "Posso?" is the corrected request, an `op` object), so its sha256 is now `1423ba89...` (`interpreter_prompt` in
+`scripts/tests/pinned_hashes.json`; the newest entry of `runtime/interpreter_enable.json` names it, "served before its measurement"). The answers recorded by the B-double-prime-lite measurement
+(`blite-20261025T003348`) and every older in-use answers file were recorded at the previous prompt, `5bee55ce...` (`interpreter_prompt_5bee`): they stay as a regression of the CODE on answers given to
+the old prompt (the tests build `Answers` directly, as `runtime/tests/test_interpreter_replay_gate.py` does), the CLI's `--replay` refuses them by their header (`prompt_sha256`), and a replay of
+them says what the code does with those answers, never what the new prompt makes a model say. The effect of rule 9 is measured only by new answers: M1 and M2 on both routes, with the maintainer's "pode".

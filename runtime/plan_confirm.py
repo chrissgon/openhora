@@ -115,10 +115,11 @@ def _number(value) -> str:
     return str(int(value)) if isinstance(value, int) and not isinstance(value, bool) else "?"
 
 
-def _day(ctx: dict, said: str) -> str:
-    """The day (or week) a list of items is asked for, written as the operations layer writes a date (`Wed 28/10/2026`), or "" for no range."""
+def _day(ctx: dict, said: str, args=None) -> str:
+    """The day (or week) a list of items is asked for, written as the operations layer writes a date (`Wed 28/10/2026`), or "" for no range. The range is the call's own (`args`, BL5B:
+    a corrected list may keep the range of the plan it corrects) when it has one, else the line's."""
     ops_items = importlib.import_module("ops_items")
-    found = ops_items._line_args(said, _ops_natural()._clock())
+    found = args if isinstance(args, dict) and args.get("first") and args.get("last") else ops_items._line_args(said, _ops_natural()._clock())
     if "first" not in found:
         return ""
     days = [datetime.date.fromisoformat(found[key]) for key in ("first", "last")]
@@ -150,9 +151,9 @@ def understood(ctx: dict, name: str, args: dict, said: str) -> str:
         cap = ((ctx.get("cfg") or {}).get("research") or {}).get("max_cost_usd")
         return t(key, question=_clip(args.get("question") or ""), cap=phrases.decimal(f"{float(cap):.2f}", cfg) if isinstance(cap, (int, float)) else "?")
     if name == "items":
-        kind = importlib.import_module("natural_writes").items_kind(said)
+        kind = args.get("kind") or importlib.import_module("natural_writes").items_kind(said)      # BL5B: the call's own kind (a corrected list keeps the old plan's), else the line's
         sentence = t({"mail": "UNDERSTOOD_ITEMS_MAIL", "calendar": "UNDERSTOOD_ITEMS_CALENDAR"}.get(kind, "UNDERSTOOD_ITEMS"))
-        day = _day(ctx, said)
+        day = _day(ctx, said, args)
         return sentence + (phrases.localize_dates(t("UNDERSTOOD_ON_DAY", day=day), cfg) if day else "")
     return t(key)
 
