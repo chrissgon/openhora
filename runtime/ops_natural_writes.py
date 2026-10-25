@@ -47,6 +47,7 @@ import ops_natural
 import phone_refusal
 import phrases
 import project_config
+import source_names
 
 DRAFT_TTL = ops_natural.DRAFT_TTL
 KIND = "write"
@@ -307,8 +308,33 @@ def advance(project: str, ctx: dict, state: dict, channel, sender, extras: dict)
         return _t(ctx, out["cards"]["sentence_key"])
     if "say" in out:
         drafts.drop(*slot)
-        return phrases.text(out["say"]["sentence_key"], ctx["cfg"], **out["say"]["fields"])
+        fields = out["say"]["fields"]
+        if channel == ops_actor.MESSAGING:      # BL5D: a phone reads the plain name of a source, never its id (the stored values are not touched)
+            fields = _phone_fields(ctx, fields)
+        return phrases.text(out["say"]["sentence_key"], ctx["cfg"], **fields)
     return _ask(ctx, state, out, channel, sender, extras)
+
+
+def _phone_options(ctx: dict, options: list) -> list:
+    """The options of a question as a phone shows them (BL5D): an option whose label is a source id, or a reference `<source id>#<n>`, is shown by the plain name of the source
+    ("Gmail", "Gmail, message 3") and, for a source, also stores the service words of its account, so that the provider's word answers it. The VALUE of an option is never changed: whatever
+    the person answers selects exactly what it selected before. Any other label (a message, a folder, an account) is untouched."""
+    table = source_names.catalog(ctx)
+    out = []
+    for option in options:
+        label = source_names.shown(option["label"], table, ctx["cfg"])
+        if label == option["label"]:
+            out.append(option)
+            continue
+        entry = table.get(option["label"])
+        out.append({"value": option["value"], "label": label, "words": source_names.words(entry) if entry else []})
+    return out
+
+
+def _phone_fields(ctx: dict, fields: dict) -> dict:
+    """The fields of a sentence for a phone (BL5D): `source` and `ref` name a source or a message by its plain name, and no other field is touched."""
+    table = source_names.catalog(ctx)
+    return {k: (source_names.shown(v, table, ctx["cfg"]) if k in ("source", "ref") else v) for k, v in fields.items()}
 
 
 def _ask(ctx: dict, state: dict, spec: dict, channel, sender, extras: dict) -> str:
@@ -322,7 +348,8 @@ def _ask(ctx: dict, state: dict, spec: dict, channel, sender, extras: dict) -> s
     else:
         state["repeats"] = 0
     state["answered"] = None
-    state.update(need=ask["need"], slot=ask["slot"], options=ask["options"], multi=ask["multi"], sentence_key=ask["sentence_key"], fields=ask["fields"],
+    options = _phone_options(ctx, ask["options"]) if channel == ops_actor.MESSAGING and ask["options"] else ask["options"]
+    state.update(need=ask["need"], slot=ask["slot"], options=options, multi=ask["multi"], sentence_key=ask["sentence_key"], fields=ask["fields"],
                  retries=state.get("retries", 0))
     if ask.get("engine"):
         state["slots"]["_engine"] = ask["engine"]
@@ -330,7 +357,7 @@ def _ask(ctx: dict, state: dict, spec: dict, channel, sender, extras: dict) -> s
     drafts.put(*_slot(channel, sender), state, "write", ttl=DRAFT_TTL)
     extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
     extras["asked"] = True
-    text = sentence_of(ctx, ask, state["slots"])
+    text = sentence_of(ctx, {**ask, "options": options}, state["slots"])
     if extras.pop("discarded", False):
         text = _t(ctx, "NT_DISCARDED") + " " + text
     return text
@@ -522,6 +549,7 @@ def _option(state: dict, said: str):
     for option in options:
         keys = {_folded(str(option["value"])), _folded(option["label"]), _folded(option["label"].split("(")[0])}
         keys |= {_folded(p) for p in nw.listed(natural._tables(None), "services", str(option["value"]))}          # an account option is also named by its service words, language data
+        keys |= {_folded(w) for w in option.get("words") or []}          # BL5D: a source option shown by its plain name is also named by the service words of its account
         if digits in keys:
             matches.append(option["value"])
     return matches[0] if len(matches) == 1 else None

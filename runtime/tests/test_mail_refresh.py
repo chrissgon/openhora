@@ -151,7 +151,7 @@ def test_limit_52_a_stale_gmail_is_read_once_by_the_platform_and_the_line_ends_i
     old = newest(world, "inbox")
     stale(world)
     first = phone(world, LINE, words_seed())
-    assert first["asked"] and "inbox" in first["reply"] and "work" in first["reply"], "the question that opened the retest"
+    assert first["asked"] and "Gmail" in first["reply"] and "Outlook" in first["reply"] and "inbox" not in first["reply"], "the question that opened the retest, with the plain names (BL5D)"
     assert reads(world) == [], "the question reads nothing"
     done = phone(world, "1")
     assert len(reads(world, "gmail")) == 1 and reads(world, "outlook") == [], "one Gmail read, no Outlook read"
@@ -395,8 +395,8 @@ def test_a_failing_provider_gives_one_plain_sentence_in_portuguese_with_nothing_
     world["readers"].fail = tsm.Failure("unavailable", f"{PLANTED} in /home/pat/secret.py run uv run x --token abc")
     phone(world, LINE, words_seed())
     out = phone(world, "1")
-    expected = phrases.text("NW_MAIL_REFRESH_FAILED", {"language": "pt-BR"}, source="inbox")
-    assert out["reply"] == expected and expected.startswith("Não consegui atualizar o inbox agora")      # validate: allow english-only -- the Portuguese sentence under test
+    expected = phrases.text("NW_MAIL_REFRESH_FAILED", {"language": "pt-BR"}, source="Gmail")
+    assert out["reply"] == expected and expected.startswith("Não consegui atualizar o Gmail agora") and "inbox" not in out["reply"], "the plain name on a phone, never the id"      # validate: allow english-only -- the Portuguese sentence under test
     assert PLANTED not in out["reply"] and phone_problems(out["reply"]) == []
     err = capsys.readouterr().err
     assert err.splitlines() == ["mail: refresh of inbox failed (mail)"] and PLANTED not in err and "secret" not in err
@@ -623,7 +623,7 @@ def test_a_list_that_went_stale_without_a_refresh_is_answered_with_the_stale_sen
     listed(world)
     stale(world)
     done = phone(world, "2")
-    assert done["reply"] == phrases.text("ACCT_MAIL_REF_STALE", {"language": "en"}, ref="inbox") and cards(world) == [] and reads(world) == []
+    assert done["reply"] == phrases.text("ACCT_MAIL_REF_STALE", {"language": "en"}, ref="Gmail") and cards(world) == [] and reads(world) == [], "the plain name on a phone"
 
 
 def test_a_draft_that_records_no_snapshot_for_its_list_fails_closed(world):

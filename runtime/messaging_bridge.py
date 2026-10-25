@@ -332,7 +332,16 @@ class Bridge(shell_kit.Jobs):
                 "notices": messaging.get("notices") or "text", "page_url": messaging.get("page_url"),
                 "policy": found.get("channels") or {}, "profiles": found.get("policies") or {},
                 "sender_profiles": (messaging.get("sender_profiles") or {}).get(self.platform) or {},
-                "channel_profile": (found.get("channel_profiles") or {}).get(CHANNEL)}
+                "channel_profile": (found.get("channel_profiles") or {}).get(CHANNEL), "source_names": self.source_names(project)}
+
+    def source_names(self, project: dict) -> dict:
+        """{source id: plain name} of a project for the cards (BL5D: a phone says "3 do Gmail", not `caixa-gmail#3`); {} when the facade has none or cannot read it: presentation only."""
+        try:
+            read = getattr(self.ops, "source_names", None)
+            names = read(project["path"]) if read else {}
+            return names if isinstance(names, dict) else {}
+        except Exception:      # noqa: BLE001 - a phone then shows what it showed before
+            return {}
 
     def cfg(self, project=None, chat=None) -> dict:
         """What the phrase table reads of a project: {"language": its `language` setting}, read from its configuration now (an unaccepted one included: the

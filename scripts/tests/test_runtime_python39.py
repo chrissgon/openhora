@@ -64,6 +64,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/sources.py", "runtime/sources_onedrive.py", "runtime/sources_mail.py", "runtime/snapshot_text.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # References to one item of a mail or calendar snapshot (SNAP-IDX): read through the index of the newest version.
     "runtime/item_refs.py",
+    # The plain name a phone shows for a mail or calendar source (BL5D).
+    "runtime/source_names.py",
     "runtime/items_mail.py",
     # Files sent through a messaging app (ATT-1): the limits and folders of the hold, and the operations over it.
     "runtime/attachments.py", "runtime/ops_attachments.py", "runtime/messaging_attach.py",

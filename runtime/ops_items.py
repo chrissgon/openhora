@@ -15,7 +15,7 @@ old snapshot, with one short note of the time it was read (`NW_ITEMS_OLD`). A li
 of the asked kind (or of the named account) the reply says what to add: a phone gets one plain sentence with no command (limit L62); the terminal, the conversation and the page get the
 exact `source-mail` / `source-calendar` command with an example origin for each configured account. A listing unchanged since the last read makes no new version; the check is remembered (S15b, below), so a list asked again within FRESH_S of it reads nothing.
 
-On a phone (`reply`, channel messaging) the list is written for a person and not for a program: each source has a plain name ("Google calendar", "Gmail inbox") and not its id, the time it was read is in the
+On a phone (`reply`, channel messaging) the list is written for a person and not for a program: each source has a plain name ("Google calendar", "Gmail"; runtime/source_names.py, BL5D) and not its id, the time it was read is in the
 machine's zone ("read at 10:31", with the day when it is not today), each event is written with its weekday and date ("Thu 22/10 14:00–15:00 · haircut") in the project's language, the
 organizer is left out when it is the person and said in words otherwise, and no internal word of the snapshot's text shows. The numbers are the snapshot's own, as before (the numbered forms and
 runtime/event_lookup.py read them). The terminal and the page keep the source id and the line as the snapshot prints it.
@@ -55,6 +55,7 @@ import ops_core as core
 import items_mail as mailtext
 import phrases
 import snapshot_text
+import source_names
 import sources
 import sources_mail
 
@@ -71,7 +72,7 @@ FLAGS = {"you: accepted": "NW_ITEMS_R_ACCEPTED", "you: declined": "NW_ITEMS_R_DE
 KINDS = ("mail", "calendar")
 FRESH_S = 600            # a snapshot read longer ago than this is read again once for a line from a messaging app (10 minutes)
 ACCOUNTS = ("google", "microsoft")
-LABEL = {"mail": {"google": "Gmail", "microsoft": "Outlook"}, "calendar": {"google": "Google", "microsoft": "Outlook"}}
+LABEL = source_names.LABEL          # BL5D: one object, the provider's plain name, shared with runtime/source_names.py
 EXAMPLES = {"mail": {"google": ("mail-gmail", "gmail:box=inbox;days=7;max=50"), "microsoft": ("mail-outlook", "outlook:box=inbox;days=7;max=50")},
             "calendar": {"google": ("calendar-google", "google:calendar=primary;past=0;ahead=14"), "microsoft": ("calendar-outlook", "outlook:calendar=default;past=0;ahead=14")}}
 COMMAND = {"mail": "source-mail", "calendar": "source-calendar"}
@@ -144,13 +145,27 @@ def _line_args(said, now=None) -> dict:
     return {**out, **({"count": count} if count else {}), **_range_args(said, now)}
 
 
+def items_args(said, now, previous=None) -> dict:
+    """The arguments a line gives `items`, whole, so that a plan's hash binds them (BL5B): `kind` ("calendar" or "mail"), `account`, the range (`first`, `last`) and `count`, each read from
+    the line as `_line_args` reads it. `previous` is the arguments of the plan this line corrects (the sender's own live plan, never a third party's): the kind the new line names wins
+    ("no, the e-mails"), else the old kind is kept, else the line alone decides (`items_kind`); the account and the range the old plan had are kept when the new line names none. A
+    number of messages (`count`) is only the line's own. Pure: nothing is read."""
+    found = _line_args(said, now)
+    noun = importlib.import_module("natural_writes").items_noun(said)
+    old = previous if isinstance(previous, dict) else {}
+    kind = noun or old.get("kind") or importlib.import_module("natural_writes").items_kind(said)
+    out = {"kind": kind, **found}
+    if "account" not in out and old.get("account"):
+        out["account"] = old["account"]
+    if "first" not in out and old.get("first") and old.get("last"):
+        out.update(first=old["first"], last=old["last"])
+    return out
+
+
 def _account_of(row: dict):
-    """The account ("google" | "microsoft") a mail or calendar source belongs to, from the implementation its origin names; None when the origin is not one this runtime reads."""
-    table = importlib.import_module("mail_refs").ACCOUNT_OF if row["type"] == "mail" else importlib.import_module("ops_natural_calendar").CAL_ACCOUNT
-    try:
-        return table.get(sources_mail.origin_of(row["type"], row["origin"])["implementation"])
-    except sources.SourcesError:
-        return None
+    """The account ("google" | "microsoft") a mail or calendar source belongs to, from the implementation its origin names; None when the origin is not one this runtime reads (BL5D: the
+    reading lives in runtime/source_names.py `account_of`, which the phone names use too)."""
+    return source_names.account_of(row)
 
 
 _CHECKED = {}          # (project, source id) -> the UTC time a read for a line last succeeded: a time and no content, in memory; a new version is not made when the listing did not change
@@ -350,7 +365,7 @@ def _names(entries: list, cfg: dict) -> dict:
     named = {}
     for entry in entries:
         label = LABEL[entry["type"]].get(entry.get("account"))
-        named[entry["source"]] = phrases.text("NW_ITEMS_NAME_MAIL" if entry["type"] == "mail" else "NW_ITEMS_NAME_CAL", cfg, service=label) if label else entry["source"]
+        named[entry["source"]] = source_names.plain(entry["type"], label, cfg) if label else entry["source"]
     for name in set(named.values()):
         twins = [i for i in named if named[i] == name]
         if len(twins) > 1:
@@ -391,10 +406,11 @@ def _phone_mail(row: dict, cfg: dict) -> str:
     return " · ".join(part for part in (row["mail"]["who"], row["mail"]["subject"], mailtext.when_text(row.get("received"), now, cfg)) if part)
 
 
-def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False) -> str:
-    """The reply for a phone (`phone`) or a terminal: one heading for each source, then `n. line` for the first items."""
+def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, names=None) -> str:
+    """The reply for a phone (`phone`) or a terminal: one heading for each source, then `n. line` for the first items. `names` ({source id: plain name}, runtime/source_names.py) is what a phone
+    calls each source and what it says of one it could not read; without it a phone gets the names of `_names` (BL5D)."""
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
-    names = _names(out["sources"], cfg) if phone else {}
+    names = {**_names(out["sources"], cfg), **(names or {})} if phone else {}
     lines = []
     span = out.get("range")
     if phone and span and any(e["type"] == "calendar" for e in out["sources"]):
@@ -415,7 +431,7 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False) ->
         if len(entry["items"]) > limit:
             lines.append(t("NW_ITEMS_MORE", n=len(entry["items"]) - limit))
     for entry in out["refused"]:
-        lines.append(f"{entry['source']}: {entry['why']}")
+        lines.append(t("NW_ITEMS_REFUSED_PHONE", name=names.get(entry["source"], entry["source"])) if phone else f"{entry['source']}: {entry['why']}")
     old = sorted(e.get("checked_at") or e["read_at"] for e in out["sources"] if e.get("old"))
     moment = _local(old[0]) if old else None
     if moment is not None:      # one note for the whole list: the time of the oldest snapshot whose new read failed, in the machine's zone as the snapshots are
@@ -427,7 +443,8 @@ def reply(project: str, ctx: dict, out: dict, channel) -> str:
     """The reply of the natural request for the items: `render`, or, when there was nothing of the asked kind (or account) to list, what to add and where."""
     missing = out.get("missing")
     if not missing:
-        return render(out, ctx["cfg"], phone=channel == ops_actor.MESSAGING)
+        phone = channel == ops_actor.MESSAGING
+        return render(out, ctx["cfg"], phone=phone, names={i: e["name"] for i, e in source_names.catalog(ctx).items()} if phone else None)
     cfg, kind, account = ctx["cfg"], missing["kind"], missing["account"]
     tag = "MAIL" if kind == "mail" else "CAL"
     if channel == ops_actor.MESSAGING:      # a phone: what and where, never a command or a path (limit L62)

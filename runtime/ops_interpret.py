@@ -22,7 +22,8 @@ and nothing else, so that neither the question's words nor its number ever reach
 line is the answer to the question); a decision `route` sets `extras["frame"] = "new"` and returns None (a new request). `check` refuses any other item id (E_ITEM_UNKNOWN), and
 the sentence is IX_ASK_AGAIN with the question still open. Without a bound question the frame is none, as in S1. A sender with a live "Shall I go ahead?" (BL2a, limit L65: runtime/plan_confirm.py) has a second kind of item, `plan-confirm` (`frame_for`):
 its id (`i2` beside the router's `i1`, else `i1`), its need (`confirm`), the operation and the age and nothing else, and `last` holds the plan's own words (the spans code checked in the person's
-line), so that a correction ("no, for tomorrow") is a new turn that states a new plan or inherits a span of the old words. A decision `answer` of the plan item with `confirm` `no` drops the plan; with `yes`
+line), so that a correction ("no, for tomorrow") is a new turn that states a new plan or inherits a span of the old words. A decision `answer` of the plan item with `confirm` `no` that carries a new detail (BL5B) is the corrected request and asks a NEW plan (`interpreter._plan_correction`; the prompt's rule 9
+asks the model for an op object); a bare no, a no with a courtesy ("no, thanks") or a no that changes nothing drops the plan; with `yes`
 it runs nothing and says to reply to the question (`PLAN_NOT_LAST`): only code's reading of the person's yes, passed by the bridge as `plan_ok`, runs a plan.
 
 The steps of `turn`: `interpreter.precheck`; the limits below; `interpreter.build_messages` (the user turn is five lines made
@@ -210,11 +211,12 @@ def _log_ask_again(decision: dict) -> None:
 def _event_slots_fixed(obj: dict, line: str):
     """The object of an event to change or cancel with the slots the check cannot believe left out, or None when nothing is left out (slice S16). The event of such a line is found
     from the words of the line (runtime/event_lookup.py), so a number slot that is not a number written in the line (the model wrote the event's name there), and, for a removal, any
-    slot the operation does not have (a title, a time) are dropped; a time or a title of a change that does not pass stays refused as before."""
+    slot the operation does not have (a title, a time) are dropped, while the event's name (`target`) and day (`day`) a removal does have are kept (BL5C); a time or a title of a change
+    that does not pass stays refused as before."""
     slots = dict(obj["slots"])
     fixed = {k: v for k, v in slots.items() if not (k == "event" and not natural.check_operation(obj["op"], {"event": v}, None, line)["ok"])}
     if obj["op"] == "event-cancel":
-        fixed = {k: v for k, v in fixed.items() if k == "event"}
+        fixed = {k: v for k, v in fixed.items() if k in ("event", "target", "day")}
     if fixed == slots:
         return None
     out = {k: v for k, v in obj.items() if k != "slots"}
@@ -426,6 +428,14 @@ def _decided(project: str, ctx: dict, op: str, said: str, sender, extras: dict) 
     return _said(ops_natural.run(project, ctx, op, {"pending_id": numbers[0]}, said, CHANNEL, sender, extras, routed=True), extras)
 
 
+def _unchanged(decision: dict, state: dict, said: str) -> bool:
+    """Whether the corrected call (`decision["corrects"]`) is the live plan's own call, so that the "no" changed nothing. A list is compared as the dispatcher would ask it (its arguments read
+    from the line with the old plan's), every other call by its arguments."""
+    if decision["op"] == "items":
+        return importlib.import_module("ops_items").items_args(said, ops_natural._clock(), state["args"]) == dict(state["args"])
+    return dict(decision.get("args") or {}) == dict(state["args"])
+
+
 def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     """The reply tuple of a plain line read by the interpreter, or None when the line goes to the planning agent as today. `extras["interpreted"]` says what the
     conversation stores for the line: True (the default from here on) a neutral word, False the line itself (it was sent to the agent). With `extras["frame_age"]` (the sender
@@ -460,6 +470,13 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
         extras["frame"] = "answer"
         return None
     if kind == "op":
+        state = (plan or {}).get("state") if plan_id is not None else None      # BL5B: the sender's own live plan, nobody else's
+        if state is not None and state["op"] == decision["op"]:
+            if decision.get("corrects") and _unchanged(decision, state, said):
+                plan_confirm.drop(project, sender)      # a correction that changes nothing is a no
+                return _said(phrases.text("PLAN_DROPPED", cfg), extras)
+            if decision.get("corrects") or interpreter.starts_with_no(said):
+                extras["plan_previous"] = dict(state["args"])      # a CORRECTION's inheritance (it opens with a no): the old plan's arguments, so that a corrected list keeps what the old line said and the new one does not; a new request inherits nothing (never logged, never sent anywhere)
         extras["plan_words"] = dict(decision.get("spans") or {})      # D5: the spans code checked in the line become the new plan's own words (a correction may inherit one)
         return _carry_out(project, ctx, decision, said, sender, extras)
     if kind == "none":

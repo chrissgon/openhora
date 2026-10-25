@@ -130,7 +130,7 @@ def test_a_correction_after_the_question_is_not_taken_as_an_ok_it_revises_the_pl
     brig.rig.says["text"] = op("items")
     brig.say("nao, de amanha")      # neither word: it reaches `say`, where the model reads it with the plan as a typed frame item
     day = phrases.localize_dates(t(brig, "UNDERSTOOD_ON_DAY", day=DAY), brig.rig.cfg)
-    revised = phrases.text("PLAN_HEAD", brig.rig.cfg, what=phrases.text("UNDERSTOOD_ITEMS_MAIL", brig.rig.cfg) + day) + " " + t(brig, "PLAN_ASK")
+    revised = phrases.text("PLAN_HEAD", brig.rig.cfg, what=phrases.text("UNDERSTOOD_ITEMS_CALENDAR", brig.rig.cfg) + day) + " " + t(brig, "PLAN_ASK")      # BL5B: the correction names no events, so it keeps the kind of the plan it corrects (the agenda)
     assert wait_for(lambda: last_text(brig) == revised)
     assert reads(brig) == [] and live(brig)["item"] != first["item"], "a NEW question; the first plan is gone"
     assert ops.say(brig.rig.world["path"], "sim", channel="messaging", sender=OWNER_KEY, plan_ok={"item": first["item"], "sha256": first["sha256"]})["reply"] == t(brig, "PLAN_GONE")
