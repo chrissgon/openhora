@@ -22,6 +22,7 @@ Where it lives under the limits:
   * L53 (the age of a snapshot): a refreshed snapshot is a new dated version; the read is for one line and never a task's input; no task receives anything new.
   * The read right: only a messaging sender whose groups list `ask-mail` (`item_refs.may_read`, the right the lookup of a message already needs), checked here again although
     the caller checked it: the guard is in the module that calls the provider. No new group, no widening.
+  * The most a line waits is about 120 seconds: up to TURN_TIMEOUT_S for the lock of a source that another line is reading, then up to TURN_TIMEOUT_S for its own read.
   * One per line: a budget of one provider read per turn, fail-closed (no turn open on this thread, no read). One per source at a time: a lock for each source; a line that waits
     for it asks again when it holds it, and finds the snapshot fresh. At most one failed try for a source in FAIL_COOLDOWN_S seconds, checked before the lock and under it.
     The provider is bounded at TURN_TIMEOUT_S seconds (the typed command keeps 300).
@@ -113,7 +114,8 @@ def _failed_word(error) -> str:
 def refresh_once(ctx: dict, source_id: str, channel, sender) -> str:
     """Read the mail source `source_id` again, once for this line. "not-allowed": the caller may not (not messaging, no right to read, no such mail source); "spent": no turn is
     open, the line has read once already, or the source failed lately; "failed": the lock was not free in time or the read failed (one line to stderr with a closed word);
-    "refreshed": the source was read again, or another line had just done it. Checked in this order, and the provider is reached only at the last step."""
+    "refreshed": the source was read again and the snapshot is no longer refused for a reason a read cures, or another line had just done it. A read that works but leaves the
+    snapshot still refused is a "failed" and rests the source like a failure. Checked in this order, and the provider is reached only at the last step."""
     if channel != "messaging" or not item_refs.may_read(ctx, channel, sender):
         return "not-allowed"
     try:
@@ -142,6 +144,10 @@ def refresh_once(ctx: dict, source_id: str, channel, sender) -> str:
             importlib.import_module("ops_sources").source_refresh(ctx["cfg"]["project"], source_id, timeout=TURN_TIMEOUT_S)
         except Exception as e:      # noqa: BLE001 - the fault can hold a provider's words: only a closed word leaves
             print(f"mail: refresh of {source_id} failed ({_failed_word(e)})", file=sys.stderr)
+            _FAILED[key] = MONOTONIC()
+            return "failed"
+        if _still_refused(ctx, source_id, channel, sender):      # the read worked and the snapshot is still refused (a clock that is off, no new version): rest, as after a failure
+            print(f"mail: refresh of {source_id} failed (unchanged)", file=sys.stderr)
             _FAILED[key] = MONOTONIC()
             return "failed"
         return "refreshed"

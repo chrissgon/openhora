@@ -523,7 +523,7 @@ def test_every_phrase_the_resolution_can_ask_or_say_is_in_both_columns_with_the_
     for key in keys:
         assert key in phrases.TABLE["pt-BR"], key
         assert phrases._fields_of(phrases.TABLE["en"][key]) == phrases._fields_of(phrases.TABLE["pt-BR"][key]), key
-    used = {"NW_MAIL_NO_SOURCE", "NW_MAIL_NONE", "NW_MAIL_REFRESH_FAILED", "NW_MAIL_TOO_MANY", "NW_MAIL_NO_FOLDERS", "NW_MAIL_BY_DATE", "NW_MAIL_NO_FORWARD", "NW_MAIL_ASK_SOURCE", "NW_MAIL_ASK_MESSAGE", "NW_MAIL_ASK_MESSAGES_OVER", "NW_MAIL_ASK_TO",
+    used = {"NW_MAIL_NO_SOURCE", "NW_MAIL_NONE", "NW_MAIL_REFRESH_FAILED", "NW_MAIL_LIST_CHANGED", "NW_MAIL_TOO_MANY", "NW_MAIL_NO_FOLDERS", "NW_MAIL_BY_DATE", "NW_MAIL_NO_FORWARD", "NW_MAIL_ASK_SOURCE", "NW_MAIL_ASK_MESSAGE", "NW_MAIL_ASK_MESSAGES_OVER", "NW_MAIL_ASK_TO",
             "NW_MAIL_ASK_SUBJECT", "NW_MAIL_ASK_BODY", "NW_MAIL_ASK_BODY_REPLY", "NW_MAIL_ASK_STATE", "NW_MAIL_STATE_READ", "NW_MAIL_STATE_UNREAD"}
     assert used == set(keys), "a phrase nothing asks is a phrase to remove, and a question with no phrase would be a bug"
     fields = {"count": 2, "max": 20, "shown": 5, "name": "n", "names": "a, b", "to": "t", "source": "s", "words": "w", "account": "Google"}

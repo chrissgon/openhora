@@ -129,13 +129,16 @@ def phone(world, line, seed=None, sender=READER):
     return onw.natural_write(world["path"], line, channel="messaging", sender=sender, seed=seed)
 
 
-def counter(monkeypatch, does=None):
-    """`ops_sources.source_refresh` replaced by a stand-in that counts its calls (the keyword arguments too) and does `does` instead of reading."""
+def counter(monkeypatch, does=None, through=False):
+    """`ops_sources.source_refresh` replaced by a stand-in that counts its calls (the keyword arguments too) and does `does` instead of reading, or, with `through`, makes the real
+    read (so that the snapshot is fresh afterwards); with neither it reads nothing and the snapshot stays as it was."""
     seen = []
     real = ops_sources.source_refresh
 
     def stand_in(project, source_id, file=None, timeout=None):
         seen.append({"source": source_id, "timeout": timeout})
+        if through:
+            return real(project, source_id, file, timeout)
         return does(project, source_id, file, timeout) if does else {"refreshed": False}
     monkeypatch.setattr(ops_sources, "source_refresh", stand_in)
     return seen, real
@@ -187,8 +190,10 @@ def test_the_oracle_that_counts_reads_sees_a_read_when_there_is_one(world):
 
 
 def double_attempt(world, monkeypatch):
-    """A refresh that 'succeeds' and leaves the snapshot stale, and a resolution that asks for the snapshot twice. Returns (the calls of the refresh, the reply)."""
+    """A refresh that 'succeeds' and leaves the snapshot stale, and a resolution that asks for the snapshot twice, 200 seconds apart (so that the rest after a failure, 120 seconds,
+    is over and only the budget of the line stops the second read). Returns (the calls of the refresh, the reply)."""
     stale(world)
+    wall = Wall(monkeypatch)
     seen, _ = counter(monkeypatch)
     real = onm._by_words
 
@@ -197,6 +202,7 @@ def double_attempt(world, monkeypatch):
             onm._read_snapshot(ctx, source_id, channel, sender, True)
         except onm.Say:
             pass
+        wall.now += 200
         return real(ctx, slots, source_id, channel, sender)
     monkeypatch.setattr(onm, "_by_words", twice)
     return seen, resolve(world)
@@ -224,16 +230,17 @@ def test_the_budget_is_gone_for_a_line_that_asks_twice_so_a_budget_that_returned
 
 
 def test_each_resolution_opens_its_own_turn_and_the_budget_is_cleared_when_it_ends(world, monkeypatch):
-    seen, _ = counter(monkeypatch)
+    seen, _ = counter(monkeypatch, through=True)
     stale(world)
     resolve(world)
+    stale(world)
     resolve(world)
-    assert len(seen) == 2, "two lines, two turns: one read each (the cooldown is for a failed read only)"
+    assert len(seen) == 2, "two lines, two turns: one read each (the rest is for a failed read only)"
     assert getattr(mail_refresh._LOCAL, "budget", None) is None, "nothing is left open on the thread"
 
 
 def test_nothing_is_read_outside_a_turn_and_an_inner_turn_shares_the_outer_budget(world, monkeypatch):
-    seen, _ = counter(monkeypatch)
+    seen, _ = counter(monkeypatch, through=True)
     stale(world)
     ctx = ops_core.context(world["path"])
     assert mail_refresh.refresh_once(ctx, "inbox", "messaging", READER) == "spent" and seen == [], "fail closed: no turn, no read"
@@ -258,7 +265,7 @@ def test_limit_52_a_sender_without_ask_mail_gets_the_sentence_of_the_right_and_t
 
 
 def test_refresh_once_refuses_a_caller_who_may_not_read_even_when_called_directly_and_a_reader_is_the_vacuity(world, monkeypatch):
-    seen, _ = counter(monkeypatch)
+    seen, _ = counter(monkeypatch, through=True)
     stale(world)
     ctx = ops_core.context(world["path"])
     with mail_refresh.turn():
@@ -558,6 +565,96 @@ def test_the_read_publishes_the_mail_stage_and_nothing_else_of_the_line(world):
         assert slot.stage == "mail"
     finally:
         line_stage.release(slot)
+
+
+# --- a number chosen from a list names the message of that list only; a refresh that changes nothing rests the source --------------------------------------------
+
+
+def listed(world):
+    """The list of three messages asked of READER ("which message?"), drawn from a fresh snapshot in which every subject holds the word `report`; returns the reply that asked."""
+    for n, message in enumerate(world["readers"].mail["gmail"], 1):
+        message["subject"] = f"Weekly report {n}"
+    stale(world)
+    ops_sources.source_refresh(world["path"], "inbox")      # the snapshot the list is drawn from: read now, fresh
+    del world["readers"].calls[:]
+    seed = words_seed()
+    seed["slots"].update(words=["report"], source="inbox")
+    first = phone(world, "apague o e-mail report", seed)
+    assert first["asked"] and "ana@clinic.example" in first["reply"] and "bob@shop.example" in first["reply"], first["reply"]
+    return first
+
+
+def another_line_refreshes(world):
+    """A new message arrives, the snapshot goes stale and ANOTHER line (a second reader, a list on a phone, a routine) reads the source again: the numbers now name other messages."""
+    world["readers"].mail["gmail"].insert(0, tsm.message(10, "2026-10-25T09:00:00Z", sender="Dan Reis <dan@work.example>", subject="Brand new", id="m10"))
+    stale(world)
+    before = len(reads(world))
+    assert said(resolve(world, words=["zzz-nothing"])) == "NW_MAIL_NONE" and len(reads(world)) == before + 1, "the other line read the source"
+
+
+def test_a_number_chosen_from_a_list_is_refused_when_another_line_read_the_source_again_since(world):
+    listed(world)
+    another_line_refreshes(world)
+    done = phone(world, "2")
+    assert done["reply"] == phrases.text("NW_MAIL_LIST_CHANGED", {"language": "en"}) and "resend" not in done and cards(world) == [], "nothing is opened"
+    assert phone_problems(done["reply"]) == []
+
+
+def test_the_check_of_the_list_is_what_stops_the_wrong_card_so_without_it_another_message_would_open(world, monkeypatch):
+    listed(world)
+    another_line_refreshes(world)
+    monkeypatch.setattr(onm, "_same_list", lambda *a: None)      # the planted fault: no check
+    done = phone(world, "2")
+    assert "resend" in done and "ana@clinic.example" in cards(world)[0]["body"] and "bob@shop.example" not in cards(world)[0]["body"], "the card is on another message than the one the person saw"
+    with pytest.raises(AssertionError):
+        assert cards(world) == []
+
+
+def test_a_number_chosen_from_a_list_that_is_still_the_newest_snapshot_opens_the_message_it_named(world):
+    listed(world)
+    done = phone(world, "2")
+    assert "resend" in done and len(cards(world)) == 1
+    body = cards(world)[0]["body"]
+    assert "bob@shop.example" in body and "ana@clinic.example" not in body, "the second message of the list, as the person saw it"
+    assert reads(world) == [], "the answer reads no provider"
+
+
+def test_a_list_that_went_stale_without_a_refresh_is_answered_with_the_stale_sentence_and_no_read(world):
+    listed(world)
+    stale(world)
+    done = phone(world, "2")
+    assert done["reply"] == phrases.text("ACCT_MAIL_REF_STALE", {"language": "en"}, ref="inbox") and cards(world) == [] and reads(world) == []
+
+
+def test_a_draft_that_records_no_snapshot_for_its_list_fails_closed(world):
+    ctx = ops_core.context(world["path"])
+    for bad in ({}, {"source": "inbox"}, {"version": 1}, "inbox", {"source": 5, "version": 1}):
+        out = onm.resolve(ctx, "mail-trash", {"words": ["report"], "chosen": "inbox#2", "_listed": bad}, "messaging", READER)
+        assert said(out) == "NW_MAIL_LIST_CHANGED", bad
+    assert reads(world) == []
+
+
+def test_a_refresh_that_works_but_leaves_the_snapshot_refused_rests_the_source_like_a_failure_and_the_next_lines_read_nothing(world, monkeypatch, capsys):
+    wall = Wall(monkeypatch)
+    seen, _ = counter(monkeypatch)      # the read "works" and the snapshot stays stale (a clock that is off, the same signature: no new version)
+    stale(world)
+    for _ in range(5):
+        assert said(resolve(world)) == "NW_MAIL_REFRESH_FAILED"
+    assert len(seen) == 1, "five lines, one read: the source rests after a read that changed nothing"
+    assert capsys.readouterr().err.splitlines() == ["mail: refresh of inbox failed (unchanged)"]
+    wall.now += 121
+    assert said(resolve(world)) == "NW_MAIL_REFRESH_FAILED" and len(seen) == 2, "after the rest: one more read"
+
+
+def test_the_rest_oracle_sees_a_read_when_the_rest_is_forgotten(world, monkeypatch):
+    seen, _ = counter(monkeypatch)
+    stale(world)
+    for _ in range(5):
+        mail_refresh._FAILED.clear()      # the planted fault: a rest that forgot
+        resolve(world)
+    assert len(seen) == 5
+    with pytest.raises(AssertionError):
+        assert len(seen) == 1
 
 
 # --- the docs ----------------------------------------------------------------------------------------------------------------------------------------

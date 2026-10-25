@@ -30,7 +30,7 @@ What is decided here, and from where:
     or as made before the index existed, and the line found its message BY WORDS or asked for the newest one, a messaging sender who holds `ask-mail` has the source read
     again by the platform (runtime/mail_refresh.py `refresh_once`: one provider read for a line, because `resolve` opens one turn budget and `_read_snapshot` is the only caller;
     only that source, in its own box, days and max; the provider bounded at 60 seconds; one read of a source at a time; a source that failed is not tried again for 120
-    seconds), and the index is asked again. A line that names a message number or a written reference never refreshes (a refresh renumbers the snapshot, and the number the person
+    seconds), and the index is asked again. A number the person chooses from a list is checked against the snapshot the list was drawn from (the draft keeps `_listed`: source and version): if another line, a list on a phone, a typed refresh or a routine read the source again since, the numbers name other messages and the answer is `NW_MAIL_LIST_CHANGED`, nothing opened. A line that names a message number or a written reference never refreshes (a refresh renumbers the snapshot, and the number the person
     saw would name another message). A refresh that fails, is too slow, or leaves the snapshot still refused is one plain sentence (`NW_MAIL_REFRESH_FAILED`): nothing is listed,
     no card is opened. The terminal, the page and the conversation keep the sentence that says to refresh it (they have the command and the button);
   * the account is the one named by a service word of the line (`google`, `gmail`, `outlook`...), or the account of the mailbox the message is in, or the only account the
@@ -90,10 +90,11 @@ def _ref_say(code: str, reference) -> "Say":
     return Say(mail_refs.REF_PHRASES.get(code, "ACCT_MAIL_REF_INTEGRITY"), ref=mail_refs.shown(reference))
 
 
-def _ask(need: str, key: str, options=None, slot=None, multi: bool = False, **fields) -> dict:
+def _ask(need: str, key: str, options=None, slot=None, multi: bool = False, keep=None, **fields) -> dict:
     """A question in the shape the card-opening path takes (runtime/ops_natural_writes.py `ask_spec`): `options` are (value, label) pairs the person chooses from by the number
-    shown or the word; `slot` is where the answer goes (default: the need)."""
-    return {"ask": {"need": need, "slot": slot or need, "sentence_key": key, "fields": fields, "multi": multi, "engine": None,
+    shown or the word; `slot` is where the answer goes (default: the need); `keep` is what the draft keeps among its slots while the question is open
+    (`ops_natural_writes._ask`): the snapshot a list of messages was drawn from."""
+    return {"ask": {"need": need, "slot": slot or need, "sentence_key": key, "fields": fields, "multi": multi, "engine": None, "keep": keep or {},
                     "options": [{"value": value, "label": label} for value, label in (options or [])]}}
 
 
@@ -165,8 +166,26 @@ def _first_written(slots: dict) -> str:
 
 
 def _may_refresh(slots: dict) -> bool:
-    """A line that carries a message number, a written reference or a message the person chose never refreshes a snapshot: a refresh renumbers it."""
-    return not (slots.get("numbers") or slots.get("refs") or slots.get("chosen"))
+    """A line that carries a message number or a written reference never refreshes a snapshot: a refresh renumbers it. (A message the person chose from a list reads no snapshot
+    to find it, only `_same_list`, which never refreshes.)"""
+    return not (slots.get("numbers") or slots.get("refs"))
+
+
+def _same_list(ctx: dict, listed, channel, sender) -> None:
+    """The person chose a number from a list drawn from the snapshot `listed` ({"source", "version"}): the number names that message only while that snapshot is still the newest
+    one. Another line, a list on a phone, a typed refresh or a routine may have read the source again since, and the numbers of a new snapshot name other messages: then nothing is
+    opened and the person is asked to ask again. The newest snapshot is read as for any reference (the right to read first, a stale one refused, never refreshed here)."""
+    if not (isinstance(listed, dict) and isinstance(listed.get("source"), str) and "version" in listed):
+        raise _say("NW_MAIL_LIST_CHANGED")      # a list that records no snapshot cannot be told from a new one: fail closed
+    source_id = listed["source"]
+    try:
+        newest = item_refs.read_index(ctx, source_id, channel=channel, sender=sender, kinds=("mail",))
+    except item_refs.ItemRefError as e:
+        raise _ref_say(e.code, source_id) from None
+    except sources.SourcesError as e:
+        raise core.OpsError(" ".join(str(e).split())[:200], 1) from None
+    if listed["version"] is None or newest.get("version") != listed["version"]:
+        raise _say("NW_MAIL_LIST_CHANGED")
 
 
 def _read_snapshot(ctx: dict, source_id: str, channel, sender, may_refresh: bool = False) -> dict:
@@ -248,9 +267,10 @@ def _by_words(ctx: dict, slots: dict, source_id: str, channel, sender):
         return [f"{source_id}#{found[0]['n']}"], None
     shown = found[:nwm.MESSAGES_MAX if plural else LISTED]      # the newest candidates: a singular object is chosen among five, a plural one among the twenty a card takes
     options = [(f"{source_id}#{e['n']}", _entry_label(e)) for e in shown]
+    keep = {"_listed": {"source": source_id, "version": snapshot.get("version")}}      # the numbers of this list are those of this version of the snapshot
     if plural:
-        return [], _ask("message", "NW_MAIL_ASK_MESSAGES_OVER", options, slot="chosen", multi=True, count=len(found), max=nwm.MESSAGES_MAX, shown=len(shown))
-    return [], _ask("message", "NW_MAIL_ASK_MESSAGE", options, slot="chosen", count=len(found))
+        return [], _ask("message", "NW_MAIL_ASK_MESSAGES_OVER", options, slot="chosen", multi=True, keep=keep, count=len(found), max=nwm.MESSAGES_MAX, shown=len(shown))
+    return [], _ask("message", "NW_MAIL_ASK_MESSAGE", options, slot="chosen", keep=keep, count=len(found))
 
 
 def _reference_source(ctx: dict, slots: dict):
@@ -292,6 +312,8 @@ def _messages(ctx: dict, slots: dict, channel, sender):
         known = {s["id"]: s["account"] for s in _mail_sources(ctx)}
         if any(r.partition("#")[0] not in known for r in refs):
             raise _ref_say("no_source", refs[0])
+        if slots.get("_listed") is not None:      # BL5E: the list the person chose from must still be the newest snapshot
+            _same_list(ctx, slots["_listed"], channel, sender)
         return _named_account(slots) or known[refs[0].partition("#")[0]], refs, None
     source_id, account, ask = _reference_source(ctx, slots)
     if ask:

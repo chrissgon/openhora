@@ -652,6 +652,7 @@ TABLE = {
     # --- a mail write asked in words (package NR-5b, runtime/ops_natural_mail.py) ---
     "NW_MAIL_NO_SOURCE": "Nenhuma fonte de e-mail da sua caixa está registrada para isso: registre uma com source-mail primeiro e peça de novo.",
     "NW_MAIL_NONE": "Nenhuma mensagem do snapshot mais novo de {source} tem todas estas palavras: {words}.",
+    "NW_MAIL_LIST_CHANGED": "Sua caixa de e-mail mudou desde que listei essas mensagens, então não fiz nada. Peça de novo que eu listo outra vez.",
     "NW_MAIL_REFRESH_FAILED": "Não consegui atualizar o {source} agora, então não fiz nada. Tente de novo daqui a pouco; se continuar, veja na página da plataforma.",
     "NW_MAIL_TOO_MANY": "Um card aceita no máximo {max} mensagens: indique menos.",
     "NW_MAIL_BY_DATE": "Ainda não sei escolher e-mails por data: diga os números (peça a lista dos seus e-mails para vê-los).",
