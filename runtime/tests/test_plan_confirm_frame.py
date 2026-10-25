@@ -34,8 +34,8 @@ def test_a_correction_after_a_plan_is_read_with_the_plan_as_a_typed_item_and_sta
     rig.says["text"] = op("items")
     out = say(rig, OWNER, "nao, de amanha")
     assert shown_frame(rig) == TAIL
-    day = phrases.localize_dates(phrases.text("UNDERSTOOD_ON_DAY", rig.cfg, day="Mon 19/10/2026"), rig.cfg)      # the line names no events: the read is of the mail, as it is when it runs
-    assert out["reply"] == phrases.text("PLAN_HEAD", rig.cfg, what=phrases.text("UNDERSTOOD_ITEMS_MAIL", rig.cfg) + day) + " " + phrases.text("PLAN_ASK", rig.cfg)
+    day = phrases.localize_dates(phrases.text("UNDERSTOOD_ON_DAY", rig.cfg, day="Mon 19/10/2026"), rig.cfg)      # BL5B: the line names no events, so the new question keeps the kind of the plan it corrects (the agenda), not the mail
+    assert out["reply"] == phrases.text("PLAN_HEAD", rig.cfg, what=phrases.text("UNDERSTOOD_ITEMS_CALENDAR", rig.cfg) + day) + " " + phrases.text("PLAN_ASK", rig.cfg)
     assert out["plan_confirm"]["item"] != first["plan_confirm"]["item"] and out["plan_confirm"]["op"] == "items"
     assert say(rig, OWNER, "sim", plan_ok=ok_of(first))["reply"] == phrases.text("PLAN_GONE", rig.cfg), "the plan that was corrected is gone"
 
@@ -72,15 +72,22 @@ def test_an_inherit_from_another_operation_asks_again_and_the_old_plan_is_droppe
     assert out["reply"] == phrases.text("IX_ASK_AGAIN", rig.cfg) and "plan_confirm" not in out and ops.plan_live(rig.world["path"], OWNER) is None
 
 
-def test_the_models_no_to_the_plan_item_drops_it_and_its_yes_keeps_it_for_the_senders_own_ok(rig):
+def test_the_models_no_to_the_plan_item_with_a_new_detail_revises_the_plan_with_none_it_drops_it_and_its_yes_keeps_it_for_the_senders_own_ok(rig):
+    """BL5B changed the rule BL2a wrote here: a no that carries a new detail (a span of the plan's slot that differs from the plan's) is the corrected request, a new "Shall I go ahead?"; a no
+    that changes nothing, or says nothing more, drops the plan; a yes never runs it."""
     rig.says["text"] = op("research", {"question": "weather in Lisbon tomorrow"})
     first = say(rig, OWNER, LINE)
     rig.says["text"] = text("answer", answers_item="i1", confirm="yes", slot="question", span="weather in Lisbon")
     kept = say(rig, OWNER, "yes, weather in Lisbon")
     assert kept["reply"] == phrases.text("PLAN_NOT_LAST", rig.cfg) and ops.plan_live(rig.world["path"], OWNER)["item"] == first["plan_confirm"]["item"]
     rig.says["text"] = text("answer", answers_item="i1", confirm="no", slot="question", span="weather in Lisbon")
+    revised = say(rig, OWNER, "no, weather in Lisbon")
+    cap = phrases.decimal(f"{rig.cfg['research']['max_cost_usd']:.2f}", rig.cfg)
+    assert revised["reply"] == question(rig, "UNDERSTOOD_RESEARCH", question="weather in Lisbon", cap=cap), "a different span: a new question, nothing ran"
+    assert revised["plan_confirm"]["item"] != first["plan_confirm"]["item"] and ops.plan_live(rig.world["path"], OWNER)["item"] == revised["plan_confirm"]["item"]
+    rig.says["text"] = text("answer", answers_item="i1", confirm="no", slot="question", span="weather in Lisbon")
     dropped = say(rig, OWNER, "no, weather in Lisbon")
-    assert dropped["reply"] == phrases.text("PLAN_DROPPED", rig.cfg) and ops.plan_live(rig.world["path"], OWNER) is None
+    assert dropped["reply"] == phrases.text("PLAN_DROPPED", rig.cfg) and ops.plan_live(rig.world["path"], OWNER) is None, "the same words: the no changed nothing"
 
 
 def test_a_router_question_and_a_plan_are_two_items_and_an_answer_to_the_question_routes_as_before(rig, monkeypatch):

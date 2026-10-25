@@ -145,6 +145,23 @@ def _line_args(said, now=None) -> dict:
     return {**out, **({"count": count} if count else {}), **_range_args(said, now)}
 
 
+def items_args(said, now, previous=None) -> dict:
+    """The arguments a line gives `items`, whole, so that a plan's hash binds them (BL5B): `kind` ("calendar" or "mail"), `account`, the range (`first`, `last`) and `count`, each read from
+    the line as `_line_args` reads it. `previous` is the arguments of the plan this line corrects (the sender's own live plan, never a third party's): the kind the new line names wins
+    ("no, the e-mails"), else the old kind is kept, else the line alone decides (`items_kind`); the account and the range the old plan had are kept when the new line names none. A
+    number of messages (`count`) is only the line's own. Pure: nothing is read."""
+    found = _line_args(said, now)
+    noun = importlib.import_module("natural_writes").items_noun(said)
+    old = previous if isinstance(previous, dict) else {}
+    kind = noun or old.get("kind") or importlib.import_module("natural_writes").items_kind(said)
+    out = {"kind": kind, **found}
+    if "account" not in out and old.get("account"):
+        out["account"] = old["account"]
+    if "first" not in out and old.get("first") and old.get("last"):
+        out.update(first=old["first"], last=old["last"])
+    return out
+
+
 def _account_of(row: dict):
     """The account ("google" | "microsoft") a mail or calendar source belongs to, from the implementation its origin names; None when the origin is not one this runtime reads (BL5D: the
     reading lives in runtime/source_names.py `account_of`, which the phone names use too)."""
