@@ -206,8 +206,9 @@ def _signature(pairs, label: str, local_date: str) -> str:
     return hashlib.sha256(f"{listed}\n{label}\n{local_date}{SIGNATURE_MARK}".encode("utf-8")).hexdigest()
 
 
-def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=None, zone=None) -> dict:
-    """Read what a mail or calendar origin names: the provider's items of the window, nothing built yet. Returns {"type", "parts", "now",
+def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=None, zone=None, timeout=None) -> dict:
+    """Read what a mail or calendar origin names: the provider's items of the window, nothing built yet. `timeout` (seconds) bounds the provider's answer; None keeps
+    PROVIDER_TIMEOUT (300), which every caller but the one line that asks for less (BL5E, runtime/mail_refresh.py) uses. Returns {"type", "parts", "now",
     "zone", "label", "window", "items", "truncated", "skipped", "signature", "first", "last"}. Items that are not shaped as the provider
     prints them are counted in "skipped"."""
     parts = origin_of(source_type, origin)
@@ -218,13 +219,15 @@ def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=
     if source_type == "mail":
         start, end = mail_window(now, parts["days"])
         got = provider_call(cfg, MAIL_CLASS, parts["implementation"], "search",
-                            ["--query", parts["query"], "--since", text.utc_stamp(start), "--limit", str(parts["max"]), "--own-words"], call=call)
+                            ["--query", parts["query"], "--since", text.utc_stamp(start), "--limit", str(parts["max"]), "--own-words"], call=call,
+                            timeout=timeout or PROVIDER_TIMEOUT)
         listed, key, limit = got.get("messages"), "change_key", parts["max"]
         first = last = None
     else:
         start, end, first, last = calendar_window(now, parts["past"], parts["ahead"], zone)
         got = provider_call(cfg, CALENDAR_CLASS, parts["implementation"], "events",
-                            ["--calendar", parts["calendar"], "--from", start.isoformat(), "--to", end.isoformat(), "--max", str(EVENTS_MAX)], call=call)
+                            ["--calendar", parts["calendar"], "--from", start.isoformat(), "--to", end.isoformat(), "--max", str(EVENTS_MAX)], call=call,
+                            timeout=timeout or PROVIDER_TIMEOUT)
         listed, key, limit = got.get("events"), "etag", EVENTS_MAX
     if not isinstance(listed, list):
         raise SourcesError(f"the {source_type} provider's list is not one this runtime reads", source_type)
@@ -394,15 +397,15 @@ def snapshot_new(ctx, source_id: str, source_type: str, origin: str, description
     return {**snapshot_make(ctx, row, snap, label="import", evidence_base=evidence_base), "source_row": row}
 
 
-def snapshot_refresh(ctx, source: dict, *, convert, call=None, clock=None, zone=None, evidence_base=None) -> dict:
-    """A refresh of a mail or calendar source: the provider is read for the window as it is now. When the listing is the one recorded with the
+def snapshot_refresh(ctx, source: dict, *, convert, call=None, clock=None, zone=None, evidence_base=None, timeout=None) -> dict:
+    """A refresh of a mail or calendar source: the provider is read for the window as it is now (`timeout` as in read_snapshot: None keeps 300 seconds). When the listing is the one recorded with the
     newest version (same ids and change keys, same local date), no version is made and the files in the folder are still checked against
     the record (limit L25); otherwise a new version is imported. Returns {"imported", "unchanged", "read", "source", "version", ...}."""
     if source.get("type") not in ("mail", "calendar"):
         raise SourcesError(f"{source.get('id')} is not a mail or calendar source", "usage")
     cfg = ctx["cfg"]
     sources.check_folder(cfg, evidence_base)
-    snap = read_snapshot(cfg, source["type"], source["origin"], call=call, clock=clock, zone=zone)
+    snap = read_snapshot(cfg, source["type"], source["origin"], call=call, clock=clock, zone=zone, timeout=timeout)
     latest = sources._stored(ctx, "source_latest", source["id"])
     if latest is not None and latest.get("origin_version") == snap["signature"]:
         done = sources.recheck(ctx, source, convert=convert, clock=(lambda: snap["now"]), evidence_base=evidence_base)

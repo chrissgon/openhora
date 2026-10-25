@@ -353,6 +353,7 @@ def _ask(ctx: dict, state: dict, spec: dict, channel, sender, extras: dict) -> s
                  retries=state.get("retries", 0))
     if ask.get("engine"):
         state["slots"]["_engine"] = ask["engine"]
+    state["slots"].update(ask.get("keep") or {})          # what the family asks the draft to remember while the question is open (BL5E: the snapshot a list of mail was drawn from)
     drafts.put(*_slot(channel, sender), state, "write", ttl=DRAFT_TTL)
     extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
     extras["asked"] = True

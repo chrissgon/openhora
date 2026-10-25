@@ -304,9 +304,10 @@ def test_a_sentence_that_says_a_source_says_its_name_on_a_phone_and_its_id_on_th
     assert natural(world, "2")["reply"] == phrases.text("NW_MAIL_NONE", PT, source="Outlook", words="github"), "the answer by number reaches the same sentence"
 
 
-def test_the_stale_snapshot_sentence_names_the_source_on_a_phone(world, snaps):
+def test_the_stale_snapshot_sentence_names_the_source_on_a_phone(world, snaps, monkeypatch):
     two_mailboxes(world, snaps)
     snaps.later(hours=30)
+    monkeypatch.setattr(st.load("mail_refresh"), "refresh_once", lambda *a: "not-allowed")      # BL5E: a phone's line by words refreshes a stale snapshot itself; this test is about the sentence of the lines that cannot (a number, a written reference), so the refresh is off here
     on_phone = natural(world, "arquiva o e-mail do github no gmail")["reply"]
     assert on_phone == phrases.text("ACCT_MAIL_REF_STALE", PT, ref="Gmail")
     no_id(on_phone)

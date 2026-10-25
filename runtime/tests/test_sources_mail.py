@@ -854,6 +854,19 @@ def test_a_provider_gets_the_minimum_environment_and_its_own_secret_and_no_other
     assert seen["kwargs"]["timeout"] == sources_mail.PROVIDER_TIMEOUT
 
 
+def test_every_caller_but_the_one_that_asks_for_less_keeps_the_provider_timeout_at_300_seconds(desk):
+    """BL5E added a `timeout` keyword to `source_refresh` -> `snapshot_refresh` -> `read_snapshot`; the typed command, the page and the routine never pass it."""
+    assert sources_mail.PROVIDER_TIMEOUT == 300
+    desk.mail("inbox")
+    desk.refresh("inbox")
+    assert [c["timeout"] for c in desk.providers.calls] == [300, 300], "a first read and a refresh, both with the default"
+    del desk.providers.calls[:]
+    ops_sources.source_refresh(desk.path, "inbox", timeout=60)
+    assert [c["timeout"] for c in desk.providers.calls] == [60], "the keyword reaches the provider call: the control that the default is not the only value seen"
+    ops_sources.source_refresh(desk.path, "inbox", timeout=0)
+    assert [c["timeout"] for c in desk.providers.calls] == [60, 300], "0 is `no value`: the default"
+
+
 def test_a_failing_provider_call_reports_the_kind_and_a_cleaned_reason_and_nothing_of_the_environment(desk, monkeypatch):
     monkeypatch.setenv("OUTLOOK_MAIL_TOKEN", "the-secret-token-value")
 

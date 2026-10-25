@@ -523,7 +523,7 @@ def test_every_phrase_the_resolution_can_ask_or_say_is_in_both_columns_with_the_
     for key in keys:
         assert key in phrases.TABLE["pt-BR"], key
         assert phrases._fields_of(phrases.TABLE["en"][key]) == phrases._fields_of(phrases.TABLE["pt-BR"][key]), key
-    used = {"NW_MAIL_NO_SOURCE", "NW_MAIL_NONE", "NW_MAIL_TOO_MANY", "NW_MAIL_NO_FOLDERS", "NW_MAIL_BY_DATE", "NW_MAIL_NO_FORWARD", "NW_MAIL_ASK_SOURCE", "NW_MAIL_ASK_MESSAGE", "NW_MAIL_ASK_MESSAGES_OVER", "NW_MAIL_ASK_TO",
+    used = {"NW_MAIL_NO_SOURCE", "NW_MAIL_NONE", "NW_MAIL_REFRESH_FAILED", "NW_MAIL_LIST_CHANGED", "NW_MAIL_TOO_MANY", "NW_MAIL_NO_FOLDERS", "NW_MAIL_BY_DATE", "NW_MAIL_NO_FORWARD", "NW_MAIL_ASK_SOURCE", "NW_MAIL_ASK_MESSAGE", "NW_MAIL_ASK_MESSAGES_OVER", "NW_MAIL_ASK_TO",
             "NW_MAIL_ASK_SUBJECT", "NW_MAIL_ASK_BODY", "NW_MAIL_ASK_BODY_REPLY", "NW_MAIL_ASK_STATE", "NW_MAIL_STATE_READ", "NW_MAIL_STATE_UNREAD"}
     assert used == set(keys), "a phrase nothing asks is a phrase to remove, and a question with no phrase would be a bug"
     fields = {"count": 2, "max": 20, "shown": 5, "name": "n", "names": "a, b", "to": "t", "source": "s", "words": "w", "account": "Google"}
@@ -666,7 +666,7 @@ def test_the_mcp_mode_reads_no_snapshot_for_a_line_and_a_page_or_terminal_caller
 def test_the_family_reaches_no_effect_no_writer_and_no_approval_and_no_operation_of_the_layer():
     import ast
     allowed = {"__future__", "bisect", "datetime", "os", "re", "sys", "unicodedata", "zoneinfo", "mail_address", "natural_time", "item_refs", "mail_refs", "natural_writes_mail", "ops_core", "phrases", "project_config",
-               "sources", "sources_mail", "natural", "mail_compose"}      # mail_compose (slice S7) words a new e-mail through the daily route; it opens no card and executes nothing
+               "sources", "sources_mail", "natural", "mail_compose", "mail_refresh"}      # mail_compose (slice S7) words a new e-mail through the daily route; it opens no card and executes nothing; mail_refresh (BL5E) reads a stale snapshot again through the source operations, once for a line
     for name in ("natural_writes_mail.py", "ops_natural_mail.py"):
         tree = ast.parse((st.RUNTIME / name).read_text(encoding="utf-8"))
         imported = set()

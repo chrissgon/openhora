@@ -184,8 +184,9 @@ def _import_notion(ctx, row: dict, address: str, evidence, label: str) -> dict:
                                   origin_version=page["version"], evidence_base=evidence)
 
 
-def source_refresh(project: str, source_id: str, file: str | None = None) -> dict:
-    """A new version of a source. A Drive or a OneDrive source asks the service for the file's version and reads the file only when it moved. A mail or calendar source reads its window again (the
+def source_refresh(project: str, source_id: str, file: str | None = None, timeout: int | None = None) -> dict:
+    """A new version of a source. `timeout` (seconds, BL5E) bounds the provider's answer for a mail or calendar source; None keeps 300 seconds, as the typed command, the page and the
+    routine do (none of them passes it); for any other type a `timeout` is refused ("usage"). A Drive or a OneDrive source asks the service for the file's version and reads the file only when it moved. A mail or calendar source reads its window again (the
     provider is asked; a new version only when the listing changed, or on another day). A Notion
     source reads its page again (a new version only when the text changed). A file source
     with `file` imports that file as a refresh. A file source with no `file` checks the newest version's files against the
@@ -196,6 +197,8 @@ def source_refresh(project: str, source_id: str, file: str | None = None) -> dic
     row = _row(ctx, source_id)
     evidence = _evidence_base()
     try:
+        if timeout is not None and row["type"] not in sources.SNAPSHOT_TYPES:
+            raise sources.SourcesError("a timeout applies to a mail or calendar read", "usage")
         if row["type"] == "drive":
             if file is not None:
                 raise sources.SourcesError("a Drive source is refreshed from Drive, not from a file", "usage")
@@ -204,7 +207,7 @@ def source_refresh(project: str, source_id: str, file: str | None = None) -> dic
         if row["type"] in sources.SNAPSHOT_TYPES:
             if file is not None:
                 raise sources.SourcesError(f"a {row['type']} source is read again from its {row['type']}, not from a file", "usage")
-            done = sources_mail.snapshot_refresh(ctx, row, convert=_convert(ctx), evidence_base=evidence)
+            done = sources_mail.snapshot_refresh(ctx, row, convert=_convert(ctx), evidence_base=evidence, timeout=timeout)
             return {**done, "refreshed": bool(done.get("imported"))}
         if row["type"] == "onedrive":
             if file is not None:
