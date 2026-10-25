@@ -311,7 +311,7 @@ def test_two_calendar_sources_are_listed_and_asked_and_none_is_said(world, clock
     install_item_refs(world, monkeypatch, {"agenda#2": {"id": SEEDED, "calendar": "pat@example.com", "account": "google"},
                                            "trabalho#2": {"id": SEEDED, "calendar": "side.calendar@example.com", "account": "google"}})
     asked = phone(world, "cancela o evento 2", READER)
-    assert asked["asked"] and "From which calendar?\n1. agenda\n2. trabalho" in asked["reply"]
+    assert asked["asked"] and (phrases.text("NW_ASK_SOURCE", None) + "\n1. " + phrases.text("NW_ITEMS_NAME_CAL", None, service="Google") + " 1\n2. " + phrases.text("NW_ITEMS_NAME_CAL", None, service="Google") + " 2") in asked["reply"]
 
 
 def test_a_sender_who_may_not_read_a_snapshot_is_told_so_and_nothing_of_the_calendar_is_named(world, clock, monkeypatch, spy):

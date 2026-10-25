@@ -82,7 +82,7 @@ def test_a_messaging_sender_reads_them_only_with_ask_mail_and_the_mcp_mode_never
 def test_the_lines_in_words_list_the_mail_or_the_events_and_the_conversation_stores_a_neutral_word(world, snaps, clock):
     project(world)      # the four senders hold `confirm-reads-off` (D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: this test is about the lists)
     mail = ops.say(world["path"], "lista os e-mails", channel="messaging", sender=READER)["reply"]
-    assert "inbox" in mail and "Bia Costa · Appointment confirmed · today 06:00" in mail and "Dentist" not in mail
+    assert "Gmail (" in mail and "inbox" not in mail and "Bia Costa · Appointment confirmed · today 06:00" in mail and "Dentist" not in mail
     events = ops.say(world["path"], "meus eventos", channel="messaging", sender=READER)["reply"]
     assert "Google calendar" in events and "agenda" not in events and "Dentist" in events and "bia@clinic" not in events
     english = ops.say(world["path"], "my emails", channel="messaging", sender=READER)["reply"]

@@ -151,6 +151,24 @@ PHONE_LINE = {"CARD_FILE_SAVE": "PHONE_FILE_SAVE",      # the save line without 
 PHONE_DUPLICATE = {"CARD_CAL_NOW_WHEN": ("CARD_CAL_WHEN",), "CARD_CAL_NOW_TITLE": ("CARD_CAL_DROP_TITLE",)}      # a removal says the event twice (as it is now, and as what is removed): the phone says it once
 
 
+REFERENCE = re.compile(r"([a-z0-9][a-z0-9-]{0,39})#([0-9]{1,4})")      # the shape of a message reference `<source id>#<n>` (runtime/item_refs.py ITEM_REF: a test holds the two equal; the layer diagram gives this module no edge to it)
+PHONE_REF_LINES = ("PHONE_MAIL_REPLY_TO", "PHONE_MAIL_REPLY_TO_AT")      # the phone lines whose `ref` field is a message reference `<source id>#<n>`
+
+
+def _named_ref(line: list, cfg) -> list:
+    """BL5D: the phone line of a reply with its `ref` ("caixa-gmail#3") said by the plain name of the source ("3 do Gmail"), when `cfg["source_names"]` ({source id: name}, which the
+    bridge hands to every card) knows the source and the whole field is a reference; any other line, field or source is returned as it is. A copy of the line's fields: the stored card, whose
+    hash is the approval's (L55, L56), is never touched. Two cards that differ only in their target still read differently (S16c): the names of one project are unique."""
+    names = cfg.get("source_names") if isinstance(cfg, dict) else None
+    key, fields = line[0], line[1]
+    if not names or key not in PHONE_REF_LINES or not isinstance(fields, dict) or not isinstance(fields.get("ref"), str):
+        return line
+    found = REFERENCE.fullmatch(fields["ref"])
+    if not found or found.group(1) not in names:
+        return line
+    return [key, {**fields, "ref": phrases.text("SRC_ITEM_CARD", cfg, name=names[found.group(1)], n=int(found.group(2)))}]
+
+
 def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = False, approvable: bool = True):
     """The body of an `effect` decision said line by line in the project's language, or None. An effect of an account write (package FND) stores, beside
     its English body, its `card`: a list of [key, {field: text}] lines of the phrase table's family CARD_ (runtime/phrases.py card_valid). The lines are
@@ -171,6 +189,8 @@ def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = F
     twice = {dup for key, dups in PHONE_DUPLICATE.items() if key in present for dup in dups}
     kept = shown if approvable else [[PHONE_LINE.get(line[0], line[0]), line[1]] for line in shown
                                      if not line[0].endswith("_APPROVE") and line[0] not in PHONE_DROPPED and line[0] not in twice]
+    if not approvable:      # BL5D: the phone says the message a reply answers by the plain name of its source, from a copy of the line
+        kept = [_named_ref(line, cfg) for line in kept]
     text = phrases.card_text(kept, cfg)
     return text + "\n" + phrases.text(phrases.hidden_note_key(card, shown), cfg) if len(shown) < len(card) else text
 

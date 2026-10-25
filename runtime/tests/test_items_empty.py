@@ -75,9 +75,9 @@ def test_in_english_and_with_a_one_day_window(world, snaps, clock):
 def test_gmail_with_messages_and_an_empty_outlook_with_no_account_named(world, snaps, clock):
     register(world, snaps, gmail=[bia()], outlook=[])
     both = ask(world, "lista os emails")
-    assert both.splitlines() == ["Caixa do Gmail (lido às 07:12):", "1. Bia Costa · Appointment confirmed · hoje 06:00", EMPTY_MAIL_PT]      # validate: allow english-only -- the Portuguese sentence under test
+    assert both.splitlines() == ["Gmail (lido às 07:12):", "1. Bia Costa · Appointment confirmed · hoje 06:00", EMPTY_MAIL_PT]      # validate: allow english-only -- the Portuguese sentence under test
     last = ask(world, "o ultimo email")
-    assert last.splitlines()[:2] == ["Caixa do Gmail (lido às 07:12):", "1. Bia Costa · Appointment confirmed · hoje 06:00"] and last.splitlines()[-1] == EMPTY_MAIL_PT      # validate: allow english-only -- the Portuguese sentence under test
+    assert last.splitlines()[:2] == ["Gmail (lido às 07:12):", "1. Bia Costa · Appointment confirmed · hoje 06:00"] and last.splitlines()[-1] == EMPTY_MAIL_PT      # validate: allow english-only -- the Portuguese sentence under test
 
 
 def test_a_source_the_count_left_with_no_message_is_not_called_empty(world, snaps, clock):

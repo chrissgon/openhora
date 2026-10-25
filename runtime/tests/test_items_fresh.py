@@ -144,7 +144,7 @@ def test_the_command_given_is_one_the_runtime_accepts_and_the_list_then_works(wo
         words = shlex.split(command.partition(": ")[2])
         ops_sources.source_mail(world["path"], words[words.index("--source") + 1], words[words.index("--origin") + 1])
     listed = ask(world, "list my emails")
-    assert OLD in listed and OUTLOOK_MAIL in listed and "Gmail inbox" in listed and "Outlook inbox" in listed
+    assert OLD in listed and OUTLOOK_MAIL in listed and "Gmail (read" in listed and "Outlook (read" in listed and "inbox" not in listed.lower()
 
 
 def test_the_calendar_command_and_an_account_named_in_the_line_narrow_the_examples(world, snaps, clock):
@@ -319,7 +319,7 @@ def test_the_calendar_on_a_phone_in_portuguese(world, snaps, clock):
 def test_the_mail_on_a_phone_has_a_plain_name_and_a_local_time(world, snaps, clock):
     with_inbox(world, snaps)
     reply = ask(world, "list my emails")
-    assert reply.splitlines() == ["Gmail inbox (read at 07:12):", "1. " + OLD]
+    assert reply.splitlines() == ["Gmail (read at 07:12):", "1. " + OLD]
     assert "bia@clinic.example" not in reply and "(read 2026" not in reply
 
 
@@ -327,15 +327,20 @@ def test_a_snapshot_read_on_another_day_says_the_day(world, snaps, clock):
     with_inbox(world, snaps)
     snaps.later(hours=20)
     snaps.providers.fail = tsm.Failure()
-    assert ask(world, "list my emails").splitlines()[0] == "Gmail inbox (read on 17/10 at 07:12):"
+    assert ask(world, "list my emails").splitlines()[0] == "Gmail (read on 17/10 at 07:12):"
 
 
-def test_two_sources_of_one_account_are_told_apart_by_a_number(world, snaps, clock):
+def test_two_sources_of_one_account_are_told_apart_by_their_box_and_then_by_a_number(world, snaps, clock):
     project(world)
     ops_sources.source_mail(world["path"], "inbox", "gmail:box=inbox;days=7;max=50")
     ops_sources.source_mail(world["path"], "starred", "gmail:box=starred;days=7;max=50")
     heads = [line for line in ask(world, "list my emails").splitlines() if line.endswith("):")]
-    assert heads == ["Gmail inbox 1 (read at 07:12):", "Gmail inbox 2 (read at 07:12):"]
+    gmail = "Gmail"
+    boxes = [phrases.text("SRC_TWIN", None, name=gmail, detail=phrases.text(key, None)) for key in ("SRC_BOX_INBOX", "SRC_BOX_STARRED")]      # BL5D: the box tells twins apart
+    assert heads == [f"{name} (read at 07:12):" for name in boxes]
+    ops_sources.source_mail(world["path"], "inbox-2", "gmail:box=inbox;days=3;max=50")
+    heads = [line for line in ask(world, "list my emails").splitlines() if line.endswith("):")]
+    assert [h.partition(" (read")[0] for h in heads] == [boxes[0] + " 1", boxes[0] + " 2", boxes[1]]      # equal after the detail: numbered in the registry's order (by id)
 
 
 def test_the_conversation_and_the_terminal_keep_the_source_id_the_utc_time_and_the_line_as_the_snapshot_prints_it(world, snaps, clock):

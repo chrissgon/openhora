@@ -406,7 +406,7 @@ def test_without_an_account_word_both_calendars_are_listed_with_the_account_word
     build(world, monkeypatch)
     add_outlook(world)
     reply, _ = carry(world, "Cancela o corte de cabelo", CANCEL)
-    assert reply.count(" · corte de cabelo") == 3 and "(agenda)" in reply and "(outlook)" in reply, reply
+    assert reply.count(" · corte de cabelo") == 3 and "(Agenda do Google)" in reply and "(Agenda do Outlook)" in reply, reply
     reply, _ = carry(world, "Cancela o corte de cabelo no google", CANCEL)
     assert reply.count(" · corte de cabelo") == 2 and "(outlook)" not in reply and "2. Thu 22/10/2026" in reply and "4. Fri 23/10/2026" in reply, reply
     changed = op_text("event-change", {"time": "as 10h"}, time_iso="2026-10-22T10:00", weekday="thu")
@@ -458,7 +458,7 @@ def test_an_account_word_inside_the_title_of_an_event_that_fits_is_not_an_accoun
 def test_an_account_word_in_the_titles_of_both_accounts_lists_both_and_asks(world, monkeypatch):
     two_titles(world, monkeypatch, "Reuniao do Google", "Reuniao do Google")
     reply, seeds = open_event(world, "Cancela a reuniao do google amanha")
-    assert seeds == [] and reply.startswith("Mais de um evento combina.") and "(agenda)" in reply and "(outlook)" in reply, reply      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert seeds == [] and reply.startswith("Mais de um evento combina.") and "(Agenda do Google)" in reply and "(Agenda do Outlook)" in reply, reply      # validate: allow english-only -- the Portuguese line or sentence under test
 
 
 def test_the_model_word_that_is_only_in_the_title_names_no_account_and_the_create_asks(world, monkeypatch):
