@@ -2709,6 +2709,7 @@ from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 from ops_file_read import file_read  # noqa: E402,F401
 # A question of general information answered by a web search, one run of the research skill with web access (runtime/ops_research.py, slice R2-F1).
 from ops_research import research, stop as research_stop  # noqa: E402,F401      # BL2a: `research_stop` ends the sender's own search by their stop word (not an operation of the table)
+from source_names import for_project as source_names  # noqa: E402,F401      # BL5D: the plain names a phone shows for the sources; not an operation of the table
 # Move a file found by its name to the service's trash, behind a card (runtime/ops_file_trash.py, slice R2-A).
 from ops_file_trash import file_trash  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.

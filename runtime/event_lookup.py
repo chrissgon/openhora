@@ -69,6 +69,7 @@ import natural_time as nt
 import natural_writes as nw
 import phrases
 import snapshot_text
+import source_names
 import sources
 
 CHANNEL = "messaging"
@@ -638,10 +639,12 @@ def _narrowed(ctx: dict, rows: list, text: str, kind: str, value, today: datetim
 # --- the reply -----------------------------------------------------------------------------------------------------------------------------------
 
 
-def _shown(row: dict, with_source: bool) -> str:
+def _shown(row: dict, with_source: bool, table=None) -> str:
+    """One line of the list of events. With events of two sources the source ends the line: the plain name of the calendar when `table` (runtime/source_names.py `catalog`, BL5D) knows
+    it, else its id."""
     day = row["day"]
     weekday = ENGLISH_WEEKDAY[day.weekday()]
-    where = f" ({row['source']})" if with_source else ""
+    where = f" ({(table or {}).get(row['source'], {}).get('name') or row['source']})" if with_source else ""
     return f"{row['n']}. {weekday} {day.strftime('%d/%m/%Y')} {row['time']} · {row['title']}{where}"
 
 
@@ -672,7 +675,8 @@ def _found_fields(ctx: dict, extras: dict, row: dict) -> dict:
 
 def _list(ctx: dict, op: str, found: list) -> str:
     many = len({r["source"] for r in found}) > 1
-    lines = [_shown(r, many) for r in found[:LIST_MAX]]
+    table = source_names.catalog(ctx) if many else None
+    lines = [_shown(r, many, table) for r in found[:LIST_MAX]]
     if len(found) > LIST_MAX:
         lines.append(_text(ctx, "EV_MORE", k=len(found) - LIST_MAX))
     key = "EV_MANY_CANCEL" if op == "event-cancel" else "EV_MANY_CHANGE"

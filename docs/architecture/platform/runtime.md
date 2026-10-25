@@ -214,6 +214,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/shell_kit.py` | What the two network-free shells of the operations layer share: the local service (runtime/service.py) and the MCP mode (runtime/mcp.py). |
 | `runtime/skill_meta.py` | What a skill declares in its frontmatter, read for the runtime: the artifact lists, the requirement classes, the side effects and the version. |
 | `runtime/snapshot_text.py` | The text of a mail snapshot and of a calendar snapshot (package RT-1, SPEC-SECRETARY-INTEGRATIONS sections 2.1 to 2.3). |
+| `runtime/source_names.py` | The plain name a phone shows for a mail or calendar source (package BL5D): "Gmail", "Outlook", "Agenda do Google"; never `caixa-gmail`. |
 | `runtime/source_resolve.py` | A file named in the person's own words (package NR-2): which source of the project a line like "what does my CV say about Vue?" means. |
 | `runtime/sources.py` | The sources of a project: a registry of what the person gave the project to read, immutable versions of each in the project's sources folder, a catalog built by code, and the copies a task receives. |
 | `runtime/sources_mail.py` | Mail and calendar as sources of a project (package RT-1, SPEC-SECRETARY-INTEGRATIONS sections 1 to 3 and 6): the origin check, the window, the calls to the providers, the per-message credential scan, the import and the refresh. |

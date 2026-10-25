@@ -65,9 +65,9 @@ def test_a_refresh_that_finds_the_listing_unchanged_says_it_was_checked_now_and_
     reply = ask(world, "list my emails")
     assert len(mail_reads(snaps)) == 1, "the provider was asked once"
     assert ops.items(world["path"], kind="mail", channel="terminal")["sources"][0]["read_at"] == before, "the listing did not change: no new version"
-    assert reply.splitlines()[0] == "Gmail inbox (checked at 16:59):" and "read at" not in reply
+    assert reply.splitlines()[0] == "Gmail (checked at 16:59):" and "read at" not in reply
     snaps.later(minutes=3)
-    assert ask(world, "list my emails").splitlines()[0] == "Gmail inbox (checked at 16:59):"
+    assert ask(world, "list my emails").splitlines()[0] == "Gmail (checked at 16:59):"
     assert len(mail_reads(snaps)) == 1, "the check counts as fresh: a list asked three minutes later reads nothing"
 
 
@@ -76,13 +76,13 @@ def test_a_refresh_that_finds_a_new_message_says_it_was_read_now(world, snaps, c
     snaps.providers.mail["gmail"].append(tsm.message(2, sender="Cora Dias <cora@clinic.example>", subject="New invoice"))
     snaps.later(**LATE)
     reply = ask(world, "list my emails")
-    assert reply.splitlines()[0] == "Gmail inbox (read at 16:59):" and "New invoice" in reply
+    assert reply.splitlines()[0] == "Gmail (read at 16:59):" and "New invoice" in reply
 
 
 def test_the_heading_is_the_old_reading_when_no_check_was_made_so_the_oracle_can_fail(world, snaps, clock):
     inbox(world, snaps, [bia()])
     snaps.later(minutes=5)          # fresh: no read, no check
-    assert ask(world, "list my emails").splitlines()[0] == "Gmail inbox (read at 07:12):"
+    assert ask(world, "list my emails").splitlines()[0] == "Gmail (read at 07:12):"
 
 
 def test_a_failed_refresh_keeps_the_old_time_adds_the_note_and_writes_one_closed_line_to_stderr(world, snaps, clock, capfd):
@@ -92,7 +92,7 @@ def test_a_failed_refresh_keeps_the_old_time_adds_the_note_and_writes_one_closed
     capfd.readouterr()
     reply = ask(world, "list my emails")
     seen = capfd.readouterr()
-    assert reply.splitlines() == ["Gmail inbox (read at 07:12):", "1. " + "Bia Costa · Appointment confirmed · today 06:00", "(list from 07:12)"]
+    assert reply.splitlines() == ["Gmail (read at 07:12):", "1. " + "Bia Costa · Appointment confirmed · today 06:00", "(list from 07:12)"]
     assert seen.err == "items: refresh of inbox failed (mail)\n" and "ZEBRA" not in reply + seen.out + seen.err
 
 
@@ -108,7 +108,7 @@ def test_a_failure_after_a_check_names_the_time_of_the_check(world, snaps, clock
 def test_the_freshness_in_portuguese(world, snaps, clock):
     inbox(world, snaps, [bia()], "pt-BR")
     snaps.later(**LATE)
-    assert ask(world, "lista os emails").splitlines()[0] == "Caixa do Gmail (verificado às 16:59):"      # validate: allow english-only -- the Portuguese sentence under test
+    assert ask(world, "lista os emails").splitlines()[0] == "Gmail (verificado às 16:59):"      # validate: allow english-only -- the Portuguese sentence under test
 
 
 # --- one line a person can use ---------------------------------------------------------------------------------------------------------------------
@@ -170,7 +170,7 @@ def test_the_subject_is_the_emails_own_words_in_any_language(world, snaps, clock
 def test_the_last_email_is_one_item_with_the_start_of_its_text(world, snaps, clock):
     inbox(world, snaps, [bia(text=BODY), tsm.message(2, "2026-10-16T12:00:00Z", sender="Cora <cora@clinic.example>", subject="Older one")])
     assert ask(world, "show me the last email").splitlines() == [
-        "Gmail inbox (read at 07:12):",
+        "Gmail (read at 07:12):",
         "1. Bia Costa · Appointment confirmed · today 06:00",
         "Start of the text: Hello Bia. Please confirm your visit at before Friday, and write to ana@clinic.example if you cannot come. an old quoted line Thank you, The clinic"]
 
@@ -182,7 +182,7 @@ def test_the_live_line_in_portuguese_gives_the_last_message_of_that_account(worl
     ops_sources.source_mail(world["path"], "inbox", "gmail:box=inbox;days=7;max=50")
     ops_sources.source_mail(world["path"], "work", "outlook:box=inbox;days=7;max=50")
     assert ask(world, "Liste o ultimo email do meu Outlook").splitlines() == [
-        "Caixa do Outlook (lido às 07:12):",      # validate: allow english-only -- the Portuguese sentence under test
+        "Outlook (lido às 07:12):",      # validate: allow english-only -- the Portuguese sentence under test
         "1. Dan Reis · Weekly report · hoje 05:00",      # validate: allow english-only -- the Portuguese sentence under test
         "Início do texto: Numbers are in."]      # validate: allow english-only -- the Portuguese sentence under test
 
@@ -194,7 +194,7 @@ def test_the_last_email_of_two_mailboxes_is_the_newest_of_both(world, snaps, clo
     ops_sources.source_mail(world["path"], "inbox", "gmail:box=inbox;days=7;max=50")
     ops_sources.source_mail(world["path"], "work", "outlook:box=inbox;days=7;max=50")
     reply = ask(world, "the last email")
-    assert "Outlook one" in reply and "Gmail one" not in reply and "Gmail inbox" not in reply
+    assert "Outlook one" in reply and "Gmail one" not in reply and "Gmail (" not in reply
 
 
 def test_the_three_last_emails_are_three_lines_newest_first_and_no_preview(world, snaps, clock):
