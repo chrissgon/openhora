@@ -55,7 +55,7 @@ def read_jsonl(path: Path) -> list:
 
 
 def item(number, line, gold, *, tags=(), lang="en", split="test", author="opus", frame=None, also=(), **extra):
-    lang_part = {"en": "en", "pt-BR": "pt-br", "fr": "fr"}[lang]
+    lang_part = {"en": "en", "pt-BR": "pt-br", "fr": "fr", "es": "es"}[lang]
     hard = bool(set(tags) & {"tempt-d", "tempt-g", "multi-intent", "injection", "forward", "dst", "past", "far-future",
                              "weekday-mismatch", "code-switch", "inherit"})
     out = {"id": f"{split}-{lang_part}-{number:05d}", "split": split, "lang": lang, "author": author, "tags": list(tags),
@@ -600,3 +600,86 @@ def test_sample_writes_a_table_of_n_rows_with_a_blank_ok_column(tmp_path):
     assert len(table) == 5 and all(line.endswith("| none | |") for line in table)
     assert "| id | line | open items | gold | ok? |" in text
     run("sample", "--corpus", corpus, "--lang", "en", "--n", 9, "--seed", 1, "--out", tmp_path / "c.md", ok=(2,))
+
+
+# --- widen-golds (rule W1 of SPEC-BLITE-5A) --------------------------------------------------------------------------------------------------
+
+W1_CATALOG = {"v": 1, "ops": [
+    {"op": "mail-trash", "class": "E", "what": "trash", "slots": {"target": "span", "day": "span", "messages": "ints"}},
+    {"op": "mail-reply", "class": "E", "what": "reply", "slots": {"target": "span", "body": "span"}},
+    {"op": "event-change", "class": "E", "what": "change", "slots": {"target": "span", "day": "span", "time": "span"}},
+    {"op": "mail-archive", "class": "E", "what": "archive", "slots": {"messages": "ints"}}], "refused": []}
+
+
+def widen(tmp_path, rows) -> list:
+    corpus = write_jsonl(tmp_path / "v1.jsonl", rows)
+    catalog = write_json(tmp_path / "w1-catalog.json", W1_CATALOG)
+    done = run("widen-golds", "--in", corpus, "--catalog", catalog)
+    return [json.loads(line) for line in done.stdout.splitlines()]
+
+
+def op_gold(op, **slots):
+    return {"outcome": "op", "op": op, "slots": slots}
+
+
+def test_widen_golds_adds_the_article_the_preposition_and_the_family_noun_the_line_holds(tmp_path):
+    rows = [
+        item(1, "apague o e-mail da escola Pequeno Príncipe", op_gold("mail-trash", target=["o e-mail da escola Pequeno Príncipe", "e-mail da escola Pequeno Príncipe"]), lang="pt-BR"),
+        item(2, "supprime les mails de la lettre d'information de la Librairie Mistral",
+             op_gold("mail-trash", target=["les mails de la lettre d'information de la Librairie Mistral"]), lang="fr"),
+        item(3, "responde a Javier sobre la factura diciendo que ya la pagué", op_gold("mail-reply", target=["Javier sobre la factura"], body=["que ya la pagué"]), lang="es"),
+    ]
+    out = {r["id"]: r["gold"]["slots"] for r in widen(tmp_path, rows)}
+    assert out["test-pt-br-00001"]["target"] == sorted(["o e-mail da escola Pequeno Príncipe", "e-mail da escola Pequeno Príncipe", "da escola Pequeno Príncipe", "escola Pequeno Príncipe"])
+    assert out["test-fr-00002"]["target"] == sorted(["les mails de la lettre d'information de la Librairie Mistral", "mails de la lettre d'information de la Librairie Mistral",
+                                                     "de la lettre d'information de la Librairie Mistral", "la lettre d'information de la Librairie Mistral",
+                                                     "lettre d'information de la Librairie Mistral"])
+    assert out["test-es-00003"] == {"target": ["Javier sobre la factura"], "body": ["que ya la pagué", "ya la pagué"]}
+
+
+def test_widen_golds_adds_an_article_only_when_the_line_has_it_right_before_the_value(tmp_path):
+    rows = [item(1, "cancel the dentist appointment", op_gold("mail-trash", target=["dentist appointment"]), lang="en"),
+            item(2, "cancel dentist appointment", op_gold("mail-trash", target=["dentist appointment"]), lang="en")]
+    out = {r["id"]: r["gold"]["slots"]["target"] for r in widen(tmp_path, rows)}
+    assert out["test-en-00001"] == ["dentist appointment", "the dentist appointment"]
+    assert out["test-en-00002"] == ["dentist appointment"]
+
+
+def test_vacuity_widen_golds_never_removes_a_content_word(tmp_path):
+    rows = [item(1, "assine o contrato da Carla Menezes sobre o contrato de aluguel",
+                 op_gold("mail-reply", target=["da Carla Menezes sobre o contrato de aluguel"], body=["o contrato"]), lang="pt-BR")]
+    slots = widen(tmp_path, rows)[0]["gold"]["slots"]
+    assert "Carla Menezes sobre o contrato de aluguel" in slots["target"]
+    assert "Carla Menezes" not in slots["target"] and "contrato de aluguel" not in slots["target"] and "sobre o contrato de aluguel" not in slots["target"]
+    assert slots["body"] == ["contrato", "o contrato"]      # an edge word goes, the content word stays: never an empty piece, never the edge word alone
+
+
+def test_widen_golds_touches_no_time_slot_int_slot_op_frame_or_time(tmp_path):
+    gold = dict(op_gold("event-change", target=["the team meeting"], day=["from Thursday"], time=["to Friday at 9", "Friday at 9"]), time=["2026-10-23T09:00"])
+    rows = [item(1, "move the team meeting from Thursday to Friday at 9", gold, lang="en"),
+            item(2, "archive messages 3 and 4", op_gold("mail-archive", messages=["3 and 4"]), lang="en")]
+    out = {r["id"]: r for r in widen(tmp_path, rows)}
+    one = out["test-en-00001"]
+    assert one["gold"]["slots"]["time"] == ["to Friday at 9", "Friday at 9"] and one["gold"]["time"] == ["2026-10-23T09:00"]
+    assert one["gold"]["slots"]["target"] == ["team meeting", "the team meeting"] and one["gold"]["slots"]["day"] == ["Thursday", "from Thursday"]
+    assert one["gold"]["op"] == "event-change" and one["gold"]["outcome"] == "op"
+    assert {k: v for k, v in one.items() if k != "gold"} == {k: v for k, v in rows[0].items() if k != "gold"}
+    assert out["test-en-00002"]["gold"]["slots"] == {"messages": ["3 and 4"]}
+
+
+def test_widen_golds_is_idempotent_and_leaves_a_non_op_gold_alone(tmp_path):
+    rows = [item(1, "please trash the invoice from Ana", op_gold("mail-trash", target=["the invoice from Ana"]), lang="en"),
+            item(2, "hello", {"outcome": "none"}, lang="en")]
+    once = widen(tmp_path, rows)
+    assert once[1] == rows[1]
+    again = widen(tmp_path, once)
+    assert again == once and once != rows
+
+
+def test_widen_golds_refuses_a_language_it_has_no_word_list_for_without_printing_the_line(tmp_path):
+    marker = "zzmarkerline"
+    rows = [dict(item(1, marker, op_gold("mail-trash", target=[marker]), lang="en"), lang="ja")]
+    corpus = write_jsonl(tmp_path / "v1.jsonl", rows)
+    catalog = write_json(tmp_path / "w1-catalog.json", W1_CATALOG)
+    done = run("widen-golds", "--in", corpus, "--catalog", catalog, ok=(2,))
+    assert marker not in done.stdout + done.stderr
