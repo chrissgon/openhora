@@ -426,6 +426,14 @@ def _decided(project: str, ctx: dict, op: str, said: str, sender, extras: dict) 
     return _said(ops_natural.run(project, ctx, op, {"pending_id": numbers[0]}, said, CHANNEL, sender, extras, routed=True), extras)
 
 
+def _unchanged(decision: dict, state: dict, said: str) -> bool:
+    """Whether the corrected call (`decision["corrects"]`) is the live plan's own call, so that the "no" changed nothing. A list is compared as the dispatcher would ask it (its arguments read
+    from the line with the old plan's), every other call by its arguments."""
+    if decision["op"] == "items":
+        return importlib.import_module("ops_items").items_args(said, ops_natural._clock(), state["args"]) == dict(state["args"])
+    return dict(decision.get("args") or {}) == dict(state["args"])
+
+
 def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     """The reply tuple of a plain line read by the interpreter, or None when the line goes to the planning agent as today. `extras["interpreted"]` says what the
     conversation stores for the line: True (the default from here on) a neutral word, False the line itself (it was sent to the agent). With `extras["frame_age"]` (the sender
@@ -460,6 +468,12 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
         extras["frame"] = "answer"
         return None
     if kind == "op":
+        state = (plan or {}).get("state") if plan_id is not None else None      # BL5B: the sender's own live plan, nobody else's
+        if state is not None and state["op"] == decision["op"]:
+            if decision.get("corrects") and _unchanged(decision, state, said):
+                plan_confirm.drop(project, sender)      # a correction that changes nothing is a no
+                return _said(phrases.text("PLAN_DROPPED", cfg), extras)
+            extras["plan_previous"] = dict(state["args"])      # the old plan's arguments, so that a corrected list keeps what the old line said and the new one does not (never logged, never sent anywhere)
         extras["plan_words"] = dict(decision.get("spans") or {})      # D5: the spans code checked in the line become the new plan's own words (a correction may inherit one)
         return _carry_out(project, ctx, decision, said, sender, extras)
     if kind == "none":

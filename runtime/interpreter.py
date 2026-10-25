@@ -846,6 +846,35 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
     return {"kind": "op", "error": None, "op": name, "args": args, "spans": spans, "time": time, "inherited": inherited, "time_disagree": disagree}
 
 
+def _plan_correction(obj, item, line, frame, ops, now_local, zone, allowed):
+    """The decision for a model's `confirm: "no"` on a `plan-confirm` item when the line is a correction ("no, the one for tomorrow"), else None (the answer is checked as before). BL5B.
+    Only a plan item of the operation the frame's `last` holds, only a no that is not a bare no, and never a yes: a model's yes is never turned into anything. The result is an `op`
+    decision for the plan's own operation, checked like any op (the span in the line, the number written in it, the time engine), with `corrects` set to the item's id; code asks it as a
+    NEW "Shall I go ahead?" and runs nothing. Two shapes (the ones the protocol already carries):
+      (a) the no names a slot of the plan's operation with a span: that slot is the span; the other slots of `frame.last.words` are inherited, except a number slot (a number is never
+          carried from the old line: it is written in the correcting line or asked) and a time slot;
+      (b) the no names no slot of the operation, the operation has none in the catalog (a list), and the line holds a day the time engine reads: the operation with no slots (the day is
+          read from the line by code, as it is for any list)."""
+    last = (frame or {}).get("last")
+    if item.get("kind") != "plan-confirm" or obj.get("confirm") != "no" or last is None or item.get("op") != last.get("op") or item["op"] not in ops:
+        return None
+    if natural.confirm_kind(line) == "no":          # a bare no is a no
+        return None
+    op, slots = item["op"], ops[item["op"]]["slots"]
+    if obj.get("slot") in slots and isinstance(obj.get("span"), str):
+        slot = obj["slot"]
+        inherit = {name: words for name, words in last.get("words", {}).items()
+                   if name != slot and name in slots and slots[name] not in ("int", "ints") and (op, name) not in TIME_SLOTS}
+        revised = {"v": 1, "kind": "op", "op": op, "slots": {slot: obj["span"]}, **({"inherit": inherit} if inherit else {}),
+                   **{key: obj[key] for key in ("time_iso", "weekday") if key in obj}}
+    elif not slots and any(hit["kind"] in ("date", "slash") for hit in nt.find(collapse(line))["hits"]):
+        revised = {"v": 1, "kind": "op", "op": op, "slots": {}}
+    else:
+        return None
+    decision = _check_op(revised, line, frame, ops, {}, now_local, zone, allowed)
+    return dict(decision, corrects=item["id"]) if decision.get("kind") == "op" else decision
+
+
 def _check_answer(obj, line, frame, ops, now_local, zone, allowed) -> dict:
     item = next((i for i in (frame or {"items": []})["items"] if i["id"] == obj["answers_item"]), None)
     if item is None:
@@ -864,6 +893,9 @@ def _check_answer(obj, line, frame, ops, now_local, zone, allowed) -> dict:
     if need == "confirm":
         if "confirm" not in obj or given - {"confirm", "slot", "span", "time_iso", "weekday"}:
             return _invalid("E_SHAPE")
+        corrected = _plan_correction(obj, item, line, frame, ops, now_local, zone, allowed)          # BL5B: a no that carries a new detail on a plan item is the corrected request
+        if corrected is not None:
+            return corrected
         probe = line.replace(obj["span"], " ", 1) if "span" in obj else line          # the words that are left once the answer's own span is taken out
         if natural.confirm_kind(probe) != obj["confirm"]:
             return _clarify("model", item=item["id"])          # the line does not say what the model says: asked again, by code

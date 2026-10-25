@@ -313,6 +313,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     if channel == "messaging" and routed and name in VETTED:      # S20 (review round): a decision or an act that a MODEL or the router chose is believed only for the number the line writes (what it means is the person's OK of the plan, L65)
         if command_words.vet(said, name, args.get(VETTED[name])) == "number":
             return phrases.text("NAT_WHICH_DECISION" if cls == "D" else "NAT_ASK_ID", cfg)
+    if name == "items" and "kind" not in args:      # BL5B: the list's kind, account and range are part of the call, so that the plan's hash binds them and the question says what will be read; a correction keeps what the plan it corrects had (`extras["plan_previous"]`, the sender's own plan)
+        args = dict(args, **importlib.import_module("ops_items").items_args(said, _clock(), extras.get("plan_previous")))
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
         return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"))
     if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here
@@ -326,7 +328,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     if cls == "R":
         if "mcp" not in row["channels"] or keeps_private(ctx, name, channel, sender):      # the MCP mode reads the conversation: what it could not read itself (reminders, files people sent, the private lines of a card drawn for a holder of ask-mail) is stored as a neutral word (limits L50, L51)
             extras["stored"] = t("NAT_READ_REPLY")
-        return _read(project, ctx, name, row, dict(args, kind=natural_writes().items_kind(said), **importlib.import_module("ops_items")._line_args(said, _clock())) if name == "items" else args, channel, sender)      # NR-5: the noun of the line says which items; S15: an account it names narrows them
+        return _read(project, ctx, name, row, args, channel, sender)      # NR-5: the noun of the line says which items; S15: an account it names narrows them (both were read into `args` above; a confirmed plan re-reads nothing from its line)
     if cls == "N":
         return _notice(project, ctx, name, row, args, said, channel, sender, extras, when, routed)
     if cls == "W":

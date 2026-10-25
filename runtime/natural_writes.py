@@ -293,6 +293,16 @@ def items_kind(line, languages=None) -> str:
     return "calendar" if shaped.find(names) else "mail"
 
 
+def items_noun(line, languages=None):
+    """"calendar" when the line names events (`requests.writes.calendar` nouns, singular or plural), "mail" when it names messages (`requests.writes.mail` nouns), else None: a line that
+    names neither ("no, the one for tomorrow") leaves the kind of a list to the plan it corrects. A line that names both is "calendar", as `items_kind` reads it."""
+    tables = _tables(languages)
+    shaped = Line(line if isinstance(line, str) else "")
+    if shaped.find(listed(tables, "calendar", "nouns") + listed(tables, "calendar", "nouns_plural")):
+        return "calendar"
+    return "mail" if shaped.find(listed(tables, "mail", "nouns")) else None
+
+
 def reminder_outside(line: Line, tables: list, ranges: dict) -> bool:
     """Whether the line holds a reminder trigger ("me lembra") that is not inside one of the text spans the family took (`ranges`, folded): a body that says "me lembra"
     is a body, a line that also asks for a reminder is two requests and no write form."""

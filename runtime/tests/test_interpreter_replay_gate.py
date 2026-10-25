@@ -1,7 +1,8 @@
 """The regression gate of the interpreter in use (slice S1): the recorded answers of the development pilots, replayed with no call, still give the counts the evidence states, and the
 decision the runtime takes for an answer is the decision the measured pipeline took.
 
-The three answer files at the prompt that is in use (`5bee55ce...`: DeepSeek iteration 2, Sonnet and Haiku on the maintainer's account) are replayed on `evals/interpreter/dev.jsonl`
+The three answer files recorded at the prompt `5bee55ce...` (DeepSeek iteration 2, Sonnet and Haiku on the maintainer's account; the prompt in use until BL5B added rule 9 on 2026-10-25, so they are
+kept now as a regression of the CODE on answers recorded at the previous prompt, and the CLI's header check refuses them) are replayed on `evals/interpreter/dev.jsonl`
 with the pipeline of the measurement; the count of each category must equal the count of the evidence lines of the same test, written here as literals and read again from the evidence
 file; for every replayed item that reached the model and has no frame, `ops_interpret.decide` (what the runtime calls on the model's text) gives the decision the pipeline gave. The two
 files at the earlier prompt (`c492b43b...`) are refused by the replay's own header check. No model is called; a change of the prompt, the catalog, the protocol, the route or the code of
@@ -44,7 +45,8 @@ IN_USE = {   # answers file -> (its evidence file, the counts of the categories 
                                                                                            {"clarify": 15, "correct": 32, "wrong_card": 2, "wrong_item_binding": 1}),
 }
 EARLIER = ("or-deepseek-v4.1-flash/iter-1-20261021T094443/20261021T124445Z-ea9f0c2f.answers.jsonl", "or-deepseek-v4.1-flash/iter-1-20261021T094736/20261021T124738Z-d0fc5d83.answers.jsonl")
-PROMPT_IN_USE = PINNED_HASHES["interpreter_prompt"]
+PROMPT_IN_USE = PINNED_HASHES["interpreter_prompt"]      # the prompt of this checkout (BL5B added rule 9 to it)
+PROMPT_RECORDED = PINNED_HASHES["interpreter_prompt_5bee"]      # the prompt the in-use answers were recorded at: what every in-use header names
 RECORDED_CATALOG = REPO / "evals" / "interpreter" / "replay" / "catalogs" / "catalog-a43735d2.json"
 RECORDED_CATALOG_SHA256 = PINNED_HASHES["interpreter_catalog_before_s8"]      # a literal: the hash every in-use answers file names in its header (scripts/tests/pinned_hashes.json)
 
@@ -79,7 +81,7 @@ def evidence_counts(name: str) -> dict:
     return dict(collections.Counter(line["category"] for line in lines if line["record"] == "item"))
 
 
-def test_the_data_files_the_gate_depends_on_exist_and_the_prompt_in_use_is_the_one_replayed():
+def test_the_data_files_the_gate_depends_on_exist_and_the_prompt_in_use_is_the_checkouts():
     assert all((REPO / rel).is_file() for rel in DATA_FILES)
     assert interpreter.prompt_sha256() == PROMPT_IN_USE
 
@@ -136,7 +138,16 @@ def test_vacuity_one_recorded_answer_altered_in_a_copy_changes_the_counts(tmp_pa
 def test_every_in_use_answers_file_names_the_catalog_it_was_recorded_with(name):
     header, _ = interpreter_measure.read_answers(str(REPLAY / name))
     assert header["catalog_sha256"] == RECORDED_CATALOG_SHA256
-    assert header["prompt_sha256"] == PROMPT_IN_USE
+    assert header["prompt_sha256"] == PROMPT_RECORDED != PROMPT_IN_USE
+
+
+@pytest.mark.parametrize("name", sorted(IN_USE))
+def test_the_header_check_of_the_cli_refuses_an_in_use_file_by_its_prompt_since_the_prompt_changed(name):
+    """The in-use files are kept as a regression of the CODE on answers recorded at the previous prompt (the tests above build `Answers` directly); a measurement run by the CLI refuses them."""
+    header, _ = interpreter_measure.read_answers(str(REPLAY / name))
+    items, data = interpreter_measure.load_corpus(str(CORPUS))
+    wanted = interpreter_measure.header_of("", interpreter_route.find(header["route"]), header["corpus_sha256"], header["runs"], header["sequential"], header["sample"])
+    assert interpreter_measure.differing(header, wanted) == "prompt_sha256" and wanted["prompt_sha256"] == PROMPT_IN_USE
 
 
 def test_the_served_catalog_is_no_longer_the_recorded_one_and_the_gate_does_not_read_it():
