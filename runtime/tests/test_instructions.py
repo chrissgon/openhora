@@ -461,6 +461,8 @@ def test_the_lab_and_the_evals_never_name_the_instructions_and_the_steps_never_r
               ("templates-dev.json", "templates-dev-coverage.json", "values-dev.json", "adversarial.json")}
     # the copy of the served catalog the recorded answers were made with (S8): its row for `instructions` is a description of an operation, data that no run reads
     corpus.add(st.REPO / "evals" / "interpreter" / "replay" / "catalogs" / "catalog-a43735d2.json")
+    # the copy of the served catalog the B-double-prime-lite answers were recorded with (BL5A): the same description of an operation, data
+    corpus.add(st.REPO / "evals" / "interpreter" / "replay" / "catalogs" / "catalog-a77f8a8f.json")
     files = [f for f in files if "tests" not in f.parts and f.is_file() and f not in corpus]
     assert files, "the lab files were not found"
     assert [f.relative_to(st.REPO).as_posix() for f in files if named.search(f.read_text(encoding="utf-8", errors="replace"))] == []
