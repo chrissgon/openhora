@@ -712,6 +712,7 @@ TABLE = {
         "NW_MAIL_ASK_SUBJECT": "What is the subject of the e-mail to {to}?",
         "NW_MAIL_ASK_BODY": "What should the e-mail to {to} say?",
         "NW_MAIL_ASK_BODY_REPLY": "What should the reply say?",
+        "MC_REPLY_NOT_WORDED": "I could not word this reply, so the card shows your own words as you wrote them. Check the text before you approve.",
         "MC_ASK_BODY": "What should the e-mail to {to} say? I will word the text, and you will see it on the card. To send your words exactly as you write them, start with \"exact text:\".",
         "RV_FAILED": "I could not make that change. Say it another way, or reject the card.",
         "RV_RECIPIENTS": "I cannot change who receives an e-mail by editing its card. Reject this card and ask for a new e-mail to the right person.",
