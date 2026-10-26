@@ -28,3 +28,4 @@ site/demo/
 # `go test -c` run by hand in its source folder must not be committed
 /providers/messenger/whatsapp/whatsapp
 /providers/messenger/whatsapp/whatsapp.test
+runtime/tests/entry_corpus_full.jsonl

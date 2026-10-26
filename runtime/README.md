@@ -340,6 +340,18 @@ both reach one function and that `runtime/` keeps no loop of its own.
 
 No test reads the real secret store: the root `conftest.py` forces the null keyring backend (`PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`) for the test process and for every child a test starts with an env of its own, also where `uv run --with keyring` installs the library (`contracts/secrets.md`, "Rules").
 
+**The entry replay.** `runtime/tests/test_entry_replay.py` holds the claim order of a line (the bridge's `_handle` and `say`, `ops_say.say` and `_turn`, `ops_natural.take`) still, so that a package that moves
+it can be proved to change nothing. `runtime/tests/entry_corpus.jsonl` has 904 scenarios (one per line: channel, platform, sender, pre-state, text, reply, forwarded, kind, tap: the messaging channel through
+`Bridge.handle`, the page and the terminal through `ops.say`, and `ops` for a messaging sender's line given straight to `ops.say`): for each of the 49 claimers of `entry_kit.CLAIMER_NAMES`, at least five lines it takes
+and five near-misses that must go elsewhere, the lines of the guard tests of limits L64 and L65, and a deterministic sample (every seventh line of each language, the first one rotating with the language) of the corpora of
+today's claimers. `entry_golden.jsonl` is the outcome of each, recorded once on the tree before any package of step 1 moved an order (its header names the commit, the corpus and the table of recorded answers it
+was made from): the claimer trace, the operations called, the messages sent, the ledger records added, the drafts and plans left, the conversation rows stored, the jobs started and the counts of model and provider calls,
+with every run of digits and every hexadecimal word masked (`entry_kit.MASK`; a different word is never hidden). The replay builds a world for every scenario (the real operations layer and bridge over the stand-in
+messenger, the stand-in model of the recorded DeepSeek answers, the calendar writer and the drives in this process: no model call, no provider process, no connection) and fails with the scenario, the field and both values
+when an outcome is not the golden's; it never records again. Three of its tests change the order on purpose (a claimer that takes nothing, two that swap places) and require the comparator to see it. A change of the golden is a
+reviewed decision, never a package's own: `entry_corpus_build.py --record` refuses to overwrite it. `WB_FULL_FUZZ=1` also replays every line of the sampled corpora, checked for a trace and no call (not against a golden).
+`python3 runtime/tests/entry_corpus_build.py --help` says how the corpus is written and checked.
+
 ## The natural-writes fuzz
 
 `runtime/tests/test_natural_writes_dialogues.py` walks the question-and-answer machine of the natural writes. By default it walks a deterministic sample of its corpus (every request for
