@@ -192,15 +192,16 @@ jobs:
   # shared/scripts/tests holds the tests of the scripts those skills carry as generated copies (the contrast
   # check among them, whose test moved there from skills/brand-identity/scripts/tests).
   # The tests are split across the runner's processes (pytest-xdist 3.8.0 supports Python 3.9; `-n auto`: one worker per
-  # vCPU). Run in one process they took 12 to 15 minutes and ran into the old 15-minute limit; the limit now leaves
-  # headroom for a slow runner. WB_SKIP_JS_ONLY_TESTS=1 leaves out the test_interface_*.py files that only drive Node
+  # vCPU). Run in one process they took 12 to 15 minutes and ran into the old 15-minute limit. The entry replay
+  # (about 985 end-to-end scenarios) then took the job to 17 to 23 minutes and a 25-minute limit cancelled it; the limit is
+  # 40 minutes (docs/decisions.md, CI39). WB_SKIP_JS_ONLY_TESTS=1 leaves out the test_interface_*.py files that only drive Node
   # over JavaScript and CSS (runtime/tests/conftest.py says which): Python's version changes nothing for them, and the
   # tests job runs them. Every test of a Python module stays here.
   python39:
     name: python39
     if: github.event.action != 'labeled' || github.event.label.name == 'full-suite'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
