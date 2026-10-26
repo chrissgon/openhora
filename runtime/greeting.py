@@ -14,7 +14,7 @@ is (the rule of runtime/card_words.py); with a tag only that language's lists ar
 in words they always had (the list of commands), and only a messaging app, which has no list of commands to type, answers it with the summary.
 
 The answer is built by `ops_say._greeting_reply` (a greeting in the project's language and one short line for each family of capabilities the SENDER'S policy permits, from the
-phrase table), which `ops_say._turn` calls before the interpreter's seam for any sender who may talk, and which the messaging bridge lets through to `say` for a help line of such
+phrase table), which the row `greeting` of runtime/ops_turn.py calls before the interpreter's seam for any sender who may talk, and which the messaging bridge lets through to `say` for a help line of such
 a sender. This module reads nothing of the project: a pure reading of one line.
 
 Standard library only. Runs on Python 3.9: python3 runtime/greeting.py --help

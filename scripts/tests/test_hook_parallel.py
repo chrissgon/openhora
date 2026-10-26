@@ -45,7 +45,7 @@ def test_the_hook_tells_a_missing_slot_from_pytests_own_exit_codes_and_reads_typ
 
 def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_time_limit():
     # the shard runs pytest through the launcher, so its command reads `shard_tests.py ... -- -q -n auto`
-    for name, limit, command in (("tests", 45, r"pytest -q -n auto\b"), ("python39", 25, r"pytest -q -n auto\b"),
+    for name, limit, command in (("tests", 45, r"pytest -q -n auto\b"), ("python39", 40, r"pytest -q -n auto\b"),
                                  ("tests-shard", 30, r"-q -n auto\b")):
         block = job_block(name)
         assert re.search(r"^    timeout-minutes: %d\s*$" % limit, block, re.M), name

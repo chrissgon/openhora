@@ -21,7 +21,7 @@ To, the Subject and the WHOLE text, and nothing is sent until the person approve
                                     off and leaves the interpreter on
   write(ctx, channel, sender, to, subject, text, ai_subject, *, reply=False)
                                     {"subject": str | None, "body": str, "composed": bool}. The model is called once, through the same limits as the interpreter's (the sender's
-                                    rate, the project's day, the breaker: `ops_interpret._admit` and `_record`). When the call is not made, fails or the answer is not valid, the
+                                    rate, the project's day, the breaker: `turn_gate.admit`, `call` and `record`). When the call is not made, fails or the answer is not valid, the
                                     person's own text is the body and the subject is the one the person gave, or, when the seed left it to the model (`ai_subject`), the first sentence of the person's own
                                     words cut at 60 characters (None when the person gave none and the seed did not ask the model: the family asks). BL7-2: with `reply=True` (the text of a reply the person described,
                                     runtime/mail_reply_compose.py) the recipient and the subject are never sent: the user message's `to:` and `subject:` lines are empty, the
@@ -303,15 +303,6 @@ def available(ctx: dict, channel, sender) -> bool:
         return False
 
 
-def _call(entry: dict, system: str, user: str) -> dict:
-    """The one model call: the entry's daily route (kind http, the hash the entry was decided on), as ops_interpret._daily_call does it, with this file's settings."""
-    route = importlib.import_module("interpreter_route")
-    rows = [r for r in route.daily_routes() if r["id"] == entry["route"]]
-    if len(rows) != 1 or rows[0].get("kind") != "http" or route.route_sha256(rows[0]) != entry["route_sha256"]:
-        return {"ok": False, "code": "E_ROUTE"}
-    return route.complete(rows[0]["id"], system, user, accepted=[entry["route_sha256"]], deadline_ms=DEADLINE_MS, **PARAMS)
-
-
 def _pairs(pairs) -> dict:
     out = {}
     for key, value in pairs:
@@ -375,7 +366,9 @@ def write(ctx: dict, channel, sender, to, subject, text: str, ai_subject: bool =
     if exact or not described or len(described) > DESCRIPTION_MAX or not available(ctx, channel, sender):
         return out
     interpret = importlib.import_module("ops_interpret")
-    if not interpret._admit(ctx, sender):
+    gate = importlib.import_module("turn_gate")
+    admission = gate.admit(ctx, sender)
+    if admission is None:
         return out
     proposal, ok = None, False
     try:
@@ -385,13 +378,13 @@ def write(ctx: dict, channel, sender, to, subject, text: str, ai_subject: bool =
         user = "\n".join([f"date: {now.strftime('%Y-%m-%d')} {DAY_NAMES[now.weekday()]}", f"language: {interpret._tag(ctx['cfg'])}", "to: " + ", ".join(to),
                           "subject: " + (subject or ""), "description: " + described])
         importlib.import_module("line_stage").publish("compose")      # S19: the model words the e-mail
-        got = _call(entry, prompt_template(), user)
+        got = gate.call(admission, entry, prompt_template(), user, deadline_ms=DEADLINE_MS, params=PARAMS)      # the route check and the call are the gate's
         ok = bool(got.get("ok"))
         if ok:
             proposal = validate(got.get("text"), to, subject or None, **({"body_only": True} if reply else {}))
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
         ok, proposal = False, None
-    interpret._record(ok)
+    gate.record(ok)
     if proposal is None:
         return out
     return {"subject": proposal["subject"] or out["subject"], "body": proposal["body"], "composed": True}

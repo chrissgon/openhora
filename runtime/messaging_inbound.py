@@ -35,6 +35,10 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
 The sentences it names (HELP, the usage lines) are the phrase table's English text (runtime/phrases.py); the bridge says them in the project's language, and `usage_key`
 maps the sentence of a `usage` intent to its key. The intents themselves are the same in every language.
 
+The two claims `parse` makes before the reply gesture are rows of the table of the order (runtime/turn_order.py `ORDER`, stage `bridge`): a write to the person's accounts (the intent `natural` with
+`op` "write") is the row `write-form`, and any other natural line (a reminder, its listing or its removal) is taken by the row `reminder-form` and, when that row takes nothing, by `say-natural`;
+the write form is read before the reminders' intents, as the table lists it. `parse` itself is unchanged (S41-2).
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations

@@ -30,6 +30,7 @@ PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "t
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_interpret = st.load("ops_interpret")
+turn_gate = st.load("turn_gate")
 ops_natural_writes = st.load("ops_natural_writes")
 interpreter_route = st.load("interpreter_route")
 mail_compose = st.load("mail_compose")
@@ -199,7 +200,7 @@ def test_a_failed_compose_call_falls_back_to_the_persons_words_and_the_card_stil
 
 def test_the_compose_call_counts_in_the_senders_rate_limit(world, clock, monkeypatch):
     model = setup(world, monkeypatch)
-    assert ops_interpret.RATE_MAX == 10
+    assert turn_gate.RATE_MAX == 10
     for _ in range(5):
         assert phone(world, LIVE)["resend"]
     assert [c["kind"] for c in model.calls] == ["interpret", "compose"] * 5, "five lines are ten calls: the compose call is counted beside the interpreter's"
@@ -210,8 +211,8 @@ def test_the_compose_call_counts_in_the_senders_rate_limit(world, clock, monkeyp
 def test_an_open_breaker_stops_the_compose_call_and_the_persons_words_stay(world, clock, monkeypatch):
     model = setup(world, monkeypatch)
     ctx = ops_core.context(world["path"])
-    for _ in range(ops_interpret.BREAKER_FAILS):
-        ops_interpret._record(False)
+    for _ in range(turn_gate.BREAKER_FAILS):
+        turn_gate.record(False)
     got = mail_compose.write(ctx, "messaging", SENDER, [ADDRESS], "Assunto", SPAN)      # validate: allow english-only -- a Portuguese subject under test
     assert got == {"subject": "Assunto", "body": SPAN, "composed": False} and model.calls == []      # validate: allow english-only -- a Portuguese subject under test
     ops_interpret.forget_all()

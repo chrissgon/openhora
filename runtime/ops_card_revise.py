@@ -60,6 +60,7 @@ import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
 import phrases  # noqa: E402
+import turn_gate  # noqa: E402
 
 CHANNEL = "messaging"
 OPERATION = {"send": "mail-send", "draft": "mail-draft"}
@@ -178,10 +179,11 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
 
 def card_revise_check(project: str, pending_id: int, sha256: str, text: str, channel: str = CHANNEL, sender=None):
     """See the module's text. Calls no model."""
-    ops_actor.require(channel, sender)
-    ctx = core.context(project)
-    taken = _taken(ctx, pending_id, sha256, text, channel, sender)
-    return taken[0] if taken else None
+    with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); an inner reuse inside a line, an entry of its own when the entry is called directly
+        ops_actor.require(channel, sender)
+        ctx = core.context(project)
+        taken = _taken(ctx, pending_id, sha256, text, channel, sender)
+        return taken[0] if taken else None
 
 
 def say(ctx: dict, key: str, again=None) -> dict:
@@ -231,17 +233,20 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
     if mail_revise.asks_recipients(line):
         return say(ctx, "RV_RECIPIENTS", pending_id)
     interpret = importlib.import_module("ops_interpret")
-    if not interpret._admit(ctx, sender):
+    gate = importlib.import_module("turn_gate")
+    admission = gate.admit(ctx, sender)
+    if admission is None:
         return say(ctx, "RV_FAILED", pending_id)
     revised, ok = None, False
     try:
-        got = mail_revise.call(entry, mail_revise.prompt_template(), mail_revise.message(interpret._tag(ctx["cfg"]), mail["subject"], mail["body"], line))
+        got = gate.call(admission, entry, mail_revise.prompt_template(), mail_revise.message(interpret._tag(ctx["cfg"]), mail["subject"], mail["body"], line),
+                        deadline_ms=mail_revise.DEADLINE_MS, params=mail_revise.PARAMS)
         ok = bool(got.get("ok"))
         if ok:
             revised = mail_revise.accept(got.get("text"), mail["to"], mail["subject"], mail["body"], line)
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
         ok, revised = False, None
-    interpret._record(ok)
+    gate.record(ok)
     if revised is not None and revised.get("same") and revised.get("holds"):
         return say(ctx, "RV_ALREADY", pending_id)      # the card already holds every text the line asks for: told so, and the card is sent again
     if revised is None or revised.get("same"):
@@ -269,19 +274,20 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
 
 def card_revise(project: str, pending_id: int, sha256: str, text: str, channel: str = CHANNEL, sender=None) -> dict:
     """The change (see the module's text)."""
-    ops_actor.require(channel, sender)
-    ctx = core.context(project)
-    taken = _taken(ctx, pending_id, sha256, text, channel, sender)
-    if taken is None:
-        return {"pass": True}
-    kind, entry, line, doc, mail = taken
-    if kind == "replaced":
-        return say(ctx, "RV_REPLACED")
-    if kind == "sentence":
-        return say(ctx, "RV_NOT_REVISABLE")
-    if kind == "mail":
-        return _mail(project, ctx, pending_id, entry, line, mail, channel, sender)
-    return importlib.import_module("ops_event_revise").revise(project, ctx, pending_id, entry, line, doc, channel, sender)
+    with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); the new card this opens (`natural_write`) is the same line
+        ops_actor.require(channel, sender)
+        ctx = core.context(project)
+        taken = _taken(ctx, pending_id, sha256, text, channel, sender)
+        if taken is None:
+            return {"pass": True}
+        kind, entry, line, doc, mail = taken
+        if kind == "replaced":
+            return say(ctx, "RV_REPLACED")
+        if kind == "sentence":
+            return say(ctx, "RV_NOT_REVISABLE")
+        if kind == "mail":
+            return _mail(project, ctx, pending_id, entry, line, mail, channel, sender)
+        return importlib.import_module("ops_event_revise").revise(project, ctx, pending_id, entry, line, doc, channel, sender)
 
 
 if __name__ == "__main__":

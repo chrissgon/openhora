@@ -52,7 +52,7 @@ ON_SYSTEM_PYTHON = [
     # The words that decide a decision card (S2, limit L64), the greeting forms (S5) and the words that choose the project (S20): pure readings of one line, read by the bridge.
     "runtime/card_words.py", "runtime/greeting.py", "runtime/command_words.py",
     # S10: the plain sentence of a refusal on a phone, and the typing indicator while a reply is prepared (both read by the bridge)
-    "runtime/phone_refusal.py", "runtime/messaging_typing.py", "runtime/messaging_file.py", "runtime/send_scan.py", "runtime/phone_errors.py", "runtime/phone_delete.py", "runtime/messaging_pending.py", "runtime/ops_question.py", "runtime/messaging_ack.py", "runtime/line_stage.py",
+    "runtime/phone_refusal.py", "runtime/messaging_typing.py", "runtime/messaging_file.py", "runtime/send_scan.py", "runtime/phone_errors.py", "runtime/phone_delete.py", "runtime/messaging_pending.py", "runtime/ops_question.py", "runtime/messaging_ack.py", "runtime/line_stage.py", "runtime/turn_order.py", "runtime/messaging_turn.py", "runtime/ops_turn.py",
     # What the two shells share (stage 9, WP-9.9): the job registry, the status words, the project list.
     "runtime/shell_kit.py",
     # The cost of a run recomputed from its token counts (stage 9): the operations layer imports it.
@@ -87,7 +87,7 @@ ON_SYSTEM_PYTHON = [
     "runtime/ops_natural.py", "runtime/source_resolve.py", "runtime/drafts.py",
     # Natural writes (NR-5): the pure families and the card-opening path.
     "runtime/natural_writes.py", "runtime/natural_writes_calendar.py", "runtime/natural_writes_files.py", "runtime/ops_natural_writes.py",
-    "runtime/ops_natural_calendar.py", "runtime/ops_natural_files.py", "runtime/ops_items.py", "runtime/ops_file_read.py", "runtime/ops_research.py", "runtime/research_reply.py", "runtime/research_guard.py", "runtime/ops_file_trash.py",
+    "runtime/ops_natural_calendar.py", "runtime/ops_natural_files.py", "runtime/ops_items.py", "runtime/ops_file_read.py", "runtime/ops_research.py", "runtime/research_reply.py", "runtime/ops_file_trash.py",
     # A mail write asked in words (NR-5b): the closed forms of the mail family (pure) and the resolution of what they read.
     "runtime/natural_writes_mail.py", "runtime/ops_natural_mail.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state
@@ -111,7 +111,7 @@ ON_SYSTEM_PYTHON = [
     # The person's standing instructions (package INSTRUCTIONS): the file and its checks, and the operations over it.
     "runtime/instructions.py", "runtime/ops_instructions.py", "runtime/ops_contained.py",
     # The interpreter on a messaging line (S1): its sibling of the conversation and the file that turns it on.
-    "runtime/ops_interpret.py", "runtime/interpreter_enable.py", "runtime/mail_compose.py", "runtime/mail_reply_compose.py", "runtime/mail_revise.py", "runtime/ops_card_revise.py", "runtime/ops_event_revise.py", "runtime/pending_items.py", "runtime/plan_confirm.py", "runtime/event_lookup.py", "runtime/event_created.py", "runtime/ops_google_folders.py",
+    "runtime/ops_interpret.py", "runtime/interpreter_enable.py", "runtime/mail_compose.py", "runtime/mail_reply_compose.py", "runtime/mail_revise.py", "runtime/ops_card_revise.py", "runtime/ops_event_revise.py", "runtime/turn_gate.py", "runtime/pending_items.py", "runtime/plan_confirm.py", "runtime/event_lookup.py", "runtime/event_created.py", "runtime/ops_google_folders.py",
     # The grants of the channel policy (POL-1): the effect's word and card, and the widening list with its hash; who acted (POL-2): the sender, its profile and the record.
     "runtime/ops_grants.py", "runtime/policy_grants.py", "runtime/policy_widening.py", "runtime/ops_actor.py",
     # The language the deliverables are written in (LANGUAGE): the rule, the order and the words; the operations that check a request's choice.

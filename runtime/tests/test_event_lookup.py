@@ -27,6 +27,7 @@ ops_items = st.load("ops_items")
 ops_natural = st.load("ops_natural")
 event_lookup = st.load("event_lookup")
 interpreter_route = st.load("interpreter_route")
+turn_gate = st.load("turn_gate")
 
 OWNER, TALKER = "telegram:830461975213", "telegram:5151"
 PROFILES = {"owner": ["read", "talk", "calendar-write", "ask-mail", "interpret"], "talker": ["read", "talk", "calendar-write", "interpret"]}
@@ -85,7 +86,8 @@ def carry(world, line, text, sender=OWNER):
     """(the reply, extras) of the decision a model text makes for the line, carried out through the real seam."""
     ctx = ops_core.context(world["path"])
     extras = {}
-    got = ops_interpret._carry_out(world["path"], ctx, decision(line, text), line, sender, extras)
+    with turn_gate.turn():      # S41-6: the refresh a miss makes is the line's budget; `say` opens it in production, and this calls the seam under it directly
+        got = ops_interpret._carry_out(world["path"], ctx, decision(line, text), line, sender, extras)
     return got[0], extras
 
 

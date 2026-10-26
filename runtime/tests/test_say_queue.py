@@ -17,6 +17,7 @@ from test_chat import ASKING, FLOW, messages, reply, say, tree  # noqa: F401  (t
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_say = st.load("ops_say")
+ops_turn = st.load("ops_turn")
 router = st.load("router")
 
 DIRECT = ("Route: none (direct)\nWhy: a question about the state, no skill is needed.\nContext: found none\n"
@@ -357,7 +358,7 @@ def test_a_queued_line_that_can_no_longer_be_answered_is_dropped_with_a_word_to_
     path = str(tree["project"])
     with locked(tree):
         page_say(tree, "Which market first?")
-    monkeypatch.setattr(ops_say, "_turn", lambda *args: (_ for _ in ()).throw(ops.OpsError("the decision it answers is closed", 1)))
+    monkeypatch.setattr(ops_turn, "dispatch", lambda *args: (_ for _ in ()).throw(ops.OpsError("the decision it answers is closed", 1)))
     out = ops.route_queued(path)
     assert out["routed"] is None and out["dropped"]["kind"] == "line" and queue(tree) == []
     assert messages(tree)[-1]["text"] == "A queued line was not answered: the decision it answers is closed"

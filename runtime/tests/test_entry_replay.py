@@ -43,7 +43,7 @@ import test_service  # noqa: F401
 import test_sources_mail  # noqa: F401
 
 bridge = st.load("messaging_bridge")
-ops_natural = st.load("ops_natural")
+ops_turn = st.load("ops_turn")
 
 SHARDS = 4
 RECORDING = os.environ.get("WB_ENTRY_RECORD") == "1"
@@ -189,6 +189,65 @@ def test_every_authored_take_is_taken_and_every_near_miss_is_not():
     assert not wrong, f"{len(wrong)} authored scenarios whose trace is not as authored:\n" + "\n".join(wrong[:MAX_SHOWN * 3])
 
 
+COMPOSITES = ("expired_and_write_draft", "reminder_and_write_draft", "reminder_and_expired", "plan_and_write_draft", "plan_and_file_held")
+EDGES = ("reply_to_a_question_of_another_project", "delete_from_a_sender_who_may_not_talk", "forwarded_file_with_a_reminder_draft_open")
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_every_composite_pre_state_and_every_edge_input_is_in_the_corpus_with_its_yes_and_its_sim():
+    """S41-1b. The single-state corpus was blind to a row whose effect needs two states live at once or an uncommon input: each composite pre-state (two questions open, a plan and a question, a
+    plan and a held file) has at least five scenarios, among them the "sim" and the "yes" that every pending question reads; each edge input has at least five; a plan that is last with a captioned
+    file is covered; and each is in the golden, recorded on the order of its day."""
+    _, recorded = golden()
+    scenarios = corpus()
+    for name in COMPOSITES:
+        assert name in ek.PRESTATES, name
+        rows = [s for s in scenarios if s["prestate"] == name]
+        assert len(rows) >= 5, f"{name}: {len(rows)} scenarios"
+        assert {"sim", "yes"} <= {s["text"] for s in rows if s["kind"] == "text"}, f"{name} holds the sim and the yes"
+        assert all(s["id"] in recorded for s in rows)
+    captioned = [s for s in scenarios if s["prestate"] in ("plan_last", "plan_not_last") and s["kind"] == "attachment" and s["text"] in ("sim", "yes")]
+    assert len(captioned) >= 2, "a plan that is last, and a file captioned sim or yes"
+    assert "question_of_other_project" in ek.PRESTATES and len([s for s in scenarios if s["prestate"] == "question_of_other_project"]) >= 5
+    for name in EDGES:
+        rows = [s for s in scenarios if s["id"].startswith(f"edge.{name}.")]
+        assert len(rows) >= 5, f"{name}: {len(rows)} scenarios"
+        assert all(s["id"] in recorded for s in rows)
+    dropped = [s for s in scenarios if s["id"].startswith("edge.reply_to_a_question_of_another_project.") and s["prestate"] == "question_of_other_project"]
+    assert dropped and all(recorded[s["id"]]["trace"][-1] in ("reply", "pending-typed") for s in dropped), "a reply to a question of another project is the reply branch's, and is dropped"
+    delete = [s for s in scenarios if s["id"].startswith("edge.delete_from_a_sender_who_may_not_talk.") and s["id"].rsplit(".", 1)[1] in ("01", "02", "03", "04", "05")]
+    assert delete and all("delete-refusal-before-queue" not in recorded[s["id"]]["trace"] for s in delete), "a sender who may not talk is never told the file cannot be deleted from a message"
+
+
+OPS_GROUPS = ("router_question_and_a_state_line", "write_draft_and_a_state_line", "write_draft_and_a_tier_1_form", "plan_not_last_and_a_greeting_that_is_a_yes",
+              "plan_last_and_a_greeting_that_is_a_yes", "interpreter_sender_without_talk", "mcp_and_chat_shells", "a_page_line_queued_while_a_run_is_busy", "a_queued_answer_to_the_choice_of_a_file")
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_the_operations_composites_the_interpreter_sender_without_talk_and_the_mcp_chat_and_queue_shells_are_in_the_corpus():
+    """S41-1c. The review of S41-3 found orders and guards of the operations layer that no scenario reached. Each group has at least five scenarios with its "sim" and its "yes" and is in the golden;
+    the pre-states `route_busy` and `route_busy_ask_choice`, the sender `reader_interpret` (holds `interpret` and a read group, not `talk`) on the bridge and on `ops`, the shells `mcp` and `chat`, and
+    the drain of the queue (`route_queued`) are all named and used."""
+    _, recorded = golden()
+    scenarios = corpus()
+    in_corpus = {build.key_of(s) for s in scenarios}      # a scenario that two groups both want is written once, under the first group's id: the group is read from what was authored
+    for name in OPS_GROUPS:
+        authored = build.OPS_GROUPS[name]
+        assert len(authored) >= 5, f"{name}: {len(authored)} scenarios"
+        assert {"sim", "yes"} <= {s["text"] for s in authored}, f"{name} holds the sim and the yes"
+        assert all(build.key_of(s) in in_corpus for s in authored), name
+        assert all(s["id"] in recorded for s in scenarios if s["id"].startswith(f"opscomp.{name}."))
+    assert {"route_busy", "route_busy_ask_choice"} <= set(ek.PRESTATES) and {"mcp", "chat"} <= set(ek.CHANNELS) and "reader_interpret" in ek.SENDERS
+    viewer = [s for s in scenarios if s["sender"] == "reader_interpret"]
+    assert {s["channel"] for s in viewer} == {"messaging", "ops"} and len(viewer) >= 10
+    assert "talk-refusal" in {n for s in viewer if s["channel"] == "ops" for n in recorded[s["id"]]["trace"]}, "a sender with no talk meets the refusal of the operations layer, and no model is asked"
+    assert all(recorded[s["id"]]["model_calls"] == 0 for s in viewer)
+    for channel in ("mcp", "chat"):
+        assert len([s for s in scenarios if s["channel"] == channel]) >= 5, channel
+    drained = [s for s in scenarios if s["prestate"] in ("route_busy", "route_busy_ask_choice") and any(row["to"].endswith("-drain") and row["flags"].get("routed") == "line" for row in recorded[s["id"]]["sent"])]
+    assert len(drained) >= 5, "lines queued while a run is busy, answered by the drain of the queue"
+
+
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_the_replay_is_deterministic(tmp_path):
     """Thirty scenarios replayed twice give the same outcome: nothing of the order the threads finish in, of the hash seed or of the clock reaches the outcome."""
@@ -246,6 +305,13 @@ def never(owner, name, result):
     return hook
 
 
+def row_never(name):
+    """A hook that makes the row `name` of the stage `ops` (runtime/ops_turn.py) take nothing."""
+    def hook(mp):
+        mp.setitem(ops_turn.ROWS, name, lambda *a, **k: None)
+    return hook
+
+
 def disabled(hooks_for: list):
     def hook(mp):
         for item in hooks_for:
@@ -267,9 +333,9 @@ def changed_by(hook, scenarios: list, tmp_path) -> list:
 
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_vacuity_a_changed_claim_order_is_seen(tmp_path):
-    """The three the spec names: with `Bridge.plan_line` and `Bridge.word_line` made to take nothing, and `ops_natural.take` made to answer None, at least one scenario differs from the golden."""
+    """The three the spec names: with `Bridge.plan_line` and `Bridge.word_line` made to take nothing, and the row `tier-1-form` of `ops_turn` (S41-3: what `ops_natural.take` ended with) made to take nothing, at least one scenario differs from the golden."""
     for claimer, hook in (("plan-confirm-word", never(bridge.Bridge, "plan_line", False)), ("card-word", never(bridge.Bridge, "word_line", False)),
-                          ("tier-1-form", never(ops_natural, "take", None))):
+                          ("tier-1-form", row_never("tier-1-form"))):
         lines = scenarios_of(claimer)
         assert lines, f"the corpus holds lines {claimer} takes"
         assert changed_by(hook, lines, tmp_path), f"disabling {claimer} changes at least one scenario, or the comparator is blind"

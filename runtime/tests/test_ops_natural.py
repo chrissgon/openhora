@@ -25,6 +25,7 @@ lab = st.load("lab")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
+ops_turn = st.load("ops_turn")
 drafts = st.load("drafts")
 ops_reminders = st.load("ops_reminders")
 ops_say = st.load("ops_say")
@@ -395,7 +396,7 @@ def test_limit_54_a_router_normalised_time_makes_no_reminder_until_the_person_co
                                    "recuerdame el viernes a las 17 recoger el paquete en la porteria", "messaging", KEY["owner"], {})
     assert reply.endswith("Confirm? (yes / another time)") and rows() == [], "asked, not made"
     assert [k["said"] for k in seen] == ["recoger el paquete en la porteria 2026-10-23 17:00"] and seen[0]["channel"] == "messaging" and seen[0]["sender"] == KEY["owner"]
-    done = ops_natural.take(world["path"], ctx, "yes", "messaging", KEY["owner"], {})
+    done = ops_turn.dispatch_rows(ops_turn.TAKE_ROWS, world["path"], ctx, "yes", "messaging", None, KEY["owner"], {})[0]      # S41-3: what `ops_natural.take` was (the five rows of the table that take a line of code)
     assert seen[-1]["when"] == "2026-10-23 17:00" and seen[-1]["channel"] == "messaging" and seen[-1]["sender"] == KEY["owner"], \
         "the moment shown is the moment made, called with the carrying channel and the sender, as the typed command is"
     assert done.startswith("Reminder #1: Fri 23/10 at 17:00 (BRT): recoger el paquete en la porteria") and [r["text"] for r in rows()] == ["recoger el paquete en la porteria"]
