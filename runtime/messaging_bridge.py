@@ -112,11 +112,15 @@ agent answers); `project_line` reads "muda para o projeto X" (runtime/command_wo
 
 The OK of a plan (D5, package BL2b, limits L64 and L65). A read or an act asked in words is answered by the operations layer with a question code wrote from the typed call ("I understood: ... Shall I
 go ahead?"; runtime/plan_confirm.py), and `line` sends it with `ask_plan` (a Yes and a No button when the platform has them, one line "reply yes" on e-mail) and records it in the ledger as a
-record of kind `plan-confirm` (ids, a hash and an operation name, never text). `plan_line` takes the OK, in the chain right before the card words, under the conditions of L64: a private line of
+record of kind `plan-confirm` (ids, a hash and an operation name, never text). `plan_line` takes the OK, in the table's order (row `plan-confirm-word`) right before the card words, under the conditions of L64: a private line of
 a listed sender, not forwarded, a yes or no word code reads (`natural.confirm_kind`) when the question is the LAST message the platform sent to the chat or the line replies to it (e-mail: only a
 reply); a yes starts the confirmed call as a job with the plan's item and hash (`plan_ok`), a no drops the plan. The question's own buttons do the same (`plan_tapped`). Any other line goes on as
 it did; a correction reaches `say`, where the interpreter reads it with the plan as a typed frame item. A card that came after a question whose plan still waits is not decided by a bare word
-(`word_line`: `PLAN_TWO_OPEN`, whichever of the two was recorded first; a reply names the message it means). A research that runs is stopped by its asker's stop word (`research_stop_line`, in the chain right AFTER the card words).
+(`word_line`: `PLAN_TWO_OPEN`, whichever of the two was recorded first; a reply names the message it means). A research that runs is stopped by its asker's stop word (`research_stop_line`, row `research-stop`, right AFTER the card words).
+
+The order of the claims (S41-2, PLAN-BRAIN section 4 step 1). Who takes an update first is not decided in this file: the order is `runtime/turn_order.py` `ORDER` (stage `bridge` for `_handle`, stage `bridge-say` for the start of
+`say`), dispatched by `runtime/messaging_turn.py`, whose rows hold the conditions and the calls and call the claimers below (`plan_line`, `word_line`, `research_stop_line`, `revise_line`, `project_line`, `say_queue`, and the
+modules of the reminders, the writes and the files). A claimer is moved or removed by changing the table, and L63(3) says in its row what replaces one that is removed.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -145,10 +149,10 @@ import messaging_pending as pending_view
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
+import messaging_turn
 import messaging_typing as indicator
 import natural
 import natural_time
-import phone_delete
 import phone_errors
 import phone_refusal
 import phrases
@@ -283,6 +287,7 @@ class Refused(Exception):
 
 class Bridge(shell_kit.Jobs):
     Refused, NOT_ACCEPTED, NO_CARD = Refused, NOT_ACCEPTED, NO_CARD      # what messaging_attach reads of the bridge
+    DROPPED = DROPPED      # what messaging_turn reads of the bridge (the rows `drop-unlisted` and `reply`)
 
     def __init__(self, ops_module, projects, messenger, ledger, platform: str, log=None, clock=None):
         super().__init__(ops_module, projects, log)
@@ -823,108 +828,10 @@ class Bridge(shell_kit.Jobs):
             self._handle(update)
 
     def _handle(self, update: dict) -> None:
+        """One update in. The order in which it is claimed is the table `turn_order.ORDER` (stage `bridge`), dispatched by runtime/messaging_turn.py; the rows hold the conditions and the calls."""
         sender, chat = str(update.get("sender")), str(update.get("chat"))
         listed = self.projects_for(sender) if update.get("private") and chat == sender else []
-        if not listed:
-            self.log(DROPPED)
-            self.config_pending(update, sender, chat)
-            return
-        if update.get("attachments") is not None:
-            found = provider.valid_attachments(update["attachments"])
-            if found is None:
-                self.log("an update with attachments that are not valid was dropped")
-                return
-            update = dict(update, attachments=found)
-        intent = inbound.parse(update)
-        project = self.project_of(sender, listed)
-        kind = intent["kind"]
-        if kind == "ignore":
-            return
-        if kind == "forwarded":
-            self.reply(chat, self.t("FWD_NOT_A_REQUEST", project=project), project)          # a forwarded message is never a request (FWD): one sentence, and nothing of it is read by a draft, a reminder, a write or a card
-            return
-        replied = update.get("reply_to")
-        shown = self.ledger.by_message(chat, replied) if kind == "natural" and replied else None
-        if shown and shown.get("kind") != "reminder":          # a reply to a card answers THAT card, not a reminder (NR-1); the question about a reminder is answered by `remind.answer`
-            intent = {"kind": "reply", "reply_to": replied, "text": update.get("text") or ""}
-            kind = "reply"
-        self.remind.discarded.discard(chat)
-        if kind != "action" and not intent.get("forwarded"):          # a forwarded file (FWD) answers no open question and drops none: it goes straight to its card
-            if chat in self.remind.drafts:
-                if self.remind.answer(project, chat, kind, update.get("text") or "", replied):
-                    return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line
-            elif chat in self.remind.expired and self.remind.late(project, chat, kind, update.get("text") or ""):
-                return          # a "yes" to a question that expired is told so (NR-1)
-            elif kind in ("text", "natural", "reply") and not (update.get("text") or "").lstrip().startswith("/") and self.write_open(project, chat):
-                if self.write_answers(project, chat, update.get("text") or ""):
-                    self.write(project, chat, update.get("text") or "")          # a question about a write to the person's accounts is open and this line answers it (NR-5)
-                    return
-                self.write_forget(project, chat)          # any other line drops it, and is handled as a new one; a question it asks says the previous one was discarded
-                self.remind.discarded.add(chat)
-        if kind in ("text", "natural", "reply") and self.plan_line(update, intent, kind, project, listed, sender, chat):
-            pass          # the OK of a plan ("Posso?") the operations layer asked, or its refusal, or a correction (D5, limits L64 and L65): before the card words, which it never touches (a plan is no decision card)
-        elif kind in ("text", "natural", "reply") and self.word_line(update, intent, project, listed, sender, chat):
-            pass          # an approve or a reject word decided a decision card, or listed the cards to choose from (S2, limit L64)
-        elif kind in ("text", "natural", "reply") and self.research_stop_line(update, intent, kind, project, listed, chat):
-            pass          # a stop word of the sender's own running research (BL2b): after the card words, so that "nao" with a card as the last message still rejects the card
-        elif self.revise_line(update, intent, kind, project, listed, chat):
-            pass          # a change of the card that waits, said in words (S13, limit L64)
-        elif self.project_line(intent, kind, listed, sender, chat):
-            pass          # "muda para o projeto X": the typed /project, said in words (S20)
-        elif kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands" and not self.greets(project, chat, intent["text"]):      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project), except from a sender who may talk, whose help line is a greeting (S5)
-            self.reply(chat, self.t("HELP", project=project), project)
-        elif kind in ("text", "natural") and self.attach.line(project, chat, intent.get("text") or ""):
-            pass          # "descarta", "adiciona ao projeto": a line about the file just sent (ATT-3)
-        elif kind == "attachment":
-            self.attach.arrived(project, chat, intent)
-        elif kind in ("add", "discard"):
-            self.attach.typed(project, chat, kind, intent["id"])
-        elif kind == "remind":
-            self.remind.created(project, chat, intent)
-        elif kind == "natural":
-            if intent.get("op") == "write":
-                self.write(project, chat, intent["text"])
-            elif not self.remind.natural(project, chat, intent):
-                self.say(project, chat, intent["text"])
-        elif kind == "reminders":
-            self.remind.listing(project, chat)
-        elif kind == "forget":
-            self.remind.forget(project, chat, intent["id"])
-        elif kind == "action":
-            self.tapped(chat, intent["action"], update.get("action_ref"))
-        elif kind == "usage":
-            self.reply(chat, self.t(inbound.usage_key(intent["text"]), project=project) if inbound.usage_key(intent["text"]) else intent["text"], project)
-        elif kind == "help":
-            self.reply(chat, self.t("HELP", project=project), project)
-        elif kind == "project":
-            self.choose(sender, chat, listed, intent["name"])
-        elif kind == "pending":
-            self.listing(project, chat)
-        elif kind in ("approve", "reject", "release", "answer"):
-            replied = None
-            if self.messenger.capabilities().get("actions_need_reply"):
-                replied = self.replied_card(sender, chat, update.get("reply_to"), intent["id"])
-                if replied is None:
-                    self.reply(chat, self.t("REPLY_TO_CARD", project=project), project)
-                    return
-                project = replied[0]
-            if kind == "answer":
-                self.act(project, chat, "answer", intent["id"], text=intent["text"])
-            else:
-                self.act(project, chat, kind, intent["id"], card=replied[1] if replied else None, note=intent.get("note"),
-                         typed_hash=intent.get("sha256"))
-        elif kind == "reply":
-            card = self.ledger.by_message(chat, intent["reply_to"])
-            if card and card["kind"] == "question":
-                target = next((p for p in self.projects if p["id"] == card["project"]), project)
-                if not self.listed_in(target, sender):
-                    self.log(DROPPED)
-                    return
-                self.act(target, chat, "answer", card["pending_id"], card=card, text=intent["text"])
-            else:
-                self.say(project, chat, intent["text"])
-        else:
-            self.say(project, chat, intent["text"])
+        messaging_turn.dispatch(self, messaging_turn.Turn(update=update, sender=sender, chat=chat, listed=listed))
 
     def greets(self, project: dict, chat: str, text: str) -> bool:
         """S5: whether a help line in words ("ajuda", "what can you do") is a greeting that `say` answers with the summary of what this sender may do: the whole line is a greeting or
@@ -1649,21 +1556,10 @@ class Bridge(shell_kit.Jobs):
     def say(self, project: dict, chat: str, text: str) -> None:
         """A free line to the planning agent. A line that may wait (`queueable`) and meets a project that is busy is kept (`keep`) and answered `QUEUED`;
         a line that comes while others wait goes behind them (also one that is being started), so that the lines start in the order they came."""
-        if phone_delete.asks(text):      # S14b: a request to delete a file is answered at once, before any queue, run or model; a sender who may not talk gets the refusal of any line
-            try:
-                self.allow(project, "say", None, chat)
-            except (Refused, self.ops.OpsError):
-                pass
-            else:
-                try:
-                    self.allow(project, "file-trash", None, chat)      # R2-A: a sender who may move a file to the trash is not told it cannot be done: the line goes on, and the conversation opens the file's card
-                except (Refused, self.ops.OpsError):
-                    self.reply(chat, self.t("PHONE_NO_FILE_DELETE", project=project), project)
-                    return
-        found = None if text.lstrip().startswith("/") else natural.match(text)
-        if found is not None and natural.class_of(found["op"]) in ("D", "W"):      # a decision or an act said in a closed form (S20) is answered by code with no model: it takes no model slot, so a brake said in words works while the planning agent answers, as the typed /reject does
-            self.start(project, chat, found["op"], self.line(project, chat, text, None))
-            return
+        messaging_turn.dispatch(self, messaging_turn.Turn(project=project, chat=chat, text=text), stage="bridge-say")      # the order of the claims made before a line is queued: `turn_order.ORDER`, stage `bridge-say`
+
+    def say_queue(self, project: dict, chat: str, text: str) -> None:
+        """The last row of the stage `bridge-say`: the line is started, or kept in the queue of the project (BQ-1), as `say` always did once nothing before it took the line."""
         if not queueable(text):
             self.start(project, chat, "say", self.line(project, chat, text, None))
             return
