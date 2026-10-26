@@ -128,6 +128,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/messaging_pending.py` | The line a question gets in `/pending` on a messaging app (slice S14, limit L62): what is asked, in plain words, never the router's internals. |
 | `runtime/messaging_provider.py` | The messaging bridge's access to a messenger provider (class messenger:&lt;platform&gt;, providers/messenger/README.md): the four verbs as methods, started through providers/resolve.py, the one function that resolves a class and runs a provider's verb. |
 | `runtime/messaging_remind.py` | The messaging bridge's part of reminders (package RM-1): `/remind`, `/reminders` and `/forget` from a listed sender, and the delivery of the reminders that are due. |
+| `runtime/messaging_turn.py` | The messaging bridge's dispatcher: it walks the table of the order in which a line is claimed (package S41-2; runtime/turn_order.py) and runs the code of each row. |
 | `runtime/messaging_typing.py` | The "typing..." indicator while a reply is prepared (slice S10): a small helper of the messaging bridge, never a gate. |
 | `runtime/natural.py` | Natural requests, tier 1 (package NR-1): a line a person writes in their own words, matched by code to an operation the platform already has, with no model. |
 | `runtime/natural_lang_en.py` | English, as a language table of the natural-request engine (package NR-1): the words a person types, as data. |
@@ -233,6 +234,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/step_write_back.py` | The step kind `write-back`: write a project document over a document on the platform, as an external effect the person approves (package P8, decision D17 direction 2). |
 | `runtime/steps.py` | The step engine: how a step task runs, one step after another, resumably, with stops for the person (package P5). |
 | `runtime/table_data.py` | The table a task made, read and checked as code (package NOTION-OUT): a CSV file or the first sheet of a workbook becomes the table an output step approves and a platform receives, `{"columns": [{"name", "type"}], "rows": [[value, ...]]}`, with the type of each column given or inferred by a rule, and every cap enforced. |
+| `runtime/turn_order.py` | The order in which a line is claimed: the one table (package S41-2; PLAN-BRAIN section 4 step 1, "one precedence table"). |
 | `runtime/upkeep.py` | Upkeep of a runtime meant to run for weeks: retention of what it leaves on disk, and the orphans a crash leaves in docker (package P-OPS, finding I6). |
 | `runtime/workcopy.py` | What enters a run copy, and what comes back from it: the limits of the task runtime that decide which files of a project a run sees (L1 to L6) and which files a run leaves come back (L7, L8, L12, L14). |
 | `runtime/write_document.py` | The document of a write-back, and nothing that writes (package P8): what the step kind `write-back` builds and the effect kind `write` approves (its operation `update_page`; the operations that make a new page or table are runtime/output_document.py, and the hash covers the operation in both). |
