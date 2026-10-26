@@ -74,6 +74,7 @@ def replay(scenario: dict, tmp_path: Path, hooks=None) -> dict:
         with pytest.MonkeyPatch.context() as mp:
             return ek.run_scenario(scenario, folder, mp, line_hook=hooks)
     finally:
+        time.tzset()      # the world pinned TZ; the patch is undone, the process zone follows
         shutil.rmtree(folder, ignore_errors=True)
 
 

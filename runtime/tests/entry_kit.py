@@ -688,12 +688,15 @@ def open_world(scenario, tmp_path, monkeypatch) -> World:
     w.closers.append(CURRENT.pop)
     w.recorder, w.scenario, w.root = recorder, scenario, str(tmp_path)
     w.monkeypatch, w.tmp_path = monkeypatch, tmp_path
+    monkeypatch.setenv("TZ", ZONE)      # the zone a card says (calendar_document.zone_name reads TZ, else /etc/localtime of the machine): pinned, so that no host's zone is in an outcome
+    time.tzset()
     built, close_world = call_fixture(ops_world, tmp_path, monkeypatch)
     w.closers.append(close_world)
     w.world, w.path = built, built["path"]
     reset_globals()
     w.closers.append(reset_globals)
     monkeypatch.setattr(plan_confirm, "ACTIVE", True)
+    monkeypatch.setattr(ops, "_use_start", lambda *args, **kwargs: None)      # the record of a field use runs scripts/evidence.py of the tree the run reads: none in the world, and it must say nothing
     now = [1000.0]
     monkeypatch.setattr(pending_items, "clock", lambda: now[0])
     monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)      # the acknowledgement of a slow line is a clock's: the replay never waits for it
