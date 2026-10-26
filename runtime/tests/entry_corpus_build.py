@@ -27,6 +27,7 @@ A later package never records it again: a difference is the finding. A change of
 
   python3 runtime/tests/entry_corpus_build.py            writes entry_corpus.jsonl
   python3 runtime/tests/entry_corpus_build.py --stats    the number of scenarios by channel, claimer and source
+  uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record-added    adds the rows of the scenarios the golden does not hold (the rows it holds stay as they are)
   uv run --with pytest==9.1.1 python3 runtime/tests/entry_corpus_build.py --check    fails when the committed corpus is not what this script writes or a scenario is not well formed
   uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record    records the golden
 
@@ -291,6 +292,27 @@ GUARDS = {
 }
 
 
+# S41-1b: the scenarios each with TWO states live at once, and the inputs the single-state corpus did not reach. The review of S41-2 found the replay blind to a row whose effect needs two states
+# at once or an uncommon input (the frame rows S41-8 reworks). Every composite holds the "sim" and the "yes" (the words every pending question reads), a line that answers one of the two
+# questions, and a line that answers neither, in pt-BR and en. Recorded on the old order (c8c2594): the existing rows are not touched.
+COMPOSITES = {
+    "expired_and_write_draft": many("expired_and_write_draft", ["sim", "yes", "Dentista da Júlia", "Team standup", "não", "no", "/pending", "what files do you have?", "claro", "oi"]),
+    "reminder_and_write_draft": many("reminder_and_write_draft", ["amanhã 9h", "tomorrow 3pm", "sim", "yes", "Dentista da Júlia", "Team standup", "/pending", "oi", "não"]),
+    "reminder_and_expired": many("reminder_and_expired", ["amanhã 9h", "tomorrow 3pm", "sim", "yes", "/pending", "oi", "não", "claro"]),
+    "plan_and_write_draft": many("plan_and_write_draft", ["sim", "yes", "não", "no", "Dentista da Júlia", "Team standup", "/pending", "mostra minha agenda", "ok"]),
+    "plan_and_file_held": many("plan_and_file_held", ["sim", "yes", "não", "descarta", "adiciona ao projeto", "discard", "add to the project", "/pending", "oi"]) +
+                          [S(t, "plan_and_file_held", kind="attachment") for t in ("sim", "yes", "descarta", None)],
+    "plan_last_and_a_captioned_file": [S(t, "plan_last", kind="attachment") for t in ("sim", "yes", "não", "descarta", "ok", "no")] + [S("sim", "plan_not_last", kind="attachment")],
+}
+EDGES = {
+    "reply_to_a_question_of_another_project": [S(t, "question_of_other_project", reply_to="question") for t in ("um evento", "o evento", "sim", "yes", "an event", "ok", "/pending")] +
+                                              [S(t, "router_question", reply_to="question") for t in ("um evento", "sim")],
+    "delete_from_a_sender_who_may_not_talk": many("none", DELETES, sender="reader") + many("none", ["oi", "qual a capital da França?"], sender="reader"),
+    "forwarded_file_with_a_reminder_draft_open": [S(t, "reminder_draft", kind="attachment", forwarded=True) for t in (None, "sim", "yes", "amanhã 9h", "contrato do aluguel", "descarta")] +
+                                                 [S(t, "reminder_draft", kind="attachment") for t in (None, "sim", "yes", "amanhã 9h", "contrato do aluguel")],
+}
+
+
 # --- generation ---------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -352,6 +374,10 @@ def generate(full: bool = False) -> tuple:
     for channel in ("page", "terminal"):
         for source, index, line in chosen:
             add(f"sample.{source}.{index:04d}.{channel}", S(line, channel=channel))
+    for group, table in (("composite", COMPOSITES), ("edge", EDGES)):      # appended last: the rows before them are the golden's, in its order
+        for name, rows in table.items():
+            for n, scenario in enumerate(rows, 1):
+                add(f"{group}.{name}.{n:02d}", scenario)
     return scenarios, expectations
 
 
@@ -433,10 +459,51 @@ def record(workers: int) -> int:
     return 0
 
 
+def record_added(workers: int, commit: str) -> int:
+    """Extend the golden with the scenarios of the corpus that it does not hold (S41-1b): only those are run, the rows that exist stay as they are, byte for byte; the header gets the new
+    corpus hash and count, and one entry in `extensions` naming the commit the new rows were recorded at."""
+    import tempfile
+    held = read_rows(GOLDEN_FILE)
+    header, rows = held[0], held[1:]
+    known = {row["id"] for row in rows}
+    scenarios = read_rows(CORPUS_FILE)
+    if [row["id"] for row in rows] != [s["id"] for s in scenarios][:len(rows)]:
+        print("the golden's rows are not the first rows of the corpus, in its order", file=sys.stderr)
+        return 1
+    added = [s["id"] for s in scenarios if s["id"] not in known]
+    if not added:
+        print("nothing to add", file=sys.stderr)
+        return 0
+    folder = tempfile.mkdtemp(prefix="entry-golden-added-")
+    only = "^(" + "|".join(__import__("re").escape(i) for i in added) + ")$"
+    env = dict(os.environ, WB_ENTRY_RECORD="1", WB_ENTRY_RECORD_DIR=folder, WB_ENTRY_ONLY=only)
+    command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(HERE / "test_entry_replay.py"), "-k", "record_the_golden"]
+    if workers > 1:
+        command += ["-n", str(workers)]
+    code = subprocess.call(command, env=env, cwd=str(REPO))
+    if code != 0:
+        return code
+    new = {}
+    for shard in sorted(Path(folder).glob("shard-*.jsonl")):
+        for row in read_rows(shard):
+            new[row["id"]] = row
+    missing = [i for i in added if i not in new]
+    if missing:
+        print(f"{len(missing)} scenarios were not recorded, the first is {missing[0]}", file=sys.stderr)
+        return 1
+    lines = GOLDEN_FILE.read_text(encoding="utf-8").splitlines()[1:]
+    header = dict(header, corpus_sha256=sha256_of(CORPUS_FILE), count=len(scenarios))
+    header["extensions"] = list(header.get("extensions", [])) + [{"commit": commit, "added": len(added), "note": "rows recorded later, on the tree at this commit; the rows before them are untouched"}]
+    GOLDEN_FILE.write_text(json.dumps(header, ensure_ascii=False) + "\n" + "\n".join(lines) + "\n" + "".join(json.dumps(new[i], ensure_ascii=False) + "\n" for i in added), encoding="utf-8")
+    print(f"{len(added)} rows added to the golden, recorded at {commit[:9]}", file=sys.stderr)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Write the corpus of the entry replay, check it, or record the golden of the tree it runs on.")
     parser.add_argument("--check", action="store_true", help="fail when the committed corpus is not what this script writes")
     parser.add_argument("--record", action="store_true", help="record entry_golden.jsonl on the tree as it is now (once; never to change a golden)")
+    parser.add_argument("--record-added", action="store_true", help="add to the golden the rows of the scenarios it does not hold (S41-1b); the rows it holds are not run or changed")
     parser.add_argument("--stats", action="store_true", help="print the number of scenarios by channel, source and claimer")
     parser.add_argument("--full", action="store_true", help="take every line of the sampled corpora (the same as WB_FULL_FUZZ=1); written to entry_corpus_full.jsonl, never committed")
     parser.add_argument("--workers", type=int, default=4, help="pytest-xdist workers of --record (default 4)")
@@ -452,6 +519,8 @@ def main(argv=None) -> int:
         return 1 if problems else 0
     if args.record:
         return record(args.workers)
+    if args.record_added:
+        return record_added(args.workers, subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(REPO), text=True).strip())
     count = write_corpus(full, HERE / ("entry_corpus_full.jsonl" if full else "entry_corpus.jsonl"))
     print(f"{count} scenarios written", file=sys.stderr)
     return 0
