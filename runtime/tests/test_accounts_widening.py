@@ -325,7 +325,7 @@ def test_the_record_made_before_the_key_lists_its_senders_once_and_a_keyed_recor
     assert policy_widening.widening(legacy, snap) == [], "read with no key (the tests), the old record matches"
     assert [w["place"] for w in policy_widening.widening(legacy, snap, policy_widening.PENDING_SECRET)] == ["telegram:1001"], "with a key it does not: listed once"
     keyed = policy_widening.parse(policy_widening.dump(snap, "k"))
-    assert policy_widening.widening(keyed, snap, "k") == [] and json.loads(policy_widening.dump(snap, "k"))["v"] == 3 and json.loads(policy_widening.dump(snap))["v"] == 2
+    assert policy_widening.widening(keyed, snap, "k") == [] and json.loads(policy_widening.dump(snap, "k"))["v"] == 5 and json.loads(policy_widening.dump(snap))["v"] == 4
 
 
 def test_the_first_acceptance_makes_the_projects_key_and_the_records_are_keyed_with_it(world):
@@ -340,4 +340,4 @@ def test_the_first_acceptance_makes_the_projects_key_and_the_records_are_keyed_w
     held = policy_widening.parse_accounts(text)
     cfg = ops.project_config.load(world)
     assert held == {i["digest"] for i in policy_widening.account_items(cfg, key)} and not held & {i["digest"] for i in policy_widening.account_items(cfg)}
-    assert json.loads(ctx["store"].cursor_get(ctx["conn"], policy_widening.EFFECTIVE))["v"] == 3
+    assert json.loads(ctx["store"].cursor_get(ctx["conn"], policy_widening.EFFECTIVE))["v"] == 5

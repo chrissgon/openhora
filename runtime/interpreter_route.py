@@ -23,7 +23,8 @@ for it. This module checks the file, builds what the provider `model:text` (prov
     daily_routes(root=None)               the rows of kind `http` only: the routes that may run for a person every day. An account route is for tests,
                                           never the daily route (the go reads this list, never `load`)
     stdin_route(route)                    what the provider is shown of an `http` route: id, base_url, model (the upstream id), pin,
-                                          allow_fallbacks, data_collection, zdr, cache_breakpoint
+                                          allow_fallbacks, data_collection, zdr, cache_breakpoint and, for a row that has it, pin_reply (the exact name the
+                                          router gives the pinned provider in its reply, compared without case; default the pin; S41-10)
     route_sha256(route)                   the sha256 of the canonical JSON of stdin_route(route) for an `http` row; for an `account` row, of every key
                                           of the row but `retention` and `reference` (evals/interpreter_status.py computes it the same way): the value
                                           a caller puts in `accepted`
@@ -63,6 +64,8 @@ ID = re.compile(r"[a-z0-9][a-z0-9.-]{0,63}")
 CODE = re.compile(r"chat-http: (E_[A-Z_]+)")
 ROUTE_KEYS = ("id", "kind", "model", "upstream_model", "base_url", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint",
               "key", "key_prefix", "reference", "retention")
+OPTIONAL_ROUTE_KEYS = ("pin_reply",)      # S41-10: the exact name of the provider the router puts in its reply for the pinned one (default: the pin); part of the hash when present
+UPSTREAM_SHAPE = re.compile(r"[a-z0-9-]+/[a-z0-9.-]+")      # vendor/model and nothing else: no `:variant` suffix (online, free, nitro), no `@preset`, no `~alias`
 # The keys of an `account` row: closed, and none of them is a secret (the token is the lab's, found by its own lookup).
 ACCOUNT_KEYS = ("id", "kind", "model", "upstream_model", "lab_model", "pin", "params", "deadline_ms", "runner_version", "runner_sha256",
                 "envelope_sha256", "reference", "retention")
@@ -78,7 +81,9 @@ KEY_SHAPES = {"openrouter.ai": "sk-or-v1-"}
 # The models a route may name, by host: an allow-list beside KEY_SHAPES. An `upstream_model` must start with an entry of its host's tuple, and `model`
 # is MODEL_PREFIX plus `upstream_model`; anything else (an alias, a preset, a router that picks the model) is refused, whatever the pin says. The
 # vendor words below stay as a second layer. Both checks apply to `http` rows only.
-HTTP_MODELS = {"openrouter.ai": ("deep" + "seek/",)}
+# S41-10: the daily route's vendor and the vendors of the fallback routes (a second and a third vendor, the outage path of contracts/runtime.md L63). Each entry names a vendor's family, never a bare
+# vendor, so that an alias, a router or a preset of any of them is still refused; a row of a fallback vendor is served only through the group `interpret-fallback` and an entry that names it (runtime/interpreter_enable.py).
+HTTP_MODELS = {"openrouter.ai": ("deep" + "seek/", "google/gemini-", "openai/gpt-")}
 MODEL_PREFIX = {"openrouter.ai": "openrouter/"}
 # A model of this vendor is never reached over HTTP with a metered key; the words are matched in the model, upstream_model and pin, any case. They are
 # written in pieces so that this file names no AI tool (rule R19 of the platform plan, runtime/tests/test_runtime_rules.py).
@@ -111,8 +116,8 @@ def _registered_names(root: str) -> dict:
 
 
 def _check_route(route, names: dict, seen: set) -> None:
-    if not isinstance(route, dict) or set(route) != set(ROUTE_KEYS):
-        raise RouteError("a route has exactly the keys " + ", ".join(ROUTE_KEYS))
+    if not isinstance(route, dict) or not set(ROUTE_KEYS) <= set(route) <= set(ROUTE_KEYS + OPTIONAL_ROUTE_KEYS):
+        raise RouteError("a route has the keys " + ", ".join(ROUTE_KEYS) + " and, optionally, " + ", ".join(OPTIONAL_ROUTE_KEYS))
     for key in ("kind", "model", "upstream_model", "base_url", "data_collection", "key", "key_prefix", "retention"):
         if not isinstance(route[key], str) or not route[key].strip():
             raise RouteError(f"route {key} is a non-empty text")
@@ -128,6 +133,10 @@ def _check_route(route, names: dict, seen: set) -> None:
     seen.add(route["id"])
     if not isinstance(route["pin"], str) or not route["pin"].strip():
         raise RouteError(f"route {route['id']}: pin is the name of the provider that serves it (every route is pinned)")
+    if "pin_reply" in route and (not isinstance(route["pin_reply"], str) or not route["pin_reply"].strip() or len(route["pin_reply"]) > 64 or not route["pin_reply"].isprintable()):
+        raise RouteError(f"route {route['id']}: pin_reply is the printable name, at most 64 characters, the router gives the pinned provider in its reply")
+    if not UPSTREAM_SHAPE.fullmatch(route["upstream_model"]) or "latest" in route["upstream_model"].lower():
+        raise RouteError(f"route {route['id']}: upstream_model is vendor/model with no variant suffix, preset, alias or `latest`")
     for key in ("allow_fallbacks", "zdr", "cache_breakpoint", "reference"):
         if not isinstance(route[key], bool):
             raise RouteError(f"route {route['id']}: {key} is true or false")
@@ -219,9 +228,12 @@ def find(route_id: str, root=None) -> dict:
 def stdin_route(route: dict) -> dict:
     if route.get("kind") == "account":
         raise RouteError("an account route is not shown to the provider: it has none")
-    return {"id": route["id"], "base_url": route["base_url"], "model": route["upstream_model"], "pin": route["pin"],
-            "allow_fallbacks": route["allow_fallbacks"], "data_collection": route["data_collection"], "zdr": route["zdr"],
-            "cache_breakpoint": route["cache_breakpoint"]}
+    shown = {"id": route["id"], "base_url": route["base_url"], "model": route["upstream_model"], "pin": route["pin"],
+             "allow_fallbacks": route["allow_fallbacks"], "data_collection": route["data_collection"], "zdr": route["zdr"],
+             "cache_breakpoint": route["cache_breakpoint"]}
+    if route.get("pin_reply") is not None:      # a row without it is shown as before (its hash is the one an enabling entry holds)
+        shown["pin_reply"] = route["pin_reply"]
+    return shown
 
 
 def route_sha256(route: dict) -> str:

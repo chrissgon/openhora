@@ -68,6 +68,7 @@ import natural
 import natural_time as nt
 import natural_writes as nw
 import phrases
+import registry_data
 import snapshot_text
 import source_names
 import sources
@@ -87,24 +88,18 @@ DAY_HITS = ("date", "slash")    # the hits of the time engine that name a day (a
 ENGLISH_WEEKDAY = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")      # the shape phrases.localize_dates turns into the language's word on a phone
 
 
-# The closed words of the account a line names, folded; a brand (language data, `requests.writes.calendar.brands_<account>`) counts beside a LEAD or before a CAL_WORD, never alone.
+# The closed words of the account a line names, folded; a brand (data, runtime/registry/search_stop_words.json: S41-9) counts beside a LEAD or before a CAL_WORD, never alone.
 SERVICE_NAME = {"google": "Google", "microsoft": "Microsoft"}
-CAL_WORDS = {"agenda", "agendas", "calendar", "calendars", "calendario", "calendarios", "calendrier", "calendriers", "kalender", "calendari"}
-LEADS = CAL_WORDS | {"no", "na", "nos", "nas", "pelo", "pela", "via", "usando", "pro", "pra", "em", "de", "do", "da", "meu", "minha",     # pt  validate: allow english-only -- the closed words of the languages a line may be written in
-                     "on", "in", "to", "from", "using", "of", "my", "at",                                                                      # en
-                     "en", "del", "por", "mi", "mis", "con",                                                                                   # es
-                     "sur", "dans", "avec", "mon", "ma", "chez",                                                                               # fr
-                     "im", "auf", "bei", "mit", "uber", "mein", "meine", "unter",                                                              # de
-                     "su", "sul", "sulla", "nel", "nella", "tramite", "mio", "mia", "di"}                                                      # it
+CAL_WORDS = set(registry_data.search_stop_words()["cal_words"])
+LEADS = set(registry_data.search_stop_words()["leads"])            # the calendar words and the words that introduce an account, in the languages a line may be written in
 
 
 def _brands() -> dict:
-    """{account: [brand as a tuple of folded words]} from the language tables."""
-    tables = natural._tables(None)
-    return {account: [tuple(_words(p)) for p in nw.listed(tables, "calendar", "brands_" + account)] for account in SERVICE_NAME}
+    """{account: [brand as a tuple of folded words]}, read from runtime/registry/search_stop_words.json."""
+    return {account: list(brands) for account, brands in registry_data.search_stop_words()["brands"].items() if account in SERVICE_NAME}
 
 
-PLURAL = {"os", "as", "uns", "umas", "aos", "los", "las", "les", "die", "gli", "le", "ambos", "ambas", "todos", "todas", "both", "all"}          # a plural article or a word for "both": a number after it is a group      # validate: allow english-only -- the closed words of the languages a line may be written in
+PLURAL = set(registry_data.search_stop_words()["plural"])          # a plural article or a word for "both": a number after it is a group
 
 
 def _text(ctx: dict, key: str, **fields) -> str:
@@ -532,27 +527,15 @@ def _edges(text: str) -> list:
 
 
 _STOP = []
-STOP_EXTRA = {"para", "as", "que", "com", "sem", "e", "and", "with", "the", "a", "an", "for", "at", "please", "por", "favor", "pra", "pro"}      # validate: allow english-only -- the closed words of the languages a line may be written in
 CLOSE_MARGIN = 0.15            # a best score must beat the next by this much to be the one; else the close ones are listed
 SCORE_MIN = 0.5                # the least share of the words (Dice) for an event to be a candidate at all
 
 
 def _stop_words() -> set:
-    """The words of a line that name no event: articles, polite and linking words, the verbs that ask to change or cancel, the markers of a time, and the closed words of LEADS: all folded, from the language tables."""
+    """The words of a line that name no event: articles, polite and linking words, the verbs that ask to change or cancel, the markers of a time, and the closed words of LEADS: all folded,
+    read from runtime/registry/search_stop_words.json (S41-9), which is made without the brand words of the accounts (a brand stays a word: it may be part of a title)."""
     if not _STOP:
-        tables = natural._tables(None)
-        found = set(STOP_EXTRA) | set(LEADS) | set(CAL_WORDS) | PLURAL
-        for section, key in ((None, "articles"), ("calendar", "cancel_verbs"), ("calendar", "change_verbs"), ("calendar", "to_time"), ("calendar", "rename"),
-                             ("calendar", "in_calendar")):          # the calendar nouns ("reuniao", "compromisso") are not here: they may be a whole title
-            for phrase in nw.listed(tables, section, key):
-                found.update(_words(phrase))
-        for table in tables:
-            for phrase in nw.writes_of(table).get("polite", []) + table.get("polite", []):
-                found.update(_words(phrase))
-        for brands in _brands().values():
-            for brand in brands:
-                found.difference_update(brand)          # an account's name stays a word: it may be part of a title ("Reuniao do Google"); the account logic reads it from the line
-        _STOP.append(found)
+        _STOP.append(set(registry_data.search_stop_words()["stop_words"]))
     return _STOP[0]
 
 
@@ -608,9 +591,8 @@ TITLE_NOUNS = {"reuniao", "reunioes", "meeting", "meetings", "appointment", "app
 
 
 def _noun_words() -> set:
-    """The calendar nouns of the language tables ("evento", "compromisso"...): they name the kind of thing, so a line that says "o evento corte de cabelo" has the title "corte de cabelo"."""
-    tables = natural._tables(None)
-    return {w for key in ("nouns", "nouns_plural") for phrase in nw.listed(tables, "calendar", key) for w in _words(phrase)} - TITLE_NOUNS
+    """The calendar nouns ("evento", "compromisso"...), read from runtime/registry/search_stop_words.json: they name the kind of thing, so a line that says "o evento corte de cabelo" has the title "corte de cabelo"."""
+    return set(registry_data.search_stop_words()["nouns"]) - TITLE_NOUNS
 
 
 def _exact(title_words: list, line_words: list) -> bool:

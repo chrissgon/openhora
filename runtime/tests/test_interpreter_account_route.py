@@ -155,9 +155,12 @@ def with_account(**over):
     return rows
 
 
+FALLBACK_IDS = ("or-gemini-3.5-flash-lite", "or-gpt-6-luna")      # S41-10: the two fallback rows (http, zdr), which follow the account rows
+
+
 def test_the_committed_file_loads_with_the_two_account_rows_and_one_reference():
     doc = ir.load()
-    assert [r["id"] for r in doc["routes"]] == [DEEPSEEK_ID, SONNET_ID, HAIKU_ID] and [r["kind"] for r in doc["routes"]] == ["http", "account", "account"]
+    assert [r["id"] for r in doc["routes"]] == [DEEPSEEK_ID, SONNET_ID, HAIKU_ID, *FALLBACK_IDS] and [r["kind"] for r in doc["routes"]] == ["http", "account", "account", "http", "http"]
     assert [r["id"] for r in doc["routes"] if r["reference"]] == [SONNET_ID]
 
 
@@ -222,7 +225,7 @@ def test_the_references_are_exactly_one_across_the_two_kinds(tmp_path):
 
 def test_daily_routes_holds_no_account_row_while_load_does():
     daily = ir.daily_routes()
-    assert [r["id"] for r in daily] == [DEEPSEEK_ID] and all(r["kind"] == "http" for r in daily)
+    assert [r["id"] for r in daily] == [DEEPSEEK_ID, *FALLBACK_IDS] and all(r["kind"] == "http" for r in daily)
     assert {r["id"] for r in ir.load()["routes"]} - {r["id"] for r in daily} == {SONNET_ID, HAIKU_ID}      # vacuity: the account rows exist
 
 
