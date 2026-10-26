@@ -1,4 +1,4 @@
-"""Two questions wait and one bare "sim" answers neither (package BL2b, limit L64; runtime/messaging_bridge.py `word_line`, `plan_waits`).
+"""Two questions wait and one bare "sim" answers neither (package BL2b, limit L64; runtime/messaging_turn.py the kind `decision-card-word`, runtime/messaging_bridge.py `word_last`, `plan_waits`).
 
 A "Shall I go ahead?" (a plan the operations layer keeps) and a decision card that was sent AFTER it are both open. A bare "sim" may be meant for either: it decides NEITHER and the person is told
 to reply to the message they mean (`PLAN_TWO_OPEN`). A reply names its message, so a reply "sim" to the card decides the card (approved by its hash) and one to the question confirms the plan.
@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 import standin_tree as st
+from frame_kit import claims
 from test_messaging import SENDER, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 from test_messaging_card_words import GRANTED, approvals, message_ids, nothing_decided, plan  # noqa: F401
 
@@ -78,12 +79,12 @@ def test_a_plan_that_is_not_the_one_the_question_was_drawn_for_does_not_count_as
     assert approvals(world) == [(1, "a" * 64)]
 
 
-def test_the_plan_line_never_decides_a_decision_card(open_two):
+def test_the_plan_kind_never_decides_a_decision_card(open_two):
     world = open_two
     update = {"sender": SENDER, "chat": SENDER, "private": True, "text": "sim", "reply_to": message_ids(world)[1]}      # a reply to the CARD
-    assert world.bridge.plan_line(update, {"kind": "reply", "reply_to": update["reply_to"], "text": "sim"}, "reply", world.projects[0], world.projects, SENDER, SENDER) is False
+    assert claims(world.bridge, "plan-confirm", update, {"kind": "reply", "reply_to": update["reply_to"], "text": "sim"}, "reply", world.projects[0], world.projects, SENDER) is False
     update = dict(update, reply_to=None)      # the card is the last message
-    assert world.bridge.plan_line(update, {"kind": "text", "text": "sim"}, "text", world.projects[0], world.projects, SENDER, SENDER) is False
+    assert claims(world.bridge, "plan-confirm", update, {"kind": "text", "text": "sim"}, "text", world.projects[0], world.projects, SENDER) is False
     assert approvals(world) == [] and world.calls("say") == []
 
 

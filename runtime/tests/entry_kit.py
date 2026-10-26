@@ -14,7 +14,7 @@ read and write the same files as the process would; `FastMessenger` is what save
 
 THE CLAIMER TRACE (test-side only, nothing in runtime/ changes). `trace_claimers` wraps the methods and functions that claim a line today and records the first one that took it, per
 layer; a claimer that is a branch of its dispatcher (a kind of intent, an inline test) is named from the facts the wrappers saw. `CLAIMER_NAMES` are exactly the row names that S41-2 and
-S41-3 give `turn_order.ORDER`, so that their tables can assert equality.
+S41-3 gave `turn_order.ORDER`, so that their tables can assert equality (S41-8: the frame's seven are its kinds, `FRAME_KIT_NAMES`).
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_entry_replay.py
 """
@@ -79,6 +79,7 @@ drafts = st.load("drafts")
 lab = st.load("lab")
 bridge = st.load("messaging_bridge")
 inbound = st.load("messaging_inbound")
+messaging_turn = st.load("messaging_turn")
 ack = st.load("messaging_ack")
 providers = st.load("messaging_provider")
 sources_module = st.load("sources")
@@ -110,6 +111,10 @@ BRIDGE_SAY_NAMES = ("delete-refusal-before-queue", "closed-form-without-slot", "
 OPS_NAMES = ("confirmed-plan", "command", "greeting", "plan-bare-word", "delete-file", "router-question", "state-question", "draft-answer", "event-list-number", "file-list-number",
              "write-form-ops", "tier-1-form", "talk-refusal", "interpreter", "planning-agent")
 CLAIMER_NAMES = BRIDGE_NAMES + BRIDGE_SAY_NAMES + OPS_NAMES
+# S41-8: the seven claimers that answered what is open are the pending kinds of the one row `frame` of `turn_order.ORDER`. The golden names them as it was recorded, by the claimer, so the kit's
+# trace keeps those names (a kind's `take` is wrapped, below) and this table is the one place that says which kind of `turn_order.FRAME_KINDS` each name is.
+FRAME_KIT_NAMES = {"reminder-draft": "reminder-draft-answer", "reminder-expired": "reminder-expired-yes", "write-draft": "write-draft-answer", "plan-confirm": "plan-confirm-word",
+                   "decision-card-word": "card-word", "research-run": "research-stop", "decision-card-revise": "card-revise"}
 
 # What is hidden when two outcomes are compared: every run of digits (an id, a position, a day, an hour, a count) and every word made only of hexadecimal characters that is six or more
 # long (a hash, the random identifier of a plan or of a folder, a project's key). A different WORD is never hidden: a phrase key that changes shows as a different text. One regex,
@@ -443,10 +448,8 @@ def trace_claimers(monkeypatch):
     wrap(monkeypatch, bridge.remind.Reminders, "answer", bridge_event(0), "truthy", "reminder-draft-answer")
     wrap(monkeypatch, bridge.remind.Reminders, "late", bridge_event(0), "truthy", "reminder-expired-yes")
     wrap(monkeypatch, bridge.Bridge, "write_answers", bridge_event(0), "truthy", "write-draft-answer")
-    wrap(monkeypatch, bridge.Bridge, "plan_line", bridge_event(0), "truthy", "plan-confirm-word")
-    wrap(monkeypatch, bridge.Bridge, "word_line", bridge_event(0), "truthy", "card-word")
-    wrap(monkeypatch, bridge.Bridge, "research_stop_line", bridge_event(0), "truthy", "research-stop")
-    wrap(monkeypatch, bridge.Bridge, "revise_line", bridge_event(0), "truthy", "card-revise")
+    for kind in ("plan-confirm", "decision-card-word", "research-run", "decision-card-revise"):      # S41-8: the call of the kind, what `plan_line`, `word_line`, `research_stop_line` and `revise_line` were
+        wrap(monkeypatch, messaging_turn.KINDS[kind], "take", bridge_event(0), "truthy", FRAME_KIT_NAMES[kind])
     wrap(monkeypatch, bridge.Bridge, "project_line", bridge_event(0), "truthy", "project-switch")
     wrap(monkeypatch, bridge.Bridge, "greets", ("fact", "greets_false"), "false")      # "help" in words is the fixed help only when the line is no greeting
     wrap(monkeypatch, bridge.attach.Attachments, "line", bridge_event(0), "truthy", "attachment-line")
