@@ -86,15 +86,16 @@ sources_module = st.load("sources")
 
 UNLISTED = "55119000000099"                 # a sender the project does not list
 OWNER_KEY = f"telegram:{OWNER}"
-CHANNELS = ("messaging", "page", "terminal", "ops")      # `ops`: a messaging sender's line given straight to ops.say, as the bridge gives it, without the bridge's own gate before it
+CHANNELS = ("messaging", "page", "terminal", "ops", "mcp", "chat")      # `ops`: a messaging sender's line given straight to ops.say, as the bridge gives it, without the bridge's own gate before it
 PLATFORMS = ("buttons", "email")
-SENDERS = ("owner", "reader", "asker", "unlisted", "group")      # `group` is the owner's id in a group chat (not the sender's own private chat)
+SENDERS = ("owner", "reader", "asker", "unlisted", "group", "reader_interpret")      # `group` is the owner's id in a group chat (not the sender's own private chat)
 PRESTATES = ("none", "card_last", "two_cards", "card_list_shown", "plan_last", "plan_not_last", "research_running", "reminder_draft", "reminder_expired", "write_draft_title",
              "router_question", "event_list_shown", "file_list_shown", "attachment_held", "config_unaccepted",
-             "plan_then_card", "research_and_card",
+             "plan_then_card", "research_and_card", "route_busy", "route_busy_ask_choice",
              "expired_and_write_draft", "reminder_and_write_draft", "reminder_and_expired", "plan_and_write_draft", "plan_and_file_held",
              "question_of_other_project")      # the last two are the spec's list plus the two states the guards of L64 need: a plan live with a card sent after it, and a search that runs with a card last
-OPS_PRESTATES = ("none", "router_question", "write_draft_title", "reminder_draft")      # the pre-states a page or a terminal line can be in
+OPS_PRESTATES = ("none", "router_question", "write_draft_title", "reminder_draft", "route_busy", "route_busy_ask_choice")      # the pre-states a line of the page, the terminal, mcp or chat can be in
+OPS_CHANNELS = ("page", "terminal", "mcp", "chat")      # the shells whose line is given to ops.say with no sender (S41-1c adds mcp and chat); `reader_interpret` holds read and interpret, not talk, and is listed only in the worlds of its own scenarios
 REPLY_TO = (None, "card", "plan", "list", "question", "nothing")      # `nothing`: a message id that no message of the chat has
 KINDS = ("text", "action", "attachment")
 ACTIONS = (None, "yes", "no", "approve", "reject", "release", "invalid")      # a button of the question or a card; "invalid" is an update whose attachments are not valid
@@ -118,11 +119,12 @@ OUTCOME_FIELDS = ("trace", "ops_calls", "sent", "ledger_added", "drafts", "plans
 
 GROUPS_OWNER = sorted(set(PROF["owner"]) | {"interpret", "research", "read-files", "ask-mail", "add-sources", "calendar-write", "approve-effect-calendar", "reminders",
                                             "routine-brakes", "sources", "answer", "release", "reject-cancel", "approve-plans", "files-write", "files-trash"})
-PROFILES = dict(PROF, owner=GROUPS_OWNER, reader=["read"], asker=["read", "talk", "ask", "interpret"])
+PROFILES = dict(PROF, owner=GROUPS_OWNER, reader=["read"], asker=["read", "talk", "ask", "interpret"], viewer=["read", "interpret"])
 SENDER_TABLE = {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": READER, "policy": "reader"}, {"id": ASKER, "policy": "asker"}]}
-SENDER_ID = {"owner": OWNER, "reader": READER, "asker": ASKER, "unlisted": UNLISTED, "group": OWNER}
+VIEWER = "55119000000041"      # holds read and interpret, not talk (S41-1c)
+SENDER_ID = {"owner": OWNER, "reader": READER, "asker": ASKER, "unlisted": UNLISTED, "group": OWNER, "reader_interpret": VIEWER}
 GROUP_CHAT = "-1001234"
-NAME_OF = {SENDER_ID[name]: name for name in ("owner", "reader", "asker", "unlisted")}      # the name of a chat (a private chat is its sender's id) in an outcome; the group chat is its own
+NAME_OF = {SENDER_ID[name]: name for name in ("owner", "reader", "asker", "unlisted", "reader_interpret")}      # the name of a chat (a private chat is its sender's id) in an outcome; the group chat is its own
 NAME_OF[GROUP_CHAT] = "group-chat"
 ACCOUNTS = {name: {**tcw.ACCOUNTS[name], "folders": DRIVE_ACCOUNTS[name]["folders"]} for name in tcw.ACCOUNTS}      # the calendar's accounts and the drives' folders, one entry each
 
@@ -702,7 +704,8 @@ def open_world(scenario, tmp_path, monkeypatch) -> World:
     now = [1000.0]
     monkeypatch.setattr(pending_items, "clock", lambda: now[0])
     monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)      # the acknowledgement of a slow line is a clock's: the replay never waits for it
-    accept(w.path, policies=PROFILES, messaging={"senders": SENDER_TABLE}, accounts=ACCOUNTS)
+    table = SENDER_TABLE if scenario["sender"] != "reader_interpret" else {"telegram": [*SENDER_TABLE["telegram"], {"id": VIEWER, "policy": "viewer"}]}      # the other worlds are as they were
+    accept(w.path, policies=PROFILES, messaging={"senders": table}, accounts=ACCOUNTS)
     monkeypatch.setattr(ops_interpret, "_zone", lambda now_: ZONE)
     w.model = StandInModel()
     monkeypatch.setattr(interpreter_route, "complete", w.model.complete)
@@ -914,6 +917,41 @@ def prestate_question_of_other_project(w):
             card["project"] = "other-project"
 
 
+def hold_route(w):
+    """A run of the router holds the project's route lock now (a line that routes meets it busy): taken here, let go by `drain` after the line."""
+    w.route_fd = ops_core._try_lock(ops_core.context(w.path)["cfg"], "route.lock")
+    assert w.route_fd is not None
+
+
+def prestate_route_busy(w):
+    hold_route(w)
+
+
+def prestate_route_busy_ask_choice(w):
+    """The choice of a file for an `ask` is open on the page (the draft of the question that several files could answer), and the router is busy: an answer to it waits in the queue."""
+    add_source(w.world, "lease-contract", LEASE)
+    add_source(w.world, "meeting-notes", NOTES)
+    drafts.put("page", "", {"kind": "which", "line": "what is the notice period?", "ids": ["lease-contract", "meeting-notes"], "project": ops_natural.project_key(w.path)}, "ops",
+               ttl=ops_natural.DRAFT_TTL)
+    hold_route(w)
+
+
+def drain(w):
+    """After a line that was queued: the router is free again, and the queue is drained as the service drains it (`route_queued`, one entry per call), until nothing is left to route."""
+    drained = []
+    fd = getattr(w, "route_fd", None)
+    if fd is None:
+        return drained
+    os.close(fd)
+    w.route_fd = None
+    for _ in range(6):
+        done = ops.route_queued(w.path)
+        drained.append(done)
+        if done.get("routed") is None:
+            break
+    return drained
+
+
 def prestate_reminder_draft(w):
     w.b.say(REMINDER_LINE)
     settle(w)
@@ -1013,7 +1051,10 @@ def deliver(w, scenario):
     if channel == "ops":
         return ops.say(w.path, scenario["text"], channel="messaging", sender=f"telegram:{SENDER_ID[scenario['sender']]}")
     if channel != "messaging":
-        return say_ops(w, scenario["text"], channel)
+        try:
+            return say_ops(w, scenario["text"], channel)
+        except (ops_core.OpsError, ops_core.RunBusy) as e:      # a refusal of the shell is an outcome (the message, never a crash)
+            return {"reply": f"<{type(e).__name__}> {e}", "ran": None, "queued": None}
     sender = SENDER_ID[scenario["sender"]]
     group = scenario["sender"] == "group"
     chat = GROUP_CHAT if group else sender
@@ -1099,6 +1140,9 @@ def outcome(w, before, returned):
         flags = {"ran": returned.get("ran"), "queued": returned.get("queued"), "request": returned.get("request_id") is not None, "pending": returned.get("pending_id") is not None,
                  "resend": returned.get("resend") is not None, "plan_confirm": (returned.get("plan_confirm") or {}).get("op")}
         sent.append({"to": scenario["channel"], "text": shown(w, returned.get("reply")), "buttons": [], "document": None, "flags": flags})
+        for done in getattr(w, "drained", []):      # what the drain of the queue answered, after the line was queued
+            sent.append({"to": scenario["channel"] + "-drain", "text": shown(w, str(sorted((k, v) for k, v in done.items() if k in ("routed", "queued", "ran", "reason")))), "buttons": [], "document": None,
+                         "flags": {"routed": done.get("routed"), "ran": done.get("ran")}})
     stored = []
     for row in stored_rows(w):
         if row["id"] in before["stored"]:
@@ -1138,6 +1182,7 @@ def run_scenario(scenario, tmp_path, monkeypatch, line_hook=None) -> dict:
             line_hook(monkeypatch)
         w.recorder.live = True
         returned = deliver(w, scenario)
+        w.drained = drain(w)
         if scenario["channel"] == "messaging":
             settle(w, extra=w.held)
             if w.held:
@@ -1185,9 +1230,9 @@ def check_scenario(scenario):
         problems.append("kind")
     if scenario.get("action") not in ACTIONS:
         problems.append("action")
-    if scenario.get("channel") in ("page", "terminal") and (scenario.get("prestate") not in OPS_PRESTATES or scenario.get("platform") != "buttons" or scenario.get("sender") != "owner"):
-        problems.append("a page or terminal line is the owner's, on no platform, in a pre-state of OPS_PRESTATES")
-    if scenario.get("channel") == "ops" and (scenario.get("prestate") != "none" or scenario.get("platform") != "buttons" or scenario.get("sender") not in ("owner", "reader", "asker")
+    if scenario.get("channel") in OPS_CHANNELS and (scenario.get("prestate") not in OPS_PRESTATES or scenario.get("platform") != "buttons" or scenario.get("sender") != "owner"):
+        problems.append("a page, terminal, mcp or chat line is the owner's, on no platform, in a pre-state of OPS_PRESTATES")
+    if scenario.get("channel") == "ops" and (scenario.get("prestate") != "none" or scenario.get("platform") != "buttons" or scenario.get("sender") not in ("owner", "reader", "asker", "reader_interpret")
                                               or scenario.get("kind") != "text" or scenario.get("reply_to") or scenario.get("forwarded")):
         problems.append("an ops line is a listed sender's plain text, in the pre-state none")
     if not isinstance(scenario.get("text"), (str, type(None))):
