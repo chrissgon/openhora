@@ -18,7 +18,7 @@ Usage:
 The request (version 1), one JSON object:
   {"v": 1,
    "route": {"id", "base_url", "model", "pin": str|null, "allow_fallbacks": false, "data_collection": "deny",
-             "zdr": bool, "cache_breakpoint": bool},
+             "zdr": bool, "cache_breakpoint": bool, "pin_reply": str (optional)},
    "accepted": [sha256 of a route, ...],
    "key_prefix": str,
    "params": {"temperature": number, "max_tokens": int, "reasoning": "off"|"on"},
@@ -41,7 +41,8 @@ allow_fallbacks other than false; data_collection other than "deny". No redirect
 On failure the only output is one line on standard error, `chat-http: <CODE>`: no request, no reply body, no
 URL and no key is ever printed, not even inside an exception. Codes and exits:
   E_USAGE 2 | E_KEY 3, E_ROUTE 3 | E_TIMEOUT, E_NETWORK, E_RATE (429), E_UPSTREAM (5xx), E_HTTP (any other status),
-  E_PIN (the reply names another provider than the pin, or a `model` that does not start with the route's model), E_RESPONSE (not JSON, over 65,536 bytes, no text), E_INTERNAL: 1.
+  E_PIN (the reply names another provider than the pin, or a `model` that does not start with the route's model; the reply's provider is compared with `pin_reply` when the route has one, else with `pin`, ignoring case; when it is the
+         provider that differs, one line `chat-http: provider <name>` (the name the service gave, lower case, printable characters, at most 64: a provider's name is not sensitive) comes before the code line), E_RESPONSE (not JSON, over 65,536 bytes, no text), E_INTERNAL: 1.
 
 Standard library only; runs on Python 3.9.
 """
@@ -68,6 +69,8 @@ MAX_RESPONSE_BYTES = 65536
 MAX_DEADLINE_MS = 600000
 MAX_TOKENS_LIMIT = 32768
 ROUTE_KEYS = ("id", "base_url", "model", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint")
+OPTIONAL_ROUTE_KEYS = ("pin_reply",)
+NAME_KEEP = "abcdefghijklmnopqrstuvwxyz0123456789 ._/-"      # the characters of a provider name that are printed as they are; any other is a question mark
 REQUEST_KEYS = ("v", "route", "accepted", "key_prefix", "params", "system", "user", "deadline_ms")
 KEY_PREFIX_LENGTH = (4, 32)
 EXITS = {"E_USAGE": 2, "E_KEY": 3, "E_ROUTE": 3}
@@ -76,9 +79,10 @@ EXITS = {"E_USAGE": 2, "E_KEY": 3, "E_ROUTE": 3}
 class Fail(Exception):
     """A failure that is only a code: nothing else of it is ever printed."""
 
-    def __init__(self, code):
+    def __init__(self, code, note=None):
         super().__init__(code)
         self.code = code
+        self.note = note      # one more line, printed before the code: only the provider's name on a pin mismatch
 
 
 def canonical(obj) -> bytes:
@@ -108,11 +112,12 @@ def read_request() -> dict:
     if not isinstance(req, dict) or set(req) != set(REQUEST_KEYS) or req["v"] != 1 or not is_int(req["v"]):
         raise Fail("E_USAGE")
     route, params = req["route"], req["params"]
-    if not isinstance(route, dict) or set(route) != set(ROUTE_KEYS):
+    if not isinstance(route, dict) or not set(ROUTE_KEYS) <= set(route) <= set(ROUTE_KEYS + OPTIONAL_ROUTE_KEYS):
         raise Fail("E_USAGE")
     ok = (all(isinstance(route[k], str) and route[k] for k in ("id", "base_url", "model", "data_collection"))
           and (route["pin"] is None or (isinstance(route["pin"], str) and route["pin"]))
-          and all(isinstance(route[k], bool) for k in ("allow_fallbacks", "zdr", "cache_breakpoint")))
+          and all(isinstance(route[k], bool) for k in ("allow_fallbacks", "zdr", "cache_breakpoint"))
+          and ("pin_reply" not in route or (isinstance(route["pin_reply"], str) and route["pin_reply"])))
     ok = ok and isinstance(req["accepted"], list) and all(isinstance(x, str) for x in req["accepted"])
     prefix = req["key_prefix"]
     ok = ok and isinstance(prefix, str) and KEY_PREFIX_LENGTH[0] <= len(prefix) <= KEY_PREFIX_LENGTH[1] and prefix.isprintable()
@@ -248,7 +253,7 @@ def post(req: dict, loopback: bool, host: str, port, base: str) -> dict:
     return {"raw": b"".join(chunks), "latency_ms": int((time.monotonic() - start) * 1000)}
 
 
-def parse_reply(raw: bytes, latency_ms: int, pin, model) -> dict:
+def parse_reply(raw: bytes, latency_ms: int, pin, model, pin_reply=None) -> dict:
     try:
         doc = json.loads(raw.decode("utf-8"))
         choice = doc["choices"][0]
@@ -259,8 +264,9 @@ def parse_reply(raw: bytes, latency_ms: int, pin, model) -> dict:
         raise Fail("E_RESPONSE")
     upstream = doc.get("provider")
     upstream = upstream.lower() if isinstance(upstream, str) and upstream else None
-    if pin and upstream is not None and upstream != pin.lower():
-        raise Fail("E_PIN")
+    expected = pin_reply or pin
+    if expected and upstream is not None and upstream != expected.lower():
+        raise Fail("E_PIN", "provider " + "".join(c if c in NAME_KEEP else "?" for c in upstream)[:64])
     if "model" in doc and not (isinstance(doc["model"], str) and doc["model"].lower().startswith(model.lower())):
         raise Fail("E_PIN")        # a service that answers with another model than the route names (an alias, a preset, a router) is refused
     usage = doc.get("usage")
@@ -279,7 +285,7 @@ def complete(dry_run: bool) -> dict:
         would = {"method": "POST", "url": url, "body": build_body(req)}
         return {"would": would, "would_sha256": sha256_of(would)}
     got = post(req, loopback, host, port, base)
-    return parse_reply(got["raw"], got["latency_ms"], req["route"]["pin"], req["route"]["model"])
+    return parse_reply(got["raw"], got["latency_ms"], req["route"]["pin"], req["route"]["model"], req["route"].get("pin_reply"))
 
 
 def run(argv) -> int:
@@ -301,10 +307,10 @@ def main(argv=None) -> int:
     try:
         return run(sys.argv[1:] if argv is None else argv)
     except Fail as failure:
-        code = failure.code
+        code, note = failure.code, failure.note
     except BaseException:    # noqa: BLE001 - whatever it is, only a code leaves
-        code = "E_INTERNAL"
-    sys.stderr.write("chat-http: " + code + "\n")
+        code, note = "E_INTERNAL", None
+    sys.stderr.write(("chat-http: " + note + "\n" if note else "") + "chat-http: " + code + "\n")
     return EXITS.get(code, 1)
 
 

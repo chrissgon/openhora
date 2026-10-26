@@ -167,7 +167,7 @@ def build(tmp_path, monkeypatch) -> Lab:
     tree, project = built["tree"], built["project"]
     config = project / "docs" / "workbench" / "runtime.json"
     raw = json.loads(config.read_text(encoding="utf-8"))
-    groups = [g for g in tuple(operations.ceiling_groups("messaging")) + tuple(operations.GRANTS["messaging"]) if g != "read-limited"]          # the owner holds every group (L1)
+    groups = [g for g in tuple(operations.ceiling_groups("messaging")) + tuple(operations.GRANTS["messaging"]) if g not in ("read-limited", "interpret-fallback")]          # the owner holds every group (L1) but the one that cannot be accepted while no fallback route is in force (S41-10)
     raw["accounts"] = {**ACCOUNTS, "default": "google"}
     raw["policies"] = {"owner": groups}
     raw["messaging"] = {"senders": {"telegram": [{"id": OWNER, "policy": "owner"}]}}

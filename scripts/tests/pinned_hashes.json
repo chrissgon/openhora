@@ -1,8 +1,8 @@
 {
   "pins": {
     "route_or_deepseek_v4_1_flash": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
-    "route_or_gemini_3_5_flash_lite": "bce78cc0ad16efdb0a7e00a8f395f23fb8d0e9f608a4875c9004de54ee28d762",
-    "route_or_gpt_6_luna": "9fd7c7c73b8b6ad39ce5e23d4f306b399fa0a7909d4d1a31f4fab764478ac4be",
+    "route_or_gemini_3_5_flash_lite": "d6c0cc655c62ac9a02706f109022aed4520a57f221f0bdc96beed79406f2d706",
+    "route_or_gpt_6_luna": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
     "route_acct_sonnet_5_5": "23657eec67a80cb5f4e2ca075cace2acca74c128904addb27eaa3b2838b0aa1b",
     "route_acct_haiku_4_5": "7a7bcd7764488bbc0fd583b6c989f3dddf4ac543303f5e4d57ade85df8e06d02",
     "route_account_status_test_row": "ad1270f749a169dbc6a387768981bac69583745bbf6685161939b19226cf4c95",

@@ -126,6 +126,8 @@ def route_sha256(route):
         return sha_obj({k: v for k, v in route.items() if k not in ("retention", "reference")})
     sent = {k: route.get(k) for k in ROUTE_KEYS}
     sent["model"] = sent.pop("upstream_model")
+    if route.get("pin_reply") is not None:      # S41-10: an optional key of a row, part of what the provider is shown
+        sent["pin_reply"] = route["pin_reply"]
     return sha_obj(sent)
 
 

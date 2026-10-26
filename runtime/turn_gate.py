@@ -81,15 +81,20 @@ same `call`, and only when ALL of these hold:
 
   * the caller gave `fallback` (the entry's routes) to `admit` and to `call`, and the sender held the group when `admit` made the admission (`Admission.fallback_ok`: the group is read from the project's
     policy by `admit` and carried as a flag, so that a caller that forgets the group, and the mail composer and the two revisers, which pass no fallback, can never reach a fallback);
-  * the primary's call failed with a code other than E_ROUTE (a route the entry no longer matches is the entry's fault, not an outage) or the primary's breaker was open when `call` began;
+  * the person's consent covers the companies in force (`_consented`): the record of the accepted file (cursor `config:fallbacks`, policy_widening.FALLBACKS) holds the keyed digest of every `route:hash` of
+    the set in force, so a company the person was never shown (named by a dated entry after they widened the group) gets no line, whatever the group says; no store, no key or a fault is no consent;
+  * the primary's call failed with an OUTAGE code (OUTAGE_CODES: E_TIMEOUT, E_NETWORK, E_RATE, E_UPSTREAM: the service did not answer or was out) or the primary's breaker was open when `call` began. Every other
+    failure stays the caller's own: E_HTTP (a refusal, 4xx), E_RESPONSE (an empty, refused or oversize reply), E_KEY and E_USAGE (local faults), E_ROUTE (the entry's fault) and E_PIN (the reply names another
+    provider or model than the row promises: a configuration mismatch or a safety signal, not an outage of the pinned provider) are not outages, and no second company is asked about them;
   * the fallback's row is a daily (http) route, other than the primary, asks the router for zero data retention (`zdr` true) and has the hash the entry names (else E_ROUTE and no request);
   * the fallback's own breaker is closed: each route has its own count of failures in a row and its own BREAKER_OPEN (`record(ok, route)`; the primary's is the section-1 state). `admit` also
     admits a line whose primary breaker is open when a fallback of a sender that holds the group is closed, and refuses it (None) when none is.
 
 One admission covers the line: the rate and the day count it once, whatever the number of calls, and a line makes at most LINE_CALLS_MAX (2) calls, so the primary and one fallback, or two fallbacks when
-the primary's breaker is open (D4: at most one more step and a bounded price per line). The fallback gets the same system and user text as the primary, the same settings and the same deadline;
-nothing is added to either and nothing is logged. Both routes failing is the caller's own fallback (a failed call: `_no_decision`). The result of a call that went to the fallback carries `attempts`
-(`[(route or None for the primary, ok)]`), which `record_attempts(got)` records route by route; a result without it is recorded as before, `record(ok)`.
+the primary's breaker is open (D4: at most one more step and a bounded price per line). The fallback gets the same system and user text and the same settings as the primary, and only what is LEFT of the line's
+deadline (`deadline_ms` minus the time the primary took; none is asked when less than MIN_FALLBACK_MS is left): the worst case of a line is the primary's own, the deadline plus the provider's 0.5 s margin (6.5 s
+at the interpreter's 6 s), whatever the routes; after a primary that ended at its deadline (E_TIMEOUT) no time is left and only an open breaker lets a fallback serve the next lines. Nothing is added to either call and nothing is logged. Both routes failing is the caller's own fallback (a failed call: `_no_decision`). The result of a call that went to the fallback carries `attempts`
+(`[(route or None for the primary, ok)]`), which `record_attempts(got)` records route by route; a result without it is recorded as before, `record(ok)`. A fallback call that ended in a code that is not an outage (a local fault, a refusal) counts nothing on that route's breaker.
 
 Privacy (limit L63): the added state is a count of failures and a time for each fallback route, held in memory and keyed by the route's id; the text of a line is passed to the second vendor only for the senders who widened the group.
 
@@ -474,6 +479,8 @@ def failed_in_turn(source_id) -> bool:
 FALLBACK_GROUP = "interpret-fallback"      # the policy group a sender widens to let a line go to a second vendor (a kind-only group of the messaging channel, in no default)
 FALLBACK_MAX = 2          # routes an entry may name as the outage path
 LINE_CALLS_MAX = 2        # model calls one admitted line may make, whatever the routes (D4)
+OUTAGE_CODES = ("E_TIMEOUT", "E_NETWORK", "E_RATE", "E_UPSTREAM")      # the codes of a service that is out: the only failures a second company is asked about
+MIN_FALLBACK_MS = 1000    # less than this is left of the line's deadline: no fallback call
 _fallback_breakers = {}   # a fallback route's id -> {"fails", "until"}, the same two numbers as `_breaker`; read and written under `_lock`
 
 
@@ -493,13 +500,26 @@ def _closed(route_id, now) -> bool:
     return state is None or now >= state["until"]
 
 
+def _consented(ctx, items) -> bool:
+    """Whether the person's accepted file covers every company of `items`: the record of the store (policy_widening.FALLBACKS) holds the keyed digest of each `route:hash`, made with the project's key.
+    No store, no key, no record or any fault is False: a company nobody was shown gets no line."""
+    try:
+        widening = importlib.import_module("policy_widening")
+        held = ctx["store"].cursor_get(ctx["conn"], widening.FALLBACKS)
+        secret = ctx["store"].cursor_get(ctx["conn"], widening.KEY)
+        return bool(items) and bool(secret) and widening.fallbacks_covered(held, items, secret)
+    except Exception:      # noqa: BLE001 - nothing readable is no consent
+        return False
+
+
 def _may_fall_back(ctx, sender, fallback) -> bool:
-    """Whether this sender's line may go to a fallback route: the caller named one and the project's policy lists the group `interpret-fallback` for the sender (read here, at admission, from the
-    configuration the context holds). Any fault is False."""
-    if not _fallback_items(fallback):
+    """Whether this sender's line may go to a fallback route: the caller named one, the project's policy lists the group `interpret-fallback` for the sender (read here, at admission, from the
+    configuration the context holds) and the person's accepted file covers the companies in force (`_consented`). Any fault is False."""
+    items = _fallback_items(fallback)
+    if not items:
         return False
     try:
-        return importlib.import_module("operations").holds(FALLBACK_GROUP, "messaging", ctx["cfg"]["channels"], sender) is True
+        return importlib.import_module("operations").holds(FALLBACK_GROUP, "messaging", ctx["cfg"]["channels"], sender) is True and _consented(ctx, items)
     except Exception:      # noqa: BLE001 - no policy to read is no group
         return False
 
@@ -507,14 +527,15 @@ def _may_fall_back(ctx, sender, fallback) -> bool:
 def _call_with_fallback(entry: dict, outage: list, system: str, user: str, deadline_ms, params: dict) -> dict:
     """The primary, then the outage routes (see the section's text); at most LINE_CALLS_MAX calls. A primary that answers, or that is E_ROUTE, is returned as `call` returns it (the caller records it as
     before); once a fallback has been asked, or the primary was skipped, the result carries `attempts` for `record_attempts`."""
+    started = clock()
     with _lock:
-        primary_open = clock() < _breaker["until"]
+        primary_open = started < _breaker["until"]
     attempts, calls, last = [], 0, None
     if not primary_open:
         last = _call_route(entry["route"], entry["route_sha256"], system, user, deadline_ms, params)
         calls = 1
-        if last.get("ok") or last.get("code") == "E_ROUTE":
-            return last
+        if last.get("ok") or last.get("code") not in OUTAGE_CODES:
+            return last      # an answer, or a failure that is not an outage (a refusal, a local fault, E_ROUTE, E_PIN): the caller records it as before and no second company is asked
         attempts.append((None, False))
     for item in outage:
         if calls >= LINE_CALLS_MAX:
@@ -524,12 +545,18 @@ def _call_with_fallback(entry: dict, outage: list, system: str, user: str, deadl
         with _lock:
             if not _closed(item["route"], clock()):
                 continue
-        got = _call_route(item["route"], item["route_sha256"], system, user, deadline_ms, params, zdr_only=True)
+        left = deadline_ms - round((clock() - started) * 1000)      # what is left of the line's deadline: the fallback never gets a fresh one
+        if left < MIN_FALLBACK_MS:
+            break
+        got = _call_route(item["route"], item["route_sha256"], system, user, left, params, zdr_only=True)
         if got.get("code") == "E_ROUTE":
             continue      # a row the entry no longer matches asks nothing and counts nothing
         calls += 1
-        attempts.append((item["route"], bool(got.get("ok"))))
         last = got
+        if got.get("ok") or got.get("code") in OUTAGE_CODES:
+            attempts.append((item["route"], bool(got.get("ok"))))      # only an outage counts against a route's breaker
+        if not got.get("ok") and got.get("code") not in OUTAGE_CODES:
+            break      # a local fault or a refusal of the first would meet the second just the same
         if got.get("ok"):
             break
     return dict(last if last is not None else {"ok": False, "code": "E_BREAKER"}, attempts=attempts)

@@ -27,7 +27,8 @@ route's band; a test compares the two readings.
   retention(path=None)          the retention text of the newest entry's route, or None (what a person is shown when they widen the group `interpret`)
   fallbacks(entry)              the routes the entry names as the outage path (S41-10): the closed list `[{"route", "route_sha256"}]` of at most two distinct daily routes other than the entry's own,
                                 each a `zdr` row whose hash equals this checkout's; any fault in the field, in one item or in the row it names gives [] (the fallback is off; the interpreter stays on)
-  fallback_retention(path=None) the retention texts of the newest entry's fallback routes in force, or None (what a person is shown when they widen the group `interpret-fallback`)
+  fallback_routes(path=None)    the newest entry's fallback routes in force with the model, the pinned provider and the retention text of each (what a person is shown, and what their consent is tied to)
+  fallback_retention(path=None) the retention texts of the newest entry's fallback routes in force, or None
 
 Pure: it reads files and calls nothing. Standard library only. Runs on Python 3.9.
 """
@@ -200,14 +201,24 @@ def retention(path=None):
     return row.get("retention") if row else None
 
 
-def fallback_retention(path=None):
-    """The retention texts of the newest entry's fallback routes in force, in the entry's order, or None when it names none that is in force."""
+def fallback_routes(path=None) -> list:
+    """The fallback routes of the newest entry that are in force, in the entry's order, each with what a person is shown before they let a line go there:
+    `[{"route", "route_sha256", "model", "pin", "retention"}]` (the model the row names, the provider it is pinned to, the row's retention text), or [] (S41-10)."""
     try:
         entry = load(path)["entries"][-1]
-        texts = [_daily_row(item["route"]).get("retention") for item in fallbacks(entry)]
+        out = []
+        for item in fallbacks(entry):
+            row = _daily_row(item["route"])
+            out.append({"route": item["route"], "route_sha256": item["route_sha256"], "model": row["upstream_model"], "pin": row["pin"], "retention": row["retention"]})
+        return out
     except (EnableError, OSError, ValueError, KeyError, TypeError, AttributeError):
-        return None
-    return [t for t in texts if isinstance(t, str) and t] or None
+        return []
+
+
+def fallback_retention(path=None):
+    """The retention texts of the newest entry's fallback routes in force, in the entry's order, or None when it names none that is in force."""
+    texts = [r["retention"] for r in fallback_routes(path) if isinstance(r["retention"], str) and r["retention"]]
+    return texts or None
 
 
 if __name__ == "__main__":
