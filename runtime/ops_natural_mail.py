@@ -408,7 +408,7 @@ def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
     the index's From (L60)."""
     spans, args = decision.get("spans") or {}, decision.get("args") or {}
     tables = natural._tables(None)
-    words = nwm.target_words(spans.get("target") or "", tables)
+    words = nwm.target_words(decision.get("target_ground") or spans.get("target") or "", tables)          # BL7-1: a target widened with the line's subject is grounded by the person and the subject, never the marker word
     if not words and not spans.get("day"):
         return None
     slots = {"words": words}
