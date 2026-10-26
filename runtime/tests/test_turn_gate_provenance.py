@@ -621,7 +621,7 @@ def test_what_the_oracle_still_asks_of_natural_writes_is_the_short_list_s41_11_m
 def test_the_gate_imports_no_layer_above_it():
     tree = parse("turn_gate.py")
     modules = {alias.name for node in tree.body if isinstance(node, ast.Import) for alias in node.names} | {node.module for node in tree.body if isinstance(node, ast.ImportFrom)}
-    assert modules <= {"__future__", "collections", "contextlib", "importlib", "os", "re", "sys", "threading", "time", "unicodedata", "natural", "natural_time", "natural_writes"}, modules
+    assert modules <= {"__future__", "collections", "contextlib", "importlib", "os", "re", "sys", "threading", "time", "unicodedata", "natural", "natural_time", "natural_writes", "registry_data"}, modules
 
 
 def test_the_walk_the_fuzzers_make_passes_through_the_gate_and_none_of_its_calls_is_refused(world, moment, monkeypatch):  # noqa: F811

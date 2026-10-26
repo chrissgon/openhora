@@ -246,19 +246,20 @@ def _allowed(ctx: dict, sender) -> set:
     return {row["op"] for row in interpreter.SERVED["ops"] if operations.permitted(row["op"], CHANNEL, policy, None, sender)}
 
 
-def _ask_model(ctx: dict, entry: dict, said: str, sender, admission, frame=None):
-    """The decision for the line, or None when no call could be made or it failed. The call is the gate's (`turn_gate.call`) and needs the `admission` `turn_gate.admit` gave this line."""
+def _ask_model(ctx: dict, entry: dict, said: str, sender, admission, frame=None, fallback=None):
+    """The decision for the line, or None when no call could be made or it failed. The call is the gate's (`turn_gate.call`) and needs the `admission` `turn_gate.admit` gave this line. `fallback` is
+    the entry's outage routes (S41-10): the gate decides whether this sender's line may go to one (the group `interpret-fallback`, the primary's failure or open breaker)."""
     line_stage.publish("think")      # S19: the stage a phone is told if the line is still unanswered after a while
     try:
         now = ops_natural._clock()
         zone = _zone(now)
         system, user = interpreter.build_messages(interpreter.SERVED, now, zone, frame, said)
         protocol = interpreter.PROTOCOL
-        got = turn_gate.call(admission, entry, system, user, deadline_ms=protocol["deadline_ms"], params=protocol["params"])
+        got = turn_gate.call(admission, entry, system, user, deadline_ms=protocol["deadline_ms"], params=protocol["params"], fallback=fallback)
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
         got = {"ok": False}
     if got.get("code") != "E_GATE":      # no usable admission is a fault of the caller, not of the provider: no call was made, so nothing is counted against the breaker
-        turn_gate.record(bool(got.get("ok")))
+        turn_gate.record_attempts(got)
     if not got.get("ok"):
         return None
     try:
@@ -395,8 +396,9 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     frame = frame_for(age_s, plan)
     plan_id = next((item["id"] for item in (frame or {"items": []})["items"] if item["kind"] == "plan-confirm"), None)
     if decision is None:
-        admission = turn_gate.admit(ctx, sender) if entry is not None else None
-        decision = _ask_model(ctx, entry["entry"], said, sender, admission, frame) if admission is not None else None
+        outage = (entry or {}).get("fallback") or None      # S41-10: the entry's outage routes in force; the gate asks the sender's group (`interpret-fallback`) before any line goes to one
+        admission = (turn_gate.admit(ctx, sender, fallback=outage) if outage else turn_gate.admit(ctx, sender)) if entry is not None else None
+        decision = _ask_model(ctx, entry["entry"], said, sender, admission, frame, fallback=outage) if admission is not None else None
     if decision is None:
         return _no_decision(ctx, said, extras)
     kind = decision.get("kind")

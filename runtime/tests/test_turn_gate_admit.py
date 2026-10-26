@@ -232,7 +232,7 @@ def test_an_admission_is_made_by_the_gate_only_and_holds_no_text(tmp_path):
         turn_gate.Admission(None)
     sender = "telegram:4242-private-sender"
     got = turn_gate.admit(ctx_of(tmp_path), sender)
-    assert isinstance(got, turn_gate.Admission) and vars(got) == {"used": False}
+    assert isinstance(got, turn_gate.Admission) and vars(got) == {"used": False, "fallback_ok": False}
     assert not any(isinstance(v, str) for v in vars(got).values()) and sender not in repr(got) and str(tmp_path) not in repr(got)
 
 

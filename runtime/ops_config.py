@@ -110,6 +110,7 @@ def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool 
         secret = _digest_key(ctx, create=True)      # the digests of both records are keyed: a name written into the file cannot be chosen to collide with one
         core._stored(ctx, ctx["store"].cursor_set, policy_widening.EFFECTIVE, policy_widening.dump(policy_widening.snapshot(cfg), secret))   # POL-1/POL-2: what the file accepted now effectively has is what the next acceptance compares with
         core._stored(ctx, ctx["store"].cursor_set, policy_widening.ACCOUNTS, policy_widening.dump_accounts(cfg, secret))   # FND: the accounts it names, for the same comparison
+        core._stored(ctx, ctx["store"].cursor_set, policy_widening.FALLBACKS, policy_widening.dump_fallbacks(None, secret))   # S41-10: the fallback companies in force that the person was shown: the runtime sends a line to one only while this record holds it
     core._stored(ctx, ctx["store"].cursor_set, project_config.ACCEPTED, sha256)
     done = {"previous": previous, "checkpoints": write_checkpoints(cfg)}
     if adopted:
@@ -140,8 +141,9 @@ def _widening_of(ctx: dict, cfg: dict) -> list:
     got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)
     before = got(project_config.ACCEPTED) is not None
     secret = _digest_key(ctx)
-    return (policy_widening.widening(policy_widening.baseline(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), before), policy_widening.snapshot(cfg), secret)
+    wide = (policy_widening.widening(policy_widening.baseline(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), before), policy_widening.snapshot(cfg), secret)
             + policy_widening.account_widening(got(policy_widening.ACCOUNTS), cfg, secret))      # FND: the accounts the platform may write to
+    return wide + policy_widening.fallback_widening(got(policy_widening.FALLBACKS), policy_widening.snapshot(cfg), secret, wide)      # S41-10: a fallback company not shown yet
 
 
 def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen: str | None = None) -> dict:
@@ -166,6 +168,9 @@ def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen:
         resolved = folders.resolve(cfg)      # S11: a Google folder given as a path becomes its id here; the widening below and the record are made with the ids
         cfg = folders.with_ids(cfg, resolved)
         listed = _widening_of(ctx, cfg)
+        refused = policy_widening.fallback_refusal(listed)      # S41-10: no consent to a company that is not named
+        if refused:
+            raise core.OpsError(refused, 1)
         digest = policy_widening.widening_sha256(listed)
         if listed and widen != digest:
             raise _widening_refusal(cfg, listed, digest)

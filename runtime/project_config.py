@@ -384,6 +384,9 @@ def _check_assigned(where: str, channel: str, groups: list, profile: str | None,
     if "send-files" in groups and "read-files" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}'send-files' needs 'read-files' beside it "
                           "(it sends the file that reading files finds, so a policy that only sends is refused)")
+    if "interpret-fallback" in groups and "interpret" not in groups:
+        raise ConfigError(f"runtime.json {where}: {label}'interpret-fallback' needs 'interpret' beside it "
+                          "(it only chooses a second model service for the lines the interpreter reads, so a policy that lists it alone is refused)")
     if "files-trash" in groups and "read-files" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}'files-trash' needs 'read-files' beside it "
                           "(it finds the file by its name and lists names, as reading files does, so a policy that only trashes is refused)")

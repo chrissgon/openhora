@@ -54,9 +54,10 @@ def test_the_shipped_route_asks_no_cache_breakpoint_and_prices_the_cache_it_read
     provider caches by itself) and writes none."""
     routes = http_only(read("interpreter_routes.json"))["routes"]
     models = read("prices.json")["models"]
-    assert [r["id"] for r in routes] == ["or-deepseek-v4.1-flash"]
-    assert routes[0]["cache_breakpoint"] is False
-    assert models[routes[0]["model"]]["cache_read_usd_per_mtok"] > 0
+    assert [r["id"] for r in routes] == ["or-deepseek-v4.1-flash", "or-gemini-3.5-flash-lite", "or-gpt-6-luna"]      # S41-10: the two fallback rows follow
+    for route in routes:
+        assert route["cache_breakpoint"] is False
+        assert models[route["model"]]["cache_read_usd_per_mtok"] > 0
 
 
 def test_a_call_with_cached_tokens_is_priced_on_every_route():

@@ -159,7 +159,7 @@ def _widening(cfg: dict, store, conn, accepted):
     try:
         got = lambda name: store.cursor_get(conn, name)
         view = policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None, got(policy_widening.ACCOUNTS),
-                                  got(policy_widening.KEY) or policy_widening.PENDING_SECRET)
+                                  got(policy_widening.KEY) or policy_widening.PENDING_SECRET, got(policy_widening.FALLBACKS))
         return (view["widening_sha256"], policy_widening.lines(view["widening"])) if view["widening"] else None
     except Exception:      # noqa: BLE001 - a refusal is never held back by this hint: the command is then the plain one
         return None
