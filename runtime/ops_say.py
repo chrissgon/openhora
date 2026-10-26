@@ -183,42 +183,43 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     ctx = core.context(project)
     said = core._text(text, "the line")
     store = ctx["store"]
-    importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
-    importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
     turns = _turns()      # the order of who takes the line is the table of runtime/turn_order.py, stage `ops`; its dispatcher is runtime/ops_turn.py (S41-3)
-    if plan_ok is not None:
-        confirmed = turns.confirmed(project, ctx, said, sender, can_send, plan_ok)      # the row `confirmed-plan`
-        if confirmed is not None:
-            return confirmed
-    plan_before = channel == "messaging" and plan_confirm.live(project, sender) is not None      # D5: any other line than a yes, a no or a correction drops the plan, as a line drops a draft
-    handled = turns.code_claims(ctx, said, channel, sender, plan_before)      # a line code answers by itself waits for no run and no queue: a form, a draft's answer, a greeting, a request to delete a file, a bare yes or no with a live plan
-    if _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:
-        # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
-        # router is free again; a shell that drains nothing is refused while the router answers another request.
-        if channel in QUEUING_CHANNELS and (route_busy(ctx) or _queue_read(ctx, peek=True)):
-            stored = _enqueue_line(ctx, said)
-            return {"reply": None, "request_id": None, "pending_id": None, "ran": False, "queued": True,
-                    "message_id": stored["id"]}
-        if channel not in QUEUING_CHANNELS and route_busy(ctx):
-            raise core.RunBusy(RUN_BUSY, 1)
-    kept = ops_natural.stored_line(ctx, said, _natural_channel(channel), sender)
-    # A plain line of a sender whom the interpreter reads (S1, limit L63) is stored AFTER the decision: as a neutral word unless the interpreter sent it to the planning agent
-    # (`extras["interpreted"]`), so that a line the model service read is never kept in the store. Every other line is stored first, as it always was.
-    deferred = not said.startswith("/") and importlib.import_module("ops_interpret").enabled(ctx, channel, sender)
-    stored = None if deferred else core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=kept)
-    extras = {"deferred": True} if deferred else {}
-    if can_send is not None and channel == "messaging":
-        extras["can_send"] = can_send
-    try:
-        reply, request_id, pending_id, ran, run_id, offered = turns.dispatch(project, ctx, said, channel, stored["id"] if stored else None, sender, extras)
-    finally:
-        if deferred:
-            core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=phrases.text("IX_PRIVATE_LINE", ctx["cfg"]) if extras.get("interpreted") else kept)
-    if plan_before and "plan_confirm" not in extras and not extras.get("plan_keep"):
-        plan_confirm.drop(project, sender)      # D5: this line asked no new plan and is not a yes nobody could take: the old plan is gone
-    core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
-                 text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=extras.get("task_id", request_id), run_id=extras.get("run_id", run_id))
-    return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False, **_carried(extras, channel, offered)}
+    with turns.turn():      # S41-6: the line's refresh budget (limits L52 and L53), open from the begin-turn hooks to the stored reply
+        importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
+        importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
+        if plan_ok is not None:
+            confirmed = turns.confirmed(project, ctx, said, sender, can_send, plan_ok)      # the row `confirmed-plan`
+            if confirmed is not None:
+                return confirmed
+        plan_before = channel == "messaging" and plan_confirm.live(project, sender) is not None      # D5: any other line than a yes, a no or a correction drops the plan, as a line drops a draft
+        handled = turns.code_claims(ctx, said, channel, sender, plan_before)      # a line code answers by itself waits for no run and no queue: a form, a draft's answer, a greeting, a request to delete a file, a bare yes or no with a live plan
+        if _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:
+            # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
+            # router is free again; a shell that drains nothing is refused while the router answers another request.
+            if channel in QUEUING_CHANNELS and (route_busy(ctx) or _queue_read(ctx, peek=True)):
+                stored = _enqueue_line(ctx, said)
+                return {"reply": None, "request_id": None, "pending_id": None, "ran": False, "queued": True,
+                        "message_id": stored["id"]}
+            if channel not in QUEUING_CHANNELS and route_busy(ctx):
+                raise core.RunBusy(RUN_BUSY, 1)
+        kept = ops_natural.stored_line(ctx, said, _natural_channel(channel), sender)
+        # A plain line of a sender whom the interpreter reads (S1, limit L63) is stored AFTER the decision: as a neutral word unless the interpreter sent it to the planning agent
+        # (`extras["interpreted"]`), so that a line the model service read is never kept in the store. Every other line is stored first, as it always was.
+        deferred = not said.startswith("/") and importlib.import_module("ops_interpret").enabled(ctx, channel, sender)
+        stored = None if deferred else core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=kept)
+        extras = {"deferred": True} if deferred else {}
+        if can_send is not None and channel == "messaging":
+            extras["can_send"] = can_send
+        try:
+            reply, request_id, pending_id, ran, run_id, offered = turns.dispatch(project, ctx, said, channel, stored["id"] if stored else None, sender, extras)
+        finally:
+            if deferred:
+                core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=phrases.text("IX_PRIVATE_LINE", ctx["cfg"]) if extras.get("interpreted") else kept)
+        if plan_before and "plan_confirm" not in extras and not extras.get("plan_keep"):
+            plan_confirm.drop(project, sender)      # D5: this line asked no new plan and is not a yes nobody could take: the old plan is gone
+        core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
+                     text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=extras.get("task_id", request_id), run_id=extras.get("run_id", run_id))
+        return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False, **_carried(extras, channel, offered)}
 
 
 def _carried(extras: dict, channel: str, offered=None) -> dict:

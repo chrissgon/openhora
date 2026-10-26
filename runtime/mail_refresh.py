@@ -10,8 +10,7 @@ A line from a messaging app that names a message BY ITS WORDS ("apague o e-mail 
 index existed, the person used to be told to refresh it in the terminal. The platform does it instead, under the limits below; this module is the one place that decides whether
 a read happens and the one that makes it. It mirrors the calendar's exception (runtime/event_lookup.py `refresh`) and the phone list's (runtime/ops_items.py `_refresh_failed`).
 
-  turn()                                    a context manager: opens the budget of one line on this thread (the mail family's `resolve` wraps its body in it); an inner `with`
-                                            on the same thread reuses the budget, the outermost exit clears it
+  (the budget of a line is `turn_gate.turn`: S41-6 moved it there with the other two refresh paths; the mail family's `resolve` and every other entry of the operations layer open it)
   refresh_once(ctx, source_id, channel, sender)   "refreshed" | "failed" | "not-allowed" | "spent": whether the source was read again for this line
   forget()                                  clears the memory of failed tries (a test, a process that stops)
 
@@ -23,7 +22,8 @@ Where it lives under the limits:
   * The read right: only a messaging sender whose groups list `ask-mail` (`item_refs.may_read`, the right the lookup of a message already needs), checked here again although
     the caller checked it: the guard is in the module that calls the provider. No new group, no widening.
   * The most a line waits is about 120 seconds: up to TURN_TIMEOUT_S for the lock of a source that another line is reading, then up to TURN_TIMEOUT_S for its own read.
-  * One per line: a budget of one provider read per turn, fail-closed (no turn open on this thread, no read). One per source at a time: a lock for each source; a line that waits
+  * One per line: the line's refresh budget (`turn_gate.may_refresh(source_id, "mail-lookup")`, section 3 of runtime/turn_gate.py): one provider read per turn, never twice for a source in
+    one line, fail-closed (no turn open on this thread, no read). One per source at a time: a lock for each source; a line that waits
     for it asks again when it holds it, and finds the snapshot fresh. At most one failed try for a source in FAIL_COOLDOWN_S seconds, checked before the lock and under it.
     The provider is bounded at TURN_TIMEOUT_S seconds (the typed command keeps 300).
   * Only the source the line needs, only a source of type mail, never for a channel other than messaging (the terminal, the page and the conversation have the refresh command and
@@ -37,7 +37,6 @@ Standard library only. Runs on Python 3.9: python3 runtime/mail_refresh.py --hel
 """
 from __future__ import annotations
 
-import contextlib
 import importlib
 import os
 import sys
@@ -50,29 +49,16 @@ if HERE not in sys.path:
 import item_refs  # noqa: E402
 import line_stage  # noqa: E402
 import sources  # noqa: E402
+import turn_gate  # noqa: E402
 
 TRIGGERS = ("stale", "no_version", "no_index")      # the codes of `item_refs.ItemRefError` that a read of the source cures
 TURN_TIMEOUT_S = 60                                  # the provider's limit, and the most a line waits for the lock of a source
 FAIL_COOLDOWN_S = 120                                # a source that failed is not tried again for this long
 MONOTONIC = time.monotonic                           # the seam a test replaces
 
-_LOCAL = threading.local()                           # the budget of the line this thread runs: {"spent": bool}, or nothing
 _LOCKS = {}                                          # (project, source id) -> the lock of the source
 _LOCKS_GUARD = threading.Lock()
 _FAILED = {}                                         # (project, source id) -> MONOTONIC() of its last failed try: a number, in memory, no content
-
-
-@contextlib.contextmanager
-def turn():
-    """The budget of one line on this thread: one provider read. The outermost `with` creates it and clears it on exit; an inner one (the same line, the same thread) reuses it."""
-    outer = getattr(_LOCAL, "budget", None) is None
-    if outer:
-        _LOCAL.budget = {"spent": False}
-    try:
-        yield
-    finally:
-        if outer:
-            _LOCAL.budget = None
 
 
 def forget() -> None:
@@ -113,7 +99,7 @@ def _failed_word(error) -> str:
 
 def refresh_once(ctx: dict, source_id: str, channel, sender) -> str:
     """Read the mail source `source_id` again, once for this line. "not-allowed": the caller may not (not messaging, no right to read, no such mail source); "spent": no turn is
-    open, the line has read once already, or the source failed lately; "failed": the lock was not free in time or the read failed (one line to stderr with a closed word);
+    open, the line has read once already (any source, or this one for another purpose), or the source failed lately; "failed": the lock was not free in time or the read failed (one line to stderr with a closed word);
     "refreshed": the source was read again and the snapshot is no longer refused for a reason a read cures, or another line had just done it. A read that works but leaves the
     snapshot still refused is a "failed" and rests the source like a failure. Checked in this order, and the provider is reached only at the last step."""
     if channel != "messaging" or not item_refs.may_read(ctx, channel, sender):
@@ -124,13 +110,9 @@ def refresh_once(ctx: dict, source_id: str, channel, sender) -> str:
         return "not-allowed"
     if row is None or row.get("type") != "mail":
         return "not-allowed"
-    budget = getattr(_LOCAL, "budget", None)
-    if budget is None or budget["spent"]:
-        return "spent"
     key = (ctx["cfg"]["project"], source_id)
-    if _cooling(key):
+    if _cooling(key) or not turn_gate.may_refresh(source_id, "mail-lookup"):      # a source that failed lately costs the line nothing; the budget is spent only by a read that is tried
         return "spent"
-    budget["spent"] = True
     lock = _lock_of(key)
     if not lock.acquire(timeout=TURN_TIMEOUT_S):
         return "failed"
