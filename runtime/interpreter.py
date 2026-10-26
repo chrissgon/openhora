@@ -24,7 +24,8 @@ code acts on. Nothing the model writes is ever shown to a person, and nothing it
   render_catalog(catalog), prompt_sha256(), PROTOCOL
 
 The decision, always {"kind", "error"} plus, by kind:
-  op        op, args {parameter: value}, spans {slot: span}, time {local "YYYY-MM-DDTHH:MM", source "code"|"model"} | None, inherited [slots], time_disagree
+  op        op, args {parameter: value}, spans {slot: span}, time {local "YYYY-MM-DDTHH:MM", source "code"|"model"} | None, inherited [slots], time_disagree; and `target_ground` (a mail target widened
+            with the line's subject: the person and the subject without the marker word, the text a message is found by), `corrects` (the plan item a correction answers)
   answer    item (the id), need, and what the item's need asks: slot / span / args, confirm, option, time, time_disagree
   clarify   slot | ops (code writes the question), why: model | time-ask | time-past | time-far | time-gap | time-fold | weekday | private-route | invalid | long-line
   route     none
@@ -91,9 +92,16 @@ SUBJECT_MARKERS = tuple(tuple(m.split()) for m in (
 SUBJECT_STOPS = frozenset((          # the words that end a subject: the lead-ins of a body and the conjunctions
     "e", "que", "pra", "para", "com", "mas", "porque", "pois", "dizendo", "falando", "avisando", "pedindo", "agradecendo", "explicando", "confirmando", "perguntando", "informando", "respondendo",          # validate: allow english-only -- the closed list of Portuguese stop words of a subject
     "and", "that", "to", "with", "but", "because", "so", "saying", "telling", "tell", "asking", "thanking", "explaining", "confirming", "letting", "replying",
-    "y", "con", "pero", "diciendo", "et", "pour", "avec", "mais", "disant", "en", "und", "dass", "mit", "aber", "um", "ma", "che", "per", "dicendo"))
+    "y", "con", "pero", "diciendo", "et", "pour", "avec", "mais", "disant", "en", "und", "dass", "mit", "aber", "um", "ma", "che", "per", "dicendo",
+    "then", "depois", "entao", "luego", "puis", "dann", "poi",          # a second request after the subject ("... about the lease then trash the one from Bo")
+    "into", "onto", "folder", "pasta", "carpeta", "dossier", "ordner", "cartella",          # a destination, never the subject ("... about the lease into Archive", "na pasta Trabalho")
+    "too", "also", "tambem", "tambien", "aussi", "auch", "anche"))          # a closing "too" is not the subject
 SUBJECT_TRAIL = frozenset("de do da dos das em no na nos nas o a os as um uma of the an on at in for from del la el los las le les du des der die das dem den von am im il lo di della dello".split())          # never left at the end of a subject
 SUBJECT_WORDS_MAX = 6
+_LINE_BREAK = re.compile(r"[\r\n\u0085\u2028\u2029]")          # a break of line ends a subject: what follows it is another request
+# BL7-1 (gap 4): a correction of a read plan stays that read only for a card the read's words can be mistaken for, and never when the card holds the content of a new act.
+READ_LOOKALIKE_CARDS = ("mail-mark",)          # "my unread emails" read as a mark by state; every other card (archive, trash, move, send, cancel, file-trash ...) is an act the person asked for
+ACT_CONTENT_SLOTS = frozenset(("to", "subject", "body", "title", "content", "name", "time"))          # a slot that holds what a new act would carry: a correction of a read never has one
 
 OP_RE = re.compile(r"[a-z][a-z0-9-]{0,39}")
 SLOT_RE = re.compile(r"[a-z][a-z0-9_]{0,23}")
@@ -891,9 +899,11 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         return _invalid(error)
     if name in EVENT_OPS and "day" in slots and not {"target", "event"} & (set(slots) | set(inherit)):
         return _clarify("no-target", slot="target", op=name)          # a day and no event named: the runtime asks again (`natural`'s IX_ASK_AGAIN), and so does the measure
+    ground = None
     if name in MAIL_TARGET_OPS and "target" in plain:          # BL7-1 (gap 1): the subject the line gives right after the person stays in the target; the wider span passed `_check_slots` again
         wider = _target_with_subject(plain["target"], line, {slot: value for slot, value in plain.items() if slot != "target"}, name)
         if wider != plain["target"]:
+            ground = _subject_ground(plain["target"], wider)          # the words grounding reads: the person and the subject, never the marker word ("a respeito de")
             plain = dict(plain, target=wider)
             args, error = _check_slots(name, plain, line)          # whatever the helper returned is checked as any span of the line, here too: a value that is not in the line is E_SPAN
             if error:
@@ -923,19 +933,42 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         if problem:
             return _clarify(problem[0], slot=time_slots[0], error=problem[1], op=name)
         spans[time_slots[0]] = span
-    return {"kind": "op", "error": None, "op": name, "args": args, "spans": spans, "time": time, "inherited": inherited, "time_disagree": disagree}
+    decision = {"kind": "op", "error": None, "op": name, "args": args, "spans": spans, "time": time, "inherited": inherited, "time_disagree": disagree}
+    if ground:
+        decision["target_ground"] = ground          # only for a widened target: `ops_natural_mail.mail_target_seed` finds the message by the words of this text (the line's own words, no marker word)
+    return decision
 
 
 _WORD = re.compile(r"\S+")
 _PUNCT_END = re.compile(r"[,;:.!?)]+$")
 
 
+def _head_phrases():
+    """The folded phrases, as tuples of words, that open an act: the closed heads of the write families (`natural_writes_mail`, `natural_writes_files`, `natural_writes_calendar`) and the
+    triggers the tables own for a new event (`triggers.calendar`, `calendar_verb`, `calendar_loose`), read from them and never copied here."""
+    import importlib
+    tables = natural._tables(None)
+    phrases = []
+    for family in ("natural_writes_mail", "natural_writes_files", "natural_writes_calendar"):
+        phrases += importlib.import_module(family).HEADS(tables)
+    for table in tables:
+        for key in ("calendar", "calendar_verb", "calendar_loose"):
+            phrases += table["triggers"][key]
+    return [tuple(phrase.split()) for phrase in phrases if phrase.split()]
+
+
+def _head_at(words, at, heads):
+    """Whether the folded `words` hold, from index `at`, a head phrase of `heads` as whole words in a row."""
+    return any(tuple(words[at:at + len(head)]) == head for head in heads)
+
+
 def _target_with_subject(target, line, others, name):
     """BL7-1 (gap 1). `target` widened by the subject the line gives right after it ("Gideon Farrow" + " about the warehouse lease"), else `target` unchanged. The result is always
     `target` or a piece of the line that starts with it: it comes from the line alone, never from a message, an index or the model's text. Widened only when all hold: `target` stands
-    once in the line; a subject marker (SUBJECT_MARKERS, folded) follows it after white space; the tail after the marker runs to the first stop word (SUBJECT_STOPS), date written as
-    numbers, word that ends in punctuation (taken without it), start of another slot's span (`others`) or start of a time phrase, less the function words at its end (SUBJECT_TRAIL);
-    the tail holds 1 to SUBJECT_WORDS_MAX words; the wider span is at most SPAN_MAX, passes `_check_slots` like any span, and names more content words of a message than `target` did."""
+    once in the line; a subject marker (SUBJECT_MARKERS, folded) follows it after white space on the same line; the tail after the marker runs to the first stop word (SUBJECT_STOPS),
+    date written as numbers, break of line, head of an act (`_head_phrases`), word that ends in punctuation (taken without it), start of another slot's span (`others`) or start of a
+    time phrase, less the function words at its end (SUBJECT_TRAIL); the tail holds 1 to SUBJECT_WORDS_MAX words; the wider span is at most SPAN_MAX, passes `_check_slots` like any
+    span, and the person and the subject (the marker word never counts: `_subject_ground`) name more content words of a message than `target` did."""
     if not target or line.count(target) != 1:
         return target
     begin = line.find(target)
@@ -943,6 +976,8 @@ def _target_with_subject(target, line, others, name):
     toks = [(m.start() + start, m.end() + start, m.group()) for m in _WORD.finditer(line[start:])]
     if not toks or not line[start:toks[0][0]] or line[start:toks[0][0]].strip():
         return target          # nothing after the target, or the next word is not set apart from it by white space alone
+    if _LINE_BREAK.search(line[start:toks[0][0]]):
+        return target          # the next word is on another line: another request
     folded = [natural.normal(t[2]) for t in toks]
     marker = next((m for m in sorted(SUBJECT_MARKERS, key=len, reverse=True) if tuple(folded[:len(m)]) == m and not any(_PUNCT_END.search(t[2]) for t in toks[:len(m)])), None)
     if marker is None:
@@ -957,8 +992,12 @@ def _target_with_subject(target, line, others, name):
         at = found["origin"][hit["s"]]
         if at >= start:
             limits.append(at)
+    heads = _head_phrases()
     kept = []
-    for first, _last, word in toks[len(marker):]:
+    for index in range(len(marker), len(toks)):
+        first, _last, word = toks[index]
+        if _LINE_BREAK.search(line[toks[index - 1][1]:first]) or _head_at(folded, index, heads):
+            break          # a break of line, or an act's head: another request begins
         if any(first >= limit for limit in limits) or natural.normal(word) in SUBJECT_STOPS or DATE_SHAPE_RE.search(word):
             break
         clean = _PUNCT_END.sub("", word)
@@ -977,29 +1016,34 @@ def _target_with_subject(target, line, others, name):
     import importlib
     mail = importlib.import_module("natural_writes_mail")
     tables = natural._tables(None)
-    if len(mail.target_words(wider, tables)) <= len(mail.target_words(target, tables)):
+    if len(mail.target_words(_subject_ground(target, wider), tables)) <= len(mail.target_words(target, tables)):
         return target          # the widening must add a content word and still name a message (a sentence, more than TARGET_WORDS_MAX words, names nothing)
     return wider
 
 
+def _subject_ground(target, wider):
+    """The text grounding finds a message by when `wider` is `target` widened with a subject: `target`, then the subject without its marker ("Ana a respeito do orcamento" gives "Ana
+    orcamento"). The marker words ("a respeito de", "concerning", "re", "sur" ...) say where the subject starts; they are not words of a message, and `natural_writes_mail.target_words`
+    would keep most of them. Made of the line's own words only; `target` alone when `wider` holds no marker after it."""
+    rest = wider[len(target):].split() if wider.startswith(target) else []
+    folded = [natural.normal(word) for word in rest]
+    marker = next((m for m in sorted(SUBJECT_MARKERS, key=len, reverse=True) if tuple(folded[:len(m)]) == m), None)
+    return target if marker is None else " ".join([target] + rest[len(marker):])
+
+
 def _asks_an_act(line):
-    """BL7-1 (gap 4): whether the line holds, as whole folded words in a row, a head of a write family (the closed heads the families `natural_writes_mail`, `natural_writes_files`
-    and `natural_writes_calendar` own, read from them, never copied here). Such a line asks for an act and is never turned into a read."""
-    import importlib
+    """BL7-1 (gap 4): whether the line holds, as whole folded words in a row, the head of an act: a closed head of a write family or a trigger of a new event (`_head_phrases`, read from
+    the families and the tables, never copied here). Such a line asks for an act and is never turned into a read."""
     words = natural.normal(line).split()
-    tables = natural._tables(None)
-    for family in ("natural_writes_mail", "natural_writes_files", "natural_writes_calendar"):
-        for head in importlib.import_module(family).HEADS(tables):
-            parts = head.split()
-            if parts and any(words[i:i + len(parts)] == parts for i in range(len(words) - len(parts) + 1)):
-                return True
-    return False
+    heads = _head_phrases()
+    return any(_head_at(words, at, heads) for at in range(len(words)))
 
 
 def _read_plan_kept(obj, line, frame, ops):
-    """BL7-1 (gap 4): (the revised op object, the plan item's id) when a line that opens with a no corrects a live plan of a READ (class R) and the model named a card (class E) of
-    another operation for a line that holds no head of a write; else None (today's path). The revised object is the plan's own read with the slots the model gave, kept only when
-    the read has them all (a list has none, so it keeps none). It only ever turns a card into the read the person already had a plan for: never into an act (L65)."""
+    """BL7-1 (gap 4): (the revised op object, the plan item's id) when a line that opens with a no corrects a live plan of a READ (class R) and the model named a card (class E) of another
+    operation that the read's words can be mistaken for (READ_LOOKALIKE_CARDS), with no slot that holds the content of a new act (ACT_CONTENT_SLOTS), for a line that holds no head of an
+    act; else None (today's path). The revised object is the plan's own read with the slots the model gave, kept only when the read has them all (a list has none, so it keeps none). It
+    only ever turns a card into the read the person already had a plan for: never into an act (L65)."""
     last = (frame or {}).get("last")
     item = next((i for i in (frame or {}).get("items") or [] if i.get("kind") == "plan-confirm"), None)
     if item is None or last is None or item.get("op") != last.get("op") or last.get("op") not in ops or ops[last["op"]]["class"] != "R":
@@ -1007,6 +1051,8 @@ def _read_plan_kept(obj, line, frame, ops):
     name = obj.get("op")
     if name == last["op"] or name not in ops or ops[name]["class"] != "E" or not starts_with_no(line) or _asks_an_act(line):
         return None
+    if name not in READ_LOOKALIKE_CARDS or ACT_CONTENT_SLOTS & set(obj["slots"]):
+        return None          # a card of an act the person may have asked for, or one that carries a new act's content: today's path stands
     row = ops[last["op"]]["slots"]
     slots = {slot: value for slot, value in obj["slots"].items() if slot in row}
     if row and set(slots) != set(obj["slots"]):
