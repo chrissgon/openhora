@@ -27,6 +27,8 @@ from test_mail_compose_flow import (LIVE, LIVE_DECISION, ADDRESS, COMPOSED, cloc
 line_stage = st.load("line_stage")
 ops_core = st.load("ops_core")
 ops_interpret = st.load("ops_interpret")
+interpreter_route = st.load("interpreter_route")
+turn_gate = st.load("turn_gate")
 ops_natural = st.load("ops_natural")
 ops_file_read = st.load("ops_file_read")
 event_lookup = st.load("event_lookup")
@@ -111,9 +113,9 @@ def test_for_kinds_chooses_by_the_types_of_the_sources():
 
 
 def test_the_interpreters_model_call_publishes_think(watched, monkeypatch):
-    monkeypatch.setattr(ops_interpret, "_daily_call", lambda entry, system, user: {"ok": False})
-    monkeypatch.setattr(ops_interpret, "_record", lambda ok: None)
-    assert ops_interpret._ask_model({"cfg": {}}, {}, "hello there", None) is None
+    monkeypatch.setattr(interpreter_route, "complete", lambda *a, **k: {"ok": False})
+    monkeypatch.setattr(turn_gate, "record", lambda ok: None)
+    assert ops_interpret._ask_model({"cfg": {}}, {}, "hello there", None, admission=turn_gate.Admission(turn_gate._MINT)) is None
     assert watched.stage == "think"
 
 

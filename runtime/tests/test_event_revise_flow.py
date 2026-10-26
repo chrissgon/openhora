@@ -31,6 +31,7 @@ from test_ops_natural_writes import forget  # noqa: F401
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_interpret = st.load("ops_interpret")
+turn_gate = st.load("turn_gate")
 ops_card_revise = st.load("ops_card_revise")
 event_revise = st.load("ops_event_revise")
 interpreter_route = st.load("interpreter_route")
@@ -365,7 +366,7 @@ def test_vacuity_the_interpreter_alone_refuses_these_shapes_so_the_card_is_not_r
     build(world, monkeypatch, SHAPES[shape])
     ctx = ops_core.context(world["path"])
     entry = ops_card_revise.entry_of(ctx, "messaging", OWNER, False)
-    old = ops_interpret._ask_model(ctx, entry, MUDA, OWNER)
+    old = ops_interpret._ask_model(ctx, entry, MUDA, OWNER, admission=turn_gate.admit(ctx, OWNER))
     assert old.get("op") != "event-change", "the answer, read as any line is read, is not a change of an event: it was asked again before"
 
 
