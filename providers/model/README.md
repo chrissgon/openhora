@@ -33,7 +33,7 @@ A chat-completions request over HTTPS, standard library only (`dependencies = []
 | `E_TIMEOUT`, `E_NETWORK` | 1 | the deadline passed; the connection failed |
 | `E_RATE`, `E_UPSTREAM` | 1 | status 429; status 500 or above |
 | `E_HTTP` | 1 | any other status that is not 200, a redirect included |
-| `E_PIN` | 1 | the reply names another provider than the route's pin, or a `model` that does not start with the route's model (checked after the call, case-insensitive) |
+| `E_PIN` | 1 | the reply names another provider than the route's `pin_reply` (when the route has one) or its pin, or a `model` that does not start with the route's model (checked after the call, case-insensitive); when it is the provider that differs, one line `chat-http: provider <name>` (the name the service gave, lower case, printable, at most 64 characters) comes before the code line |
 | `E_RESPONSE` | 1 | the reply is not JSON, is over 65,536 bytes or has no text |
 | `E_INTERNAL` | 1 | anything else |
 
