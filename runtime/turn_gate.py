@@ -5,7 +5,7 @@
 # ///
 """The gate of a person's line: the one home of the limits PLAN-BRAIN section 4.1 re-homes. Each section names its limit and the contract row.
 
-Operations layer. The module-level imports of this file are the standard library and `natural` (and `phrases`, which `natural` already loads), nothing else: `interpreter_route` and
+Operations layer. The module-level imports of this file are the standard library, `natural` (and `phrases`, which `natural` already loads), `natural_time` (which `natural` already loads) and `registry_data` (the pure loader of runtime/registry/*.json, S41-9), nothing else: `interpreter_route` and
 `ops_natural` are loaded by `importlib` when a function needs them, so that a pure module (runtime/interpreter.py) can import the gate without joining an import cycle.
 
 Section 1. The daily route's admission (contracts/runtime.md, limit L63, S7 and S13)
@@ -37,8 +37,10 @@ Three checks of code over the person's own line. Each had one home and callers e
                                     holidays"). `personal(*texts)` is the check itself and the lists (POSSESSIVES, CLITIC_POSSESSIVES, NOUNS) are the closed forms of the six languages the interpreter
                                     reads (pt-BR, en, es, fr, de, it); a possessive and a noun are at most two words apart, the Spanish and Italian "mi" counts only next to the noun or one word before it.
                                     Accents, case and punctuation do not matter. Callers: `ops_research._research`.
-  private_line(line)                True for a reminder asked in words or a write to the person's mail or calendar (`natural.private`): the conversation stores a neutral word for it and its words
-                                    never leave the host (limits L51, L61, L63). Callers: `ops_interpret._no_decision`, `ops_natural.stored_line`, `interpreter.precheck` and `interpreter.check`.
+  private_line(line)               True for a reminder asked in words or a write to the person's mail, calendar or files: the conversation stores a neutral word for it and its words
+                                    never leave the host (limits L51, L61, L63). Its words and numbers are the data of runtime/registry/private_words.json (S41-9; the rule is the file's `rule` line
+                                    and the docstring of the function); the detector flags every line `natural.private` flags, which stays in runtime/natural.py as the oracle of the tests until
+                                    S41-11. Callers: `ops_interpret._no_decision`, `ops_natural.stored_line`, `interpreter.precheck` and `interpreter.check`.
   the_number(line)                  the one whole number a line writes (`natural.decision_numbers`), None for none or for two or more; a number glued to a mark, followed by a unit or beside a
                                     currency, and every number of a line that says a date or a time, is not a number of a decision. Caller: `ops_interpret._decided`.
   number_believed(line, number)     a decision or an act that a MODEL or the router chose is believed for `number` only when `number` is a whole number (not a bool) and is the one number the line
@@ -61,7 +63,10 @@ import time
 import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import natural  # noqa: E402  (the same folder: the closed forms of the private line and of the decision numbers, which section 2 asks)
+import natural  # noqa: E402  (the same folder: the decision numbers, which section 2 asks)
+import natural_time as nt  # noqa: E402  (the same folder: the folding of a line and the time engine, which the private line asks)
+from natural_time import find as time_hits  # noqa: E402  (the engine's search of the times a line holds)
+import registry_data  # noqa: E402  (the same folder: the closed words of the private line, runtime/registry/private_words.json)
 
 # --- section 1: the daily route's admission (L63) ------------------------------------------------------------------------------------------------------
 
@@ -205,9 +210,129 @@ def research_allowed(question, line) -> bool:
 
 # private routing (limits L51, L61, L63)
 
+_PRIVATE: list = []      # the compiled rule of private_words.json, made on the first use (reload by `forget_private_rule`)
+
+
+def _alternation(phrases):
+    """The alternation of folded phrases as a regular expression, the longest first (a space in a phrase is any run of blanks), or None for no phrase."""
+    items = sorted({p for p in phrases if p}, key=lambda p: (-len(p), p))
+    return "(?:" + "|".join(r"\s+".join(re.escape(w) for w in p.split()) for p in items) + ")" if items else None
+
+
+def _need(parts):
+    """The test of one need of a write shape over `(line, norm, heads)`: True when ANY alternative of the need (merged over the languages) holds: a phrase of `words`; a digit; a colon;
+    an `@` in the line; a line that holds nothing but the words of `only` and the shape's heads; or a tail of at most `tail_max` words that are not digits after the first phrase of
+    `tail_after` (not counting the words of `tail_skip`)."""
+    words = _alternation([w for part in parts for w in part.get("words", [])])
+    only = {w for part in parts for w in part.get("only", [])}
+    digit, colon, address = (any(part.get(key) for part in parts) for key in ("digit", "colon", "address"))
+    pattern = re.compile(r"(?<![a-z0-9])" + words + r"(?![a-z0-9])") if words else None
+    after = _alternation([w for part in parts for w in part.get("tail_after", [])])
+    skip = {w for part in parts for w in part.get("tail_skip", [])}
+    tail_max = max([part["tail_max"] for part in parts if "tail_max" in part] or [0])
+    tail = re.compile(r"(?<![a-z0-9])" + after + r"(?![a-z0-9])") if after else None
+
+    def short_tail(norm):
+        found = tail.search(norm)
+        return bool(found) and len([w for w in re.findall(r"[a-z0-9]+", norm[found.end():]) if not w.isdigit() and w not in skip]) <= tail_max
+
+    def holds(line, norm, heads):
+        return bool((pattern and pattern.search(norm)) or (digit and re.search(r"[0-9]", norm)) or (colon and ":" in norm) or (address and "@" in line)
+                    or (only and all(w in only or w in heads for w in re.findall(r"[a-z0-9]+", norm))) or (tail and short_tail(norm)))
+    return holds
+
+
+def _compiled_rule():
+    """The detector's data, compiled once from `registry_data.private_words()`: per language the regular expressions of the starts and the lists of the rule's steps, and, over all the
+    languages together (the families of runtime/natural_writes_*.py read them together), each write shape of an operation with its heads and its needs (see `private_line`)."""
+    if not _PRIVATE:
+        data = registry_data.private_words()
+        languages = [data["languages"][tag] for tag in sorted(data["languages"])]
+        polite = _alternation([p for body in languages for p in body["polite"]])      # the polite words of every language, in any order: "hey, por favor marca ..."
+        lead = f"[^a-z0-9@]*(?:{polite}(?![a-z0-9])[\\s,;:]*)*" if polite else "[^a-z0-9@]*"      # a comma after a polite word is part of it
+        start = lambda phrases: re.compile(lead + _alternation(phrases) + r"(?![a-z0-9])") if phrases else None      # noqa: E731
+        gap = data["numbers"]["verb_noun_gap_max"]
+        steps, shapes = [], {}
+        for body in languages:
+            anywhere = _alternation(body["anywhere_with_time"])
+            pair_verbs, pair_nouns = _alternation(body["verb_noun"]["verbs"]), _alternation(body["verb_noun"]["nouns"])
+            steps.append({
+                "lead": start(body["lead"]),
+                "lead_time": start(body["lead_with_time"]),
+                "anywhere_time": re.compile(r"(?<![a-z0-9])" + anywhere + r"(?![a-z0-9])") if anywhere else None,
+                "verb_noun": re.compile(lead + pair_verbs + r"\s+(?:[a-z0-9]+\s+){0," + str(gap) + r"}?" + pair_nouns + r"(?![a-z0-9])") if pair_verbs and pair_nouns else None,
+                "starters": set(body["work_starters"]),
+            })
+            for family in sorted(body["writes"]):
+                for shape in body["writes"][family]:
+                    merged = shapes.setdefault(shape["op"], {"heads": [], "needs": [[] for _ in shape["needs"]]})
+                    merged["heads"] += shape["heads"]
+                    for slot, need in zip(merged["needs"], shape["needs"]):
+                        slot.append(need)
+        compiled = []
+        for op in sorted(shapes):
+            heads = _alternation(shapes[op]["heads"])
+            if heads:
+                head_words = {w for phrase in shapes[op]["heads"] for w in phrase.split()}
+                compiled.append((re.compile(lead + heads + r"(?![a-z0-9])"), head_words, [_need(slot) for slot in shapes[op]["needs"]]))
+        _PRIVATE.append((steps, compiled, data["numbers"]["bare_words_max"]))
+    return _PRIVATE[0]
+
+
+def forget_private_rule() -> None:
+    """Drop the compiled rule (a test that edits a copy of the data, and a process that wants to read an edited file)."""
+    _PRIVATE.clear()
+    registry_data.forget()
+
+
 def private_line(line) -> bool:
-    """Whether the line is a reminder asked in words or a write to the person's mail or calendar: its words never leave the host and the conversation stores a neutral word for it."""
-    return natural.private(line)
+    """Whether the line is a reminder asked in words or a write to the person's mail, calendar or files: its words never leave the host and the conversation stores a neutral word for it.
+
+    The words and the numbers are data, `runtime/registry/private_words.json` (S41-9), and its `rule` line states the rule: a line that is not a typed command (it does not start with "/")
+    is private when it starts with a `lead` phrase; or starts with a `lead_with_time` phrase and holds a time; or holds an `anywhere_with_time` phrase and a time; or starts with a
+    `verb_noun` verb, at most `verb_noun_gap_max` words and a noun; or starts with a head of a write family and holds a marker of that family; or has no question mark, a clock or a
+    relative time, a first word that is not a work starter and at most `bare_words_max` words once the time is taken out. A start is read after blanks, marks and polite words. A time
+    is what the time engine (runtime/natural_time.py) finds. Every step is wider than the matching step of `natural.private`, which stays as the oracle of the tests until S41-11."""
+    if not isinstance(line, str) or not line.strip() or line.lstrip().startswith("/"):
+        return False
+    steps, writes, bare_max = _compiled_rule()
+    norm, origin = nt.normalise(line)
+    found = []
+
+    def hits():
+        if not found:
+            found.append(time_hits(line)["hits"])
+        return found[0]
+    for step in steps:
+        if step["lead"] and step["lead"].match(norm):
+            return True
+        if step["lead_time"] and step["lead_time"].match(norm) and hits():
+            return True
+        if step["anywhere_time"] and step["anywhere_time"].search(norm) and hits():
+            return True
+        if step["verb_noun"] and step["verb_noun"].match(norm):
+            return True
+    if any(heads.match(norm) and all(holds(line, norm, head_words) for holds in needs) for heads, head_words, needs in writes):
+        return True
+    if "?" in line or not any(h["kind"] in ("clock", "relative") for h in hits()):
+        return False
+    first = re.match(r"[^a-z0-9]*([a-z0-9]+)", norm)
+    if first and any(first.group(1) in step["starters"] for step in steps):
+        return False
+    spans = [(origin[h["s"]], origin[h["e"] - 1] + 1) for h in hits()]
+    rest = nt.without(line, _joined(spans))
+    return bool(rest) and len(rest.split()) <= bare_max
+
+
+def _joined(spans) -> list:
+    """The spans, touching or overlapping ones made one (what the time engine's own join does), sorted."""
+    out = []
+    for start, end in sorted(spans):
+        if out and start <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], end))
+        else:
+            out.append((start, end))
+    return out
 
 
 # decision numbers from the line (limit L54)

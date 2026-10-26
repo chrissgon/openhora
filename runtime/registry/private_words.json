@@ -1,0 +1,1261 @@
+{
+ "v": 1,
+ "made_from": "2fb497d",
+ "rule": "a line that is not a typed command is private when it starts with a lead phrase, starts with a lead_with_time phrase or holds an anywhere_with_time phrase with a time in it, starts with a verb_noun verb then a noun, starts with a write head and holds a marker of its family, or is a short bare line with a clock or a relative time and no work starter",
+ "numbers": {
+  "bare_words_max": 6,
+  "verb_noun_gap_max": 2
+ },
+ "languages": {
+  "en": {
+   "polite": [
+    "can you",
+    "could you",
+    "hey",
+    "hi",
+    "please",
+    "pls",
+    "would you"
+   ],
+   "lead": [
+    "add a reminder",
+    "add an event",
+    "add it to my calendar",
+    "add to my calendar",
+    "add to the calendar",
+    "create a reminder",
+    "create an event",
+    "create event",
+    "make a reminder",
+    "new reminder",
+    "note",
+    "put in my calendar",
+    "put it on my calendar",
+    "put on my calendar",
+    "put on the calendar",
+    "remind me",
+    "reminder",
+    "set a reminder",
+    "set reminder"
+   ],
+   "lead_with_time": [],
+   "anywhere_with_time": [
+    "remind me"
+   ],
+   "verb_noun": {
+    "verbs": [
+     "book",
+     "calendar",
+     "schedule"
+    ],
+    "nouns": [
+     "reminder",
+     "reminders"
+    ]
+   },
+   "writes": {
+    "calendar": [
+     {
+      "op": "event-change",
+      "heads": [
+       "change",
+       "move",
+       "postpone",
+       "reschedule",
+       "shift"
+      ],
+      "needs": [
+       {
+        "words": [
+         "appointment",
+         "event",
+         "meeting"
+        ]
+       },
+       {
+        "digit": true
+       }
+      ]
+     },
+     {
+      "op": "event-rename",
+      "heads": [
+       "change the name of",
+       "change the title of",
+       "rename",
+       "retitle"
+      ],
+      "needs": [
+       {
+        "words": [
+         "appointment",
+         "event",
+         "meeting"
+        ]
+       },
+       {
+        "digit": true
+       }
+      ]
+     },
+     {
+      "op": "event-cancel",
+      "heads": [
+       "cancel",
+       "delete",
+       "drop",
+       "remove"
+      ],
+      "needs": [
+       {
+        "words": [
+         "appointment",
+         "event",
+         "meeting"
+        ]
+       },
+       {
+        "digit": true,
+        "only": [
+         "365",
+         "a",
+         "an",
+         "appointment",
+         "calendar",
+         "can",
+         "cloud",
+         "could",
+         "docs",
+         "drive",
+         "event",
+         "from",
+         "gdrive",
+         "gmail",
+         "google",
+         "hey",
+         "hi",
+         "hotmail",
+         "in",
+         "meeting",
+         "microsoft",
+         "my",
+         "new",
+         "office",
+         "on",
+         "one",
+         "onedrive",
+         "our",
+         "outlook",
+         "please",
+         "pls",
+         "the",
+         "to",
+         "using",
+         "via",
+         "would",
+         "you",
+         "your"
+        ]
+       }
+      ]
+     }
+    ],
+    "mail": [
+     {
+      "op": "mail-new",
+      "heads": [
+       "compose",
+       "draft",
+       "make a draft of",
+       "save a draft of",
+       "send",
+       "write",
+       "write a draft of"
+      ],
+      "needs": [
+       {
+        "words": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "message",
+         "messages"
+        ]
+       },
+       {
+        "words": [
+         "to"
+        ]
+       },
+       {
+        "address": true,
+        "colon": true,
+        "words": [
+         "saying",
+         "saying that",
+         "that says",
+         "with the text"
+        ]
+       }
+      ]
+     },
+     {
+      "op": "mail-reference",
+      "heads": [
+       "answer",
+       "archive",
+       "delete",
+       "mark",
+       "remove",
+       "reply",
+       "reply to",
+       "respond to",
+       "throw away",
+       "trash"
+      ],
+      "needs": [
+       {
+        "words": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "message",
+         "messages"
+        ]
+       },
+       {
+        "digit": true,
+        "words": [
+         "about",
+         "from",
+         "last",
+         "latest",
+         "most recent",
+         "newest",
+         "of",
+         "regarding"
+        ]
+       },
+       {
+        "words": [
+         "saying",
+         "saying that",
+         "that says",
+         "with the text"
+        ],
+        "colon": true,
+        "tail_after": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "message",
+         "messages"
+        ],
+        "tail_skip": [
+         "and",
+         "through",
+         "thru",
+         "to"
+        ],
+        "tail_max": 16
+       }
+      ]
+     },
+     {
+      "op": "mail-move",
+      "heads": [
+       "move"
+      ],
+      "needs": [
+       {
+        "words": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "message",
+         "messages"
+        ]
+       },
+       {
+        "words": [
+         "into the folder",
+         "to",
+         "to folder",
+         "to the folder",
+         "to the label"
+        ]
+       },
+       {
+        "digit": true,
+        "words": [
+         "about",
+         "from",
+         "last",
+         "latest",
+         "most recent",
+         "newest",
+         "of",
+         "regarding"
+        ]
+       }
+      ]
+     },
+     {
+      "op": "mail-reply-draft",
+      "heads": [
+       "draft",
+       "make a draft of",
+       "save a draft of",
+       "write a draft of"
+      ],
+      "needs": [
+       {
+        "words": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "message",
+         "messages"
+        ]
+       },
+       {
+        "words": [
+         "answer",
+         "reply",
+         "reply to",
+         "respond to"
+        ]
+       },
+       {
+        "digit": true,
+        "words": [
+         "about",
+         "from",
+         "last",
+         "latest",
+         "most recent",
+         "newest",
+         "of",
+         "regarding"
+        ]
+       },
+       {
+        "words": [
+         "saying",
+         "saying that",
+         "that says",
+         "with the text"
+        ],
+        "colon": true,
+        "tail_after": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "message",
+         "messages"
+        ],
+        "tail_skip": [
+         "and",
+         "through",
+         "thru",
+         "to"
+        ],
+        "tail_max": 16
+       }
+      ]
+     }
+    ],
+    "files": [
+     {
+      "op": "file-create",
+      "heads": [
+       "create",
+       "make",
+       "save",
+       "write"
+      ],
+      "needs": [
+       {
+        "words": [
+         "doc",
+         "document",
+         "file",
+         "google doc",
+         "google docs",
+         "google document",
+         "note",
+         "text file"
+        ]
+       },
+       {
+        "words": [
+         "called",
+         "named",
+         "with the name"
+        ]
+       },
+       {
+        "colon": true,
+        "words": [
+         "containing",
+         "saying",
+         "that says",
+         "with the content",
+         "with the text"
+        ]
+       }
+      ]
+     },
+     {
+      "op": "file-replace",
+      "heads": [
+       "overwrite",
+       "replace",
+       "swap",
+       "update"
+      ],
+      "needs": [
+       {
+        "words": [
+         "content",
+         "text"
+        ]
+       },
+       {
+        "words": [
+         "of"
+        ]
+       },
+       {
+        "colon": true,
+        "words": [
+         "with",
+         "with the content",
+         "with the text"
+        ]
+       }
+      ]
+     },
+     {
+      "op": "file-save",
+      "heads": [
+       "drop",
+       "keep",
+       "put",
+       "save",
+       "send",
+       "store",
+       "upload"
+      ],
+      "needs": [
+       {
+        "digit": true,
+        "words": [
+         "anexo",
+         "attachment",
+         "drive",
+         "gdrive",
+         "gmail",
+         "google",
+         "google calendar",
+         "google docs",
+         "google drive",
+         "hotmail",
+         "it",
+         "microsoft",
+         "microsoft cloud",
+         "office 365",
+         "one drive",
+         "onedrive",
+         "outlook",
+         "that",
+         "this"
+        ]
+       },
+       {
+        "words": [
+         "attachment",
+         "document",
+         "docx",
+         "drive",
+         "file",
+         "gdrive",
+         "gmail",
+         "google",
+         "google calendar",
+         "google docs",
+         "google drive",
+         "hotmail",
+         "image",
+         "jpeg",
+         "jpg",
+         "microsoft",
+         "microsoft cloud",
+         "office 365",
+         "one drive",
+         "onedrive",
+         "outlook",
+         "pdf",
+         "photo",
+         "picture",
+         "png",
+         "spreadsheet",
+         "txt",
+         "word document",
+         "word file",
+         "xlsx"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "work_starters": [
+    "analyse",
+    "analyze",
+    "are",
+    "book",
+    "build",
+    "can",
+    "check",
+    "could",
+    "create",
+    "design",
+    "do",
+    "does",
+    "draft",
+    "find",
+    "fix",
+    "generate",
+    "give",
+    "how",
+    "implement",
+    "is",
+    "list",
+    "make",
+    "plan",
+    "post",
+    "prepare",
+    "publish",
+    "review",
+    "run",
+    "schedule",
+    "search",
+    "send",
+    "should",
+    "show",
+    "summarise",
+    "summarize",
+    "tell",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "would",
+    "write"
+   ]
+  },
+  "pt-BR": {
+   "polite": [
+    "consegue",
+    "ei",
+    "oi",
+    "ola",
+    "pf",
+    "pode",
+    "poderia",
+    "por favor"
+   ],
+   "lead": [
+    "adiciona na agenda",
+    "adicione na agenda",
+    "agenda para mim",
+    "anota",
+    "anotar",
+    "anote",
+    "coloca na agenda",
+    "coloca no calendario",
+    "colocar na agenda",
+    "coloque na agenda",
+    "coloque no calendario",
+    "cria um evento",
+    "cria um lembrete",
+    "criar lembrete",
+    "criar um evento",
+    "criar um lembrete",
+    "crie um evento",
+    "crie um lembrete",
+    "lembra me",
+    "lembre me",
+    "lembrete",
+    "marca na agenda",
+    "marcar na agenda",
+    "marque na agenda",
+    "me avisa",
+    "me avisar",
+    "me avise",
+    "me lembra",
+    "me lembrar",
+    "me lembre",
+    "novo lembrete",
+    "pode me lembrar",
+    "poderia me lembrar",
+    "poe na agenda",
+    "ponha na agenda",
+    "quero um lembrete"
+   ],
+   "lead_with_time": [
+    "marca",
+    "marcar",
+    "marque"
+   ],
+   "anywhere_with_time": [
+    "lembra me",
+    "lembre me",
+    "me avisa",
+    "me avisar",
+    "me avise",
+    "me lembra",
+    "me lembrar",
+    "me lembre"
+   ],
+   "verb_noun": {
+    "verbs": [
+     "agenda",
+     "agendar",
+     "agende",
+     "calendario",
+     "marca",
+     "marcar",
+     "marque"
+    ],
+    "nouns": [
+     "lembrete",
+     "lembretes"
+    ]
+   },
+   "writes": {
+    "calendar": [
+     {
+      "op": "event-change",
+      "heads": [
+       "adia",
+       "adie",
+       "antecipa",
+       "antecipe",
+       "mova",
+       "move",
+       "muda",
+       "mude",
+       "reagenda",
+       "reagende",
+       "remarca",
+       "remarque"
+      ],
+      "needs": [
+       {
+        "words": [
+         "compromisso",
+         "evento",
+         "reuniao"
+        ]
+       },
+       {
+        "digit": true
+       }
+      ]
+     },
+     {
+      "op": "event-rename",
+      "heads": [
+       "muda o titulo da",
+       "muda o titulo do",
+       "mude o titulo da",
+       "mude o titulo do",
+       "renomeia",
+       "renomeie",
+       "troca o titulo da",
+       "troca o titulo do"
+      ],
+      "needs": [
+       {
+        "words": [
+         "compromisso",
+         "evento",
+         "reuniao"
+        ]
+       },
+       {
+        "digit": true
+       }
+      ]
+     },
+     {
+      "op": "event-cancel",
+      "heads": [
+       "apaga",
+       "apague",
+       "cancela",
+       "cancele",
+       "desmarca",
+       "desmarque",
+       "remova",
+       "remove"
+      ],
+      "needs": [
+       {
+        "words": [
+         "compromisso",
+         "evento",
+         "reuniao"
+        ]
+       },
+       {
+        "digit": true,
+        "only": [
+         "a",
+         "agenda",
+         "ao",
+         "aos",
+         "as",
+         "calendar",
+         "compromisso",
+         "consegue",
+         "da",
+         "do",
+         "docs",
+         "drive",
+         "ei",
+         "evento",
+         "favor",
+         "gdrive",
+         "gmail",
+         "google",
+         "hotmail",
+         "meu",
+         "meus",
+         "microsoft",
+         "minha",
+         "minhas",
+         "na",
+         "no",
+         "nova",
+         "novo",
+         "nuvem",
+         "o",
+         "oi",
+         "ola",
+         "one",
+         "onedrive",
+         "os",
+         "outlook",
+         "pela",
+         "pelo",
+         "pf",
+         "pode",
+         "poderia",
+         "por",
+         "pra",
+         "pro",
+         "reuniao",
+         "um",
+         "uma",
+         "umas",
+         "uns",
+         "usando",
+         "via"
+        ]
+       }
+      ]
+     }
+    ],
+    "mail": [
+     {
+      "op": "mail-new",
+      "heads": [
+       "cria um rascunho de",
+       "crie um rascunho de",
+       "envia",
+       "enviar",
+       "envie",
+       "escreva",
+       "escreve",
+       "escrever",
+       "faca um rascunho de",
+       "faz um rascunho de",
+       "manda",
+       "mandar",
+       "mande",
+       "rascunha",
+       "rascunhar",
+       "rascunhe",
+       "redige",
+       "redija",
+       "salva um rascunho de",
+       "salve um rascunho de"
+      ],
+      "needs": [
+       {
+        "words": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "mensagem",
+         "mensagens"
+        ]
+       },
+       {
+        "words": [
+         "a",
+         "ao",
+         "para",
+         "pra",
+         "pro",
+         "pros",
+         "prum"
+        ]
+       },
+       {
+        "address": true,
+        "colon": true,
+        "words": [
+         "com o texto",
+         "dizendo",
+         "dizendo que",
+         "falando que"
+        ]
+       }
+      ]
+     },
+     {
+      "op": "mail-reference",
+      "heads": [
+       "apaga",
+       "apagar",
+       "apague",
+       "arquiva",
+       "arquivar",
+       "arquive",
+       "deleta",
+       "delete",
+       "exclua",
+       "exclui",
+       "excluir",
+       "joga fora",
+       "jogue fora",
+       "marca",
+       "marcar",
+       "marque",
+       "remova",
+       "remove",
+       "responda",
+       "responde",
+       "responder",
+       "resposta a",
+       "resposta ao",
+       "resposta para"
+      ],
+      "needs": [
+       {
+        "words": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "mensagem",
+         "mensagens"
+        ]
+       },
+       {
+        "digit": true,
+        "words": [
+         "da",
+         "das",
+         "de",
+         "do",
+         "dos",
+         "mais recente",
+         "sobre",
+         "ultima",
+         "ultimo"
+        ]
+       },
+       {
+        "words": [
+         "com o texto",
+         "dizendo",
+         "dizendo que",
+         "falando que"
+        ],
+        "colon": true,
+        "tail_after": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "mensagem",
+         "mensagens"
+        ],
+        "tail_skip": [
+         "a",
+         "ate",
+         "e"
+        ],
+        "tail_max": 16
+       }
+      ]
+     },
+     {
+      "op": "mail-move",
+      "heads": [
+       "mova",
+       "move",
+       "mover",
+       "passa",
+       "passe"
+      ],
+      "needs": [
+       {
+        "words": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "mensagem",
+         "mensagens"
+        ]
+       },
+       {
+        "words": [
+         "para",
+         "para a caixa",
+         "para a pasta",
+         "para o marcador",
+         "para pasta",
+         "pra pasta"
+        ]
+       },
+       {
+        "digit": true,
+        "words": [
+         "da",
+         "das",
+         "de",
+         "do",
+         "dos",
+         "mais recente",
+         "sobre",
+         "ultima",
+         "ultimo"
+        ]
+       }
+      ]
+     },
+     {
+      "op": "mail-reply-draft",
+      "heads": [
+       "cria um rascunho de",
+       "crie um rascunho de",
+       "faca um rascunho de",
+       "faz um rascunho de",
+       "rascunha",
+       "rascunhar",
+       "rascunhe",
+       "salva um rascunho de",
+       "salve um rascunho de"
+      ],
+      "needs": [
+       {
+        "words": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "mensagem",
+         "mensagens"
+        ]
+       },
+       {
+        "words": [
+         "responda",
+         "responde",
+         "responder",
+         "resposta a",
+         "resposta ao",
+         "resposta para"
+        ]
+       },
+       {
+        "digit": true,
+        "words": [
+         "da",
+         "das",
+         "de",
+         "do",
+         "dos",
+         "mais recente",
+         "sobre",
+         "ultima",
+         "ultimo"
+        ]
+       },
+       {
+        "words": [
+         "com o texto",
+         "dizendo",
+         "dizendo que",
+         "falando que"
+        ],
+        "colon": true,
+        "tail_after": [
+         "e mail",
+         "e mails",
+         "email",
+         "emails",
+         "mensagem",
+         "mensagens"
+        ],
+        "tail_skip": [
+         "a",
+         "ate",
+         "e"
+        ],
+        "tail_max": 16
+       }
+      ]
+     }
+    ],
+    "files": [
+     {
+      "op": "file-create",
+      "heads": [
+       "cria",
+       "criar",
+       "crie",
+       "faca",
+       "faz",
+       "salva",
+       "salve"
+      ],
+      "needs": [
+       {
+        "words": [
+         "arquivo",
+         "doc do google",
+         "documento",
+         "documento google",
+         "google doc",
+         "google docs",
+         "nota",
+         "texto"
+        ]
+       },
+       {
+        "words": [
+         "chamada",
+         "chamado",
+         "com o nome",
+         "de nome"
+        ]
+       },
+       {
+        "colon": true,
+        "words": [
+         "com o conteudo",
+         "com o texto",
+         "contendo",
+         "dizendo",
+         "escrito"
+        ]
+       }
+      ]
+     },
+     {
+      "op": "file-replace",
+      "heads": [
+       "atualiza",
+       "atualize",
+       "substitua",
+       "substitui",
+       "troca",
+       "troque"
+      ],
+      "needs": [
+       {
+        "words": [
+         "conteudo",
+         "texto"
+        ]
+       },
+       {
+        "words": [
+         "da",
+         "de",
+         "do"
+        ]
+       },
+       {
+        "colon": true,
+        "words": [
+         "com o texto",
+         "pelo conteudo",
+         "pelo texto",
+         "por"
+        ]
+       }
+      ]
+     },
+     {
+      "op": "file-save",
+      "heads": [
+       "coloca",
+       "coloque",
+       "envia",
+       "envie",
+       "guarda",
+       "guardar",
+       "guarde",
+       "joga",
+       "manda",
+       "mande",
+       "salva",
+       "salvar",
+       "salve",
+       "sobe",
+       "suba",
+       "subir"
+      ],
+      "needs": [
+       {
+        "digit": true,
+        "words": [
+         "agenda do google",
+         "anexo",
+         "attachment",
+         "drive",
+         "ela",
+         "ele",
+         "essa",
+         "esse",
+         "esta",
+         "este",
+         "gdrive",
+         "gmail",
+         "google",
+         "google agenda",
+         "google calendar",
+         "google docs",
+         "google drive",
+         "hotmail",
+         "isso",
+         "isto",
+         "microsoft",
+         "nuvem da microsoft",
+         "nuvem do google",
+         "one drive",
+         "onedrive",
+         "outlook"
+        ]
+       },
+       {
+        "words": [
+         "agenda do google",
+         "anexo",
+         "arquivo",
+         "documento",
+         "docx",
+         "drive",
+         "figura",
+         "foto",
+         "gdrive",
+         "gmail",
+         "google",
+         "google agenda",
+         "google calendar",
+         "google docs",
+         "google drive",
+         "hotmail",
+         "imagem",
+         "jpeg",
+         "jpg",
+         "microsoft",
+         "nuvem da microsoft",
+         "nuvem do google",
+         "one drive",
+         "onedrive",
+         "outlook",
+         "pdf",
+         "planilha",
+         "png",
+         "txt",
+         "word",
+         "xlsx"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "work_starters": [
+    "agendar",
+    "agende",
+    "analise",
+    "como",
+    "corrija",
+    "criar",
+    "crie",
+    "desenhe",
+    "deve",
+    "diga",
+    "envie",
+    "escreva",
+    "escrever",
+    "faca",
+    "fazer",
+    "gerar",
+    "gere",
+    "ha",
+    "implemente",
+    "liste",
+    "mande",
+    "marque",
+    "montar",
+    "monte",
+    "mostre",
+    "o",
+    "onde",
+    "pesquise",
+    "planeje",
+    "pode",
+    "por",
+    "porque",
+    "posso",
+    "preparar",
+    "prepare",
+    "procure",
+    "publique",
+    "quais",
+    "qual",
+    "quando",
+    "quanto",
+    "quantos",
+    "que",
+    "quem",
+    "resuma",
+    "revise",
+    "rode",
+    "tem",
+    "verifique"
+   ]
+  }
+ }
+}
