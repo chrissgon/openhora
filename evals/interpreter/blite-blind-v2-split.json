@@ -40,14 +40,14 @@
    "filler": 19,
    "lower-nopunct": 6,
    "multi-turn": 13,
-   "no-accents": 3,
-   "typo": 3
+   "no-accents": 4,
+   "typo": 2
   },
   "with_also": 7
  },
- "file": "blite-blind-v1.jsonl",
+ "file": "blite-blind-v2.jsonl",
  "frozen": "2026-10-25",
  "items": 60,
- "sha256": "0912d128331db46e28a35c7e180355f19330d125af7d60c8ae0dceb9fc17dc4d",
+ "sha256": "984356db30069dcbc64c24b925ec975c031dd9049475a8e81fbb493a73db58f0",
  "v": 1
 }
