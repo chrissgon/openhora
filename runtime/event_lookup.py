@@ -72,6 +72,7 @@ import registry_data
 import snapshot_text
 import source_names
 import sources
+import turn_gate
 
 CHANNEL = "messaging"
 OPS = ("event-change", "event-cancel")
@@ -169,10 +170,13 @@ def events(ctx: dict, sender) -> tuple:
 def refresh(project: str, ctx: dict) -> None:
     """Read each registered calendar source again, once: the provider read the snapshots come from (`ops_sources.source_refresh`, which `snapshot_refresh` in
     runtime/sources_mail.py does), a new version only when the listing changed. The caller has passed `item_refs.may_read`, the right to read these snapshots; the
-    read is of the person's own calendar and writes nothing to it. A failure is dropped: nothing of it is kept or said."""
+    read is of the person's own calendar and writes nothing to it. A failure is dropped: nothing of it is kept or said. A source is read only when the line's refresh budget allows it
+    (`turn_gate.may_refresh`, limit L52: never more than once for a source in one line, none outside a turn): a source already read for this line is left as it is."""
     line_stage.publish("calendar")      # S19
     refresh_one = importlib.import_module("ops_sources").source_refresh
     for source in importlib.import_module("ops_natural_calendar").calendar_sources(ctx):
+        if not turn_gate.may_refresh(source["id"], "calendar-miss"):
+            continue
         try:
             refresh_one(project, source["id"])
         except Exception:      # noqa: BLE001 - the fault can hold a provider's words; the reply is the not-found sentence

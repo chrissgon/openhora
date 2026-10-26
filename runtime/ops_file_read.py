@@ -7,7 +7,7 @@
 
   file_read(project, file, [account], [channel, sender])   the operation (the typed command, the page, a messaging app): {"status", ...}, below
   reply(project, ctx, args, said, channel, sender, extras) the reply a line in words gets (runtime/ops_natural.py `run` calls it for `file-read`)
-  take(project, ctx, said, channel, sender, extras)        the reply to a bare number said right after a list of files ("o 2"), or None (runtime/ops_natural.py `take`)
+  take(project, ctx, said, channel, sender, extras)        the reply to a bare number said right after a list of files ("o 2"), or None (the row `file-list-number` of runtime/ops_turn.py)
   begin_turn(ctx, channel, sender)                         called at the start of every line (runtime/ops_say.py): a list is valid for the line right after it
 
 What it searches, and nothing else (S8, widened by S17): the folders under `accounts.<google|microsoft>.folders` of the project's configuration (project_config `account_target`

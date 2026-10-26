@@ -45,7 +45,8 @@ THE_GATE_AND_THE_LAB = {"turn_gate.py", "interpreter_route.py", "lab.py", "inter
 ROUTE_NAMES = {"complete", "_complete", "_complete_account", "account_text"}
 MINT_NAMES = {"_MINT", "Admission"}
 MODULE_NAMES = {"interpreter_route", "interpreter_measure"}
-NOT_THE_ROUTE = {("ops_natural.py", "natural"), ("ops_natural_writes.py", "natural"), ("ops_reminders.py", "natural")}      # the time engine's own `natural.complete`, a reminder's or a write's draft completed with a time
+NOT_THE_ROUTE = {("ops_natural.py", "natural", "complete"), ("ops_natural_writes.py", "natural", "complete"), ("ops_reminders.py", "natural", "complete"),
+                 ("ops_turn.py", "ops_natural", "_complete")}      # (file, the name the attribute is read from, the attribute): the time engine's own `natural.complete`, a reminder's or a write's draft completed with a time; and (S41-3) the row `draft-answer` calling `ops_natural._complete`, the same draft's completion that `ops_natural.take` called as a bare name. Any other route name, or the same name read from another object, is still a way in
 CALLERS = ["interpreter", "composer", "mail-reviser", "event-reviser"]
 NONE = '{"v":1,"kind":"none"}'
 PLAIN_LINE = "tell me something about the unicorns"
@@ -83,7 +84,7 @@ def routes_named(folder: Path) -> list:
     """(file, line) of every way into the daily route that the python files of `folder` (runtime/*.py and runtime/handlers/*.py) hold, found by the shape of the code and not by a name it was
     bound to: any attribute `complete`, `_complete`, `_complete_account` or `account_text` (the route's call, its two private helpers and the lab's text runner), however the module was
     reached (a name, `importlib.import_module(...)` itself, `sys.modules[...]`, an alias, a function taken by `f = module.complete`), except the reminders' own `natural.complete` of the
-    three files in NOT_THE_ROUTE; the same names as a string given to `getattr` or as a subscript; `from interpreter_route import *`, and `from interpreter_route import <one of those names>`;
+    the files in NOT_THE_ROUTE; the same names as a string given to `getattr` or as a subscript; `from interpreter_route import *`, and `from interpreter_route import <one of those names>`;
     any import of `interpreter_measure` (a statement, `importlib.import_module`, `__import__`, `sys.modules`, a `from ... import interpreter_measure`); and `sys.modules` read for
     `interpreter_route`. The files that may hold them are in THE_GATE_AND_THE_LAB; the caller of this function says which are allowed."""
     found = []
@@ -92,7 +93,7 @@ def routes_named(folder: Path) -> list:
         for node in ast.walk(tree):
             hit = False
             if isinstance(node, ast.Attribute):
-                hit = node.attr in ROUTE_NAMES and not (isinstance(node.value, ast.Name) and (path.name, node.value.id) in NOT_THE_ROUTE)
+                hit = node.attr in ROUTE_NAMES and not (isinstance(node.value, ast.Name) and (path.name, node.value.id, node.attr) in NOT_THE_ROUTE)
             elif isinstance(node, ast.ImportFrom):
                 names = {a.name for a in node.names}
                 if node.module == "interpreter_route":
@@ -170,6 +171,21 @@ def test_vacuity_the_scan_finds_every_planted_way_in_in_a_scratch_copy(tmp_path)
             handle.write("\n\n" + text)
     outside = ({name for name, _ in routes_named(copy)} - THE_GATE_AND_THE_LAB) | {name for name, _ in mint_named(copy)} - {"turn_gate.py"}
     assert outside == set(PLANTS), set(PLANTS) ^ outside
+
+
+def test_the_allowance_of_the_ops_turn_draft_row_is_one_attribute_of_one_name_and_nothing_else(tmp_path):
+    """S41-3. The exemption is the triple (file, name, attribute): `ops_natural._complete` in ops_turn.py is the draft's completion; any other route name read from `ops_natural`, and an alias that is
+    named `ops_natural` but is the daily route, are still ways in."""
+    folder = tmp_path / "runtime"
+    folder.mkdir()
+    base = (RUNTIME / "ops_turn.py").read_text(encoding="utf-8")
+    (folder / "ops_turn.py").write_text(base, encoding="utf-8")
+    assert routes_named(folder) == [], "the draft row as it is: not a way in"
+    for planted in ('\n\ndef _planted():\n    ops_natural = importlib.import_module("interpreter_route")\n    return ops_natural.complete("r", "s", "u", accepted=[], deadline_ms=1)\n',
+                    '\n\ndef _planted():\n    return ops_natural.account_text("r", "s")\n',
+                    '\n\ndef _planted():\n    return ops_natural._complete_account("r", "s")\n'):
+        (folder / "ops_turn.py").write_text(base + planted, encoding="utf-8")
+        assert [name for name, _ in routes_named(folder)] == ["ops_turn.py"], planted
 
 
 # --- a call needs an admission ---------------------------------------------------------------------------------------------------------------------------

@@ -32,7 +32,7 @@ What is decided here, and from where:
     read it gets the sentence of `item_refs` and nothing of the mailbox, not even the names of its sources;
   * BL5E: a stale snapshot is read again once. When the index of the source the line needs is refused as older than 26 hours (or of a time that cannot be trusted), as missing
     or as made before the index existed, and the line found its message BY WORDS or asked for the newest one, a messaging sender who holds `ask-mail` has the source read
-    again by the platform (runtime/mail_refresh.py `refresh_once`: one provider read for a line, because `resolve` opens one turn budget and `_read_snapshot` is the only caller;
+    again by the platform (runtime/mail_refresh.py `refresh_once`: one provider read for a line, because the line's refresh budget (`turn_gate.turn`, opened by the entry point of the line, else by `resolve`) allows one mail lookup read and `_read_snapshot` is the only caller;
     only that source, in its own box, days and max; the provider bounded at 60 seconds; one read of a source at a time; a source that failed is not tried again for 120
     seconds), and the index is asked again. A number the person chooses from a list is checked against the snapshot the list was drawn from (the draft keeps `_listed`: source and version): if another line, a list on a phone, a typed refresh or a routine read the source again since, the numbers name other messages and the answer is `NW_MAIL_LIST_CHANGED`, nothing opened. A line that names a message number or a written reference never refreshes (a refresh renumbers the snapshot, and the number the person
     saw would name another message). A refresh that fails, is too slow, or leaves the snapshot still refused is one plain sentence (`NW_MAIL_REFRESH_FAILED`): nothing is listed,
@@ -68,6 +68,7 @@ import phrases  # noqa: E402
 import project_config  # noqa: E402
 import sources  # noqa: E402
 import sources_mail  # noqa: E402
+import turn_gate  # noqa: E402
 
 ACCOUNTS = ("google", "microsoft")
 ACCOUNT_NAMES = {"google": "Google", "microsoft": "Microsoft"}
@@ -467,7 +468,7 @@ def _compose_args(ctx: dict, op: str, slots: dict, channel=None, sender=None):
 def resolve(ctx: dict, op: str, slots: dict, channel, sender, said=None) -> dict:
     """See the module's text. `slots` is what the line and the answers so far gave; `said` is the person's lines so far (the caller keeps them for its own check)."""
     slots = dict(slots or {})
-    with mail_refresh.turn():      # BL5E: one provider read at most for this resolution (the budget is cleared when it ends)
+    with turn_gate.turn():      # BL5E, S41-6: the line's refresh budget (one provider read at most; an inner reuse inside a line, an entry of its own for a call made directly, cleared when it ends)
         try:
             if op in REF_OPS or (op == "mail-draft" and _has_reference(slots)):
                 return _reference_args(ctx, op, slots, channel, sender)

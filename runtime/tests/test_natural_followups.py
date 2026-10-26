@@ -22,6 +22,7 @@ ops = st.load("ops")
 ops_say = st.load("ops_say")
 ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
+ops_turn = st.load("ops_turn")
 drafts = st.load("drafts")
 natural = st.load("natural")
 phrases = st.load("phrases")
@@ -63,7 +64,7 @@ def test_a_choice_of_a_file_offered_in_another_project_is_never_answered_in_this
     elsewhere = {"kind": "which", "line": "what does it say", "ids": ["alpha-secret"], "project": ops_natural.project_key("/elsewhere/project")}
     drafts.put("page", "", elsewhere, "ops", ttl=600)
     assert ops_natural.peek(ctx, "1", "page", None) is False and ops_natural.needs(ctx, "1", "page", None) is None
-    assert ops_natural.take(docs["path"], ctx, "1", "page", None, {}) is None
+    assert ops_turn.dispatch_rows(ops_turn.TAKE_ROWS, docs["path"], ctx, "1", "page", None, None, {}) is None      # S41-3: what `ops_natural.take` was
     assert drafts.count() == 0, "any other line drops the draft"
     here = {"kind": "which", "line": "what does it say", "ids": ["lease-contract"], "project": ops_natural.project_key(docs["path"])}
     drafts.put("page", "", here, "ops", ttl=600)
