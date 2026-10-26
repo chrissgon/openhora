@@ -30,6 +30,17 @@ import pytest
 import entry_corpus_build as build
 import entry_kit as ek
 import standin_tree as st
+# The test modules the kit builds its world from, named here as well: scripts/select_tests.py follows the importers of a changed test file, and a kit between them hides this replay from it
+# (the oracle test_select_tests_oracle.py found it for test_service.py). A change to one of them selects the replay.
+import test_ask  # noqa: F401
+import test_calendar_write  # noqa: F401
+import test_channel_email_reply  # noqa: F401
+import test_file_read  # noqa: F401
+import test_messaging_ask  # noqa: F401
+import test_ops_natural  # noqa: F401
+import test_research  # noqa: F401
+import test_service  # noqa: F401
+import test_sources_mail  # noqa: F401
 
 bridge = st.load("messaging_bridge")
 ops_natural = st.load("ops_natural")

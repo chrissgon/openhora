@@ -58,6 +58,12 @@ The band of one (model, route, language), by the rules below, in this order:
     in which it qualifies ("route_languages"); the others of "languages" get tier 1, clarify-by-code and route, with the interpreter
     off ("off_languages", decision Q2): the reference model is never the daily model.
 
+A held-out set other than the gate's split (a corpus of split test measured with `interpreter_measure.py --split-file`, whose event's corpus_sha256 is the
+hash of its own summary, never of test-split.json) is a separate thing: `partition_events` takes its events out before any band, cause or go is computed, so
+they never feed the gate, a route's standing or `go`, and `status` publishes them in the "heldout" list, one entry per event (counts by category, the language
+counts and correct_direct, named by the committed `evals/interpreter/*-split.json` whose bytes hash to the event's corpus_sha256, which is also what makes an
+event a held-out set's: an event of an unknown corpus hash stays with the gate's, which no band reads): evidence of another set, labelled "not the gate's split".
+
 The correct_direct and clarify_rate denominators leave out the items whose gold is `clarify`; an item line states the outcome
 word of its gold ("gold"), and a line without it is not valid evidence, so no band or go is computed from one. Standard library
 only; runs on Python 3.9.
@@ -88,6 +94,7 @@ SEQUENTIAL_MIN_CALLS = 100
 ROUTE_KEYS = ("id", "base_url", "upstream_model", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint")
 PRICES_REL = os.path.join("runtime", "prices.json")
 # The words the status prints beside an account route's figures (principle 10: a figure says what it is).
+HELDOUT_NOTE = "a held-out set other than the gate's split: not the gate, no band, no go input"
 LATENCY_NOTE = "not a condition on an account route"
 PRICE_NOTE = "proxy, not paid, not a go input"
 
@@ -371,6 +378,46 @@ def _hash_fields(route, inputs):
             ("protocol_sha256", inputs["protocol_sha256"]), ("prompt_sha256", inputs["prompt_sha256"]),
             ("taxonomy_sha256", inputs["taxonomy_sha256"]), ("thresholds_sha256", inputs["thresholds_sha256"]),
             ("catalog_sha256", inputs["served"]))
+
+
+def partition_events(events, inputs, root=ROOT):
+    """(events of the gate's own corpus, events of a held-out set other than the gate's split). The second holds the events of split test whose corpus_sha256 is
+    the hash of a committed `evals/interpreter/*-split.json` other than test-split.json: they are never read by a band, a cause or the go computation (module
+    docstring). An event of an unknown corpus hash (an edited test-split.json, a summary not committed) stays with the gate's, where the hash filter keeps it out
+    of every set and the cause names the changed corpus."""
+    named = _named_splits(root)
+    gate, other = [], []
+    for e in events:
+        (other if e[0]["split"] == "test" and e[0]["corpus_sha256"] != inputs["corpus_sha256"] and e[0]["corpus_sha256"] in named else gate).append(e)
+    return gate, other
+
+
+def _named_splits(root):
+    """{sha256 of the file's bytes: its name} for each evals/interpreter/*-split.json of the checkout other than test-split.json."""
+    folder = os.path.join(root, "evals", "interpreter")
+    names = {}
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if name.endswith("-split.json") and name != os.path.basename(SPLIT_REL):
+            try:
+                names[sha_file(os.path.join(folder, name))] = name
+            except OSError:
+                pass
+    return names
+
+
+def heldout_report(other, inputs, root=ROOT):
+    """One entry per event of a held-out set other than the gate's split ("set" is the file name of its committed summary): {"test", "date", "arm", "route", "model", "set", "corpus_sha256", "items", "runs",
+    "note", "measures", "by_language"}; the counts are of the items' worst runs. Published beside the bands, never inside them."""
+    names, th, tax = _named_splits(root), inputs["thresholds"], inputs["taxonomy"]
+    out = []
+    for event, rows, _ in other:
+        worst = list(worst_per_item(rows, tax["severity"]).values())
+        langs = sorted({l["lang"] for l in worst})
+        out.append({"test": event["test"], "date": event["date"], "arm": event["arm"], "route": event["route"], "model": event["model"],
+                    "set": names[event["corpus_sha256"]], "corpus_sha256": event["corpus_sha256"], "items": len(worst), "runs": event["runs"],
+                    "note": HELDOUT_NOTE, "measures": measures(worst, th["wilson_z"]),
+                    "by_language": {lang: measures([l for l in worst if l["lang"] == lang], th["wilson_z"]) for lang in langs}})
+    return out
 
 
 def current_set(route, inputs, events):
@@ -676,7 +723,7 @@ def go_of(inputs, statuses, events):
 def status(root=ROOT):
     """{"reference", "rows": [one per route and language], "go", "epochs": {...}}: everything computed from the files, live."""
     inputs = load_inputs(root)
-    out = {"reference": inputs["reference"], "rows": [], "go": None, "missing": inputs["missing"], "enable": enable_status(root, inputs)}
+    out = {"reference": inputs["reference"], "rows": [], "heldout": [], "go": None, "missing": inputs["missing"], "enable": enable_status(root, inputs)}
     if not inputs["routes"]:
         out["note"] = inputs["missing"] and f"{inputs['missing']} is missing or has no route"
         return out
@@ -687,7 +734,8 @@ def status(root=ROOT):
         out["go"] = {"go": False, "cause": cause, "route": None, "model": None, "languages": [], "route_languages": [], "off_languages": [],
                      "versus_current": None}
         return out
-    events = read_events(root)
+    events, other = partition_events(read_events(root), inputs, root)
+    out["heldout"] = heldout_report(other, inputs, root)
     statuses = [(r, route_status(r, inputs, events, inputs.get("prices"))) for r in inputs["routes"]]
     out["rows"] = [row for _, s in statuses for row in s["rows"]]
     out["accounts"] = [account_summary(r, s) for r, s in statuses if is_account(r)]
@@ -734,6 +782,11 @@ def table(result):
         lines.append(f"  {row['model']} | {row['route']}{star} | {row['lang']} | {row['band']} | {row['cause']}")
     for summary in result.get("accounts") or []:
         lines += account_lines(summary)
+    for h in result.get("heldout") or []:      # evidence of another held-out set: counts beside the bands, moving none
+        m = h["measures"]
+        counts = ", ".join(f"{c} {n}" for c, n in sorted(m["counts"].items()))
+        lines.append(f"  held-out set {h['set'] or h['corpus_sha256'][:8]} | {h['route']} | {h['arm']} | {h['items']} items, {h['runs']} runs | {counts} | "
+                     f"correct_direct {_show(m['correct_direct'])} ({h['note']})")
     use = result.get("enable")
     if use and use["present"]:      # the maintainer's dated decision, beside the bands and never moving one
         lines.append(f"  {use['route']}: {use['status_line']}" if use["in_force"] else f"  {use['route']}: the enabling decision of {use['date']} is not in force ({use['cause']})")
