@@ -38,7 +38,7 @@ shell_kit = st.load("shell_kit")
 ops_interpret = st.load("ops_interpret")
 interpreter_route = st.load("interpreter_route")
 natural = st.load("natural")
-command_words = st.load("command_words")
+turn_gate = st.load("turn_gate")
 ops_natural = st.load("ops_natural")
 phrases = st.load("phrases")
 
@@ -549,7 +549,7 @@ def test_vacuity_without_the_check_of_the_number_in_the_line_a_cancel_with_two_n
     first, second = make_request(rig), make_request(rig)
     line = f"cancel requests {first} and {second}" if rig.language == "en" else f"cancele os pedidos {first} e {second}"
     assert rig.line(OWNER, line, op("cancel", {"id": str(first)})) == [say(rig, "which_number")] and request_state(rig, first) != "cancelled"
-    monkeypatch.setattr(command_words, "vet", lambda line_, op_, number: None)
+    monkeypatch.setattr(turn_gate, "number_believed", lambda line_, number: True)      # S41-5: the vet moved from command_words.vet (returned None) to the gate
     assert rig.line(OWNER, line, op("cancel", {"id": str(first)})) == [say(rig, "cancelled").format(id=first)]
     assert request_state(rig, first) == "cancelled" and request_state(rig, second) != "cancelled"
 

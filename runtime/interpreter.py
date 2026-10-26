@@ -50,6 +50,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import natural  # noqa: E402  (the same folder: the operations, their slots and `check_operation`, which this module calls unchanged)
 import natural_time as nt  # noqa: E402  (the same folder: the time reader whose reading wins over the model's)
+import turn_gate  # noqa: E402  (the same folder: the private line, the gate's check; the gate imports no interpreter)
 
 PROMPT_FILE = os.path.join(HERE, "interpreter_prompt.txt")
 PROTOCOL_FILE = os.path.join(HERE, "interpreter_protocol.json")
@@ -773,7 +774,7 @@ def precheck(line):
     """The decision for a line that must not be sent to the model (longer than `max_line_chars`): a `route`, or a `clarify` with why long-line when the line is private
     (a reminder or a write in words: its words never leave). Else None."""
     if isinstance(line, str) and len(collapse(line)) > PROTOCOL["max_line_chars"]:
-        return _clarify("long-line") if natural.private(line) else {"kind": "route", "error": None}
+        return _clarify("long-line") if turn_gate.private_line(line) else {"kind": "route", "error": None}
     return None
 
 
@@ -848,7 +849,7 @@ def check(obj, line, frame, catalog, now, zone, allowed) -> dict:
     if kind == "none":
         return {"kind": "none", "error": None}
     if kind == "route":
-        return _clarify("private-route") if natural.private(line) else {"kind": "route", "error": None}
+        return _clarify("private-route") if turn_gate.private_line(line) else {"kind": "route", "error": None}
     ops, refused = _catalog_rows(catalog)
     if kind == "clarify":
         if "slot" in obj:

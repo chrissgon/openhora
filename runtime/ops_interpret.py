@@ -34,7 +34,7 @@ by the maintainer's decision of 2026-10-20 (slice S7): a new e-mail (`mail-send`
 text on that card may be worded by a second call (runtime/mail_compose.py), validated by code, with the person's own words as the fallback.
 
 A decision the model names (slice S20). The catalog lists `approve`, `reject`, `release`, `answer` and `go-ahead` as refused; the model names one and never gives its number, and code reads the number
-from the line (`natural.decision_numbers`: the one whole number written in it, none in a line that says a date or a time). `reject` and `release` are then the typed commands (`ops_natural.run` hands
+from the line (`turn_gate.the_number`: the one whole number written in it, none in a line that says a date or a time). `reject` and `release` are then the typed commands (`ops_natural.run` hands
 the bridge the typed line), `approve` sends the decision's card again and approves nothing, and `answer` and `go-ahead` have words of their own. No operation was added to the catalog.
 
 The call. It is the gate's (`turn_gate.call`, runtime/turn_gate.py): the route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again
@@ -278,7 +278,7 @@ def _said(text: str, extras: dict) -> tuple:
 def _no_decision(ctx: dict, said: str, extras: dict):
     """No decision (entry off, a limit, a failed call): a line that is not private, in a project whose tables detect private lines, goes to the planning agent as before;
     any other gets the sentence."""
-    if _tag(ctx["cfg"]) in ROUTE_LANGUAGES and not natural.private(said):
+    if _tag(ctx["cfg"]) in ROUTE_LANGUAGES and not turn_gate.private_line(said):
         extras["interpreted"] = False
         return None
     return _said(phrases.text("IX_OUTAGE", ctx["cfg"]), extras)
@@ -365,10 +365,10 @@ def _decided(project: str, ctx: dict, op: str, said: str, sender, extras: dict) 
         if op == "answer":
             return _said(phrases.text("IX_ANSWER_ON_QUESTION", ctx["cfg"]), extras)
         return _said(ops_natural.phone_sentence(ctx, op), extras)
-    numbers = natural.decision_numbers(said)
-    if len(numbers) != 1:
+    number = turn_gate.the_number(said)
+    if number is None:
         return _said(phrases.text("NAT_WHICH_DECISION", ctx["cfg"]), extras)
-    return _said(ops_natural.run(project, ctx, op, {"pending_id": numbers[0]}, said, CHANNEL, sender, extras, routed=True), extras)
+    return _said(ops_natural.run(project, ctx, op, {"pending_id": number}, said, CHANNEL, sender, extras, routed=True), extras)
 
 
 def _unchanged(decision: dict, state: dict, said: str) -> bool:

@@ -26,7 +26,7 @@ Never asked: a greeting or the help, the answer to the platform's own question (
 an effect), a notice (a reminder keeps its own confirmation) and a routine or a fired reminder.
 
 THE SWITCH. `ACTIVE` was False in the package that added this module (BL2a) because the messaging bridge could not yet take a "sim" to a question; the bridge's package (BL2b) sets it True with the
-dispatcher that can (`Bridge.plan_line`), and dropped the S20 verb lists of `command_words.vet` in the same change. With it False `needed` is False (nothing is asked), which a test may use.
+dispatcher that can (`Bridge.plan_line`), and dropped the S20 verb lists of the vet of decision numbers (now `turn_gate.number_believed`) in the same change. With it False `needed` is False (nothing is asked), which a test may use.
 
 Privacy: the plan lives in memory for at most PLAN_TTL seconds, in the store of runtime/pending_items.py; `said` and the person's spans are in it and nowhere else. Nothing here logs,
 prints or writes them; `repr` of an item shows its kind and id only. Standard library only. Runs on Python 3.9: python3 runtime/plan_confirm.py --help

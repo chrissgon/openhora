@@ -12,9 +12,6 @@ the interpreter's (runtime/ops_interpret.py). `/project [name]` has none: it is 
                           may begin a request about something else, so the bridge takes the line only when the name is a project of the sender), else None
   resolve(name, projects) the exact name of the listed project whose name or id is `name` once both are folded (case, accents, punctuation), else None
   stop_form(line)         whether the whole line is a stop word of the closed lists `STOP_WORDS` (six languages), which stops the sender's own running research (BL2b; the bridge's `research_stop_line`)
-  vet(line, op, number)   None when a decision or an act that a MODEL or the router chose is believed against the line, else "number": the line does not hold that one number and no other
-                          (`natural.decision_numbers`). The number is the one thing believed from the line itself: what the line means is checked by the person, who is shown the sentence code
-                          wrote from the call and says yes (limit L65); the closed verb lists of S20 that did it before were dropped with that OK (BL2b, 2026-10-24).
 
 The lists are closed phrases in the six languages the interpreter reads (pt-BR, en, es, fr, de, it), folded the way tier 1 folds a line (`natural.ascii_normal`). A line is a form
 only when it is, whole, polite words, one lead phrase and then at most `NAME_WORDS` words of a name; a longer tail is a request ("usa o projeto como base para planejar a feira") and
@@ -146,16 +143,6 @@ def stop_form(line) -> bool:
         return False
     flat = _trim(natural.ascii_normal(line))
     return flat in _STOP
-
-
-# --- a decision or an act that a model chose (slice S20, review round) ------------------------------------------------------------------------------------
-
-def vet(line, op, number):
-    """None when the decision or act `op` on `number` that a model or the router chose is believed against the person's line; "number" when the line does not hold that one number (none, another,
-    or two). Pure. What the line MEANS is not read here (the closed verb lists of S20 were dropped on 2026-10-24): the person is shown the sentence code wrote from the call and says yes (limit L65)."""
-    if not isinstance(number, int) or isinstance(number, bool) or natural.decision_numbers(line if isinstance(line, str) else "") != [number]:
-        return "number"
-    return None
 
 
 def main(argv=None) -> int:

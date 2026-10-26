@@ -1,5 +1,5 @@
 """The acts asked in words ask first (package BL2a, limits L54 and L65): cancel, stop-task, retry, routine-pause, attachment-add, attachment-discard, reject and release run only after the
-person's OK of the sentence code wrote from the call, and the number rule stays: a model's decision is believed only for the one number WRITTEN in the line (`command_words.vet`).
+person's OK of the sentence code wrote from the call, and the number rule stays: a model's decision is believed only for the one number WRITTEN in the line (`turn_gate.number_believed`).
 
 The verb lists of S20 went with the switch (BL2b set `plan_confirm.ACTIVE`; before it these tests ran with D5 on and the verb test off): a
 line the lists refused ("quero cancelar o pedido 3", "nao cancela o pedido 3") now meets the question instead, and the question is where the person says no. Offline; invented names.
