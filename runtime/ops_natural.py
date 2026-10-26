@@ -47,7 +47,6 @@ import sys
 import time
 import unicodedata
 
-import command_words
 import drafts
 import line_stage
 import messaging_guard as guard
@@ -59,6 +58,7 @@ import phone_errors
 import phone_refusal
 import phrases
 import plan_confirm
+import turn_gate
 
 DRAFT_TTL = drafts.TTL       # seconds a question waits for its answer (this spec's choice, not measured)
 RENDER_MAX = 1800            # characters of a read written for a messaging app
@@ -75,7 +75,7 @@ TYPED = {"pending": ("/pending", None, True), "attachments": ("/attachments", No
          "attachment-add": ("/add {n}", "attachment_id", True), "attachment-discard": ("/discard {n}", "attachment_id", True),
          "reject": ("/reject {n}", "pending_id", True), "release": ("/release {n}", "pending_id", True)}
 ROUTINE_BRAKES = {"routine-pause": "CMD_ROUTINE_PAUSED"}      # S20: no typed form on a phone; the call is the operation's own, after the same policy check. `routine-cancel` is final, so it is not done from words: PHONE_ROUTINE_CANCEL
-# The parameter that names the decision or the act in the arguments of a call, for every operation that a model or the router may choose and that is vetted against the line (command_words.vet)
+# The parameter that names the decision or the act in the arguments of a call, for every operation that a model or the router may choose and that is vetted against the line (`turn_gate.number_believed`)
 VETTED = {"approve": "pending_id", "reject": "pending_id", "release": "pending_id", "cancel": "request_id", "stop-task": "task_id", "retry": "task_id",
           "attachment-add": "attachment_id", "attachment-discard": "attachment_id", "routine-pause": "routine_id"}
 
@@ -217,7 +217,7 @@ def stored_line(ctx: dict, said: str, channel=None, sender=None) -> str:
             return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
     if natural_writes().candidate(said) is not None:
         return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
-    return phrases.text("NAT_PRIVATE_LINE", ctx["cfg"]) if natural.private(said) else said
+    return phrases.text("NAT_PRIVATE_LINE", ctx["cfg"]) if turn_gate.private_line(said) else said
 
 
 PRIVATE_READS = ("pending", "task")      # the reads that draw a decision's card or a task's pending list: the private lines of a card are drawn for a holder of ask-mail
@@ -311,7 +311,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         if refused:
             return phone_refusal.said(refused, channel, cfg)
     if channel == "messaging" and routed and name in VETTED:      # S20 (review round): a decision or an act that a MODEL or the router chose is believed only for the number the line writes (what it means is the person's OK of the plan, L65)
-        if command_words.vet(said, name, args.get(VETTED[name])) == "number":
+        if not turn_gate.number_believed(said, args.get(VETTED[name])):
             return phrases.text("NAT_WHICH_DECISION" if cls == "D" else "NAT_ASK_ID", cfg)
     if name == "items" and "kind" not in args:      # BL5B: the list's kind, account and range are part of the call, so that the plan's hash binds them and the question says what will be read; a correction keeps what the plan it corrects had (`extras["plan_previous"]`, the sender's own plan)
         args = dict(args, **importlib.import_module("ops_items").items_args(said, _clock(), extras.get("plan_previous")))

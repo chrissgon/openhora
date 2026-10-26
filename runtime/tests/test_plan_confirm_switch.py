@@ -1,6 +1,6 @@
 """The switch of D5 (package BL2a shipped `plan_confirm.ACTIVE = False`; the package of the messaging bridge, BL2b, sets it True with the dispatcher that can take a "sim" to the question).
 
-With it True a tier-1 read on a messaging app asks "Shall I go ahead?" before it runs, and the S20 verb check of `command_words.vet` is gone (the number rule stays): a line the verb lists refused
+With it True a tier-1 read on a messaging app asks "Shall I go ahead?" before it runs, and the S20 verb check of the vet of decision numbers (now `turn_gate.number_believed`) is gone (the number rule stays): a line the verb lists refused
 ("nao cancela o pedido 3") now meets the question, and nothing runs before the person's "sim" (the dispatcher's own tests are test_messaging_plan_confirm.py). With it False (a test may set it) nothing
 is asked: the state of the integration checkout between BL2a and BL2b. Offline; invented names.
 

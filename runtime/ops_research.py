@@ -20,7 +20,7 @@ and no plan is made. What code decides, in this order, before anything runs:
   3. The routing, by the rule of every conversation run (runtime/ops_models.py): the project's default model, else `auto` (the cheapest pair on which the skill is `reliable`, else the
      reference model). The web is allowed only when the chosen pair was MEASURED with the web (the proof's `web`): a pair that was not runs nothing and the reply says there is no web
      (RS_NO_WEB). Proof decides what a model may be asked to do; it is never traded for an answer.
-  3b. The question: one that holds a possessive form of a source of the project ("minha agenda", "my e-mails", runtime/research_guard.py) is not run: the sentence that asks again.
+  3b. The question: one that holds a possessive form of a source of the project ("minha agenda", "my e-mails", `turn_gate.research_allowed`, runtime/turn_gate.py) is not run: the sentence that asks again.
   4. The bounds, from the configuration's key `research` (runtime/project_config.py): at most `max_per_day` runs in a local day (counted from the store, whatever their end), and, per
      run, `max_cost_usd` (the adapter's --max-cost-usd) and `timeout_seconds`. The route lock (one conversation model call per project) is held for the run.
 
@@ -63,9 +63,9 @@ import ops_contained  # noqa: E402
 import ops_core as core  # noqa: E402
 import pending_items  # noqa: E402
 import phrases  # noqa: E402
-import research_guard  # noqa: E402
 import research_reply  # noqa: E402
 import skill_meta  # noqa: E402
+import turn_gate  # noqa: E402
 import workcopy  # noqa: E402
 
 SKILL = "core-research"
@@ -156,7 +156,7 @@ def _research(project: str, ctx: dict, question: str, channel, sender, line=None
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     limits = cfg["research"]
     limit = PHONE_MAX if channel == "messaging" else OTHER_MAX
-    if research_guard.personal(question, line):      # about the person's own calendar, mail or files: not for a web search, whatever the model said
+    if not turn_gate.research_allowed(question, line):      # about the person's own calendar, mail or files: not for a web search, whatever the model said
         return _outcome(t("IX_ASK_AGAIN"), "personal")
     try:
         _scope()
