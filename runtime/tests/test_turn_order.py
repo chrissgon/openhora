@@ -1,6 +1,6 @@
 """The table of the order in which the bridge claims a line (package S41-2): runtime/turn_order.py (the data) and runtime/messaging_turn.py (the dispatcher and the code of the rows).
 
-WHAT IS CHECKED. (1) The table is well formed: names are unique, each has a row of code and each row of code a name, the bridge names are the ones the entry kit's trace uses, the module is pure data
+WHAT IS CHECKED. (1) The table is well formed: names are unique, each row of the bridge stages has a row of code in `messaging_turn` and each row of code a name (the stage `ops` is read by runtime/tests/test_ops_turn.py), the bridge names are the ones the entry kit's trace uses, the module is pure data
 (standard library only; AST), the dispatcher reaches no operations module (AST). (2) The dispatcher behaves as the chain it replaced: the first row that takes a line ends the dispatch, an exception
 of a row propagates and `Bridge.handle_safely` logs it and nothing after it runs. (3) Every row is load-bearing: with its code replaced by "takes nothing", at least one scenario of the entry corpus
 no longer has the outcome of the golden (a row no scenario needs is a corpus gap, reported, never a pass). (4) The order matters: swapping the OK of a plan and the card words, and the card words and
@@ -31,7 +31,8 @@ turn_order = st.load("turn_order")
 messaging_turn = st.load("messaging_turn")
 
 RUNTIME = Path(__file__).resolve().parents[1]
-FINAL = {"bridge": "say", "bridge-say": "say-queue"}      # the last row of a stage always takes the line
+FINAL = {"bridge": "say", "bridge-say": "say-queue", "ops": "planning-agent"}      # the last row of a stage always takes the line
+BRIDGE_STAGES = ("bridge", "bridge-say")      # the stages `messaging_turn` dispatches; the stage `ops` is dispatched by `ops_turn` (test_ops_turn.py)
 SHARDS = rp.SHARDS
 
 
@@ -40,14 +41,16 @@ SHARDS = rp.SHARDS
 
 def test_the_table_is_a_tuple_of_rows_with_unique_names_and_every_row_has_code_and_every_code_a_row():
     assert isinstance(turn_order.ORDER, tuple) and isinstance(turn_order.RETIRED, tuple)
-    assert all(set(row) == {"name", "stage", "what"} and row["stage"] in turn_order.STAGES and row["what"].strip() for row in turn_order.ORDER)
+    assert all(row["stage"] in turn_order.STAGES and row["what"].strip() for row in turn_order.ORDER)
+    assert all(set(row) == ({"name", "stage", "what", "channels"} if row["stage"] == "ops" else {"name", "stage", "what"}) for row in turn_order.ORDER), "a row of the stage ops names the shells it applies to; the bridge rows do not"
+    assert all(row["channels"] and set(row["channels"]) <= set(turn_order.SHELLS) for row in turn_order.ORDER if row["stage"] == "ops")
     every = [row["name"] for row in turn_order.ORDER]
     assert len(every) == len(set(every)), "a name is the row of one stage only"
-    assert set(messaging_turn.ROWS) == set(every), "every row of the table has its code, and no code is without a row"
+    assert set(messaging_turn.ROWS) == {row["name"] for row in turn_order.ORDER if row["stage"] in BRIDGE_STAGES}, "every row of the bridge stages has its code, and no code is without a row"
     for stage in turn_order.STAGES:
         found = turn_order.names(stage)
         assert isinstance(found, tuple) and found and found[-1] == FINAL[stage], f"the last row of {stage} is the one that always takes the line"
-    assert {row["name"] for row in turn_order.RETIRED} == set(), "nothing is retired yet (S41-8 and S41-11 fill it, each with its replacement)"
+    assert {row["name"] for row in turn_order.RETIRED} == {"s20-verb-lists"}, "one claimer left before the table existed (S41-3); S41-8 and S41-11 add theirs, each with its replacement"
 
 
 def test_the_bridge_names_are_the_ones_of_the_entry_kit_in_the_same_order():
@@ -59,7 +62,7 @@ def test_the_bridge_names_are_the_ones_of_the_entry_kit_in_the_same_order():
 
 def test_an_unknown_stage_is_refused():
     with pytest.raises(ValueError):
-        turn_order.names("ops")
+        turn_order.names("nowhere")
 
 
 def test_the_module_prints_its_rows_and_its_help():

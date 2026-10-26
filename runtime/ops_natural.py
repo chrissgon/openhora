@@ -33,7 +33,7 @@ minutes, one per channel and sender, never logged, never in the store), where th
 choice of a file for a question to `ask`. The next line of that sender that answers the draft completes it; any other line drops the draft and is handled as
 new. A reminder's words are in the draft and in the `reminders` table once made, and nowhere else (limit L51): the conversation stores a neutral word.
 
-Sibling of runtime/ops_say.py, which calls `peek` and `take`; it reaches ops.py and ops_say.py at call time, never at import. Standard library
+Sibling of runtime/ops_say.py, which calls `peek`, `recognises` and `run`; the order in which a line is taken (the answer to a draft, a number after a list, a write form, a tier-1 form: what `take` was) is the table of runtime/turn_order.py, dispatched by runtime/ops_turn.py, whose rows call the helpers here; it reaches ops.py and ops_say.py at call time, never at import. Standard library
 only. Runs on Python 3.9: python3 runtime/ops_natural.py --help
 """
 from __future__ import annotations
@@ -244,42 +244,6 @@ def is_placeholder(text) -> bool:
 
 
 # --- the entry points --------------------------------------------------------------------------------------------------------------------------
-
-
-def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
-    """The reply of a plain line handled here, or None when it is not (the draft of this sender, if any, is dropped: any other line is new).
-    `channel` is the carrying channel (the queue's drain already acts as the page). Fills `extras` with `stored` (the text the conversation keeps for
-    the reply), `resend` (the decision whose card the bridge sends again) and `run_id` (the answer run an `ask` made)."""
-    slot = _slot(channel, sender)
-    draft = _live(slot)
-    if draft is not None:
-        owner = _owner(draft)
-        if owner == "write":      # a question about a write to the person's accounts (package NR-5): the answer, or the draft is dropped and the line is new
-            reply = _writes().answer(project, ctx, draft, said, channel, sender, extras) if channel != "mcp" else None
-            if reply is not None:
-                return reply
-            extras["discarded"] = True
-        else:
-            answer = _answers(ctx, draft, said, owner)
-            drafts.drop(*slot)
-            if answer is not None:
-                return _complete(project, ctx, draft, answer, said, channel, sender, extras)
-            extras["discarded"] = True          # a question this line asks (a write's, NR-5) says the previous one was discarded
-    if channel == "messaging":      # S11: a number after a list of events ("cancela o 2", "o 2") means that entry, as "cancela o evento 2" does (runtime/event_lookup.py)
-        listed = importlib.import_module("event_lookup").take(project, ctx, said, sender, extras, _writes(), _clock())
-        if listed is not None:
-            return listed
-        picked = importlib.import_module("ops_file_read").take(project, ctx, said, channel, sender, extras)      # S17: a number after a list of files ("o 2") picks that file
-        if picked is not None:
-            return picked
-    if channel != "mcp":      # a write form opens the card of its exact content (limit L61), never a write
-        opened = _writes().open_line(project, ctx, said, channel, sender, extras)
-        if opened is not None:
-            return opened
-    found = natural.match(said)
-    if found is None:
-        return None
-    return run(project, ctx, found["op"], found["args"], said, channel, sender, extras)
 
 
 def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, sender, extras: dict, when=None, routed: bool = False, confirmed: bool = False) -> str:

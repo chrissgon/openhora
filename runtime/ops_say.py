@@ -42,7 +42,6 @@ import operations
 import ops_actor
 import ops_natural
 import pending_items
-import phone_delete
 import phone_questions
 import phone_refusal
 import phrases
@@ -55,6 +54,11 @@ import skill_meta
 def _ops():
     """runtime/ops.py, found at call time: the operations `say` calls and the helpers of the route stay there."""
     return importlib.import_module("ops")
+
+
+def _turns():
+    """runtime/ops_turn.py, found at call time (it reaches this file at call time too): the dispatcher of the table of the order in which the operations layer claims a line (S41-3)."""
+    return importlib.import_module("ops_turn")
 
 
 # --- stage 6: the conversation with the planning agent ----------------------------------------------------------------
@@ -181,10 +185,13 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     store = ctx["store"]
     importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
     importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
+    turns = _turns()      # the order of who takes the line is the table of runtime/turn_order.py, stage `ops`; its dispatcher is runtime/ops_turn.py (S41-3)
     if plan_ok is not None:
-        return _say_confirmed(project, ctx, said, sender, can_send, plan_ok)
+        confirmed = turns.confirmed(project, ctx, said, sender, can_send, plan_ok)      # the row `confirmed-plan`
+        if confirmed is not None:
+            return confirmed
     plan_before = channel == "messaging" and plan_confirm.live(project, sender) is not None      # D5: any other line than a yes, a no or a correction drops the plan, as a line drops a draft
-    handled = asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, _natural_channel(channel), sender) or _greets(ctx, said, channel, sender) or (channel == "messaging" and may_talk(ctx, channel, sender) and importlib.import_module("ops_file_trash").catches(ctx, said, channel, sender)) or (plan_before and natural.confirm_kind(said) is not None)      # S14b: a request to delete a file is answered by code, so it waits for no run and no queue (R2-A: for a sender who may move a file to the trash, when the name can be read by code). S5: a greeting is answered by code too, never queued
+    handled = turns.code_claims(ctx, said, channel, sender, plan_before)      # a line code answers by itself waits for no run and no queue: a form, a draft's answer, a greeting, a request to delete a file, a bare yes or no with a live plan
     if _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:
         # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
         # router is free again; a shell that drains nothing is refused while the router answers another request.
@@ -203,7 +210,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     if can_send is not None and channel == "messaging":
         extras["can_send"] = can_send
     try:
-        reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"] if stored else None, sender, extras)
+        reply, request_id, pending_id, ran, run_id, offered = turns.dispatch(project, ctx, said, channel, stored["id"] if stored else None, sender, extras)
     finally:
         if deferred:
             core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=phrases.text("IX_PRIVATE_LINE", ctx["cfg"]) if extras.get("interpreted") else kept)
@@ -340,7 +347,7 @@ GREETING_APPROVALS = ("plan", "acceptance", "effect:calendar", "effect:send-own"
 
 
 def _greets(ctx: dict, said: str, channel: str, sender=None) -> bool:
-    """Whether a plain line is a greeting that `_turn` answers by code (S5): the whole line is one (runtime/greeting.py) and the sender may talk. It runs no model, so it takes no route lock and is never queued."""
+    """Whether a plain line is a greeting that the row `greeting` of runtime/ops_turn.py answers by code (S5): the whole line is one (runtime/greeting.py) and the sender may talk. It runs no model, so it takes no route lock and is never queued."""
     return not said.startswith("/") and greeting.is_greeting(said, helps=channel == "messaging") and may_talk(ctx, channel, sender)
 
 
@@ -356,72 +363,6 @@ def _greeting_reply(ctx: dict, channel: str, sender=None) -> str:
     if importlib.import_module("ops_interpret").enabled(ctx, channel, sender):
         lines.append(phrases.text("GREET_OWN_WORDS", cfg))
     return "\n".join([phrases.text("GREET_HEAD", cfg)] + (lines or [phrases.text("GREET_ASK_WORK", cfg)]))
-
-
-def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int, sender=None, extras=None) -> tuple:
-    """(reply, request_id, pending_id, ran, run_id, proposal) of one stored line of the person: a command, a question about the
-    state, the answer to the router's question, or a new request. `line_id` is the line's message id: the memory
-    the router is given is the messages before it. proposal is None, or the proposal to add the line to the project's
-    instructions (runtime/ops_instructions.py proposal) that an answer to the router's question may end with: its text
-    closes the reply, and the line is the person's own text, never the reply's."""
-    if said.startswith("/"):
-        out = _say_command(project, ctx, said, channel, line_id, sender)
-        parsed = operations.parse_chat(said)
-        if extras is not None and parsed is not None and ops_natural.keeps_private(ctx, parsed[0], channel, sender):      # the card's private lines were drawn for this sender: the conversation keeps a word
-            extras["stored"] = phrases.text("NAT_READ_REPLY", ctx["cfg"])
-        return (*out, None)
-    talks = may_talk(ctx, channel, sender)
-    extras = extras if extras is not None else {}
-    if talks and greeting.is_greeting(said, helps=channel == "messaging"):      # S5: a greeting, or a plain request for help, is answered by code before any open question and any model: never the answer to the router's question
-        return _greeting_reply(ctx, channel, sender), None, None, False, None, None
-    if channel == "messaging" and plan_confirm.live(project, sender) is not None:      # D5: a bare yes or no that the bridge did not take as the answer to the question it was shown for (it was not the last message, or no reply to it): never an OK, and no model reads it
-        kind = natural.confirm_kind(said)
-        if kind == "yes":
-            extras["plan_keep"] = True
-            return phrases.text("PLAN_NOT_LAST", ctx["cfg"]), None, None, False, None, None
-        if kind == "no":
-            plan_confirm.drop(project, sender)
-            return phrases.text("PLAN_DROPPED", ctx["cfg"]), None, None, False, None, None
-    if talks and channel == "messaging" and phone_delete.asks(said):      # a file is not deleted from a message (S14, S14b): one plain sentence, no card, no request, no model, before an open question (a request to delete is never its answer), the lists of code and the interpreter
-        trash = importlib.import_module("ops_file_trash")
-        if not trash.permitted(ctx, channel, sender):
-            return phrases.text("PHONE_NO_FILE_DELETE", ctx["cfg"]), None, None, False, None, None
-        moved = trash.line(project, ctx, said, channel, sender, extras)      # R2-A: a sender who may move a file to the trash gets the card of the file (or the list, or one sentence); never a delete for good
-        if moved is not None:
-            return moved, None, None, False, None, None
-    asked = _open_question(ctx, channel, sender) if talks else None      # a sender who may not talk never answers the router's question; on a phone it is the question bound to this sender (S4)
-    if asked is not None and ops_natural.recognises(ctx, said, _natural_channel(channel), sender):      # a request code recognises is a new line, never the answer (LIVE-2), for the interpreter's senders too
-        asked = None
-    framed = asked is not None and bool(extras.get("deferred"))      # S4: of the lines no list of code claims, the interpreter tells the answer from a new line, by a typed frame (decision 229 (1))
-    if asked is None and state_question(said):
-        if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
-            return phone_refusal.said(operations.not_enabled('status', channel), channel, ctx["cfg"]), None, None, False, None, None      # the state is read, so a profile that reads nothing is not told it
-        if plan_confirm.needed(ctx, "status", channel, sender, False):      # D5: the state is a read like any other on a messaging app
-            return plan_confirm.ask(project, ctx, "status", {}, said, sender, extras, state_question=True), None, None, False, None, None
-        return state_reply(project, cfg=ctx["cfg"]), None, None, False, None, None
-    if asked is None:      # a tier-1 form or the answer to a draft: code, no model, no route lock (package NR-2); any other line drops the sender's draft
-        natural_reply = ops_natural.take(project, ctx, said, _natural_channel(channel), sender, extras)
-        if natural_reply is not None:
-            return natural_reply, None, None, False, extras.get("run_id"), None
-    if not talks:      # admitted under another group, and no form of it took the line: it is not a model's, so it is refused as the typed `talk` is
-        return phone_refusal.said(operations.refusal('say', channel, ctx['cfg']['channels'], sender=sender), channel, ctx["cfg"]), None, None, False, None, None
-    if extras.get("deferred"):      # S1 (limit L63): a plain line of a sender the interpreter reads, which no list of code took (the hybrid order of 2026-10-21)
-        if channel == "messaging":
-            live_plan = plan_confirm.live(project, sender)      # D5: the sender's plan is a typed item of the frame (its operation and age; `last` holds the plan's own words)
-            if live_plan is not None:
-                extras["plan_frame"] = live_plan
-        if framed:
-            extras["frame_age"] = _question_age(ctx, sender)      # the typed frame's one item is built from this age alone (runtime/ops_interpret.py `router_frame`)
-        read = importlib.import_module("ops_interpret").turn(project, ctx, said, sender, extras)
-        if read is not None:
-            return (*read, None)
-        if framed and extras.get("frame") == "new":
-            asked = None      # S4: the model said `route`: a new request
-    out = _say_route(project, ctx, said, line_id, channel, answer_to=asked, sender=sender, extras=extras)
-    if asked is not None and channel == "messaging":      # the person is told what their line was taken for
-        out = (phrases.text("ANSWER_TAKEN", ctx["cfg"], id=asked) + "\n\n" + out[0], *out[1:])
-    offered = importlib.import_module("ops_instructions").proposal(ctx, out[1], said, channel) if asked is not None else None
-    return (out[0] + "\n\n" + offered["text"], *out[1:], offered) if offered else (*out, None)
 
 
 def _turn_routes(said: str) -> bool:
@@ -742,7 +683,7 @@ def _drain_line(project: str, ctx: dict, message_id: int) -> dict:
     if not found:
         raise core.OpsError(f"message {message_id} is not in the conversation", 1)
     extras = {}
-    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, found[0]["text"], DRAIN, message_id, None, extras)
+    reply, request_id, pending_id, ran, run_id, offered = _turns().dispatch(project, ctx, found[0]["text"], DRAIN, message_id, None, extras)
     core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant",
                  text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=extras.get("task_id", request_id), run_id=extras.get("run_id", run_id))
     return {"routed": "line", "message_id": message_id, "request_id": request_id, "pending_id": pending_id, "ran": ran,

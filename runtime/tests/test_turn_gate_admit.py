@@ -45,7 +45,8 @@ THE_GATE_AND_THE_LAB = {"turn_gate.py", "interpreter_route.py", "lab.py", "inter
 ROUTE_NAMES = {"complete", "_complete", "_complete_account", "account_text"}
 MINT_NAMES = {"_MINT", "Admission"}
 MODULE_NAMES = {"interpreter_route", "interpreter_measure"}
-NOT_THE_ROUTE = {("ops_natural.py", "natural"), ("ops_natural_writes.py", "natural"), ("ops_reminders.py", "natural")}      # the time engine's own `natural.complete`, a reminder's or a write's draft completed with a time
+NOT_THE_ROUTE = {("ops_natural.py", "natural"), ("ops_natural_writes.py", "natural"), ("ops_reminders.py", "natural"),
+                 ("ops_turn.py", "ops_natural")}      # the time engine's own `natural.complete`, a reminder's or a write's draft completed with a time; and (S41-3) the row `draft-answer` calling `ops_natural._complete`, the same draft's completion that `ops_natural.take` called as a bare name
 CALLERS = ["interpreter", "composer", "mail-reviser", "event-reviser"]
 NONE = '{"v":1,"kind":"none"}'
 PLAIN_LINE = "tell me something about the unicorns"
@@ -83,7 +84,7 @@ def routes_named(folder: Path) -> list:
     """(file, line) of every way into the daily route that the python files of `folder` (runtime/*.py and runtime/handlers/*.py) hold, found by the shape of the code and not by a name it was
     bound to: any attribute `complete`, `_complete`, `_complete_account` or `account_text` (the route's call, its two private helpers and the lab's text runner), however the module was
     reached (a name, `importlib.import_module(...)` itself, `sys.modules[...]`, an alias, a function taken by `f = module.complete`), except the reminders' own `natural.complete` of the
-    three files in NOT_THE_ROUTE; the same names as a string given to `getattr` or as a subscript; `from interpreter_route import *`, and `from interpreter_route import <one of those names>`;
+    the files in NOT_THE_ROUTE; the same names as a string given to `getattr` or as a subscript; `from interpreter_route import *`, and `from interpreter_route import <one of those names>`;
     any import of `interpreter_measure` (a statement, `importlib.import_module`, `__import__`, `sys.modules`, a `from ... import interpreter_measure`); and `sys.modules` read for
     `interpreter_route`. The files that may hold them are in THE_GATE_AND_THE_LAB; the caller of this function says which are allowed."""
     found = []

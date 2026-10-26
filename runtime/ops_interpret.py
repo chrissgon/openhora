@@ -5,7 +5,7 @@
 # ///
 """The natural-language interpreter on a messaging line (slice S1): what the conversation does with a plain line that no list of code took.
 
-A sibling of runtime/ops_say.py, which calls `enabled` and `turn` at its one seam (`_turn`, after `ops_natural.take` returned None and the sender may talk) and
+A sibling of runtime/ops_say.py, which calls `enabled` and `turn` at its one seam (runtime/ops_turn.py, the row `interpreter` of the table of runtime/turn_order.py: after every row of code returned None and the sender may talk) and
 imports this file at call time. It reaches nothing of ops.py. Page, terminal and chat never get here; neither does a line that code claims (a typed command, a
 question about the state, a tier-1 form, a reminder or a write in the words of the pt/en tables, the answer to a draft): the order is the hybrid the maintainer
 confirmed on 2026-10-21, so the interpreter reads only the rest.

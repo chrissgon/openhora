@@ -43,7 +43,7 @@ import test_service  # noqa: F401
 import test_sources_mail  # noqa: F401
 
 bridge = st.load("messaging_bridge")
-ops_natural = st.load("ops_natural")
+ops_turn = st.load("ops_turn")
 
 SHARDS = 4
 RECORDING = os.environ.get("WB_ENTRY_RECORD") == "1"
@@ -276,6 +276,13 @@ def never(owner, name, result):
     return hook
 
 
+def row_never(name):
+    """A hook that makes the row `name` of the stage `ops` (runtime/ops_turn.py) take nothing."""
+    def hook(mp):
+        mp.setitem(ops_turn.ROWS, name, lambda *a, **k: None)
+    return hook
+
+
 def disabled(hooks_for: list):
     def hook(mp):
         for item in hooks_for:
@@ -297,9 +304,9 @@ def changed_by(hook, scenarios: list, tmp_path) -> list:
 
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_vacuity_a_changed_claim_order_is_seen(tmp_path):
-    """The three the spec names: with `Bridge.plan_line` and `Bridge.word_line` made to take nothing, and `ops_natural.take` made to answer None, at least one scenario differs from the golden."""
+    """The three the spec names: with `Bridge.plan_line` and `Bridge.word_line` made to take nothing, and the row `tier-1-form` of `ops_turn` (S41-3: what `ops_natural.take` ended with) made to take nothing, at least one scenario differs from the golden."""
     for claimer, hook in (("plan-confirm-word", never(bridge.Bridge, "plan_line", False)), ("card-word", never(bridge.Bridge, "word_line", False)),
-                          ("tier-1-form", never(ops_natural, "take", None))):
+                          ("tier-1-form", row_never("tier-1-form"))):
         lines = scenarios_of(claimer)
         assert lines, f"the corpus holds lines {claimer} takes"
         assert changed_by(hook, lines, tmp_path), f"disabling {claimer} changes at least one scenario, or the comparator is blind"
