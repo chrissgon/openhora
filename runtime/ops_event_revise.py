@@ -80,6 +80,26 @@ def _arguments(doc: dict, title, start, end, account):
     return "event_change", args
 
 
+def _refused(ctx: dict, doc: dict, name: str, args: dict, title, time_) -> bool:
+    """Whether the gate refuses the new card (S41-7): every argument of it says where it came from, and a part the line did not name is the old card's own (`card-copy`); the title the line
+    gave is its own words, the start and the end it moved are the time engine's reading, and the account a line named for a card that creates an event is the person's word. One line on
+    stderr names the operation and the arguments, never a value."""
+    gate = importlib.import_module("turn_gate")
+    given = {k: v for k, v in args.items() if v is not None}
+    origins = {key: "card-copy" for key in given}
+    if title and "title" in given:
+        origins["title"] = "line-span"
+    if time_:
+        origins.update({key: "time-engine" for key in ("start", "end") if key in given})
+    if given.get("account") != doc["account"]:
+        origins["account"] = "line-span"
+    op = "event-create" if name == "event_create" else "event-change"
+    problems = gate.provenance(op, given, origins)
+    if problems:
+        print(gate.refusal_line(op, problems), file=sys.stderr)
+    return bool(problems)
+
+
 # Words that are not the name of another event, folded: the words that ask for a change, the small words of the six languages and the words that name what is changed. What is left of a line
 # once its title span, its time span, these words and the words of the card's own title are taken out is the name of ANOTHER event; the card is then left alone.
 STOP = frozenset(("o a os as um uma uns umas de do da dos das no na nos nas em para pra por com e ou que se me meu minha meus minhas ate ao aos pro la ja so tambem mais "      # validate: allow english-only -- the closed small words of six languages, Portuguese among them
@@ -255,6 +275,9 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
         if why:
             return base.say(ctx, interpret.WHY_SENTENCE.get(why) or "IX_ASK_AGAIN", pending_id)
     name, args = _arguments(doc, title, start, end, account)
+    refused = _refused(ctx, doc, name, args, title, time_)
+    if refused:
+        return base.say(ctx, "RV_FAILED", pending_id)          # nothing was ended and nothing opened: the card stays as it was
     wanted = (args["account"], args["title"] if "title" in args else event["title"], args["start"] if "start" in args else event["start"],
               args["end"] if "end" in args else event["end"])
     grants = importlib.import_module("ops_grants")

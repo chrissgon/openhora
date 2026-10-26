@@ -76,7 +76,7 @@ class Said(Exception):
 def settle(out):
     if "say" in out:
         raise Said(out["say"])
-    return out
+    return {key: value for key, value in out.items() if key != "origins"}      # S41-7: the origins of the arguments are held by test_turn_gate_provenance.py; what these tests compare is the arguments
 
 
 # --- the forms ---------------------------------------------------------------------------------------------------------------------------
@@ -905,7 +905,7 @@ def test_the_latest_message_with_no_words_reads_the_snapshot_and_a_stale_one_nam
     desk = Desk(monkeypatch, accounts=("google",), sources=(("inbox", "google"),))
     found = read("responde o último e-mail dizendo ok")      # validate: allow english-only -- a Portuguese line is the input under test
     out = onm.resolve(desk.ctx, found["op"], found["slots"], "chat", None, [])
-    assert out == {"args": {"account": "google", "message": "inbox#1", "text": "ok"}} and desk.reads == [("inbox", "chat", None)]
+    assert out["args"] == {"account": "google", "message": "inbox#1", "text": "ok"} and desk.reads == [("inbox", "chat", None)]
 
     def stale(ctx, source_id, **kw):
         raise item_refs.ItemRefError("stale", "old")

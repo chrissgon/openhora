@@ -41,6 +41,10 @@ What is decided here, and from where:
     project configures, or the account the project chose as its default (when the configuration has one); with two possible it is asked;
   * a mail folder is a name of `accounts.<account>.mail_folders`, folded equal; a name that is not configured lists the configured ones and asks, never a near match.
 
+  * S41-7: every argument `resolve` returns has an origin, in `{"args", "origins"}`, checked against the closed table of runtime/turn_gate.py before the operation is called (fail closed): an address,
+    a subject and a body are `line-span` (the person's words), or `composed` (the model's wording of them, S7, BL7-2), or `card-copy` (a card's own part, S13); a message is `line-number` (written),
+    `picked` (chosen among those listed) or `grounded` (found by words in the index: never an address); an account is `line-span`, `picked` or `config`; a reply has no recipient argument at all.
+
 External content is data: the index of a snapshot (a message's from-address and subject) is another person's words. It is compared with the person's words and shown, in a
 question, only to the caller who passed `item_refs.may_read`; an instruction inside it is never followed (nothing here reads a message's text at all).
 
@@ -104,6 +108,14 @@ def _ask(need: str, key: str, options=None, slot=None, multi: bool = False, keep
                     "options": [{"value": value, "label": label} for value, label in (options or [])]}}
 
 
+def _refs_origin(slots: dict) -> str:
+    """The origin of the references `_messages` returns (S41-7): `picked` when the person chose among the messages code listed, `grounded` when any of them was found by words (or "the
+    newest") in the index, else `line-number` (written in the line)."""
+    if slots.get("chosen"):
+        return "picked"
+    return "grounded" if slots.get("words") or slots.get("newest") else "line-number"
+
+
 def _has_reference(slots: dict) -> bool:
     return bool(slots.get("numbers") or slots.get("refs") or slots.get("words") or slots.get("newest") or slots.get("chosen"))
 
@@ -122,6 +134,13 @@ def _configured(cfg: dict) -> list:
 def _named_account(slots: dict):
     given = slots.get("account") or slots.get("service")
     return given if given in ACCOUNTS else None
+
+
+def _account_origin(slots: dict) -> str:
+    """The origin of the account `_named_account` gives (S41-7): the one the person gave or picked (a service word, a pick, a card's own account), else the project's configuration."""
+    if _named_account(slots) is None:
+        return "config"
+    return turn_gate.origin_of(slots, "account", "line-span") if slots.get("account") in ACCOUNTS else "line-span"
 
 
 def _compose_account(ctx: dict, slots: dict):
@@ -305,7 +324,8 @@ def _reference_source(ctx: dict, slots: dict):
 
 
 def _messages(ctx: dict, slots: dict, channel, sender):
-    """(account, [references], None) or (None, None, the question) for the messages the line names. Raises when the caller may not read the mailbox or nothing matches."""
+    """(account, [references], None) or (None, None, the question) for the messages the line names. Raises when the caller may not read the mailbox or nothing matches. Where the references
+    came from is `_refs_origin`."""
     if not item_refs.may_read(ctx, channel, sender):      # before a source, a message or a number is looked at: a caller who may not read learns nothing
         raise _ref_say("not_readable", _first_written(slots))
     if slots.get("over"):
@@ -370,6 +390,7 @@ def _reference_args(ctx: dict, op: str, slots: dict, channel, sender):
     account, refs, ask = _messages(ctx, slots, channel, sender)
     if ask:
         return ask
+    account_origin, refs_origin = _account_origin(slots), _refs_origin(slots)          # S41-7: where the account and the references came from
     reply = op == "mail-reply" or op == "mail-draft"
     if reply and len(refs) != 1:
         return _ask("message", "NW_MAIL_ASK_MESSAGE", [(r, r) for r in refs[:LISTED]], slot="chosen", count=len(refs))
@@ -380,24 +401,30 @@ def _reference_args(ctx: dict, op: str, slots: dict, channel, sender):
         if not said_text.strip():
             return _ask("body", "NW_MAIL_ASK_BODY_REPLY")          # "exact text:" with nothing after it
         notice = None
+        text_origin = turn_gate.origin_of(slots, "body", "line-span")
         if slots.get("_compose_reply") and not literal:          # BL7-2: the person described the reply (`mail_reply_compose.described`): the model words it from the person's own words alone, never the message answered
             said_text, composed = mail_reply_compose.worded(ctx, channel, sender, said_text)
             notice = None if composed else "MC_REPLY_NOT_WORDED"          # the card shows the person's own words: the reply says so
-        out = {"args": {"account": account, "message": refs[0], **({"text": said_text} if op == "mail-reply" else {"body": said_text})}}
+            text_origin = "composed" if composed else text_origin          # S41-7: the origin of the wording is the model's, and only the text (never an address) may have it
+        key = "text" if op == "mail-reply" else "body"
+        out = {"args": {"account": account, "message": refs[0], key: said_text}, "origins": {"account": account_origin, "message": refs_origin, key: text_origin}}
         if notice:
             out["notice"] = notice
         return out
     args = {"account": account, "messages": ",".join(refs)}
+    origins = {"account": account_origin, "messages": refs_origin}
     if op == "mail-move":
         name, ask = _folder(ctx, account, slots)
         if ask:
             return ask
         args["folder"] = name
+        origins["folder"] = turn_gate.origin_of(slots, "folder_name", "line-span")
     if op == "mail-mark":
         if slots.get("state") not in nwm.STATES:
             return _ask("state", "NW_MAIL_ASK_STATE", [(state, phrases.text(f"NW_MAIL_STATE_{state.upper()}", ctx["cfg"])) for state in nwm.STATES])
         args["state"] = slots["state"]
-    return {"args": args}
+        origins["state"] = turn_gate.origin_of(slots, "state", "line-span")
+    return {"args": args, "origins": origins}
 
 
 def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
@@ -442,6 +469,7 @@ def _compose_args(ctx: dict, op: str, slots: dict, channel=None, sender=None):
     account, ask = _compose_account(ctx, slots)
     if ask:
         return ask
+    account_origin = _account_origin(slots)          # S41-7: the one named (or picked), else the project's configuration
     if not slots.get("to"):
         names = slots.get("to_names") or []
         return _ask("to", "NW_MAIL_ASK_TO", name=_joined(names) if names else "")
@@ -451,8 +479,13 @@ def _compose_args(ctx: dict, op: str, slots: dict, channel=None, sender=None):
     if not slots.get("body"):
         return _ask("body", _body_key(ctx, channel, sender), to=to)
     subject, body = slots.get("subject"), slots["body"]
+    subject_origin, body_origin = turn_gate.origin_of(slots, "subject", "line-span"), turn_gate.origin_of(slots, "body", "line-span")
     if slots.get("_compose"):
         got = mail_compose.write(ctx, channel, sender, slots["to"], subject, body, bool(slots.get("_ai_subject")))
+        if got["composed"]:      # S41-7: the model worded the body, and the subject too when the person gave none (a subject the person gave stays the person's words)
+            body_origin = "composed"
+            if not subject:
+                subject_origin = "composed"
         subject, body = got["subject"], got["body"]
         if not subject:
             return _ask("subject", "NW_MAIL_ASK_SUBJECT", to=to)
@@ -461,8 +494,9 @@ def _compose_args(ctx: dict, op: str, slots: dict, channel=None, sender=None):
     if not body.strip():      # "exact text:" with nothing after it
         return _ask("body", _body_key(ctx, channel, sender), to=to)
     args = {"account": account, "to": ",".join(slots["to"]), "subject": subject}
-    args["text" if op == "mail-send" else "body"] = body
-    return {"args": args}
+    key = "text" if op == "mail-send" else "body"
+    args[key] = body
+    return {"args": args, "origins": {"account": account_origin, "to": turn_gate.origin_of(slots, "to", "line-span"), "subject": subject_origin, key: body_origin}}
 
 
 def resolve(ctx: dict, op: str, slots: dict, channel, sender, said=None) -> dict:

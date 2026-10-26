@@ -251,7 +251,8 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
         return say(ctx, "RV_ALREADY", pending_id)      # the card already holds every text the line asks for: told so, and the card is sent again
     if revised is None or revised.get("same"):
         return say(ctx, "RV_FAILED", pending_id)
-    seed = {"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": list(mail["to"]), "subject": revised["subject"], "body": revised["body"]}}
+    seed = turn_gate.Seed({"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": list(mail["to"]), "subject": revised["subject"], "body": revised["body"]}},
+                          {"account": "card-copy", "to": "card-copy", "subject": "composed", "body": "composed"})      # S41-7: the account and the recipients are the card's own; the text is the reviser's wording (S13)
     grants = importlib.import_module("ops_grants")
 
     def open_new():

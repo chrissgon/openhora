@@ -100,7 +100,8 @@ def cards(world):
 def resolve(world, op="mail-trash", sender=READER, channel="messaging", **slots):
     """What the mail family resolves for a line: the arguments, a question or a sentence. `source` is the person's answer to "De qual caixa?"."""
     ctx = ops_core.context(world["path"])
-    return onm.resolve(ctx, op, {"words": ["ana"], "source": "inbox", **slots}, channel, sender)
+    out = onm.resolve(ctx, op, {"words": ["ana"], "source": "inbox", **slots}, channel, sender)
+    return {key: value for key, value in out.items() if key != "origins"}      # S41-7: the origins of the arguments are held by test_turn_gate_provenance.py; these tests compare the arguments
 
 
 def said(out):
@@ -522,7 +523,7 @@ def two_lines_at_once(world, monkeypatch, lock_of=None):
     def line():
         ctx = ops_core.context(world["path"])
         gate.wait(timeout=10)
-        results.append(onm.resolve(ctx, "mail-trash", {"words": ["ana"], "source": "inbox"}, "messaging", READER))
+        results.append({key: value for key, value in onm.resolve(ctx, "mail-trash", {"words": ["ana"], "source": "inbox"}, "messaging", READER).items() if key != "origins"})
     threads = [threading.Thread(target=line) for _ in range(2)]
     for t in threads:
         t.start()

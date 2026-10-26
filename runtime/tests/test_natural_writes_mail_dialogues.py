@@ -36,6 +36,8 @@ nt = st.load("natural_time")
 natural = st.load("natural")
 natural_writes = st.load("natural_writes")
 item_refs = st.load("item_refs")
+turn_gate = st.load("turn_gate")
+GATE = {"calls": 0, "refusals": []}      # S41-7: every recorded call is checked by the gate's provenance check with the origins the resolver returned; a refusal here would be a false one
 TABLES = nt.languages()
 ACCOUNTS = ("google", "microsoft")
 
@@ -77,6 +79,7 @@ class Walk:
 
     def __init__(self, world, line):
         self.world, self.said, self.chosen, self.call, self.refused, self.asked = world, [line], {}, None, None, []
+        self.origins = None
         self.found = nwm.read(line, TABLES)
         self.slots = dict(self.found["slots"]) if self.found else None
 
@@ -92,6 +95,8 @@ class Walk:
             else:      # an option: the foundation's generic answer, the number shown or the word
                 picked = onw._option({"options": ask["options"], "multi": ask["multi"]}, answer)
                 upd = {ask["slot"]: picked} if picked is not None else None
+                if upd is not None:      # as `ops_natural_writes.answer` records it: a pick is a pick
+                    self.slots["_origins"] = dict(self.slots.get("_origins") or {}, **{ask["slot"]: "picked"})
             if upd is None:
                 return False
             self.said.append(answer)
@@ -109,6 +114,7 @@ class Walk:
             self.asked.append(out["ask"])
             return True
         self.call = (self.found["op"], out["args"])
+        self.origins = out.get("origins")
         return False
 
 
@@ -130,6 +136,11 @@ def violations(w) -> list:
     offered = {"numbers": set(), "sources": set(), "source_accounts": set(), "mail_sources": {s["id"]: s["account"] for s in world.sources}, "mail_index": world.indexes,
                "options": {v for upd in w.chosen.values() for value in upd.values() for v in (value if isinstance(value, list) else [value]) if isinstance(v, str)}}      # the values the person CHOSE
     bad = list(natural_writes.problems(op, args, w.said, world.cfg["accounts"], offered, None))
+    gated = turn_gate.provenance(op, args, w.origins or {})
+    GATE["calls"] += 1
+    if gated:
+        GATE["refusals"].append((op, sorted(args), gated))
+        bad.append(f"the gate refused a call the oracle accepts: {gated}")
     if "message" in args and any(key in args for key in ("to", "cc", "bcc", "subject")):
         bad.append("a reply or a reply draft carries a recipient or a subject")
     return bad
@@ -155,6 +166,7 @@ def test_no_call_is_recorded_with_a_slot_the_code_guessed_one_answer_deep_from_e
                 recorded += 1
                 assert violations(w) == [], (line, answers, w.call)
     assert recorded > 500 and asked > 200, "the walk must reach both the calls and the questions"
+    assert GATE["refusals"] == [] and GATE["calls"] >= recorded, (GATE["calls"], recorded, GATE["refusals"][:6])      # S41-7: every call passed the gate, none was refused
 
 
 @pytest.mark.parametrize("config", sorted(CONFIGS))

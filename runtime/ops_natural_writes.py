@@ -17,7 +17,10 @@ The order of `open_line` (SPEC-NATURAL-WRITES 5.1):
      sent a card (`pending`), else nothing is opened that nobody could see;
   3. the pure reading, then the resolution of what needs the project (the family's `ops_natural_<family>.resolve`: the account, the calendar, the folder, the reference,
      the held file); any gap is a question and nothing is opened;
-  4. the operation's own function (the conversation's shell is the terminal's equal, so it opens the card as the terminal); an `OpsError` is the reply;
+  4. the gate's provenance check (`turn_gate.provenance`, S41-7): every argument the resolver returned carries the origin it came from (`{"args", "origins"}`; a pick is `picked`, a seed's part has the origin
+     its producer gave it, `turn_gate.Seed`), and an argument with none, or with one its key may not have, opens nothing: the draft is dropped, the stored row is the neutral word and the reply is
+     `refused_sentence` (one plain sentence on a phone; one line on stderr with the operation and the argument names, never a value); then
+     the operation's own function (the conversation's shell is the terminal's equal, so it opens the card as the terminal); an `OpsError` is the reply;
   5. the reply: the doubt or rolled line when there is one, then `ACCT_CARD_SENT`; `extras["resend"]` carries the decision so that the messaging bridge sends the card to the
      asking chat; on the terminal the reply also carries the card's lines and the approve command (the exact hash).
 
@@ -196,6 +199,7 @@ def new_state(ctx: dict, reading: dict, said_line: str) -> dict:
     if reading.get("reading"):
         slots["_when"] = reading["reading"]
     return {"kind": KIND, "op": reading["op"], "family": reading["family"], "project": ops_natural.project_key(ctx["cfg"]["project"]), "slots": slots,
+            "origins": dict(reading.get("origins") or {}),
             "need": None, "slot": None, "options": [], "multi": False, "said": [said_line], "retries": 0, "doubt": bool(reading.get("doubt")),
             "end_clock": reading.get("end_clock"), "all_day": bool(reading.get("all_day")), "end_ok": reading.get("end_ok", True),
             "recurring": bool(reading.get("recurring"))}
@@ -264,9 +268,22 @@ def _card_lines(ctx: dict, project: str, started: dict, channel) -> str:
     return "\n" + str(item.get("body") or "").strip() + "\n" + _t(ctx, "NW_APPROVE_WITH", command=command)
 
 
+def refused_sentence(ctx: dict, op: str, problems: list, channel, extras: dict) -> str:
+    """The reply of a card that the gate's provenance check refused (S41-7, limits L55, L60 and L61): nothing was opened, the stored row is the neutral word, one line with the operation and the
+    names of the arguments (never a value) goes to stderr, and the person is asked again in a plain sentence on a phone (limit L62) and told what happened where the error text is read."""
+    print(turn_gate.refusal_line(op, problems), file=sys.stderr)
+    extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
+    if channel == ops_actor.MESSAGING:
+        return _t(ctx, "IX_ASK_AGAIN")
+    return turn_gate.refusal_text(op, problems)
+
+
 def _opened(project: str, ctx: dict, state: dict, args: dict, channel, sender, extras: dict) -> str:
     cfg = ctx["cfg"]
     extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
+    problems = turn_gate.provenance(state["op"], args, state.get("arg_origins") or {})      # S41-7: every argument carries where it came from, checked before the operation is called (fail closed)
+    if problems:
+        return refused_sentence(ctx, state["op"], problems, channel, extras)
     try:
         started = _call_operation(project, state["op"], args, channel, sender)
     except core.OpsError as e:
@@ -296,10 +313,11 @@ def advance(project: str, ctx: dict, state: dict, channel, sender, extras: dict)
         return _ask(ctx, state, spec, channel, sender, extras)
     if state.get("day_needed") and "start" not in state["slots"]:
         return _ask(ctx, state, ask_spec("day", "NW_ASK_DAY"), channel, sender, extras)
-    out = family_ops(state["family"]).resolve(ctx, state["op"], state["slots"], channel, sender, state["said"])
+    out = family_ops(state["family"]).resolve(ctx, state["op"], dict(state["slots"], **({"_origins": dict(state["origins"])} if state.get("origins") else {})), channel, sender, state["said"])
     if "args" in out:
         drafts.drop(*slot)
-        return _opened(project, ctx, dict(state, notice=out["notice"]) if out.get("notice") else state, out["args"], channel, sender, extras)
+        opened = dict(state, arg_origins=dict(out.get("origins") or {}), **({"notice": out["notice"]} if out.get("notice") else {}))      # what the resolver made of each argument, for the gate (S41-7)
+        return _opened(project, ctx, opened, out["args"], channel, sender, extras)
     extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
     if out.get("silent"):          # nothing to ask and nothing to say: the caller has the file's card (a caption never opens a question)
         drafts.drop(*slot)
@@ -373,12 +391,14 @@ def _read(ctx: dict, said: str, seed, hint):
     now = _now()
     if seed:
         op = seed["op"]
+        origins = dict(getattr(seed, "origins", None) or {})          # S41-7: where a slot of the seed came from when it was not the person's own words (a number of a list, an item found by its words, a card's own part, a wording of the model)
         if op in ("event-change", "event-cancel") and seed.get("slots"):          # an event found by its words (runtime/event_lookup.py): its source and number, and what to change
-            return {"op": op, "family": "calendar", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
+            return {"op": op, "family": "calendar", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": origins}
         if op in ("event-change", "event-cancel") and seed.get("line"):          # a number said after a list (runtime/event_lookup.py `take`): the numbered line, read as such, bound to the source the list showed
             got = nw.read(seed["line"], now, op=op)
             if got is not None:
                 got["slots"].update(seed.get("bind") or {})
+                got["origins"] = origins
             return got
         if op == "event-create" and seed.get("reading"):
             reading = seed["reading"]
@@ -387,11 +407,11 @@ def _read(ctx: dict, said: str, seed, hint):
                 slots["title"] = seed["text"]
             if seed.get("account"):          # the account the line names (runtime/event_lookup.py `seed_service`): the family does not ask which
                 slots["account"] = seed["account"]
-            return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading}
+            return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading, "origins": origins}
         if op in ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark") and seed.get("slots") is not None and seed.get("by") == "target":          # a message named by its words (runtime/ops_natural_mail.py `mail_target_seed`): its slots, never the closed forms
-            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
+            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": origins}
         if op in ("mail-send", "mail-draft") and seed.get("slots") is not None:          # a new e-mail the interpreter decided (runtime/mail_compose.py `seed`): its slots, never the closed forms
-            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
+            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": origins}
         if op == "file-save" and seed.get("attachment") is not None:          # a held file named by its number (the caption of a file, a button of its card): the text may add a folder
             got = nw.read(said, now, op=op) if said.strip() else None
             got = got or {"op": op, "family": "files", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
@@ -463,7 +483,7 @@ def _classify(ctx: dict, state: dict, said: str):
     if state["options"]:
         picked = _option(state, said)
         if picked is not None:
-            return {"kind": "slots", "slots": {state["slot"]: picked}}
+            return {"kind": "slots", "slots": {state["slot"]: picked}, "origin": "picked"}          # the person chose it among the options code listed (S41-7: its origin is a pick)
         return _retry(state, said, tables)
     if need in TEXT_NEEDS:
         text = said.strip()
@@ -586,6 +606,7 @@ def answer(project: str, ctx: dict, state: dict, said: str, channel, sender, ext
                                  "fields": state["fields"], "options": state["options"]}, state["slots"])
     state["retries"] = 0
     slots = dict(state["slots"])
+    origins = dict(state.get("origins") or {})          # S41-7: what a slot was last made of (an answer replaces the record of the slot it fills)
     if found["kind"] == "engine":
         got = found["got"]
         if "ask" not in got:
@@ -596,6 +617,8 @@ def answer(project: str, ctx: dict, state: dict, said: str, channel, sender, ext
         if fold["slots"].get("title") and "title" in slots:
             fold["slots"].pop("title")
         slots.update(fold["slots"])
+        for key in fold["slots"]:
+            origins.pop(key, None)          # the engine's reading of the person's words: the default origin of the slot
         if fold["engine"]:
             slots["_engine"] = fold["engine"]
         if fold["reading"]:
@@ -603,11 +626,17 @@ def answer(project: str, ctx: dict, state: dict, said: str, channel, sender, ext
         state.update(doubt=state["doubt"] or fold["doubt"], recurring=fold["recurring"], end_ok=fold["end_ok"])
     else:
         slots.update(found["slots"])
+        for key in found["slots"]:
+            if found.get("origin"):
+                origins[key] = found["origin"]
+            else:
+                origins.pop(key, None)          # typed words, a number or a family's answer: the default origin of the slot
         if state["need"] == "end":
             state["end_ok"] = True
         if state["need"] == "day":
             state["day_needed"] = False
     state["slots"] = slots
+    state["origins"] = origins
     state["answered"] = state["need"]
     return advance(project, ctx, state, channel, sender, extras)
 

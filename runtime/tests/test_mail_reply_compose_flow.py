@@ -149,7 +149,8 @@ def test_a_reply_draft_whose_body_is_described_is_worded_by_the_same_path_into_t
     seed = ops_natural_mail.mail_target_seed("mail-draft", {"op": "mail-draft", "spans": {"target": "Marlene", "body": BODY}, "args": {}}, None, LINE)
     assert seed["slots"]["_compose_reply"] is True
     out = ops_natural_mail.resolve(ctx, "mail-draft", seed["slots"], "messaging", SENDER, LINE)
-    assert out == {"args": {"account": "google", "message": "inbox#1", "body": COMPOSED_BODY}}
+    assert out["args"] == {"account": "google", "message": "inbox#1", "body": COMPOSED_BODY}
+    assert out["origins"] == {"account": "config", "message": "grounded", "body": "composed"}, "S41-7: the model's wording of a described reply says so, and nothing else of the reply does"
     assert model.of("compose")[0]["user"].split("\n") == expected_user() and leaks_into(model.of("compose")[0]["user"]) == []
     dictated = ops_natural_mail.mail_target_seed("mail-draft", {"op": "mail-draft", "spans": {"target": "Marlene", "body": "aceito"}, "args": {}}, None, "rascunho para Marlene dizendo que aceito")      # validate: allow english-only -- the Portuguese line under test
     assert "_compose_reply" not in dictated["slots"] and ops_natural_mail.resolve(ctx, "mail-draft", dictated["slots"], "messaging", SENDER)["args"]["body"] == "aceito"      # validate: allow english-only -- the Portuguese span under test

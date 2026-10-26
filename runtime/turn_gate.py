@@ -5,7 +5,8 @@
 # ///
 """The gate of a person's line: the one home of the limits PLAN-BRAIN section 4.1 re-homes. Each section names its limit and the contract row.
 
-Operations layer. The module-level imports of this file are the standard library and `natural` (and `phrases`, which `natural` already loads), nothing else: `interpreter_route` and
+Operations layer. The module-level imports of this file are the standard library, `natural` (and `phrases`, which `natural` already loads), `natural_time` and the toolkit of the pure module `natural_writes` that
+section 4's value oracle reads (`LIST_MAX`, `Line`, `_facts`, `_tables`, `listed`, `service`; `natural_writes` loads the gate only when `problems` is called, never at import time), nothing else: `interpreter_route` and
 `ops_natural` are loaded by `importlib` when a function needs them, so that a pure module (runtime/interpreter.py) can import the gate without joining an import cycle.
 
 Section 1. The daily route's admission (contracts/runtime.md, limit L63, S7 and S13)
@@ -71,6 +72,35 @@ per-turn rules. A refreshed snapshot is read for one line and never a task's inp
 
 Privacy (limit L63): the budget holds the identifiers of sources (a word of the person's own configuration) and one flag, in memory, for the length of the line, and nothing of the line.
 
+Section 4. Provenance by origin per argument (S41-7: contracts/runtime.md, limits L55, L60 and L61)
+
+A card that a person's LINE opens is opened by the operation's own function with arguments that a resolver made. Every resolver (`ops_natural_<family>.resolve`) and every seed says where each argument
+came from, in `{"args", "origins"}`, and the card-opening paths ask the gate before they open anything (`ops_natural_writes._opened`, `ops_file_trash._card`, `ops_event_revise.revise`). FAIL CLOSED
+(OPEN-41-8, recommended): what the table does not name opens no card.
+
+  ORIGINS            the closed vocabulary: `line-span` (the person's words, in the line or in an answer), `line-number` (a number written in it), `time-engine` (a time the engine of NR-1 read), `config` (a name of the
+                     accepted `accounts`, their default, the account of a registered source), `picked` (an option code listed and the person chose), `listed` (a number of a list code showed this sender),
+                     `grounded` (an item code found by searching with a span of the line: the event ranking, the mail index match, the file search: the ITEM, never an address), `index-from` (a reply's recipient
+                     from the index), `held` (a file this sender sent and the hold keeps), `card-copy` (a part copied by code from the card being revised), `composed` (the subject or the body of an e-mail worded by
+                     the compose or the revise call).
+  ALLOWED            the origins each argument key may have. An address (`to`, `cc`, `bcc`) is `line-span`, `config`, `index-from` or `card-copy` and nothing else (L60); `composed` is the text of an e-mail
+                     (`subject`, `body`, `text`) and nothing else; a time is `time-engine` or `card-copy`; a message, an event or a file is `line-number`, `listed`, `picked` or `grounded` (an event may also be
+                     `card-copy`); an account, a calendar and a folder are `config`, `picked`, `line-span` or `card-copy`; an attachment is `held`; a title, a content and a name are `line-span` or `card-copy`.
+                     A key with no row is refused.
+  OPS                the arguments each operation of a card opened from a line takes. Any other key is refused: a reply and a reply draft have no recipient argument, its recipient is the index's From, chosen by the
+                     effect (L60).
+  provenance(op, args, origins)
+                     the problems, as `"<key>: <what>"` (key names and origin words, never a value), or []: an operation not in OPS, a key the operation does not take, an argument with no origin, an origin outside
+                     ORIGINS and an origin its key may not have are each a problem. `refusal_line` (the one line on stderr: the operation and the key names) and `refusal_text` (the precise error where a person reads it;
+                     a phone is asked again in the plain sentence IX_ASK_AGAIN, limit L62) never hold a value.
+  Seed(parts, origins)   a seed (what `open_line` takes in place of a line) with the origin of each part that is not the person's own words; it equals the plain dict. `origin_of(slots, key, default)` reads the
+                     origin the draft recorded for a slot (a pick, a seed's part), else the default of the slot; `account_origin(slots, wanted)` is the account's.
+  value_problems(op, args, said, accounts, offered, now, languages=None)
+                     the value oracle of the fuzzers (`natural_writes.problems` until S41-7): why the arguments of a write about to be opened are not all from the person's lines. Moved unchanged (a test holds the sha256
+                     of every function); `natural_writes.problems` is a delegate until S41-11 deletes the line-claiming forms of that module, which must keep what the oracle reads of it.
+
+Privacy (limit L63): the checks are pure over the arguments and the origins they are given and keep and print nothing of a value.
+
 Runs on Python 3.9: python3 runtime/turn_gate.py --help
 """
 from __future__ import annotations
@@ -87,6 +117,8 @@ import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import natural  # noqa: E402  (the same folder: the closed forms of the private line and of the decision numbers, which section 2 asks)
+import natural_time as nt  # noqa: E402  (the same folder: the value oracle of section 4 reads the engine's facts)
+from natural_writes import LIST_MAX, Line, _facts, _tables, listed, service  # noqa: E402  (the same folder: the toolkit of the families the value oracle of section 4 reads; it imports no gate at load time)
 
 # --- section 1: the daily route's admission (L63) ------------------------------------------------------------------------------------------------------
 
@@ -203,14 +235,14 @@ def fold(text) -> str:
     return " " + re.sub(r"[^a-z0-9]+", " ", plain).strip() + " "
 
 
-def _words(items) -> str:
+def _alternation(items) -> str:
     return "|".join(re.escape(item).replace(r"\ ", " ") for item in sorted(set(items), key=len, reverse=True))
 
 
-_NOUN = _words(NOUNS)
+_NOUN = _alternation(NOUNS)
 FORMS = (
-    re.compile(r" (?:" + _words(POSSESSIVES) + r")(?: [a-z0-9]+){0,2} (?:" + _NOUN + r") "),
-    re.compile(r" (?:" + _words(CLITIC_POSSESSIVES) + r")(?: [a-z0-9]+){0,1} (?:" + _NOUN + r") "),
+    re.compile(r" (?:" + _alternation(POSSESSIVES) + r")(?: [a-z0-9]+){0,2} (?:" + _NOUN + r") "),
+    re.compile(r" (?:" + _alternation(CLITIC_POSSESSIVES) + r")(?: [a-z0-9]+){0,1} (?:" + _NOUN + r") "),
 )
 
 
@@ -293,6 +325,489 @@ def failed_in_turn(source_id) -> bool:
     """Whether the line's read of `source_id` failed in this turn: False outside a turn."""
     budget = getattr(_TURN, "budget", None)
     return budget is not None and source_id in budget["failed"]
+
+
+# --- section 4: provenance by origin per argument (L55, L60, L61) --------------------------------------------------------------------------------------------
+
+# Where an argument of a card that a line opens came from. A closed vocabulary: a resolver says which word each argument has, and nothing else is believed.
+ORIGINS = (
+    "line-span",      # the person's own words in the line, or in an answer to a question (a title, a subject, a body, a content, an address typed whole, a name of the configuration written in it)
+    "line-number",    # a number written in the line (an event, a message, a reference)
+    "time-engine",    # a time read by the engine of NR-1 on the person's words
+    "config",         # a name of the accepted `accounts`, their default, or the account of a registered source
+    "picked",         # an option code listed and the person chose
+    "listed",         # a number of a list code showed this sender
+    "grounded",       # an item code found by searching with a span of the line (the event ranking, the mail index match, the file search): the item, never an address
+    "index-from",     # a reply's recipient taken from the index's From of the message answered
+    "held",           # a file this sender sent and the hold keeps
+    "card-copy",      # copied by code from the card that is being revised
+    "composed",       # the subject or the body of an e-mail worded by the compose or the revise call (limits L63, slices S7 and S13)
+)
+_ADDRESSEES = ("line-span", "config", "index-from", "card-copy")      # L60: a recipient is never read from a body, a subject, a Reply-To or the index's other fields
+_TEXTS = ("line-span", "card-copy")
+_WORDED = ("line-span", "composed", "card-copy")      # the text of an e-mail: the person's words, or the model's wording of them (never an address, never a title)
+_ITEMS = ("line-number", "listed", "picked", "grounded")
+_NAMES = ("config", "picked", "line-span", "card-copy")
+_TIMES = ("time-engine", "card-copy")
+# The origins an argument may have, by the key the operation's own function takes. A key with no row here is refused: the table is closed.
+ALLOWED = {
+    "to": _ADDRESSEES, "cc": _ADDRESSEES, "bcc": _ADDRESSEES,
+    "subject": _WORDED, "body": _WORDED, "text": _WORDED,
+    "title": _TEXTS, "content": _TEXTS, "name": _TEXTS, "file_name": _TEXTS,
+    "event": _ITEMS + ("card-copy",), "message": _ITEMS, "messages": _ITEMS, "file": _ITEMS,
+    "account": _NAMES, "calendar": _NAMES, "folder": _NAMES, "mail_folder": _NAMES,
+    "start": _TIMES, "end": _TIMES,
+    "attachment": ("held",),
+    "state": ("line-span", "picked"),
+    "location": ("card-copy",), "notes": ("card-copy",), "reminder_minutes": ("card-copy",),      # carried over from the card an event's revision replaces
+}
+# The arguments each operation of a card opened from a line takes (the keys of the operation's own function, as the resolvers of the families return them). Any other key is refused, so a
+# reply or a reply draft has no `to`: its recipient is the index's From, chosen by the effect (L60).
+OPS = {
+    "event-create": ("account", "title", "start", "end", "calendar", "location", "reminder_minutes", "notes"),
+    "event-change": ("account", "event", "calendar", "title", "start", "end", "location", "reminder_minutes", "notes"),
+    "event-cancel": ("account", "event"),
+    "file-create": ("account", "file_name", "content", "folder"),
+    "file-replace": ("account", "file", "content"),
+    "file-save": ("account", "attachment", "folder"),
+    "file-trash": ("account", "file", "folder"),
+    "mail-send": ("account", "to", "subject", "text"),
+    "mail-reply": ("account", "message", "text"),
+    "mail-draft": ("account", "to", "subject", "body", "message"),
+    "mail-archive": ("account", "messages"),
+    "mail-trash": ("account", "messages"),
+    "mail-move": ("account", "messages", "folder"),
+    "mail-mark": ("account", "messages", "state"),
+}
+
+
+def _name(word) -> str:
+    """A key or an operation as a closed word, or "?": what a problem names is a word of code, never a value."""
+    return word if isinstance(word, str) and re.fullmatch(r"[a-z_-]{1,32}", word) else "?"
+
+
+def provenance(op, args, origins) -> list:
+    """The problems of a card about to be opened for a line, as `"<key>: <what>"` (key names and origin words only, never a value), or [] when every argument is allowed. Closed on every
+    side: an operation that is not in OPS, an argument it does not take, an argument with no origin, an origin that is not one of ORIGINS and an origin its key may not have are each a problem."""
+    if op not in OPS:
+        return [f"{_name(op)}: not an operation opened from a line"]
+    if not isinstance(args, dict) or not isinstance(origins, dict):
+        return ["arguments: no origins"]
+    out = []
+    for key in args:
+        name = _name(key)
+        if key not in OPS[op] or key not in ALLOWED:
+            out.append(f"{name}: not an argument of {op}")
+            continue
+        origin = origins.get(key)
+        if not isinstance(origin, str) or origin not in ORIGINS:
+            out.append(f"{name}: no origin")
+        elif origin not in ALLOWED[key]:
+            out.append(f"{name}: origin {origin} not allowed")
+    return out
+
+
+class Seed(dict):
+    """The seed of a card (what `ops_natural_writes.open_line` takes in place of a line: an event found by its words, a new e-mail the interpreter decided, a card's own parts) with the origin of
+    each part that is not the person's own words, as `seed.origins` ({slot: origin}). It IS the dict and equals it (a test that compares a seed with a plain dict still passes); a plain dict is a
+    seed whose parts have the origin of the slot by default."""
+
+    def __init__(self, parts: dict, origins: dict):
+        super().__init__(parts)
+        self.origins = dict(origins)
+
+
+def origin_of(slots: dict, key: str, default: str) -> str:
+    """The origin a slot of a draft was recorded with (a pick, a seed whose part was not the person's own words), else `default`: the origin that the reading of a line and the answers to its
+    questions give that slot. The record is `slots["_origins"]`, put there by the card-opening path for the resolver; no value is ever read from it."""
+    return (slots.get("_origins") or {}).get(key) or default
+
+
+def account_origin(slots: dict, wanted) -> str:
+    """The origin of the account a resolver chose: what the person gave or picked (the origin recorded for the slot, `line-span` by default) when `wanted` was given, else the configuration's
+    (the registered source's account, the one configured account or `accounts.default`)."""
+    return origin_of(slots, "account", "line-span") if wanted else "config"
+
+
+def refusal_line(op, problems) -> str:
+    """The one line a refused opening leaves on stderr: the operation and the names of the arguments, nothing of their values."""
+    keys = sorted({str(p).partition(":")[0] for p in problems})
+    return f"gate: provenance refused {_name(op)} ({', '.join(keys)})"
+
+
+def refusal_text(op, problems) -> str:
+    """The sentence of a refused opening where a person reads the precise error (the terminal and the page, limit L62: a phone gets a plain sentence of its own): the operation and the names of
+    the arguments, nothing of their values."""
+    keys = sorted({str(p).partition(":")[0] for p in problems})
+    return f"error: nothing was opened: an argument of {_name(op)} was not from your words or your choice ({', '.join(keys)})"
+
+
+# --- the value oracle: moved unchanged from runtime/natural_writes.py (S41-7), where it was the fuzz's check; `def problems` is `def value_problems` and nothing else of it changed ---
+
+TEXT_ARGS = ("title", "subject", "text", "body", "content", "file_name", "name")
+SECTION_OF = {"event-create": "calendars", "event-change": "calendars", "event-cancel": "calendars", "file-create": "folders", "file-replace": "folders", "file-save": "folders"}
+
+
+def _words(text) -> list:
+    return natural.normal(text).split()
+
+
+def _subsequence(small: list, big: list) -> bool:
+    it = iter(big)
+    return all(word in it for word in small)
+
+
+def _contiguous(small: list, big: list) -> bool:
+    n = len(small)
+    return n > 0 and any(big[i:i + n] == small for i in range(len(big) - n + 1))
+
+
+def value_problems(op: str, args: dict, said: list, accounts: dict, offered: dict, now, languages=None) -> list:
+    """Why the arguments of a write the code is about to open are not all from the person: [] when every slot traces to one of the person's lines (`said`), to a name of the
+    configuration (`accounts`: the checked `accounts` object, with its `default`), or to an option code listed and the person chose (`offered`: {"numbers": ids of the files
+    and events code listed, "sources": ids of the file sources code listed, "source_accounts": the accounts of the calendar sources code listed}). A span slot is the person's
+    words in order (a body, a content and a file name are one contiguous run of a line); a number is written in a line or was listed; an account is named in a line, is the only
+    one that has what the operation needs, is the default, or was picked among the options; a calendar or folder is a configured name written in a line or picked; a time is a
+    reading of the time engine on the person's words."""
+    tables = _tables(languages)
+    out = []
+    lines = [natural.normal(s) for s in said]
+    line_words = [l.split() for l in lines]
+    digits = {int(d) for l in lines for d in re.findall(r"[0-9]+", l) if len(d) <= 9}
+    picks = any(re.fullmatch(r"[0-9]{1,2}", l) for l in lines)
+    options = offered.get("options")          # the values of the options code asked the person to choose from (when the caller records them): a pick counts only for those
+    for key, value in args.items():
+        if key in TEXT_ARGS:
+            words = _words(str(value).removesuffix(".gdoc") if key == "file_name" else value)
+            contiguous = key in ("body", "content", "text", "subject", "file_name", "name")
+            check = _contiguous if contiguous else _subsequence
+            if not words or not any(check(words, w) for w in line_words):
+                out.append(f"{key} is not the person's words: {value!r}")
+        elif key in ("start", "end"):
+            out += _time_problems(key, str(value), said, now, tables)
+        elif key in ("event", "attachment"):
+            n = value if isinstance(value, int) else int(str(value).rsplit("#", 1)[-1])
+            if n not in digits and n not in offered.get("numbers", ()):
+                out.append(f"{key} {n} is not written in a line nor listed")
+        elif key == "file":
+            if value not in offered.get("sources", ()):
+                out.append(f"file {value!r} is not a source code listed")
+        elif key == "account":
+            if not (op.startswith("mail-") and (_of_service(value, said, tables) or _mailbox_account(value, args, said, offered, picks if options is None else bool(options), tables))):
+                out += _account_problems(op, value, lines, accounts, offered, picks if options is None else value in options, tables)
+        elif key in ("calendar", "folder"):
+            section = "calendars" if key == "calendar" else "mail_folders" if op.startswith("mail-") else "folders"
+            listed = ((accounts.get(args.get("account")) or {}).get(section)) or {}
+            if value not in listed or not (any(_contiguous(_words(value), w) for w in line_words) or (picks if options is None else value in options)):
+                out.append(f"{key} {value!r} is not a configured name written or picked")
+        elif key in ("to", "cc", "bcc"):
+            out += _address_problems(key, value, said, tables)
+        elif key in ("message", "messages"):
+            out += _message_problems(key, value, said, offered, tables, options)
+        elif key == "state":
+            if value not in ("read", "unread") or not (_state_said(value, said, tables) or (picks if options is None else value in options)):
+                out.append(f"state {value!r} was not said")
+        else:
+            out.append(f"{key} is not a slot of a natural write")
+    if "start" in args and "end" in args:
+        start_day, _, start_clock = str(args["start"]).partition("T")
+        end_day, _, end_clock = str(args["end"]).partition("T")
+        if start_day != end_day or not (start_clock and end_clock and end_clock > start_clock):
+            out.append(f"end {args['end']} is not after start {args['start']} on the same day")
+    return out
+
+
+# --- the provenance of a mail write: derived from the person's RAW lines, never from a reading of the mail family ----------------------------------------------
+#
+# The checks below take the closed marker words of the language tables (the `mail` lists) and look at the raw line with small expressions of their own. They do not call the
+# mail family (`read`, `match_words`, `answer`), so a misreading of the family cannot vouch for itself: an address must stand in the recipients' part of a line (after a
+# recipient marker, before the subject marker, the body marker or the first colon), a number in the references' part (after the object, before the body, the folder or the
+# state words), a message found by words must match the words written after an "of" marker, and a state is a state word at the end of a line.
+
+ADDRESS = re.compile(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+class _Frame:
+    """The parts of one raw line of a mail write, found with the marker words of the tables (folded positions; `part` gives the raw text of a part)."""
+
+    def __init__(self, text: str, tables: list):
+        self.line, self.tables = Line(text), tables
+        norm = self.line.norm
+        noun = self.line.find(listed(tables, "mail", "nouns"))
+        self.noun = noun
+        self.after = noun[1] if noun else 0
+        self.subject = self.line.find(listed(tables, "mail", "subject"), self.after)
+        body = self.line.find(listed(tables, "mail", "body"), self.after)
+        colon = norm.find(":", self.after)
+        self.body_at = min([m[0] for m in (body,) if m] + ([colon] if colon >= 0 else []), default=None)
+        self.stop = min([m[0] for m in (self.subject,) if m] + ([self.body_at] if self.body_at is not None else []), default=len(norm))
+
+    def part(self, start: int, end: int) -> str:
+        return self.line.span(start, end) if start < end else ""
+
+    def recipients(self) -> str:
+        to = self.line.find(listed(self.tables, "mail", "to"), self.after)
+        return self.part(to[1], max(self.stop, to[1])) if to else ""
+
+    def references_end(self) -> int:
+        """Where the references end: the body, the subject, a folder marker or a state word (whichever comes first)."""
+        ends = [self.stop]
+        for key in ("read", "unread"):
+            found = self.line.find(listed(self.tables, "mail", key), self.after)
+            if found:
+                ends.append(found[0])
+        markers = self.line.find_all(listed(self.tables, "mail", "folder"), self.after)
+        if markers:      # the last folder marker with a name after it: a number alone, or a state or a service clause, is not a folder ("1 to 3 as read" is a range)
+            tail = self.line.norm[markers[-1][1]:]
+            clauses = listed(self.tables, "mail", "read") + listed(self.tables, "mail", "unread") + [p + " " + n for p in listed(self.tables, None, "service_in") + [""]
+                                                                                                       for a in ("google", "microsoft") for n in listed(self.tables, "services", a)]
+            alt = nt._alt(clauses)
+            rest = re.sub(rf"(?<![a-z0-9]){alt}(?![a-z0-9])", " ", tail) if alt else tail
+            if rest.strip() and not rest.strip().isdigit():
+                ends.append(markers[-1][0])
+        return min(ends)
+
+    def references(self) -> str:
+        return self.part(self.after, self.references_end()) if self.noun else ""
+
+
+def _address_problems(key: str, value, said: list, tables: list) -> list:
+    """The addresses of a recipient list (at most 20) must each stand in the recipients' part of a line (after a recipient marker, before the subject, the body or a colon), or
+    be the whole of a line that is nothing but addresses (the answer to "what is the address?"): never inside a body or a subject, never found in a mailbox."""
+    addresses = [a for a in str(value).split(",") if a]
+    if not addresses or len(addresses) > 20:
+        return [f"{key} is {len(addresses)} addresses: an e-mail takes 1 to 20"]
+    joiners = set(listed(tables, None, "joiners"))
+    regions = []
+    for text in said:
+        regions.append(_Frame(text, tables).recipients().lower())
+        bare = ADDRESS.sub(" ", text)
+        if ADDRESS.search(text) and all(w in joiners for w in re.findall(r"[a-z]+", natural.normal(bare))):
+            regions.append(text.lower())
+    return [f"{key} {a!r} is not an address written as a recipient" for a in addresses if not any(a.lower() in region for region in regions)]
+
+
+def _written_numbers(text: str, tables: list) -> set:
+    """The numbers a part of a line writes: its digit groups, and every number between two of them joined by a range word of the tables or a dash."""
+    folded = natural.normal(text)
+    out = {int(n) for n in re.findall(r"[0-9]{1,9}", folded)}
+    ranges = nt._alt(listed(tables, None, "range"))
+    for a, b in re.findall(rf"([0-9]{{1,9}})\s+(?:{ranges})\s+([0-9]{{1,9}})", folded) if ranges else []:
+        if int(a) < int(b) <= int(a) + 40:
+            out |= set(range(int(a), int(b) + 1))
+    for a, b in re.findall(r"([0-9]{1,9})\s*-\s*([0-9]{1,9})", text):
+        if int(a) < int(b) <= int(a) + 40:
+            out |= set(range(int(a), int(b) + 1))
+    return out
+
+
+def _entry_words(entry: dict) -> set:
+    """The whole words of a message of an index (its sender's address and its subject), written again here from the rule of the contract, not taken from the family."""
+    local, _, domain = str(entry.get("from_address") or "").partition("@")
+    labels = domain.lower().split(".")
+    pieces = [local] + (labels[:-1] if len(labels) > 1 else labels) + [str(entry.get("subject") or "")]
+    return {w for piece in pieces for w in re.findall(r"[a-z0-9]+", _norm(piece))}
+
+
+def _words_of_the_line(frame: _Frame, tables: list) -> list:
+    """The content words written after the first "of" marker, up to where the references end, without a service clause at the end and without the little words."""
+    of = frame.line.find(listed(tables, "mail", "of"), frame.after)
+    if not of:
+        return []
+    end = frame.references_end()
+    served = service(frame.line, tables, of[1], end)
+    words = [(w, s_, e_) for w, s_, e_ in frame.line.words_after(of[1]) if e_ <= end and not (served and served[1] <= s_ and e_ <= served[2])]
+    little = {w for phrase in listed(tables, None, "articles") + listed(tables, None, "joiners") + listed(tables, "mail", "of") for w in phrase.split()}
+    return [w for w, _s, _e in words if w not in little]
+
+
+def _message_problems(key: str, value, said: list, offered: dict, tables: list, options) -> list:
+    """Each `<source>#<n>` of a message write: the source is a mailbox code listed (`offered["mail_index"]`: {source: entries of its index}), and the number is written in the
+    references' part of a line (or is the whole of a line of numbers), is an option the person was shown (`offered["options"]`), is the first message for "the latest", or is
+    the unique match (a plural object: every match, up to 20) of the words written after an "of" marker."""
+    refs = [r for r in str(value).split(",") if r]
+    index = offered.get("mail_index") or {}
+    if not refs or len(refs) > LIST_MAX:
+        return [f"{key} is {len(refs)} messages: a card takes 1 to {LIST_MAX}"]
+    only_numbers = nt._alt(listed(tables, None, "joiners") + listed(tables, None, "range"))
+    written, words, newest, plural, named = set(), None, False, False, ""
+    for text in said:
+        frame = _Frame(text, tables)
+        if frame.noun:
+            region = frame.references()
+            written |= _written_numbers(region, tables)
+            named += " " + region.lower()
+            found = _words_of_the_line(frame, tables)
+            words = found or words
+            newest = newest or bool(frame.line.find(listed(tables, "mail", "newest")))
+            plural = plural or bool(frame.line.find(listed(tables, "mail", "plural"), frame.noun[0], frame.noun[1]))
+        elif re.fullmatch(rf"[0-9\s,;#-]*(?:(?:{only_numbers})[0-9\s,;#-]*)*" if only_numbers else r"[0-9\s,;#-]*", natural.normal(text)) and natural.normal(text):
+            written |= _written_numbers(text, tables)      # a line of numbers alone answers "which one?"
+    out = []
+    for ref in refs:
+        source, _, n = ref.partition("#")
+        if source not in index or not n.isdigit():
+            out.append(f"{ref!r} is not a message of a mailbox code listed")
+            continue
+        n = int(n)
+        strong = sorted(e["n"] for e in index[source] if words and set(words) <= _entry_words(e))
+        by_words = n in strong and (len(strong) == 1 or (plural and not newest and len(strong) <= LIST_MAX)) or bool(newest and strong and n == strong[0])
+        if not (n in written or ref in (offered.get("options") or ()) or ref in named or (newest and not words and n == 1) or by_words):
+            out.append(f"message {ref} is not written in the references, shown or the unique match of the words")
+    if words and plural and not newest and not written and not out:      # a plural object found by words is the WHOLE set of matches (up to a card), unless the person chose among them
+        for source in {r.partition("#")[0] for r in refs}:
+            strong = {e["n"] for e in index[source] if set(words) <= _entry_words(e)}
+            given = {int(r.partition("#")[2]) for r in refs if r.partition("#")[0] == source}
+            if len(strong) <= LIST_MAX and given != strong and not all(r in (offered.get("options") or ()) for r in refs):
+                out.append(f"messages {sorted(given)} are a part of the {len(strong)} that hold the words")
+    return out
+
+
+def _state_said(value: str, said: list, tables: list) -> bool:
+    """Whether a line ends in the state words of `value`, or is nothing but them or their tail ("lido" for "como lido"). The words of "unread" are tried first: a line that
+    ends in them says "unread", whatever its last word is."""
+    for text in said:
+        norm = natural.normal(text)
+        unread = [p for p in listed(tables, "mail", "unread") if norm.endswith(p) or norm == " ".join(p.split()[1:])]
+        if unread:
+            if value == "unread":
+                return True
+            continue
+        if value == "read" and any(norm.endswith(p) or norm == " ".join(p.split()[1:]) for p in listed(tables, "mail", "read")):
+            return True
+    return False
+
+
+def _of_service(value: str, said: list, tables: list) -> bool:
+    """Whether a line ends its references with an "of" word and the name of the service of `value` ("os e-mails 2 e 4 do gmail", "emails 2 and 4 from gmail"): the "of" word
+    introduces the bare name, as `service_in` does elsewhere."""
+    of = nt._alt(listed(tables, "mail", "of"))
+    names = nt._alt(listed(tables, "services", value))
+    if not of or not names:
+        return False
+    return any(_Frame(text, tables).noun and re.search(rf"(?<![a-z0-9]){of}\s+{names}\s*$", natural.normal(_Frame(text, tables).references())) for text in said)
+
+
+def _mailbox_account(value: str, args: dict, said: list, offered: dict, picked: bool, tables: list) -> bool:
+    """Whether the account of a write on messages is the account of their mailbox: the references' sources all belong to `value`, and the mailbox is the only one code listed, is
+    written in the references' part of a line, or was picked."""
+    sources = offered.get("mail_sources") or {}
+    refs = [r for r in str(args.get("messages") or args.get("message") or "").split(",") if r]
+    if not refs or any(sources.get(r.partition("#")[0]) != value for r in refs):
+        return False
+    written = " ".join(_Frame(text, tables).references().lower() for text in said)
+    return len(sources) == 1 or picked or any(re.search(rf"(?<![a-z0-9]){re.escape(r.partition('#')[0])}(?![a-z0-9])", written) for r in refs)
+
+
+def _named(op: str, value: str, lines: list, tables: list) -> bool:
+    """Whether a line names the service of `value` the way the reader takes it: a service word behind its introducing word or a phrase of two words, a line that is nothing
+    but the service's name (the answer to the account question), or, for a new file, the word of a Google Doc."""
+    names = listed(tables, "services", value)
+    docs = listed(tables, "files", "gdoc") if value == "google" and op == "file-create" else []
+    for text in lines:
+        line = Line(text)
+        found = service(line, tables)
+        if (found and found[0] == value) or line.norm.strip() in names or line.norm.strip() == value or (docs and line.find(docs)):
+            return True
+    return False
+
+
+def _account_problems(op, value, lines, accounts, offered, picks, tables) -> list:
+    if value not in ("google", "microsoft"):
+        return [f"account {value!r} is not an account"]
+    if _named(op, value, lines, tables):
+        return []          # named in a line, where the reader takes a service word: an account the file does not list is refused by the operation itself, with its sentence
+    if value not in accounts:
+        return [f"account {value!r} is not configured and was not named"]
+    section = SECTION_OF.get(op)
+    qualifying = [a for a in ("google", "microsoft") if a in accounts and (accounts[a].get(section) if section else True)]
+    if value in offered.get("source_accounts", ()) or qualifying == [value] or (accounts.get("default") == value and value in qualifying) or (picks and len(qualifying) > 1):
+        return []
+    return [f"the account {value} was guessed: {len(qualifying)} qualify, none was named, chosen or the default"]
+
+
+def _hour_written(clock: str, text: str) -> bool:
+    """Whether the hour (and the minutes, when they are not 00) of `clock` "HH:MM" is a number written in `text`, in the 24-hour form or the 12-hour one."""
+    folded = natural.normal(text)
+    hour, minute = int(clock[:2]), clock[3:]
+    numbers = {int(n) for n in re.findall(r"(?<![0-9:])([0-9]{1,2})(?![0-9])", folded)} | {int(n) for n in re.findall(r"(?<![0-9])([0-9]{1,2})(?=[:h][0-9]{2})", folded)}
+    if hour not in numbers and hour % 12 not in numbers and not (hour % 12 == 0 and 12 in numbers):
+        return False
+    return minute == "00" or bool(re.search(rf"[:h]{minute}(?![0-9])", folded))
+
+
+def _range_texts(text: str, tables: list) -> list:
+    """The text with a range written in bare numbers replaced by the clock of its start, for the checker. This is NOT the parser's rewrite (the checker must not accept what
+    the parser misread): it knows two shapes only, written again here from the lists of the tables, and nothing else is a range: (1) a range marker, two numbers and a joiner
+    ("de 13 a 15", "from 13 to 15"), both from 7 to 23; (2) a number, a dash and a number with "h", "am" or "pm" ("13-15h", "1-2pm"), the first not behind a date cue. A
+    range is not longer than 12 hours."""
+    norm = _norm(text)
+    out = []
+    starts = nt._alt(listed(tables, "calendar", "range_from"))
+    joins = nt._alt(listed(tables, "calendar", "range_to"))
+    cues = {w for t in tables for w in t.get("date_cues", [])}
+    if starts and joins:
+        for m in re.finditer(rf"(?<![a-z0-9:/.]){starts}\s+([0-9]{{1,2}})\s*(?:{joins}|-)\s*([0-9]{{1,2}})h?(?![a-z0-9:])", norm):
+            first, last = int(m.group(1)), int(m.group(2))
+            if 7 <= first < last <= 23 and last - first <= 12:
+                out.append(norm[:m.start()] + f"{first:02d}:00" + norm[m.end():])
+    for m in re.finditer(r"(?<![a-z0-9:/.])([0-9]{1,2})\s*-\s*([0-9]{1,2})(h|am|pm)(?![a-z0-9])", norm):
+        first, last, unit = int(m.group(1)), int(m.group(2)), m.group(3)
+        if cues & set(re.findall(r"[a-z0-9]+", norm[:m.start()])[-2:]):
+            continue
+        if unit == "h":
+            ok, begin = 7 <= first < last <= 23 and last - first <= 12, first
+        else:
+            begin = first % 12 + (12 if unit == "pm" else 0)
+            end = last % 12 + (12 if unit == "pm" else 0)
+            if unit == "pm" and begin >= end:
+                begin -= 12
+            ok = 1 <= first <= 12 and 1 <= last <= 12 and begin < end and end - begin <= 12
+        if ok:
+            out.append(norm[:m.start()] + f"{begin:02d}:00" + norm[m.end():])
+    return out
+
+
+def _norm(text: str) -> str:
+    return nt.normalise(text)[0]
+
+
+def _variants(window: list, text: str, tables: list, prefixes: list) -> list:
+    """The texts of one window the time engine is asked about: the words as they are; the words with the bare hours of a range read the way the calendar family reads them
+    (a deterministic rewrite: "9-10h" -> "09:00"); and, when the last line is a bare number (the answer to "at what time?"), the words with the introducing word the question
+    machine puts before it ("at 21")."""
+    out = [text] + _range_texts(text, tables)
+    if re.fullmatch(r"[0-9]{1,2}", window[-1].strip()):
+        out += [" ".join(window[:-1] + [prefix, window[-1]]) for prefix in prefixes]
+    return out
+
+
+def _time_problems(key, value, said, now, tables) -> list:
+    """A start or end whose date and time are not a reading of the engine on the person's words (some window of consecutive lines). A start with a clock must be read
+    TOGETHER with its day: the day and the clock are the two parts of one reading of one window, never a day from one place and a clock from another. An end is a clock the
+    person wrote (the pairing with the start is checked by `problems`)."""
+    day, _, clock = value.partition("T")
+    seen_days, seen_times, pairs = set(), set(), set()
+    written = False
+    prefixes = [p for t in tables for p in t.get("bare_hour_prefixes", [])]
+    for i in range(len(said)):
+        for j in range(i + 1, len(said) + 1):
+            text = " ".join(said[i:j])
+            for variant in _variants(said[i:j], text, tables, prefixes):
+                clocks, days, readings = _facts(variant, now, tables)
+                seen_times |= clocks
+                seen_days |= days
+                for date, time in readings:
+                    seen_days.add(date)
+                    seen_times.add(time)
+                    pairs.add((date, time))
+            if clock and _hour_written(clock, text):
+                written = True
+    if not clock:
+        return [] if day in seen_days else [f"{key} {value}: the day is not a reading of the person's words"]
+    if key == "end":
+        return [] if clock in seen_times or written else [f"{key} {value}: the time is not written"]
+    return [] if (day, clock) in pairs else [f"{key} {value}: the day and the time are not one reading of the person's words"]
 
 
 if __name__ == "__main__":

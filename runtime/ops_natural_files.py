@@ -25,6 +25,7 @@ import ops_actor
 import ops_core as core
 import source_resolve
 import sources
+import turn_gate
 
 CARDS_MAX = 5      # the most cards of held files one line brings back
 SOURCE_ACCOUNT = {"drive": "google", "onedrive": "microsoft"}      # the type of a file source -> the account it belongs to
@@ -58,9 +59,11 @@ def _create(ctx: dict, slots: dict):
     if fd.name_problem(name, fd.CREATE_EXTENSIONS + (fd.GDOC_WORD,)):
         return w.ask_spec("name", "NW_ASK_FILE_NAME")
     args = {"account": account, "file_name": name, "content": slots["content"]}
+    origins = {"account": turn_gate.account_origin(slots, wanted), "file_name": turn_gate.origin_of(slots, "name", "line-span"), "content": turn_gate.origin_of(slots, "content", "line-span")}
     if folder:
         args["folder"] = folder
-    return {"args": args}
+        origins["folder"] = turn_gate.origin_of(slots, "folder", "line-span")
+    return {"args": args, "origins": origins}
 
 
 def _replace(ctx: dict, slots: dict):
@@ -80,7 +83,8 @@ def _replace(ctx: dict, slots: dict):
     if not chosen:
         return w.say_spec("NAT_NO_SOURCE")
     row = chosen[0]
-    return {"args": {"account": SOURCE_ACCOUNT[row["type"]], "file": row["id"], "content": slots["content"]}}
+    return {"args": {"account": SOURCE_ACCOUNT[row["type"]], "file": row["id"], "content": slots["content"]},
+            "origins": {"account": "config", "file": turn_gate.origin_of(slots, "file", "grounded"), "content": turn_gate.origin_of(slots, "content", "line-span")}}      # the file: found by the words (the search over the registered sources) or chosen among those listed
 
 
 def _save(ctx: dict, slots: dict, channel, sender):
@@ -108,19 +112,23 @@ def _save(ctx: dict, slots: dict, channel, sender):
             return w.cards_spec([slots["attachment"]], "NW_PICK_ON_CARD")
         return account
     listed = list(((ctx["cfg"].get("accounts") or {}).get(account) or {}).get("folders") or {})
+    folder_origin = turn_gate.origin_of(slots, "folder", "line-span")
     if slots.get("folder") is None and listed and "default" not in listed and slots.get("_folders"):
         # a caption or a button of a file's card never opens a question: a folder list with no `default` leaves the file's card (a caption), or takes the first folder listed (a
         # button; the card of the save names the folder, and the approval is of that card)
         if slots["_folders"] == "silent":
             return {"silent": True}
         slots = dict(slots, folder=listed[0])
+        folder_origin = "config"          # the first folder the project lists: the card names it and the approval is of that card
     state, folder = w.named_target(ctx, account, "folders", slots.get("folder"), "folder")
     if state == "spec":
         return folder
     args = {"account": account, "attachment": slots["attachment"]}
+    origins = {"account": turn_gate.account_origin(slots, slots.get("account")), "attachment": "held"}          # a file this sender sent and the hold keeps: `held_files` was asked above, for this sender
     if folder:
         args["folder"] = folder
-    return {"args": args}
+        origins["folder"] = folder_origin
+    return {"args": args, "origins": origins}
 
 
 def resolve(ctx: dict, op: str, slots: dict, channel, sender, said):

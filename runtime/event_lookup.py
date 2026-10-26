@@ -402,8 +402,9 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
     else:
         bind = {"source": source}
         entry = next((r for r in events(ctx, sender)[0] if (r["source"], r["n"]) == (source, form["n"])), None)
+    listed = {"event": "listed", **({"account": "card-copy"} if "created" in bind else {})}          # S41-7: the number is one of the list code showed this sender; the account of an event this platform created is the account of its card
     if form["verb"] is not None:
-        return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "line": form["canonical"], "bind": bind}), False
+        return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=turn_gate.Seed({"op": op, "line": form["canonical"], "bind": bind}, listed)), False
     if op is None:
         return _text(ctx, "EV_LIST_WHAT", n=form["n"]), True
     slots = dict(bind) if "created" in bind else {"event": form["n"], "source": source}
@@ -418,7 +419,7 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
         problem = _past_problem(slots["start"], _natural()._clock())
         if problem:
             return _text(ctx, problem), False
-    return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "slots": slots}), False
+    return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=turn_gate.Seed({"op": op, "slots": slots}, listed)), False
 
 
 # --- the line ------------------------------------------------------------------------------------------------------------------------------------
@@ -1007,7 +1008,8 @@ def _found(project: str, ctx: dict, op: str, time_, spans: dict, said: str, send
             slots["title"] = title
         if "start" not in slots and "title" not in slots:
             return _text(ctx, "EV_CHANGE_WHAT")
-    opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed={"op": op, "slots": slots})
+    origins = {"event": "grounded", **({"account": "card-copy"} if "created" in slots else {})}          # S41-7: the event was found by the words of the line (a ranking over the snapshot or the events created here); never an address
+    opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=turn_gate.Seed({"op": op, "slots": slots}, origins))
     if opened is not None and not was.get("exact", True):          # the name was near, not the same: the person is shown which event it is, and the card that follows is the question
         lead = _text(ctx, "EV_FOUND", **_found_fields(ctx, extras, was))
         extras["lead"] = lead          # a messaging app says it BEFORE the card (the bridge), never after it
