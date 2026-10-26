@@ -16,7 +16,9 @@ arguments of the operation's own function, or into the one question that is stil
 What is decided here, and from where:
   * an address, a subject and a body are the person's own words (an address only as written in a line; the body, and a subject the person did not give, may be worded by the
     model when the text was described to the interpreter or answered to the body question and composing is on for the sender: runtime/mail_compose.py, S7; a name asks for its address, and no mailbox, snapshot or index is
-    searched for one); a reply and a reply draft take no recipient: the operation takes it from the index of the message answered (limit L60), never from a body;
+    searched for one); a reply and a reply draft take no recipient: the operation takes it from the index of the message answered (limit L60), never from a body. BL7-2: the body of a
+    reply or a reply draft that DESCRIBES the text ("thanking her and explaining politely...", `mail_reply_compose.described`) may be worded too, from the person's own words alone
+    (the composer never sees the message answered, its sender, its subject or the recipient); a body after a say verb ("saying that...") or the literal marker is the text as written;
   * a message is `<source>#<n>` from digits the person wrote, from the source the person wrote, the one registered mail source of the account, or the one the person chose; or
     it is found BY WORDS in the index of the newest snapshot: the words after "do/da/from" must all be whole words of the message's from-address or subject; a singular
     object needs exactly one match (several are listed, up to five, and asked), a plural object takes every match up to 20 (more are asked);
@@ -56,6 +58,7 @@ import item_refs  # noqa: E402
 import mail_compose  # noqa: E402
 import mail_refresh  # noqa: E402
 import mail_refs  # noqa: E402
+import mail_reply_compose  # noqa: E402
 import natural  # noqa: E402
 import natural_writes_mail as nwm  # noqa: E402
 import ops_core as core  # noqa: E402
@@ -370,7 +373,10 @@ def _reference_args(ctx: dict, op: str, slots: dict, channel, sender):
     if reply:
         if not slots.get("body"):
             return _ask("body", "NW_MAIL_ASK_BODY_REPLY")
-        return {"args": {"account": account, "message": refs[0], **({"text": slots["body"]} if op == "mail-reply" else {"body": slots["body"]})}}
+        said_text = slots["body"]
+        if slots.get("_compose_reply"):          # BL7-2: the person described the reply (`mail_reply_compose.described`): the model words it from the person's own words alone, never the message answered
+            said_text = mail_reply_compose.text(ctx, channel, sender, said_text)
+        return {"args": {"account": account, "message": refs[0], **({"text": said_text} if op == "mail-reply" else {"body": said_text})}}
     args = {"account": account, "messages": ",".join(refs)}
     if op == "mail-move":
         name, ask = _folder(ctx, account, slots)
@@ -388,7 +394,7 @@ def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
     """The seed of a mail operation on a message the person named by its words (B''-lite), or None when the line gives no word to look for: `{"op", "by": "target", "slots"}`, the
     slots the family reads (`words` from `natural_writes_mail.target_words` over the verified `target` span; `plural` only when the target or the line `said` holds a noun of the tables'
     plural list (one card for every match, as the closed form), else the singular rule: one match is the card, several are a numbered list; `body`
-    of a reply or a draft; `folder_name`; `state`; `day_read`, the day the verified `day` span names as the caller read it, see `_on_day`: a `day` span with no reading is a day
+    of a reply or a draft (and `_compose_reply` when that body DESCRIBES the text instead of dictating it, `mail_reply_compose.described`: BL7-2); `folder_name`; `state`; `day_read`, the day the verified `day` span names as the caller read it, see `_on_day`: a `day` span with no reading is a day
     that was not read). Nothing here is an address, a recipient or a message number: the message is chosen by code from the index afterwards (`_by_words`), and a reply goes to
     the index's From (L60)."""
     spans, args = decision.get("spans") or {}, decision.get("args") or {}
@@ -401,6 +407,8 @@ def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
         slots["plural"] = True
     if op in ("mail-reply", "mail-draft") and spans.get("body"):
         slots["body"] = spans["body"]
+        if mail_reply_compose.described(spans["body"], said):
+            slots["_compose_reply"] = True          # BL7-2: a body that describes the text is worded by the model when composing is on (`_reference_args`); a dictated one is the text
     if op == "mail-move" and args.get("folder"):
         slots["folder_name"] = args["folder"]
     if op == "mail-mark" and spans.get("state"):

@@ -666,7 +666,7 @@ def test_the_mcp_mode_reads_no_snapshot_for_a_line_and_a_page_or_terminal_caller
 def test_the_family_reaches_no_effect_no_writer_and_no_approval_and_no_operation_of_the_layer():
     import ast
     allowed = {"__future__", "bisect", "datetime", "os", "re", "sys", "unicodedata", "zoneinfo", "mail_address", "natural_time", "item_refs", "mail_refs", "natural_writes_mail", "ops_core", "phrases", "project_config",
-               "sources", "sources_mail", "natural", "mail_compose", "mail_refresh"}      # mail_compose (slice S7) words a new e-mail through the daily route; it opens no card and executes nothing; mail_refresh (BL5E) reads a stale snapshot again through the source operations, once for a line
+               "sources", "sources_mail", "natural", "mail_compose", "mail_refresh", "mail_reply_compose"}      # mail_compose (slice S7) words a new e-mail through the daily route; it opens no card and executes nothing; mail_refresh (BL5E) reads a stale snapshot again through the source operations, once for a line; mail_reply_compose (BL7-2) decides when a reply's body is a description and words it through mail_compose.write, with no recipient and no subject; it opens no card and executes nothing
     for name in ("natural_writes_mail.py", "ops_natural_mail.py"):
         tree = ast.parse((st.RUNTIME / name).read_text(encoding="utf-8"))
         imported = set()
