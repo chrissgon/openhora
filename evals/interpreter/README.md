@@ -319,3 +319,12 @@ The prompt gained rule 9 and three worked examples (a no that changes the reques
 (`blite-20261025T003348`) and every older in-use answers file were recorded at the previous prompt, `5bee55ce...` (`interpreter_prompt_5bee`): they stay as a regression of the CODE on answers given to
 the old prompt (the tests build `Answers` directly, as `runtime/tests/test_interpreter_replay_gate.py` does), the CLI's `--replay` refuses them by their header (`prompt_sha256`), and a replay of
 them says what the code does with those answers, never what the new prompt makes a model say. The effect of rule 9 is measured only by new answers: M1 and M2 on both routes, with the maintainer's "pode".
+
+### The prompt in the BL7-3 pull request (2026-10-26)
+
+The prompt of package BL7-3 teaches four things the blind measurement of 2026-10-25 showed missing: a reply or an e-mail whose text the person describes ("agradecendo...", "thanking her for...") is `mail-reply`
+with the description as the body, not `route` (rule 10, and rule 8 now says "writing a document"); a message named by its sender and its subject keeps both in `target` (rule 11); a slot the line fills is never put in
+`inherit`, and words that only say which items the person meant do not name another op (rule 9); two worked examples. Its sha256 is `de408381...` (`interpreter_prompt` in `scripts/tests/pinned_hashes.json`);
+`interpreter_prompt_1423` keeps the hash that the recorded answers of BL5F and BL7-0 name, so their replay tests are unchanged. The newest entry of `runtime/interpreter_enable.json` (2026-10-26) names it, so on the head of this pull request
+the interpreter is on with the new prompt (limit L63, part 2). The pull request is a draft and merges only after the maintainer has measured this head on a new blind set and decided on that result (decision OPEN-BL7-C, recommendation (a)): nothing is served before the merge.
+The recorded answers cannot measure this prompt: a replay says what the code does with answers given to the old prompt, never what the new prompt makes a model say. The prompt is not measured here.
