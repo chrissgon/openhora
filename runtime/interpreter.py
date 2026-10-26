@@ -79,6 +79,22 @@ KNOWN_MIN = 3                  # a word shorter than this is never taken as proo
 WHYS = ("model", "time-ask", "time-past", "time-far", "time-gap", "time-fold", "weekday", "private-route", "invalid", "long-line")
 ERRORS = ("E_JSON", "E_SIZE", "E_SHAPE", "E_VERSION", "E_OP_UNKNOWN", "E_SLOT_UNKNOWN", "E_SPAN", "E_INT", "E_TIME_FORMAT", "E_WEEKDAY", "E_ITEM_UNKNOWN", "E_INHERIT")
 
+# BL7-1 (gap 1): the subject a line gives right after a message's target ("Gideon Farrow about the warehouse lease") stays in the target. Closed lists, folded (`natural.normal`), six languages.
+MAIL_TARGET_OPS = ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark")          # the operations whose `target` names a message (the tuple of ops_interpret, kept apart on purpose)
+SUBJECT_MARKERS = tuple(tuple(m.split()) for m in (
+    "sobre", "a respeito de", "a respeito do", "a respeito da", "referente a", "referente ao", "acerca de", "acerca do", "acerca da",
+    "about", "regarding", "concerning", "re",
+    "respecto a", "respecto al", "respecto de",
+    "sur", "au sujet de", "au sujet du", "au sujet des", "concernant", "a propos de", "a propos du", "a propos des",
+    "uber", "wegen", "bezuglich", "zum thema",
+    "su", "sul", "sullo", "sulla", "sui", "sugli", "sulle", "riguardo", "riguardo a", "riguardo al", "riguardo alla", "a proposito di", "a proposito del", "a proposito della", "circa"))
+SUBJECT_STOPS = frozenset((          # the words that end a subject: the lead-ins of a body and the conjunctions
+    "e", "que", "pra", "para", "com", "mas", "porque", "pois", "dizendo", "falando", "avisando", "pedindo", "agradecendo", "explicando", "confirmando", "perguntando", "informando", "respondendo",          # validate: allow english-only -- the closed list of Portuguese stop words of a subject
+    "and", "that", "to", "with", "but", "because", "so", "saying", "telling", "tell", "asking", "thanking", "explaining", "confirming", "letting", "replying",
+    "y", "con", "pero", "diciendo", "et", "pour", "avec", "mais", "disant", "en", "und", "dass", "mit", "aber", "um", "ma", "che", "per", "dicendo"))
+SUBJECT_TRAIL = frozenset("de do da dos das em no na nos nas o a os as um uma of the an on at in for from del la el los las le les du des der die das dem den von am im il lo di della dello".split())          # never left at the end of a subject
+SUBJECT_WORDS_MAX = 6
+
 OP_RE = re.compile(r"[a-z][a-z0-9-]{0,39}")
 SLOT_RE = re.compile(r"[a-z][a-z0-9_]{0,23}")
 ID_RE = re.compile(r"i[1-9]")
@@ -839,6 +855,11 @@ def check(obj, line, frame, catalog, now, zone, allowed) -> dict:
         return _clarify("model", ops=asked)
     if kind == "answer":
         return _check_answer(obj, line, frame, ops, now_local, zone, allowed)
+    kept = _read_plan_kept(obj, line, frame, ops)          # BL7-1 (gap 4): a correction of a read plan stays that read unless the line asks for an act
+    if kept is not None:
+        revised, item_id = kept
+        decision = _check_op(revised, line, frame, ops, refused, now_local, zone, allowed)
+        return dict(decision, corrects=item_id) if decision.get("kind") == "op" else decision
     return _check_op(obj, line, frame, ops, refused, now_local, zone, allowed)
 
 
@@ -858,6 +879,7 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
     slots, inherit = obj["slots"], obj.get("inherit", {})
     if any(slot not in row for slot in list(slots) + list(inherit)):
         return _invalid("E_SLOT_UNKNOWN")
+    inherit = {slot: span for slot, span in inherit.items() if slot not in slots}          # BL7-1 (gap 3): a slot the line fills is the line's; the old words the model also named for it are dropped, never read
     time_slots = [slot for slot in slots if (name, slot) in TIME_SLOTS]
     if name in TIME_DROPPED_OPS and not time_slots:
         obj = {k: v for k, v in obj.items() if k not in ("time_iso", "weekday")}          # a removal has no time slot: the time the model added is dropped, never read nor kept
@@ -869,12 +891,19 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         return _invalid(error)
     if name in EVENT_OPS and "day" in slots and not {"target", "event"} & (set(slots) | set(inherit)):
         return _clarify("no-target", slot="target", op=name)          # a day and no event named: the runtime asks again (`natural`'s IX_ASK_AGAIN), and so does the measure
+    if name in MAIL_TARGET_OPS and "target" in plain:          # BL7-1 (gap 1): the subject the line gives right after the person stays in the target; the wider span passed `_check_slots` again
+        wider = _target_with_subject(plain["target"], line, {slot: value for slot, value in plain.items() if slot != "target"}, name)
+        if wider != plain["target"]:
+            plain = dict(plain, target=wider)
+            args, error = _check_slots(name, plain, line)          # whatever the helper returned is checked as any span of the line, here too: a value that is not in the line is E_SPAN
+            if error:
+                return _invalid(error)
     spans = dict(plain)
     inherited = []
     if inherit:
         last = (frame or {}).get("last")
         for slot, span in inherit.items():
-            if slot in slots or (name, slot) in TIME_SLOTS or last is None or last["op"] != name or slot not in last["words"]:
+            if (name, slot) in TIME_SLOTS or last is None or last["op"] != name or slot not in last["words"]:
                 return _invalid("E_INHERIT")
             recorded = last["words"][slot]
             if not natural.normal(span) or natural.normal(span) not in natural.normal(recorded) or span not in recorded:
@@ -895,6 +924,94 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
             return _clarify(problem[0], slot=time_slots[0], error=problem[1], op=name)
         spans[time_slots[0]] = span
     return {"kind": "op", "error": None, "op": name, "args": args, "spans": spans, "time": time, "inherited": inherited, "time_disagree": disagree}
+
+
+_WORD = re.compile(r"\S+")
+_PUNCT_END = re.compile(r"[,;:.!?)]+$")
+
+
+def _target_with_subject(target, line, others, name):
+    """BL7-1 (gap 1). `target` widened by the subject the line gives right after it ("Gideon Farrow" + " about the warehouse lease"), else `target` unchanged. The result is always
+    `target` or a piece of the line that starts with it: it comes from the line alone, never from a message, an index or the model's text. Widened only when all hold: `target` stands
+    once in the line; a subject marker (SUBJECT_MARKERS, folded) follows it after white space; the tail after the marker runs to the first stop word (SUBJECT_STOPS), date written as
+    numbers, word that ends in punctuation (taken without it), start of another slot's span (`others`) or start of a time phrase, less the function words at its end (SUBJECT_TRAIL);
+    the tail holds 1 to SUBJECT_WORDS_MAX words; the wider span is at most SPAN_MAX, passes `_check_slots` like any span, and names more content words of a message than `target` did."""
+    if not target or line.count(target) != 1:
+        return target
+    begin = line.find(target)
+    start = begin + len(target)
+    toks = [(m.start() + start, m.end() + start, m.group()) for m in _WORD.finditer(line[start:])]
+    if not toks or not line[start:toks[0][0]] or line[start:toks[0][0]].strip():
+        return target          # nothing after the target, or the next word is not set apart from it by white space alone
+    folded = [natural.normal(t[2]) for t in toks]
+    marker = next((m for m in sorted(SUBJECT_MARKERS, key=len, reverse=True) if tuple(folded[:len(m)]) == m and not any(_PUNCT_END.search(t[2]) for t in toks[:len(m)])), None)
+    if marker is None:
+        return target
+    limits = []          # where another slot's span or a time phrase starts, after the target: the subject never reaches past one
+    for value in others.values():
+        at = line.find(value, start) if isinstance(value, str) and value else -1
+        if at >= 0:
+            limits.append(at)
+    found = nt.find(line)
+    for hit in found["hits"]:
+        at = found["origin"][hit["s"]]
+        if at >= start:
+            limits.append(at)
+    kept = []
+    for first, _last, word in toks[len(marker):]:
+        if any(first >= limit for limit in limits) or natural.normal(word) in SUBJECT_STOPS or DATE_SHAPE_RE.search(word):
+            break
+        clean = _PUNCT_END.sub("", word)
+        if not clean:
+            break
+        kept.append((first + len(clean), natural.normal(clean)))
+        if clean != word or len(kept) > SUBJECT_WORDS_MAX:
+            break
+    while kept and kept[-1][1] in SUBJECT_TRAIL:
+        kept.pop()          # "sobre a reuniao de" before a day: the function word at the edge is not the subject's
+    if not kept or len(kept) > SUBJECT_WORDS_MAX:
+        return target
+    wider = line[begin:kept[-1][0]]
+    if len(wider) > SPAN_MAX or _check_slots(name, {"target": wider}, line)[1] is not None:
+        return target
+    import importlib
+    mail = importlib.import_module("natural_writes_mail")
+    tables = natural._tables(None)
+    if len(mail.target_words(wider, tables)) <= len(mail.target_words(target, tables)):
+        return target          # the widening must add a content word and still name a message (a sentence, more than TARGET_WORDS_MAX words, names nothing)
+    return wider
+
+
+def _asks_an_act(line):
+    """BL7-1 (gap 4): whether the line holds, as whole folded words in a row, a head of a write family (the closed heads the families `natural_writes_mail`, `natural_writes_files`
+    and `natural_writes_calendar` own, read from them, never copied here). Such a line asks for an act and is never turned into a read."""
+    import importlib
+    words = natural.normal(line).split()
+    tables = natural._tables(None)
+    for family in ("natural_writes_mail", "natural_writes_files", "natural_writes_calendar"):
+        for head in importlib.import_module(family).HEADS(tables):
+            parts = head.split()
+            if parts and any(words[i:i + len(parts)] == parts for i in range(len(words) - len(parts) + 1)):
+                return True
+    return False
+
+
+def _read_plan_kept(obj, line, frame, ops):
+    """BL7-1 (gap 4): (the revised op object, the plan item's id) when a line that opens with a no corrects a live plan of a READ (class R) and the model named a card (class E) of
+    another operation for a line that holds no head of a write; else None (today's path). The revised object is the plan's own read with the slots the model gave, kept only when
+    the read has them all (a list has none, so it keeps none). It only ever turns a card into the read the person already had a plan for: never into an act (L65)."""
+    last = (frame or {}).get("last")
+    item = next((i for i in (frame or {}).get("items") or [] if i.get("kind") == "plan-confirm"), None)
+    if item is None or last is None or item.get("op") != last.get("op") or last.get("op") not in ops or ops[last["op"]]["class"] != "R":
+        return None
+    name = obj.get("op")
+    if name == last["op"] or name not in ops or ops[name]["class"] != "E" or not starts_with_no(line) or _asks_an_act(line):
+        return None
+    row = ops[last["op"]]["slots"]
+    slots = {slot: value for slot, value in obj["slots"].items() if slot in row}
+    if row and set(slots) != set(obj["slots"]):
+        return None          # the read has slots and the model gave one it lacks: it meant another act, today's path stands (a list has none: the day is read from the line by code)
+    return {"v": 1, "kind": "op", "op": last["op"], "slots": slots}, item["id"]
 
 
 NO_LEAD = frozenset(("nao", "no", "nope", "nah"))          # the folded words that open a no, pt-BR and en (BL5B)
