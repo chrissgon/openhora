@@ -366,7 +366,7 @@ def test_vacuity_the_interpreter_alone_refuses_these_shapes_so_the_card_is_not_r
     build(world, monkeypatch, SHAPES[shape])
     ctx = ops_core.context(world["path"])
     entry = ops_card_revise.entry_of(ctx, "messaging", OWNER, False)
-    old = ops_interpret._ask_model(ctx, entry, MUDA, OWNER, admission=turn_gate.admit(ctx, OWNER))
+    old = ops_interpret._ask_model(ctx, entry, MUDA, OWNER, turn_gate.admit(ctx, OWNER))
     assert old.get("op") != "event-change", "the answer, read as any line is read, is not a change of an event: it was asked again before"
 
 

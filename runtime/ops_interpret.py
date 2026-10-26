@@ -246,7 +246,7 @@ def _allowed(ctx: dict, sender) -> set:
     return {row["op"] for row in interpreter.SERVED["ops"] if operations.permitted(row["op"], CHANNEL, policy, None, sender)}
 
 
-def _ask_model(ctx: dict, entry: dict, said: str, sender, frame=None, admission=None):
+def _ask_model(ctx: dict, entry: dict, said: str, sender, admission, frame=None):
     """The decision for the line, or None when no call could be made or it failed. The call is the gate's (`turn_gate.call`) and needs the `admission` `turn_gate.admit` gave this line."""
     line_stage.publish("think")      # S19: the stage a phone is told if the line is still unanswered after a while
     try:
@@ -257,7 +257,8 @@ def _ask_model(ctx: dict, entry: dict, said: str, sender, frame=None, admission=
         got = turn_gate.call(admission, entry, system, user, deadline_ms=protocol["deadline_ms"], params=protocol["params"])
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
         got = {"ok": False}
-    turn_gate.record(bool(got.get("ok")))
+    if got.get("code") != "E_GATE":      # no usable admission is a fault of the caller, not of the provider: no call was made, so nothing is counted against the breaker
+        turn_gate.record(bool(got.get("ok")))
     if not got.get("ok"):
         return None
     try:
@@ -394,7 +395,7 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     plan_id = next((item["id"] for item in (frame or {"items": []})["items"] if item["kind"] == "plan-confirm"), None)
     if decision is None:
         admission = turn_gate.admit(ctx, sender) if entry is not None else None
-        decision = _ask_model(ctx, entry["entry"], said, sender, frame, admission) if admission is not None else None
+        decision = _ask_model(ctx, entry["entry"], said, sender, admission, frame) if admission is not None else None
     if decision is None:
         return _no_decision(ctx, said, extras)
     kind = decision.get("kind")

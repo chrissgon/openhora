@@ -58,7 +58,7 @@ PUBLISHED = {
 # REPLAY: what the current code gives the recorded answers.
 REPLAY = {
     (DEEPSEEK, "M1"): {"correct": 41, "clarify": 4, "wrong_card": 1},      # equal to the published counts today
-    (SONNET, "M1"): {"correct": 43, "clarify": 2, "wrong_card": 1},
+    (SONNET, "M1"): {"correct": 44, "clarify": 2},      # BL7-1 (the line's subject stays in a message's target): dev-pt-br-50007 run 2, wrong_card -> correct; the PUBLISHED counts above stay as they were
     (DEEPSEEK, "M2"): {"correct": 46, "clarify": 4},
     (SONNET, "M2"): {"correct": 46, "clarify": 3, "wrong_read": 1},
 }

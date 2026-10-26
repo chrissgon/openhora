@@ -28,6 +28,7 @@ line_stage = st.load("line_stage")
 ops_core = st.load("ops_core")
 ops_interpret = st.load("ops_interpret")
 interpreter_route = st.load("interpreter_route")
+interpreter_enable = st.load("interpreter_enable")
 turn_gate = st.load("turn_gate")
 ops_natural = st.load("ops_natural")
 ops_file_read = st.load("ops_file_read")
@@ -113,9 +114,13 @@ def test_for_kinds_chooses_by_the_types_of_the_sources():
 
 
 def test_the_interpreters_model_call_publishes_think(watched, monkeypatch):
-    monkeypatch.setattr(interpreter_route, "complete", lambda *a, **k: {"ok": False})
+    asked = []
+    entry = interpreter_enable.active("en")["entry"]      # the entry in force in this checkout: its route is the real daily route, so the call reaches the stand-in below
+    monkeypatch.setattr(ops_interpret, "_zone", lambda now: "America/Sao_Paulo")
+    monkeypatch.setattr(interpreter_route, "complete", lambda *a, **k: asked.append(1) or {"ok": False})
     monkeypatch.setattr(turn_gate, "record", lambda ok: None)
-    assert ops_interpret._ask_model({"cfg": {}}, {}, "hello there", None, admission=turn_gate.Admission(turn_gate._MINT)) is None
+    assert ops_interpret._ask_model({"cfg": {}}, entry, "hello there", None, turn_gate.Admission(turn_gate._MINT)) is None
+    assert asked == [1], "the stand-in route was reached"
     assert watched.stage == "think"
 
 

@@ -41,7 +41,11 @@ mail_compose = st.load("mail_compose")
 ops_core = st.load("ops_core")
 
 RUNTIME = Path(__file__).resolve().parents[1]
-THE_GATE_AND_THE_LAB = {"turn_gate.py", "interpreter_measure.py"}      # the files that may name the route's `complete`
+THE_GATE_AND_THE_LAB = {"turn_gate.py", "interpreter_route.py", "lab.py", "interpreter_measure.py"}      # the files that may hold a way into the route: the gate, the route module itself, the lab's text runner and measuring tool
+ROUTE_NAMES = {"complete", "_complete", "_complete_account", "account_text"}
+MINT_NAMES = {"_MINT", "Admission"}
+MODULE_NAMES = {"interpreter_route", "interpreter_measure"}
+NOT_THE_ROUTE = {("ops_natural.py", "natural"), ("ops_natural_writes.py", "natural"), ("ops_reminders.py", "natural")}      # the time engine's own `natural.complete`, a reminder's or a write's draft completed with a time
 CALLERS = ["interpreter", "composer", "mail-reviser", "event-reviser"]
 NONE = '{"v":1,"kind":"none"}'
 PLAIN_LINE = "tell me something about the unicorns"
@@ -76,57 +80,96 @@ def ctx_of(project):
 
 
 def routes_named(folder: Path) -> list:
-    """(file, line) of every call of the route module's `complete` in the python files of `folder` (runtime/*.py and runtime/handlers/*.py): `interpreter_route.complete(...)`, the same through
-    a name bound by `importlib.import_module("interpreter_route")` or `import interpreter_route as x`, `getattr(<that>, "complete")` and a bare `complete(...)` imported from it."""
+    """(file, line) of every way into the daily route that the python files of `folder` (runtime/*.py and runtime/handlers/*.py) hold, found by the shape of the code and not by a name it was
+    bound to: any attribute `complete`, `_complete`, `_complete_account` or `account_text` (the route's call, its two private helpers and the lab's text runner), however the module was
+    reached (a name, `importlib.import_module(...)` itself, `sys.modules[...]`, an alias, a function taken by `f = module.complete`), except the reminders' own `natural.complete` of the
+    three files in NOT_THE_ROUTE; the same names as a string given to `getattr` or as a subscript; `from interpreter_route import *`, and `from interpreter_route import <one of those names>`;
+    any import of `interpreter_measure` (a statement, `importlib.import_module`, `__import__`, `sys.modules`, a `from ... import interpreter_measure`); and `sys.modules` read for
+    `interpreter_route`. The files that may hold them are in THE_GATE_AND_THE_LAB; the caller of this function says which are allowed."""
     found = []
     for path in sorted(list(folder.glob("*.py")) + list(folder.glob("handlers/*.py"))):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        names, bare = {"interpreter_route"}, set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                names.update(a.asname or a.name for a in node.names if a.name == "interpreter_route")
-            elif isinstance(node, ast.ImportFrom) and node.module == "interpreter_route":
-                bare.update(a.asname or a.name for a in node.names if a.name == "complete")
-            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
-                call = node.value
-                if (isinstance(call.func, ast.Attribute) and call.func.attr == "import_module" and call.args and isinstance(call.args[0], ast.Constant)
-                        and call.args[0].value == "interpreter_route"):
-                    names.update(t.id for t in node.targets if isinstance(t, ast.Name))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            if isinstance(func, ast.Attribute) and func.attr == "complete" and isinstance(func.value, ast.Name) and func.value.id in names:
-                found.append((path.name, node.lineno))
-            elif isinstance(func, ast.Name) and func.id in bare:
-                found.append((path.name, node.lineno))
-            elif (isinstance(func, ast.Name) and func.id == "getattr" and len(node.args) >= 2 and isinstance(node.args[0], ast.Name) and node.args[0].id in names
-                  and isinstance(node.args[1], ast.Constant) and node.args[1].value == "complete"):
+            hit = False
+            if isinstance(node, ast.Attribute):
+                hit = node.attr in ROUTE_NAMES and not (isinstance(node.value, ast.Name) and (path.name, node.value.id) in NOT_THE_ROUTE)
+            elif isinstance(node, ast.ImportFrom):
+                names = {a.name for a in node.names}
+                if node.module == "interpreter_route":
+                    hit = bool(names & (ROUTE_NAMES | {"*"}))
+                elif node.module == "interpreter_measure" or "interpreter_measure" in names:
+                    hit = True
+            elif isinstance(node, ast.Import):
+                hit = any(a.name.split(".")[-1] == "interpreter_measure" for a in node.names)
+            elif isinstance(node, ast.Call):
+                args = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+                if "interpreter_measure" in args:
+                    hit = True      # importlib.import_module("interpreter_measure"), __import__("interpreter_measure"), sys.modules.get("interpreter_measure")
+                elif isinstance(node.func, ast.Name) and node.func.id == "getattr" and args and args[-1] in ROUTE_NAMES:
+                    hit = True
+                elif isinstance(node.func, ast.Attribute) and node.func.attr == "get" and is_sys_modules(node.func.value) and set(args) & MODULE_NAMES:
+                    hit = True
+            elif isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+                hit = node.slice.value in ROUTE_NAMES or (is_sys_modules(node.value) and node.slice.value in MODULE_NAMES)
+            if hit:
                 found.append((path.name, node.lineno))
     return found
 
 
+def is_sys_modules(node) -> bool:
+    return isinstance(node, ast.Attribute) and node.attr == "modules" and isinstance(node.value, ast.Name) and node.value.id == "sys"
+
+
 def test_only_the_gate_calls_the_daily_route():
     named = routes_named(RUNTIME)
-    assert {name for name, _ in named} == THE_GATE_AND_THE_LAB, named      # both are there: the gate for a person's line, the lab's tool for a measurement
-    assert [n for n in named if n[0] not in THE_GATE_AND_THE_LAB] == []
+    assert {"turn_gate.py", "interpreter_measure.py", "interpreter_route.py"} <= {name for name, _ in named}, named      # the control: the scan sees the three that hold them today
+    assert [n for n in named if n[0] not in THE_GATE_AND_THE_LAB] == [], "no other module reaches the route, its helpers or the lab's measuring tool"
 
 
-def test_vacuity_the_scan_finds_a_planted_call_in_a_scratch_copy(tmp_path):
+def mint_named(folder: Path) -> list:
+    """(file, line) of every reference to `_MINT` or `Admission` (a name or an attribute) in the python files of `folder`: the mint is the gate's."""
+    found = []
+    for path in sorted(list(folder.glob("*.py")) + list(folder.glob("handlers/*.py"))):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+            if (isinstance(node, ast.Name) and node.id in MINT_NAMES) or (isinstance(node, ast.Attribute) and node.attr in MINT_NAMES):
+                found.append((path.name, node.lineno))
+    return found
+
+
+def test_no_module_but_the_gate_makes_or_names_an_admission():
+    """`_MINT` and `Admission` are the gate's: a module that made its own admission would call the route with one the gate never counted (tests may mint)."""
+    named = mint_named(RUNTIME)
+    assert named and {name for name, _ in named} == {"turn_gate.py"}, named
+
+
+PLANTS = {
+    "ops_interpret.py": 'def p1():\n    return importlib.import_module("interpreter_route").complete("r", "s", "u", accepted=[], deadline_ms=1)\n',
+    "mail_compose.py": 'def p2():\n    f = interpreter_route.complete\n    return f("r", "s", "u", accepted=[], deadline_ms=1)\n',
+    "mail_revise.py": 'def p3():\n    return sys.modules["interpreter_route"].complete("r", "s", "u", accepted=[], deadline_ms=1)\n',
+    "ops_event_revise.py": 'def p4():\n    return getattr(importlib.import_module("interpreter_route"), "complete")("r", "s", "u", accepted=[], deadline_ms=1)\n',
+    "ops_card_revise.py": 'def p5():\n    route: object = importlib.import_module("interpreter_route")\n    return route.complete("r", "s", "u", accepted=[], deadline_ms=1)\n',
+    "ops_say.py": 'def p6():\n    from interpreter_route import *\n    return complete("r", "s", "u", accepted=[], deadline_ms=1)\n',
+    "ops_items.py": 'def p7():\n    import interpreter_measure\n    return interpreter_measure._complete({"id": "r"}, [], {}, "s", "u")\n',
+    "ops_files.py": 'def p8():\n    return interpreter_route._complete_account(interpreter_route.find("r"), "s", "u", [], None)\n',
+    "ops_ask.py": 'def p9():\n    return importlib.import_module("interpreter_measure")\n',
+    "ops_research.py": 'def p10():\n    return sys.modules.get("interpreter_measure")\n',
+    "ops_reads.py": 'def p11():\n    return lab.account_text({}, "s", "u")\n',
+    "ops_sources.py": 'def p12():\n    return turn_gate.Admission(turn_gate._MINT)\n',
+    "ops_cancel.py": 'def p13():\n    return vars(interpreter_route)["complete"]\n',
+}
+
+
+def test_vacuity_the_scan_finds_every_planted_way_in_in_a_scratch_copy(tmp_path):
     copy = tmp_path / "runtime"
     (copy / "handlers").mkdir(parents=True)
     for path in list(RUNTIME.glob("*.py")) + list(RUNTIME.glob("handlers/*.py")):
         shutil.copy(path, copy / path.relative_to(RUNTIME))
-    with open(copy / "ops_interpret.py", "a", encoding="utf-8") as handle:
-        handle.write('\n\ndef planted():\n    return interpreter_route.complete("r", "s", "u")\n')
-    with open(copy / "mail_compose.py", "a", encoding="utf-8") as handle:
-        handle.write('\n\ndef planted_by_alias():\n    route = importlib.import_module("interpreter_route")\n    return route.complete("r", "s", "u")\n')
-    with open(copy / "mail_revise.py", "a", encoding="utf-8") as handle:
-        handle.write('\n\ndef planted_by_getattr():\n    route = importlib.import_module("interpreter_route")\n    return getattr(route, "complete")("r", "s", "u")\n')
-    with open(copy / "ops_event_revise.py", "a", encoding="utf-8") as handle:
-        handle.write('\n\ndef planted_bare():\n    from interpreter_route import complete\n    return complete("r", "s", "u")\n')
-    outside = {name for name, _ in routes_named(copy)} - THE_GATE_AND_THE_LAB
-    assert outside == {"ops_interpret.py", "mail_compose.py", "mail_revise.py", "ops_event_revise.py"}
+    for name, text in PLANTS.items():
+        assert (copy / name).exists(), name
+        with open(copy / name, "a", encoding="utf-8") as handle:
+            handle.write("\n\n" + text)
+    outside = ({name for name, _ in routes_named(copy)} - THE_GATE_AND_THE_LAB) | {name for name, _ in mint_named(copy)} - {"turn_gate.py"}
+    assert outside == set(PLANTS), set(PLANTS) ^ outside
 
 
 # --- a call needs an admission ---------------------------------------------------------------------------------------------------------------------------
@@ -438,3 +481,16 @@ def test_a_failure_before_the_call_is_recorded_as_a_failure_the_way_it_was(reque
         frozen.now += 1.0
     assert calls == [] or all("user" not in c for c in calls)
     assert turn_gate._breaker["until"] > frozen.now, "three attempts that failed before the call opened the breaker, as before"
+
+
+def test_a_call_asked_for_without_an_admission_makes_no_call_and_counts_nothing_against_the_breaker(monkeypatch):
+    """E_GATE is a fault of the caller, not of the provider: three of them never open the breaker, and `admission` has no default."""
+    import inspect
+    assert inspect.signature(ops_interpret._ask_model).parameters["admission"].default is inspect.Parameter.empty
+    asked = []
+    monkeypatch.setattr(interpreter_route, "complete", lambda *a, **k: asked.append(1) or {"ok": True, "text": NONE})
+    monkeypatch.setattr(ops_interpret, "_zone", lambda now: "America/Sao_Paulo")
+    entry = {"route": "or-deepseek-v4.1-flash", "route_sha256": "0" * 64}
+    for _ in range(turn_gate.BREAKER_FAILS + 1):
+        assert ops_interpret._ask_model({"cfg": {}}, entry, "hello there", None, None) is None
+    assert asked == [] and turn_gate._breaker == {"fails": 0, "until": 0.0}

@@ -180,7 +180,8 @@ def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict, admissio
         got = gate.call(admission, entry, system, user, deadline_ms=interpreter.PROTOCOL["deadline_ms"], params=interpreter.PROTOCOL["params"])
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
         got = {"ok": False}
-    gate.record(bool(got.get("ok")))
+    if got.get("code") != "E_GATE":      # no usable admission is a fault of the caller, not of the provider: no call was made, so nothing is counted against the breaker
+        gate.record(bool(got.get("ok")))
     if not got.get("ok"):
         return None
     try:
