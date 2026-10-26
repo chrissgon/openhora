@@ -219,6 +219,35 @@ def test_every_composite_pre_state_and_every_edge_input_is_in_the_corpus_with_it
     assert delete and all("delete-refusal-before-queue" not in recorded[s["id"]]["trace"] for s in delete), "a sender who may not talk is never told the file cannot be deleted from a message"
 
 
+OPS_GROUPS = ("router_question_and_a_state_line", "write_draft_and_a_state_line", "write_draft_and_a_tier_1_form", "plan_not_last_and_a_greeting_that_is_a_yes",
+              "plan_last_and_a_greeting_that_is_a_yes", "interpreter_sender_without_talk", "mcp_and_chat_shells", "a_page_line_queued_while_a_run_is_busy", "a_queued_answer_to_the_choice_of_a_file")
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_the_operations_composites_the_interpreter_sender_without_talk_and_the_mcp_chat_and_queue_shells_are_in_the_corpus():
+    """S41-1c. The review of S41-3 found orders and guards of the operations layer that no scenario reached. Each group has at least five scenarios with its "sim" and its "yes" and is in the golden;
+    the pre-states `route_busy` and `route_busy_ask_choice`, the sender `reader_interpret` (holds `interpret` and a read group, not `talk`) on the bridge and on `ops`, the shells `mcp` and `chat`, and
+    the drain of the queue (`route_queued`) are all named and used."""
+    _, recorded = golden()
+    scenarios = corpus()
+    in_corpus = {build.key_of(s) for s in scenarios}      # a scenario that two groups both want is written once, under the first group's id: the group is read from what was authored
+    for name in OPS_GROUPS:
+        authored = build.OPS_GROUPS[name]
+        assert len(authored) >= 5, f"{name}: {len(authored)} scenarios"
+        assert {"sim", "yes"} <= {s["text"] for s in authored}, f"{name} holds the sim and the yes"
+        assert all(build.key_of(s) in in_corpus for s in authored), name
+        assert all(s["id"] in recorded for s in scenarios if s["id"].startswith(f"opscomp.{name}."))
+    assert {"route_busy", "route_busy_ask_choice"} <= set(ek.PRESTATES) and {"mcp", "chat"} <= set(ek.CHANNELS) and "reader_interpret" in ek.SENDERS
+    viewer = [s for s in scenarios if s["sender"] == "reader_interpret"]
+    assert {s["channel"] for s in viewer} == {"messaging", "ops"} and len(viewer) >= 10
+    assert "talk-refusal" in {n for s in viewer if s["channel"] == "ops" for n in recorded[s["id"]]["trace"]}, "a sender with no talk meets the refusal of the operations layer, and no model is asked"
+    assert all(recorded[s["id"]]["model_calls"] == 0 for s in viewer)
+    for channel in ("mcp", "chat"):
+        assert len([s for s in scenarios if s["channel"] == channel]) >= 5, channel
+    drained = [s for s in scenarios if s["prestate"] in ("route_busy", "route_busy_ask_choice") and any(row["to"].endswith("-drain") and row["flags"].get("routed") == "line" for row in recorded[s["id"]]["sent"])]
+    assert len(drained) >= 5, "lines queued while a run is busy, answered by the drain of the queue"
+
+
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_the_replay_is_deterministic(tmp_path):
     """Thirty scenarios replayed twice give the same outcome: nothing of the order the threads finish in, of the hash seed or of the clock reaches the outcome."""

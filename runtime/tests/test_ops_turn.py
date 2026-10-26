@@ -6,7 +6,7 @@ takes a line ends the dispatch, a row whose `channels` excludes the shell is ski
 is an error. (3) `code_claims`, the queue decision `handled` of `say`, equals the expression `say` had (a frozen copy, below) on every scenario of the entry corpus. (4) Limit L63(3) is the table: the
 contract's L63 row lists the names of `turn_order.ORDER` in order and names every retired claimer with its replacement; the check is shown to fail when a name is left out, swapped or added, and when the
 row is edited (the mirror of the row in docs/architecture/platform/runtime.md is read the same way). (5) Every row is load-bearing (with its code replaced by "takes nothing" at least one scenario no longer
-has the golden's outcome) and the order matters (three swaps change a scenario). (6) Page and terminal lines pass through the same order and never reach the interpreter: the trace holds no `interpreter`
+has the golden's outcome) and the order matters (four swaps change a scenario of the corpus). (6) Page, terminal, chat and mcp lines pass through the same order and never reach the interpreter: the trace holds no `interpreter`
 and the stand-in model is never asked, with `ops_interpret.enabled` left as it is, and the row stays out of their reach when `enabled` is wrongly true (the table and `enabled` are two layers of L63(1)).
 (7) The trace the table gives (`ops_turn.TRACE`) is the trace the kit records by wrapping the methods, on every scenario of the corpus.
 
@@ -401,42 +401,22 @@ def swapped(first, second):
     return hook
 
 
-SWAPS = [("draft-answer", "tier-1-form"), ("router-question", "state-question"), ("tier-1-form", "interpreter")]
+SWAPS = [("draft-answer", "tier-1-form"), ("router-question", "state-question"), ("tier-1-form", "interpreter"), ("talk-refusal", "interpreter")]
 
 
-def scenario(text, prestate, channel="page"):
-    """A scenario of our own, outside the corpus and the golden: a listed owner's line on a shell, in a named pre-state. Its two outcomes (the table's order and the swapped one) are compared with each other."""
-    found = {"id": f"adhoc.{prestate}.{channel}", "channel": channel, "platform": "buttons", "sender": "owner", "prestate": prestate, "text": text, "reply_to": None, "forwarded": False, "kind": "text", "action": None}
-    assert ek.check_scenario(found) == []
-    return found
-
-
-# What the golden's corpus does not hold: a state question or a tier-1 form said while the router's question or a write question is open (S41-1's corpus has the answers to those questions and the
-# state questions with nothing open). The two orders are compared on lines of our own.
-AD_HOC = {("router-question", "state-question"): [scenario(t, "router_question", c) for t in ("progress", "status", "how are we doing?") for c in ("page", "terminal")],
-          ("draft-answer", "tier-1-form"): [scenario(t, "write_draft_title") for t in ("what files do you have?", "pendências", "list the skills", "show costs")]}
-
-
-@pytest.mark.parametrize("first, second", [swap for swap in SWAPS if swap not in AD_HOC])
+@pytest.mark.parametrize("first, second", SWAPS)
 def test_the_order_matters_two_rows_that_swap_change_a_scenario(first, second, tmp_path):
-    """L63(3): the forms of code come before the interpreter. Swapped, a line the golden has taken by one of the two is taken by the other, and the outcome differs from the golden's."""
+    """L63(3): a reminder question or a write question is answered, or dropped, before a form is read; the router's question is bound before the state question is looked at; the forms of code come
+    before the interpreter; the refusal of a sender who may not talk comes before the interpreter (the scenarios of `reader_interpret`: `interpret` and a read group, no `talk`). Swapped, a line the golden
+    has taken by one of the two is taken by the other, and the outcome differs from the golden's."""
     _, recorded = rp.golden()
     scenarios = [s for s in rp.corpus() if {first, second} & set(recorded[s["id"]]["trace"])]
     assert scenarios, "the corpus holds lines that one of the two takes"
     assert bridge_side.changed(swapped(first, second), scenarios, tmp_path), f"swapping {first} and {second} changes no scenario: the corpus does not see this order"
 
 
-@pytest.mark.parametrize("first, second", sorted(AD_HOC))
-def test_the_order_matters_two_rows_that_swap_change_the_outcome_of_a_line_of_our_own(first, second, tmp_path):
-    """L63(3): the router's open question is bound before the state question is looked at (a line that asks for the state with a question open is the question's answer: "progress" reaches the router);
-    the sender's draft is answered, or dropped, before a form is read (a form said with a write question open drops the question). Swapped, a line of our own has another outcome than in the table's order."""
-    changed_by = []
-    for found in AD_HOC[(first, second)]:
-        here = rp.replay(found, tmp_path)
-        other = rp.replay(found, tmp_path, swapped(first, second))
-        if rp.differences(here, other):
-            changed_by.append(found["text"])
-    assert changed_by, f"swapping {first} and {second} changes the outcome of none of the lines of our own"
+def test_the_corpus_holds_a_sender_with_interpret_and_no_talk():
+    assert [s["id"] for s in rp.corpus() if s["sender"] == "reader_interpret"], "the scenarios the swap of `talk-refusal` and `interpreter` is seen on"
 
 
 def test_the_order_matters_the_talk_refusal_comes_before_the_interpreter_for_a_sender_who_holds_interpret_and_may_not_talk(monkeypatch):
@@ -458,29 +438,25 @@ def test_the_order_matters_the_talk_refusal_comes_before_the_interpreter_for_a_s
     assert reached == [line], "swapped, the interpreter reads the line of a sender who may not talk"
 
 
-def test_the_corpus_does_not_see_two_of_the_swaps_so_lines_of_our_own_do(tmp_path):
-    """The finding, as S41-2 states its own: S41-1's corpus has no line that is a state question or a tier-1 form while the router's question or a write question is open, so a swap of those rows
-    changes no scenario of the golden. This test says so (and fails the day the corpus holds such a line, when the lines of our own can go). The golden is not recorded again here."""
-    _, recorded = rp.golden()
-    for first, second in sorted(AD_HOC):
-        scenarios = [s for s in rp.corpus() if {first, second} & set(recorded[s["id"]]["trace"])]
-        assert scenarios and not bridge_side.changed(swapped(first, second), scenarios, tmp_path), f"the corpus now sees the swap of {first} and {second}: drop its lines of our own"
-
-
 # --- page and terminal -------------------------------------------------------------------------------------------------------------------------------
 
 
+SHELLS = ("page", "terminal", "chat", "mcp")      # the shells that are not the messaging bridge (the drain acts as the page: its lines are page scenarios with the router busy)
+
+
 def shell_scenarios() -> list:
-    return [s for s in rp.corpus() if s["channel"] in ("page", "terminal")]
+    return [s for s in rp.corpus() if s["channel"] in SHELLS]
 
 
 def test_the_corpus_holds_page_and_terminal_lines():
-    assert len(shell_scenarios()) >= 105, "the corpus holds the page and terminal lines that pass through the order"
+    counts = {shell: len([s for s in shell_scenarios() if s["channel"] == shell]) for shell in SHELLS}
+    assert all(counts.values()) and sum(counts.values()) >= 166, counts      # 99 page, 51 terminal, 9 chat and 7 mcp scenarios when S41-3 was merged with S41-1c
 
 
 @pytest.mark.parametrize("shard", range(SHARDS))
 def test_a_page_or_terminal_line_passes_the_order_and_never_reaches_the_interpreter(shard, tmp_path):
-    """The page and terminal scenarios (105: 65 page, 40 terminal), with `ops_interpret.enabled` left as it is: the trace never holds `interpreter`, the stand-in model is never asked and no provider process starts."""
+    """Every page, terminal, chat and mcp scenario of the corpus (the queue's drain included: its lines are page scenarios with the router busy), with `ops_interpret.enabled` left as it is: the trace never holds
+    `interpreter`, the stand-in model is never asked and no provider process starts."""
     _, recorded = rp.golden()
     scenarios = rp.shard_of(shell_scenarios(), shard)
     assert scenarios
@@ -488,7 +464,8 @@ def test_a_page_or_terminal_line_passes_the_order_and_never_reaches_the_interpre
         found = rp.replay(scenario, tmp_path)
         assert "interpreter" not in found["trace"] and found["model_calls"] == 0 and found["provider_calls"] == 0, scenario["id"]
         assert not rp.differences(recorded[scenario["id"]], found), scenario["id"]
-        assert found["trace"] and found["trace"][-1] in OPS, f"{scenario['id']} was taken by a row of the stage ops"
+        assert all(name in OPS for name in found["trace"]), f"{scenario['id']} was taken by a row of the stage ops"
+        assert found["trace"] or scenario["prestate"].startswith("route_busy"), f"{scenario['id']}: a line no row took is a page line queued while the router is busy"
 
 
 def test_the_interpreter_row_stays_out_of_reach_of_a_page_line_even_when_enabled_is_wrongly_true(tmp_path):

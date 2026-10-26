@@ -5,8 +5,8 @@
 # ///
 """The gate of a person's line: the one home of the limits PLAN-BRAIN section 4.1 re-homes. Each section names its limit and the contract row.
 
-Operations layer, standard library only at import time: `interpreter_route` and `ops_natural` are loaded by `importlib` when a function needs them, so that a pure module
-(runtime/interpreter.py) can import the gate later without joining an import cycle.
+Operations layer. The module-level imports of this file are the standard library and `natural` (and `phrases`, which `natural` already loads), nothing else: `interpreter_route` and
+`ops_natural` are loaded by `importlib` when a function needs them, so that a pure module (runtime/interpreter.py) can import the gate without joining an import cycle.
 
 Section 1. The daily route's admission (contracts/runtime.md, limit L63, S7 and S13)
 
@@ -28,15 +28,40 @@ BREAKER_OPEN seconds after BREAKER_FAILS failed calls in a row. The three caller
 Privacy (limit L63): the gate keeps no line, span, model text or exception message: it holds a count per sender (the sender's own identifier, as before), a count per project
 and local day, and the breaker's two numbers; the arguments of `call` are passed on and kept nowhere.
 
+Section 2. The line checks (S41-5: taint, private routing, decision numbers from the line; contracts/runtime.md, limits L54 and L63, slice R2-F1)
+
+Three checks of code over the person's own line. Each had one home and callers elsewhere; the homes moved here unchanged, no word, number or rule changed:
+
+  research_allowed(question, line)  False when the question or the line holds a possessive form of a source of the project ("minha agenda", "my e-mails", "mon dossier", "mein Kalender",
+                                    "la mia cartella"...): a question about the person's own data is not a web search (R2-F1). The bare noun is allowed ("agenda cultural", "the calendar of
+                                    holidays"). `personal(*texts)` is the check itself and the lists (POSSESSIVES, CLITIC_POSSESSIVES, NOUNS) are the closed forms of the six languages the interpreter
+                                    reads (pt-BR, en, es, fr, de, it); a possessive and a noun are at most two words apart, the Spanish and Italian "mi" counts only next to the noun or one word before it.
+                                    Accents, case and punctuation do not matter. Callers: `ops_research._research`.
+  private_line(line)                True for a reminder asked in words or a write to the person's mail or calendar (`natural.private`): the conversation stores a neutral word for it and its words
+                                    never leave the host (limits L51, L61, L63). Callers: `ops_interpret._no_decision`, `ops_natural.stored_line`, `interpreter.precheck` and `interpreter.check`.
+  the_number(line)                  the one whole number a line writes (`natural.decision_numbers`), None for none or for two or more; a number glued to a mark, followed by a unit or beside a
+                                    currency, and every number of a line that says a date or a time, is not a number of a decision. Caller: `ops_interpret._decided`.
+  number_believed(line, number)     a decision or an act that a MODEL or the router chose is believed for `number` only when `number` is a whole number (not a bool) and is the one number the line
+                                    writes (limit L54: decision numbers only from the line). What the line means is not read here: the person says yes to the sentence code wrote (limit L65).
+                                    Caller: `ops_natural.run`.
+
+Privacy (limit L63): these functions keep nothing and print nothing; they are pure over the text they are given.
+
 Runs on Python 3.9: python3 runtime/turn_gate.py --help
 """
 from __future__ import annotations
 
 import collections
 import importlib
+import os
+import re
 import sys
 import threading
 import time
+import unicodedata
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import natural  # noqa: E402  (the same folder: the closed forms of the private line and of the decision numbers, which section 2 asks)
 
 # --- section 1: the daily route's admission (L63) ------------------------------------------------------------------------------------------------------
 
@@ -124,6 +149,79 @@ def call(admission, entry: dict, system: str, user: str, *, deadline_ms, params:
     if len(rows) != 1 or rows[0].get("kind") != "http" or route.route_sha256(rows[0]) != entry["route_sha256"]:
         return {"ok": False, "code": "E_ROUTE"}
     return route.complete(rows[0]["id"], system, user, accepted=[entry["route_sha256"]], deadline_ms=deadline_ms, **params)
+
+
+# --- section 2: the line checks (L54, L63, R2-F1) ------------------------------------------------------------------------------------------------------
+
+# taint (slice R2-F1): moved verbatim from runtime/research_guard.py (deleted by S41-5)
+# The possessives (a word that can only possess) and the nouns of the project's sources, folded: lower case, no accent, every other character a space.
+POSSESSIVES = ["my", "meu", "meus", "minha", "minhas", "mis", "mon", "ma", "mes", "mein", "meine", "meinen", "meinem", "meiner", "meines", "mio", "mia", "miei", "mie"]
+CLITIC_POSSESSIVES = ["mi"]      # a possessive in Spanish and a pronoun in Italian: only next to the noun or one word before it
+NOUNS = [
+    # calendar
+    "calendar", "calendars", "agenda", "agendas", "schedule", "calendario", "calendarios", "calendrier", "calendriers", "kalender", "terminkalender",
+    # mail
+    "email", "emails", "e mail", "e mails", "mail", "mails", "inbox", "mailbox", "caixa de entrada", "caixa de e mail", "correo", "correos", "courrier", "courriers", "posteingang",
+    "posta", "casella di posta",
+    # files, documents, folders, drive
+    "file", "files", "arquivo", "arquivos", "archivo", "archivos", "fichier", "fichiers", "datei", "dateien", "documento", "documentos", "documento", "document", "documents",
+    "dokument", "dokumente", "documenti", "folder", "folders", "pasta", "pastas", "carpeta", "carpetas", "dossier", "dossiers", "ordner", "cartella", "cartelle", "drive", "onedrive",
+    "google drive",
+]
+
+
+def fold(text) -> str:
+    """The text folded for the check: lower case, accents removed, every run of other characters a single space."""
+    if not isinstance(text, str):
+        return ""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
+    return " " + re.sub(r"[^a-z0-9]+", " ", plain).strip() + " "
+
+
+def _words(items) -> str:
+    return "|".join(re.escape(item).replace(r"\ ", " ") for item in sorted(set(items), key=len, reverse=True))
+
+
+_NOUN = _words(NOUNS)
+FORMS = (
+    re.compile(r" (?:" + _words(POSSESSIVES) + r")(?: [a-z0-9]+){0,2} (?:" + _NOUN + r") "),
+    re.compile(r" (?:" + _words(CLITIC_POSSESSIVES) + r")(?: [a-z0-9]+){0,1} (?:" + _NOUN + r") "),
+)
+
+
+def personal(*texts) -> bool:
+    """Whether any of the texts holds a possessive form of a source of the project (see the module's text)."""
+    for text in texts:
+        folded = fold(text)
+        if folded.strip() and any(form.search(folded) for form in FORMS):
+            return True
+    return False
+
+
+def research_allowed(question, line) -> bool:
+    """Whether the question may go to a web search: False when the question or the line holds a possessive form of a source of the project (see the section's text)."""
+    return not personal(question, line)
+
+
+# private routing (limits L51, L61, L63)
+
+def private_line(line) -> bool:
+    """Whether the line is a reminder asked in words or a write to the person's mail or calendar: its words never leave the host and the conversation stores a neutral word for it."""
+    return natural.private(line)
+
+
+# decision numbers from the line (limit L54)
+
+def the_number(line):
+    """The one whole number the line writes (`natural.decision_numbers`: none in a line that says a date or a time), or None when it writes none or two or more."""
+    numbers = natural.decision_numbers(line if isinstance(line, str) else "")
+    return numbers[0] if len(numbers) == 1 else None
+
+
+def number_believed(line, number) -> bool:
+    """Whether a decision or an act that a model or the router chose on `number` is believed against the person's line: `number` is a whole number (not a bool) and is the one number
+    the line writes. What the line MEANS is not read here: the person is shown the sentence code wrote from the call and says yes (limit L65)."""
+    return isinstance(number, int) and not isinstance(number, bool) and the_number(line) == number
 
 
 if __name__ == "__main__":

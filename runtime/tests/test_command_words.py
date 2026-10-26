@@ -68,15 +68,9 @@ def test_vacuity_the_forms_are_the_only_thing_that_makes_a_line_a_change_of_proj
     assert command_words.project("qual o prazo do projeto") is None, "the same word, in a line that is a request"
 
 
-# --- a decision or an act that a model chose: believed only when the line says the same (slice S20, review round) --------------------------------------------------------------
+# --- the numbers of a decision (slice S20, review round): the rule `vet` held moved to runtime/turn_gate.py (S41-5; runtime/tests/test_turn_gate_line_checks.py) --------------------------------------------------------------
 
 natural = st.load("natural")
-
-
-def test_the_number_is_the_one_in_the_line_and_the_models_must_equal_it():
-    assert command_words.vet("cancel request 9", "cancel", 8) == "number" and command_words.vet("cancel request nine", "cancel", 9) == "number"
-    assert command_words.vet("cancel request 9 and 10", "cancel", 9) == "number" and command_words.vet("cancel request 9", "cancel", True) == "number"
-    assert command_words.vet("cancel request 9", "cancel", None) == "number"
 
 
 def test_a_number_that_belongs_to_a_time_or_a_quantity_is_not_a_decision_number():
@@ -88,13 +82,11 @@ def test_a_number_that_belongs_to_a_time_or_a_quantity_is_not_a_decision_number(
 
 # --- BL2b: D5 is on and the closed verb lists are gone: the person checks the meaning, the number rule stays ------------------------------------------------------------------
 
-def test_vet_keeps_the_number_rule_and_no_longer_reads_verbs():
+def test_the_verb_lists_are_gone_and_so_is_vet_the_number_rule_lives_in_the_gate():
     plan_confirm = st.load("plan_confirm")
     assert plan_confirm.ACTIVE is True, "the verb test went with the switch: the sentence and the person's OK check the meaning (limit L65)"
-    for gone in ("names", "VERBS", "OBJECT", "NOUNS", "NEGATION", "CONTRACTION", "CONDITION", "LINE_WORDS_MAX"):
+    for gone in ("names", "VERBS", "OBJECT", "NOUNS", "NEGATION", "CONTRACTION", "CONDITION", "LINE_WORDS_MAX", "vet"):      # `vet` moved to turn_gate.number_believed (S41-5)
         assert not hasattr(command_words, gone), gone
-    assert command_words.vet("quero cancelar o pedido 3", "cancel", 3) is None      # validate: allow english-only -- the Portuguese line under test
-    assert command_words.vet("n\u00e3o cancela o pedido 3", "cancel", 3) is None      # a negated line reaches the question; the person says no there (BL2a test_plan_confirm_acts, BL2b test_messaging_plan_confirm)
-    assert command_words.vet("quero cancelar o pedido 3 e o 4", "cancel", 3) == "number"      # validate: allow english-only -- the Portuguese line under test
-    assert command_words.vet("cancela o pedido", "cancel", 3) == "number" and command_words.vet("cancela o pedido 4", "cancel", 3) == "number"
-    assert command_words.vet("cancela o pedido 3", "cancel", True) == "number" and command_words.vet("cancela o pedido 3", "cancel", None) == "number"
+    gate = st.load("turn_gate")
+    assert gate.number_believed("quero cancelar o pedido 3", 3) is True      # validate: allow english-only -- the Portuguese line under test
+    assert gate.number_believed("n\u00e3o cancela o pedido 3", 3) is True      # a negated line reaches the question; the person says no there (BL2a test_plan_confirm_acts, BL2b test_messaging_plan_confirm)
