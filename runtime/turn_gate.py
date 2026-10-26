@@ -78,17 +78,20 @@ A card that a person's LINE opens is opened by the operation's own function with
 came from, in `{"args", "origins"}`, and the card-opening paths ask the gate before they open anything (`ops_natural_writes._opened`, `ops_file_trash._card`, `ops_event_revise.revise`). FAIL CLOSED
 (OPEN-41-8, recommended): what the table does not name opens no card.
 
-  ORIGINS            the closed vocabulary: `line-span` (the person's words, in the line or in an answer), `line-number` (a number written in it), `time-engine` (a time the engine of NR-1 read), `config` (a name of the
+  ORIGINS            the closed vocabulary: `line-span` (the person's words, in the line or in an answer), `line-number` (a number written in it), `time-engine` (a time the engine of NR-1 read: the interpreter's source "code"), `time-model` (a time the MODEL decided: its source "model"; allowed for a start and an end pending the maintainer's decision, one word of `ALLOWED`), `config` (a name of the
                      accepted `accounts`, their default, the account of a registered source), `picked` (an option code listed and the person chose), `listed` (a number of a list code showed this sender),
                      `grounded` (an item code found by searching with a span of the line: the event ranking, the mail index match, the file search: the ITEM, never an address), `index-from` (a reply's recipient
                      from the index), `held` (a file this sender sent and the hold keeps), `card-copy` (a part copied by code from the card being revised), `composed` (the subject or the body of an e-mail worded by
                      the compose or the revise call).
   ALLOWED            the origins each argument key may have. An address (`to`, `cc`, `bcc`) is `line-span`, `config`, `index-from` or `card-copy` and nothing else (L60); `composed` is the text of an e-mail
-                     (`subject`, `body`, `text`) and nothing else; a time is `time-engine` or `card-copy`; a message, an event or a file is `line-number`, `listed`, `picked` or `grounded` (an event may also be
+                     (`subject`, `body`, `text`) and nothing else; a time is `time-engine`, `time-model` or `card-copy`; a message, an event or a file is `line-number`, `listed`, `picked` or `grounded` (an event may also be
                      `card-copy`); an account, a calendar and a folder are `config`, `picked`, `line-span` or `card-copy`; an attachment is `held`; a title, a content and a name are `line-span` or `card-copy`.
                      A key with no row is refused.
-  OPS                the arguments each operation of a card opened from a line takes. Any other key is refused: a reply and a reply draft have no recipient argument, its recipient is the index's From, chosen by the
-                     effect (L60).
+  OPS                the arguments each operation of a card opened from a line takes. Any other key is refused: a reply and a reply draft (a `mail-draft` with a `message`) have no recipient argument and no
+                     subject, its recipient is the index's From, chosen by the effect (L60).
+  UNDECLARED         the origin of a slot a seed supplied and did not declare: it is no origin, so the argument made of it opens no card. A part the closed reading of a line or an answer made has the default
+                     origin of its key; a part a seed supplies has the origin the seed declares (`Seed.origins`, or the `origins` key of a seed a messaging module built as data), else this.
+  time_origin(time_)     `time-engine` for a time the interpreter's source says code read, `time-model` for any other.
   provenance(op, args, origins)
                      the problems, as `"<key>: <what>"` (key names and origin words, never a value), or []: an operation not in OPS, a key the operation does not take, an argument with no origin, an origin outside
                      ORIGINS and an origin its key may not have are each a problem. `refusal_line` (the one line on stderr: the operation and the key names) and `refusal_text` (the precise error where a person reads it;
@@ -333,7 +336,8 @@ def failed_in_turn(source_id) -> bool:
 ORIGINS = (
     "line-span",      # the person's own words in the line, or in an answer to a question (a title, a subject, a body, a content, an address typed whole, a name of the configuration written in it)
     "line-number",    # a number written in the line (an event, a message, a reference)
-    "time-engine",    # a time read by the engine of NR-1 on the person's words
+    "time-engine",    # a time read by the engine of NR-1 on the person's words (the interpreter's source "code")
+    "time-model",     # a time the MODEL decided (the interpreter's source "model": a line in a language with no time tables); the card shows it and needs the person's approval (slice S1)
     "config",         # a name of the accepted `accounts`, their default, or the account of a registered source
     "picked",         # an option code listed and the person chose
     "listed",         # a number of a list code showed this sender
@@ -348,7 +352,7 @@ _TEXTS = ("line-span", "card-copy")
 _WORDED = ("line-span", "composed", "card-copy")      # the text of an e-mail: the person's words, or the model's wording of them (never an address, never a title)
 _ITEMS = ("line-number", "listed", "picked", "grounded")
 _NAMES = ("config", "picked", "line-span", "card-copy")
-_TIMES = ("time-engine", "card-copy")
+_TIMES = ("time-engine", "time-model", "card-copy")      # `time-model` is allowed pending the maintainer's decision (it keeps slice S1's behaviour: the card shows the time and is approved by hash); refusing it is deleting this word
 # The origins an argument may have, by the key the operation's own function takes. A key with no row here is refused: the table is closed.
 ALLOWED = {
     "to": _ADDRESSEES, "cc": _ADDRESSEES, "bcc": _ADDRESSEES,
@@ -381,6 +385,14 @@ OPS = {
 }
 
 
+UNDECLARED = "undeclared"      # the origin of a slot a seed supplied and did not declare: it is no origin, so the argument made of it opens no card
+
+
+def time_origin(time_) -> str:
+    """The origin of a time the interpreter decided (`{"local", "source"}`): `time-engine` when code read it (source "code"), `time-model` for anything else, a missing source included."""
+    return "time-engine" if isinstance(time_, dict) and time_.get("source") == "code" else "time-model"
+
+
 def _name(word) -> str:
     """A key or an operation as a closed word, or "?": what a problem names is a word of code, never a value."""
     return word if isinstance(word, str) and re.fullmatch(r"[a-z_-]{1,32}", word) else "?"
@@ -394,9 +406,10 @@ def provenance(op, args, origins) -> list:
     if not isinstance(args, dict) or not isinstance(origins, dict):
         return ["arguments: no origins"]
     out = []
+    reply_draft = op == "mail-draft" and "message" in args      # a reply draft has no recipient and no subject: the draft's subject is the message's, chosen by the effect (L60)
     for key in args:
         name = _name(key)
-        if key not in OPS[op] or key not in ALLOWED:
+        if key not in OPS[op] or key not in ALLOWED or (reply_draft and key in ("to", "cc", "bcc", "subject")):
             out.append(f"{name}: not an argument of {op}")
             continue
         origin = origins.get(key)

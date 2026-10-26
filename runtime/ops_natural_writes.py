@@ -387,18 +387,32 @@ def _ask(ctx: dict, state: dict, spec: dict, channel, sender, extras: dict) -> s
 # --- the reading of a line ----------------------------------------------------------------------------------------------------------------------------
 
 
+def _declared(seed) -> dict:
+    """The origins a seed declares for its own parts (S41-7): `turn_gate.Seed.origins`, or the `origins` key of a seed that a messaging module built (it may not import the gate: data only)."""
+    found = getattr(seed, "origins", None)
+    if found is None and isinstance(seed.get("origins"), dict):
+        found = seed["origins"]
+    return dict(found or {})
+
+
+def _origins_of(seed, own) -> dict:
+    """The origin of each slot the SEED supplied (`own`): the one it declares, else `undeclared`, which is no origin, so the argument made of that slot opens no card. A slot that the closed
+    reading of a line or an answer to a question made has the default origin of its key and is not listed here."""
+    declared = _declared(seed)
+    return {**{key: turn_gate.UNDECLARED for key in own if not str(key).startswith("_")}, **declared}
+
+
 def _read(ctx: dict, said: str, seed, hint):
     now = _now()
     if seed:
         op = seed["op"]
-        origins = dict(getattr(seed, "origins", None) or {})          # S41-7: where a slot of the seed came from when it was not the person's own words (a number of a list, an item found by its words, a card's own part, a wording of the model)
         if op in ("event-change", "event-cancel") and seed.get("slots"):          # an event found by its words (runtime/event_lookup.py): its source and number, and what to change
-            return {"op": op, "family": "calendar", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": origins}
+            return {"op": op, "family": "calendar", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": _origins_of(seed, seed["slots"])}
         if op in ("event-change", "event-cancel") and seed.get("line"):          # a number said after a list (runtime/event_lookup.py `take`): the numbered line, read as such, bound to the source the list showed
             got = nw.read(seed["line"], now, op=op)
             if got is not None:
                 got["slots"].update(seed.get("bind") or {})
-                got["origins"] = origins
+                got["origins"] = _origins_of(seed, seed.get("bind") or {})
             return got
         if op == "event-create" and seed.get("reading"):
             reading = seed["reading"]
@@ -407,19 +421,22 @@ def _read(ctx: dict, said: str, seed, hint):
                 slots["title"] = seed["text"]
             if seed.get("account"):          # the account the line names (runtime/event_lookup.py `seed_service`): the family does not ask which
                 slots["account"] = seed["account"]
-            return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading, "origins": origins}
+            return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading, "origins": _origins_of(seed, slots)}
         if op in ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark") and seed.get("slots") is not None and seed.get("by") == "target":          # a message named by its words (runtime/ops_natural_mail.py `mail_target_seed`): its slots, never the closed forms
-            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": origins}
+            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": _origins_of(seed, seed["slots"])}
         if op in ("mail-send", "mail-draft") and seed.get("slots") is not None:          # a new e-mail the interpreter decided (runtime/mail_compose.py `seed`): its slots, never the closed forms
-            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": origins}
+            return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": _origins_of(seed, seed["slots"])}
         if op == "file-save" and seed.get("attachment") is not None:          # a held file named by its number (the caption of a file, a button of its card): the text may add a folder
             got = nw.read(said, now, op=op) if said.strip() else None
             got = got or {"op": op, "family": "files", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
             got["slots"]["attachment"] = seed["attachment"]
+            own = ["attachment"]
             if seed.get("account"):
                 got["slots"]["account"] = seed["account"]
+                own.append("account")
             if seed.get("folders"):
                 got["slots"]["_folders"] = seed["folders"]
+            got["origins"] = _origins_of(seed, own)
             return got
         return nw.read(said, now, op=op)
     return nw.read(said, now, op=hint)

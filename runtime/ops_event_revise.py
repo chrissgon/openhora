@@ -82,7 +82,7 @@ def _arguments(doc: dict, title, start, end, account):
 
 def _refused(ctx: dict, doc: dict, name: str, args: dict, title, time_) -> bool:
     """Whether the gate refuses the new card (S41-7): every argument of it says where it came from, and a part the line did not name is the old card's own (`card-copy`); the title the line
-    gave is its own words, the start and the end it moved are the time engine's reading, and the account a line named for a card that creates an event is the person's word. One line on
+    gave is its own words, the start and the end it moved are the time's reading (the engine's or the model's), and the account a line named for a card that creates an event is the person's word. One line on
     stderr names the operation and the arguments, never a value."""
     gate = importlib.import_module("turn_gate")
     given = {k: v for k, v in args.items() if v is not None}
@@ -90,7 +90,7 @@ def _refused(ctx: dict, doc: dict, name: str, args: dict, title, time_) -> bool:
     if title and "title" in given:
         origins["title"] = "line-span"
     if time_:
-        origins.update({key: "time-engine" for key in ("start", "end") if key in given})
+        origins.update({key: gate.time_origin(time_) for key in ("start", "end") if key in given})      # the engine's reading (source "code") or the model's (source "model"), as the interpreter said
     if given.get("account") != doc["account"]:
         origins["account"] = "line-span"
     op = "event-create" if name == "event_create" else "event-change"

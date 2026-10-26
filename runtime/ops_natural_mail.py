@@ -454,7 +454,7 @@ def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
             slots["state"] = got["slots"]["state"]
     if spans.get("day"):
         slots["day_read"] = day or {"kind": "unread", "value": None, "today": None, "zone": None}
-    return {"op": op, "by": "target", "slots": slots}
+    return turn_gate.Seed({"op": op, "by": "target", "slots": slots}, {key: "line-span" for key in ("body", "folder_name", "state") if key in slots})      # S41-7: spans of the line that the interpreter's check verified (the message itself is found by code in the index: `grounded`)
 
 
 def _body_key(ctx: dict, channel, sender) -> str:

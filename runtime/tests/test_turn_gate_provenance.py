@@ -421,9 +421,9 @@ def test_an_account_the_person_picked_is_picked_and_one_the_person_wrote_is_thei
     assert env.calls and env.calls[-1][1]["account"] == "microsoft" and origins[-1]["account"] == "line-span", (origins, env.calls)
 
 
-def test_the_origins_of_a_seed_reach_the_gate_and_a_plain_dict_seed_gets_the_defaults(world, moment, monkeypatch):  # noqa: F811
-    """A card's revision opens its new card through a seed whose parts are the card's own (`card-copy`) and the reviser's wording (`composed`); an event found by words is `grounded`. The tags travel
-    with the seed object, which equals a plain dict, to the gate; a seed that is a plain dict has the default origin of each slot."""
+def test_the_origins_of_a_seed_reach_the_gate_and_a_seed_part_with_no_declared_origin_has_none_and_opens_no_card(world, moment, monkeypatch, capsys):  # noqa: F811
+    """A card's revision opens its new card through a seed whose parts are the card's own (`card-copy`) and the reviser's wording (`composed`); an event found by words is `grounded`. The tags
+    travel with the seed object, which equals a plain dict, to the gate. A part the seed supplies and does not declare has NO origin (`undeclared`) and the argument made of it opens no card."""
     env = Env(world, monkeypatch, CONFIGS["default"], "two")
     seen = []
     real = turn_gate.provenance
@@ -435,12 +435,117 @@ def test_the_origins_of_a_seed_reach_the_gate_and_a_plain_dict_seed_gets_the_def
     assert seen == [("mail-send", {"account": "card-copy", "to": "card-copy", "subject": "composed", "text": "composed"})], seen
     assert env.calls[-1][1]["to"] == "bia@exemplo.example" and env.gate_refusals == []
     seen.clear()
+    env.calls.clear()
+    reply = ops_natural_writes.open_line(env.project, env.ctx, "", "terminal", None, {}, seed=dict(parts))      # a plain dict declares nothing
+    assert seen == [("mail-send", {"account": "undeclared", "to": "undeclared", "subject": "undeclared", "text": "undeclared"})] and env.calls == [], (seen, env.calls)
+    assert reply == turn_gate.refusal_text("mail-send", ["account: x", "subject: x", "text: x", "to: x"]) and "bia@" not in reply + capsys.readouterr().err
+    partly = turn_gate.Seed(parts, {"account": "card-copy", "to": "card-copy", "subject": "composed"})      # the body declares nothing
+    ops_natural_writes.open_line(env.project, env.ctx, "", "terminal", None, {}, seed=partly)
+    assert env.calls == [] and seen[-1][1]["text"] == "undeclared", seen[-1]
+    monkeypatch.setattr(turn_gate, "provenance", lambda op, a, o: [])          # VACUITY: with the gate patched open the same plain-dict seed opens its card
     ops_natural_writes.open_line(env.project, env.ctx, "", "terminal", None, {}, seed=dict(parts))
-    assert seen == [("mail-send", {"account": "line-span", "to": "line-span", "subject": "line-span", "text": "line-span"})], seen
+    assert env.calls and env.calls[-1][0] == "mail-send", "the control: without the gate the undeclared card opens"
+    monkeypatch.setattr(turn_gate, "provenance", lambda op, args, got: seen.append((op, dict(got))) or real(op, args, got))
     seen.clear()
+    env.calls.clear()
     found = turn_gate.Seed({"op": "event-cancel", "slots": {"event": 2, "source": "agenda"}}, {"event": "grounded"})
     ops_natural_writes.open_line(env.project, env.ctx, "desmarca o evento 2", "terminal", None, {}, seed=found)      # validate: allow english-only -- a Portuguese line is the input under test
     assert seen == [("event-cancel", {"account": "config", "event": "grounded"})], seen
+    seen.clear()
+    env.calls.clear()
+    ops_natural_writes.open_line(env.project, env.ctx, "desmarca o evento 2", "terminal", None, {}, seed={"op": "event-cancel", "slots": {"event": 2, "source": "agenda"}})      # validate: allow english-only -- a Portuguese line is the input under test
+    assert seen == [("event-cancel", {"account": "config", "event": "undeclared"})] and env.calls == [], (seen, env.calls)
+
+
+def test_a_seed_with_no_slots_is_the_closed_reading_and_its_defaults_stand(world, moment, monkeypatch):  # noqa: F811
+    """The messaging modules' `{"op": "event-create"}` supplies no part of its own: the line is read by the closed forms and each argument has the default origin of what the reading made."""
+    env = Env(world, monkeypatch, CONFIGS["default"], "two")
+    seen = []
+    real = turn_gate.provenance
+    monkeypatch.setattr(turn_gate, "provenance", lambda op, args, got: seen.append((op, dict(got))) or real(op, args, got))
+    ops_natural_writes.open_line(env.project, env.ctx, "coloca na agenda troca de pneus depois de amanhã 9h no google", "terminal", None, {}, seed={"op": "event-create"})      # validate: allow english-only -- a Portuguese line is the input under test
+    assert seen and seen[-1][1] == {"account": "line-span", "title": "line-span", "start": "time-engine"} and env.calls, seen
+
+
+def test_a_plain_dict_seed_may_declare_its_origins_in_an_origins_key_for_a_module_that_cannot_import_the_gate(world, moment, monkeypatch):  # noqa: F811
+    """The messaging modules build the seed of a held file's save as data: `origins` is a key of it. A seed with the account and no declaration is refused; with it, the card opens."""
+    env = Env(world, monkeypatch, CONFIGS["two"], "one")
+    monkeypatch.setattr(ops_natural_files, "held_files", lambda ctx, channel, sender: [{"id": 11, "name": "Contract.pdf", "kind": "pdf", "bytes": 1000}])
+    seen = []
+    real = turn_gate.provenance
+    monkeypatch.setattr(turn_gate, "provenance", lambda op, args, got: seen.append((op, dict(got))) or real(op, args, got))
+    plain = {"op": "file-save", "attachment": 11, "account": "google", "folders": "first"}
+    ops_natural_writes.open_line(env.project, env.ctx, "", "terminal", None, {}, seed=dict(plain))
+    assert env.calls == [] and seen[-1][1]["account"] == "undeclared", seen
+    ops_natural_writes.open_line(env.project, env.ctx, "", "terminal", None, {}, seed=dict(plain, origins={"account": "picked"}))
+    assert env.calls and env.calls[-1][1]["account"] == "google" and seen[-1][1]["account"] == "picked", seen
+
+
+def test_the_producers_of_a_seed_declare_the_origin_of_every_part_they_supply():
+    """mail_compose.seed, the interpreter's event seed, the mail target seed and the messaging modules' file-save seeds."""
+    compose = st.load("mail_compose")
+    decision = {"spans": {"to": "bia@exemplo.example", "subject": "Oi", "body": "avisa que ok"}, "args": {}}      # validate: allow english-only -- a Portuguese span is the input under test
+    seed = compose.seed("mail-send", decision, "manda um e-mail pra bia@exemplo.example com o assunto Oi avisando que ok")      # validate: allow english-only -- a Portuguese line is the input under test
+    assert isinstance(seed, turn_gate.Seed) and seed.origins == {"to": "line-span", "subject": "line-span", "body": "line-span"}, seed
+    target = ops_natural_mail.mail_target_seed("mail-move", {"spans": {"target": "banco", "state": None}, "args": {"folder": "contas"}}, None, "move o e-mail do banco para contas")      # validate: allow english-only -- a Portuguese line is the input under test
+    assert isinstance(target, turn_gate.Seed) and target.origins == {"folder_name": "line-span"}, target
+    for name in ("messaging_attach.py",):
+        text = (RUNTIME / name).read_text(encoding="utf-8")
+        assert text.count('"op": "file-save"') == 2 and text.count('"origins": {"account":') == 2, name
+    assert 'origins={"start": "time-engine", "title": "line-span"}' in (RUNTIME / "messaging_remind.py").read_text(encoding="utf-8"), "the kind question answered event: the engine's reading and the person's words"
+    interpret = (RUNTIME / "ops_interpret.py").read_text(encoding="utf-8")
+    assert "turn_gate.time_origin(time_)" in interpret and "turn_gate.Seed(" in interpret
+
+
+def test_a_time_the_model_read_is_not_labelled_as_the_engines(world, moment, monkeypatch):  # noqa: F811
+    """The interpreter says who read a time (`{"local", "source"}`: "code" or "model"). `time-engine` is the engine's; the model's is `time-model`, allowed for a start and an end pending the
+    maintainer's decision (it keeps slice S1: the card shows the time and is approved by hash); refusing it is deleting the word from `turn_gate.ALLOWED`."""
+    assert turn_gate.time_origin({"local": "2026-10-20T15:00", "source": "code"}) == "time-engine"
+    for time_ in ({"local": "2026-10-20T15:00", "source": "model"}, {"local": "2026-10-20T15:00"}, None, "2026-10-20T15:00"):
+        assert turn_gate.time_origin(time_) == "time-model", time_
+    assert "time-model" in turn_gate.ORIGINS and "time-model" in turn_gate.ALLOWED["start"] and "time-model" in turn_gate.ALLOWED["end"]
+    assert not any("time-model" in origins for key, origins in turn_gate.ALLOWED.items() if key not in ("start", "end")), "only a time may be the model's"
+    ops_interpret = st.load("ops_interpret")
+    env = Env(world, monkeypatch, CONFIGS["default"], "two")
+    caught, real_open_line = [], ops_natural_writes.open_line
+    monkeypatch.setattr(ops_natural_writes, "open_line", lambda project, ctx, said, channel, sender, extras, *, seed=None, hint=None: caught.append(seed) or "card")
+    for source, wanted in (("code", "time-engine"), ("model", "time-model")):
+        decision = {"op": "event-create", "time": {"local": "2026-10-20T15:00", "source": source}, "spans": {"title": "dentista"}, "args": {}}
+        ops_interpret._carry_out(env.project, env.ctx, decision, "pon dentista mañana a las 3", None, {})      # validate: allow english-only -- a Spanish line is the input under test
+        assert isinstance(caught[-1], turn_gate.Seed) and caught[-1].origins["start"] == wanted and caught[-1].origins["title"] == "line-span", (source, caught[-1])
+    monkeypatch.setattr(ops_natural_writes, "open_line", real_open_line)
+    model_seed = caught[-1]
+    ops_natural_writes.open_line(env.project, env.ctx, "pon dentista mañana a las 3", "terminal", None, {}, seed=model_seed)      # validate: allow english-only -- a Spanish line is the input under test
+    assert env.calls and env.calls[-1][0] == "event-create", "allowed today: the card shows the time and is approved by hash (slice S1)"
+    env.calls.clear()
+    monkeypatch.setitem(turn_gate.ALLOWED, "start", ("time-engine", "card-copy"))          # the one-line change that refuses the model's time
+    ops_natural_writes.open_line(env.project, env.ctx, "pon dentista mañana a las 3", "terminal", None, {}, seed=model_seed)      # validate: allow english-only -- a Spanish line is the input under test
+    assert env.calls == [], "with `time-model` out of ALLOWED the model's time opens no card"
+
+
+def test_the_number_said_after_a_list_opens_the_card_with_the_time_of_whoever_read_it(world, moment, monkeypatch):  # noqa: F811
+    """The list of events remembers who read the new time of a change (`note_start_source`); the card a number opens from it declares `time-engine` or `time-model` accordingly."""
+    env = Env(world, monkeypatch, CONFIGS["default"], "two")
+    lookup = st.load("event_lookup")
+    lookup.forget_lists()
+    for source, wanted in (("code", "time-engine"), ("model", "time-model"), (None, "time-model")):
+        lookup._remember(env.ctx, "messaging", "owner", "event-change", "2026-10-22T15:00", [("agenda", 2, "2026-10-19T09:00")])
+        lookup.note_start_source(env.ctx, "owner", source)
+        record = lookup._LISTS[lookup._slot(env.ctx, "messaging", "owner")]
+        assert record["start_source"] == source and turn_gate.time_origin({"source": record.get("start_source")}) == wanted, (source, record)
+    lookup.forget_lists()
+    lookup.note_start_source(env.ctx, "owner", "code")      # no list: nothing to note, and nothing raised
+    lookup.note_start_source({}, "owner", "code")
+
+
+def test_a_reply_draft_has_no_recipient_and_no_subject():
+    args, origins = {"account": "google", "message": "inbox#3", "body": "b"}, {"account": "config", "message": "grounded", "body": "line-span"}
+    assert turn_gate.provenance("mail-draft", args, origins) == []
+    for key in ("to", "cc", "bcc", "subject"):
+        found = turn_gate.provenance("mail-draft", {**args, key: "x"}, {**origins, key: "card-copy" if key != "subject" else "line-span"})
+        assert found == [f"{key}: not an argument of mail-draft"], (key, found)
+    new = {"account": "google", "to": "bia@exemplo.example", "subject": "Hi", "body": "b"}
+    assert turn_gate.provenance("mail-draft", new, {"account": "config", "to": "line-span", "subject": "line-span", "body": "line-span"}) == [], "a new draft keeps them"
 
 
 # --- the value oracle moved unchanged -----------------------------------------------------------------------------------------------------------------------------

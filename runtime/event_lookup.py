@@ -240,6 +240,8 @@ def seed_service(ctx: dict, decision: dict, said: str, extras: dict, seed: dict)
         extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
         return _text(ctx, "EV_ACCOUNT_NONE", service=SERVICE_NAME[named])
     seed["account"] = named
+    if hasattr(seed, "origins"):
+        seed.origins["account"] = "line-span"          # S41-7: a service word of the line
     return None
 
 
@@ -277,7 +279,7 @@ def _remember(ctx: dict, channel, sender, op, start, items: list) -> None:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
         if items:
-            _LISTS[_slot(ctx, channel, sender)] = {"at": now, "op": op, "start": start, "items": list(items), "seen": 0, "pending": _last_pending(ctx)}
+            _LISTS[_slot(ctx, channel, sender)] = {"at": now, "op": op, "start": start, "start_source": None, "items": list(items), "seen": 0, "pending": _last_pending(ctx)}
         else:
             _LISTS.pop(_slot(ctx, channel, sender), None)
 
@@ -292,6 +294,18 @@ def remember_list(ctx: dict, sender, op: str, found: list, start) -> None:
     """The list of events `_list` shows: what the sender may now point to by number (`start` is the new time a change was asked with, "@HH:MM" when it is a clock with no day,
     or None)."""
     _remember(ctx, CHANNEL, sender, op, start, [(r["source"], r["n"], r["read_at"]) for r in found[:LIST_MAX]])
+
+
+def note_start_source(ctx: dict, sender, source) -> None:
+    """Who read the time the list's record holds (the interpreter's source "code" or "model"), kept with it so that the card a number opens says whose reading the time is (S41-7)."""
+    try:
+        slot = _slot(ctx, CHANNEL, sender)
+    except (KeyError, TypeError):      # a context with no project names no list
+        return
+    with _lock:
+        found = _LISTS.get(slot)
+        if found is not None:
+            found["start_source"] = source
 
 
 def remember_items(ctx: dict, channel, sender, out: dict) -> None:
@@ -419,6 +433,8 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
         problem = _past_problem(slots["start"], _natural()._clock())
         if problem:
             return _text(ctx, problem), False
+    if "start" in slots:
+        listed = {**listed, "start": turn_gate.time_origin({"source": record.get("start_source")})}          # S41-7: the time is the code's or the model's reading, as the interpreter said when the list was made
     return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=turn_gate.Seed({"op": op, "slots": slots}, listed)), False
 
 
@@ -989,6 +1005,7 @@ def _found(project: str, ctx: dict, op: str, time_, spans: dict, said: str, send
         return _none(ctx, kind, problem, account)
     if len(found) > 1 or extra:
         remember_list(ctx, sender, op, found, ("@" + time_["local"][11:16] if _clock_only(time_, spans, now) else time_["local"]) if op == "event-change" and time_ else None)
+        note_start_source(ctx, sender, time_.get("source") if time_ else None)
         return _list(ctx, op, found) + (("\n" + _text(ctx, "EV_MORE", k=extra)) if extra else "")
     slots, was = {"event": found[0]["n"], "source": found[0]["source"]}, found[0]
     if found[0]["source"] == event_created.SOURCE:          # a card number, not a place in a snapshot: the reference `created:<card>` (runtime/ops_natural_calendar.py)
@@ -1008,7 +1025,8 @@ def _found(project: str, ctx: dict, op: str, time_, spans: dict, said: str, send
             slots["title"] = title
         if "start" not in slots and "title" not in slots:
             return _text(ctx, "EV_CHANGE_WHAT")
-    origins = {"event": "grounded", **({"account": "card-copy"} if "created" in slots else {})}          # S41-7: the event was found by the words of the line (a ranking over the snapshot or the events created here); never an address
+    origins = {"event": "grounded", **({"account": "card-copy"} if "created" in slots else {"account": "line-span"} if "account" in slots else {}),
+               **({"title": "line-span"} if "title" in slots else {}), **({"start": turn_gate.time_origin(time_)} if "start" in slots else {})}      # the time is the code's or the model's, as the interpreter said          # S41-7: the event was found by the words of the line (a ranking over the snapshot or the events created here); never an address
     opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=turn_gate.Seed({"op": op, "slots": slots}, origins))
     if opened is not None and not was.get("exact", True):          # the name was near, not the same: the person is shown which event it is, and the card that follows is the question
         lead = _text(ctx, "EV_FOUND", **_found_fields(ctx, extras, was))

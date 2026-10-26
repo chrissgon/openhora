@@ -330,7 +330,8 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
         writes = importlib.import_module("ops_natural_writes")
         if op == "event-create" and time_:
             local = time_["local"]
-            seed = {"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or ""}
+            seed = turn_gate.Seed({"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or ""},
+                                  {"start": turn_gate.time_origin(time_), "title": "line-span"})      # S41-7: the time is the engine's (source "code") or the model's (source "model"); the title is a span of the line; `seed_service` declares what it adds
             sentence = event_lookup.seed_service(ctx, decision, said, extras, seed)          # S11: "no outlook" chooses the service; one that is not set up is one sentence
             if sentence:
                 return _said(sentence, extras)
