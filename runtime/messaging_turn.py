@@ -15,7 +15,7 @@ THE LAYER. A `messaging_*` module may not import the operations layer (scripts/t
 imports no operations module; the order of the operations layer's own claimers is the second stage of the table, dispatched by a module of that layer (package S41-3).
 
 A TURN is what the rows share: the update, the sender and the chat, the senders' projects, and what the parse read of the line (`intent`, `kind`, `project`, `replied`; read once, by the first row
-that needs them, `_read`). A row that rewrites the line (`reply-to-card`) writes the rewrite into the turn, and every later row reads it from there. A turn holds no store and no method.
+that calls `_read`: one of the three envelope rows). A row that rewrites the line (`reply-to-card`) writes the rewrite into the turn, and every later row reads it from there. A turn holds no store and no method.
 
 TRACE is None; a test may set it to a function that receives `(name, turn)` for the row that took a line. Production never sets it. The table cannot be reordered at run time by this module:
 `dispatch` reads `turn_order.names(stage)` each time and calls `ROWS[name]`; the tests replace a row's function on purpose and put it back.
@@ -47,8 +47,9 @@ class Turn:
 
 
 def _read(bridge, turn) -> None:
-    """The parse of the update, the project it is for and its kind, done once, by the first row that needs them (the rows `ignore`, `forwarded-refusal` and `reply-to-card`; a row that is
-    disabled by a test leaves the reading to the next)."""
+    """The parse of the update, the project it is for and its kind, done once, by the first of the three envelope rows that
+    call it (`ignore`, `forwarded-refusal`, `reply-to-card`; a row disabled by a test leaves the reading to the next). The frame and kind rows never call it: they read the turn, so one of those three
+    must have run before them."""
     if turn.intent is None:
         turn.intent = inbound.parse(turn.update)
         turn.project = bridge.project_of(turn.sender, turn.listed)
