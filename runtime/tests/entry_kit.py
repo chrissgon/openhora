@@ -91,7 +91,9 @@ PLATFORMS = ("buttons", "email")
 SENDERS = ("owner", "reader", "asker", "unlisted", "group")      # `group` is the owner's id in a group chat (not the sender's own private chat)
 PRESTATES = ("none", "card_last", "two_cards", "card_list_shown", "plan_last", "plan_not_last", "research_running", "reminder_draft", "reminder_expired", "write_draft_title",
              "router_question", "event_list_shown", "file_list_shown", "attachment_held", "config_unaccepted",
-             "plan_then_card", "research_and_card")      # the last two are the spec's list plus the two states the guards of L64 need: a plan live with a card sent after it, and a search that runs with a card last
+             "plan_then_card", "research_and_card",
+             "expired_and_write_draft", "reminder_and_write_draft", "reminder_and_expired", "plan_and_write_draft", "plan_and_file_held",
+             "question_of_other_project")      # the last two are the spec's list plus the two states the guards of L64 need: a plan live with a card sent after it, and a search that runs with a card last
 OPS_PRESTATES = ("none", "router_question", "write_draft_title", "reminder_draft")      # the pre-states a page or a terminal line can be in
 REPLY_TO = (None, "card", "plan", "list", "question", "nothing")      # `nothing`: a message id that no message of the chat has
 KINDS = ("text", "action", "attachment")
@@ -857,6 +859,59 @@ def prestate_research_and_card(w):
     prestate_research_running(w)
     event_card(w, "Haircut with Joe", "2026-10-19T13:00")
     send_cards(w)
+
+
+def keep_write_draft(w):
+    """The owner's open question about a write, as the operations layer keeps it (drafts.py): taken out of the store so that the next lines do not drop it, put back with `restore_write_draft`.
+    Two states that no single line builds (a line that opens one drops the other) are made by this, in memory, exactly as the stores hold them."""
+    return drafts.get("messaging", OWNER_KEY, "write")
+
+
+def restore_write_draft(w, held):
+    drafts.put("messaging", OWNER_KEY, held, "write")
+
+
+def prestate_expired_and_write_draft(w):
+    """An expired question about a reminder and an open question about a write, live at once."""
+    prestate_write_draft_title(w)
+    w.b.bridge.remind.expired[OWNER] = w.b.bridge.monotonic()
+
+
+def prestate_reminder_and_write_draft(w):
+    """An open question about a reminder (when?) and an open question about a write (the title), live at once."""
+    prestate_write_draft_title(w)
+    held = keep_write_draft(w)
+    prestate_reminder_draft(w)
+    restore_write_draft(w, held)
+
+
+def prestate_reminder_and_expired(w):
+    """An open question about a reminder and the memory of another that expired, live at once."""
+    prestate_reminder_draft(w)
+    w.b.bridge.remind.expired[OWNER] = w.b.bridge.monotonic()
+
+
+def prestate_plan_and_write_draft(w):
+    """A plan ("Posso?") that is the last message and an open question about a write, live at once."""
+    prestate_write_draft_title(w)
+    held = keep_write_draft(w)
+    prestate_plan_last(w)
+    restore_write_draft(w, held)
+
+
+def prestate_plan_and_file_held(w):
+    """A file the owner sent, held with its card, and then a plan ("Posso?") that is the last message."""
+    prestate_attachment_held(w)
+    prestate_plan_last(w)
+
+
+def prestate_question_of_other_project(w):
+    """The router's question, bound to a project that does not list the sender (a project the bridge serves whose configuration cannot be read lists nobody): a reply to it is dropped."""
+    prestate_router_question(w)
+    w.b.bridge.projects.append({"id": "other-project", "name": "other-shop", "path": str(w.tmp_path / "no-such-project")})
+    for card in w.b.bridge.ledger.data["cards"]:
+        if card.get("kind") == "question" and card.get("chat") == OWNER:
+            card["project"] = "other-project"
 
 
 def prestate_reminder_draft(w):
