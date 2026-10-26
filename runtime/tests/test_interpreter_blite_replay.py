@@ -67,7 +67,7 @@ REPLAY = {      # M1 moved by BL5C (the old day of a change, the trigger word of
 }
 # REPLAY, re-score under the golds of dev-long-v2.jsonl (rule W1): labelled "not blind" wherever it is published.
 REPLAY_V2 = {
-    (DEEPSEEK, "M1"): {"correct": 40, "clarify": 5, "wrong_card": 1},      # BL5C: 32/13/1 before; BL5C then BL5B: 36/9/1 then 40/5/1 (answers recorded at the OLD prompt: what the code does with them, not what the new prompt makes a model say)
+    (DEEPSEEK, "M1"): {"correct": 41, "clarify": 5},      # BL5C: 32/13/1 before; BL5C then BL5B: 36/9/1 then 40/5/1; BL7-1 (the line's subject stays in a message's target): dev-pt-br-50007 run 1, wrong_card -> correct, 41/5 (answers recorded at the OLD prompt: what the code does with them, not what the new prompt makes a model say)
     (SONNET, "M1"): {"correct": 44, "clarify": 2},      # BL5C: 37/9 before; BL5C then BL5B: 40/6 then 44/2
 }
 

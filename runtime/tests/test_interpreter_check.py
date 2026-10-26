@@ -195,9 +195,10 @@ def test_inherit_without_a_frame_or_a_last_request_or_for_a_slot_with_no_recorde
         invalid(run(obj, "e outro sábado às 16h", frame), "E_INHERIT")
 
 
-def test_a_slot_is_either_given_or_inherited_and_a_time_is_never_inherited():
+def test_a_slot_the_line_fills_is_the_lines_and_a_time_is_never_inherited():
     both = op("event-create", {"title": "revis\u00e3o do carro", "time": "sábado às 16h"}, time_iso="2026-10-24T16:00", weekday="sat", inherit={"title": "revis\u00e3o do carro"})
-    invalid(run(both, "revis\u00e3o do carro sábado às 16h", FRAME), "E_INHERIT")
+    got = run(both, "revis\u00e3o do carro sábado às 16h", FRAME)          # BL7-1 (gap 3): the title the line gives is the line's; the inherit of the same slot is dropped, never read
+    assert got["kind"] == "op" and got["inherited"] == [] and got["spans"]["title"] == "revis\u00e3o do carro" and got["args"]["title"] == "revis\u00e3o do carro"
     frame = {"v": 1, "items": [], "last": {"op": "event-create", "words": {"time": "sábado às 16h"}, "age_s": 5}}
     timed = op("event-create", {"title": "revis\u00e3o"}, inherit={"time": "sábado às 16h"})
     invalid(run(timed, "revis\u00e3o de novo", frame), "E_INHERIT")

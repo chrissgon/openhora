@@ -140,7 +140,7 @@
    "date": "2026-10-26",
    "route": "or-deepseek-v4.1-flash",
    "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
-   "prompt_sha256": "de408381445114bca59bdea5cd710e5e300e6386338123038bffe6c535222535",
+   "prompt_sha256": "3112db68e1493e4a93f00366b33ba6cf6ad02300702a81b038af49c19ee82b42",
    "catalog_sha256": "a77f8a8f88e2c76516bc3b4f54fc120859b8f86d647016a8ac5d56a4aac4c263",
    "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
    "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
