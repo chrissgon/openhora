@@ -56,8 +56,8 @@ class Turn:
     file: it answers no question and drops none), `first_line` is the line as a word is read from it (an e-mail reply says its word on its first line; the signature and the quoted card are not
     words), `email` whether the platform's acts are replies. Four of them read the world outside the turn and are read ONCE per dispatch, on first use: `email` (the capabilities), `drafted` (whether a
     question about a reminder was open when the line came: it stays so after `remind.answer` dropped it, so that the two kinds after it read nothing of such a chat), `replied_record` and
-    `last_record` (the ledger's records of the message the line replies to and of the chat's last message; `record` keeps one read for each message id, so a kind that asks again for the same
-    message gets the first answer). Everything else is computed from the turn each time it is asked, so a rewrite of the line is always seen."""
+    `last_record` (the ledger's records of the message the line replies to and of the chat's last message; `record` keeps a record that was found, one read for each message id, so a kind that asks again for the
+    same message gets the first answer; a record not found is read again). Everything else is computed from the turn each time it is asked, so a rewrite of the line is always seen."""
 
     def __init__(self, update=None, sender: str = "", chat: str = "", listed=None, project=None, text=None, bridge=None):
         self.update, self.sender, self.chat, self.listed = update, sender, chat, listed if listed is not None else []
@@ -106,14 +106,16 @@ class Turn:
         return self._read_once("drafted", lambda: _open_frame(self) and self.chat in self.bridge.remind.drafts)
 
     def record(self, message_id):
-        """The ledger's record of a message of this chat, read once for each id (None for no id). An id that is not a string is never kept."""
+        """The ledger's record of a message of this chat (None for no id). A record that was found is kept for the rest of the dispatch, one read for each id; a record that is absent is never kept, so
+        one that lands while the line is handled (a send that returns) is seen by the next kind, as when each kind read the ledger for itself. An id that is not a string is never kept."""
         if not message_id:
             return None
-        if not isinstance(message_id, str):
-            return self.bridge.ledger.by_message(self.chat, message_id)
-        if message_id not in self._records:
-            self._records[message_id] = self.bridge.ledger.by_message(self.chat, message_id)
-        return self._records[message_id]
+        if isinstance(message_id, str) and message_id in self._records:
+            return self._records[message_id]
+        found = self.bridge.ledger.by_message(self.chat, message_id)
+        if found is not None and isinstance(message_id, str):
+            self._records[message_id] = found
+        return found
 
     @property
     def replied_record(self):

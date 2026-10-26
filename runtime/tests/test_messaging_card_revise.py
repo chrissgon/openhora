@@ -1,4 +1,4 @@
-"""Which card a plain line changes, and what the bridge does with the answer (slice S13, runtime/messaging_bridge.py `revise_line` and `revise_now`, limits L55 and L64), over the stand-in
+"""Which card a plain line changes, and what the bridge does with the answer (slice S13, runtime/messaging_turn.py the kind `decision-card-revise`, runtime/messaging_bridge.py `revise_waiting` and `revise_now`, limits L55 and L64), over the stand-in
 operations object and the stand-in messenger of test_messaging.py. Offline, no model, no network; every name is invented.
 
 A plain line that is not an approve or reject word is about the card that waits when that card is the LAST message the platform sent to the chat, or the card the line replies to; the

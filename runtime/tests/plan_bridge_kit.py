@@ -1,4 +1,4 @@
-"""The rig of the tests of the OK of a plan on the messaging bridge (package BL2b, limits L64 and L65; `Bridge.plan_line`, `ask_plan`, `plan_tapped`, `research_stop_line`).
+"""The rig of the tests of the OK of a plan on the messaging bridge (package BL2b, limits L64 and L65; the kinds `plan-confirm` and `research-run` of runtime/messaging_turn.py, `Bridge.ask_plan`, `plan_tapped`).
 
 The real messaging bridge over the real operations layer: the world of test_plan_confirm_kit (the real-operations world of test_ops_natural.py, the model and the clock of a plan's age stood in)
 and the stand-in messenger provider of test_messaging.py, started through providers/resolve.py as the real one is. `brig.say` is an update of the owner's private chat; `brig.texts()` is what

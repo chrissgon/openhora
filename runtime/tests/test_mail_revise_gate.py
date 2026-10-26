@@ -1,4 +1,4 @@
-"""The gate of the change of a waiting e-mail card by words (slice S13b, runtime/mail_revise.py, runtime/ops_card_revise.py, runtime/messaging_bridge.py `revise_line`).
+"""The gate of the change of a waiting e-mail card by words (slice S13b, runtime/mail_revise.py, runtime/ops_card_revise.py, runtime/messaging_turn.py the kind `decision-card-revise`, runtime/messaging_bridge.py `revise_waiting`).
 
 The live case (the maintainer's Telegram test, 2026-10-22): an open e-mail card whose body already ended with a closing formula and a name, after three changes asked and done. He wrote
 a line that starts with the verb "escreva" ("write") and, after a colon and a blank line, the closing and the name again. That verb was no word that asks for a change and the text had

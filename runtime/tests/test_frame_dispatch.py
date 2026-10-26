@@ -15,8 +15,10 @@ later package lets the two overlap in outcome, the test fails and the order must
 card open; a greeting that is also a yes ("beleza", "tudo bem", "oi, tudo bem?", "tudo bem?", "ok, beleza") OKs a plan that is the last message, and is a greeting when the plan is not (the outcome
 recorded in the golden, kept: a separate product decision is pending with the maintainer and this package does not change it).
 (5) The envelope is read once: over the corpus, no ledger record of the same message is read twice in one dispatch, and at most two messages (the one replied to and the last) are read; with the memo
-taken away the same scenarios read twice (vacuity). `last_sent` is read where a kind uses it, never kept: a message sent after one kind read the last record is another id and the next kind reads it
-(a barrier test), so a word decides nothing about a card that is no longer the last message.
+taken away the same scenarios read twice (vacuity); a record that was not found is never kept. The envelope does not keep `last_sent`: the kind `plan-confirm` reads the last record when it acts, so a
+message sent after the line was read ends the OK (a barrier test). The kind `decision-card-word` reads `last_sent` once, when it takes the line, and `word_act` does not read it again: a message sent
+between the two is not seen, as before this package (a known gap, stated in the contract's L64 row, not tested as a guarantee here).
+(6) Two guards no corpus line reaches, kept by unit tests: the card words' kind refuses a forwarded line, and the plan kind refuses a question of a project that no longer lists the sender.
 
 NO CALLS. The scenarios are replayed with the stand-ins of entry_kit.py: no model, no provider process. The golden is never recorded here.
 
@@ -245,15 +247,16 @@ def test_a_greeting_that_is_also_a_yes_is_the_ok_of_a_plan_that_is_last_and_a_gr
 
 
 def reads_of(scenario, tmp_path, memo=True) -> list:
-    """The `(chat, message id)` of every ledger read this scenario's own dispatch makes (the thread that delivers the line), with the turn's memo as it is or taken away."""
+    """The `(chat, message id)` of every ledger read that found a record, which this scenario's own dispatch makes (the thread that delivers the line), with the turn's memo as it is or taken away."""
     seen, handling, mine = [], [], threading.current_thread()
     real, real_handle = messaging_ledger.Ledger.by_message, messaging_bridge.Bridge._handle
 
     def hook(mp):
         def by_message(self, chat, message_id):
-            if threading.current_thread() is mine and handling:      # the kit reads the ledger itself before it delivers the line: only what `Bridge._handle` reads is the dispatch's
+            found = real(self, chat, message_id)
+            if found is not None and threading.current_thread() is mine and handling:      # the kit reads the ledger itself before it delivers the line: only what `Bridge._handle` reads is the dispatch's; a record not found is read again on purpose
                 seen.append((chat, message_id))
-            return real(self, chat, message_id)
+            return found
 
         def handle(self, update):
             handling.append(True)
@@ -317,8 +320,11 @@ class Barrier:
         self.decided.append((rec["message_id"], word))
 
 
-def make_turn(bridge):
-    turn = messaging_turn.Turn(update={"reply_to": None, "text": "sim"}, sender="1", chat="1", listed=[{"id": "p1"}], project={"id": "p1"}, bridge=bridge)
+def make_turn(bridge, listed=None, forwarded=False):
+    update = {"reply_to": None, "text": "sim"}
+    if forwarded:
+        update["forwarded"] = True
+    turn = messaging_turn.Turn(update=update, sender="1", chat="1", listed=listed if listed is not None else [{"id": "p1"}], project={"id": "p1"}, bridge=bridge)
     turn.intent, turn.kind = {"kind": "text", "text": "sim"}, "text"
     return turn
 
@@ -356,3 +362,44 @@ def test_vacuity_a_kept_last_message_would_have_decided_the_plan(monkeypatch):
     bridge.last_sent["1"] = "reminder"
     monkeypatch.setattr(messaging_turn.Turn, "last_record", property(lambda self: self.record(kept)))
     assert kind.take(bridge, turn, word) is True and bridge.decided == [("question", "yes")], "the same sequence decides the plan when the last message is kept"
+
+
+# --- two guards that no corpus line reaches, kept by unit tests ------------------------------------------------------------------------------------------
+
+
+def test_the_card_words_kind_refuses_a_forwarded_line():
+    """L64: a forwarded message never decides a card. The row `forwarded-refusal` answers a forwarded text before the frame, so no corpus line reaches this check; the kind keeps it for itself (as the
+    kind `plan-confirm` does, `claims` in test_messaging_plan_confirm.py) and this test is what fails if it goes."""
+    kind = messaging_turn.KINDS["decision-card-word"]
+    bridge = Barrier()
+    assert kind.applies(bridge, make_turn(bridge, forwarded=True)) is None
+    assert kind.applies(bridge, make_turn(bridge))["op"] == "approve", "control: the same line, not forwarded, is the word"
+
+
+def test_vacuity_the_forwarded_check_is_the_turns_property(monkeypatch):
+    monkeypatch.setattr(messaging_turn.Turn, "forwarded", property(lambda self: False))
+    bridge = Barrier()
+    assert messaging_turn.KINDS["decision-card-word"].applies(bridge, make_turn(bridge, forwarded=True)) is not None, "the test above can fail"
+
+
+def test_the_plan_kind_refuses_a_question_of_a_project_that_no_longer_lists_the_sender():
+    """L64 and L65: the OK is taken only when the question's project lists the sender now. The question is the last message and its record is a live plan's; the sender's projects no longer name it."""
+    kind = messaging_turn.KINDS["plan-confirm"]
+    bridge = Barrier()
+    turn = make_turn(bridge, listed=[{"id": "p2"}])
+    word = kind.applies(bridge, turn)
+    assert word == "yes"
+    assert kind.take(bridge, turn, word) is False and bridge.decided == [], "no project of the sender holds the question: nothing is decided"
+    control = make_turn(bridge)
+    assert kind.take(bridge, control, kind.applies(bridge, control)) is True and bridge.decided == [("question", "yes")], "control: with the project listed, the same word is the OK"
+
+
+def test_a_record_that_lands_during_the_dispatch_is_seen_and_a_found_one_is_read_once():
+    """The envelope keeps only a record that was found: an absent one is read again (a send that returns while the line is handled is seen by the next kind), a found one is read once."""
+    bridge = Barrier()
+    turn = make_turn(bridge)
+    bridge.records.pop("question")
+    assert turn.record("question") is None
+    bridge.records["question"] = {"kind": "plan-confirm", "chat": "1", "message_id": "question"}
+    assert turn.record("question")["kind"] == "plan-confirm" and turn.record("question") is turn.record("question")
+    assert bridge.read.count("question") == 2, "one read that found nothing, one that found the record, and no more"
