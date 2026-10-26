@@ -324,6 +324,108 @@ def test_the_test_split_runs_whole_and_its_evidence_is_valid_and_states_the_spli
     assert oct(kept.stat().st_mode & 0o777) == "0o600" and kept.name.startswith(event["test"])
 
 
+# --- a held-out set other than the gate's split (--split-file) ----------------------------------------------------------------------------------------
+
+def own_split(held, name="blind-split.json", **change):
+    """A summary of the fictional corpus of the test, other than the gate's: the gate's own file is left declaring a hash that is not the corpus's."""
+    held.split_file.write_text(json.dumps({"v": 1, "sha256": "0" * 64, "items": len(held.items)}), encoding="utf-8")
+    body = {"v": 1, "file": "corpus.jsonl", "sha256": hashlib.sha256(held.body).hexdigest(), "items": len(held.items), **change}
+    path = held.tmp / name
+    path.write_text(json.dumps(body, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def test_a_split_file_other_than_the_gates_is_honoured_and_its_hash_is_the_events(held):
+    split = own_split(held)
+    outside = held.tmp / "outside"
+    code, out, err = held.run("--split-file", str(split), "--record", str(outside), "--json")
+    assert code == 0, err
+    (path,) = held.files()
+    assert held.problems(path) == []
+    event = held.lines(path)[0]
+    assert event["split"] == "test" and event["runs"] == 2 and event["items"] == len(held.items)
+    assert event["corpus_sha256"] == hashlib.sha256(split.read_bytes()).hexdigest()
+    assert event["corpus_sha256"] != hashlib.sha256(held.split_file.read_bytes()).hexdigest(), "never the gate's split file's hash"
+    (kept,) = outside.glob("*.answers.jsonl")
+    assert json.loads(kept.read_text(encoding="utf-8").splitlines()[0])["corpus_sha256"] == event["corpus_sha256"], "the answers' header names the same hash"
+    assert not any(i["id"] in out + err or i["line"] in out + err for i in held.items)
+
+
+def test_a_split_file_whose_hash_is_not_the_corpus_is_refused_before_any_call(held):
+    split = own_split(held, sha256="f" * 64)
+    code, out, err = held.run("--split-file", str(split), "--record", str(held.tmp / "outside"))
+    assert code == 1 and "split file declares" in err and held.echo.calls == [] and held.files() == []
+    assert not (held.tmp / "outside").exists()
+    split.write_text(json.dumps({"v": 1, "items": 3}), encoding="utf-8")
+    code, out, err = held.run("--split-file", str(split), "--record", str(held.tmp / "outside"))
+    assert code == 1 and "the split file cannot be read" in err and held.echo.calls == []
+    code, out, err = held.run("--split-file", str(held.tmp / "no-such-file.json"), "--record", str(held.tmp / "outside"))
+    assert code == 1 and "the split file cannot be read" in err and held.echo.calls == []
+
+
+def test_a_split_file_that_states_another_number_of_items_is_refused(held):
+    split = own_split(held, items=len(held.items) + 1)
+    code, out, err = held.run("--split-file", str(split), "--record", str(held.tmp / "outside"))
+    assert code == 1 and "another number of items" in err and held.echo.calls == [] and held.files() == []
+
+
+def test_without_the_option_the_gates_split_file_is_the_one_read_as_before(held):
+    own_split(held)          # a good summary exists, but the gate's own file declares another hash
+    code, out, err = held.run("--record", str(held.tmp / "outside"))
+    assert code == 1 and "not the test split" in err and held.echo.calls == [] and held.files() == []
+
+
+def test_every_other_guard_of_the_test_split_holds_with_a_split_file(held):
+    split = own_split(held)
+    flag = ["--split-file", str(split)]
+    code, out, err = held.run(*flag)
+    assert code == 1 and "needs --record, --resume or --replay" in err
+    code, out, err = held.run(*flag, "--record", str(held.checkout / "answers"))
+    assert code == 1 and "inside this checkout" in err
+    code, out, err = held.run(*flag, "--runs", "1", "--record", str(held.tmp / "outside"))
+    assert code == 1 and "run 2 times" in err
+    code, out, err = held.run(*flag, "--sample", "5", "--seed", "1", "--record", str(held.tmp / "outside"))
+    assert code == 1 and "needs --sequential" in err
+    assert held.echo.calls == [] and held.files() == []
+
+
+def test_a_split_file_is_for_the_test_split_only(cli):
+    split = cli.tmp / "blind-split.json"
+    split.write_text(json.dumps({"v": 1, "sha256": hashlib.sha256(cli.body).hexdigest(), "items": len(cli.items)}), encoding="utf-8")
+    code, out, err = cli.run("--split-file", str(split))
+    assert code == 2 and "--split-file is for a corpus of the test split" in err and cli.echo.calls == [] and cli.files() == []
+
+
+def test_a_resume_with_a_split_file_continues_the_same_event(held):
+    split = own_split(held)
+    outside = held.tmp / "outside"
+    assert held.run("--split-file", str(split), "--record", str(outside), "--no-evidence")[0] == 0
+    held.echo.calls.clear()
+    code, out, err = held.run("--split-file", str(split), "--resume", str(outside))
+    assert code == 0 and held.echo.calls == [], "every pair was recorded: nothing is called again"
+    event = held.lines(held.files()[0])[0]
+    assert event["corpus_sha256"] == hashlib.sha256(split.read_bytes()).hexdigest()
+    held.split_file.write_text(json.dumps({"v": 1, "sha256": hashlib.sha256(held.body).hexdigest(), "items": len(held.items)}), encoding="utf-8")
+    code, out, err = held.run("--replay", str(outside), evidence=False)          # the same corpus under the gate's own split file
+    assert code == 1 and "differs from this checkout in" in err and "corpus_sha256" in err, "the answers recorded for another split file are not those of the gate's split"
+    assert held.run("--split-file", str(split), "--replay", str(outside), evidence=False)[0] == 0
+
+
+def test_vacuity_a_split_file_that_is_ignored_is_seen_by_the_hash_oracle(held, monkeypatch):
+    split = own_split(held)
+    real = measure.evidence.corpus_sha256
+    monkeypatch.setattr(measure.evidence, "corpus_sha256", lambda kind, corpus, split_file=None: real(kind, corpus, str(held.split_file)))
+    code, out, err = held.run("--split-file", str(split), "--record", str(held.tmp / "outside"))
+    assert code == 0 and held.lines(held.files()[0])[0]["corpus_sha256"] == hashlib.sha256(held.split_file.read_bytes()).hexdigest(), \
+        "so the oracle of the honouring test (the event names the split file's hash) fails when the option is ignored"
+
+
+def test_vacuity_the_same_call_with_the_right_hash_passes_so_the_mismatch_is_the_cause_of_the_refusal(held):
+    split = own_split(held)
+    code, out, err = held.run("--split-file", str(split), "--record", str(held.tmp / "outside"), "--no-evidence")
+    assert code == 0 and held.echo.calls, "only the hash of the split file differs between this call and the refused one"
+
+
 # --- the sequential sample ---------------------------------------------------------------------------------------------------------------------------
 
 def test_a_sequential_sample_draws_only_items_that_reach_the_model(cli, monkeypatch):
