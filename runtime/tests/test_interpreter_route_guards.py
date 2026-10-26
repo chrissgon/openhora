@@ -104,7 +104,7 @@ def test_a_route_that_names_a_claude_model_refuses_the_whole_file(tmp_path, fiel
 # --- the allow-list: a model of a vendor that is not named never loads, whatever its pin ----------------------------------------------------
 
 ALLOWED = [("openrouter/auto", "amazon-bedrock"), ("@preset/fast", "google-vertex"), ("@preset/x", "deepinfra"), ("mistralai/x", "deepinfra"),
-           ("openai/gpt-x", "azure"), ("~anthropic/claude-latest", "amazon-bedrock"), ("deepseek", "deepinfra"), ("DeepSeek/x", "deepinfra"),
+           ("openai/o3-mini", "azure"), ("openai/chatgpt-4o-latest", "azure"), ("google/gemma-3", "google-vertex"), ("~google/gemini-flash-latest", "google-vertex"), ("google/gemini", "google-vertex"), ("Google/Gemini-x", "google-vertex"), ("~anthropic/claude-latest", "amazon-bedrock"), ("deepseek", "deepinfra"), ("DeepSeek/x", "deepinfra"),
            (" deepseek/x", "deepinfra"), ("x/deepseek/y", "deepinfra"), ("", "deepinfra")]
 
 
@@ -127,7 +127,11 @@ def test_a_model_that_is_not_the_prefix_plus_the_upstream_model_is_refused(tmp_p
 def test_vacuity_a_model_of_the_allowed_vendor_under_the_prefix_loads_and_the_allow_list_is_the_literal_one(tmp_path):
     assert [r["upstream_model"] for r in loads(tmp_path, row(upstream_model="deepseek/another-model", model="openrouter/deepseek/another-model"))["routes"]] == ["deepseek/another-model"]
     assert loads(tmp_path / "b", row())["routes"][0]["upstream_model"] == "deepseek/deepseek-v4.1-flash"
-    assert ir.HTTP_MODELS == {"openrouter.ai": ("deep" + "seek/",)} and ir.MODEL_PREFIX == {"openrouter.ai": "openrouter/"}
+    assert ir.HTTP_MODELS == {"openrouter.ai": ("deep" + "seek/", "google/gemini-", "openai/gpt-")} and ir.MODEL_PREFIX == {"openrouter.ai": "openrouter/"}      # S41-10: the daily vendor and the two fallback families
+    two = loads(tmp_path / "c", row(), row(id="fallback-a", upstream_model="google/gemini-x", model="openrouter/google/gemini-x", pin="google-vertex"),
+                row(id="fallback-b", upstream_model="openai/gpt-x", model="openrouter/openai/gpt-x", pin="azure"))
+    assert [r["upstream_model"] for r in two["routes"]] == ["deepseek/deepseek-v4.1-flash", "google/gemini-x", "openai/gpt-x"], "a model of each of the three families loads"
+
 
 
 def test_a_route_that_is_asked_for_in_a_file_with_a_claude_row_is_a_route_error(tmp_path, no_key, monkeypatch):
@@ -143,9 +147,9 @@ def test_the_committed_routes_file_holds_no_http_row_that_names_claude():
     http = [r for r in raw["routes"] if r["kind"] == "http"]
     assert http, "the oracle has rows to read"
     assert [r["id"] for r in http if any(w in json.dumps(r).lower() for w in CLAUDE_WORDS)] == []
-    assert [r["id"] for r in raw["routes"]] == ["or-deepseek-v4.1-flash", "acct-claude-sonnet-5.5", "acct-claude-haiku-4.5"]
+    assert [r["id"] for r in raw["routes"]] == ["or-deepseek-v4.1-flash", "acct-claude-sonnet-5.5", "acct-claude-haiku-4.5", "or-gemini-3.5-flash-lite", "or-gpt-6-luna"]      # S41-10: the two fallback rows, last
     assert [r["id"] for r in raw["routes"] if r["kind"] == "account"] == ["acct-claude-sonnet-5.5", "acct-claude-haiku-4.5"]
-    assert [r["kind"] for r in raw["routes"]] == ["http", "account", "account"] and [r["key_prefix"] for r in http] == ["sk-or-v1-"]
+    assert [r["kind"] for r in raw["routes"]] == ["http", "account", "account", "http", "http"] and [r["key_prefix"] for r in http] == ["sk-or-v1-"] * 3
     assert all("key" not in r and "key_prefix" not in r for r in raw["routes"] if r["kind"] == "account"), "an account row has no key"
 
 

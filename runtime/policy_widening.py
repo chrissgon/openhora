@@ -45,6 +45,14 @@ would not fit with the senders in the 4 KiB of one cursor; an absent record is "
   dump_accounts(cfg), parse_accounts(text)   the cursor's text, and the set of digests it holds (None when the text is not one)
   account_widening(old_text, cfg) the items of `cfg` that the record does not hold, without the digest; a `move_removes_inbox` only for an account the record held
 
+The fallback companies (S41-10, the group `interpret-fallback`) are a third record of the same kind: the person's consent to the group is tied to the companies in force when they accepted, kept in the cursor
+`config:fallbacks` as the keyed digests of the sorted `route:route_sha256` of `interpreter_enable.fallback_routes()`. The group is listed again, with each company named, for every place that holds it
+whenever the set in force is not a subset of the accepted one, and it is not accepted at all while no fallback is in force.
+
+  dump_fallbacks(routes, secret), fallbacks_covered(text, routes, secret)   the cursor's text, and whether it holds every route of `routes` (the set in force is a subset of the accepted one)
+  fallback_widening(old_text, new, secret, listed, routes)   the lines of `interpret-fallback` to show again, for the places of `new` that hold the group and are not in `listed`
+  fallback_refusal(listed, routes)   the sentence that refuses the group while no fallback is in force, or None
+
 No module here calls the store or a provider. Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -64,7 +72,12 @@ KEY = "config:digest-key"       # the store's cursor that holds the project's se
 PLACE = 12                      # hexadecimal characters of a sender's place_id
 PENDING_SECRET = "pending"      # what a read uses while no key exists yet: no digest of an older record can match it, so such a record lists everything once
 ACCOUNTS = "config:accounts"     # the store's cursor that holds the digests of the account targets the file accepted last named (package FND)
+FALLBACKS = "config:fallbacks"   # S41-10: the store's cursor that holds the keyed digests of the fallback routes the person was shown (and accepted) when they last accepted a file
 LEGACY = "config:grants"         # POL-1's cursor: the grants of that file, as a JSON list of "<channel>:<group>" (read when EFFECTIVE is absent)
+# The masks of the record. Versions 2 (no key) and 3 (keyed) wrote each mask as hexadecimal digits (4 bits a digit); S41-10 added the 49th group, which would have been one more digit on each
+# of 100 senders (3,969 bytes of the 4,096 a cursor holds), so versions 4 (no key) and 5 (keyed) write a digit of 6 bits (the record's own `groups` list says which bit is which group, as before).
+# A record of version 2 or 3 is still read as it was written; every acceptance writes version 4 or 5, and code that reads only 2 and 3 finds no record and lists everything once (the safe side).
+DIGITS64 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_"
 
 
 def line_of(place: str, group: str) -> str:
@@ -78,6 +91,11 @@ def means(channel: str, group: str) -> str:
         import interpreter_enable      # at call time: this module stays pure for every other group
         kept = interpreter_enable.retention()
         text = text + (f" Retention of the daily route: {kept}" if kept else " Retention: the route's terms are not readable here.")
+    if group == "interpret-fallback":      # S41-10: the person sees WHICH company would receive a line, and what it keeps of it, before they widen this group: each fallback route the newest entry names
+        import interpreter_enable
+        shown = [f"{r['route']} (model {r['model']}, served by {r['pin']}): {r['retention']}" for r in interpreter_enable.fallback_routes()]
+        text = text + (" Fallback route" + ("s" if len(shown) > 1 else "") + " in force, each a company that would receive a plain line when the usual service is out: " + " | ".join(shown) if shown
+                       else " No fallback route is in force in this checkout, so this group cannot be accepted until the maintainer's dated entry names one.")
     return text
 
 
@@ -113,14 +131,24 @@ def snapshot(cfg: dict) -> dict:
     return out
 
 
+def _digits64(bits: int) -> str:
+    """The number written in DIGITS64, the most significant digit first, at least one digit."""
+    out = ""
+    while True:
+        out = DIGITS64[bits & 63] + out
+        bits >>= 6
+        if not bits:
+            return out
+
+
 def dump(snap: dict, secret: str = "") -> str:
-    """The cursor's text: the groups in the order of operations.GROUPS now, and each place as a bit mask over that list (a sender by place_id). Compact
-    on purpose: a cursor holds 4 KiB."""
+    """The cursor's text: the groups in the order of operations.GROUPS now, and each place as a bit mask over that list written in base 64 (a sender by place_id). Compact
+    on purpose: a cursor holds 4 KiB. Version 4 (no key) or 5 (keyed); `parse` also reads the hexadecimal versions 2 and 3."""
     names = list(operations.GROUPS)
-    mask = lambda groups: None if groups is None else format(sum(1 << names.index(g) for g in groups if g in names), "x")   # noqa: E731
+    mask = lambda groups: None if groups is None else _digits64(sum(1 << names.index(g) for g in groups if g in names))   # noqa: E731
     senders = {place_id(k, secret): mask(v) for k, v in snap["senders"].items()}
     senders.update({k: mask(v) for k, v in (snap.get("sender_ids") or {}).items()})
-    return json.dumps({"v": 3 if secret else 2, "groups": names, "channels": {c: mask(v) for c, v in snap["channels"].items()}, "senders": senders},
+    return json.dumps({"v": 5 if secret else 4, "groups": names, "channels": {c: mask(v) for c, v in snap["channels"].items()}, "senders": senders},
                       sort_keys=True, separators=(",", ":"))
 
 
@@ -131,8 +159,9 @@ def parse(text):
         found = json.loads(text) if text else None
     except ValueError:
         return None
-    if not isinstance(found, dict) or found.get("v") not in (2, 3) or not isinstance(found.get("groups"), list):
+    if not isinstance(found, dict) or found.get("v") not in (2, 3, 4, 5) or not isinstance(found.get("groups"), list):
         return None
+    dense = found["v"] >= 4
     names, channels, senders = found["groups"], found.get("channels"), found.get("senders")
     if not isinstance(channels, dict) or not isinstance(senders, dict) or not all(isinstance(n, str) for n in names):
         return None
@@ -140,9 +169,11 @@ def parse(text):
     def groups(value):
         if value is None:
             return None
-        if not isinstance(value, str) or not all(c in "0123456789abcdef" for c in value) or not value:
+        if not isinstance(value, str) or not value or not all(c in (DIGITS64 if dense else "0123456789abcdef") for c in value):
             raise ValueError
-        bits = int(value, 16)
+        bits = 0
+        for c in value:
+            bits = bits * 64 + DIGITS64.index(c) if dense else bits * 16 + int(c, 16)
         return [n for i, n in enumerate(names) if bits >> i & 1 and n in operations.GROUPS]
 
     try:
@@ -298,6 +329,62 @@ def account_widening(old_text, cfg: dict, secret: str = "") -> list:
             continue
         out.append({k: v for k, v in item.items() if k != "digest"})
     return out
+
+
+FALLBACK_GROUP = "interpret-fallback"
+
+
+def fallback_digest(route: str, route_sha256: str, secret: str = "") -> str:
+    """The keyed digest that stands for one fallback route AND the hash it was decided on (a changed row is another item)."""
+    return _digest(f"fallback:{route}:{route_sha256}", secret)
+
+
+def dump_fallbacks(routes=None, secret: str = "") -> str:
+    """The cursor FALLBACKS' text: the keyed digests of the fallback routes in force (`routes`: what interpreter_enable.fallback_routes() returns, which it is asked when None), sorted, in one string."""
+    if routes is None:
+        import interpreter_enable
+        routes = interpreter_enable.fallback_routes()
+    return json.dumps({"v": 1, "items": "".join(sorted(fallback_digest(r["route"], r["route_sha256"], secret) for r in routes))}, separators=(",", ":"))
+
+
+def fallbacks_covered(text, routes, secret: str = "") -> bool:
+    """Whether the record (`text`, the cursor FALLBACKS) holds every route of `routes`: the set in force is a subset of the set the person accepted. No record holds nothing."""
+    held = parse_accounts(text) or set()      # the same one-string-of-digests form as the record of the accounts
+    return all(fallback_digest(r["route"], r["route_sha256"], secret) in held for r in routes)
+
+
+def fallback_widening(old_text, new: dict, secret: str = "", listed=None, routes=None) -> list:
+    """The lines of `interpret-fallback` that the group's own widening does not list but that a person must see again: for every place of the snapshot `new` that holds the group, one line,
+    when the fallback routes in force are not all in the record of what was accepted (`old_text`, FALLBACKS). `listed` is the widening already made (a place it lists for the group is not repeated);
+    `routes` is what interpreter_enable.fallback_routes() returns, asked when None. With no route in force, or all of them accepted, nothing. The text of each line names every company and its retention (`means`)."""
+    if routes is None:
+        import interpreter_enable
+        routes = interpreter_enable.fallback_routes()
+    if not routes or fallbacks_covered(old_text, routes, secret):
+        return []
+    already = {i["place"] for i in (listed or []) if i["group"] == FALLBACK_GROUP}
+    places = []
+    if FALLBACK_GROUP in concrete("messaging", new["channels"].get("messaging")):
+        places.append("messaging")
+    channel = concrete("messaging", new["channels"].get("messaging"))
+    for key in sorted(new["senders"]):
+        mine = new["senders"][key]
+        if FALLBACK_GROUP in (concrete("messaging", mine) if mine is not None else channel):
+            places.append(key)
+    return [{"place": p, "channel": "messaging", "group": FALLBACK_GROUP, "means": means("messaging", FALLBACK_GROUP)} for p in places if p not in already]
+
+
+def fallback_refusal(listed, routes=None):
+    """The sentence that refuses an acceptance that widens `interpret-fallback` while no fallback route is in force (a person cannot consent to a company that is not named), or None."""
+    if not any(i["group"] == FALLBACK_GROUP for i in listed):
+        return None
+    if routes is None:
+        import interpreter_enable
+        routes = interpreter_enable.fallback_routes()
+    if routes:
+        return None
+    return ("the group 'interpret-fallback' is not accepted while no fallback route is in force: the newest entry of runtime/interpreter_enable.json names none, so there is no company to consent to; "
+            "nothing was accepted. Take the group out of the file, or accept it after the maintainer's dated entry names a fallback route")
 
 
 def widening_sha256(listed):

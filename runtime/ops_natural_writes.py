@@ -48,6 +48,7 @@ import phone_refusal
 import phrases
 import project_config
 import source_names
+import turn_gate
 
 DRAFT_TTL = ops_natural.DRAFT_TTL
 KIND = "write"
@@ -618,24 +619,25 @@ def natural_write(project: str, line: str, *, channel: str = "messaging", sender
     """The messaging bridge's entry (ops.natural_write; not a row of the table): the sender's live write draft is tried first, then the line as a new write, then the seed
     (a reminder question answered "event", the loose verb's question, the caption of a file). Returns {"reply": the sentence | None, "resend": the decision whose card the
     bridge sends, "asked": true when a question was kept}. `reply` None: the line is no write form and answers nothing: the caller handles it as any plain line."""
-    ops_actor.require(channel, sender)
-    ctx = core.context(project)
-    said = "" if seed and not str(line or "").strip() else core._text(line, "the line")          # a seed may come with no text (a button of a file's card)
-    extras: dict = {}
-    draft = live(channel, sender)
-    reply = None
-    if draft is not None and seed is None:
-        reply = answer(project, ctx, draft, said, channel, sender, extras)
+    with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); an inner reuse inside a line, an entry of its own when the entry is called directly
+        ops_actor.require(channel, sender)
+        ctx = core.context(project)
+        said = "" if seed and not str(line or "").strip() else core._text(line, "the line")          # a seed may come with no text (a button of a file's card)
+        extras: dict = {}
+        draft = live(channel, sender)
+        reply = None
+        if draft is not None and seed is None:
+            reply = answer(project, ctx, draft, said, channel, sender, extras)
+            if reply is None:
+                extras["discarded"] = True          # the line answers nothing: the question is dropped, and a question this line asks says so
+        elif draft is not None:
+            drafts.drop(*_slot(channel, sender))
+        if draft is None and drafts.get(*_slot(channel, sender)) is not None:
+            extras["discarded"] = True          # a question of a reminder (or of an `ask`) is replaced by this line's, and the reply says so
         if reply is None:
-            extras["discarded"] = True          # the line answers nothing: the question is dropped, and a question this line asks says so
-    elif draft is not None:
-        drafts.drop(*_slot(channel, sender))
-    if draft is None and drafts.get(*_slot(channel, sender)) is not None:
-        extras["discarded"] = True          # a question of a reminder (or of an `ask`) is replaced by this line's, and the reply says so
-    if reply is None:
-        reply = open_line(project, ctx, said, channel, sender, extras, seed=seed)
-    return {"reply": reply, **({"resend": extras["resend"]} if "resend" in extras else {}), **({"lead": extras["lead"]} if channel == "messaging" and "lead" in extras else {}), **({"cards": extras["cards"]} if "cards" in extras else {}), **({"silent": True} if extras.get("silent") else {}),
-            "asked": bool(extras.get("asked"))}
+            reply = open_line(project, ctx, said, channel, sender, extras, seed=seed)
+        return {"reply": reply, **({"resend": extras["resend"]} if "resend" in extras else {}), **({"lead": extras["lead"]} if channel == "messaging" and "lead" in extras else {}), **({"cards": extras["cards"]} if "cards" in extras else {}), **({"silent": True} if extras.get("silent") else {}),
+                "asked": bool(extras.get("asked"))}
 
 
 if __name__ == "__main__":

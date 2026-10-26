@@ -1623,7 +1623,7 @@ def config(project: str) -> dict:
             "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"], "policies": cfg["policies"],
             "channel_profiles": cfg["channel_profiles"], "language": cfg.get("language"), **({"google_folders": cfg["google_folders"]} if cfg.get("google_folders") else {}),
             **policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None, got(policy_widening.ACCOUNTS),
-                                     got(policy_widening.KEY) or policy_widening.PENDING_SECRET)}   # POL-1/POL-2: grants, widening, its hash, warnings
+                                     got(policy_widening.KEY) or policy_widening.PENDING_SECRET, got(policy_widening.FALLBACKS))}   # POL-1/POL-2: grants, widening, its hash, warnings
 
 
 def task(project: str, task_id: int, channel: str | None = None, sender: str | None = None) -> dict:

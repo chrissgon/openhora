@@ -38,6 +38,7 @@ onw = st.load("ops_natural_writes")
 item_refs = st.load("item_refs")
 mail_refresh = st.load("mail_refresh")
 mail_refs = st.load("mail_refs")
+turn_gate = st.load("turn_gate")      # S41-6: the budget of a line (one refresh per turn) is the gate's; `refresh_once` asks it
 phrases = st.load("phrases")
 sources = st.load("sources")
 sources_mail = st.load("sources_mail")
@@ -219,8 +220,8 @@ def test_the_budget_is_gone_for_a_line_that_asks_twice_so_a_budget_that_returned
     real_once = mail_refresh.refresh_once
 
     def fresh_budget_each_time(*args):      # the planted fault: every call is given a new turn
-        mail_refresh._LOCAL.budget = None
-        with mail_refresh.turn():
+        turn_gate._TURN.budget = None
+        with turn_gate.turn():
             return real_once(*args)
     monkeypatch.setattr(mail_refresh, "refresh_once", fresh_budget_each_time)
     seen, _ = double_attempt(world, monkeypatch)
@@ -236,7 +237,7 @@ def test_each_resolution_opens_its_own_turn_and_the_budget_is_cleared_when_it_en
     stale(world)
     resolve(world)
     assert len(seen) == 2, "two lines, two turns: one read each (the rest is for a failed read only)"
-    assert getattr(mail_refresh._LOCAL, "budget", None) is None, "nothing is left open on the thread"
+    assert getattr(turn_gate._TURN, "budget", None) is None, "nothing is left open on the thread"
 
 
 def test_nothing_is_read_outside_a_turn_and_an_inner_turn_shares_the_outer_budget(world, monkeypatch):
@@ -244,8 +245,8 @@ def test_nothing_is_read_outside_a_turn_and_an_inner_turn_shares_the_outer_budge
     stale(world)
     ctx = ops_core.context(world["path"])
     assert mail_refresh.refresh_once(ctx, "inbox", "messaging", READER) == "spent" and seen == [], "fail closed: no turn, no read"
-    with mail_refresh.turn():
-        with mail_refresh.turn():
+    with turn_gate.turn():
+        with turn_gate.turn():
             assert mail_refresh.refresh_once(ctx, "inbox", "messaging", READER) == "refreshed"
         assert mail_refresh.refresh_once(ctx, "inbox", "messaging", READER) == "spent", "the inner exit did not clear the budget of the outer turn"
     assert len(seen) == 1
@@ -268,17 +269,17 @@ def test_refresh_once_refuses_a_caller_who_may_not_read_even_when_called_directl
     seen, _ = counter(monkeypatch, through=True)
     stale(world)
     ctx = ops_core.context(world["path"])
-    with mail_refresh.turn():
+    with turn_gate.turn():
         assert mail_refresh.refresh_once(ctx, "inbox", "messaging", SENDER) == "not-allowed"
     assert seen == []
     for sender in (None, "", "5151", "telegram:", ":5151", "telegram:9999", 5151):
-        with mail_refresh.turn():
+        with turn_gate.turn():
             assert mail_refresh.refresh_once(ctx, "inbox", "messaging", sender) == "not-allowed", repr(sender)
     for channel in (None, "", 0, "mcp"):
-        with mail_refresh.turn():
+        with turn_gate.turn():
             assert mail_refresh.refresh_once(ctx, "inbox", channel, READER) == "not-allowed", repr(channel)
     assert seen == [], "a sender that is not <platform>:<id>, an unlisted one and a channel that is not messaging read nothing"
-    with mail_refresh.turn():
+    with turn_gate.turn():
         assert mail_refresh.refresh_once(ctx, "inbox", "messaging", READER) == "refreshed"
     assert len(seen) == 1, "the vacuity: the reader of the same call does read"
 
@@ -289,7 +290,7 @@ def test_a_source_that_is_not_a_mail_source_or_is_not_registered_is_not_allowed_
     note.write_text("# Notes\n\nA line.\n")
     ops_sources.source_import(world["path"], "notes", file=str(note))
     ctx = ops_core.context(world["path"])
-    with mail_refresh.turn():
+    with turn_gate.turn():
         assert mail_refresh.refresh_once(ctx, "notes", "messaging", READER) == "not-allowed"
         assert mail_refresh.refresh_once(ctx, "nao-existe", "messaging", READER) == "not-allowed"
     assert seen == []
@@ -477,7 +478,7 @@ def test_a_lock_not_free_in_time_is_a_failure_with_no_read_and_a_later_line_can_
     held.acquire()
     try:
         started = time.monotonic()
-        with mail_refresh.turn():
+        with turn_gate.turn():
             assert mail_refresh.refresh_once(ctx, "inbox", "messaging", READER) == "failed"
         assert time.monotonic() - started < 5 and reads(world) == []
     finally:
@@ -671,7 +672,7 @@ def test_the_module_names_no_provider_class_no_provider_path_and_no_model_and_th
             imported.add((node.module or "").split(".")[0])
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             strings.append(node.value)
-    assert imported <= {"__future__", "contextlib", "importlib", "os", "sys", "threading", "time", "item_refs", "line_stage", "sources"}, imported
+    assert imported <= {"__future__", "importlib", "os", "sys", "threading", "time", "item_refs", "line_stage", "sources", "turn_gate"}, imported
     code_strings = [t for t in strings if len(t) < 200]      # the module's text is longer than any literal of the code
     for forbidden in ("reader:email", "integration:calendar", "providers", "resolve.py", "subprocess", "provider_call"):
         assert not [t for t in code_strings if forbidden in t], forbidden

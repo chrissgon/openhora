@@ -623,6 +623,11 @@ GROUPS = {
     # R2-F1: a question of general information answered by a web search (runtime/ops_research.py). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
     # --widen; never on the page or the MCP mode (the row does not list them). It reads and answers; it writes nothing, opens no card and sends nothing but the question, to a search service and a model.
     "research": {"operations": ("research",), "kind": None},
+    # S41-10: the outage path of the interpreter (contracts/runtime.md L63). When the daily route cannot serve a line, a second route of ANOTHER company may (the gate's fallback section). A new
+    # company receiving a person's lines is a new data flow, so it is a policy with the restrictive default: a capability added to `say` that never grants it (KIND_ONLY, as `interpret` is), in no
+    # default policy and widened only with `accept-config --widen`, which prints the retention of the fallback routes. It needs `interpret` beside it (project_config), and does nothing until the
+    # newest dated entry of runtime/interpreter_enable.json names a fallback route.
+    "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
@@ -632,8 +637,8 @@ NEVER_NARROWED = ("terminal",)
 POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's configuration narrows; `chat` (local access, equal to the terminal) and `terminal` never are
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
-MESSAGING_ONLY_GROUPS = ("read-limited", "ask-mail", "interpret", "send-files", "confirm-reads-off")          # valid on a messaging app alone (the page and the MCP mode list `read`; the page and the terminal name a mail source with @<id> as they always did)
-KIND_ONLY = ("ask-mail", "interpret", "send-files", "confirm-reads-off")                           # groups that add a capability to an operation another group grants: they never grant the operation when no kind is asked (policy_allows)
+MESSAGING_ONLY_GROUPS = ("read-limited", "ask-mail", "interpret", "send-files", "confirm-reads-off", "interpret-fallback")          # valid on a messaging app alone (the page and the MCP mode list `read`; the page and the terminal name a mail source with @<id> as they always did)
+KIND_ONLY = ("ask-mail", "interpret", "send-files", "confirm-reads-off", "interpret-fallback")                           # groups that add a capability to an operation another group grants: they never grant the operation when no kind is asked (policy_allows)
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
@@ -731,6 +736,7 @@ GROUP_TEXT = {
     "confirm-reads-off": "turns off the question \u201cShall I go ahead?\u201d before a read asked in words on a messaging app: the read runs at once (a web search, an answer from the sources and an act such as cancel or reject still ask)",
     "send-files": "sends the found file itself to the chat, not only its text: the whole file leaves your drive for the messaging app's servers; one whose text looks like a password or a key is not sent (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
+    "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

@@ -60,6 +60,7 @@ import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
 import phrases  # noqa: E402
+import turn_gate  # noqa: E402
 
 CHANNEL = "messaging"
 OPERATION = {"send": "mail-send", "draft": "mail-draft"}
@@ -178,10 +179,11 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
 
 def card_revise_check(project: str, pending_id: int, sha256: str, text: str, channel: str = CHANNEL, sender=None):
     """See the module's text. Calls no model."""
-    ops_actor.require(channel, sender)
-    ctx = core.context(project)
-    taken = _taken(ctx, pending_id, sha256, text, channel, sender)
-    return taken[0] if taken else None
+    with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); an inner reuse inside a line, an entry of its own when the entry is called directly
+        ops_actor.require(channel, sender)
+        ctx = core.context(project)
+        taken = _taken(ctx, pending_id, sha256, text, channel, sender)
+        return taken[0] if taken else None
 
 
 def say(ctx: dict, key: str, again=None) -> dict:
@@ -272,19 +274,20 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
 
 def card_revise(project: str, pending_id: int, sha256: str, text: str, channel: str = CHANNEL, sender=None) -> dict:
     """The change (see the module's text)."""
-    ops_actor.require(channel, sender)
-    ctx = core.context(project)
-    taken = _taken(ctx, pending_id, sha256, text, channel, sender)
-    if taken is None:
-        return {"pass": True}
-    kind, entry, line, doc, mail = taken
-    if kind == "replaced":
-        return say(ctx, "RV_REPLACED")
-    if kind == "sentence":
-        return say(ctx, "RV_NOT_REVISABLE")
-    if kind == "mail":
-        return _mail(project, ctx, pending_id, entry, line, mail, channel, sender)
-    return importlib.import_module("ops_event_revise").revise(project, ctx, pending_id, entry, line, doc, channel, sender)
+    with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); the new card this opens (`natural_write`) is the same line
+        ops_actor.require(channel, sender)
+        ctx = core.context(project)
+        taken = _taken(ctx, pending_id, sha256, text, channel, sender)
+        if taken is None:
+            return {"pass": True}
+        kind, entry, line, doc, mail = taken
+        if kind == "replaced":
+            return say(ctx, "RV_REPLACED")
+        if kind == "sentence":
+            return say(ctx, "RV_NOT_REVISABLE")
+        if kind == "mail":
+            return _mail(project, ctx, pending_id, entry, line, mail, channel, sender)
+        return importlib.import_module("ops_event_revise").revise(project, ctx, pending_id, entry, line, doc, channel, sender)
 
 
 if __name__ == "__main__":

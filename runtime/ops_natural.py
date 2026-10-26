@@ -217,7 +217,10 @@ def stored_line(ctx: dict, said: str, channel=None, sender=None) -> str:
             return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
     if natural_writes().candidate(said) is not None:
         return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
-    return phrases.text("NAT_PRIVATE_LINE", ctx["cfg"]) if turn_gate.private_line(said) else said
+    kind = turn_gate.private_kind(said)
+    if kind == "write":      # a line the gate reads as a write to the person's accounts that no family read whole: stored as a request to the accounts, never as "a reminder"
+        return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
+    return phrases.text("NAT_PRIVATE_LINE", ctx["cfg"]) if kind == "reminder" else said
 
 
 PRIVATE_READS = ("pending", "task")      # the reads that draw a decision's card or a task's pending list: the private lines of a card are drawn for a holder of ask-mail

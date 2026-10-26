@@ -126,6 +126,8 @@ def route_sha256(route):
         return sha_obj({k: v for k, v in route.items() if k not in ("retention", "reference")})
     sent = {k: route.get(k) for k in ROUTE_KEYS}
     sent["model"] = sent.pop("upstream_model")
+    if route.get("pin_reply") is not None:      # S41-10: an optional key of a row, part of what the provider is shown
+        sent["pin_reply"] = route["pin_reply"]
     return sha_obj(sent)
 
 
@@ -610,6 +612,7 @@ ENABLE_KEYS = ("basis", "date", "route", "route_sha256", "prompt_sha256", "catal
 ENABLE_LANGUAGES = ("pt-BR", "en", "es", "fr", "de", "it")
 ENABLE_HASHES = ("route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256")
 ENABLE_OPTIONAL = ("compose_prompt_sha256", "revise_prompt_sha256")      # the e-mail compose prompt (slice S7) and revise prompt (slice S13) an entry may also pin
+ENABLE_FALLBACK = "fallback"      # S41-10: an entry may also name the outage routes; the runtime reads that field alone (runtime/interpreter_enable.py `fallbacks`) and a fault in it turns only the fallback off, so its value is not checked here
 
 
 def entries_valid(entries):
@@ -618,7 +621,7 @@ def entries_valid(entries):
     if not isinstance(entries, list) or not entries:
         return False
     for entry in entries:
-        if not isinstance(entry, dict) or not set(ENABLE_KEYS) <= set(entry) <= set(ENABLE_KEYS + ENABLE_OPTIONAL) or entry["basis"] != "maintainer-decision" or not isinstance(entry["route"], str) or not entry["route"]:
+        if not isinstance(entry, dict) or not set(ENABLE_KEYS) <= set(entry) <= set(ENABLE_KEYS + ENABLE_OPTIONAL + (ENABLE_FALLBACK,)) or entry["basis"] != "maintainer-decision" or not isinstance(entry["route"], str) or not entry["route"]:
             return False
         date = entry["date"]
         if not isinstance(date, str) or not date.isascii() or len(date) != 10 or not date.replace("-", "").isdigit() or date[4] != "-" or date[7] != "-":
