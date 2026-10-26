@@ -65,6 +65,10 @@ PLACE = 12                      # hexadecimal characters of a sender's place_id
 PENDING_SECRET = "pending"      # what a read uses while no key exists yet: no digest of an older record can match it, so such a record lists everything once
 ACCOUNTS = "config:accounts"     # the store's cursor that holds the digests of the account targets the file accepted last named (package FND)
 LEGACY = "config:grants"         # POL-1's cursor: the grants of that file, as a JSON list of "<channel>:<group>" (read when EFFECTIVE is absent)
+# The masks of the record. Versions 2 (no key) and 3 (keyed) wrote each mask as hexadecimal digits (4 bits a digit); S41-10 added the 49th group, which would have been one more digit on each
+# of 100 senders (3,969 bytes of the 4,096 a cursor holds), so versions 4 (no key) and 5 (keyed) write a digit of 6 bits (the record's own `groups` list says which bit is which group, as before).
+# A record of version 2 or 3 is still read as it was written; every acceptance writes version 4 or 5, and code that reads only 2 and 3 finds no record and lists everything once (the safe side).
+DIGITS64 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_"
 
 
 def line_of(place: str, group: str) -> str:
@@ -78,6 +82,11 @@ def means(channel: str, group: str) -> str:
         import interpreter_enable      # at call time: this module stays pure for every other group
         kept = interpreter_enable.retention()
         text = text + (f" Retention of the daily route: {kept}" if kept else " Retention: the route's terms are not readable here.")
+    if group == "interpret-fallback":      # S41-10: the person sees what the second company keeps of a line before they widen this group: the terms of each fallback route the newest entry names
+        import interpreter_enable
+        kept = interpreter_enable.fallback_retention()
+        text = text + (" Retention of the fallback route" + ("s" if len(kept) > 1 else "") + ": " + " | ".join(kept) if kept
+                       else " Retention: no fallback route is enabled in this checkout, so nothing is sent to a second company until the maintainer's dated entry names one.")
     return text
 
 
@@ -113,14 +122,24 @@ def snapshot(cfg: dict) -> dict:
     return out
 
 
+def _digits64(bits: int) -> str:
+    """The number written in DIGITS64, the most significant digit first, at least one digit."""
+    out = ""
+    while True:
+        out = DIGITS64[bits & 63] + out
+        bits >>= 6
+        if not bits:
+            return out
+
+
 def dump(snap: dict, secret: str = "") -> str:
-    """The cursor's text: the groups in the order of operations.GROUPS now, and each place as a bit mask over that list (a sender by place_id). Compact
-    on purpose: a cursor holds 4 KiB."""
+    """The cursor's text: the groups in the order of operations.GROUPS now, and each place as a bit mask over that list written in base 64 (a sender by place_id). Compact
+    on purpose: a cursor holds 4 KiB. Version 4 (no key) or 5 (keyed); `parse` also reads the hexadecimal versions 2 and 3."""
     names = list(operations.GROUPS)
-    mask = lambda groups: None if groups is None else format(sum(1 << names.index(g) for g in groups if g in names), "x")   # noqa: E731
+    mask = lambda groups: None if groups is None else _digits64(sum(1 << names.index(g) for g in groups if g in names))   # noqa: E731
     senders = {place_id(k, secret): mask(v) for k, v in snap["senders"].items()}
     senders.update({k: mask(v) for k, v in (snap.get("sender_ids") or {}).items()})
-    return json.dumps({"v": 3 if secret else 2, "groups": names, "channels": {c: mask(v) for c, v in snap["channels"].items()}, "senders": senders},
+    return json.dumps({"v": 5 if secret else 4, "groups": names, "channels": {c: mask(v) for c, v in snap["channels"].items()}, "senders": senders},
                       sort_keys=True, separators=(",", ":"))
 
 
@@ -131,8 +150,9 @@ def parse(text):
         found = json.loads(text) if text else None
     except ValueError:
         return None
-    if not isinstance(found, dict) or found.get("v") not in (2, 3) or not isinstance(found.get("groups"), list):
+    if not isinstance(found, dict) or found.get("v") not in (2, 3, 4, 5) or not isinstance(found.get("groups"), list):
         return None
+    dense = found["v"] >= 4
     names, channels, senders = found["groups"], found.get("channels"), found.get("senders")
     if not isinstance(channels, dict) or not isinstance(senders, dict) or not all(isinstance(n, str) for n in names):
         return None
@@ -140,9 +160,11 @@ def parse(text):
     def groups(value):
         if value is None:
             return None
-        if not isinstance(value, str) or not all(c in "0123456789abcdef" for c in value) or not value:
+        if not isinstance(value, str) or not value or not all(c in (DIGITS64 if dense else "0123456789abcdef") for c in value):
             raise ValueError
-        bits = int(value, 16)
+        bits = 0
+        for c in value:
+            bits = bits * 64 + DIGITS64.index(c) if dense else bits * 16 + int(c, 16)
         return [n for i, n in enumerate(names) if bits >> i & 1 and n in operations.GROUPS]
 
     try:

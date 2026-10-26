@@ -59,6 +59,24 @@
       "accessed": "2026-10-15",
       "provider": "deepinfra",
       "notes": "priced at the pinned provider deepinfra, not at the cheapest endpoint of the model; OpenRouter lists a discount of 30% on this endpoint; the entry holds the listed price"
+    },
+    "openrouter/google/gemini-3.5-flash-lite": {
+      "input_usd_per_mtok": 0.3,
+      "output_usd_per_mtok": 2.5,
+      "cache_read_usd_per_mtok": 0.03,
+      "source": "https://openrouter.ai/google/gemini-3.5-flash-lite",
+      "accessed": "2026-10-26",
+      "provider": "google-vertex",
+      "notes": "priced at the pinned provider google-vertex (the standard endpoint, not the flex or priority tier, which a base provider slug does not select); entered by hand from the model page of the day because scripts/update_prices.py reads the API; re-check before a metered run"
+    },
+    "openrouter/openai/gpt-6-luna": {
+      "input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 0.5,
+      "cache_read_usd_per_mtok": 0.01,
+      "source": "https://openrouter.ai/openai/gpt-6-luna",
+      "accessed": "2026-10-26",
+      "provider": "azure",
+      "notes": "priced at the pinned provider azure (the standard endpoint); entered by hand from the model page of the day because scripts/update_prices.py reads the API; re-check before a metered run"
     }
   }
 }

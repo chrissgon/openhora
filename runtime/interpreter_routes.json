@@ -54,6 +54,38 @@
    "envelope_sha256": "7203a61429bff45e54353b8cef836dd38c0307a2a058ece600455b649a75f646",
    "reference": false,
    "retention": "Sent to the vendor under the maintainer's subscription account terms; zero data retention is not confirmed."
+  },
+  {
+   "id": "or-gemini-3.5-flash-lite",
+   "kind": "http",
+   "model": "openrouter/google/gemini-3.5-flash-lite",
+   "upstream_model": "google/gemini-3.5-flash-lite",
+   "base_url": "https://openrouter.ai/api/v1",
+   "pin": "google-vertex",
+   "allow_fallbacks": false,
+   "data_collection": "deny",
+   "zdr": true,
+   "cache_breakpoint": false,
+   "key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
+   "key_prefix": "sk-or-v1-",
+   "reference": false,
+   "retention": "Sent to Google Vertex through OpenRouter. The request asks for zero data retention (zdr), no training on the prompt (data_collection deny) and no other provider (no fallbacks). OpenRouter lists this model on Google among the endpoints that have a zero-data-retention policy (its ZDR page, read 2026-10-26) and says its Google toggle removes the AI Studio endpoints while Vertex remains. Google's own written terms for this use are not confirmed here: nothing is sent to this route before the maintainer accepts that evidence."
+  },
+  {
+   "id": "or-gpt-6-luna",
+   "kind": "http",
+   "model": "openrouter/openai/gpt-6-luna",
+   "upstream_model": "openai/gpt-6-luna",
+   "base_url": "https://openrouter.ai/api/v1",
+   "pin": "azure",
+   "allow_fallbacks": false,
+   "data_collection": "deny",
+   "zdr": true,
+   "cache_breakpoint": false,
+   "key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
+   "key_prefix": "sk-or-v1-",
+   "reference": false,
+   "retention": "Sent to Microsoft Azure, not to the model maker's own endpoint, through OpenRouter. The request asks for zero data retention (zdr), no training on the prompt (data_collection deny) and no other provider (no fallbacks). OpenRouter lists this model on Azure among the endpoints that have a zero-data-retention policy (its ZDR page, read 2026-10-26) and says its OpenAI toggle removes the first-party OpenAI endpoints while Azure remains. Azure's own written terms for this use are not confirmed here: nothing is sent to this route before the maintainer accepts that evidence."
   }
  ]
 }

@@ -1,6 +1,8 @@
 {
   "pins": {
     "route_or_deepseek_v4_1_flash": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+    "route_or_gemini_3_5_flash_lite": "bce78cc0ad16efdb0a7e00a8f395f23fb8d0e9f608a4875c9004de54ee28d762",
+    "route_or_gpt_6_luna": "9fd7c7c73b8b6ad39ce5e23d4f306b399fa0a7909d4d1a31f4fab764478ac4be",
     "route_acct_sonnet_5_5": "23657eec67a80cb5f4e2ca075cace2acca74c128904addb27eaa3b2838b0aa1b",
     "route_acct_haiku_4_5": "7a7bcd7764488bbc0fd583b6c989f3dddf4ac543303f5e4d57ade85df8e06d02",
     "route_account_status_test_row": "ad1270f749a169dbc6a387768981bac69583745bbf6685161939b19226cf4c95",
@@ -23,6 +25,8 @@
   },
   "notes": {
     "route_or_deepseek_v4_1_flash": "sha256 of the canonical JSON of the committed DeepSeek route row without retention and reference; guards a security table or policy (the interpreter calls only an accepted route hash)",
+    "route_or_gemini_3_5_flash_lite": "sha256 of the canonical JSON of the committed route row of the first fallback model (pin google-vertex, zdr true) as the provider is shown it (no retention, no reference); guards a security table or policy (the fallback is called only with this accepted route hash)",
+    "route_or_gpt_6_luna": "sha256 of the canonical JSON of the committed route row of the second fallback model (pin azure, zdr true) as the provider is shown it (no retention, no reference); guards a security table or policy (the fallback is called only with this accepted route hash)",
     "route_acct_sonnet_5_5": "sha256 of the canonical JSON of the account-route row for Sonnet 5.5; guards a security table or policy (the interpreter calls only an accepted route hash)",
     "route_acct_haiku_4_5": "sha256 of the canonical JSON of the account-route row for Haiku 4.5; guards a security table or policy (the interpreter calls only an accepted route hash)",
     "route_account_status_test_row": "sha256 of the canonical JSON of the route row the account-status test builds; a review tripwire (it follows the row the test plants)",

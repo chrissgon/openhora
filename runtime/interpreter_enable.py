@@ -25,6 +25,9 @@ route's band; a test compares the two readings.
                                 the same as `active` and the newest entry also pins THIS checkout's e-mail revise prompt (`revise_prompt_sha256`, runtime/mail_revise.py), else
                                 None: a changed revise prompt turns the change of a card by words off and leaves the interpreter on (slice S13)
   retention(path=None)          the retention text of the newest entry's route, or None (what a person is shown when they widen the group `interpret`)
+  fallbacks(entry)              the routes the entry names as the outage path (S41-10): the closed list `[{"route", "route_sha256"}]` of at most two distinct daily routes other than the entry's own,
+                                each a `zdr` row whose hash equals this checkout's; any fault in the field, in one item or in the row it names gives [] (the fallback is off; the interpreter stays on)
+  fallback_retention(path=None) the retention texts of the newest entry's fallback routes in force, or None (what a person is shown when they widen the group `interpret-fallback`)
 
 Pure: it reads files and calls nothing. Standard library only. Runs on Python 3.9.
 """
@@ -50,6 +53,9 @@ BASES = ("maintainer-decision",)
 LANGUAGES = ("pt-BR", "en", "es", "fr", "de", "it")
 HASH_KEYS = ("route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256")
 OPTIONAL_KEYS = ("compose_prompt_sha256", "revise_prompt_sha256")      # an entry may also pin the e-mail compose prompt (slice S7) and the revise prompt (slice S13); an older entry does not
+FALLBACK_KEY = "fallback"      # S41-10: an entry may also name the outage path, one object or a list of at most two; `fallbacks` alone reads its value, and a fault in it never turns the entry off
+FALLBACK_ITEM_KEYS = ("route", "route_sha256", "measured")      # `measured`: the date and the result file of the measurement the maintainer decided on
+FALLBACK_MAX = 2
 HEX64 = re.compile(r"[0-9a-f]{64}")
 DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 TEXT_MAX = 600
@@ -61,8 +67,8 @@ class EnableError(ValueError):
 
 def _entry_problem(entry) -> str:
     """The first thing wrong with one entry (a sentence that never repeats a value), or ''."""
-    if not isinstance(entry, dict) or not set(KEYS) <= set(entry) <= set(KEYS + OPTIONAL_KEYS):
-        return "an entry has the keys " + ", ".join(KEYS) + " and, optionally, " + ", ".join(OPTIONAL_KEYS)
+    if not isinstance(entry, dict) or not set(KEYS) <= set(entry) <= set(KEYS + OPTIONAL_KEYS + (FALLBACK_KEY,)):
+        return "an entry has the keys " + ", ".join(KEYS) + " and, optionally, " + ", ".join(OPTIONAL_KEYS + (FALLBACK_KEY,))
     if entry["basis"] not in BASES:
         return "basis is one of " + ", ".join(BASES)
     if not isinstance(entry["date"], str) or not DATE.fullmatch(entry["date"]):
@@ -120,8 +126,37 @@ def checkout_hashes(route_id: str) -> dict:
             "protocol_sha256": hashlib.sha256(interpreter.canonical(interpreter.PROTOCOL)).hexdigest()}
 
 
+def fallbacks(entry) -> list:
+    """The outage routes of an entry that are in force: `[{"route", "route_sha256"}]` in the entry's order, or [] (S41-10). The field `fallback` is one object or a list of at most FALLBACK_MAX
+    objects with exactly the keys of FALLBACK_ITEM_KEYS (`measured` a non-empty text of at most TEXT_MAX characters). An item is in force only when its route is a daily (http) route other than
+    the entry's own, appears once, asks the router for zero data retention (`zdr` true) and its `route_sha256` equals this checkout's. ANY fault (a field of another shape, an item that fails, a
+    repeated route) gives [] for the whole field: a malformed fallback turns the fallback off and never the primary."""
+    try:
+        raw = entry.get(FALLBACK_KEY)
+        if raw is None:
+            return []
+        items = [raw] if isinstance(raw, dict) else raw
+        if not isinstance(items, list) or not 1 <= len(items) <= FALLBACK_MAX:
+            return []
+        out, seen = [], {entry["route"]}
+        for item in items:
+            if not isinstance(item, dict) or set(item) != set(FALLBACK_ITEM_KEYS) or not isinstance(item["route"], str) or item["route"] in seen:
+                return []
+            if not isinstance(item["measured"], str) or not item["measured"].strip() or len(item["measured"]) > TEXT_MAX:
+                return []
+            row = _daily_row(item["route"])
+            if row is None or row.get("zdr") is not True or not isinstance(item["route_sha256"], str) or not HEX64.fullmatch(item["route_sha256"]) \
+                    or item["route_sha256"] != interpreter_route.route_sha256(row):
+                return []
+            seen.add(item["route"])
+            out.append({"route": item["route"], "route_sha256": item["route_sha256"]})
+        return out
+    except (EnableError, OSError, ValueError, KeyError, TypeError, AttributeError):
+        return []
+
+
 def active(language, path=None):
-    """{"entry", "route"} when the NEWEST entry is in force for `language`, else None. Every fault is "off"."""
+    """{"entry", "route", "fallback"} when the NEWEST entry is in force for `language`, else None; `fallback` is `fallbacks(entry)`: the outage routes in force, [] for none. Every fault is "off"."""
     try:
         entry = load(path)["entries"][-1]
         if language not in entry["languages"]:
@@ -129,7 +164,7 @@ def active(language, path=None):
         here = checkout_hashes(entry["route"])
         if any(entry[key] != here[key] for key in HASH_KEYS):
             return None
-        return {"entry": entry, "route": _daily_row(entry["route"])}
+        return {"entry": entry, "route": _daily_row(entry["route"]), "fallback": fallbacks(entry)}
     except (EnableError, OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -163,6 +198,16 @@ def retention(path=None):
     except (EnableError, OSError, ValueError, KeyError, TypeError):
         return None
     return row.get("retention") if row else None
+
+
+def fallback_retention(path=None):
+    """The retention texts of the newest entry's fallback routes in force, in the entry's order, or None when it names none that is in force."""
+    try:
+        entry = load(path)["entries"][-1]
+        texts = [_daily_row(item["route"]).get("retention") for item in fallbacks(entry)]
+    except (EnableError, OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return [t for t in texts if isinstance(t, str) and t] or None
 
 
 if __name__ == "__main__":

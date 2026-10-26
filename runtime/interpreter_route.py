@@ -78,7 +78,9 @@ KEY_SHAPES = {"openrouter.ai": "sk-or-v1-"}
 # The models a route may name, by host: an allow-list beside KEY_SHAPES. An `upstream_model` must start with an entry of its host's tuple, and `model`
 # is MODEL_PREFIX plus `upstream_model`; anything else (an alias, a preset, a router that picks the model) is refused, whatever the pin says. The
 # vendor words below stay as a second layer. Both checks apply to `http` rows only.
-HTTP_MODELS = {"openrouter.ai": ("deep" + "seek/",)}
+# S41-10: the daily route's vendor and the vendors of the fallback routes (a second and a third vendor, the outage path of contracts/runtime.md L63). Each entry names a vendor's family, never a bare
+# vendor, so that an alias, a router or a preset of any of them is still refused; a row of a fallback vendor is served only through the group `interpret-fallback` and an entry that names it (runtime/interpreter_enable.py).
+HTTP_MODELS = {"openrouter.ai": ("deep" + "seek/", "google/gemini-", "openai/gpt-")}
 MODEL_PREFIX = {"openrouter.ai": "openrouter/"}
 # A model of this vendor is never reached over HTTP with a metered key; the words are matched in the model, upstream_model and pin, any case. They are
 # written in pieces so that this file names no AI tool (rule R19 of the platform plan, runtime/tests/test_runtime_rules.py).
