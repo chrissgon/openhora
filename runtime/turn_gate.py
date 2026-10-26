@@ -78,7 +78,7 @@ A card that a person's LINE opens is opened by the operation's own function with
 came from, in `{"args", "origins"}`, and the card-opening paths ask the gate before they open anything (`ops_natural_writes._opened`, `ops_file_trash._card`, `ops_event_revise.revise`). FAIL CLOSED
 (OPEN-41-8, recommended): what the table does not name opens no card.
 
-  ORIGINS            the closed vocabulary: `line-span` (the person's words, in the line or in an answer), `line-number` (a number written in it), `time-engine` (a time the engine of NR-1 read: the interpreter's source "code"), `time-model` (a time the MODEL decided: its source "model"; allowed for a start and an end pending the maintainer's decision, one word of `ALLOWED`), `config` (a name of the
+  ORIGINS            the closed vocabulary: `line-span` (the person's words, in the line or in an answer), `line-number` (a number written in it), `time-engine` (a time the engine of NR-1 read: the interpreter's source "code"), `time-model` (a time the MODEL decided: its source "model"; allowed for a start and an end by the maintainer's decision of 2026-10-26, "Certo, pode ser assim": the card's approval is the protection, until a later v3 package adds time-engine tables for es/fr/de/it; one word of `ALLOWED`), `config` (a name of the
                      accepted `accounts`, their default, the account of a registered source), `picked` (an option code listed and the person chose), `listed` (a number of a list code showed this sender),
                      `grounded` (an item code found by searching with a span of the line: the event ranking, the mail index match, the file search: the ITEM, never an address), `index-from` (a reply's recipient
                      from the index), `held` (a file this sender sent and the hold keeps), `card-copy` (a part copied by code from the card being revised), `composed` (the subject or the body of an e-mail worded by
@@ -352,7 +352,7 @@ _TEXTS = ("line-span", "card-copy")
 _WORDED = ("line-span", "composed", "card-copy")      # the text of an e-mail: the person's words, or the model's wording of them (never an address, never a title)
 _ITEMS = ("line-number", "listed", "picked", "grounded")
 _NAMES = ("config", "picked", "line-span", "card-copy")
-_TIMES = ("time-engine", "time-model", "card-copy")      # `time-model` is allowed pending the maintainer's decision (it keeps slice S1's behaviour: the card shows the time and is approved by hash); refusing it is deleting this word
+_TIMES = ("time-engine", "time-model", "card-copy")      # `time-model` is allowed by the maintainer's decision of 2026-10-26 ("Certo, pode ser assim"): it keeps slice S1's behaviour, the card shows the time and is approved by hash, until a later v3 package adds time-engine tables for es/fr/de/it so that code computes the date in every language; then refusing it is deleting this word
 # The origins an argument may have, by the key the operation's own function takes. A key with no row here is refused: the table is closed.
 ALLOWED = {
     "to": _ADDRESSEES, "cc": _ADDRESSEES, "bcc": _ADDRESSEES,
