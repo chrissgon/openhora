@@ -1,4 +1,4 @@
-"""The interpreter answers the router's bound question by a typed frame (slice S4, decision 229 (1); runtime/ops_say.py `_turn`, runtime/ops_interpret.py `router_frame`, `turn`).
+"""The interpreter answers the router's bound question by a typed frame (slice S4, decision 229 (1); runtime/ops_turn.py rows `router-question` and `interpreter`, runtime/ops_interpret.py `router_frame`, `turn`).
 
 A sender the interpreter reads, who has a router question bound to them, sends a plain line. The model is shown the line and ONE frame item, `i1`: its kind, its need
 (text) and its age, and nothing of the question - not its words, not its number. A stand-in model answers each line with a text this file wrote by hand; the spies stand in for

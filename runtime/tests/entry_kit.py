@@ -1,7 +1,7 @@
 """The scenario kit of the entry replay (package S41-1; PLAN-BRAIN section 4 step 1): one world, one pre-state, one line, one normalised outcome.
 
 THE POINT. Later packages (S41-2 and on) move the ORDER in which the claimers of a line (the bridge's `_handle` and `say`, the operations layer's `ops_say.say`, `_turn` and
-`ops_natural.take`) take it. Each must leave every outcome unchanged. This kit builds a scenario world on the real operations layer, the real messaging bridge and a stand-in messenger,
+`ops_natural.take`; since S41-3 the rows of the stage `ops` of runtime/turn_order.py, dispatched by `ops_turn.dispatch`) take it. Each must leave every outcome unchanged. This kit builds a scenario world on the real operations layer, the real messaging bridge and a stand-in messenger,
 puts it into a named pre-state, delivers one line (as a messaging update, or through `ops.say` for the page and the terminal), waits until every thread has settled and returns the
 outcome as plain data: the claimer trace, the operations called, the messages sent, the ledger records added, the drafts and plans left, the conversation rows stored, the jobs
 started, and the counts of model and provider calls. `entry_corpus.jsonl` holds the scenarios, `entry_golden.jsonl` the outcomes recorded on the old tree, and
@@ -57,6 +57,7 @@ ops_interpret = st.load("ops_interpret")
 ops_natural = st.load("ops_natural")
 ops_natural_writes = st.load("ops_natural_writes")
 ops_say = st.load("ops_say")
+ops_turn = st.load("ops_turn")
 ops_research = st.load("ops_research")
 ops_file_read = st.load("ops_file_read")
 ops_card_revise = st.load("ops_card_revise")
@@ -527,7 +528,7 @@ def trace_claimers(monkeypatch):
         rec().event("ops", "router-question" if answer_to is not None else "planning-agent")
         return original_route(project, ctx, said, line_id, channel, answer_to=answer_to, **kwargs)
     monkeypatch.setattr(ops_say, "_say_route", say_route)
-    original_turn = ops_say._turn
+    original_turn = ops_turn.dispatch      # S41-3: `ops_say._turn` is the stage `ops` of the table, dispatched by `ops_turn.dispatch`: the same arguments, the same tuple
 
     def turn(project, ctx, said, channel, line_id, sender=None, extras=None):
         recorder = rec()
@@ -538,7 +539,7 @@ def trace_claimers(monkeypatch):
             recorder.fact("turn_plan_live", channel == "messaging" and plan_confirm.live(project, sender) is not None)
             recorder.fact("turn_delete", channel == "messaging" and phone_delete.asks(said))
         return original_turn(project, ctx, said, channel, line_id, sender, extras)
-    monkeypatch.setattr(ops_say, "_turn", turn)
+    monkeypatch.setattr(ops_turn, "dispatch", turn)
 
 
 def infer_bridge(recorder, update) -> str:
@@ -558,7 +559,7 @@ def infer_bridge(recorder, update) -> str:
 
 
 def infer_ops(recorder) -> str:
-    """The name of the operations-layer claimer when the branch is inline in `_turn`: the facts of the turn."""
+    """The name of the operations-layer claimer when the branch is inline in the turn (`ops_turn.dispatch`): the facts of the turn."""
     facts = recorder.facts
     if "turn_said" not in facts:
         return ""
