@@ -283,7 +283,7 @@ GUARDS = {
                         S("pare", "research_running", reply_to="nothing"), S("pare", "research_running", platform="email"), S("pare\n\n-- \nAna", "research_running", platform="email", reply_to="card"),
                         S("pare", "card_last"), S("não", "card_last"), S("sim", "research_running"), S("sim", "research_running", reply_to="plan"), S("pare", "none")] +
                        [S(t, "research_and_card") for t in ("não", "pare", "sim", "no", "stop")] + [S("não", "research_and_card", reply_to="card"), S("pare", "research_and_card", platform="email")]),
-    "card_revise": ([S(t, "card_last") for t in ("Ajuste o corpo do email. Após \"Atenciosamente,\" coloque \"Christopher Gonçalves\"", "Muda o texto para dizer outra coisa", "muda para as 10h",
+    "card_revise": ([S(t, "card_last") for t in ("Ajuste o corpo do email. Após \"Atenciosamente,\" coloque \"Marina Tavares\"", "Muda o texto para dizer outra coisa", "muda para as 10h",
                                                  "hello there", "what time is it in Lisbon", "lembre-me de ligar amanha as 9h", "/pending", "sim", "aprovo", "não", "pode marcar")] +
                     [S("muda para as 10h", "card_last", reply_to="card"), S("muda para as 10h", "card_last", reply_to="nothing"), S("muda para as 10h", "card_last", forwarded=True),
                      S("muda para as 10h", "card_last", sender="reader"), S("muda para as 10h", "card_last", sender="group"), S("muda para as 10h", "two_cards"),
