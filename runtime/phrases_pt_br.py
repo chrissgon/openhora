@@ -665,6 +665,7 @@ TABLE = {
     "NW_MAIL_ASK_SUBJECT": "Qual o assunto do e-mail para {to}?",
     "NW_MAIL_ASK_BODY": "O que o e-mail para {to} deve dizer?",
     "NW_MAIL_ASK_BODY_REPLY": "O que a resposta deve dizer?",
+    "MC_REPLY_NOT_WORDED": "Não consegui redigir esta resposta; o card mostra as suas próprias palavras, como você escreveu. Confira o texto antes de aprovar.",
     "MC_ASK_BODY": "O que o e-mail para {to} deve dizer? Eu redijo o texto e você o vê no card. Para enviar suas palavras exatamente como escreveu, comece com \"texto exato:\".",
     "RV_FAILED": "Não consegui fazer esse ajuste. Diga de outro jeito ou rejeite o card.",
     "RV_RECIPIENTS": "Não consigo mudar quem recebe um e-mail ajustando o card. Rejeite este card e peça um novo e-mail para a pessoa certa.",

@@ -83,7 +83,7 @@ def test_every_listed_describing_verb_describes_the_text_as_the_first_word_and_a
     for verb in sorted(mail_reply_compose.HOW):
         assert described(f"{verb} the invitation", f"reply to Sam {verb} the invitation") is True, verb
         assert described("the invitation", f"reply to Sam {verb} the invitation") is True, verb
-        assert described(f"{verb} the invitation", f"reply to Sam. And now: {verb} the invitation") is True, verb
+        assert described(f"{verb} the invitation", f"reply to Sam. And now {verb} the invitation") is True, verb
 
 
 def test_every_listed_manner_phrase_describes_the_text_only_as_whole_words():
@@ -98,8 +98,8 @@ def test_every_listed_manner_phrase_describes_the_text_only_as_whole_words():
 def test_the_lists_are_written_folded_so_that_a_typed_line_can_match_them():
     for word in mail_reply_compose.SAY | mail_reply_compose.HOW | mail_reply_compose.JOINERS | set(mail_reply_compose.MANNER):
         assert word == natural.normal(word) and word, word
-    assert described("Agradecendo o convite", "Responde ao Sam: Agradecendo o convite") is True      # validate: allow english-only -- the Portuguese line under test: capitals and accents are folded
-    assert described("AGRADEÇA o convite", "responde ao Sam. AGRADEÇA o convite") is True      # validate: allow english-only -- the Portuguese line under test
+    assert described("Agradecendo o convite", "Responde ao Sam Agradecendo o convite") is True      # validate: allow english-only -- the Portuguese line under test: capitals and accents are folded
+    assert described("AGRADEÇA o convite", "responde ao Sam AGRADEÇA o convite") is True      # validate: allow english-only -- the Portuguese line under test
     assert described("with a Höflich tone", "reply to Sam with a Höflich tone") is True      # validate: allow english-only -- the German manner word, typed with its umlaut
 
 
@@ -109,6 +109,84 @@ def test_a_body_that_is_not_text_or_not_in_the_line_never_raises_and_is_not_desc
     assert described("agradecendo pelo convite", None) is True, "no line: the body alone decides (the word before is unknown)"      # validate: allow english-only -- the Portuguese body under test
     assert described("pelo convite", "responde a Marlene falando sobre outra coisa") is False      # validate: allow english-only -- a body that is not in the line has no word before it
     assert described("pelo convite", "pelo convite agradecendo") is False, "the body opens the line: no word before it"      # validate: allow english-only -- the Portuguese line under test
+
+
+# --- reported words stay literal behind a complementizer (finding 1) ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("body, line", [
+    ("confirme a reunião de amanhã", "responde a Marlene dizendo que confirme a reunião de amanhã"),      # validate: allow english-only -- the Portuguese line under test: an imperative after "dizendo que"
+    ("não vou, com jeitinho", "responde a Marlene dizendo que não vou, com jeitinho"),      # validate: allow english-only -- the Portuguese line under test: a manner phrase after "dizendo que"
+    ("que não vou, com jeitinho", "responde a Marlene falando que não vou, com jeitinho"),      # validate: allow english-only -- the Portuguese line under test: the span opens with the complementizer
+    ("agradeça o convite", "responde a Marlene dizendo a ela que agradeça o convite"),      # validate: allow english-only -- the Portuguese line under test: "dizendo a ela que"
+    ("I will gently remind the team", "reply to Sam saying that I will gently remind the team"),
+    ("thank them politely", "reply to Sam telling him that thank them politely"),
+    ("que confirmo, con cortesía", "responde a Sam diciendo que confirmo, con cortesía"),      # validate: allow english-only -- the Spanish line under test
+    ("confirmando la reunión", "responde a Sam diciendo que confirmando la reunión"),      # validate: allow english-only -- the Spanish line under test
+    ("je confirme poliment", "réponds à Paul en disant que je confirme poliment"),      # validate: allow english-only -- the French line under test: "en disant que"
+    ("qu'il confirme", "réponds à Paul en disant qu'il confirme"),      # validate: allow english-only -- the French line under test: "qu'il"
+    ("ich bestätige höflich", "antworte Paul sagend dass ich bestätige höflich"),      # validate: allow english-only -- the German line under test
+    ("confermando la data", "rispondi a Paolo dicendo che confermando la data"),      # validate: allow english-only -- the Italian line under test
+    ("che confermo gentilmente", "rispondi a Paolo dicendo che confermo gentilmente"),      # validate: allow english-only -- the Italian line under test
+])
+def test_anything_reported_after_a_say_verb_and_a_complementizer_stays_literal_in_six_languages(body, line):
+    assert described(body, line) is False
+
+
+def test_the_same_words_without_the_say_verb_are_described():
+    assert described("confirme a reunião de amanhã", "responde a Marlene confirme a reunião de amanhã") is True      # validate: allow english-only -- the Portuguese line under test
+    assert described("I will gently remind the team", "reply to Sam that I will gently remind the team") is True
+    assert described("confirmando la reunión", "responde a Sam confirmando la reunión") is True      # validate: allow english-only -- the Spanish line under test
+
+
+def test_a_say_verb_far_from_the_body_or_not_before_a_complementizer_does_not_protect_it():
+    assert described("agradecendo o convite", "dizendo que sim, responde a Marlene agradecendo o convite") is True      # validate: allow english-only -- the say verb is four words away and no complementizer joins it to the body
+
+
+# --- the literal marker in the line (finding 2) --------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("body, line", [
+    ("agradecendo pelo convite", "responde a Marlene texto exato: agradecendo pelo convite"),      # validate: allow english-only -- the Portuguese line under test
+    ("thanking you politely for the invite", "reply to Marlene, exact text: thanking you politely for the invite"),
+    ("con cortesía, gracias", "responde a Marlene texto exacto: con cortesía, gracias"),      # validate: allow english-only -- the Spanish line under test
+    ("remerciant poliment", "réponds à Paul texte exact : remerciant poliment"),      # validate: allow english-only -- the French line under test
+])
+def test_a_marker_in_the_line_before_the_body_keeps_it_literal_even_when_the_span_left_it_out(body, line):
+    assert described(body, line) is False
+
+
+def test_a_marker_after_the_body_or_a_body_not_found_in_the_line():
+    assert described("agradecendo pelo convite", "responde a Marlene agradecendo pelo convite. texto exato: x") is True      # validate: allow english-only -- the marker comes after the body: it says nothing about it
+    assert described("agradecendo pelo convite", "responde a Marlene texto exato: outra coisa") is False      # validate: allow english-only -- the body is not found as typed: a marker anywhere keeps the words literal
+
+
+# --- written words are literal (finding 3) -------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("body, line", [
+    ("thank you so much, see you Friday", "reply to Marlene: thank you so much, see you Friday"),
+    ("thank you!", "reply to Sam thank you!"),
+    ("thank u for the invite", "reply to Sam thank u for the invite"),
+    ("confirm receipt please", "reply to Bob: confirm receipt please"),
+    ("explica melhor o que você quer dizer?", "responde ao João: explica melhor o que você quer dizer?"),      # validate: allow english-only -- the Portuguese line under test
+    ("Obrigada pelo convite! Com carinho, Ana", "responde a Marlene: Obrigada pelo convite! Com carinho, Ana"),      # validate: allow english-only -- the Portuguese line under test
+    ("please kindly send the invoice", "reply to Bob: please kindly send the invoice"),
+    ("\"obrigado pelo convite, com carinho\"", "responde a Ana \"obrigado pelo convite, com carinho\""),      # validate: allow english-only -- the Portuguese line under test: a quoted body
+    ("obrigado pelo convite, com carinho", "responde a Ana \"obrigado pelo convite, com carinho\""),      # validate: allow english-only -- the span without its quotes: the quote stands right before it
+    ("thanks, kindly", "reply to Ana “thanks, kindly”"),
+    ("agradecendo e recusando", "responde a Ana 'agradecendo e recusando'"),      # validate: allow english-only -- a single-quoted text
+])
+def test_a_colon_or_a_quote_before_the_body_and_a_thank_you_are_written_words_and_stay_literal(body, line):
+    assert described(body, line) is False
+
+
+def test_the_controls_of_the_written_words_rules_still_describe():
+    assert described("agradecendo e recusando", "responde a Ana (agradecendo e recusando)") is True      # validate: allow english-only -- the Portuguese line under test: a bracket is not a dictation mark
+    assert described("thank her and say no politely", "reply to Ana thank her and say no politely") is True, "'thank her' is a description of a thanks"
+    assert described("thanking you politely", "reply to Ana thanking you politely") is True
+    assert described("l'ami, agradecendo", "responde a l'ami, agradecendo") is False, "the apostrophe inside a word is not a quote and 'agradecendo' is not the first word"      # validate: allow english-only -- an apostrophe inside a word
+    assert described("agradecendo", "responde a l'amie agradecendo") is True      # validate: allow english-only -- a word with an apostrophe before the body
 
 
 # --- the corpora ---------------------------------------------------------------------------------------------------------------------------------
@@ -131,7 +209,7 @@ def corpus_bodies():
 
 
 def flagged(items):
-    return [(item, body) for item, line, bodies in items for body in bodies if described(body, line)]
+    return [(item, body) for item, line, bodies in items for body in bodies if mail_reply_compose.described(body, line)]
 
 
 def test_no_reply_or_e_mail_body_gold_of_the_corpora_is_taken_for_a_description():
@@ -141,9 +219,18 @@ def test_no_reply_or_e_mail_body_gold_of_the_corpora_is_taken_for_a_description(
     assert flagged(items) == []
 
 
-def test_vacuity_the_corpus_loop_flags_a_planted_description_and_a_planted_one_inside_a_say_verb_stays_clean():
-    planted = [("planted-1", BLIND_LINE, [BLIND_BODY]), ("planted-2", "responde ao Carlos dizendo que aceito a proposta", ["aceito a proposta"])]      # validate: allow english-only -- the Portuguese lines under test
-    assert flagged(corpus_bodies() + planted) == [("planted-1", BLIND_BODY)]
+def test_vacuity_a_described_that_flags_everything_makes_the_corpus_test_fail_and_one_that_ignores_a_say_verb_makes_the_say_verb_test_fail(monkeypatch):
+    monkeypatch.setattr(mail_reply_compose, "described", lambda body, line: True)
+    assert len(flagged(corpus_bodies())) >= 44, "with the plant the corpus loop would fail"
+    assert mail_reply_compose.described("aceito a proposta", "responde ao Carlos dizendo que aceito a proposta") is True      # validate: allow english-only -- the Portuguese line under test: the plant calls reported words a description
+    monkeypatch.undo()
+    monkeypatch.setattr(mail_reply_compose, "SAY", frozenset())
+    assert mail_reply_compose.described("confirme a reunião de amanhã", "responde a Marlene dizendo que confirme a reunião de amanhã") is True, "without the say verbs the imperative is described: the finding-1 tests would fail"      # validate: allow english-only -- the Portuguese line under test
+    monkeypatch.undo()
+    monkeypatch.setattr(mail_reply_compose, "COMPLEMENTIZERS", frozenset())
+    assert mail_reply_compose.described("não vou, com jeitinho", "responde a Marlene dizendo que não vou, com jeitinho") is True, "without the complementizers the say verb two words back no longer protects"      # validate: allow english-only -- the Portuguese line under test
+    monkeypatch.undo()
+    assert mail_reply_compose.described("não vou, com jeitinho", "responde a Marlene dizendo que não vou, com jeitinho") is False      # validate: allow english-only -- the Portuguese line under test
 
 
 # --- validate for a reply ------------------------------------------------------------------------------------------------------------------------

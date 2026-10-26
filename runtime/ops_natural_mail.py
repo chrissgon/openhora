@@ -18,7 +18,9 @@ What is decided here, and from where:
     model when the text was described to the interpreter or answered to the body question and composing is on for the sender: runtime/mail_compose.py, S7; a name asks for its address, and no mailbox, snapshot or index is
     searched for one); a reply and a reply draft take no recipient: the operation takes it from the index of the message answered (limit L60), never from a body. BL7-2: the body of a
     reply or a reply draft that DESCRIBES the text ("thanking her and explaining politely...", `mail_reply_compose.described`) may be worded too, from the person's own words alone
-    (the composer never sees the message answered, its sender, its subject or the recipient); a body after a say verb ("saying that...") or the literal marker is the text as written;
+    (the composer never sees the message answered, its sender, its subject or the recipient); words reported after a say verb ("saying that...", "en disant que..."), after a colon or an opening quote, or after the literal
+    marker ("exact text:", in the body or in the line before it) are the text as written, and the marker itself is never part of a reply's text; when a described reply could not be worded (a limit, the breaker, a failed or refused call, a
+    changed prompt, no right to interpret) the card shows the person's own words and the reply carries one line that says so (`MC_REPLY_NOT_WORDED`);
   * a message is `<source>#<n>` from digits the person wrote, from the source the person wrote, the one registered mail source of the account, or the one the person chose; or
     it is found BY WORDS in the index of the newest snapshot: the words after "do/da/from" must all be whole words of the message's from-address or subject; a singular
     object needs exactly one match (several are listed, up to five, and asked), a plural object takes every match up to 20 (more are asked);
@@ -373,10 +375,17 @@ def _reference_args(ctx: dict, op: str, slots: dict, channel, sender):
     if reply:
         if not slots.get("body"):
             return _ask("body", "NW_MAIL_ASK_BODY_REPLY")
-        said_text = slots["body"]
-        if slots.get("_compose_reply"):          # BL7-2: the person described the reply (`mail_reply_compose.described`): the model words it from the person's own words alone, never the message answered
-            said_text = mail_reply_compose.text(ctx, channel, sender, said_text)
-        return {"args": {"account": account, "message": refs[0], **({"text": said_text} if op == "mail-reply" else {"body": said_text})}}
+        said_text, literal = mail_compose.strip_marker(slots["body"])          # the marker of a literal text ("exact text:") is never part of an e-mail, and a body that was marked is never worded
+        if not said_text.strip():
+            return _ask("body", "NW_MAIL_ASK_BODY_REPLY")          # "exact text:" with nothing after it
+        notice = None
+        if slots.get("_compose_reply") and not literal:          # BL7-2: the person described the reply (`mail_reply_compose.described`): the model words it from the person's own words alone, never the message answered
+            said_text, composed = mail_reply_compose.worded(ctx, channel, sender, said_text)
+            notice = None if composed else "MC_REPLY_NOT_WORDED"          # the card shows the person's own words: the reply says so
+        out = {"args": {"account": account, "message": refs[0], **({"text": said_text} if op == "mail-reply" else {"body": said_text})}}
+        if notice:
+            out["notice"] = notice
+        return out
     args = {"account": account, "messages": ",".join(refs)}
     if op == "mail-move":
         name, ask = _folder(ctx, account, slots)

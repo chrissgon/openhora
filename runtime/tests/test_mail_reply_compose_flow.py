@@ -41,6 +41,7 @@ ops_interpret = st.load("ops_interpret")
 ops_natural_mail = st.load("ops_natural_mail")
 ops_natural_writes = st.load("ops_natural_writes")
 ops_step_effects = st.load("ops_step_effects")
+phrases = st.load("phrases")
 
 MARLENE = "marlene.duarte@familia.example"
 JOAO = "joao@outro.example"
@@ -126,6 +127,7 @@ def test_the_blind_shape_opens_a_reply_card_to_the_from_of_the_matching_message_
     assert f"Subject: Re: {SUBJECT}" in lines and not any("Convite de aniversário" in line for line in lines), "the subject is the message's own: the model's is dropped"      # validate: allow english-only -- the stand-in model's Portuguese subject
     assert text_of(lines) == COMPOSED_BODY.split("\n"), "the card shows the whole text the stand-in wrote"
     assert [c["kind"] for c in model.calls] == ["interpret", "compose"]
+    assert phrases.text("MC_REPLY_NOT_WORDED", ops_core.context(world["path"])["cfg"]) not in out["reply"], "a worded reply carries no notice"
     nothing_sent(world)
 
 
@@ -214,11 +216,49 @@ def test_a_dictated_body_makes_no_compose_call_and_the_card_holds_the_persons_wo
     nothing_sent(world)
 
 
-def test_the_literal_marker_makes_no_compose_call(world, clock, monkeypatch):
+def test_the_literal_marker_makes_no_compose_call_and_is_not_part_of_the_text(world, clock, monkeypatch):
     marked = "texto exato: agradecendo pelo convite"      # validate: allow english-only -- the Portuguese span under test
     model = prepare(world, monkeypatch, interpret=op("mail-reply", {"target": "Marlene", "body": marked}))
     out = phone(world, "olha, responde a Marlene texto exato: agradecendo pelo convite")      # validate: allow english-only -- the Portuguese line under test
-    assert out["resend"] and text_of(card_lines(world, out)) == [marked] and model.of("compose") == []
+    assert out["resend"] and model.of("compose") == []
+    assert text_of(card_lines(world, out)) == ["agradecendo pelo convite"], "the marker is removed and the words are sent as written"      # validate: allow english-only -- the Portuguese span under test
+    assert "texto exato" not in json.dumps(effect_doc(world, out), ensure_ascii=False) and "texto exato" not in card(world, out)      # validate: allow english-only -- the Portuguese marker under test
+
+
+def test_a_marker_in_the_line_that_the_interpreters_span_left_out_keeps_the_words_literal(world, clock, monkeypatch):
+    model = prepare(world, monkeypatch, interpret=op("mail-reply", {"target": "Marlene", "body": "agradecendo pelo convite"}))      # validate: allow english-only -- the Portuguese span under test
+    out = phone(world, "olha, responde a Marlene texto exato: agradecendo pelo convite")      # validate: allow english-only -- the Portuguese line under test
+    assert out["resend"] and model.of("compose") == [] and text_of(card_lines(world, out)) == ["agradecendo pelo convite"]      # validate: allow english-only -- the Portuguese span under test
+    assert not any("MC_REPLY_NOT_WORDED" in line for line in card_lines(world, out)) and "could not word" not in out["reply"] and "Não consegui redigir" not in out["reply"]      # validate: allow english-only -- the Portuguese notice under test: a literal text is no failure
+
+
+def test_a_marker_with_nothing_after_it_asks_for_the_body_and_opens_no_card(world, clock, monkeypatch):
+    model = prepare(world, monkeypatch, interpret=op("mail-reply", {"target": "Marlene", "body": "texto exato:"}))      # validate: allow english-only -- the Portuguese span under test
+    out = phone(world, "olha, responde a Marlene texto exato:")      # validate: allow english-only -- the Portuguese line under test
+    cfg = ops_core.context(world["path"])["cfg"]
+    assert not out.get("resend") and out["reply"] == phrases.text("NW_MAIL_ASK_BODY_REPLY", cfg) and model.of("compose") == []
+
+
+@pytest.mark.parametrize("body, line, language", [
+    ("confirme a reunião de amanhã", "olha, responde a Marlene dizendo que confirme a reunião de amanhã", "pt-BR"),      # validate: allow english-only -- the Portuguese line under test: an imperative the person dictates
+    ("não vou, com jeitinho", "olha, responde a Marlene dizendo que não vou, com jeitinho", "pt-BR"),      # validate: allow english-only -- the Portuguese line under test: a manner phrase the person dictates
+    ("I will gently remind the team", "look, reply to Marlene saying that I will gently remind the team", "en"),
+])
+def test_words_after_a_say_verb_and_a_complementizer_are_literal_even_when_they_would_be_described_without_it(world, clock, monkeypatch, body, line, language):
+    model = prepare(world, monkeypatch, interpret=op("mail-reply", {"target": "Marlene", "body": body}), language=language)
+    out = phone(world, line)
+    assert out["resend"], out["reply"]
+    assert text_of(card_lines(world, out)) == [body] and model.of("compose") == []
+    without = line.replace(" dizendo que", "").replace(" saying that", "")
+    assert mail_reply_compose.described(body, without) is True, "the control: the same words with no say verb are a description"
+
+
+def test_a_thank_you_written_to_the_recipient_is_literal(world, clock, monkeypatch):
+    body = "thank you so much, see you Friday"
+    model = prepare(world, monkeypatch, interpret=op("mail-reply", {"target": "Marlene", "body": body}), language="en")
+    out = phone(world, "look, reply to Marlene: thank you so much, see you Friday")
+    assert out["resend"], out["reply"]
+    assert text_of(card_lines(world, out)) == [body] and model.of("compose") == []
 
 
 # --- the fallbacks (guard 7) ---------------------------------------------------------------------------------------------------------------------
@@ -228,6 +268,11 @@ def assert_persons_words_on_a_card(world, model, out, calls):
     assert out["resend"], out["reply"]
     assert text_of(card_lines(world, out)) == [BODY]
     assert len(model.of("compose")) == calls
+    cfg = ops_core.context(world["path"])["cfg"]
+    notice = phrases.text("MC_REPLY_NOT_WORDED", cfg)
+    assert notice.startswith("Não consegui redigir esta resposta") and out["reply"].count(notice) == 1, "one line says the text could not be worded and the card shows the person's own words"      # validate: allow english-only -- the pt-BR notice under test
+    assert out["reply"].splitlines()[0] == notice
+    assert phrases.text("MC_REPLY_NOT_WORDED", {"language": "en"}).startswith("I could not word this reply")
     nothing_sent(world)
 
 
@@ -301,6 +346,7 @@ def test_a_sender_without_the_group_interpret_gets_the_persons_words_and_no_mode
     assert seed["slots"]["_compose_reply"] is True
     out = ops_natural_mail.resolve(ctx, "mail-reply", seed["slots"], "messaging", BARE, LINE)
     assert out["args"]["text"] == BODY and out["args"]["message"] == "inbox#1" and model.calls == []
+    assert out["notice"] == "MC_REPLY_NOT_WORDED", "no right to interpret: the person's words, and the reply says so"
 
 
 def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_on(world, clock, monkeypatch, tmp_path):
