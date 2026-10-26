@@ -203,6 +203,52 @@ def test_a_budget_belongs_to_its_thread(reads):
     assert answers["own turn"] is True, "two lines at once, each with a budget of its own: the same source may be read once by each"
 
 
+def test_a_cooling_source_costs_the_line_nothing(reads):
+    """`mail_refresh.refresh_once` asks `_cooling(key)` BEFORE the gate: a source that failed lately answers "spent" without spending the one mail-lookup grant of the line, so a second stale mail
+    source of the same line is still read. With the gate asked first, the cooling source would take the grant and `work` would never be read."""
+    with turn_gate.turn():
+        mail_refresh._FAILED[("demo", "inbox")] = mail_refresh.MONOTONIC()
+        assert mail_lookup("inbox") == "spent"
+        assert reads.mail_grants == 0 and reads.sources == [], "the cooling source asked no grant and read nothing"
+        assert mail_lookup("work") == "refreshed", "a cooling source left the mail-lookup budget unspent"
+    assert reads.sources == ["work"] and reads.mail_grants == 1
+
+
+def test_a_failed_list_read_keeps_its_old_note_on_a_second_list_of_the_line(reads, monkeypatch):
+    """The gate refuses the second read of a source in a line; a read of this line that FAILED leaves the snapshot old, so the second list still says so (`_refresh_failed` returns True)."""
+    def failing(project, source_id, *args, **kwargs):
+        reads.sources.append(source_id)
+        raise RuntimeError("provider down")
+    monkeypatch.setattr(ops_sources, "source_refresh", failing)
+    with turn_gate.turn():
+        assert stale_list("agenda") is True, "the first list of the line: the read failed, the list is marked old"
+        assert stale_list("agenda") is True, "the second list of the same line: no second read, and the same note"
+        assert stale_list("work") is True and stale_list("work") is True, "each source on its own"
+    assert reads.sources == ["agenda", "work"], "one read for each source"
+    assert getattr(turn_gate._TURN, "budget", None) is None
+    assert turn_gate.failed_in_turn("agenda") is False, "outside a turn nothing is remembered"
+    turn_gate.mark_failed("agenda")
+    assert turn_gate.failed_in_turn("agenda") is False, "marking outside a turn is a no-op"
+
+
+def test_a_read_that_worked_or_was_never_made_is_not_old_and_a_failure_does_not_pass_to_the_next_line(reads, monkeypatch):
+    with turn_gate.turn():
+        assert stale_list("agenda") is False, "the read worked"
+        assert stale_list("agenda") is False, "the second list of the line: nothing was needed, as before"
+        assert turn_gate.failed_in_turn("agenda") is False
+    real = ops_sources.source_refresh
+
+    def failing(project, source_id, *args, **kwargs):
+        raise RuntimeError("provider down")
+    monkeypatch.setattr(ops_sources, "source_refresh", failing)
+    with turn_gate.turn():
+        assert stale_list("work") is True
+    monkeypatch.setattr(ops_sources, "source_refresh", real)
+    with turn_gate.turn():
+        assert turn_gate.failed_in_turn("work") is False, "the next line starts clean"
+        assert stale_list("work") is False, "and its read works"
+
+
 # --- the entry points open the turn ------------------------------------------------------------------------------------------------------------------
 
 
@@ -367,19 +413,125 @@ def test_vacuity_a_gate_that_always_says_no_leaves_a_stale_list_unread_and_the_s
 
 
 # --- by source ----------------------------------------------------------------------------------------------------------------------------------------
+# The scans below read the SOURCE TEXT of a module (a function of the text, so that the controls can plant a bypass in a copy of a real module and require it to be flagged).
+
+BUDGET_MODULES = ("threading", "contextvars", "_thread")
+BUDGET_NAMES = ("local", "ContextVar")
+PROVIDER_NAMES = {"snapshot_refresh", "snapshot_new", "source_mail", "source_calendar", "_snapshot"}      # the source operations' own way to the provider (`ops_sources._snapshot` and `sources_mail.snapshot_*`)
+PROVIDER_HOMES = ("ops_sources.py", "sources_mail.py")
+SKIPS = (ast.Return, ast.Continue, ast.Raise)
 
 
 def calls_in(node, attr):
     return sorted(n.lineno for n in ast.walk(node) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == attr)
 
 
+def thread_locals(text):
+    """The lines that make a thread-local or a context variable, by name: `threading.local()`, `ContextVar(...)`, and `local()` after `from threading import local` (aliases included)."""
+    tree = ast.parse(text)
+    modules, names = {}, {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update({a.asname or a.name: a.name for a in node.names if a.name in BUDGET_MODULES})
+        elif isinstance(node, ast.ImportFrom) and node.module in BUDGET_MODULES:
+            names.update({a.asname or a.name: a.name for a in node.names if a.name in BUDGET_NAMES})
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute) and func.attr in BUDGET_NAMES and isinstance(func.value, ast.Name) and func.value.id in modules:
+            found.append(node.lineno)
+        elif isinstance(func, ast.Name) and func.id in names:
+            found.append(node.lineno)
+    return found
+
+
+class Names(ast.NodeVisitor):
+    """Where any of the names `wanted` stands in a module (a call, an attribute, an import, a definition or a string): the function it is in, or <module>, <import>, <table>."""
+
+    def __init__(self, module, wanted):
+        self.module, self.wanted, self.stack, self.found = module, set(wanted), [], []
+
+    def here(self):
+        return self.stack[-1] if self.stack else "<module>"
+
+    def visit_FunctionDef(self, node):
+        if node.name in self.wanted:
+            self.found.append((self.module, self.here()))
+        self.stack.append(node.name)
+        self.generic_visit(node)
+        self.stack.pop()
+
+    def visit_Attribute(self, node):
+        if node.attr in self.wanted:
+            self.found.append((self.module, self.here()))
+        self.generic_visit(node)
+
+    def visit_Name(self, node):
+        if node.id in self.wanted:
+            self.found.append((self.module, self.here()))
+
+    def visit_ImportFrom(self, node):
+        if any(a.name in self.wanted for a in node.names):
+            self.found.append((self.module, "<import>"))
+
+    def visit_Constant(self, node):
+        if isinstance(node.value, str) and node.value in self.wanted:
+            self.found.append((self.module, "<table>"))
+
+
+def names_in(text, module, wanted):
+    visitor = Names(module, wanted)
+    visitor.visit(ast.parse(text))
+    return set(visitor.found)
+
+
+def reading_calls(node):
+    return sorted(n.lineno for n in ast.walk(node) if isinstance(n, ast.Call) and ((isinstance(n.func, ast.Attribute) and n.func.attr == "source_refresh")
+                                                                                   or (isinstance(n.func, ast.Name) and n.func.id == "refresh_one")))
+
+
+def guard_problems(text, function):
+    """What is wrong with the way `function` of the module text asks the gate before it reads: `turn_gate.may_refresh` must be the test (or a part of the boolean test) of an `if` whose body
+    ends in a return, a continue or a raise, that stands before every read, and every call of it must be inside such a test, negated (`not`: the skip is taken when the gate refuses): a call whose
+    answer is ignored, or an if that skips when the gate allows, guards nothing."""
+    tree = ast.parse(text)
+    found = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == function]
+    if len(found) != 1:
+        return [f"{function} is not one function"]
+    node = found[0]
+    asks = [n for n in ast.walk(node) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "may_refresh"]
+    reads = reading_calls(node)
+    problems = []
+    if not asks:
+        problems.append("it never asks the gate")
+    if not reads:
+        problems.append("no read found: the scan does not see the path")
+    if any(not (isinstance(c.func.value, ast.Name) and c.func.value.id == "turn_gate") for c in asks):
+        problems.append("it asks through a name other than turn_gate")
+    guards = [n for n in ast.walk(node) if isinstance(n, ast.If) and n.body and isinstance(n.body[-1], SKIPS)
+              and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "may_refresh" for c in ast.walk(n.test))]
+    guarded = {id(c) for g in guards for c in ast.walk(g.test)}
+    refused = {id(u.operand) for g in guards for u in ast.walk(g.test) if isinstance(u, ast.UnaryOp) and isinstance(u.op, ast.Not)}      # `not turn_gate.may_refresh(...)`: skip when refused
+    for call in asks:
+        if id(call) not in guarded:
+            problems.append(f"line {call.lineno}: the gate's answer is ignored (it is not the test of an if that skips the read)")
+        elif id(call) not in refused:
+            problems.append(f"line {call.lineno}: the skip is taken when the gate allows, not when it refuses (the answer is not negated)")
+    for line in reads:
+        if not any(g.end_lineno < line for g in guards):
+            problems.append(f"line {line}: a read with no gate-guarded skip before it")
+    return problems
+
+
 def test_only_the_gate_creates_a_refresh_budget():
     held = {}
     for path in sorted(RUNTIME.glob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call) and ast.unparse(node.func) == "threading.local":
-                held.setdefault(path.name, []).append(node.lineno)
-    assert set(held) == {"messaging_bridge.py", "ops_actor.py", "ops_core.py", "turn_gate.py"}, f"a new thread-local needs a reading: is it a refresh budget? {held}"
+        lines = thread_locals(path.read_text(encoding="utf-8"))
+        if lines:
+            held[path.name] = lines
+    assert set(held) == {"messaging_bridge.py", "ops_actor.py", "ops_core.py", "turn_gate.py"}, f"a new thread-local or context variable needs a reading: is it a refresh budget? {held}"
     for name in ("event_lookup.py", "ops_items.py", "mail_refresh.py", "ops_natural_mail.py"):
         assert name not in held and "_LOCAL" not in source_of(name), f"{name} holds no budget of its own"
 
@@ -388,14 +540,18 @@ PATHS = (("event_lookup.py", "refresh"), ("ops_items.py", "_refresh_failed"), ("
 
 
 @pytest.mark.parametrize("name,function", PATHS)
-def test_each_path_asks_the_gate_before_it_reads(name, function):
-    node = function_of(name, function)
-    asked = calls_in(node, "may_refresh")
-    assert asked, f"{name} {function} calls turn_gate.may_refresh"
-    reading = sorted(n.lineno for n in ast.walk(node) if (isinstance(n, ast.Call) and ((isinstance(n.func, ast.Attribute) and n.func.attr == "source_refresh")
-                                                                                          or (isinstance(n.func, ast.Name) and n.func.id == "refresh_one"))))
-    assert reading and min(asked) < min(reading), f"{name} {function}: the gate is asked (line {min(asked)}) before the first read (line {min(reading) if reading else None})"
-    assert all(isinstance(n.func.value, ast.Name) and n.func.value.id == "turn_gate" for n in ast.walk(node) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "may_refresh")
+def test_each_path_asks_the_gate_before_it_reads_and_the_answer_guards_the_read(name, function):
+    assert guard_problems(source_of(name), function) == []
+
+
+def test_the_mail_lookup_asks_the_gate_after_its_cooldown_so_a_cooling_source_costs_the_line_nothing():
+    """The order of `_cooling(key) or not turn_gate.may_refresh(...)` is load-bearing (see test_a_cooling_source_costs_the_line_nothing): the cooldown comes first."""
+    node = function_of("mail_refresh.py", "refresh_once")
+    tests = [n.test for n in ast.walk(node) if isinstance(n, ast.If) and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "may_refresh" for c in ast.walk(n.test))]
+    assert len(tests) == 1 and isinstance(tests[0], ast.BoolOp) and isinstance(tests[0].op, ast.Or)
+    first, second = tests[0].values
+    assert isinstance(first, ast.Call) and ast.unparse(first.func) == "_cooling", "the cooldown is asked first"
+    assert "may_refresh" in ast.unparse(second)
 
 
 def test_the_phone_only_condition_of_the_fresh_lists_stays_before_the_gate():
@@ -406,43 +562,77 @@ def test_the_phone_only_condition_of_the_fresh_lists_stays_before_the_gate():
     assert "phone and _refresh_failed(" in line, "S15: a list for the terminal, the conversation or the page reads the provider never (the phone condition is asked first)"
 
 
-class Names(ast.NodeVisitor):
-    """Where the name `source_refresh` stands in a module: the function it is in, or <import> / <table> for an import and a string."""
-
-    def __init__(self, module):
-        self.module, self.stack, self.found = module, [], []
-
-    def visit_FunctionDef(self, node):
-        self.stack.append(node.name)
-        self.generic_visit(node)
-        self.stack.pop()
-
-    def visit_Attribute(self, node):
-        if node.attr == "source_refresh":
-            self.found.append((self.module, self.stack[-1] if self.stack else "<module>"))
-        self.generic_visit(node)
-
-    def visit_ImportFrom(self, node):
-        if any(a.name == "source_refresh" for a in node.names):
-            self.found.append((self.module, "<import>"))
-
-    def visit_Constant(self, node):
-        if node.value == "source_refresh":
-            self.found.append((self.module, "<table>"))
-
-
 def test_the_provider_read_is_reached_from_a_persons_line_by_these_three_paths_and_by_nothing_else():
     """Probe 1 of the review: every place the runtime's code names `source_refresh`, with the function it stands in. The typed operation (the table's row and its export), the routine's `ingest`
     step and the definition itself are not a line's refresh: none of them asks the gate."""
     found = set()
     for path in sorted(RUNTIME.glob("*.py")):
-        visitor = Names(path.name)
-        visitor.visit(ast.parse(path.read_text(encoding="utf-8")))
-        found |= set(visitor.found)
+        found |= names_in(path.read_text(encoding="utf-8"), path.name, {"source_refresh"})
     assert found == {("event_lookup.py", "refresh"), ("mail_refresh.py", "refresh_once"), ("ops.py", "<import>"), ("operations.py", "<table>"), ("ops_items.py", "_refresh_failed"),
-                     ("step_ingest.py", "_ingest")}, sorted(found)
+                     ("ops_sources.py", "<module>"), ("step_ingest.py", "_ingest")}, sorted(found)
     for name in ("ops_sources.py", "operations.py", "step_ingest.py"):
         assert "turn_gate" not in source_of(name), f"{name} is not a line's refresh and never asks the gate"
+
+
+OTHER_NAMES_OF_THE_SAME_WORDS = {("operations.py", "<table>"),      # the rows `source-mail` and `source-calendar` of the table of operations (typed, terminal and page)
+                                 ("ops.py", "<import>"),      # the export of the two typed operations
+                                 ("ops.py", "<module>"), ("ops.py", "poll"), ("ops_runs.py", "_pass")}      # `ops._snapshot`: the dispatcher's own snapshot of the keys, a different function of the same name
+
+
+def test_the_ways_to_the_provider_are_named_only_in_the_source_operations():
+    """The reads a line may make are the three paths above through `source_refresh`. The source operations' own ways to the provider (`snapshot_refresh`, `snapshot_new`, `source_mail`,
+    `source_calendar`, `ops_sources._snapshot`) are named in `ops_sources.py` and `sources_mail.py` and nowhere else but the typed operations' table and export (and an unrelated `_snapshot`)."""
+    found = set()
+    for path in sorted(RUNTIME.glob("*.py")):
+        if path.name not in PROVIDER_HOMES:
+            found |= names_in(path.read_text(encoding="utf-8"), path.name, PROVIDER_NAMES)
+    assert found == OTHER_NAMES_OF_THE_SAME_WORDS, sorted(found ^ OTHER_NAMES_OF_THE_SAME_WORDS)
+
+
+# --- the controls of the scans: a bypass planted in a copy of a real module is flagged ------------------------------------------------------------------
+
+
+def planted(name, old, new):
+    text = source_of(name)
+    assert old in text, (name, old)
+    return text.replace(old, new, 1)
+
+
+def test_the_scans_flag_a_budget_made_with_a_bare_local_a_context_variable_or_an_alias():
+    assert thread_locals(source_of("ops_items.py")) == []
+    assert thread_locals(source_of("ops_items.py") + "\nfrom threading import local\n_BUDGET = local()\n"), "`from threading import local` then `local()`"
+    assert thread_locals(source_of("ops_items.py") + "\nfrom threading import local as tl\n_BUDGET = tl()\n"), "an alias"
+    assert thread_locals(source_of("ops_items.py") + "\nimport threading as t\n_BUDGET = t.local()\n"), "a module alias"
+    assert thread_locals(source_of("ops_items.py") + "\nfrom contextvars import ContextVar\n_BUDGET = ContextVar('budget')\n"), "a context variable"
+    assert thread_locals(source_of("turn_gate.py")) != [], "the control: the gate's own budget is seen"
+    assert thread_locals(source_of("reminders.py")) == [], "a parameter that is called `local` is not a thread-local"
+
+
+def test_the_scans_flag_a_planted_way_to_the_provider():
+    bypass = '\n\ndef _planted(project):\n    return importlib.import_module("sources_mail").snapshot_refresh(project, "inbox")\n'
+    for name in ("ops_items.py", "mail_refresh.py", "event_lookup.py"):
+        found = names_in(source_of(name) + bypass, name, PROVIDER_NAMES)
+        assert (name, "_planted") in found, name
+        assert names_in(source_of(name), name, PROVIDER_NAMES) == set(), f"the control: {name} as it is names none"
+    assert (("ops_items.py", "_planted") in names_in(source_of("ops_items.py") + bypass.replace("snapshot_refresh", "source_mail"), "ops_items.py", PROVIDER_NAMES))
+    assert (("ops_items.py", "_planted") in names_in(source_of("ops_items.py") + "\n\ndef _planted(ctx):\n    return ops_sources._snapshot(ctx)\n", "ops_items.py", PROVIDER_NAMES))
+
+
+def test_the_scan_flags_a_gate_that_is_called_and_ignored_one_that_guards_nothing_and_a_read_before_it():
+    clean = {"event_lookup.py": "refresh", "ops_items.py": "_refresh_failed", "mail_refresh.py": "refresh_once"}
+    for name, function in clean.items():
+        assert guard_problems(source_of(name), function) == [], f"the control: {name} as it is"
+    ignored = planted("event_lookup.py", '        if not turn_gate.may_refresh(source["id"], "calendar-miss"):\n            continue\n', '        turn_gate.may_refresh(source["id"], "calendar-miss")\n')
+    assert any("ignored" in p for p in guard_problems(ignored, "refresh")), "the gate is called and its answer ignored"
+    passing = planted("ops_items.py", 'if not turn_gate.may_refresh(source_id, "list-fresh"):', 'if turn_gate.may_refresh(source_id, "list-fresh"):')
+    assert guard_problems(passing, "_refresh_failed") != [], "an if whose body does not skip the read (the answer is inverted)"
+    after = planted("mail_refresh.py", '    if _cooling(key) or not turn_gate.may_refresh(source_id, "mail-lookup"):', '    if _cooling(key):')
+    assert guard_problems(after, "refresh_once") != [], "no ask at all"
+    late = planted("event_lookup.py", '        if not turn_gate.may_refresh(source["id"], "calendar-miss"):\n            continue\n        try:\n            refresh_one(project, source["id"])',
+                   '        try:\n            refresh_one(project, source["id"])')
+    assert guard_problems(late, "refresh") != [], "a read with no ask"
+    other = planted("ops_items.py", 'turn_gate.may_refresh(source_id, "list-fresh")', 'gate.may_refresh(source_id, "list-fresh")')
+    assert any("other than turn_gate" in p for p in guard_problems(other, "_refresh_failed"))
 
 
 def test_a_typed_source_refresh_outside_a_turn_still_works(world, snaps, clock):  # noqa: F811

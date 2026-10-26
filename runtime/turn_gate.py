@@ -61,7 +61,10 @@ do it, each for one purpose; before S41-6 each held a budget of its own (the cal
                                closed: a typed `source-refresh`, the routine's `ingest` and a test that calls a path directly have no turn and read nothing here; the typed command is not a line's
                                refresh and never asks the gate); False when the source was already read in this turn, for any purpose; for "mail-lookup" also False when a mail lookup already read in this
                                turn (the BL5E rule: one provider read for a line). A True marks the source (and the mail lookup) as spent, so the caller reads exactly once. It never reads a provider itself.
-                               Callers: `event_lookup.refresh`, `ops_items._refresh_failed`, `mail_refresh.refresh_once`.
+                               Callers: `event_lookup.refresh`, `ops_items._refresh_failed`, `mail_refresh.refresh_once`. A path that asks only when it would otherwise read must ask AFTER its own
+                               checks that cost the line nothing (`mail_refresh` asks after its cooldown: a source that is cooling must not spend the one mail-lookup grant).
+  mark_failed(source_id)       the line's read of `source_id` failed: remembered for this turn only (a no-op outside a turn), so that a second list of the same line, whose read the gate refuses, still
+  failed_in_turn(source_id)    says the snapshot is old (`ops_items._refresh_failed` returns it); False outside a turn and for a source whose read did not fail in this turn.
 
 What stays with each path: the age of a snapshot and the phone-only condition of the fresh lists (`ops_items`), the per-source lock and the 120 s cooldown of the mail lookup (`mail_refresh`): they are not
 per-turn rules. A refreshed snapshot is read for one line and never a task's input (L53): nothing here touches `task_copies`.
@@ -249,7 +252,7 @@ def number_believed(line, number) -> bool:
 # --- section 3: one refresh per turn (L52, L53) --------------------------------------------------------------------------------------------------------
 
 REFRESH_PURPOSES = ("calendar-miss", "list-fresh", "mail-lookup")
-_TURN = threading.local()      # the budget of the line this thread runs: {"sources": set of source ids, "mail_lookup": bool}, or nothing
+_TURN = threading.local()      # the budget of the line this thread runs: {"sources": set of source ids, "mail_lookup": bool, "failed": set of source ids whose read failed}, or nothing
 
 
 @contextlib.contextmanager
@@ -257,7 +260,7 @@ def turn():
     """The refresh budget of one line on this thread. The outermost `with` creates it and clears it on exit, whatever the way out; an inner one (the same line, the same thread) reuses it."""
     outer = getattr(_TURN, "budget", None) is None
     if outer:
-        _TURN.budget = {"sources": set(), "mail_lookup": False}
+        _TURN.budget = {"sources": set(), "mail_lookup": False, "failed": set()}
     try:
         yield
     finally:
@@ -277,6 +280,19 @@ def may_refresh(source_id, purpose) -> bool:
     if purpose == "mail-lookup":
         budget["mail_lookup"] = True
     return True
+
+
+def mark_failed(source_id) -> None:
+    """Remember that the line's read of `source_id` failed (see the section's text); nothing outside a turn."""
+    budget = getattr(_TURN, "budget", None)
+    if budget is not None and isinstance(source_id, str) and source_id:
+        budget["failed"].add(source_id)
+
+
+def failed_in_turn(source_id) -> bool:
+    """Whether the line's read of `source_id` failed in this turn: False outside a turn."""
+    budget = getattr(_TURN, "budget", None)
+    return budget is not None and source_id in budget["failed"]
 
 
 if __name__ == "__main__":

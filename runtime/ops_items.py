@@ -197,7 +197,8 @@ def mark_changed(ctx: dict, doc) -> None:
 
 def _refresh_failed(project: str, ctx: dict, source_id: str) -> bool:
     """Read a source again once when the later of its newest snapshot and its last check is older than FRESH_S (or there is none, or its time cannot be trusted). True when that read failed
-    (one line to stderr with a word of CLOSED_WHY; the provider's words are dropped); False when nothing was needed or it worked, and then the check is remembered. The provider is reached
+    (one line to stderr with a word of CLOSED_WHY; the provider's words are dropped), and again for a second list of the same line whose read the gate refuses (the snapshot is still old: the note stays);
+    False when nothing was needed or it worked, and then the check is remembered. The provider is reached
     only by `ops_sources.source_refresh`, one source after the other: they share the store."""
     key = (ctx["cfg"]["project"], source_id)
     latest = sources._stored(ctx, "source_latest", source_id)
@@ -206,12 +207,13 @@ def _refresh_failed(project: str, ctx: dict, source_id: str) -> bool:
     if age is not None and age <= FRESH_S and key not in _DIRTY:
         return False
     if not turn_gate.may_refresh(source_id, "list-fresh"):      # L52: this line has read the source already, or no line is open: nothing was needed, the list is the snapshot as it is
-        return False
+        return turn_gate.failed_in_turn(source_id)      # ...but a read of this line that failed leaves the snapshot old: the second list of the line keeps its note
     try:
         importlib.import_module("ops_sources").source_refresh(project, source_id)
     except Exception as e:      # noqa: BLE001 - the fault can hold a provider's words; the list is the old snapshot and a note
         why = getattr(e, "why", None)
         print(f"items: refresh of {source_id} failed ({why if why in CLOSED_WHY else 'error'})", file=sys.stderr)
+        turn_gate.mark_failed(source_id)
         return True
     _CHECKED[key] = _now()
     _DIRTY.discard(key)
