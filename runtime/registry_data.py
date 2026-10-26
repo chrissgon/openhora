@@ -39,7 +39,7 @@ WORD = re.compile(r"[a-z0-9]+")
 PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")
 LANGUAGES = ("en", "pt-BR")
 FAMILIES = ("calendar", "mail", "files")
-PRIVATE_LISTS = ("polite", "lead", "lead_with_time", "anywhere_with_time", "work_starters")
+PRIVATE_LISTS = ("polite", "lead", "lead_write", "lead_with_time", "anywhere_with_time", "work_starters")
 SEARCH_LISTS = ("stop_words", "leads", "cal_words", "plural", "nouns")
 PRIVATE_NUMBERS = ("bare_words_max", "verb_noun_gap_max")
 NEED_KEYS = ("words", "digit", "colon", "address", "only", "tail_after", "tail_skip", "tail_max")
@@ -60,7 +60,7 @@ def _read(name: str) -> dict:
 
 
 def private_words() -> dict:
-    """The private words of runtime/registry/private_words.json: {"numbers": {...}, "languages": {tag: {"polite", "lead", "lead_with_time", "anywhere_with_time", "verb_noun",
+    """The private words of runtime/registry/private_words.json: {"numbers": {...}, "languages": {tag: {"polite", "lead", "lead_write", "lead_with_time", "anywhere_with_time", "verb_noun",
     "writes", "work_starters"}}} (the header keys too)."""
     return _read("private_words")
 
@@ -138,6 +138,8 @@ def _private_problems(data) -> list:
                     out.append(f"{at}: not {{op, heads, needs}} with at least one need")
                     continue
                 out += _words(shape["heads"], f"{at}.heads", PHRASE)
+                if shape["heads"] == []:
+                    out.append(f"{at}.heads: empty (a shape with no head never matches: it would silently flag nothing)")
                 for index, need in enumerate(shape["needs"]):
                     here = f"{at}.needs[{index}]"
                     if not isinstance(need, dict) or not need or set(need) - set(NEED_KEYS):
@@ -149,6 +151,8 @@ def _private_problems(data) -> list:
                     for key in ("words", "only", "tail_after", "tail_skip"):
                         if key in need:
                             out += _words(need[key], f"{here}.{key}", PHRASE if key in ("words", "tail_after") else WORD)
+                            if need[key] == []:
+                                out.append(f"{here}.{key}: empty (an empty list can never hold: the shape would silently flag nothing)")
                     if ("tail_after" in need) != ("tail_max" in need) or ("tail_skip" in need and "tail_max" not in need) or ("tail_max" in need and (not isinstance(need["tail_max"], int) or isinstance(need["tail_max"], bool) or need["tail_max"] < 1)):
                         out.append(f"{here}: tail_after and tail_max go together, and tail_max is a whole number from 1")
     return out

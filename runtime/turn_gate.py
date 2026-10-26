@@ -233,11 +233,14 @@ def _need(parts):
     tail = re.compile(r"(?<![a-z0-9])" + after + r"(?![a-z0-9])") if after else None
 
     def short_tail(norm):
-        found = tail.search(norm)
-        return bool(found) and len([w for w in re.findall(r"[a-z0-9]+", norm[found.end():]) if not w.isdigit() and w not in skip]) <= tail_max
+        view = re.sub(r"[\W_]+", " ", re.sub(r"[a-z0-9][a-z0-9-]{0,39}#[0-9]{1,4}", " 0 ", norm))      # an item reference "gmail#3" is a number: a list of them is long and still a reference
+        found = tail.search(view)
+        rest = view[found.end():] if found else ""
+        return bool(found) and len([w for w in re.findall(r"[a-z0-9]+", rest) if not w.isdigit() and w not in skip]) <= tail_max
 
     def holds(line, norm, heads):
-        return bool((pattern and pattern.search(norm)) or (digit and re.search(r"[0-9]", norm)) or (colon and ":" in norm) or (address and "@" in line)
+        split = re.sub(r"[\W_]+", " ", norm)      # "e-mail" with any other hyphen, dash, dot or underscore reads as "e mail", as the mail tokenizer reads it
+        return bool((pattern and (pattern.search(norm) or pattern.search(split))) or (digit and re.search(r"\d", norm)) or (colon and ":" in norm) or (address and "@" in line)
                     or (only and all(w in only or w in heads for w in re.findall(r"[a-z0-9]+", norm))) or (tail and short_tail(norm)))
     return holds
 
@@ -246,10 +249,13 @@ def _compiled_rule():
     """The detector's data, compiled once from `registry_data.private_words()`: per language the regular expressions of the starts and the lists of the rule's steps, and, over all the
     languages together (the families of runtime/natural_writes_*.py read them together), each write shape of an operation with its heads and its needs (see `private_line`)."""
     if not _PRIVATE:
+        found = registry_data.problems("private_words")
+        if found:      # fail loud: a data file that does not hold the shape the detector reads must never leave a line silently non-private
+            raise ValueError("runtime/registry/private_words.json is not well formed: " + "; ".join(found[:5]))
         data = registry_data.private_words()
         languages = [data["languages"][tag] for tag in sorted(data["languages"])]
         polite = _alternation([p for body in languages for p in body["polite"]])      # the polite words of every language, in any order: "hey, por favor marca ..."
-        lead = f"[^a-z0-9@]*(?:{polite}(?![a-z0-9])[\\s,;:]*)*" if polite else "[^a-z0-9@]*"      # a comma after a polite word is part of it
+        lead = f"[^a-z0-9]*(?:{polite}(?![a-z0-9])[\\s,;:]*)*" if polite else "[^a-z0-9]*"      # a comma after a polite word is part of it
         start = lambda phrases: re.compile(lead + _alternation(phrases) + r"(?![a-z0-9])") if phrases else None      # noqa: E731
         gap = data["numbers"]["verb_noun_gap_max"]
         steps, shapes = [], {}
@@ -258,6 +264,7 @@ def _compiled_rule():
             pair_verbs, pair_nouns = _alternation(body["verb_noun"]["verbs"]), _alternation(body["verb_noun"]["nouns"])
             steps.append({
                 "lead": start(body["lead"]),
+                "lead_write": start(body["lead_write"]),
                 "lead_time": start(body["lead_with_time"]),
                 "anywhere_time": re.compile(r"(?<![a-z0-9])" + anywhere + r"(?![a-z0-9])") if anywhere else None,
                 "verb_noun": re.compile(lead + pair_verbs + r"\s+(?:[a-z0-9]+\s+){0," + str(gap) + r"}?" + pair_nouns + r"(?![a-z0-9])") if pair_verbs and pair_nouns else None,
@@ -289,12 +296,19 @@ def private_line(line) -> bool:
     """Whether the line is a reminder asked in words or a write to the person's mail, calendar or files: its words never leave the host and the conversation stores a neutral word for it.
 
     The words and the numbers are data, `runtime/registry/private_words.json` (S41-9), and its `rule` line states the rule: a line that is not a typed command (it does not start with "/")
-    is private when it starts with a `lead` phrase; or starts with a `lead_with_time` phrase and holds a time; or holds an `anywhere_with_time` phrase and a time; or starts with a
-    `verb_noun` verb, at most `verb_noun_gap_max` words and a noun; or starts with a head of a write family and holds a marker of that family; or has no question mark, a clock or a
-    relative time, a first word that is not a work starter and at most `bare_words_max` words once the time is taken out. A start is read after blanks, marks and polite words. A time
-    is what the time engine (runtime/natural_time.py) finds. Every step is wider than the matching step of `natural.private`, which stays as the oracle of the tests until S41-11."""
+    is private when it starts with a `lead` phrase (a reminder) or a `lead_write` phrase (a new event); or starts with a `lead_with_time` phrase and holds a time; or holds an
+    `anywhere_with_time` phrase and a time; or starts with a `verb_noun` verb, at most `verb_noun_gap_max` words and a noun; or starts with the head of a write shape and holds every need
+    of that shape; or has no question mark, a clock or a relative time, a first word that is not a work starter and at most `bare_words_max` words once the time is taken out. A start is
+    read after blanks, marks (an "@" too) and polite words. A time is what the time engine (runtime/natural_time.py) finds. Every step is wider than the matching step of
+    `natural.private`, which stays as the oracle of the tests until S41-11."""
+    return private_kind(line) is not None
+
+
+def private_kind(line):
+    """"reminder" for a private line a reminder in words asks (a `lead`, `anywhere_with_time`, `verb_noun` or bare step), "write" for one that asks for a write to the person's mail, calendar or files
+    (a `lead_write`, `lead_with_time` or write shape), None for a line that is not private; a line that starts as a new event is a write, as `natural.candidate` reads it first. `ops_natural.stored_line` stores the neutral word of the kind."""
     if not isinstance(line, str) or not line.strip() or line.lstrip().startswith("/"):
-        return False
+        return None
     steps, writes, bare_max = _compiled_rule()
     norm, origin = nt.normalise(line)
     found = []
@@ -303,25 +317,25 @@ def private_line(line) -> bool:
         if not found:
             found.append(time_hits(line)["hits"])
         return found[0]
+    if any(step["lead_write"] and step["lead_write"].match(norm) for step in steps):      # a new event is asked first, as natural.candidate reads it
+        return "write"
+    write = False
     for step in steps:
-        if step["lead"] and step["lead"].match(norm):
-            return True
+        if (step["lead"] and step["lead"].match(norm)) or (step["anywhere_time"] and step["anywhere_time"].search(norm) and hits()) or (step["verb_noun"] and step["verb_noun"].match(norm)):
+            return "reminder"
         if step["lead_time"] and step["lead_time"].match(norm) and hits():
-            return True
-        if step["anywhere_time"] and step["anywhere_time"].search(norm) and hits():
-            return True
-        if step["verb_noun"] and step["verb_noun"].match(norm):
-            return True
+            write = True
+    if write:
+        return "write"
+    if "?" not in line and any(h["kind"] in ("clock", "relative") for h in hits()):
+        first = re.match(r"[^a-z0-9]*([a-z0-9]+)", norm)
+        if not (first and any(first.group(1) in step["starters"] for step in steps)):
+            rest = nt.without(line, _joined([(origin[h["s"]], origin[h["e"] - 1] + 1) for h in hits()]))
+            if rest and len(rest.split()) <= bare_max:
+                return "reminder"
     if any(heads.match(norm) and all(holds(line, norm, head_words) for holds in needs) for heads, head_words, needs in writes):
-        return True
-    if "?" in line or not any(h["kind"] in ("clock", "relative") for h in hits()):
-        return False
-    first = re.match(r"[^a-z0-9]*([a-z0-9]+)", norm)
-    if first and any(first.group(1) in step["starters"] for step in steps):
-        return False
-    spans = [(origin[h["s"]], origin[h["e"] - 1] + 1) for h in hits()]
-    rest = nt.without(line, _joined(spans))
-    return bool(rest) and len(rest.split()) <= bare_max
+        return "write"
+    return None
 
 
 def _joined(spans) -> list:

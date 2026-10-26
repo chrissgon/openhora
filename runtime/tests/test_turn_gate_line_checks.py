@@ -326,6 +326,18 @@ def test_the_stored_row_of_a_reminder_and_of_a_write_is_the_neutral_word(world):
     assert ops_natural.stored_line(ctx, writing) == phrases.text("NW_PRIVATE_LINE", ctx["cfg"]) != writing
 
 
+def test_a_newly_private_write_line_is_stored_as_a_request_to_the_accounts_not_as_a_reminder(world):
+    """S41-9: a line the gate reads as a write to the person's accounts that the old detector and the families did not take whole ("cancel event 2 on my calendar") is stored with the
+    write's neutral word, never as "(a reminder)"; a reminder keeps its own."""
+    ctx = ops_core.context(world["path"])
+    line = "cancel event 2 on my calendar"
+    assert not natural.private(line) and ops_natural.natural_writes().candidate(line) is None
+    assert turn_gate.private_kind(line) == "write"
+    assert ops_natural.stored_line(ctx, line) == phrases.text("NW_PRIVATE_LINE", ctx["cfg"]) != phrases.text("NAT_PRIVATE_LINE", ctx["cfg"])
+    assert turn_gate.private_kind(PRIVATE_REMINDER) == "reminder"
+    assert ops_natural.stored_line(ctx, PRIVATE_REMINDER) == phrases.text("NAT_PRIVATE_LINE", ctx["cfg"])
+
+
 def test_a_long_private_line_is_the_long_line_clarify_and_a_long_plain_line_is_routed():
     protocol = interpreter.PROTOCOL
     long_private = PRIVATE_WRITE + " " + "water " * (protocol["max_line_chars"] // 6 + 5)

@@ -15,7 +15,7 @@ same tables and the same commit name give the same bytes. After S41-11 the keys 
   python3 scripts/registry_build.py --out <folder>      write into <folder> instead of runtime/registry/
 
 The private rule the data states (read by `turn_gate.private_line`): a line is private when it is not a typed command (it does not start with "/") and one of these holds, over the line
-folded as the tables fold it (lower case, no accent): (1) it starts, after blanks, marks and polite words, with a `lead` phrase; (2) it starts with a `lead_with_time` phrase and the time
+folded as the tables fold it (lower case, no accent): (1) it starts, after blanks, marks and polite words, with a `lead` phrase (a reminder) or a `lead_write` phrase (a new event); (2) it starts with a `lead_with_time` phrase and the time
 engine finds a time in it; (3) it holds an `anywhere_with_time` phrase and the time engine finds a time in it; (4) it starts with a `verb_noun` verb, at most `verb_noun_gap_max` words,
 then a `verb_noun` noun; (5) it starts with a head of a write family and holds a marker of the same family; (6) it has no "?", the time engine finds a clock or a relative time in it,
 its first word is not a `work_starters` word and no more than `bare_words_max` words are left once the time is taken out. This is wider than the old `natural.private` in each
@@ -40,7 +40,7 @@ import natural  # noqa: E402
 import natural_time as nt  # noqa: E402
 import natural_writes as nw  # noqa: E402
 
-RULE_PRIVATE = ("a line that is not a typed command is private when it starts with a lead phrase, starts with a lead_with_time phrase or holds an anywhere_with_time phrase with a time in it, "
+RULE_PRIVATE = ("a line that is not a typed command is private when it starts with a lead or lead_write phrase, starts with a lead_with_time phrase or holds an anywhere_with_time phrase with a time in it, "
                 "starts with a verb_noun verb then a noun, starts with a write head and holds a marker of its family, or is a short bare line with a clock or a relative time and no work starter")
 RULE_SEARCH = ("the folded words of a line that name no event (stop_words, brand words left out), the lead and calendar words that introduce an account, the plural words, "
                "the calendar nouns and the brand words of each account")
@@ -116,7 +116,8 @@ def private_words(made_from: str) -> dict:
         tag, triggers, writes = table["tag"], table["triggers"], nw.writes_of(table)
         languages[tag] = {
             "polite": _sorted(table["polite"] + writes.get("polite", [])),
-            "lead": _sorted(triggers["remind"] + triggers["note"] + triggers["calendar"]),
+            "lead": _sorted(triggers["remind"] + triggers["note"]),
+            "lead_write": _sorted(triggers["calendar"]),
             "lead_with_time": _sorted(triggers["calendar_verb"]),
             "anywhere_with_time": _sorted(triggers["remind_anywhere"]),
             "verb_noun": {"verbs": _sorted(triggers["calendar_verb"] + triggers["calendar_loose"] + triggers["calendar_noun"]), "nouns": _sorted(table["remind_nouns"])},

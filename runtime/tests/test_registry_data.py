@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import random
 import subprocess
 import sys
@@ -214,7 +215,7 @@ def test_one_dropped_phrase_breaks_the_superset(data_copy):
     lines = corpus_lines("natural_writes_corpus") + corpus_lines("natural_corpus")
     assert superset_failures(lines) == []
     data = json.loads((data_copy / "private_words.json").read_text(encoding="utf-8"))
-    data["languages"]["en"]["lead"].remove("add to my calendar")
+    data["languages"]["en"]["lead_write"].remove("add to my calendar")
     write(data_copy, "private_words", data)
     lost = superset_failures(lines)
     assert lost and all("calendar" in x.lower() for _, x in lost)
@@ -291,15 +292,68 @@ def mutated(rng: random.Random, n: int, pools, times) -> list:
     return out
 
 
+FULL = os.environ.get("WB_FULL_FUZZ") == "1"      # the default fuzz is small (a few seconds); WB_FULL_FUZZ=1 makes it about thirty times larger
+SEPARATORS = ["  ", "\t", "\n", ", ", ". ", "_", "-", "\u2011", "/", ": ", "\u2013", "'", "\u3000", "\u200b"]
+PREFIXES = ["@ ", "# ", "* ", "> ", "- ", "1) ", "ok ", "hmm, ", "so ", "obs: ", "(", "\"", "...", "+ ", "ps ", "please: "]
+SUFFIXES = ["?", "!!", " pls", " thanks", " :)", "...", ")", " ok?"]
+ARABIC = dict(zip("0123456789", "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"))
+
+
+def oracle_flagged_corpus_lines() -> list:
+    return [x for name in ("natural_writes_corpus", "natural_writes_mail_corpus", "natural_corpus", "interpreter_ix_test_v1", "entry_corpus") for _, x in corpus_lines(name) if natural.private(x)]
+
+
+def surface_mutated(rng: random.Random, n: int, source: list) -> list:
+    """Corpus lines the oracle flags, changed on the surface: another separator for a blank (a non-breaking hyphen, a dash, a dot, an underscore, a full-width space), a prefix such as "@",
+    a suffix, Arabic-Indic digits, upper or title case, another spelling of "e-mail", a word added. The kinds of change that opened the four gaps the review of S41-9 found."""
+    out = []
+    for _ in range(n):
+        line = rng.choice(source)
+        for _ in range(rng.randint(1, 3)):
+            kind = rng.randrange(7)
+            if kind == 0:
+                at = [i for i, c in enumerate(line) if c == " "]
+                if at:
+                    i = rng.choice(at)
+                    line = line[:i] + rng.choice(SEPARATORS) + line[i + 1:]
+            elif kind == 1:
+                line = rng.choice(PREFIXES) + line
+            elif kind == 2:
+                line += rng.choice(SUFFIXES)
+            elif kind == 3:
+                line = "".join(ARABIC.get(c, c) if rng.random() < 0.5 else c for c in line)
+            elif kind == 4:
+                line = line.upper() if rng.random() < 0.5 else line.title()
+            elif kind == 5:
+                line = line.replace("e-mail", rng.choice(["e\u2011mail", "e mail", "E-Mail", "e.mail", "e_mail", "email", "e\u2013mail"]))
+            else:
+                words = line.split()
+                if len(words) > 2:
+                    words.insert(rng.randrange(len(words)), rng.choice(["please", "the", "o", "really", "agora"]))
+                    line = " ".join(words)
+        out.append(line)
+    return out
+
+
+@pytest.mark.parametrize("seed", [201, 202])
+def test_private_words_flag_a_superset_of_surface_mutated_lines(seed):
+    """The seeded differential fuzz of the surface: every line the oracle flags stays flagged. Small by default, WB_FULL_FUZZ=1 for the large run; a shape change cannot reopen a gap unseen."""
+    rng = random.Random(seed)
+    lines = surface_mutated(rng, 60000 if FULL else 3000, oracle_flagged_corpus_lines())
+    flagged = [x for x in lines if natural.private(x)]
+    assert len(flagged) > (20000 if FULL else 1000)
+    assert [x for x in flagged if not turn_gate.private_line(x)][:10] == []
+
+
 @pytest.mark.parametrize("seed", [101, 102])
 def test_private_words_flag_a_superset_of_generated_and_mutated_lines(seed):
     """A seeded differential fuzz (generated from the tables' own phrases, and corpus lines with words dropped, added, swapped, upper-cased or with a time or a polite word added): the
     oracle's flags are all kept. A few thousand lines, deterministic."""
     rng = random.Random(seed)
-    lines, pools, times = generated(rng, 4000)
-    lines += mutated(rng, 4000, pools, times)
+    lines, pools, times = generated(rng, 80000 if FULL else 4000)
+    lines += mutated(rng, 80000 if FULL else 4000, pools, times)
     flagged = [x for x in lines if natural.private(x)]
-    assert len(flagged) > 1500
+    assert len(flagged) > (30000 if FULL else 1500)
     assert [x for x in flagged if not turn_gate.private_line(x)] == []
 
 
@@ -419,3 +473,52 @@ def test_the_builder_is_deterministic_and_has_help(tmp_path):
     helped = subprocess.run([sys.executable, str(REPO / "scripts/registry_build.py"), "--help"], capture_output=True, text=True)
     assert helped.returncode == 0 and "registry" in helped.stdout.lower()
     assert subprocess.run([sys.executable, str(REPO / "scripts/registry_build.py"), "--check", "--out", str(tmp_path)], capture_output=True, text=True).returncode == 0
+
+
+# --- the four gaps of the review of S41-9 (each was a line the oracle flags and the first detector did not), the validation and the stored word ---------------------------------------
+
+GAPS = {
+    "A a start behind an @": ["@ remind me to call mom", "@ me lembra de pagar a conta", "@, lembrete: pagar a conta", "@ anota comprar leite",
+                              "@ put on my calendar the board meeting with the whole finance team next week", "@ schedule a reminder about the long weekly report"],
+    "B another spelling of e-mail": ["arquiva o e\u2011mail 3", "responde o e\u2010mail 3: tudo certo", "responde o e\u2013mail 3: tudo certo", "responde o e_mail 3: tudo certo",
+                                     "responde o e.mail 3: tudo certo", "manda um e\u2011mail para ana@exemplo.example: oi", "move o e\u2011mail 3 para a pasta contas", "archive e_mails 2 and 3"],
+    "C a digit that is not ASCII": ["arquiva o email \u0663", "apaga os emails \u0661 e \u0662", "reply to email \u0663 saying ok"],
+    "D a long list of item references": ["apaga os emails " + ", ".join(f"gmail#{i}" for i in range(1, 18)), "archive emails " + ", ".join(f"work-mail#{i}" for i in range(1, 10))],
+}
+
+
+@pytest.mark.parametrize("gap", sorted(GAPS))
+def test_the_gaps_of_the_review_are_closed(gap):
+    for line in GAPS[gap]:
+        assert natural.private(line), f"the oracle no longer flags {line!r}: the probe is stale"
+        assert turn_gate.private_line(line), line
+
+
+def test_an_empty_list_in_a_need_or_a_head_is_a_problem_and_the_gate_fails_loud(data_copy):
+    data = json.loads((data_copy / "private_words.json").read_text(encoding="utf-8"))
+    data["languages"]["en"]["writes"]["mail"][0]["needs"][0]["words"] = []
+    write(data_copy, "private_words", data)
+    assert any("empty" in p for p in registry_data.problems("private_words"))
+    with pytest.raises(ValueError, match="not well formed"):
+        turn_gate.private_line("archive the emails 1 and 2")
+    data = json.loads((FOLDER / "private_words.json").read_text(encoding="utf-8"))
+    data["languages"]["pt-BR"]["writes"]["files"][0]["heads"] = []
+    write(data_copy, "private_words", data)
+    assert any("heads: empty" in p for p in registry_data.problems("private_words"))
+    with pytest.raises(ValueError):
+        turn_gate.private_kind("salva esse pdf")
+    write(data_copy, "private_words", json.loads((FOLDER / "private_words.json").read_text(encoding="utf-8")))
+    assert turn_gate.private_line("archive the emails 1 and 2")
+
+
+def test_the_kind_of_a_private_line_is_a_reminder_or_a_write():
+    assert turn_gate.private_kind("remind me to call Maria tomorrow at 9") == "reminder"
+    assert turn_gate.private_kind("me lembra de ligar pra Maria") == "reminder"  # validate: allow english-only -- a line a person types in Portuguese, the language under test
+    assert turn_gate.private_kind("marca na agenda dentista sexta 15h") == "write"
+    assert turn_gate.private_kind("cancel event 2 on my calendar") == "write"
+    assert turn_gate.private_kind("archive the emails 1 and 2") == "write"
+    assert turn_gate.private_kind("what is the weather in Lisbon") is None
+    assert turn_gate.private_kind("/remind 15:00 call Maria") is None
+    for line in oracle_flagged_corpus_lines()[:3000]:
+        if natural.candidate(line) and natural.candidate(line)["op"] in natural.PRIVATE:
+            assert turn_gate.private_kind(line) == "reminder", line
