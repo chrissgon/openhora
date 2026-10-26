@@ -58,6 +58,7 @@ import snapshot_text
 import source_names
 import sources
 import sources_mail
+import turn_gate
 
 LINE_MAX = 120          # characters of one line
 ITEMS_MAX = 100         # items of one snapshot (the sources keep at most this many)
@@ -204,6 +205,8 @@ def _refresh_failed(project: str, ctx: dict, source_id: str) -> bool:
     age = sources.snapshot_age(last.isoformat(), SNAPSHOT_CLOCK) if last else None
     if age is not None and age <= FRESH_S and key not in _DIRTY:
         return False
+    if not turn_gate.may_refresh(source_id, "list-fresh"):      # L52: this line has read the source already, or no line is open: nothing was needed, the list is the snapshot as it is
+        return False
     try:
         importlib.import_module("ops_sources").source_refresh(project, source_id)
     except Exception as e:      # noqa: BLE001 - the fault can hold a provider's words; the list is the old snapshot and a note
@@ -231,47 +234,48 @@ def items(project: str, kind: str | None = None, source: str | None = None, chan
         raise core.OpsError("first and last are dates, YYYY-MM-DD", 2) from None
     if not item_refs.may_read(ctx, channel, sender):
         raise core.OpsError(phrases.en("NW_REF_NOT_READABLE"), 1)
-    phone = channel == ops_actor.MESSAGING
-    found, refused, matched = [], [], 0
-    for row in sources.list_catalog(ctx, hashes=False):
-        if row["type"] not in KINDS or (kind and row["type"] != kind) or (source and row["id"] != source):
-            continue
-        if account and _account_of(row) != account:
-            continue
-        matched += 1
-        old = phone and _refresh_failed(project, ctx, row["id"])
-        try:
-            snapshot = item_refs.read_index(ctx, row["id"], channel=channel, sender=sender, kinds=(row["type"],), clock=SNAPSHOT_CLOCK)
-        except item_refs.ItemRefError as e:
-            refused.append({"source": row["id"], "why": str(e)})
-            continue
-        if row["type"] == "mail":
-            rows = [{"n": e["n"], "line": snapshot_text.one_line(f"{e.get('from_address') or '?'} · {e.get('subject') or ''}", LINE_MAX)} for e in snapshot["entries"][:ITEMS_MAX]]
-            if phone or count:      # S15b: when it came and, for a phone, who and what, from the text the index was read with
-                text = _text_of(ctx, row["id"], snapshot["version"])
-                parsed = mailtext.blocks(text) if text is not None else {}
-                for r, e in zip(rows, snapshot["entries"]):
-                    block = parsed.get(e["n"], {})
-                    r["received"] = block.get("when")
-                    if phone:
-                        r["mail"] = {"who": mailtext.who(block.get("from", ""), e.get("from_address") or ""), "subject": snapshot_text.one_line(e.get("subject") or "", mailtext.SUBJECT_MAX),
-                                     **({"body": block.get("body", [])} if count == 1 else {})}
-        else:
-            lines = _event_lines(ctx, row["id"], snapshot["version"])
-            rows = [{"n": e["n"], "line": lines.get(e["n"], ("", None))[0], "day": lines.get(e["n"], ("", None))[1]} for e in snapshot["entries"][:ITEMS_MAX]]
-            if span:      # S15c: a day or a week was asked for: only the events listed under those days (the numbers stay the snapshot's own)
-                rows = [r for r in rows if r["day"] and span[0].isoformat() <= r["day"] <= span[1].isoformat()]
-        checked = _CHECKED.get((ctx["cfg"]["project"], row["id"])) if phone else None
-        later = checked is not None and (_local(snapshot["read_at"]) or checked) < checked
-        found.append({"source": row["id"], "type": row["type"], "account": _account_of(row), "read_at": snapshot["read_at"], "items": rows,
-                      **({"old": True} if old else {}), **({"checked_at": checked.isoformat()} if later else {}),
-                      **({"window": _window(ctx, row, snapshot)} if not rows else {})})
-    if count:
-        _newest(found, count, phone)
-    out = {"sources": found, "refused": refused, **({"range": {"first": first, "last": last}} if span else {})}
-    if kind and not matched:      # S15c: only when no source of the asked kind (and account) is registered; a registered one with nothing in its window is not missing
-        out["missing"] = {"kind": kind, "account": account}
-    return out
+    with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); an inner reuse inside a line, an entry of its own when the entry is called directly
+        phone = channel == ops_actor.MESSAGING
+        found, refused, matched = [], [], 0
+        for row in sources.list_catalog(ctx, hashes=False):
+            if row["type"] not in KINDS or (kind and row["type"] != kind) or (source and row["id"] != source):
+                continue
+            if account and _account_of(row) != account:
+                continue
+            matched += 1
+            old = phone and _refresh_failed(project, ctx, row["id"])
+            try:
+                snapshot = item_refs.read_index(ctx, row["id"], channel=channel, sender=sender, kinds=(row["type"],), clock=SNAPSHOT_CLOCK)
+            except item_refs.ItemRefError as e:
+                refused.append({"source": row["id"], "why": str(e)})
+                continue
+            if row["type"] == "mail":
+                rows = [{"n": e["n"], "line": snapshot_text.one_line(f"{e.get('from_address') or '?'} · {e.get('subject') or ''}", LINE_MAX)} for e in snapshot["entries"][:ITEMS_MAX]]
+                if phone or count:      # S15b: when it came and, for a phone, who and what, from the text the index was read with
+                    text = _text_of(ctx, row["id"], snapshot["version"])
+                    parsed = mailtext.blocks(text) if text is not None else {}
+                    for r, e in zip(rows, snapshot["entries"]):
+                        block = parsed.get(e["n"], {})
+                        r["received"] = block.get("when")
+                        if phone:
+                            r["mail"] = {"who": mailtext.who(block.get("from", ""), e.get("from_address") or ""), "subject": snapshot_text.one_line(e.get("subject") or "", mailtext.SUBJECT_MAX),
+                                         **({"body": block.get("body", [])} if count == 1 else {})}
+            else:
+                lines = _event_lines(ctx, row["id"], snapshot["version"])
+                rows = [{"n": e["n"], "line": lines.get(e["n"], ("", None))[0], "day": lines.get(e["n"], ("", None))[1]} for e in snapshot["entries"][:ITEMS_MAX]]
+                if span:      # S15c: a day or a week was asked for: only the events listed under those days (the numbers stay the snapshot's own)
+                    rows = [r for r in rows if r["day"] and span[0].isoformat() <= r["day"] <= span[1].isoformat()]
+            checked = _CHECKED.get((ctx["cfg"]["project"], row["id"])) if phone else None
+            later = checked is not None and (_local(snapshot["read_at"]) or checked) < checked
+            found.append({"source": row["id"], "type": row["type"], "account": _account_of(row), "read_at": snapshot["read_at"], "items": rows,
+                          **({"old": True} if old else {}), **({"checked_at": checked.isoformat()} if later else {}),
+                          **({"window": _window(ctx, row, snapshot)} if not rows else {})})
+        if count:
+            _newest(found, count, phone)
+        out = {"sources": found, "refused": refused, **({"range": {"first": first, "last": last}} if span else {})}
+        if kind and not matched:      # S15c: only when no source of the asked kind (and account) is registered; a registered one with nothing in its window is not missing
+            out["missing"] = {"kind": kind, "account": account}
+        return out
 
 
 def _window(ctx: dict, row: dict, snapshot: dict) -> dict:

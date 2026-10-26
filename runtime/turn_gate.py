@@ -47,11 +47,33 @@ Three checks of code over the person's own line. Each had one home and callers e
 
 Privacy (limit L63): these functions keep nothing and print nothing; they are pure over the text they are given.
 
+Section 3. One refresh per turn (S41-6: contracts/runtime.md, limits L52 and L53)
+
+A person's line may make the runtime read a source the person chose again, never more than once for a source in one line and only through the source operation `source_refresh`. Three paths
+do it, each for one purpose; before S41-6 each held a budget of its own (the calendar's structural, the phone list's per call, the mail lookup's thread-local). This section holds the one budget:
+
+  turn()                       a context manager: opens the budget of one line on this thread. The outermost `with` on a thread creates it and the outermost exit clears it (also when the line
+                               raised, so that the next line can refresh); an inner `with` on the same thread reuses it, so that a line that takes another entry (a write that becomes a plain line, a card
+                               revised and a new card opened) is still one line. Opened by the entry points of the operations layer: `ops_say.say` (through `ops_turn.turn`), `ops_natural_writes.natural_write`,
+                               `ops_card_revise.card_revise_check` and `card_revise`, `ops_items.items` and `ops_natural_mail.resolve`. A budget belongs to the thread that opened it.
+  may_refresh(source_id, purpose)
+                               whether the line may read `source_id` again now, for `purpose` ("calendar-miss", "list-fresh" or "mail-lookup"; any other word is refused). False outside a turn (fail
+                               closed: a typed `source-refresh`, the routine's `ingest` and a test that calls a path directly have no turn and read nothing here; the typed command is not a line's
+                               refresh and never asks the gate); False when the source was already read in this turn, for any purpose; for "mail-lookup" also False when a mail lookup already read in this
+                               turn (the BL5E rule: one provider read for a line). A True marks the source (and the mail lookup) as spent, so the caller reads exactly once. It never reads a provider itself.
+                               Callers: `event_lookup.refresh`, `ops_items._refresh_failed`, `mail_refresh.refresh_once`.
+
+What stays with each path: the age of a snapshot and the phone-only condition of the fresh lists (`ops_items`), the per-source lock and the 120 s cooldown of the mail lookup (`mail_refresh`): they are not
+per-turn rules. A refreshed snapshot is read for one line and never a task's input (L53): nothing here touches `task_copies`.
+
+Privacy (limit L63): the budget holds the identifiers of sources (a word of the person's own configuration) and one flag, in memory, for the length of the line, and nothing of the line.
+
 Runs on Python 3.9: python3 runtime/turn_gate.py --help
 """
 from __future__ import annotations
 
 import collections
+import contextlib
 import importlib
 import os
 import re
@@ -222,6 +244,39 @@ def number_believed(line, number) -> bool:
     """Whether a decision or an act that a model or the router chose on `number` is believed against the person's line: `number` is a whole number (not a bool) and is the one number
     the line writes. What the line MEANS is not read here: the person is shown the sentence code wrote from the call and says yes (limit L65)."""
     return isinstance(number, int) and not isinstance(number, bool) and the_number(line) == number
+
+
+# --- section 3: one refresh per turn (L52, L53) --------------------------------------------------------------------------------------------------------
+
+REFRESH_PURPOSES = ("calendar-miss", "list-fresh", "mail-lookup")
+_TURN = threading.local()      # the budget of the line this thread runs: {"sources": set of source ids, "mail_lookup": bool}, or nothing
+
+
+@contextlib.contextmanager
+def turn():
+    """The refresh budget of one line on this thread. The outermost `with` creates it and clears it on exit, whatever the way out; an inner one (the same line, the same thread) reuses it."""
+    outer = getattr(_TURN, "budget", None) is None
+    if outer:
+        _TURN.budget = {"sources": set(), "mail_lookup": False}
+    try:
+        yield
+    finally:
+        if outer:
+            _TURN.budget = None
+
+
+def may_refresh(source_id, purpose) -> bool:
+    """Whether the line may read `source_id` again now (see the section's text): False outside a turn, for a source already read in this turn and, for "mail-lookup", after a mail lookup already
+    read; a True spends the budget, so it is asked once for each read. It never reads a provider."""
+    budget = getattr(_TURN, "budget", None)
+    if budget is None or purpose not in REFRESH_PURPOSES or not isinstance(source_id, str) or not source_id:
+        return False
+    if source_id in budget["sources"] or (purpose == "mail-lookup" and budget["mail_lookup"]):
+        return False
+    budget["sources"].add(source_id)
+    if purpose == "mail-lookup":
+        budget["mail_lookup"] = True
+    return True
 
 
 if __name__ == "__main__":

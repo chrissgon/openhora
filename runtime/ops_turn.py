@@ -29,6 +29,10 @@ THE CYCLE. `ops_say.py` and `ops_natural.py` reach `ops.py` and each other at ca
 already import at module level (`natural`, `operations`, `ops_natural`, `phone_refusal`, `phrases`, `plan_confirm`) and three pure leaves of the standard library alone (`drafts`, `greeting`,
 `phone_delete`); none of them imports `ops_say` or this module. It reaches `ops_say`, the interpreter, the lookups and the trash through `importlib` at call time, and `ops_say` reaches it at call time too.
 
+THE LINE'S REFRESH BUDGET (S41-6). `turn()` opens the budget of one line, `turn_gate.turn` (section 3 of runtime/turn_gate.py: one read of a source for the person's line, never more than once for a source,
+none outside a turn; limits L52 and L53), and `ops_say.say` holds it open from the begin-turn hooks to the stored reply, so that the dispatch, whichever row takes the line, runs inside it. It is reached by `importlib`
+at call time, like the rest of the gate, so that this module's module-level imports stay what they were.
+
 `dispatch_rows(names, ...)` runs only the named rows, in the table's order, and answers None when none takes the line: a helper for tests (the five rows that were `ops_natural.take`), never called by
 production. TRACE is None; a test may set it to a function that receives `(name, state)` for the row that took a line. Production never sets it.
 
@@ -58,6 +62,11 @@ TAKE_ROWS = ("draft-answer", "event-list-number", "file-list-number", "write-for
 def _say():
     """runtime/ops_say.py, found at call time (it imports this module at call time too)."""
     return importlib.import_module("ops_say")
+
+
+def turn():
+    """The refresh budget of one line (a context manager; see the module's text): the outermost `with` on a thread opens it, an inner one reuses it, the outermost exit clears it."""
+    return importlib.import_module("turn_gate").turn()
 
 
 class State:
