@@ -277,6 +277,8 @@ def _opened(project: str, ctx: dict, state: dict, args: dict, channel, sender, e
         lines.append(_t(ctx, "NT_ROLLED", time=when["time"], when=natural.describe(when, cfg)))
     if state.get("doubt") and when:
         lines.append(_t(ctx, "NW_CHECK_DATE", when=natural.describe(when, cfg)))
+    if state.get("notice"):          # a line the family asks the reply to carry (BL7-2: the text of a described reply could not be worded)
+        lines.append(_t(ctx, state["notice"]))
     extras["resend"] = started["pending"]
     return "\n".join(lines + [account_start.reply_text(cfg, started)]) + _card_lines(ctx, project, started, channel)
 
@@ -296,7 +298,7 @@ def advance(project: str, ctx: dict, state: dict, channel, sender, extras: dict)
     out = family_ops(state["family"]).resolve(ctx, state["op"], state["slots"], channel, sender, state["said"])
     if "args" in out:
         drafts.drop(*slot)
-        return _opened(project, ctx, state, out["args"], channel, sender, extras)
+        return _opened(project, ctx, dict(state, notice=out["notice"]) if out.get("notice") else state, out["args"], channel, sender, extras)
     extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
     if out.get("silent"):          # nothing to ask and nothing to say: the caller has the file's card (a caption never opens a question)
         drafts.drop(*slot)

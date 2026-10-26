@@ -21,7 +21,7 @@ reads the card and opens the new one is runtime/ops_card_revise.py. Nothing here
   accept(text, to, subject, body, line)    {"subject", "body"} for the model's text, {"same": True} when it is valid and changes nothing, or None. Code decides: `mail_compose.validate` (strict JSON with exactly the two keys, no
                                            header line, no HTML, no code fence, no link, no address other than the recipients of the card and those the card's own text already
                                            holds, nothing the card refuses), a change from the card as it was, and every quoted text of the instruction in the new subject or body
-  call(entry, system, user)                the one model call, on the daily route of the entry that pinned this prompt
+  PARAMS, DEADLINE_MS                      the settings of the one model call, which is the gate's (`turn_gate.call`, runtime/turn_gate.py), on the daily route of the entry that pinned this prompt
 
 What the model sees: the language, the subject, the body of the card and the instruction line. Never the recipients, the sender's address, a message of the mailbox, a file
 or any third-party text. The recipients and the account of the new card are the old card's, copied by code: a revision can never change who receives an e-mail.
@@ -318,15 +318,6 @@ def _holds(items: list, line: str, subject: str, old: str) -> bool:
         if not ok:
             return False
     return True
-
-
-def call(entry: dict, system: str, user: str) -> dict:
-    """The one model call: the entry's daily route (kind http, the hash the entry was decided on), as mail_compose does it, with this file's settings."""
-    route = importlib.import_module("interpreter_route")
-    rows = [r for r in route.daily_routes() if r["id"] == entry["route"]]
-    if len(rows) != 1 or rows[0].get("kind") != "http" or route.route_sha256(rows[0]) != entry["route_sha256"]:
-        return {"ok": False, "code": "E_ROUTE"}
-    return route.complete(rows[0]["id"], system, user, accepted=[entry["route_sha256"]], deadline_ms=DEADLINE_MS, **PARAMS)
 
 
 if __name__ == "__main__":

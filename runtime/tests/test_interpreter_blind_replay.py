@@ -62,8 +62,8 @@ PUBLISHED_RATES = {
 }
 # REPLAY: what the current code gives the recorded answers.
 REPLAY = {
-    DEEPSEEK: {"correct": 48, "clarify": 7, "wrong_card": 3, "wrong_read": 1, "wrong_route": 1},      # equal to the published counts today
-    SONNET: {"correct": 54, "clarify": 2, "wrong_card": 2, "wrong_read": 2},
+    DEEPSEEK: {"correct": 53, "clarify": 5, "wrong_read": 1, "wrong_route": 1},      # BL7-1 (the line's subject stays in a message's target, an inherit of a slot the line fills is dropped, a corrected read stays a read): 48/7/3 -> 53/5/0, the dev re-score of the spent answers, not a blind number; the PUBLISHED counts above stay as they were
+    SONNET: {"correct": 54, "clarify": 2, "wrong_card": 2, "wrong_read": 2},      # BL7-1 moves no Sonnet item
 }
 
 

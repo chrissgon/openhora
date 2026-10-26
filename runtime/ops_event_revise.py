@@ -163,12 +163,13 @@ def _from_code(line: str, now, zone: str, interpreter, lookup):
             "inherited": [], "time_disagree": False}
 
 
-def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict):
+def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict, admission):
     """The decision for a line sent after the card of an event, or None when no call could be made. The model is called once, as the interpreter calls it, but its answer is read FOR the
     card: the card names the event, so the slot `event` (a title, a day, a number the line does not hold), an answer `event-create`, extra slots and a clarify of `event` do not make the
     line a new request. What cannot be read from the model's answer is read by code from the line (`_from_code`). The same checks decide, as for any line."""
     interpreter = importlib.import_module("interpreter")
     interpret = importlib.import_module("ops_interpret")
+    gate = importlib.import_module("turn_gate")
     lookup = importlib.import_module("event_lookup")
     ops_natural = importlib.import_module("ops_natural")
     importlib.import_module("line_stage").publish("think")
@@ -176,10 +177,11 @@ def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict):
         now = ops_natural._clock()
         zone = interpret._zone(now)
         system, user = interpreter.build_messages(interpreter.SERVED, now, zone, None, line)
-        got = interpret._daily_call(entry, system, user)
+        got = gate.call(admission, entry, system, user, deadline_ms=interpreter.PROTOCOL["deadline_ms"], params=interpreter.PROTOCOL["params"])
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
         got = {"ok": False}
-    interpret._record(bool(got.get("ok")))
+    if got.get("code") != "E_GATE":      # no usable admission is a fault of the caller, not of the provider: no call was made, so nothing is counted against the breaker
+        gate.record(bool(got.get("ok")))
     if not got.get("ok"):
         return None
     try:
@@ -215,9 +217,10 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
     lookup = importlib.import_module("event_lookup")
     ops = importlib.import_module("ops")
     ops_natural = importlib.import_module("ops_natural")
-    if interpreter.precheck(line) is not None or not interpret._admit(ctx, sender):
+    admission = None if interpreter.precheck(line) is not None else importlib.import_module("turn_gate").admit(ctx, sender)
+    if admission is None:
         return {"pass": True}
-    decision = card_decision(ctx, entry, line, sender, doc)
+    decision = card_decision(ctx, entry, line, sender, doc, admission)
     if decision is None:
         return {"pass": True}
     if decision.get("kind") == "clarify":

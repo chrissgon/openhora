@@ -21,6 +21,7 @@ from test_ops_natural import world  # noqa: F401  (the real-operations world fix
 PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 ops_interpret = st.load("ops_interpret")
+turn_gate = st.load("turn_gate")
 interpreter_enable = st.load("interpreter_enable")
 interpreter_route = st.load("interpreter_route")
 ops_core = st.load("ops_core")
@@ -41,7 +42,12 @@ class Clock:
 
     def __init__(self, monkeypatch):
         self.now = 1000.0
-        monkeypatch.setattr(ops_interpret, "clock", lambda: self.now)
+        monkeypatch.setattr(turn_gate, "clock", lambda: self.now)
+
+
+def gate_call(entry):
+    """The one call site, given an admission of its own (the route check is the gate's)."""
+    return turn_gate.call(turn_gate.Admission(turn_gate._MINT), entry, "system", "user", deadline_ms=6000, params={"temperature": 0.0, "max_tokens": 10, "reasoning": "off"})
 
 
 def models(calls):
@@ -157,16 +163,18 @@ def test_a_routes_file_whose_only_match_is_an_account_row_is_not_called_by_the_o
     monkeypatch.setattr(interpreter_route, "complete", refuse)
     monkeypatch.setattr(lab, "account_text", refuse)
     entry = {"route": "or-deepseek-v4.1-flash", "route_sha256": interpreter_route.route_sha256(account)}
-    assert ops_interpret._daily_call(entry, "system", "user") == {"ok": False, "code": "E_ROUTE"}
+    assert gate_call(entry) == {"ok": False, "code": "E_ROUTE"}
     assert interpreter_enable.active("en") is None
     entry = {"route": "or-deepseek-v4.1-flash", "route_sha256": HASHES["route_sha256"]}
-    assert ops_interpret._daily_call(entry, "system", "user") == {"ok": False, "code": "E_ROUTE"}
+    assert gate_call(entry) == {"ok": False, "code": "E_ROUTE"}
 
 
-def test_the_source_of_the_module_names_no_account_route_no_lab_and_no_route_lookup_of_its_own():
-    text = (RUNTIME / "ops_interpret.py").read_text(encoding="utf-8")
-    assert [word for word in ("account", "lab", "load(", "find(") if word in text] == []
-    assert "daily_routes()" in text and 'get("kind") != "http"' in text
+def test_the_source_of_the_module_and_of_the_gate_name_no_account_route_no_lab_and_no_route_lookup_of_their_own():
+    for name in ("ops_interpret.py", "turn_gate.py"):      # the route check moved from the first to the second (S41-4): both stay clean of an account route, the lab and a lookup of a route by id
+        text = (RUNTIME / name).read_text(encoding="utf-8")
+        assert [word for word in ("account", "lab", "load(", "find(") if word in text] == [], name
+    gate = (RUNTIME / "turn_gate.py").read_text(encoding="utf-8")
+    assert "daily_routes()" in gate and 'get("kind") != "http"' in gate
 
 
 def test_vacuity_the_source_check_sees_a_word_it_forbids():
@@ -200,7 +208,7 @@ def test_ten_calls_per_sender_per_minute_and_the_eleventh_is_routed(world, monke
 
 
 def test_vacuity_with_the_rate_check_off_the_eleventh_call_goes_through_and_the_scenario_fails(world, monkeypatch):
-    monkeypatch.setattr(ops_interpret, "_admit", lambda ctx, sender: True)
+    monkeypatch.setattr(turn_gate, "admit", lambda ctx, sender: turn_gate.Admission(turn_gate._MINT))
     assert rate_scenario(world, monkeypatch) != []
 
 

@@ -189,6 +189,36 @@ def test_every_authored_take_is_taken_and_every_near_miss_is_not():
     assert not wrong, f"{len(wrong)} authored scenarios whose trace is not as authored:\n" + "\n".join(wrong[:MAX_SHOWN * 3])
 
 
+COMPOSITES = ("expired_and_write_draft", "reminder_and_write_draft", "reminder_and_expired", "plan_and_write_draft", "plan_and_file_held")
+EDGES = ("reply_to_a_question_of_another_project", "delete_from_a_sender_who_may_not_talk", "forwarded_file_with_a_reminder_draft_open")
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_every_composite_pre_state_and_every_edge_input_is_in_the_corpus_with_its_yes_and_its_sim():
+    """S41-1b. The single-state corpus was blind to a row whose effect needs two states live at once or an uncommon input: each composite pre-state (two questions open, a plan and a question, a
+    plan and a held file) has at least five scenarios, among them the "sim" and the "yes" that every pending question reads; each edge input has at least five; a plan that is last with a captioned
+    file is covered; and each is in the golden, recorded on the order of its day."""
+    _, recorded = golden()
+    scenarios = corpus()
+    for name in COMPOSITES:
+        assert name in ek.PRESTATES, name
+        rows = [s for s in scenarios if s["prestate"] == name]
+        assert len(rows) >= 5, f"{name}: {len(rows)} scenarios"
+        assert {"sim", "yes"} <= {s["text"] for s in rows if s["kind"] == "text"}, f"{name} holds the sim and the yes"
+        assert all(s["id"] in recorded for s in rows)
+    captioned = [s for s in scenarios if s["prestate"] in ("plan_last", "plan_not_last") and s["kind"] == "attachment" and s["text"] in ("sim", "yes")]
+    assert len(captioned) >= 2, "a plan that is last, and a file captioned sim or yes"
+    assert "question_of_other_project" in ek.PRESTATES and len([s for s in scenarios if s["prestate"] == "question_of_other_project"]) >= 5
+    for name in EDGES:
+        rows = [s for s in scenarios if s["id"].startswith(f"edge.{name}.")]
+        assert len(rows) >= 5, f"{name}: {len(rows)} scenarios"
+        assert all(s["id"] in recorded for s in rows)
+    dropped = [s for s in scenarios if s["id"].startswith("edge.reply_to_a_question_of_another_project.") and s["prestate"] == "question_of_other_project"]
+    assert dropped and all(recorded[s["id"]]["trace"][-1] in ("reply", "pending-typed") for s in dropped), "a reply to a question of another project is the reply branch's, and is dropped"
+    delete = [s for s in scenarios if s["id"].startswith("edge.delete_from_a_sender_who_may_not_talk.") and s["id"].rsplit(".", 1)[1] in ("01", "02", "03", "04", "05")]
+    assert delete and all("delete-refusal-before-queue" not in recorded[s["id"]]["trace"] for s in delete), "a sender who may not talk is never told the file cannot be deleted from a message"
+
+
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_the_replay_is_deterministic(tmp_path):
     """Thirty scenarios replayed twice give the same outcome: nothing of the order the threads finish in, of the hash seed or of the clock reaches the outcome."""

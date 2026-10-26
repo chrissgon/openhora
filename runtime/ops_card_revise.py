@@ -231,17 +231,20 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
     if mail_revise.asks_recipients(line):
         return say(ctx, "RV_RECIPIENTS", pending_id)
     interpret = importlib.import_module("ops_interpret")
-    if not interpret._admit(ctx, sender):
+    gate = importlib.import_module("turn_gate")
+    admission = gate.admit(ctx, sender)
+    if admission is None:
         return say(ctx, "RV_FAILED", pending_id)
     revised, ok = None, False
     try:
-        got = mail_revise.call(entry, mail_revise.prompt_template(), mail_revise.message(interpret._tag(ctx["cfg"]), mail["subject"], mail["body"], line))
+        got = gate.call(admission, entry, mail_revise.prompt_template(), mail_revise.message(interpret._tag(ctx["cfg"]), mail["subject"], mail["body"], line),
+                        deadline_ms=mail_revise.DEADLINE_MS, params=mail_revise.PARAMS)
         ok = bool(got.get("ok"))
         if ok:
             revised = mail_revise.accept(got.get("text"), mail["to"], mail["subject"], mail["body"], line)
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
         ok, revised = False, None
-    interpret._record(ok)
+    gate.record(ok)
     if revised is not None and revised.get("same") and revised.get("holds"):
         return say(ctx, "RV_ALREADY", pending_id)      # the card already holds every text the line asks for: told so, and the card is sent again
     if revised is None or revised.get("same"):
