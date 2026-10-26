@@ -38,6 +38,7 @@ mail_reply_compose = st.load("mail_reply_compose")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_interpret = st.load("ops_interpret")
+turn_gate = st.load("turn_gate")
 ops_natural_mail = st.load("ops_natural_mail")
 ops_natural_writes = st.load("ops_natural_writes")
 ops_step_effects = st.load("ops_step_effects")
@@ -300,8 +301,8 @@ def test_a_failed_or_malformed_compose_call_falls_back_to_the_persons_words_and_
 def test_the_rate_limit_reached_makes_the_eleventh_call_no_call_and_the_card_holds_the_persons_words(world, clock, monkeypatch):
     model = prepare(world, monkeypatch)
     ctx = ops_core.context(world["path"])
-    for _ in range(ops_interpret.RATE_MAX - 1):
-        assert ops_interpret._admit(ctx, SENDER)      # nine calls of the sender in the window: the interpreter's is the tenth, the compose call would be the eleventh
+    for _ in range(turn_gate.RATE_MAX - 1):
+        assert turn_gate.admit(ctx, SENDER)      # nine calls of the sender in the window: the interpreter's is the tenth, the compose call would be the eleventh
     out = phone(world, LINE)
     assert [c["kind"] for c in model.calls] == ["interpret"]
     assert_persons_words_on_a_card(world, model, out, 0)
@@ -324,8 +325,8 @@ class OpensTheBreakerAfterTheInterpreter(Model):
     def complete(self, route_id, system, user, **kw):
         got = super().complete(route_id, system, user, **kw)
         if self.calls[-1]["kind"] == "interpret":
-            for _ in range(ops_interpret.BREAKER_FAILS):
-                ops_interpret._record(False)
+            for _ in range(turn_gate.BREAKER_FAILS):
+                turn_gate.record(False)
         return got
 
 

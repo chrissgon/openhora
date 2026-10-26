@@ -37,11 +37,11 @@ A decision the model names (slice S20). The catalog lists `approve`, `reject`, `
 from the line (`natural.decision_numbers`: the one whole number written in it, none in a line that says a date or a time). `reject` and `release` are then the typed commands (`ops_natural.run` hands
 the bridge the typed line), `approve` sends the decision's card again and approves nothing, and `answer` and `go-ahead` have words of their own. No operation was added to the catalog.
 
-The call. The route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again in `_daily_call`, so a route of any other kind
-cannot be called from here; the entry that enables the interpreter names the route and the hashes it was decided on (runtime/interpreter_enable.py).
+The call. It is the gate's (`turn_gate.call`, runtime/turn_gate.py): the route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again
+there, so a route of any other kind cannot be called from here; the entry that enables the interpreter names the route and the hashes it was decided on (runtime/interpreter_enable.py).
 
-The limits (counts in memory, this slice's choice, not measured): RATE_MAX calls per sender in RATE_WINDOW seconds, DAY_MAX per project per local day, and an open
-breaker for BREAKER_OPEN seconds after BREAKER_FAILS failed calls in a row. When there is no call (entry off, a limit reached, a failed call, a zone that cannot be
+The limits live in `turn_gate` (counts in memory, this slice's choice, not measured): `turn_gate.admit` allows RATE_MAX calls per sender in RATE_WINDOW seconds, DAY_MAX per project
+per local day, and an open breaker for BREAKER_OPEN seconds after BREAKER_FAILS failed calls in a row (`turn_gate.record`); no state lives in this file. When there is no call (entry off, a limit reached, a failed call, a zone that cannot be
 named) a line that is not private and a project in pt-BR or en go to the planning agent as before; any other gets the sentence IX_OUTAGE.
 
 Privacy (limit L63): no line, span, model text or exception message is logged, printed or kept here. The conversation stores the person's line only after the decision,
@@ -51,19 +51,15 @@ Standard library only. Runs on Python 3.9: python3 runtime/ops_interpret.py --he
 """
 from __future__ import annotations
 
-import collections
 import importlib
 import os
 import re
 import sys
-import threading
-import time
 from zoneinfo import ZoneInfo
 
 import event_lookup
 import interpreter
 import interpreter_enable
-import interpreter_route
 import language as language_rules
 import line_stage
 import mail_compose
@@ -73,31 +69,18 @@ import ops_natural
 import phone_refusal
 import phrases
 import plan_confirm
+import turn_gate
 
 CHANNEL = "messaging"
-RATE_MAX = 10          # calls per sender in RATE_WINDOW seconds
-RATE_WINDOW = 60.0
-DAY_MAX = 300          # calls per project per local day
-BREAKER_FAILS = 3        # failed calls in a row that open the breaker
-BREAKER_OPEN = 300.0     # seconds it stays open
 ROUTE_LANGUAGES = ("pt-BR", "en")      # the project languages whose tables detect a private line: only there a model failure may route a line to the agent
 ZONE_NAME = re.compile(r"[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*")
 WHY_SENTENCE = {"time-ask": "IX_ASK_TIME", "time-gap": "IX_ASK_TIME", "time-fold": "IX_ASK_TIME", "weekday": "IX_ASK_TIME", "time-past": "IX_ASK_PAST",
                 "time-far": "IX_ASK_FAR", "long-line": "IX_LONG_LINE"}      # every other why (model, invalid, private-route) is IX_ASK_AGAIN
-clock = time.monotonic   # the clock of the rate window and of the breaker (a test replaces it)
-
-_lock = threading.Lock()
-_calls = {}              # sender -> times of its calls inside the window
-_days = {}               # (project key, local day) -> calls
-_breaker = {"fails": 0, "until": 0.0}
 
 
 def forget_all() -> None:
-    """Drop the counts and close the breaker (a test, and a process that stops)."""
-    with _lock:
-        _calls.clear()
-        _days.clear()
-        _breaker.update(fails=0, until=0.0)
+    """Kept for the tests that reset a process; no state lives here: the counts and the breaker are the gate's (runtime/turn_gate.py)."""
+    turn_gate.forget_all()
 
 
 def _tag(cfg: dict) -> str:
@@ -110,38 +93,6 @@ def enabled(ctx: dict, channel, sender) -> bool:
         return False
     cfg = ctx["cfg"]
     return operations.holds("interpret", CHANNEL, cfg["channels"], sender) and interpreter_enable.active(_tag(cfg)) is not None
-
-
-# --- the limits ------------------------------------------------------------------------------------------------------------------------------------
-
-
-def _admit(ctx: dict, sender) -> bool:
-    """Whether one more call may be made now (the breaker is closed and neither limit is reached); the call is counted when it may."""
-    now = clock()
-    day = (ops_natural.project_key(ctx["cfg"]["project"]), ops_natural._clock().date().isoformat())
-    with _lock:
-        if now < _breaker["until"]:
-            return False
-        window = _calls.setdefault(sender or "", collections.deque())
-        while window and now - window[0] >= RATE_WINDOW:
-            window.popleft()
-        if len(window) >= RATE_MAX or _days.get(day, 0) >= DAY_MAX:
-            return False
-        window.append(now)
-        for old in [k for k in _days if k[1] != day[1]]:
-            del _days[old]
-        _days[day] = _days.get(day, 0) + 1
-    return True
-
-
-def _record(ok: bool) -> None:
-    with _lock:
-        if ok:
-            _breaker["fails"] = 0
-        else:
-            _breaker["fails"] += 1
-            if _breaker["fails"] >= BREAKER_FAILS:
-                _breaker["until"] = clock() + BREAKER_OPEN
 
 
 # --- the call and the decision -------------------------------------------------------------------------------------------------------------------------
@@ -158,16 +109,6 @@ def _zone(now) -> str:
                 continue
             return found
     raise ValueError("no zone")
-
-
-def _daily_call(entry: dict, system: str, user: str) -> dict:
-    """The one model call: the entry's route, taken from the daily routes (kind http) and checked again here, with the hash the entry was decided on as the only
-    one accepted and the protocol's own settings. Any other route is E_ROUTE and no request is made."""
-    rows = [r for r in interpreter_route.daily_routes() if r["id"] == entry["route"]]
-    if len(rows) != 1 or rows[0].get("kind") != "http" or interpreter_route.route_sha256(rows[0]) != entry["route_sha256"]:
-        return {"ok": False, "code": "E_ROUTE"}
-    protocol = interpreter.PROTOCOL
-    return interpreter_route.complete(rows[0]["id"], system, user, accepted=[entry["route_sha256"]], deadline_ms=protocol["deadline_ms"], **protocol["params"])
 
 
 def decide(line: str, text, now, zone: str, allowed, frame=None) -> dict:
@@ -305,17 +246,19 @@ def _allowed(ctx: dict, sender) -> set:
     return {row["op"] for row in interpreter.SERVED["ops"] if operations.permitted(row["op"], CHANNEL, policy, None, sender)}
 
 
-def _ask_model(ctx: dict, entry: dict, said: str, sender, frame=None):
-    """The decision for the line, or None when no call could be made or it failed."""
+def _ask_model(ctx: dict, entry: dict, said: str, sender, admission, frame=None):
+    """The decision for the line, or None when no call could be made or it failed. The call is the gate's (`turn_gate.call`) and needs the `admission` `turn_gate.admit` gave this line."""
     line_stage.publish("think")      # S19: the stage a phone is told if the line is still unanswered after a while
     try:
         now = ops_natural._clock()
         zone = _zone(now)
         system, user = interpreter.build_messages(interpreter.SERVED, now, zone, frame, said)
-        got = _daily_call(entry, system, user)
+        protocol = interpreter.PROTOCOL
+        got = turn_gate.call(admission, entry, system, user, deadline_ms=protocol["deadline_ms"], params=protocol["params"])
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
         got = {"ok": False}
-    _record(bool(got.get("ok")))
+    if got.get("code") != "E_GATE":      # no usable admission is a fault of the caller, not of the provider: no call was made, so nothing is counted against the breaker
+        turn_gate.record(bool(got.get("ok")))
     if not got.get("ok"):
         return None
     try:
@@ -451,7 +394,8 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     frame = frame_for(age_s, plan)
     plan_id = next((item["id"] for item in (frame or {"items": []})["items"] if item["kind"] == "plan-confirm"), None)
     if decision is None:
-        decision = _ask_model(ctx, entry["entry"], said, sender, frame) if entry is not None and _admit(ctx, sender) else None
+        admission = turn_gate.admit(ctx, sender) if entry is not None else None
+        decision = _ask_model(ctx, entry["entry"], said, sender, admission, frame) if admission is not None else None
     if decision is None:
         return _no_decision(ctx, said, extras)
     kind = decision.get("kind")
