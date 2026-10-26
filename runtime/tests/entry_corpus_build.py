@@ -313,6 +313,31 @@ EDGES = {
 }
 
 
+# S41-1c: the same method for the OPERATIONS layer (`ops_say._turn`, `ops_natural.take`). The review of S41-3 found orders and guards that no scenario reached: a router question or a write
+# draft that is open when a state line or a form comes, a plan that is live (last or not) when a greeting that is also a yes comes, a sender who holds `interpret` and a read group and not
+# `talk`, the shells mcp and chat, and the queue (a page line queued while a run is busy, drained by `route_queued`, a queued answer to the choice of a file for an `ask`). Each holds its
+# "sim" and its "yes". Recorded on the old ops order (2fb497d).
+STATE_LINES = ["progress", "status", "andamento", "how are we doing?", "o que falta?"]
+GREETINGS_THAT_ARE_YES = ["beleza", "tudo bem", "oi, tudo bem?", "tudo certo", "ok, beleza"]
+OPS_GROUPS = {
+    "router_question_and_a_state_line": [P(t, "router_question") for t in STATE_LINES + ["sim", "yes"]] + [P(t, "router_question", channel="terminal") for t in ("status", "andamento", "sim")] +
+                                        [S(t, "router_question") for t in ("progress", "status", "andamento", "sim", "yes")],
+    "write_draft_and_a_state_line": [P(t, "write_draft_title") for t in STATE_LINES + ["sim", "yes"]] + [P(t, "write_draft_title", channel="terminal") for t in ("status", "andamento", "sim")] +
+                                    [S(t, "write_draft_title") for t in ("progress", "andamento", "sim", "yes")],
+    "write_draft_and_a_tier_1_form": [P(t, "write_draft_title") for t in TIER_1[:5] + ["sim", "yes"]] + [P(t, "write_draft_title", channel="terminal") for t in TIER_1[:3] + ["sim"]] +
+                                     [S(t, "write_draft_title") for t in ("what files do you have?", "pendências", "list the skills", "sim", "yes")],
+    "plan_not_last_and_a_greeting_that_is_a_yes": [S(t, "plan_not_last") for t in GREETINGS_THAT_ARE_YES + ["sim", "yes", "oi", "tudo bem?"]],
+    "plan_last_and_a_greeting_that_is_a_yes": [S(t, "plan_last") for t in GREETINGS_THAT_ARE_YES + ["sim", "yes", "oi", "tudo bem?"]] + [O(t, "owner") for t in ("tudo bem", "beleza")],
+    "interpreter_sender_without_talk": [S(t, sender="reader_interpret") for t in ("oi", "tell me a joke", "qual a capital da França?", "sim", "yes", "how are we doing?", "pendências", "what files do you have?")] +
+                                       [O(t, "reader_interpret") for t in ("oi", "tell me a joke", "Which market first?", "sim", "yes", "how are we doing?", "status", "what files do you have?", "preciso organizar a visita da Maria na clinica Linden")],
+    "mcp_and_chat_shells": [P(t, channel="mcp") for t in ("/status", "what files do you have?", "oi", "sim", "yes", "how are we doing?", "Which market first?")] +
+                           [P(t, channel="chat") for t in ("/status", "oi", "sim", "what files do you have?", "Which market first?", "how are we doing?", "yes")],
+    "a_page_line_queued_while_a_run_is_busy": [P(t, "route_busy") for t in ("Which market first?", "oi", "qual a capital da França?", "sim", "yes", "what files do you have?", "/status", "status")] +
+                                              [P(t, "route_busy", channel="terminal") for t in ("Which market first?", "sim")] + [P(t, "route_busy", channel="chat") for t in ("Which market first?", "oi")],
+    "a_queued_answer_to_the_choice_of_a_file": [P(t, "route_busy_ask_choice") for t in ("1", "2", "o 2", "sim", "yes", "oi", "what files do you have?")],
+}
+
+
 # --- generation ---------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -378,6 +403,9 @@ def generate(full: bool = False) -> tuple:
         for name, rows in table.items():
             for n, scenario in enumerate(rows, 1):
                 add(f"{group}.{name}.{n:02d}", scenario)
+    for name, rows in OPS_GROUPS.items():
+        for n, scenario in enumerate(rows, 1):
+            add(f"opscomp.{name}.{n:02d}", scenario)
     return scenarios, expectations
 
 
