@@ -35,6 +35,8 @@ ops_natural = st.load("ops_natural")
 ops_interpret = st.load("ops_interpret")
 natural = st.load("natural")
 ops_instructions = st.load("ops_instructions")
+real_interpreter = ops_turn.ROWS["interpreter"]
+real_talk_refusal = ops_turn.ROWS["talk-refusal"]
 
 RUNTIME = Path(__file__).resolve().parents[1]
 REPO = RUNTIME.parent
@@ -147,10 +149,23 @@ def test_a_row_whose_channels_exclude_the_shell_is_skipped_on_every_shell_of_the
     assert "interpreter" not in called and "plan-bare-word" not in called and "event-list-number" not in called, "a page line never reaches a row of the messaging shell"
 
 
-def test_a_name_that_is_no_shell_is_left_to_the_conditions_of_the_rows(monkeypatch):
+def test_a_name_that_is_no_shell_never_reaches_a_row_of_the_messaging_shell_and_is_left_to_the_other_rows(monkeypatch):
+    """Fail closed (L63(1)): a row whose channels are exactly the messaging shell's is skipped for every other name, the unknown ones included; the rows of every shell are left to their own conditions."""
     called = stub_rows(monkeypatch, {FINAL: ("planner", None, None, False, None, None)})
     ops_turn.dispatch("p", {}, "line", "somewhere-else", 1)
-    assert called == [n for n in OPS if n != "confirmed-plan"]
+    assert called == [n for n in OPS if n != "confirmed-plan" and turn_order.channels(n) != turn_order.MESSAGING]
+    assert "interpreter" not in called and "plan-bare-word" not in called
+
+
+def test_an_unknown_shell_name_never_reaches_the_interpreter_even_when_the_line_is_deferred_to_it(monkeypatch):
+    """The probe of the review: with the real `interpreter` row and a deferred line, the name `web` is kept away by the table, as `page` is; only `messaging` reaches the model's seam."""
+    reached = []
+    monkeypatch.setattr(ops_interpret, "turn", lambda project, ctx, said, sender, extras: reached.append(said) or None)
+    called = stub_rows(monkeypatch, {FINAL: ("planner", None, None, False, None, None)})
+    monkeypatch.setitem(ops_turn.ROWS, "interpreter", real_interpreter)
+    for shell in ("page", "web", "messaging"):
+        ops_turn.dispatch("p", {"cfg": {}}, f"{shell} line", shell, 1, None, {"deferred": True})
+    assert reached == ["messaging line"]
 
 
 def test_the_row_that_does_not_take_a_line_where_it_stands_sets_the_trace_name_of_its_line(monkeypatch):
@@ -422,6 +437,25 @@ def test_the_order_matters_two_rows_that_swap_change_the_outcome_of_a_line_of_ou
         if rp.differences(here, other):
             changed_by.append(found["text"])
     assert changed_by, f"swapping {first} and {second} changes the outcome of none of the lines of our own"
+
+
+def test_the_order_matters_the_talk_refusal_comes_before_the_interpreter_for_a_sender_who_holds_interpret_and_may_not_talk(monkeypatch):
+    """Lines of our own (no sender of the entry kit holds `interpret` and a read group without `talk`): in the table's order the refusal answers and no model reads the line; with the two rows
+    swapped the interpreter, a daily-route call, reads the line of a sender who may not talk. (OPEN-41-15, decided: S41-11 moves the refusal after the interpreter, for such a sender only.)"""
+    reached = []
+    line = "quais os meus eventos amanha, por favor"
+    monkeypatch.setattr(ops_interpret, "turn", lambda project, ctx, said, sender, extras: reached.append(said) or None)
+    monkeypatch.setattr(ops_say, "may_talk", lambda *a, **k: False)
+    monkeypatch.setattr(ops_turn.phone_refusal, "said", lambda *a, **k: "refused")
+    monkeypatch.setattr(ops_turn.operations, "refusal", lambda *a, **k: "refused")
+    stub_rows(monkeypatch, {FINAL: ("planner", None, None, False, None, None)})
+    monkeypatch.setitem(ops_turn.ROWS, "talk-refusal", real_talk_refusal)
+    monkeypatch.setitem(ops_turn.ROWS, "interpreter", real_interpreter)
+    out = ops_turn.dispatch("p", {"cfg": {"channels": {}}}, line, "messaging", 1, "telegram:1", {"deferred": True})
+    assert out[0] == "refused" and reached == [], "the table's order: refused, and no model reads the line"
+    monkeypatch.setattr(turn_order, "names", lambda stage, real=turn_order.names: tuple("interpreter" if n == "talk-refusal" else "talk-refusal" if n == "interpreter" else n for n in OPS) if stage == "ops" else real(stage))
+    ops_turn.dispatch("p", {"cfg": {"channels": {}}}, line, "messaging", 1, "telegram:1", {"deferred": True})
+    assert reached == [line], "swapped, the interpreter reads the line of a sender who may not talk"
 
 
 def test_the_corpus_does_not_see_two_of_the_swaps_so_lines_of_our_own_do(tmp_path):

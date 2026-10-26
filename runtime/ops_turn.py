@@ -253,7 +253,10 @@ ROWS = {
 def _walk(order: tuple, state: State):
     """The result of the first row of `order` that takes the line (a tuple, or `say`'s dict for `confirmed-plan`), or None. A row whose `channels` excludes the shell is skipped."""
     for name in order:
-        if state.channel in turn_order.SHELLS and state.channel not in turn_order.channels(name):      # a name that is no shell of the table is left to the rows' own conditions, as it always was
+        shells = turn_order.channels(name)
+        if shells == turn_order.MESSAGING and state.channel != "messaging":      # a row of the messaging shell is out of reach of every other name, a name the table does not know included: fail closed (L63(1))
+            continue
+        if state.channel in turn_order.SHELLS and state.channel not in shells:      # any other row: a name that is no shell of the table is left to the rows' own conditions, as it always was
             continue
         done = ROWS[name](state.project, state.ctx, state.said, state.channel, state.sender, state.extras, state)
         if done is not None:
@@ -311,6 +314,9 @@ def _bare_plan_word(ctx, said, channel, sender, plan_before) -> bool:
     return bool(plan_before and natural.confirm_kind(said) is not None)      # D5: a yes or a no with a live plan is answered by code (`plan-bare-word`), never queued
 
 
+# `_form_or_draft` stands for THREE rows at once (`draft-answer`, `write-form-ops`, `tier-1-form`) because it asks `ops_natural.peek`, which answers for the three together (a tier-1 form, a write form, the
+# answer to the sender's live draft). A package that removes one of those rows must first split `peek`, or the claim keeps answering for a row that is gone: `code_claims` drops the claim only when ALL
+# of its rows have left the table.
 CLAIMS = (      # (the rows whose lines the claim stands for, the claim), in the order the queue decision always read them
     (("draft-answer", "write-form-ops", "tier-1-form"), _form_or_draft), (("greeting",), _greets), (("delete-file",), _deletes_a_file), (("plan-bare-word",), _bare_plan_word),
 )
