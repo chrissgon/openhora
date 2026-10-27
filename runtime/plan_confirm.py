@@ -19,7 +19,7 @@ the private chat is the question, or the line replies to it, and it is not forwa
   stop_form(line), STOP_WORDS                     whether a whole line is a stop word of the closed lists (the research brake: ops_research.stop)
 
 What is asked (the maintainer's decisions of 2026-10-24):
-  ALWAYS   research and `ask` (they leave the host and spend), whatever the policy says;
+  ALWAYS   the reads that leave the host or spend, whatever the policy says: derived from the registry (cost `model` or privacy `off-host`; today research and `ask`);
   ACTS     the acts that run from words (cancel, stop-task, retry, routine-pause, attachment-add, attachment-discard, reject, release): whatever the policy says;
   reads    every other read of the table but the help (NOT_ASKED), unless the sender holds the group `confirm-reads-off` (a widening: `accept-config --widen`).
 Never asked: a greeting or the help, the answer to the platform's own question (a draft, the router's question, a number after a list), a button, a slash command, a card (it is the OK of
@@ -47,12 +47,13 @@ import natural  # noqa: E402
 import operations  # noqa: E402
 import pending_items  # noqa: E402
 import phrases  # noqa: E402
+import registry  # noqa: E402
 import snapshot_text  # noqa: E402
 
 ACTIVE = True       # the switch between BL2a and BL2b (see the module's text): on since BL2b; a test may set it False with monkeypatch
 PLAN_TTL = 600      # seconds a plan waits for its OK: the lifetime of a write draft and of a card list (ops_natural.DRAFT_TTL, messaging_bridge.LIST_SECONDS)
 VALUE_MAX = 80      # characters of one value of the person's words in the sentence
-ALWAYS = ("research", "ask")
+ALWAYS = registry.always()      # derived (CB-0): the served reads whose cost is a model call or whose privacy is off-host: `research` and `ask` while the catalog is at version 1
 ACTS = ("cancel", "stop-task", "retry", "routine-pause", "attachment-add", "attachment-discard", "reject", "release")
 NOT_ASKED = ("commands",)
 NUMBER = {"cancel": "request_id", "stop-task": "task_id", "retry": "task_id", "routine-pause": "routine_id", "attachment-add": "attachment_id",
