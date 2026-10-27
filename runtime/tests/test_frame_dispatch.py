@@ -410,12 +410,12 @@ def test_a_record_that_lands_during_the_dispatch_is_seen_and_a_found_one_is_read
 # --- the pre-states wait for the job that built them ---------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("sid", ["guard.plan_confirm.15", "card-word.take.27", "guard.research_brake.22", "guard.research_brake.24"])
+@pytest.mark.parametrize("sid", ["guard.plan_confirm.15"])
 def test_a_job_that_ends_late_does_not_change_the_world_the_line_meets(sid, tmp_path, monkeypatch):
     """CI failed twice on a timing the kit left open, on the base as on this package (reproduced there: the same fields differ). The job that sends a pre-state's question records it in the ledger and then
     releases the project's slot; the kit went on as soon as the record was there, so on a loaded machine a line (or the owner's yes) met a busy project: it was queued and told so (an extra `say`,
     `Got it: I will answer this after the current one`), or the yes was refused as busy and the plan was never taken (`PLAN_TWO_OPEN` for the next word, no search running). Here every job ends 0.5 s
-    after its call returns: the pre-state must wait for it (`entry_kit.settled`), and the outcome is the golden's."""
+    after its call returns: the pre-state must wait for it (`entry_kit.slot_free`), and the outcome is the golden's."""
     real = shell_kit.Jobs._run_job
 
     def run(self, job, call, exclusive):

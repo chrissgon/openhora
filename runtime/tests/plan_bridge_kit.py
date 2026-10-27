@@ -88,12 +88,16 @@ def build(world, tmp_path, monkeypatch):
     b.question_actions = question_actions
 
     def ask(line="mostra minha agenda", sender=OWNER_ID):
-        """A sender asks in words and the question reaches the chat: the number of messages sent when it is there."""
+        """A sender asks in words and the question reaches the chat: the number of messages sent when it is there. It returns when the job that sent the question has
+        ended too (a deadline): that job still holds the project's slot for a moment after the question is bound, and a "yes" that came in that moment was refused as
+        "still working" and never started the search it answered (the flake of the research brake and of the entry replay scenario guard.research_brake.11)."""
         def records():
             return [c for c in b.bridge.ledger.data["cards"] if c.get("kind") == "plan-confirm" and c["chat"] == sender]
         before = len(records())
+        already = {t for t in list(b.bridge.threads) if t.is_alive()}      # a job that was running before this line (a search held on purpose) is not waited for
         say(line, sender=sender)
         assert wait_for(lambda: len(records()) > before), "the question was sent and bound in the ledger"
+        assert wait_for(lambda: not [t for t in list(b.bridge.threads) if t.is_alive() and t not in already]), "the job that sent the question ended"
         return len(b.sent())
     b.ask = ask
     b.idle = lambda: wait_for(lambda: not b.bridge.exclusive and all(not t.is_alive() for t in list(b.bridge.threads)))

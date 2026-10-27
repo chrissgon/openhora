@@ -84,29 +84,14 @@ jobs:
         with:
           version: "0.12.19"
           python-version: "3.9"
-      - name: The python39 list of checks.yml in full, a failure run again
+      - name: The python39 list in full, a failure run again
         env:
           WB_SKIP_JS_ONLY_TESTS: "1"
         shell: bash
         run: >-
           uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 --with pytest-rerunfailures==16.0.1
           pytest -q -n auto -o faulthandler_timeout=120 --durations=20 --reruns 3 --reruns-delay 2 -rfER
-          scripts/tests/test_runtime_python39.py scripts/tests/test_provider_resolve.py
-          scripts/tests/test_runtime.py scripts/tests/test_runtime_vote.py scripts/tests/test_stage_skills.py
-          skills/mkt-engage/scripts/tests skills/mkt-publish/scripts/tests
-          skills/mkt-vote-round/scripts/tests skills/brand-identity/scripts/tests
-          shared/scripts/tests
-          runtime/tests
-          providers/store/tests providers/scheduler/tests providers/mailer/tests providers/mailbox/tests providers/messenger/tests/test_whatsapp.py
-          providers/messenger/tests/test_messenger_email.py
-          providers/messenger/tests/test_forward_telegram.py providers/messenger/tests/test_forward_discord.py
-          providers/messenger/tests/test_forward_whatsapp_cloud.py providers/messenger/tests/test_forward_twilio.py
-          providers/messenger/tests/test_forward_email.py
-          providers/messenger/tests/test_whatsapp_cloud.py providers/messenger/tests/test_whatsapp_cloud_webhook.py
-          providers/messenger/tests/test_whatsapp_cloud_send.py providers/messenger/tests/test_whatsapp_cloud_render.py
-          providers/messenger/tests/test_whatsapp_twilio.py providers/messenger/tests/test_whatsapp_twilio_webhook.py
-          providers/messenger/tests/test_whatsapp_twilio_send.py providers/messenger/tests/test_whatsapp_twilio_render.py
-          providers/model/tests
+          $(grep -v '^#' scripts/python39_tests.txt)
           2>&1 | tee "$RUNNER_TEMP/pytest.log"
       - name: Report
         if: always()
