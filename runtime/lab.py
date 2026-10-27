@@ -488,6 +488,17 @@ class DockerDown(Exception):
 DAEMON_DOWN = "the docker daemon cannot be reached: start Docker, then try again"
 
 
+NO_DOCKER = "docker is not installed or not on the PATH"
+
+
+def _no_docker_client(error) -> bool:
+    """True when `error` is the docker client missing: a FileNotFoundError of the program `docker`, or the executor's own error for it (evals/executor.py `docker`:
+    "docker is not installed or not on PATH"). Any other failure, a missing lock file included, is not."""
+    if isinstance(error, FileNotFoundError):
+        return error.filename == "docker"
+    return type(error).__name__ == "ExecutorError" and str(error).startswith("docker is not installed or not on PATH")
+
+
 def _asked(found):
     """The result of a docker call; DockerDown when it failed because the daemon is not running."""
     if found.returncode != 0 and "daemon" in (getattr(found, "stderr", "") or "").lower():
@@ -889,7 +900,11 @@ def _container() -> dict:
         return executor.ensure()
     except LabError:
         raise
+    except DockerDown as e:      # the daemon is not running: its own kind, so a caller can say "start Docker" and not "try again in a few minutes"
+        raise LabError("docker", str(e)) from None
     except Exception as e:
+        if _no_docker_client(e):
+            raise LabError("docker", NO_DOCKER) from None
         raise LabError("container", f"the eval container is not available: {e}") from None
 
 

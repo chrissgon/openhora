@@ -27,6 +27,7 @@ ops_core = st.load("ops_core")
 ops_ask = st.load("ops_ask")
 ops_say = st.load("ops_say")
 operations = st.load("operations")
+phrases = st.load("phrases")
 plan = st.load("plan")
 project_config = st.load("project_config")
 roles = st.load("roles")
@@ -266,6 +267,34 @@ def test_a_failed_run_cancels_its_request_by_code_and_the_reply_says_nothing_was
     assert len(st.calls(two["adapter"])) == 1                                           # one attempt
     st.fail(two["adapter"], "timeout", 0)                                               # the next question is answered: the slot is free again
     assert ask(two)["answer"] == "found"
+
+
+def test_with_docker_off_the_answer_says_the_environment_is_off_and_never_shows_the_lab_kind_or_reason(two, monkeypatch):
+    """RESEARCH-NO-DOCKER, OPEN-2: `ask` over sources gets the same plain sentence as a web research, in place of `The answer run failed (internal): docker: ...`."""
+    def down(*args, **kwargs):
+        raise lab.LabError("docker", lab.DAEMON_DOWN)
+    real = lab.run_skill
+    monkeypatch.setattr(lab, "run_skill", down)
+    out = ask(two)
+    assert out["ran"] is True and out["refusal"] == "failed" and out["answer"] is None
+    assert out["reply"] == phrases.en("ASK_NO_ENV") == "The environment that reads your sources is off on this computer (Docker is not running). Start Docker and ask again."
+    for private in ("daemon", "docker:", "internal", "answer run failed", "Nothing was answered"):
+        assert private not in out["reply"], private
+    store, conn = two["ctx"]["store"], two["ctx"]["conn"]
+    run = store.task_run_get(conn, out["run_id"])
+    assert (run["status"], run["failure"], run["attempts"]) == ("failed", "internal", 0)
+    assert store.task_get(conn, out["request_id"])["state"] == "cancelled"
+    monkeypatch.setattr(lab, "run_skill", real)
+    st.fail(two["adapter"], "timeout", 0)
+    assert ask(two)["answer"] == "found", "the slot is free again once Docker is back"
+
+
+def test_vacuity_a_lab_failure_of_another_kind_keeps_the_general_sentence(two, monkeypatch):
+    def broken(*args, **kwargs):
+        raise lab.LabError("container", "the published eval image is not on this machine")
+    monkeypatch.setattr(lab, "run_skill", broken)
+    out = ask(two)
+    assert out["reply"].startswith("The answer run failed (internal): container: ") and out["reply"] != phrases.en("ASK_NO_ENV")
 
 
 def test_the_replies_pass_the_credential_scan_before_they_leave(two):
