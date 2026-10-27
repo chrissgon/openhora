@@ -15,8 +15,17 @@ Sources (official Google documentation, all accessed 2026-09-29):
 - users.messages.get (GET /gmail/v1/users/{userId}/messages/{id}; format MINIMAL, FULL, RAW or METADATA):
   https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get
 - Message resource (raw: "The entire email message in an RFC 2822 formatted and base64url encoded
-  string"; internalDate: creation timestamp in epoch ms, "which determines ordering in the inbox"):
+  string"; internalDate: creation timestamp in epoch ms, "which determines ordering in the inbox";
+  labelIds: "List of IDs of labels applied to this message."):
   https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages
+- Format (accessed 2026-10-27; RAW "Returns the full email message data with body content in the raw
+  field as a base64url encoded string; the payload field is not used"; MINIMAL "Returns only email
+  message ID and labels"): https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format
+- Labels (accessed 2026-10-27; UNREAD is listed among the system labels, with no sentence that says it
+  marks an unread message): https://developers.google.com/workspace/gmail/api/guides/labels
+  The pages do not say in so many words that a RAW answer carries `labelIds`; the provider reads it when
+  it is there (a list) and prints `unread` null when it is not, never false (the writer of
+  providers/writer/gmail.py takes UNREAD in `labelIds` as the unread state in the same way).
 - users.getProfile (GET /gmail/v1/users/{userId}/profile; emailAddress; gmail.readonly accepted):
   https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile
 - Search and filter messages (dates in q are midnight PST; "pass the value in seconds instead",
@@ -163,6 +172,8 @@ output (JSON on stdout; diagnostics on stderr; tokens are never printed):
             refresh token was found>, "scope": <granted scopes>}}
   <message> = {{"id", "thread_id" (null for .eml), "source" ("gmail" or "eml"),
     "received_at" (ISO-8601 UTC, from Gmail's internalDate or the Date header),
+    "unread" (true when the message's labelIds list holds UNREAD, false when it holds the list without it, null when the answer
+    carries no list of labels, and for read-eml),
     "from", "to", "subject", "text" (the text/plain part, or text derived from
     the HTML part, capped at {TEXT_LIMIT_BYTES} bytes), "truncated", "links"
     ([{{"href", "text"}}] from the HTML part, in order, first occurrence of each
@@ -508,7 +519,7 @@ class Gmail:
         internal_ms = int(internal) if isinstance(internal, (str, int)) and str(internal).isdigit() else None
         return normalize(content, source="gmail", message_id=data.get("id") or message_id,
                          thread_id=data.get("threadId"), internal_date_ms=internal_ms, header_prefixes=header_prefixes,
-                         own_words=own_words)
+                         own_words=own_words, unread=unread_state(data.get("labelIds")))
 
 
 def connect() -> tuple[Gmail, dict, dict]:
@@ -648,8 +659,17 @@ def reply_address(reply_to, sender) -> str | None:
     return reply_to
 
 
+def unread_state(label_ids) -> bool | None:
+    """True when Gmail's `labelIds` is a list that holds UNREAD, False when it is a list without it, None when there is no list (an answer
+    that did not carry the labels is unknown, never read)."""
+    if not isinstance(label_ids, list):
+        return None
+    return "UNREAD" in label_ids
+
+
 def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_id: str | None = None,
-              internal_date_ms: int | None = None, header_prefixes: tuple[str, ...] = (), own_words: bool = False) -> dict:
+              internal_date_ms: int | None = None, header_prefixes: tuple[str, ...] = (), own_words: bool = False,
+              unread: bool | None = None) -> dict:
     msg = message_from_bytes(raw, policy=policy.default)
     plain = msg.get_body(preferencelist=("plain",))
     html = msg.get_body(preferencelist=("html",))
@@ -672,6 +692,7 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
         "thread_id": thread_id,
         "source": source,
         "received_at": received_at(msg, internal_date_ms),
+        "unread": unread if isinstance(unread, bool) else None,   # a closed boolean from the labels, null when they were not there (a local .eml has none)
         "from": header_value(msg, "From"),
         "to": header_value(msg, "To"),
         "subject": header_value(msg, "Subject"),

@@ -765,6 +765,7 @@ TABLE = {
     "NW_ITEMS_TODAY": "hoje",
     "NW_ITEMS_YESTERDAY": "ontem",
     "NW_ITEMS_PREVIEW": "Início do texto: {text}",
+    "NW_ITEMS_UNREAD_MARK": "\u2022",
     "NW_ITEMS_STATE_CHECKED": "verificado {when}",
     "NW_ITEMS_STATE_READ": "lido {when}",
     "NW_ITEMS_NAMEIN_MAIL": "caixa do {service}",
