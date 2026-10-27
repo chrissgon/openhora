@@ -120,6 +120,7 @@ TABLE = {
     "before_words": ["antes de", "antes da", "antes do", "antes das", "antes dos"],
     "topic_words": ["de", "da", "do", "dos", "das", "sobre"],
     "date_after_clock": ["de", "no dia"],
+    "deadline_words": ["vence", "vencer", "venca", "vencem", "vencimento", "prazo", "expira", "expirar"],
     "polite": ["por favor", "pode", "poderia", "consegue", "oi", "ola", "ei"],
     "connectors": ["de", "do", "da", "que", "para", "pra", "pro", "sobre"],
     "answers": {"yes": ["sim", "s", "isso", "pode", "ok", "certo", "confirma", "confirmo", "claro", "beleza", "isso mesmo", "pode ser", "pode sim", "com certeza", "fechado", "claro que sim", "tudo bem", "positivo"], "notice": ["lembrete", "aviso", "notificacao"],

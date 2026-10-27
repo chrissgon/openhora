@@ -338,6 +338,18 @@ OPS_GROUPS = {
 }
 
 
+# BL7-4: the lines of the second blind set that code refused or drew wrong, as scenarios (appended with `--record-added`; the rows before them are the golden's). A deadline date inside a reminder
+# (the row `reminder-form` claims the line before the interpreter: one confirmed reading, a reminder draft, no model call); a plain no on a live plan answered by the model as `confirm: no`, and (a
+# different line, since a stand-in answer is keyed by its line) as `none`; and a draft of a note that the model named as a mail draft, which goes to the planning agent. The model's texts are
+# `entry_kit.OVERRIDES`.
+BL74 = {
+    "deadline": [S("Remind me tomorrow at 9am to renew the parking permit before it expires on the 15th.")],
+    "plan_no": [S("N\u00e3o, deixa pra l\u00e1, depois eu vejo isso com calma.", "plan_last")],
+    "plan_none": [S("N\u00e3o, deixa pra l\u00e1, eu vejo isso depois com calma.", "plan_last")],
+    "draft_route": [S("draft a nice note to the neighbours about our party on saturday")],
+}
+
+
 # --- generation ---------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -406,6 +418,9 @@ def generate(full: bool = False) -> tuple:
     for name, rows in OPS_GROUPS.items():
         for n, scenario in enumerate(rows, 1):
             add(f"opscomp.{name}.{n:02d}", scenario)
+    for name, rows in BL74.items():
+        for n, scenario in enumerate(rows, 1):
+            add(f"bl74.{name}.{n:02d}", scenario)
     return scenarios, expectations
 
 
@@ -489,7 +504,7 @@ def record(workers: int) -> int:
 
 def record_added(workers: int, commit: str) -> int:
     """Extend the golden with the scenarios of the corpus that it does not hold (S41-1b): only those are run, the rows that exist stay as they are, byte for byte; the header gets the new
-    corpus hash and count, and one entry in `extensions` naming the commit the new rows were recorded at."""
+    corpus hash and count (and the hash of the table of answers, which a scenario's own model text moves), and one entry in `extensions` naming the commit the new rows were recorded at."""
     import tempfile
     held = read_rows(GOLDEN_FILE)
     header, rows = held[0], held[1:]
@@ -520,7 +535,11 @@ def record_added(workers: int, commit: str) -> int:
         print(f"{len(missing)} scenarios were not recorded, the first is {missing[0]}", file=sys.stderr)
         return 1
     lines = GOLDEN_FILE.read_text(encoding="utf-8").splitlines()[1:]
-    header = dict(header, corpus_sha256=sha256_of(CORPUS_FILE), count=len(scenarios))
+    answers = {json.loads(path.read_text())["answers_sha256"] for path in Path(folder).glob("meta-*.json")}
+    if len(answers) != 1:
+        print("the shards read different tables of recorded answers", file=sys.stderr)
+        return 1
+    header = dict(header, corpus_sha256=sha256_of(CORPUS_FILE), count=len(scenarios), answers_sha256=answers.pop())      # BL7-4: a new scenario may bring hand-written model texts (`entry_kit.OVERRIDES`, keyed by its own line), so the table's hash moves; no recorded row reads them
     header["extensions"] = list(header.get("extensions", [])) + [{"commit": commit, "added": len(added), "note": "rows recorded later, on the tree at this commit; the rows before them are untouched"}]
     GOLDEN_FILE.write_text(json.dumps(header, ensure_ascii=False) + "\n" + "\n".join(lines) + "\n" + "".join(json.dumps(new[i], ensure_ascii=False) + "\n" for i in added), encoding="utf-8")
     print(f"{len(added)} rows added to the golden, recorded at {commit[:9]}", file=sys.stderr)

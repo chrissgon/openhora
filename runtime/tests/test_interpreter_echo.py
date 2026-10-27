@@ -160,18 +160,20 @@ def write_corpus(path, items):
     return body.encode("utf-8")
 
 
-# The ids of the dev file whose echo is not `correct`, each with why: the pipeline, not the echo, decides them (a literal list; the 60-item sample holds two of them).
+# The ids of the dev file whose echo is not `correct`, each with why: the pipeline, not the echo, decides them (a literal list).
 TIME_ASK = "the code half-reads or doubts the time phrase, so it asks instead of taking the echo's time_iso (clarify time-ask)"
 TIME_ASK_GUARD = "TIME-GUARD (#505, decisions.md 2026-10-21): an hour-only reading beside a weekday word of a language with no table (`el jueves a las 15:00`) is asked, never read on the clock's own day (time-ask)"
 CODE_WINS = "the code reads the time itself and its reading wins over the echo's time_iso (time_disagree), and it is not the gold's"
 CONFIRM_RULE = "the confirm rule: the echo says yes or no, and code does not read the line as that yes or no, so it asks again (clarify)"
 FORWARD_OFF_MESSAGING = "the gold is `forwarded` but the channel is not messaging: a forward is read on the messaging channel only (as the current arm reads it), so the item reaches the model, and the echo's `forwarded` object is not a protocol kind (invalid, so clarify)"
+MAIL_NOT_PREPARED = "BL7-4: the product does not open this mail card: the closed forms read none of the numbers the echo names (gap G1, package BL7-5), so it says it could not prepare the write (clarify)"
 ALLOWED = {
     "dev-es-00036": TIME_ASK, "dev-es-00043": TIME_ASK, "dev-fr-00018": TIME_ASK, "dev-it-00020": TIME_ASK,
     "dev-pt-br-00007": TIME_ASK, "dev-es-00016": TIME_ASK_GUARD,
     "dev-es-00005": CODE_WINS, "dev-es-00012": CODE_WINS, "dev-es-00033": CODE_WINS,
     "dev-en-00040": FORWARD_OFF_MESSAGING,
     "dev-es-00025": CONFIRM_RULE, "dev-fr-00019": CONFIRM_RULE, "dev-pt-br-00058": CONFIRM_RULE,
+    "dev-pt-br-00080": MAIL_NOT_PREPARED,
 }
 FULL = bool(os.environ.get("WB_FULL_FUZZ"))
 

@@ -272,6 +272,14 @@ ROUTER_ANSWERS = ("um evento", "an event, 13:00, the Linden clinic", "sim, um ev
 OVERRIDES.update({collapse(line): json.dumps({"v": 1, "kind": "answer", "answers_item": "i1"}) for line in ROUTER_ANSWERS})
 OVERRIDES.update({collapse(RESEARCH_LINE): op_text("research", {"question": RESEARCH_LINE}), collapse(FILE_LIST_LINE): op_text("file-read", {"file": WANTED}),
                   collapse(EVENT_LIST_LINE): op_text("event-cancel")})
+BL74_DEADLINE_LINE = "Remind me tomorrow at 9am to renew the parking permit before it expires on the 15th."
+BL74_PLAN_NO_LINE = "N\u00e3o, deixa pra l\u00e1, depois eu vejo isso com calma."      # validate: allow english-only -- the Portuguese line under test
+BL74_PLAN_NONE_LINE = "N\u00e3o, deixa pra l\u00e1, eu vejo isso depois com calma."      # validate: allow english-only -- the Portuguese line under test
+BL74_DRAFT_LINE = "draft a nice note to the neighbours about our party on saturday"
+OVERRIDES.update({collapse(BL74_DEADLINE_LINE): op_text("remind", {"text": "renew the parking permit before it expires on the 15th", "when": "tomorrow at 9am"}, time_iso="2026-10-20T09:00", weekday="tue"),
+                  collapse(BL74_PLAN_NO_LINE): json.dumps({"v": 1, "kind": "answer", "answers_item": "i1", "confirm": "no"}),
+                  collapse(BL74_PLAN_NONE_LINE): json.dumps({"v": 1, "kind": "none"}),
+                  collapse(BL74_DRAFT_LINE): op_text("mail-draft", {"body": "a nice note to the neighbours about our party on saturday"})})
 
 
 # --- the stand-in messenger, in this process ----------------------------------------------------------------------------------------------------------
