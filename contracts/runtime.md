@@ -228,7 +228,7 @@ One paragraph each, `path`: what it owns, a blank line between (SPEC-HOTSPOTS: a
 
 `runtime/ops_natural_writes.py`: The card-opening path of the natural writes (package NR-5, limit L61): the one place that opens a write for a line, in the order of the L54 dispatcher, then asks back what is missing (the draft of owner `write`) and calls the operation's own function; its family resolvers are `ops_natural_calendar.py` and `ops_natural_files.py` (and `ops_natural_mail.py`)
 
-`runtime/ops_items.py`: The read `items` (package NR-5a): the numbered messages and events of the newest snapshots, with the rights of a reference
+`runtime/ops_items.py`: The read `items` (package NR-5a): the numbered messages and events of the newest snapshots, with the rights of a reference CB-1 (catalog version 2): `items` can be narrowed by code over the index: `match` (words: the messages whose sender or subject hold every word, the events whose title does), a day or week (by the local day a message came in), `unread` (the index flag of CB-2; on a phone a box with none is read once more, then says it does not know); a stated filter code cannot read is a sentence, never a list that looks filtered; typed `--match <words>` and `--unread`; a phone's header names the filter.
 
 `runtime/ops_research.py`: The operation `research` (slice R2-F1; "A question answered by a web search" under "Natural requests"): one run of the skill `core-research` with web access for a question of general information, chosen by code, in the eval container with no file of the project; bounded by the key `research`; the group `research`
 

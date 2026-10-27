@@ -281,7 +281,13 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         if not turn_gate.number_believed(said, args.get(VETTED[name])):
             return phrases.text("NAT_WHICH_DECISION" if cls == "D" else "NAT_ASK_ID", cfg)
     if name == "items" and "kind" not in args:      # BL5B: the list's kind, account and range are part of the call, so that the plan's hash binds them and the question says what will be read; a correction keeps what the plan it corrects had (`extras["plan_previous"]`, the sender's own plan)
-        args = dict(args, **importlib.import_module("ops_items").items_args(said, _clock(), extras.get("plan_previous")))
+        ops_items = importlib.import_module("ops_items")
+        spans = ops_items.span_args_of(args)      # CB-1 (catalog version 2): the spans of the line the interpreter verified for the target, the day and the state; the list reads them as code, and they never reach `items` as they are
+        args = {key: value for key, value in args.items() if key not in ops_items.SPAN_PARAMS.values()}
+        said_no = ops_items.unreadable_filter(spans, _clock())      # a day or a state the person stated and code cannot read is a sentence: never a list that looks filtered
+        if said_no:
+            return phrases.text(said_no, cfg)
+        args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans))
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
         return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"))
     if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here
