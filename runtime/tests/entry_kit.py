@@ -845,7 +845,7 @@ def prestate_research_running(w):
     w.b.ask(RESEARCH_LINE)
     say_yes(w)
     w.refs["plan"] = None
-    wait_for(started.is_set, SETTLE_SECONDS)
+    assert wait_for(started.is_set, SETTLE_SECONDS), "the pre-state research_running: the search began after the owner's yes"      # never go on with a state that was not reached
     wait_for(lambda: bool(w.b.bridge.exclusive), SETTLE_SECONDS)
     told = phrases.text("ACK_RESEARCH", ops_core.context(w.path)["cfg"])
     wait_for(lambda: told in w.b.texts(OWNER), SETTLE_SECONDS)      # the acknowledgement is the last message now, and the question is not
