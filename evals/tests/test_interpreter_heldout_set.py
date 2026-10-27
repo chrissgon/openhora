@@ -125,3 +125,27 @@ def test_vacuity_without_the_partition_the_held_out_event_reaches_the_cause(tmp_
     result = ist.status(str(tmp_path))
     causes = {r["cause"] for r in result["rows"] if r["route"] == "fx-cheap"}
     assert causes == {"changed since the newest test run: corpus_sha256"} and result["heldout"] == [], "so the test above can fail when the partition is gone"
+
+
+# --- the second blind set's committed summary (BL7-3) -----------------------------------------------------------------------------------------------
+
+BLIND_2_SUMMARY = "blite-blind-2-v2-split.json"
+BLIND_2_SHA256 = "ef25dc3a67c15ffa592c2826242ef0dd050dfa811c473bed68f32de2039158fa"      # the frozen sha256 of blite-blind-2-v2.jsonl, which is not in the repository until it is measured
+
+
+def test_the_second_blind_sets_committed_summary_is_the_frozen_one_and_the_status_reads_it_as_held_out_never_a_band():
+    path = REPO / "evals" / "interpreter" / BLIND_2_SUMMARY
+    body = json.loads(path.read_text(encoding="utf-8"))
+    assert body["sha256"] == BLIND_2_SHA256 and body["items"] == 60 and body["frozen"] == "2026-10-26" and body["v"] == 1
+    assert body["file"] == "blite-blind-2-v2.jsonl", "a plain file name, never a path of the author's machine"
+    assert not (REPO / "evals" / "interpreter" / body["file"]).exists(), "the lines stay blind: only the summary is committed before the measurement"
+    assert sum(body["counts"]["lang"].values()) == 60 and body["counts"]["lang"]["pt-BR"] == 30
+    named = ist._named_splits(REPO)
+    own = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert named[own] == BLIND_2_SUMMARY and named[own] != "test-split.json"
+    event = ({"split": "test", "corpus_sha256": own}, [], None)      # an event of a run on this set: its corpus hash is the hash of the summary file
+    gate, other = ist.partition_events([event], {"corpus_sha256": "0" * 64}, root=REPO)
+    assert gate == [] and other == [event], "listed as a held-out set, outside every band, cause and go input"
+    unknown = ({"split": "test", "corpus_sha256": "2" * 64}, [], None)
+    assert ist.partition_events([unknown], {"corpus_sha256": "0" * 64}, root=REPO) == ([unknown], []), "vacuity: a hash of no committed summary stays with the gate's"
+
