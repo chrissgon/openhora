@@ -212,6 +212,13 @@ def answers_sha256() -> str:
     return hashlib.sha256(json.dumps(sorted(table.items()), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def answers_sha256_without(lines) -> str:
+    """`answers_sha256` of the table without the keys of `lines` (the model texts that belong to the scenarios a package adds, keyed by their own line): what the table was before them."""
+    drop = {collapse(line) for line in lines if line}
+    table = {key: value for key, value in {**answers(), **OVERRIDES}.items() if key not in drop}
+    return hashlib.sha256(json.dumps(sorted(table.items()), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 class StandInModel:
     """The one function every model call of the runtime reaches, `interpreter_route.complete`, answered from a table keyed by the collapsed line (the recorded DeepSeek text where an
     answers file holds the line, else `{"kind": "route"}`), counting its calls."""

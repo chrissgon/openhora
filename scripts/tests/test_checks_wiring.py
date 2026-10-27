@@ -53,7 +53,10 @@ def test_every_test_folder_of_this_repository_is_in_the_list_ci_runs():
 WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.y*ml"))
 NIGHTLY = REPO / ".github" / "workflows" / "nightly.yml"
 NIGHTLY_WHOLE = "The whole suite with the full fuzz, a failure run again"
-NIGHTLY_PY39 = "The python39 list of checks.yml in full, a failure run again"
+NIGHTLY_PY39 = "The python39 list in full, a failure run again"
+PY39_LIST = "scripts/python39_tests.txt"
+PY39_CHOOSE = "Choose the python39 tests this pull request can reach"
+PY39_WHOLE = "The whole python39 list"
 PY39_STEP = "The scripts the scheduler starts, on Python 3.9"
 NIGHTLY_IF = "github.event_name != 'pull_request' || github.event.label.name == 'nightly'"
 
@@ -570,13 +573,198 @@ def test_the_nightly_runs_every_test_folder_with_the_full_fuzz_in_three_shards_a
     assert "        shard: [1, 2, 3]\n" in block + "\n" and "fail-fast: false" in block
 
 
-def test_the_nightly_python39_runs_the_whole_python39_list_of_checks():
+def py39_targets(text):
+    """The targets of the python39 list as both workflows read them: `grep -v '^#'`, and a blank line is no word to the shell."""
+    return [line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#")]
+
+
+def py39_list_problems(text, root=REPO):
+    """What is wrong with a text of the python39 list: a target that does not exist, a duplicate, a `#` after a target (the shell would pass
+    it to pytest as a path), a space inside a line, or the 3.9 guard missing."""
+    found = []
+    targets = py39_targets(text)
+    found += ["a duplicate: " + t for t in sorted({t for t in targets if targets.count(t) > 1})]
+    for t in targets:
+        if "#" in t or " " in t:
+            found.append("a comment or a space inside a target: " + t)
+        elif not (Path(root) / t).exists():
+            found.append("a target that does not exist: " + t)
+    if "scripts/tests/test_runtime_python39.py" not in targets:
+        found.append("the 3.9 guard is not in the list")
+    return found
+
+
+def test_the_nightly_python39_runs_the_whole_python39_list_read_from_the_one_file():
     ours = step_text(job_block(NIGHTLY.read_text(encoding="utf-8"), "nightly-python39"), NIGHTLY_PY39)
-    theirs = step_text(job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8"), "python39"), PY39_STEP)
-    assert named_paths(ours) == named_paths(theirs) != []
+    assert "$(grep -v '^#' scripts/python39_tests.txt)" in ours
+    assert "select_tests" not in ours  # the whole list, never a selection
     for wanted in ("--python 3.9", "--with pytest==8.4.2", 'WB_SKIP_JS_ONLY_TESTS: "1"', "--reruns 3"):
         assert wanted in ours, wanted
     assert re.search(r"--with pytest-rerunfailures==\d+(\.\d+)+\b", ours)
+
+
+def test_the_python39_list_is_written_once_and_both_workflows_read_that_file():
+    checks = (REPO / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+    nightly = NIGHTLY.read_text(encoding="utf-8")
+    targets = py39_targets((REPO / PY39_LIST).read_text(encoding="utf-8"))
+    assert len(targets) >= 20  # the reader found the list; an empty one would pass the loop below for the wrong reason
+    for name, text in (("checks.yml", checks), ("nightly.yml", nightly)):
+        assert PY39_LIST in text, name
+        for target in targets:
+            # a target never appears a second time in a workflow (the word `providers/model/tests` is in the list file only)
+            assert not re.search(r"(?<![\w./-])%s(?![\w./-])" % re.escape(target), "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))), (name, target)
+
+
+def test_every_line_of_the_python39_list_names_an_existing_path_and_the_guard_is_in_it():
+    assert py39_list_problems((REPO / PY39_LIST).read_text(encoding="utf-8")) == []
+
+
+def test_vacuity_a_python39_list_with_a_missing_path_a_duplicate_a_trailing_comment_or_no_guard_is_caught(tmp_path):
+    (tmp_path / "scripts" / "tests").mkdir(parents=True)
+    (tmp_path / "scripts" / "tests" / "test_runtime_python39.py").write_text("")
+    (tmp_path / "runtime" / "tests").mkdir(parents=True)
+    good = "# a comment\n\nscripts/tests/test_runtime_python39.py\nruntime/tests\n"
+    assert py39_list_problems(good, tmp_path) == []
+    for planted in (good + "runtime/gone/tests\n", good + "runtime/tests\n", good + "runtime/tests # why\n",
+                    "runtime/tests\n"):
+        assert py39_list_problems(planted, tmp_path), planted
+
+
+def step_script(block, name):
+    """The shell text of the `run:` of the step with that name (a `run: |` block, dedented, or a one-line `run:`)."""
+    lines = step_text(block, name).splitlines()
+    one = [line.strip()[len("run: "):] for line in lines if line.strip().startswith("run: ") and line.strip() != "run: |"]
+    if one:
+        return one[0] + "\n"
+    start = next(i for i, line in enumerate(lines) if line.strip() == "run: |")
+    body = []
+    for line in lines[start + 1:]:
+        if line.strip() and not line.startswith("          "):
+            break
+        body.append(line[10:])
+    return "\n".join(body) + "\n"
+
+
+def test_the_python39_job_selects_under_the_condition_of_the_tests_job_and_runs_the_whole_list_in_every_other_case():
+    choose = step_condition("python39", PY39_CHOOSE)
+    assert squash(choose) == squash(step_condition("tests", SELECTED))  # the same pull requests: into a branch other than main, no full-suite label
+    got = modes(job_condition("python39"), step_condition("python39", PY39_WHOLE), choose)
+    wanted = dict(WANTED_MODES)
+    wanted["another label just added"] = wanted["another label added to a pull request into main"] = None  # the job waits for the label full-suite
+    assert got == wanted
+    block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "python39")
+    assert "fetch-depth: 0" in block  # the selector reads the merge base with the pull request's base
+    pytest_step = step_text(block, PY39_STEP)
+    assert '$(cat "$RUNNER_TEMP/py39.txt")' in pytest_step and "--python 3.9" in pytest_step and "--with pytest==8.4.2" in pytest_step
+    assert "--with pytest-xdist==3.8.0" in pytest_step and 'WB_SKIP_JS_ONLY_TESTS: "1"' in pytest_step
+    assert re.search(r"^    name: python39\s*$", block, re.M)  # the check keeps its name
+
+
+def py39_repo(tmp_path, changed, list_text):
+    """A small git repository (fictional modules and tests, the real selector copied in) whose branch changed `changed` since its base."""
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    for name in ("select_tests.py", "test_dirs.py"):
+        shutil.copy(REPO / "scripts" / name, repo / "scripts" / name)
+    files = {
+        "scripts/python39_tests.txt": list_text,
+        "scripts/tests/test_runtime_python39.py": "def test_guard():\n    assert True\n",
+        "scripts/tests/test_elsewhere.py": "import os\n",
+        "runtime/alpha.py": "def a():\n    return 1\n",
+        "runtime/tests/test_alpha.py": "import alpha\n",
+        "runtime/tests/test_beta.py": "import os\n",
+        "docs/readme.md": "docs\n",
+    }
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    clean.update({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.test", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.test"})
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=clean, check=True, timeout=60).stdout.strip()
+
+    for rel, text in files.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    base = git("rev-parse", "HEAD")
+    for rel in changed:
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        with open(repo / rel, "a") as handle:
+            handle.write("\n# changed\n")  # a comment in every kind of file this fixture changes
+    git("add", "-A")
+    git("commit", "-q", "-m", "change")
+    return repo, base, clean
+
+
+def run_py39_choose(tmp_path, changed, script=None, list_text="runtime/tests\nscripts/tests/test_runtime_python39.py\n"):
+    """The shell of the step that chooses the python39 tests, as the workflow has it, on that repository: the lines it wrote to the file."""
+    repo, base, clean = py39_repo(tmp_path, changed, list_text)
+    block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "python39")
+    path = tmp_path / "choose.sh"
+    path.write_text(script if script is not None else step_script(block, PY39_CHOOSE))
+    temp = tmp_path / "runner-temp"
+    temp.mkdir()
+    done = subprocess.run(["bash", "-e", "-o", "pipefail", str(path)], cwd=repo, env={**clean, "BASE_SHA": base, "RUNNER_TEMP": str(temp)},
+                          capture_output=True, text=True, timeout=120)
+    return done, (temp / "py39.txt").read_text().splitlines() if (temp / "py39.txt").exists() else None
+
+
+WHOLE_LIST = ["runtime/tests", "scripts/tests/test_runtime_python39.py"]  # the fictional list above, in its order
+PY39_CASES = {  # what changed -> what runs (written by hand): selected = the test of the module and the guard; whole = the list as written
+    "a module": (["runtime/alpha.py"], ["runtime/tests/test_alpha.py", "scripts/tests/test_runtime_python39.py"]),
+    "a document": (["docs/readme.md"], ["scripts/tests/test_runtime_python39.py"]),
+    "a test outside the list": (["scripts/tests/test_elsewhere.py"], ["scripts/tests/test_runtime_python39.py"]),
+    "a workflow": ([".github/workflows/checks.yml"], WHOLE_LIST),
+    "the list itself": (["scripts/python39_tests.txt"], WHOLE_LIST),
+    "the selector": (["scripts/select_tests.py"], WHOLE_LIST),
+    "a conftest in a folder": (["runtime/tests/conftest.py"], WHOLE_LIST),
+    "the root conftest": (["conftest.py"], WHOLE_LIST),
+    "pytest.ini": (["pytest.ini"], WHOLE_LIST),
+    "pyproject.toml": (["pyproject.toml"], WHOLE_LIST),
+}
+
+
+def check_py39_cases(tmp_path, script=None):
+    for i, (name, (changed, want)) in enumerate(PY39_CASES.items()):
+        case = tmp_path / ("case%d" % i)
+        case.mkdir()
+        done, lines = run_py39_choose(case, changed, script)
+        assert done.returncode == 0, (name, done.stderr)
+        assert lines == want, (name, lines)
+
+
+def test_the_python39_choose_step_selects_inside_the_list_and_runs_the_whole_list_when_what_decides_the_selection_changes(tmp_path):
+    check_py39_cases(tmp_path)
+
+
+def test_vacuity_a_choose_step_that_never_runs_the_whole_list_or_never_selects_is_caught_by_the_cases(tmp_path):
+    block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "python39")
+    real = step_script(block, PY39_CHOOSE)
+    never_whole = re.sub(r"grep -Eq '[^']*'", "grep -Eq 'no-such-path-anywhere'", real)
+    always_whole = re.sub(r"grep -Eq '[^']*'", "grep -Eq ''", real)
+    for i, planted in enumerate((never_whole, always_whole)):
+        assert planted != real
+        (tmp_path / ("plant%d" % i)).mkdir()
+        with pytest.raises(AssertionError):
+            check_py39_cases(tmp_path / ("plant%d" % i), planted)
+
+
+def test_the_python39_choose_step_fails_when_the_selector_does(tmp_path):
+    done, lines = run_py39_choose(tmp_path, ["runtime/alpha.py"], list_text="# nothing but a comment\n")
+    assert done.returncode != 0 and "--within" in done.stderr  # an empty list is a usage error of the selector, and the step does not hide it
+
+
+def test_the_whole_python39_step_writes_the_list_without_its_comments_and_blank_lines(tmp_path):
+    block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "python39")
+    repo, _base, clean = py39_repo(tmp_path, ["docs/readme.md"], "# a comment\n\nruntime/tests\nscripts/tests/test_runtime_python39.py\n")
+    temp = tmp_path / "runner-temp"
+    temp.mkdir()
+    path = tmp_path / "whole.sh"
+    path.write_text(step_script(block, PY39_WHOLE))
+    done = subprocess.run(["bash", "-e", "-o", "pipefail", str(path)], cwd=repo, env={**clean, "RUNNER_TEMP": str(temp)}, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    assert (temp / "py39.txt").read_text().splitlines() == WHOLE_LIST
 
 
 def test_the_nightly_is_daily_by_hand_or_by_its_label_and_never_writes():

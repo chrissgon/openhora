@@ -150,8 +150,11 @@ def test_the_python_39_job_runs_the_tests_of_the_runtime_and_of_the_store():
     rest = text[text.index("\n  python39:") + 1:]
     following = re.search(r"\n  [A-Za-z0-9_-]+:\n", rest)
     job = rest[:following.start()] if following else rest
-    assert "runtime/tests" in job
-    assert "providers/store/tests" in job
+    assert "scripts/python39_tests.txt" in job  # the list is the file's: written once, read by this job and by the nightly's
+    listed = [line.strip() for line in (REPO / "scripts" / "python39_tests.txt").read_text(encoding="utf-8").splitlines()
+              if line.strip() and not line.startswith("#")]
+    assert "runtime/tests" in listed
+    assert "providers/store/tests" in listed
 
 
 # --- the operations layer is seven files (CONS-1B, ADJ-R1, R4-C3, PAR-4): runtime/ops.py and its siblings ops_say.py, ops_reads.py, ops_waits.py, ops_config.py, ops_runs.py, ops_core.py ----------

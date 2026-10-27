@@ -100,6 +100,80 @@ def test_a_line_the_rule_does_not_cover_is_read_exactly_as_the_base_read_it(line
     assert understood(line, NOW_EN) == (need, readings, text)
 
 
+# --- 2b. a destination or a second moment is never a deadline (review of BL7-4) -------------------------------------------------------------------------------
+
+D20 = "2026-11-20 09:00"
+CHANGE_LINES = (      # (line, the clock and zone, the model's target and time span): the date before the deadline word is the event's day, the one after it the new day
+    ("muda a reuni\u00e3o de amanh\u00e3 \u00e0s 9h pro vencimento dia 20", NOW_PT, ZONE_PT, "reuni\u00e3o", "amanh\u00e3 \u00e0s 9h", ("ask", [MOMENT, D20])),      # validate: allow english-only -- the Portuguese line under test
+    ("adia a reuni\u00e3o de amanh\u00e3 \u00e0s 9h do prazo pra sexta", NOW_PT, ZONE_PT, "reuni\u00e3o", "amanh\u00e3 \u00e0s 9h", MOMENT),      # validate: allow english-only -- the Portuguese line under test
+    ("move tomorrow's 9am meeting to the deadline on the 20th", NOW_EN, ZONE_EN, "meeting", "tomorrow's 9am", ("ask", [MOMENT, D20])),
+)
+TWO_MOMENTS = (      # (line, the clock, what the base reads): a coordinating word stands between the first moment and the date
+    ("Remind me tomorrow at 9am, then again on the due date, the 15th.", NOW_EN, ("ask", [MOMENT, "2026-11-15 09:00"])),
+    ("Me lembra amanh\u00e3 \u00e0s 9h, depois de novo no dia do vencimento, dia 15.", NOW_PT, ("ask", [MOMENT, "2026-11-15 09:00"])),      # validate: allow english-only -- the Portuguese line under test
+    ("Remind me tomorrow at 9am about the deadline, and friday.", NOW_EN, MOMENT),
+)
+
+
+def change(line, now, zone, target, span):
+    obj = {"v": 1, "kind": "op", "op": "event-change", "slots": {"target": target, "time": span}, "time_iso": "2026-11-13T09:00", "weekday": "fri"}
+    return interp.check(obj, line, None, kit.CATALOG, now, zone, kit.ALL_OPS)
+
+
+@pytest.mark.parametrize("line, now, zone, target, span, base", CHANGE_LINES)
+def test_a_date_after_a_destination_word_is_never_set_apart_and_a_change_asks_as_before(line, now, zone, target, span, base):
+    assert nt.find(line)["deadline"] == [] and parsed(line, now) == base
+    got = change(line, now, zone, target, span)
+    assert got["kind"] == "clarify" and got["why"] == "time-ask" and got["slot"] == "time", got
+
+
+def without_destination_words(monkeypatch):
+    for table in nt.languages():
+        monkeypatch.setitem(table, "deadline_to", [])
+
+
+@pytest.mark.parametrize("line, now, zone, target, span, base", CHANGE_LINES)
+def test_each_guard_of_a_change_holds_alone(line, now, zone, target, span, base, monkeypatch):
+    without_destination_words(monkeypatch)          # the engine rule is off: the date is set apart again (the defect), and the change still asks
+    assert parsed(line, now) == MOMENT          # the one reading of the base moment
+    got = change(line, now, zone, target, span)
+    assert got["kind"] == "clarify" and got["why"] == "time-ask", got
+
+
+@pytest.mark.parametrize("line, now, zone, target, span, base", CHANGE_LINES)
+def test_vacuity_with_both_guards_off_a_change_takes_the_time_of_the_event_day(line, now, zone, target, span, base, monkeypatch):
+    without_destination_words(monkeypatch)
+    monkeypatch.setattr(interp, "_deadline_set_apart", lambda text: False)
+    got = change(line, now, zone, target, span)
+    assert got["kind"] == "op" and got["time"]["local"] == "2026-11-13T09:00", got          # the planted defect: the change would move the event to the old day
+
+
+@pytest.mark.parametrize("line, now, zone, target, span, base", CHANGE_LINES[:1])
+def test_the_change_guard_alone_asks_when_the_engine_sets_the_date_apart(line, now, zone, target, span, base, monkeypatch):
+    without_destination_words(monkeypatch)
+    assert parsed(line, now) == MOMENT
+    monkeypatch.setattr(interp, "_deadline_set_apart", lambda text: True)
+    assert change(line, now, zone, target, span)["why"] == "time-ask"
+
+
+@pytest.mark.parametrize("line, now, base", TWO_MOMENTS)
+def test_a_second_moment_after_a_coordinating_word_is_not_a_deadline(line, now, base):
+    assert nt.find(line)["deadline"] == [] and parsed(line, now) == base
+
+
+@pytest.mark.parametrize("line, now, base", TWO_MOMENTS[:2])
+def test_vacuity_without_the_coordinating_words_the_second_moment_is_dropped(line, now, base, monkeypatch):
+    for table in nt.languages():
+        monkeypatch.setitem(table, "deadline_breaks", [])
+    got = parsed(line, now)
+    assert got == MOMENT, got          # the planted defect: one reading, the other day kept only in the text
+
+
+def test_a_destination_word_inside_the_window_of_a_line_that_is_a_deadline_does_not_block_it():
+    assert len(nt.find("Remind me tomorrow at 9am to renew the permit that expires on the 15th")["deadline"]) == 1
+    assert len(nt.find(PT_SLASH)["deadline"]) == 1
+
+
 # --- 3. NR-1, the interpreter's classifier and its check ---------------------------------------------------------------------------------------------------
 
 def test_nr1_confirms_the_one_moment_and_keeps_the_deadline_in_the_text():

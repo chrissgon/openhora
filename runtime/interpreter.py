@@ -938,6 +938,8 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         span = slots[time_slots[0]]
         if not _span_in_line(span, line) or len(span) > SPAN_MAX:
             return _invalid("E_SPAN")
+        if name == "event-change" and _deadline_set_apart(line):          # BL7-4: in a change the date before a deadline word may be the event's old day and the one after it the new day: asked, as before the deadline rule
+            return _clarify("time-ask", slot=time_slots[0], op=name)
         time, disagree, problem = _time(span, _without_old_day(name, slots, span, line), obj["time_iso"], obj["weekday"], now_local, zone)
         if problem:
             return _clarify(problem[0], slot=time_slots[0], error=problem[1], op=name)
@@ -1114,10 +1116,23 @@ def _open_note(name, obj, line, ops) -> bool:
             and not held(writes.listed(tables, "mail", "reply_verbs")))
 
 
+def _deadline_set_apart(line) -> bool:
+    """BL7-4: whether the time engine set a date of the line apart as a deadline (`natural_time.find`'s `deadline`)."""
+    return bool(nt.find(collapse(line)).get("deadline"))
+
+
+PLAIN_NO_FILLER = frozenset(THANKS | COURTESY_FILL | {          # the folded words that may follow a no in a plain no: a courtesy, "leave it", "I will look later" (pt-BR and en); nothing else
+    "obrigado", "obrigada", "ok", "okay", "tudo", "bem", "entao", "deixa", "deixe", "deixar", "pra", "la", "isso", "eu", "vejo", "depois", "com", "calma", "mais", "tarde", "agora", "por",      # validate: allow english-only -- the Portuguese filler words of a no
+    "enquanto", "leave", "it", "then", "i", "will", "look", "at", "later", "see", "that", "alone", "fine", "all", "right", "is", "its", "never", "mind", "forget", "just", "for", "now"})
+
+
 def _plain_no(line) -> bool:
-    """BL7-4 (B, E): whether the line is a plain no of a plan: it opens with a no word (`starts_with_no`), holds no digit, and the time engine reads no date, slash date, clock or relative
-    time in it (a vague word such as "depois" is allowed). A no that carries a new detail is a correction, never a plain no. It can only drop a plan (L65)."""
+    """BL7-4 (B, E): whether the line is a plain no of a plan: it opens with a no word (`starts_with_no`) and every word after it is a word of the closed list PLAIN_NO_FILLER (a courtesy,
+    "leave it", "I will look at it later"), so it holds no digit and no time; the time engine reads no date, slash date, clock or relative time in it either (a vague word such as "depois" is
+    allowed). A no that carries any other word (a new request, "no problem", "nao esquece") is not a plain no and keeps the path it had. It can only drop a plan (L65)."""
     if not starts_with_no(line) or any(c.isdigit() for c in line):
+        return False
+    if any(word not in PLAIN_NO_FILLER for word in natural.normal(line).split()[1:]):
         return False
     return not any(hit["kind"] in ("date", "slash", "clock", "relative") for hit in nt.find(collapse(line))["hits"])
 

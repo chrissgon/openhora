@@ -502,6 +502,16 @@ def record(workers: int) -> int:
     return 0
 
 
+def answers_problem(header: dict, added: list):
+    """BL7-4: a sentence when the table of recorded answers the stand-in reads, taken WITHOUT the model texts keyed by the lines of the scenarios being added, is not the table the golden's header
+    hashes (`answers_sha256`): an existing recorded answer or override changed, and a recorded row may then be stale. None when the only change is the added scenarios' own texts."""
+    sys.path.insert(0, str(HERE))
+    import entry_kit  # noqa: E402  (heavy: only the recording imports it)
+    if entry_kit.answers_sha256_without([s.get("text") for s in added]) != header.get("answers_sha256"):
+        return "the table of recorded answers, without the added scenarios' own texts, is not the one the golden was recorded with: an existing answer or override changed, so a recorded row may be stale; stop and review"
+    return None
+
+
 def record_added(workers: int, commit: str) -> int:
     """Extend the golden with the scenarios of the corpus that it does not hold (S41-1b): only those are run, the rows that exist stay as they are, byte for byte; the header gets the new
     corpus hash and count (and the hash of the table of answers, which a scenario's own model text moves), and one entry in `extensions` naming the commit the new rows were recorded at."""
@@ -517,6 +527,10 @@ def record_added(workers: int, commit: str) -> int:
     if not added:
         print("nothing to add", file=sys.stderr)
         return 0
+    problem = answers_problem(header, [s for s in scenarios if s["id"] in set(added)])
+    if problem:
+        print(problem, file=sys.stderr)
+        return 1
     folder = tempfile.mkdtemp(prefix="entry-golden-added-")
     only = "^(" + "|".join(__import__("re").escape(i) for i in added) + ")$"
     env = dict(os.environ, WB_ENTRY_RECORD="1", WB_ENTRY_RECORD_DIR=folder, WB_ENTRY_ONLY=only)

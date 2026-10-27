@@ -12,6 +12,10 @@ Usage:
   python3 scripts/select_tests.py --base origin/main         # git diff --name-only <merge-base of the ref and HEAD>, plus the working tree
   python3 scripts/select_tests.py                            # the working tree against HEAD
   add --explain to print, on stderr, why each target was chosen; --root <dir> reads another tree (the tests of this script use it)
+  add --within FILE to keep only the targets inside the targets listed in FILE (one target per line, whole-line `#` comments and blank
+  lines allowed; a relative FILE is read from --root): a selected file or folder under a listed target stays, a selected folder that
+  contains listed targets is replaced by those targets, anything else is dropped. The python39 job of .github/workflows/checks.yml uses it
+  with scripts/python39_tests.txt (docs/decisions.md, T4). An empty or missing FILE is a usage error (exit 2).
 
 Data goes to stdout (one target per line, sorted, repository-relative); diagnostics and --explain go to stderr. Nothing to run still
 prints the fixed guards (rule 6), so the output is never empty.
@@ -674,6 +678,32 @@ def read_names(source):
     return [n.decode("utf-8", "surrogateescape") for n in data.split(b"\0") if n]
 
 
+def read_within(path):
+    """The targets listed in a --within file: one per line, whole-line `#` comments and blank lines skipped, in file order."""
+    with open(path, encoding="utf-8") as handle:
+        lines = [line.strip() for line in handle.read().splitlines()]
+    return [posix(os.path.normpath(line)) for line in lines if line and not line.startswith("#")]
+
+
+def restrict(result, listed, reasons=None):
+    """`result` (a sorted target list) kept inside the `listed` targets: a target equal to or under a listed one stays; a target
+    that is a folder holding listed targets is replaced by them; every other target is dropped. Nothing is ever added that was not
+    selected, except the listed targets inside a selected folder. `reasons` (the Selection's) gets a line for a replacement."""
+    kept = set()
+    for target in result:
+        if any(target == item or target.startswith(item + "/") for item in listed):
+            kept.add(target)
+            continue
+        inside = [item for item in listed if item.startswith(target + "/")]
+        for item in inside:
+            kept.add(item)
+            if reasons is not None:
+                reasons.setdefault(item, ["within: listed target inside the selected folder %s" % target])
+    # a target under another kept target (a folder) is that folder's already
+    kept = {t for t in kept if not any(t.startswith(other + "/") for other in kept)}
+    return sorted(kept)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog="See the top of scripts/select_tests.py for the rules.")
@@ -682,12 +712,24 @@ def build_parser():
     parser.add_argument("--files-from", metavar="FILE", help="NUL-separated changed files read from FILE, or from stdin with -")
     parser.add_argument("--explain", action="store_true", help="print on stderr why each target was chosen")
     parser.add_argument("--root", default=DEFAULT_ROOT, help="the tree to read (default: this repository)")
+    parser.add_argument("--within", metavar="FILE",
+                        help="keep only the targets inside the targets this file lists (one per line, `#` comments); a relative FILE is read from --root")
     return parser
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     root = os.path.abspath(args.root)
+    listed = None
+    if args.within is not None:
+        path = args.within if os.path.isabs(args.within) else os.path.join(root, args.within)
+        try:
+            listed = read_within(path)
+        except (OSError, UnicodeDecodeError) as error:
+            parser.error("--within %s: %s" % (args.within, error))
+        if not listed:
+            parser.error("--within %s lists no target" % args.within)
     fell_back = None
     if args.files is not None or args.files_from is not None:
         names = list(args.files or [])
@@ -708,6 +750,11 @@ def main(argv=None):
     else:
         sel = select(repo, files)
     result = sel.result()
+    if listed is not None:
+        before = len(result)
+        result = restrict(result, listed, sel.targets)
+        if args.explain:
+            sys.stderr.write("select_tests: within %s: %d of %d selected target(s) kept\n" % (args.within, len(result), before))
     if args.explain:
         sys.stderr.write("select_tests: %d changed file(s), %d target(s)\n" % (len(files), len(result)))
         for note in sel.notes:

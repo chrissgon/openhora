@@ -71,7 +71,7 @@ pm} (with the forms written with dots, "a.m."), dayparts {morning, dawn, afterno
 relative_units {m, h, d, w}, number_words {word: n}, half_hour, and_half, joiners, half_words, time_words, not_typos, recurrence, recurrence_units,
 recurrence_counted_units, recurrence_phrases, recurrence_other, recurrence_not_before, recurrence_adverbs, recurrence_before_day, recurrence_joiners, week_phrases,
 remind_nouns, vague_parts {morning, afternoon, evening, night}, first_words, ordinal_marks, quarter_past, quarter_to, half_past, date_markers, date_nouns, but_words,
-deadline_words, fraction_before, fraction_after, date_cues, edge_words, problem_words, work_verbs, calendar_noun_reads, triggers {remind, remind_anywhere,
+deadline_words, deadline_to, deadline_breaks, fraction_before, fraction_after, date_cues, edge_words, problem_words, work_verbs, calendar_noun_reads, triggers {remind, remind_anywhere,
 reminders, reminders_bare, calendar, calendar_verb, calendar_noun, calendar_loose, note, undo}, forget {verbs, nouns, fillers, id_words, id_marked}, polite, connectors, answers {yes,
 notice, event, other, cancel, thanks, again}, work_starters. The trigger and answer words are read by runtime/natural.py, the time words here.
 
@@ -100,7 +100,7 @@ LISTS = ("markers", "weekday_next", "weekday_this", "weekday_after", "weak", "cu
          "hour_words_24", "vague", "noon", "midnight", "bare_hour_prefixes", "relative_in", "half_hour", "and_half", "joiners", "half_words", "time_words",
          "fraction_before", "fraction_after", "date_cues", "edge_words", "polite", "connectors", "work_starters", "recurrence_units", "recurrence_adverbs",
          "recurrence_other", "recurrence_not_before", "week_phrases", "remind_nouns", "first_words", "ordinal_marks", "quarter_past", "quarter_to", "half_past",
-         "date_markers", "date_nouns", "recurrence_phrases", "recurrence_counted_units", "but_words", "before_words", "topic_words", "date_after_clock", "deadline_words")
+         "date_markers", "date_nouns", "recurrence_phrases", "recurrence_counted_units", "but_words", "before_words", "topic_words", "date_after_clock", "deadline_words", "deadline_to", "deadline_breaks")
 GROUPS = {"days": ("today", "tomorrow", "day_after_tomorrow"), "meridiem": ("am", "pm"), "dayparts": ("morning", "dawn", "afternoon", "evening", "night"),
           "relative_units": ("m", "h", "d", "w"),
           "triggers": ("remind", "remind_anywhere", "reminders", "reminders_bare", "calendar", "calendar_verb", "calendar_noun", "calendar_loose", "note", "undo"),
@@ -669,15 +669,26 @@ def _deadlines(norm: str, hits: list, tables: list) -> tuple:
     15th", "que vence dia 15"), is set apart. A hit is a deadline when all of these hold: it is a date or a slash date; one of the two words right before it is a
     deadline word of some table (`deadline_words`); another date, slash date or relative hit ends before it starts (the moment comes first); the line has a clock
     hit other than it; and no clock hit starts at or after its end (a clock after the date may be the deadline's own hour, "due on the 15th at 3pm": nothing is set
-    apart). Every other hit is kept, so `parse`, `doubts` and the cuts see only the moment; the deadline's words stay in the text of the request, never cut."""
+    apart); and, for a line that may name TWO moments or a destination, no word of the table's `deadline_to` (to, for and their Portuguese forms: the date after it is where something goes) begins the
+    hit or stands in the three words before it, and no word or phrase of `deadline_breaks` (then, again, and, e, depois: a second moment follows) stands between the end of the hit before
+    it and its start ("move tomorrow's 9am meeting to the deadline on the 20th", "tomorrow at 9am, then again on the due date, the 15th": both ask, as before). Every other hit is
+    kept, so `parse`, `doubts` and the cuts see only the moment; the deadline's words stay in the text of the request, never cut."""
     words = {w for t in tables for w in t.get("deadline_words", [])}
     if not words:
         return hits, []
+    stops = {w for t in tables for w in t.get("deadline_to", [])}
+    breaks = [tuple(p.split()) for t in tables for p in t.get("deadline_breaks", [])]
     kept, deadline = [], []
     for h in hits:
         before = re.findall(r"[a-z0-9]+", norm[:h["s"]])[-2:]
+        near = re.findall(r"[a-z0-9]+", norm[:h["s"]])[-3:]          # "to the deadline on the 20th": the destination word may stand one word further back
+        own = re.findall(r"[a-z0-9]+", norm[h["s"]:h["e"]])
+        earlier = [g for g in hits if g is not h and g["e"] <= h["s"]]
+        gap = re.findall(r"[a-z0-9]+", norm[max(g["e"] for g in earlier):h["s"]]) if earlier else []
         if (h["kind"] in ("date", "slash") and any(w in words for w in before)
-                and any(g is not h and g["kind"] in ("date", "slash", "relative") and g["e"] <= h["s"] for g in hits)
+                and not (own and own[0] in stops) and not any(w in stops for w in near)
+                and not any(tuple(gap[i:i + len(b)]) == b for b in breaks for i in range(len(gap)))
+                and any(g["kind"] in ("date", "slash", "relative") for g in earlier)
                 and any(g is not h and g["kind"] == "clock" for g in hits)
                 and not any(g["kind"] == "clock" and g["s"] >= h["e"] for g in hits)):
             deadline.append(h)

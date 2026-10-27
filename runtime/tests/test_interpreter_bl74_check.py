@@ -81,6 +81,50 @@ def test_nothing_but_the_answer_decision_comes_out_of_the_rule():
     assert set(got) == {"kind", "error", "item", "need", "confirm"} and got["kind"] == "answer" and got["confirm"] == "no"
 
 
+NOT_A_PLAIN_NO = (      # a line that opens with a no word and says more than a no: a new request, or words that are not a no at all
+    "No, email Ana about the invoice instead",
+    "N\u00e3o, mas me lembra de ligar pro Jonas",      # validate: allow english-only -- the Portuguese line under test
+    "N\u00e3o esquece de mandar o relat\u00f3rio",      # validate: allow english-only -- the Portuguese line under test
+    "nope, cancel the dentist instead",
+    "no problem, go ahead",
+    "no worries, go ahead",
+    "N\u00e3o tem problema",      # validate: allow english-only -- the Portuguese line under test
+    "sem problema",      # validate: allow english-only -- the Portuguese line under test
+    "don't forget the invoice",
+)
+
+
+@pytest.mark.parametrize("line", NOT_A_PLAIN_NO)
+def test_a_no_that_says_more_than_a_no_or_is_not_a_no_never_drops_the_plan(line):
+    for obj in (ANSWER_NO, dict(ANSWER_NO, confirm="yes")):
+        got = run(obj, line, frame())
+        assert got != TAKEN and not (got["kind"] == "answer" and got.get("confirm") == "no"), (line, got)
+    assert run(NONE, line, frame()) == {"kind": "none", "error": None}, line
+
+
+def test_the_filler_a_plain_no_may_hold_is_closed():
+    for line in ("no", "N\u00e3o, obrigado, deixa pra l\u00e1 ent\u00e3o", "nao, valeu", "no, thanks", "No, leave it, I will look at it later.", "N\u00e3o, deixa pra l\u00e1, eu vejo isso depois com calma."):      # validate: allow english-only -- the Portuguese line under test
+        assert interp._plain_no(line), line
+    for line in NOT_A_PLAIN_NO:
+        assert not interp._plain_no(line), line
+
+
+def test_vacuity_a_filler_list_that_accepts_every_word_takes_a_request_for_a_no(monkeypatch):
+    class Everything:
+        def __contains__(self, word):
+            return True
+    monkeypatch.setattr(interp, "PLAIN_NO_FILLER", Everything())
+    assert run(ANSWER_NO, "nope, cancel the dentist instead", frame()) == TAKEN          # what the closed list prevents
+    with pytest.raises(AssertionError):
+        test_a_no_that_says_more_than_a_no_or_is_not_a_no_never_drops_the_plan("nope, cancel the dentist instead")
+
+
+def test_vacuity_an_empty_filler_list_takes_nothing_for_a_plain_no(monkeypatch):
+    monkeypatch.setattr(interp, "PLAIN_NO_FILLER", frozenset())
+    with pytest.raises(AssertionError):
+        assert_plain_no_is_taken()
+
+
 # --- E: a model's `none` on that no, with a live plan ----------------------------------------------------------------------------------------------------
 
 def assert_none_is_the_no():

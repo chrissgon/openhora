@@ -385,3 +385,50 @@ def test_full_fuzz_every_line_makes_a_trace_and_no_call(shard, tmp_path):
         if found["provider_calls"] or not found["trace"] or found["model_calls"] > 1:
             bad.append(f"{scenario['id']}: trace {found['trace']}, provider {found['provider_calls']}, model {found['model_calls']}")
     assert not bad, "\n".join(bad[:MAX_SHOWN])
+
+
+# --- the guard of `--record-added` (BL7-4) ----------------------------------------------------------------------------------------------------------------------
+# A scenario may bring a model text of its own into `entry_kit.OVERRIDES`, keyed by its own line, and then the hash of the table of answers in the golden's header moves; but the table taken
+# WITHOUT the added scenarios' own keys must still hash to the header's old `answers_sha256`. A change to an existing recorded answer or override is refused: a recorded row may then be stale,
+# and the golden is never re-recorded by a package. The oracle is this file's own literals (a planted override, a planted answer); the added scenarios are the four BL7-4 rows of the corpus.
+
+
+def added() -> list:
+    return [row for row in build.read_rows(build.CORPUS_FILE) if row["id"].startswith("bl74.")]
+
+
+def header_before_the_additions() -> dict:
+    return {"answers_sha256": ek.answers_sha256_without([row["text"] for row in added()])}
+
+
+def test_the_four_added_scenarios_are_found_and_their_texts_are_overrides():
+    assert [row["id"] for row in added()] == ["bl74.deadline.01", "bl74.plan_no.01", "bl74.plan_none.01", "bl74.draft_route.01"]
+    assert all(ek.collapse(row["text"]) in ek.OVERRIDES for row in added())
+
+
+def test_the_table_without_the_added_texts_is_the_table_the_header_hashes():
+    assert build.answers_problem(header_before_the_additions(), added()) is None
+    assert ek.answers_sha256_without([row["text"] for row in added()]) != ek.answers_sha256()          # the added texts do move the hash of the whole table
+
+
+def test_a_changed_existing_override_is_refused(monkeypatch):
+    header = header_before_the_additions()
+    key = ek.collapse(ek.RESEARCH_LINE)
+    assert key in ek.OVERRIDES
+    monkeypatch.setitem(ek.OVERRIDES, key, json.dumps({"v": 1, "kind": "none"}))          # the planted change to a recorded override
+    assert "stop and review" in build.answers_problem(header, added())
+
+
+def test_a_changed_recorded_answer_is_refused(monkeypatch):
+    header = header_before_the_additions()
+    table = dict(ek.answers())
+    key = next(iter(table))
+    table[key] = table[key] + " "
+    monkeypatch.setattr(ek, "answers", lambda: table)
+    assert "stop and review" in build.answers_problem(header, added())
+
+
+def test_vacuity_a_change_to_an_added_scenarios_own_text_is_not_a_refusal(monkeypatch):
+    header = header_before_the_additions()
+    monkeypatch.setitem(ek.OVERRIDES, ek.collapse(added()[0]["text"]), json.dumps({"v": 1, "kind": "route"}))
+    assert build.answers_problem(header, added()) is None          # the guard looks only at what is not new
