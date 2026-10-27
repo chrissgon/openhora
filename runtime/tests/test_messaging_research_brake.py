@@ -101,6 +101,41 @@ def stand_in_calls(b, monkeypatch):
     return seen
 
 
+# --- the kit: a yes after the question is answered only once the job that sent the question has ended ---------------------------------------------------
+
+
+def slow_to_end(monkeypatch, seconds=0.5):
+    """The job that sends a question ends `seconds` after the question is bound: a loaded machine, made deterministic."""
+    import time
+    real = bridge.Bridge.ask_plan
+
+    def slow(self, *args, **kwargs):
+        result = real(self, *args, **kwargs)
+        time.sleep(seconds)
+        return result
+    monkeypatch.setattr(bridge.Bridge, "ask_plan", slow)
+
+
+def test_a_yes_that_follows_the_kit_ask_starts_the_search_even_when_the_job_that_sent_the_question_is_slow_to_end(brig, monkeypatch):
+    slow_to_end(monkeypatch)
+    brig.search.arm()
+    brig.ask(LINE_1, sender=ASKER)
+    brig.say("sim", sender=ASKER)
+    assert brig.search.started.wait(WAIT), "the search began after the OK"
+    assert t("STILL_WORKING") not in brig.texts(ASKER)
+
+
+def test_vacuity_a_yes_sent_the_moment_the_question_is_bound_is_refused_as_still_working_and_no_search_begins(brig, monkeypatch):
+    """The sensitivity of the test above: the same slow job, and the yes sent as soon as the ledger holds the question (what `ask` did before it waited)."""
+    slow_to_end(monkeypatch)
+    brig.search.arm()
+    brig.say(LINE_1, sender=ASKER)
+    assert wait_for(lambda: brig.question_id(ASKER) is not None), "the question was bound"
+    brig.say("sim", sender=ASKER)
+    assert wait_for(lambda: t("STILL_WORKING") in brig.texts(ASKER)), "the yes met the job that had not ended"
+    assert not brig.search.started.wait(1)
+
+
 # --- the stop word -------------------------------------------------------------------------------------------------------------------------------
 
 

@@ -19,7 +19,7 @@ from test_messaging import SENDER, WAIT, decision, wait_for, world  # noqa: F401
 from test_messaging_card_words import GRANTED, HASH, OTHER, approvals, effect, message_ids, nothing_decided, went_to_say
 
 KEY = "telegram:" + SENDER
-LINE = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Christopher Gonçalves"'      # validate: allow english-only -- the live line, Portuguese
+LINE = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Renato Bragança"'      # validate: allow english-only -- the live line, Portuguese
 NOT_REVISABLE = "To change this card, reject it and ask again."
 
 
