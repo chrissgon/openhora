@@ -234,11 +234,11 @@ def test_the_privacy_and_cost_classes_follow_the_columns_of_the_row():
 
 
 def test_the_texts_hold_the_rules_and_separate_the_confusable_rows():
-    for rec in registry.rows(1):
+    for rec in [registry.row(row["name"]) for row in operations.OPERATIONS]:      # every row, a row of a later version included
         for key in ("about", "what"):
             assert 1 <= len(rec[key]) <= 300 and "@" not in rec[key] and not re.search(r"[0-9]{8}", rec[key]), (rec["op"], key)
         assert not re.search(r"\b(ignore|you must|you should|system prompt|respond with|reply with)\b", rec["about"], re.I), rec["op"]      # it describes the operation, it does not instruct
-    about = {rec["op"]: rec["about"].lower() for rec in registry.rows(1)}
+    about = {row["name"]: row["natural"]["about"].lower() for row in operations.OPERATIONS}
     for op, words in SEPARATES.items():
         assert words in about[op], (op, words)
     assert about["items"] != about["file-read"] and about["research"] != about["ask"]
@@ -335,6 +335,47 @@ def test_rows_row_and_the_fields_read_the_records_and_give_copies(monkeypatch):
 
 def whole_about(op):
     return next(row["natural"]["about"] for row in operations.OPERATIONS if row["name"] == op)
+
+
+def planted_later_row(monkeypatch):
+    """Plants a since-2 copy of `status` named `demo-note` and the views of version 1 over it: it has a class and no row of the table."""
+    rows = [copy.deepcopy(row) for row in operations.OPERATIONS]
+    extra = copy.deepcopy(next(row for row in rows if row["name"] == "status"))
+    extra["name"] = "demo-note"
+    extra["natural"].update({"since": 2, "order": 100})
+    monkeypatch.setattr(operations, "OPERATIONS", tuple(rows + [extra]))
+    classes, table = natural.views(1)
+    assert "demo-note" in classes and "demo-note" not in table
+    monkeypatch.setattr(natural, "CLASSES", classes)
+    monkeypatch.setattr(natural, "NATURAL", table)
+
+
+DEMO_TABLE = {"tag": "xx", "requests": {"forms": {"demo-note": ["show the demo"]}}}
+
+
+def test_a_form_of_an_operation_a_line_may_not_reach_is_refused_and_never_claimed(monkeypatch):
+    """L54: a tier-1 form belongs to an operation of `NATURAL` (what a line may reach), not of `CLASSES`, so a row of a later catalog version claims no line before the flip."""
+    planted_later_row(monkeypatch)
+    try:
+        natural.check_requests(DEMO_TABLE)
+    except ValueError as err:
+        assert "demo-note" in str(err)
+    else:
+        raise AssertionError("a form of a row that is not in NATURAL was accepted")
+    monkeypatch.setattr(natural, "_requests", lambda languages=None: [{"forms": {"demo-note": [re.compile("show the demo( [0-9]+)?")]}}])
+    assert natural.match("show the demo") is None and natural.match("show the demo 3") is None, "match skips an operation that is not in NATURAL, and never indexes it"
+
+
+def test_vacuity_the_refusal_follows_natural_not_classes(monkeypatch):
+    """The same form is accepted and claimed once the operation is in `NATURAL` (version 2): the refusal above is the table's, and a check that fell back to CLASSES would pass the first case."""
+    planted_later_row(monkeypatch)
+    classes2, table2 = natural.views(2)
+    monkeypatch.setattr(natural, "CLASSES", classes2)
+    monkeypatch.setattr(natural, "NATURAL", table2)
+    natural.check_requests(DEMO_TABLE)      # no ValueError
+    monkeypatch.setattr(natural, "_requests", lambda languages=None: [{"forms": {"demo-note": [re.compile("show the demo")]}}])
+    found = natural.match("show the demo")
+    assert found is not None and found["op"] == "demo-note"
 
 
 def test_the_one_work_operation_a_line_may_name_is_the_one_check_operation_believes():

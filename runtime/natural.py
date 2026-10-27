@@ -984,7 +984,7 @@ def check_requests(table: dict) -> None:
             if not isinstance(value, dict):
                 raise ValueError(f"{where}.forms maps an operation to a list of regular expressions")
             for op, forms in value.items():
-                if op not in CLASSES or not isinstance(forms, list) or not all(isinstance(f, str) for f in forms):
+                if op not in NATURAL or not isinstance(forms, list) or not all(isinstance(f, str) for f in forms):
                     raise ValueError(f"{where}.forms: {op!r} is not an operation with a list of regular expressions")
                 for form in forms:
                     if not CLOSED_FORM.fullmatch(form.replace("{n}", "")):
@@ -1056,6 +1056,8 @@ def match(line: str, languages=None):
     found = []
     for given in _requests(languages):
         for op, forms in given["forms"].items():
+            if op not in NATURAL:      # CB-0: a row of a later catalog version has a class and no line row; no form of it is claimed before the flip
+                continue
             for form in forms:
                 hit = form.fullmatch(flat)
                 if hit:
