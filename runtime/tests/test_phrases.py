@@ -86,7 +86,7 @@ def test_the_portuguese_column_is_translated_and_says_plataforma_never_bancada()
     assert same == {"HEADER", "ATT_SUBTYPE_PDF", "OUT_ACCT_GOOGLE", "OUT_ACCT_MICROSOFT",
                     "FAIL_SERVICE_FILES_GOOGLE", "FAIL_SERVICE_FILES_MICROSOFT", "FAIL_SERVICE_MAIL_GOOGLE", "FAIL_SERVICE_MAIL_MICROSOFT",
                     "FR_GOOGLE", "FR_MICROSOFT", "FR_FOLDER",
-                    "SRC_TWIN"}, "only a sentence that is the same in both languages is the same"
+                    "SRC_TWIN", "NW_ITEMS_UNREAD_MARK"}, "only a sentence that is the same in both languages is the same"
     assert not any("bancada" in text.lower() for text in PT.values())
     left = {key: re.findall(r"\b(?:the|and|you|your|with|from|this|that|was|were)\b", text) for key, text in PT.items() if key != "HELP"}
     assert {key: words for key, words in left.items() if words} == {}, "no English word left in a sentence"
