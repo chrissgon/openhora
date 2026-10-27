@@ -251,7 +251,13 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
         return say(ctx, "RV_ALREADY", pending_id)      # the card already holds every text the line asks for: told so, and the card is sent again
     if revised is None or revised.get("same"):
         return say(ctx, "RV_FAILED", pending_id)
-    seed = {"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": list(mail["to"]), "subject": revised["subject"], "body": revised["body"]}}
+    seed = turn_gate.Seed({"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": list(mail["to"]), "subject": revised["subject"], "body": revised["body"]}},
+                          {"account": "card-copy", "to": "card-copy", "subject": "composed", "body": "composed"})      # S41-7: the account and the recipients are the card's own; the text is the reviser's wording (S13)
+    arguments = {"account": mail["account"], "to": ",".join(mail["to"]), "subject": revised["subject"], ("text" if seed["op"] == "mail-send" else "body"): revised["body"]}
+    problems = gate.provenance(seed["op"], arguments, {**seed.origins, ("text" if seed["op"] == "mail-send" else "body"): seed.origins["body"]})      # S41-7: the revised card's arguments, checked before the old card is ended
+    if problems:
+        print(gate.refusal_line(seed["op"], problems), file=sys.stderr)
+        return say(ctx, "RV_FAILED", pending_id)      # nothing was ended and nothing opened: the card stays as it was
     grants = importlib.import_module("ops_grants")
 
     def open_new():
