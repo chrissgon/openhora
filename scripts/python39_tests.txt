@@ -1,0 +1,37 @@
+# The pytest targets of the Python 3.9 check: the scripts the scheduler starts, which the runtime starts with the system interpreter
+# (providers/CONTRACT.md, "Python version"). One target per line; a line that starts with `#` and a blank line are skipped.
+# This file is the one place the list is written: the job `python39` of .github/workflows/checks.yml (selected on a pull request
+# into a branch other than main, whole otherwise) and the job `nightly-python39` of .github/workflows/nightly.yml (always whole)
+# read it, and `select_tests.py --within` keeps the selected tests inside it. Add a test folder here when its code runs on the
+# system interpreter. shared/scripts/tests holds the tests of the scripts the skills carry as generated copies.
+scripts/tests/test_runtime_python39.py
+scripts/tests/test_provider_resolve.py
+scripts/tests/test_runtime.py
+scripts/tests/test_runtime_vote.py
+scripts/tests/test_stage_skills.py
+skills/mkt-engage/scripts/tests
+skills/mkt-publish/scripts/tests
+skills/mkt-vote-round/scripts/tests
+skills/brand-identity/scripts/tests
+shared/scripts/tests
+runtime/tests
+providers/store/tests
+providers/scheduler/tests
+providers/mailer/tests
+providers/mailbox/tests
+providers/messenger/tests/test_whatsapp.py
+providers/messenger/tests/test_messenger_email.py
+providers/messenger/tests/test_forward_telegram.py
+providers/messenger/tests/test_forward_discord.py
+providers/messenger/tests/test_forward_whatsapp_cloud.py
+providers/messenger/tests/test_forward_twilio.py
+providers/messenger/tests/test_forward_email.py
+providers/messenger/tests/test_whatsapp_cloud.py
+providers/messenger/tests/test_whatsapp_cloud_webhook.py
+providers/messenger/tests/test_whatsapp_cloud_send.py
+providers/messenger/tests/test_whatsapp_cloud_render.py
+providers/messenger/tests/test_whatsapp_twilio.py
+providers/messenger/tests/test_whatsapp_twilio_webhook.py
+providers/messenger/tests/test_whatsapp_twilio_send.py
+providers/messenger/tests/test_whatsapp_twilio_render.py
+providers/model/tests
