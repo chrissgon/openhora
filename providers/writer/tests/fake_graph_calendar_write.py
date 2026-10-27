@@ -24,7 +24,9 @@ import json
 import re
 import threading
 import urllib.parse
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from zoneinfo import ZoneInfo
 
 ADDRESS = "casey.rivera@mail.example"
 CLIENT_ID = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
@@ -38,6 +40,16 @@ GRANTED = " ".join(PREFIX + name for name in PLATFORM) + " offline_access openid
 GRAPH = "/v1.0"
 KEY_PROPERTY = "String {c1a7e5d2-9b34-4f68-8a1e-3d5f7b2c9e40} Name openhora_key"
 NAMED = "AAMkNamedCalendar_1="
+
+
+def utc_form(moment: dict) -> dict:
+    """A dateTimeTimeZone in an IANA zone as the same instant in UTC (`.0000000` fraction, as Graph prints it); one already in UTC, or in a name this stand-in does not
+    know (a Windows name), is returned as it is."""
+    zone = moment.get("timeZone")
+    if zone in ("UTC", None) or "/" not in zone:
+        return moment
+    wall = datetime.strptime(moment["dateTime"][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=ZoneInfo(zone))
+    return {"dateTime": wall.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + ".0000000", "timeZone": "UTC"}
 
 
 class FakeGraphCalendar:
@@ -204,6 +216,9 @@ class FakeGraphCalendar:
             own = shown.pop("_own", None)      # an all-day event's own zone: asked in UTC (a Prefer header) Graph shifts its midnight, asked with none it does not
             if own and "outlook.timezone" not in (entry["prefer"] or ""):
                 shown["start"], shown["end"] = own["start"], own["end"]
+            if "outlook.timezone=\"UTC\"" in (entry["prefer"] or ""):      # asked in UTC, Graph converts an event written in another zone, as the real service does
+                for edge in ("start", "end"):
+                    shown[edge] = utc_form(shown[edge])
             if "singleValueExtendedProperties" not in entry["query"].get("$expand", ""):
                 shown.pop("singleValueExtendedProperties", None)
             return 200, shown, {}, None
