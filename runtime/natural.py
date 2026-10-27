@@ -56,6 +56,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import natural_time as nt  # noqa: E402  (the same folder: the time words and the engine)
+import operations  # noqa: E402  (the same folder: the rows whose `natural` records the views CLASSES and NATURAL read; it imports nothing of runtime/)
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language)
 
 LIST_WORDS_MAX = 5          # "what reminders do I have": a list request is short; a longer line that starts with the word asks for something else
@@ -904,152 +905,35 @@ def forget_question(shown: list, cfg=None, with_text: bool = True) -> tuple:
 
 # --- NR-2: what a line may do with each operation of the platform ------------------------------------------------------------------------------------
 #
-# The class of every operation (and the dispatcher that executes by class, runtime/ops_natural.py) is package NR-2. `CLASSES` is the ONE literal that gives an
-# operation its class; no other table says it. The classes (contracts/runtime.md, "Natural requests"):
+# The class of every operation (and the dispatcher that executes by class, runtime/ops_natural.py) is package NR-2. Since package CB-0 (PLAN-BRAIN section 4.2) the class, the slots and
+# the texts of an operation are one record on its row of `operations.OPERATIONS` (the key `natural`; the classes and the kinds of a slot are described above `OPERATIONS`), and the two
+# tables of this module are VIEWS of those records, built at import by `views`:
 #
-#   R  a read: runs at once, checked by the policy as the typed command is
-#   N  a notice or an own write of the person's (a reminder): runs at once; a choice of the router's, or a time it normalised, asks first
-#   W  a confirmed write (cancel, stop, retry, a routine's brakes and edits, a held file): never run from a line; the reply is the exact command to send
-#   D  a decision (approve, reject, release, answer, go ahead): never decided from a line; the reply points to its card, which is sent again
-#   E  an effect on the person's own accounts (a calendar event, an e-mail, a file in their drive): never run from a line; the reply is the exact operation to
-#      run, which ends in a card of the exact content (package NR-5 routes a line into them with slots)
-#   G  gated elsewhere (consent, mode, model, configuration, sources, the instructions, the terminal's own verbs): never run; the reply names the place and
-#      the exact command
-#   work  the planning agent's own work (say, request, route) and `ask`, which only the router's `Operation: ask` reaches
-CLASSES = {
-    # R: reads
-    "status": "R", "progress": "R", "pending": "R", "task": "R", "agents": "R", "skills": "R", "costs": "R", "artifacts": "R", "artifact": "R",
-    "instructions": "R", "routines": "R", "sources": "R", "attachments": "R", "reminders": "R", "flows": "R", "flow-check": "R",
-    "connections": "R", "commands": "R", "items": "R", "file-read": "R", "research": "R",
-    # N: a notice and the person's own writes
-    "remind": "N", "reminder-forget": "N", "reminder-restore": "N",
-    # W: confirmed writes
-    "cancel": "W", "stop-task": "W", "retry": "W", "routine-pause": "W", "routine-cancel": "W", "routine-create": "W", "routine-change": "W",
-    "attachment-add": "W", "attachment-discard": "W",
-    # D: decisions
-    "approve": "D", "reject": "D", "release": "D", "answer": "D", "go-ahead": "D",
-    # E: effects on the person's own accounts, each ending in a card
-    "event-create": "E", "event-change": "E", "event-cancel": "E", "mail-send": "E", "mail-reply": "E", "mail-draft": "E", "mail-archive": "E", "mail-move": "E",
-    "mail-mark": "E", "mail-trash": "E", "file-create": "E", "file-replace": "E", "file-save": "E", "file-trash": "E",
-    # G: gated elsewhere
-    "give-consent": "G", "set-mode": "G", "set-model": "G", "config": "G", "accept-config": "G", "routine-approve": "G", "routine-resume": "G",
-    "instructions-set": "G", "instructions-add": "G", "source-add": "G", "source-import": "G", "source-refresh": "G", "source-describe": "G",
-    "source-drive": "G", "source-onedrive": "G", "source-mail": "G", "source-calendar": "G", "flow-save": "G", "stage-file": "G", "sync": "G",
-    "hand-over": "G", "dispatch": "G", "verdict": "G", "deps": "G", "run-next": "G", "run-task": "G", "run-step": "G", "proof": "G",
-    "approve-policy": "G", "revoke-policy": "G", "standing": "G", "execute-under-policy": "G", "contained-run": "G", "poll": "G", "handler": "G",
-    "pin": "G", "stop-runs": "G", "service-check": "G", "route-queued": "G", "attachment-hold": "G", "conversation": "G", "version": "G",
-    "artifact-raw": "G",
-    # work: the planning agent's own work, and the answer from sources
-    "say": "work", "request": "work", "route": "work", "ask": "work",
-}
+#   CLASSES  {operation: class} for EVERY row, whatever its catalog version: a class is a property of the operation on every path (a typed command of a row of a later version works)
+#   NATURAL  {operation: {"slots": {slot: [kind, param]}, "what": text}} for the rows (and the slots of a row) whose `since` is at most `operations.LINE_CATALOG`, in the rows' `order`:
+#            it is what a line may reach, so `check_operation` believes only these
+#
+# `views(version)` builds the pair for any version (a test, runtime/registry.py, `interpreter_catalog.py --version 2 --print`); the module's own pair is `views(operations.LINE_CATALOG)`
+# and is read once, at import: raising `LINE_CATALOG` is a change of the file, and takes effect when the process starts.
+LINE_WORK = ("ask",)      # the one operation of class `work` a line may name (the router's `Operation: ask`); say, request and route are the planning agent's own. `check_operation` names it by hand (its source is pinned: a test holds the two together)
+
+
+def views(version: int) -> tuple:
+    """(CLASSES, NATURAL) for the catalog `version`, built from the `natural` records of `operations.OPERATIONS`, in their `order`."""
+    records = sorted(((row["natural"]["order"], row["name"], row["natural"]) for row in operations.OPERATIONS), key=lambda item: item[0])
+    classes = {name: rec["class"] for _order, name, rec in records}
+    table = {}
+    for _order, name, rec in records:
+        if rec["since"] <= version:
+            table[name] = {"slots": {slot: [spec["kind"], spec["param"]] for slot, spec in rec["slots"].items() if spec["since"] <= version}, "what": rec["what"]}
+    return classes, table
+
+
+CLASSES, NATURAL = views(operations.LINE_CATALOG)
 # What a class E or a planned effect named but no operation is yet: empty since the writes of SPEC-SECRETARY-WRITES exist (a name here is not an operation; a test
 # ties it both ways). The intent `candidate` calls a calendar event is the operation `event-create`.
 PLANNED = ()
 CANDIDATE_OPS = {"calendar-event-create": "event-create"}
-
-# A slot: "<slot the router writes>": [kind, the parameter of the operation it fills]. Kinds: int (digits written in the line), ints (several integers, each written in the line), word (a piece of the line as it
-# is written: an id, a path), span (a span of the normalised line: a text), when (the router's normalised time, the typed `When:` line).
-NATURAL = {
-    "status": {"slots": {}, "what": "where the work stands"},
-    "progress": {"slots": {"since": ["word", "since"]}, "what": "what happened lately"},
-    "pending": {"slots": {"id": ["int", "pending_id"]}, "what": "what waits for the person; with an id, that decision"},
-    "task": {"slots": {"id": ["int", "task_id"]}, "what": "one task or request with its runs"},
-    "agents": {"slots": {}, "what": "each area agent and its use of today"},
-    "skills": {"slots": {}, "what": "the skills in scope with their proof"},
-    "costs": {"slots": {"since": ["word", "since"]}, "what": "the runs by day, agent and model with their cost"},
-    "artifacts": {"slots": {}, "what": "the project's files under docs/"},
-    "artifact": {"slots": {"path": ["word", "path"]}, "what": "the text of one file under docs/"},
-    "instructions": {"slots": {}, "what": "the project's standing instructions"},
-    "routines": {"slots": {"id": ["int", "routine_id"]}, "what": "the routines and their state"},
-    "sources": {"slots": {}, "what": "the project's sources: what files there are"},
-    "attachments": {"slots": {}, "what": "the files people sent through a messaging app"},
-    "reminders": {"slots": {}, "what": "the reminders that wait"},
-    "flows": {"slots": {}, "what": "the flows the project can run"},
-    "flow-check": {"slots": {"flow": ["word", "flow"]}, "what": "the check of one flow"},
-    "connections": {"slots": {}, "what": "which provider each requirement class resolves to"},
-    "commands": {"slots": {}, "what": "what can be asked and the commands"},
-    "items": {"slots": {}, "what": "the numbered messages and events of the mail and calendar snapshots"},
-    "file-read": {"slots": {"file": ["span", "file"], "service": ["word", "account"]}, "what": "show the text of a file of the person's own Drive or OneDrive, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive)"},
-    "research": {"slots": {"question": ["span", "question"]}, "what": "answer a question of general information that is not about the person's own files, mail, calendar or sources (the weather, a price or quote, the news, a fact) from a web search (the question is the span: all the words that say what to find out, with the place and the day)"},
-    "remind": {"slots": {"text": ["span", "text"], "when": ["when", "when"]}, "what": "a reminder sent back once at a time"},
-    "reminder-forget": {"slots": {"id": ["int", "reminder_id"]}, "what": "cancel a reminder that waits"},
-    "reminder-restore": {"slots": {"id": ["int", "reminder_id"]}, "what": "bring back a reminder cancelled a moment ago"},
-    "cancel": {"slots": {"id": ["int", "request_id"]}, "what": "cancel a request"},
-    "stop-task": {"slots": {"id": ["int", "task_id"]}, "what": "stop a running task"},
-    "retry": {"slots": {"id": ["int", "task_id"]}, "what": "make a failed or blocked task ready again"},
-    "routine-pause": {"slots": {"id": ["int", "routine_id"]}, "what": "pause a routine"},
-    "routine-cancel": {"slots": {"id": ["int", "routine_id"]}, "what": "cancel a routine"},
-    "routine-create": {"slots": {}, "what": "create a routine"},
-    "routine-change": {"slots": {"id": ["int", "routine_id"]}, "what": "change a routine"},
-    "attachment-add": {"slots": {"id": ["int", "attachment_id"]}, "what": "add a file that was sent as a source"},
-    "attachment-discard": {"slots": {"id": ["int", "attachment_id"]}, "what": "delete a file that was sent"},
-    "approve": {"slots": {"id": ["int", "pending_id"]}, "what": "approve a plan or an acceptance (from its card)"},
-    "reject": {"slots": {"id": ["int", "pending_id"]}, "what": "reject a decision (from its card)"},
-    "release": {"slots": {"id": ["int", "pending_id"]}, "what": "release a delivery (from its card)"},
-    "answer": {"slots": {"id": ["int", "pending_id"]}, "what": "answer a question a task asked (from its card)"},
-    "go-ahead": {"slots": {"id": ["int", "task_id"]}, "what": "go ahead on a task that waits for another request"},
-    "event-create": {"slots": {"title": ["span", "title"], "time": ["span", "start"], "calendar": ["word", "calendar"], "service": ["word", "account"]}, "what": "a card that creates an event on the person's own calendar"},
-    "event-change": {"slots": {"event": ["int", "event"], "target": ["span", "target"], "day": ["span", "day"], "time": ["span", "start"], "title": ["span", "title"]}, "what": "a card that changes an event of the person's own calendar (the event is named by its words in target, with the day it is on now in day; the new time in time and the new name in title; event only when the line writes the event's number)"},
-    "event-cancel": {"slots": {"event": ["int", "event"], "target": ["span", "target"], "day": ["span", "day"]}, "what": "a card that removes an event of the person's own calendar (the event is named by its words in target, with the day the line gives in day; event only when the line writes the event's number)"},
-    "mail-send": {"slots": {"to": ["word", "to"], "subject": ["span", "subject"], "body": ["span", "text"]}, "what": "a card that sends an e-mail from the person's own account"},
-    "mail-reply": {"slots": {"message": ["int", "message"], "target": ["span", "target"], "day": ["span", "day"], "body": ["span", "text"]}, "what": "a card that sends a reply to an e-mail (the message is named by its words in target: its sender or its subject, with the day it came in day; message only when the line writes its number; the reply's text in body)"},
-    "mail-draft": {"slots": {"to": ["word", "to"], "subject": ["span", "subject"], "body": ["span", "body"], "message": ["int", "message"], "target": ["span", "target"]}, "what": "a card that saves a draft in the person's own mailbox (to answer a message, the message is named by its words in target; message only when the line writes its number)"},
-    "mail-archive": {"slots": {"messages": ["ints", "messages"], "target": ["span", "target"], "day": ["span", "day"]}, "what": "a card that takes messages out of the inbox (the messages are named by their words in target: a sender or a subject, with the day in day; messages only when the line writes their numbers)"},
-    "mail-move": {"slots": {"messages": ["ints", "messages"], "folder": ["word", "folder"], "target": ["span", "target"], "day": ["span", "day"]}, "what": "a card that moves messages to a folder (named by their words in target, the day in day, or by the numbers the line writes in messages; the folder in folder)"},
-    "mail-mark": {"slots": {"messages": ["ints", "messages"], "state": ["span", "state"], "target": ["span", "target"], "day": ["span", "day"]}, "what": "a card that marks messages read or unread (named by their words in target, the day in day, or by the numbers the line writes in messages)"},
-    "mail-trash": {"slots": {"messages": ["ints", "messages"], "target": ["span", "target"], "day": ["span", "day"]}, "what": "a card that moves messages to the trash (the messages are named by their words in target: a sender or a subject, with the day in day; messages only when the line writes their numbers)"},
-    "file-create": {"slots": {"name": ["word", "file_name"], "content": ["span", "content"], "folder": ["word", "folder"]}, "what": "a card that creates a file in the person's own drive"},
-    "file-replace": {"slots": {"file": ["span", "file"], "content": ["span", "content"]}, "what": "a card that writes a new revision of a file that is a source"},
-    "file-save": {"slots": {"attachment": ["int", "attachment"], "folder": ["word", "folder"]}, "what": "a card that saves a file someone sent"},
-    "file-trash": {"slots": {"file": ["span", "file"], "service": ["word", "account"], "folder": ["span", "folder"]}, "what": "a card that moves a file of the person's own Drive or OneDrive to the trash, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive; the folder only when the line names one)"},
-    "give-consent": {"slots": {}, "what": "the consent an autonomous agent needs"},
-    "set-mode": {"slots": {}, "what": "move an agent's autonomy mode"},
-    "set-model": {"slots": {}, "what": "fix an agent to a model"},
-    "config": {"slots": {}, "what": "the configuration and its hash"},
-    "accept-config": {"slots": {}, "what": "accept the configuration's hash"},
-    "routine-approve": {"slots": {"id": ["int", "routine_id"]}, "what": "approve a routine by its hash"},
-    "routine-resume": {"slots": {"id": ["int", "routine_id"]}, "what": "resume a paused routine"},
-    "instructions-set": {"slots": {}, "what": "replace the standing instructions"},
-    "instructions-add": {"slots": {}, "what": "add a line to the standing instructions"},
-    "source-add": {"slots": {}, "what": "register a source"},
-    "source-import": {"slots": {}, "what": "import a version of a source"},
-    "source-refresh": {"slots": {}, "what": "refresh a source"},
-    "source-describe": {"slots": {}, "what": "describe a source"},
-    "source-drive": {"slots": {}, "what": "make Drive files sources"},
-    "source-onedrive": {"slots": {}, "what": "make OneDrive files sources"},
-    "source-mail": {"slots": {}, "what": "a window of the mailbox as a source"},
-    "source-calendar": {"slots": {}, "what": "a calendar's window as a source"},
-    "flow-save": {"slots": {}, "what": "save an approved plan as a flow"},
-    "stage-file": {"slots": {}, "what": "hand a file over for a request's plan"},
-    "sync": {"slots": {}, "what": "mirror the tasks and the documents"},
-    "hand-over": {"slots": {}, "what": "copy a file into a task's file drop"},
-    "dispatch": {"slots": {}, "what": "one round of the dispatcher"},
-    "verdict": {"slots": {}, "what": "record a verdict on a run"},
-    "deps": {"slots": {}, "what": "install the dependency sets"},
-    "run-next": {"slots": {}, "what": "run the next ready task"},
-    "run-task": {"slots": {}, "what": "run one named task"},
-    "run-step": {"slots": {}, "what": "run one named step task"},
-    "proof": {"slots": {}, "what": "the model each skill would run on"},
-    "approve-policy": {"slots": {}, "what": "a standing approval of a policy file"},
-    "revoke-policy": {"slots": {}, "what": "end a standing approval"},
-    "standing": {"slots": {}, "what": "whether a standing approval covers a policy"},
-    "execute-under-policy": {"slots": {}, "what": "execute an effect inside a standing approval"},
-    "contained-run": {"slots": {}, "what": "run one skill in the container"},
-    "poll": {"slots": {}, "what": "the short job"},
-    "handler": {"slots": {}, "what": "start one verb of a handler"},
-    "pin": {"slots": {}, "what": "write the pin of the dispatcher's jobs"},
-    "stop-runs": {"slots": {}, "what": "end the runs this process started"},
-    "service-check": {"slots": {}, "what": "what the local service checks at its start"},
-    "route-queued": {"slots": {}, "what": "route the oldest queued line"},
-    "attachment-hold": {"slots": {}, "what": "the bridge's own call for a file that arrived"},
-    "conversation": {"slots": {}, "what": "the messages of the project's conversation"},
-    "version": {"slots": {}, "what": "the change signal of the store"},
-    "artifact-raw": {"slots": {}, "what": "the bytes of one image under docs/"},
-    "say": {"slots": {}, "what": "one turn of the conversation with the planning agent"},
-    "request": {"slots": {}, "what": "record what the person wants"},
-    "route": {"slots": {}, "what": "plan a request"},
-    "ask": {"slots": {}, "what": "answer a question from the text of the project's sources (the question is the person's whole line)"},
-}
 
 # --- tier 1 for the other operations: the forms are language data -----------------------------------------------------------------------------------
 #

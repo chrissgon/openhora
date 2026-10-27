@@ -52,7 +52,8 @@ def test_every_operation_of_the_table_has_a_row_and_one_class_so_that_nothing_is
     assert not missing, f"operations with no class in runtime/natural.py CLASSES: {missing}"
     assert not sorted(OPS - set(natural.NATURAL)), "operations with no row in NATURAL"
     assert set(natural.CLASSES) == OPS, sorted(set(natural.CLASSES) ^ OPS)      # a class for something that is not an operation: nothing is planned any more
-    assert set(natural.NATURAL) == set(natural.CLASSES)
+    served = {row["name"] for row in operations.OPERATIONS if row["natural"]["since"] <= operations.LINE_CATALOG}      # CB-0: what a line may reach; a row of a later catalog version has a class and no line row
+    assert set(natural.NATURAL) == served and served <= set(natural.CLASSES)
     assert set(natural.CLASSES.values()) <= CLASS_SET
 
 
