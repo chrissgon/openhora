@@ -48,6 +48,7 @@ import phone_delete  # noqa: E402
 import phone_refusal  # noqa: E402
 import phrases  # noqa: E402
 import project_config  # noqa: E402
+import turn_gate  # noqa: E402
 
 OP = "file-trash"
 KIND = "file-write"
@@ -136,13 +137,18 @@ def _private(ctx: dict, extras: dict) -> None:
     extras["stored"] = phrases.text("NW_PRIVATE_REPLY", ctx["cfg"])      # the reply holds a file's name and folder: the conversation keeps a neutral word
 
 
-def _card(project: str, ctx: dict, match: dict, exact: bool, channel, sender, extras: dict) -> str:
-    """The card of one file, as every write of the family opens it: the policy for the operation (and for cards) is asked again, the card is prepared, and the bridge sends it
-    (`extras["resend"]`); the terminal's own shell also gets the lines and the command with the hash."""
+def _card(project: str, ctx: dict, match: dict, exact: bool, channel, sender, extras: dict, origin: str = "grounded") -> str:
+    """The card of one file, as every write of the family opens it: the policy for the operation (and for cards) is asked again, the gate checks where each argument came from (S41-7: the file
+    is `grounded`, found by the search with the words of the line, or `picked`, chosen among those listed; the account and the folder are the configuration's), the card is prepared, and the
+    bridge sends it (`extras["resend"]`); the terminal's own shell also gets the lines and the command with the hash."""
     cfg = ctx["cfg"]
     refused = _writes()._admit(ctx, OP, channel, sender)
     if refused:
         return refused
+    alias = _alias(cfg, match["service"], match["root"])
+    problems = turn_gate.provenance(OP, {"account": match["service"], "file": match["id"], **({"folder": alias} if alias else {})}, {"account": "config", "file": origin, "folder": "config"})
+    if problems:
+        return _writes().refused_sentence(ctx, OP, problems, channel, extras)
     car = _writes().carrier(channel)
     try:
         with ops_actor.carried_by(car):
@@ -198,7 +204,7 @@ def pick(project: str, ctx: dict, match: dict, channel, sender, extras: dict) ->
     if (match["service"], match["root"]) not in granted:
         folders = [(service, None) for service in reader.SERVICES if (project_config.account_entry(cfg, service) or {}).get("folders")]
         return reader._render(cfg, {"status": "no-folder", "folders": folders, "cut": None} if folders else {"status": "no-folders"})
-    return _card(project, ctx, match, True, channel, sender, extras)
+    return _card(project, ctx, match, True, channel, sender, extras, origin="picked")
 
 
 # --- a line that asks to delete a file ---------------------------------------------------------------------------------------------------------------

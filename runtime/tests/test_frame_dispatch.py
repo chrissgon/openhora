@@ -27,6 +27,7 @@ Run: uv run --with pytest==9.1.1 --with pytest-xdist pytest -q -n 4 runtime/test
 from __future__ import annotations
 
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -40,6 +41,7 @@ messaging_turn = st.load("messaging_turn")
 turn_order = st.load("turn_order")
 messaging_ledger = st.load("messaging_ledger")
 messaging_bridge = st.load("messaging_bridge")
+shell_kit = st.load("shell_kit")
 
 KINDS = tuple(turn_order.kinds())
 KIT = ek.FRAME_KIT_NAMES      # the names the golden gives the claimers the kinds took over
@@ -403,3 +405,28 @@ def test_a_record_that_lands_during_the_dispatch_is_seen_and_a_found_one_is_read
     bridge.records["question"] = {"kind": "plan-confirm", "chat": "1", "message_id": "question"}
     assert turn.record("question")["kind"] == "plan-confirm" and turn.record("question") is turn.record("question")
     assert bridge.read.count("question") == 2, "one read that found nothing, one that found the record, and no more"
+
+
+# --- the pre-states wait for the job that built them ---------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("sid", ["guard.plan_confirm.15", "card-word.take.27", "guard.research_brake.22", "guard.research_brake.24"])
+def test_a_job_that_ends_late_does_not_change_the_world_the_line_meets(sid, tmp_path, monkeypatch):
+    """CI failed twice on a timing the kit left open, on the base as on this package (reproduced there: the same fields differ). The job that sends a pre-state's question records it in the ledger and then
+    releases the project's slot; the kit went on as soon as the record was there, so on a loaded machine a line (or the owner's yes) met a busy project: it was queued and told so (an extra `say`,
+    `Got it: I will answer this after the current one`), or the yes was refused as busy and the plan was never taken (`PLAN_TWO_OPEN` for the next word, no search running). Here every job ends 0.5 s
+    after its call returns: the pre-state must wait for it (`entry_kit.settled`), and the outcome is the golden's."""
+    real = shell_kit.Jobs._run_job
+
+    def run(self, job, call, exclusive):
+        def slow():
+            try:
+                return call()
+            finally:
+                time.sleep(0.5)      # the tail of a job: the result is recorded, the slot is not yet free
+        return real(self, job, slow, exclusive)
+    monkeypatch.setattr(shell_kit.Jobs, "_run_job", run)
+    _, recorded = rp.golden()
+    scenario = next(s for s in rp.corpus() if s["id"] == sid)
+    found = rp.replay(scenario, tmp_path)
+    assert not rp.differences(recorded[sid], found), sid

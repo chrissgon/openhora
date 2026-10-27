@@ -321,6 +321,21 @@ def test_a_card_that_cannot_be_ended_or_a_new_card_that_cannot_be_opened_never_l
     assert got["resend"] is None and got["say"].endswith("Peça de novo.") and open_cards(world) == []      # validate: allow english-only -- the Portuguese sentence under test
 
 
+def test_the_gate_checks_the_new_cards_origins_before_the_old_card_is_ended_and_a_refusal_leaves_the_card_as_it_was(world, monkeypatch, capsys):
+    """S41-7 (L55, L61): the new card is opened by the typed operation, which is not `ops_natural_writes._opened`, so the revision asks the gate itself, before `swap` ends the old card."""
+    build(world, monkeypatch, op_text("event-change", {"title": "Evento Coders 26K"}))
+    old, sha = create(world)
+    seen, real = [], turn_gate.provenance
+    monkeypatch.setattr(turn_gate, "provenance", lambda op, args, origins: ["title: no origin"])
+    got = revise(world, old, sha, LIVE)
+    assert got["say"] == FAILED and open_cards(world) == [old] and status(world, old) == "open", "nothing was ended and nothing opened: the card is as it was"
+    assert capsys.readouterr().err == "gate: provenance refused event-create (title)\n"
+    monkeypatch.setattr(turn_gate, "provenance", lambda op, args, origins: seen.append((op, dict(origins))) or real(op, args, origins))
+    got = revise(world, old, sha, LIVE)
+    assert isinstance(got["resend"], int) and got["resend"] != old and len(seen) == 1, "the control: the right origins open the new card"
+    assert seen[0][0] == "event-create" and seen[0][1]["title"] == "line-span" and {seen[0][1][k] for k in ("account", "start", "end", "calendar")} == {"card-copy"}, seen
+
+
 # --- the live case of 17:01: "muda para as 10h" on the card of a new event, and a model answer of a shape the check refuses -------------------------------------
 
 

@@ -757,14 +757,28 @@ def open_world(scenario, tmp_path, monkeypatch) -> World:
 # --- the pre-states -----------------------------------------------------------------------------------------------------------------------------------
 
 
+def quiet(w, extra=()) -> bool:
+    """Every thread the bridge started has ended and no job holds the project's slot; `extra` threads (a research run that is held) are not waited for."""
+    b = w.b
+    alive = [t for t in list(b.bridge.threads) if t.is_alive() and t not in extra]
+    return not alive and (not b.bridge.exclusive or bool(extra))
+
+
 def settle(w, extra=()):
     """Every thread the bridge started has ended (a deadline, never an unbounded wait); `extra` threads (a research run that is held) are not waited for."""
-    b = w.b
+    return wait_for(lambda: quiet(w, extra), SETTLE_SECONDS)
 
-    def quiet():
-        alive = [t for t in list(b.bridge.threads) if t.is_alive() and t not in extra]
-        return not alive and (not b.bridge.exclusive or bool(extra))
-    return wait_for(quiet, SETTLE_SECONDS)
+
+def must(condition, what, seconds=None):
+    """The pre-state reached `what` within the deadline, else the scenario is not built: a wait that times out is an error, never a world that was not the one the golden was recorded in (under load a
+    thread can be late; a late pre-state used to come back as a wrong outcome, and now it comes back as the reason)."""
+    assert wait_for(condition, seconds or SETTLE_SECONDS), f"the pre-state did not reach: {what}"
+
+
+def settled(w, extra=(), what="every thread of the pre-state has ended"):
+    """`settle`, strict: the job that sent the pre-state's last message can still be ending (it has recorded the message and not yet released the project's slot) when the line is delivered, and a line
+    that meets it busy is queued and told so: not the line the golden was recorded for."""
+    must(lambda: quiet(w, extra), what)
 
 
 def say_ops(w, text, channel):
@@ -825,6 +839,7 @@ def prestate_card_list_shown(w):
 
 def prestate_plan_last(w):
     w.b.ask(PLAN_LINE)
+    settled(w)      # the question is in the ledger when `ask` returns, and the job that sent it may still be ending
     w.refs["plan"] = w.b.question_id()
 
 
@@ -846,12 +861,14 @@ def prestate_research_running(w):
     w.research_run = Held()
     w.monkeypatch.setattr(lab, "stop_runs", lambda *a, **k: release.set())
     w.b.ask(RESEARCH_LINE)
+    settled(w)      # the job that sent the question still holds the project's slot for a moment: a yes that comes first is told the project is busy, and the plan is never taken
     say_yes(w)
     w.refs["plan"] = None
-    wait_for(started.is_set, SETTLE_SECONDS)
-    wait_for(lambda: bool(w.b.bridge.exclusive), SETTLE_SECONDS)
+    must(started.is_set, "the search has started")
+    must(lambda: bool(w.b.bridge.exclusive), "the search holds the project's slot")
+    must(lambda: ops.plan_live(w.path, OWNER_KEY) is None, "the plan was taken by the yes (no question waits)")
     told = phrases.text("ACK_RESEARCH", ops_core.context(w.path)["cfg"])
-    wait_for(lambda: told in w.b.texts(OWNER), SETTLE_SECONDS)      # the acknowledgement is the last message now, and the question is not
+    must(lambda: told in w.b.texts(OWNER), "the acknowledgement of the search is the last message")      # the acknowledgement is the last message now, and the question is not
     w.monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)
     w.held = [t for t in list(w.b.bridge.threads) if t.is_alive()]
 

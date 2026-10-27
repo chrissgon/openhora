@@ -249,7 +249,7 @@ class Reminders:
         elif done.get("event"):          # the kind question answered "event": the event is opened with the reading the question SHOWED and its words (NR-5)
             seed = {"op": "event-create"}
             if done.get("reading"):
-                seed.update(reading=done["reading"], text=done.get("text") or "")
+                seed.update(reading=done["reading"], text=done.get("text") or "", origins={"start": "time-engine", "title": "line-span"})          # S41-7: the time is the engine's reading the question showed, the title the person's own words
             bridge.write(project, chat, done.get("line") or text, seed)
         elif done.get("forget"):
             for number in done["forget"]:

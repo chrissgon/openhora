@@ -321,6 +321,23 @@ def test_a_card_that_cannot_be_ended_stops_the_change_before_anything_is_opened(
     assert ops_core.context(world["path"])["store"].pending_list(ops_core.context(world["path"])["conn"], "open")[0]["id"] == old
 
 
+def test_the_gate_checks_the_revised_cards_arguments_before_the_old_card_is_ended_and_a_refusal_keeps_the_old_card(world, clock, monkeypatch, capsys):
+    """S41-7 (L55, L60, L61): the revised e-mail's arguments (the card's own account and recipients, the reviser's wording) are checked before `swap` ends the old card, as an event's revision is."""
+    model, old, sha = live_card(world, monkeypatch)
+    gate = st.load("turn_gate")
+    seen, real = [], gate.provenance
+    monkeypatch.setattr(gate, "provenance", lambda op, args, origins: seen.append((op, sorted(args), dict(origins))) or ["to: origin grounded not allowed"])
+    got = revise(world, old, sha, INSTRUCTION)
+    assert got == {"say": FAILED, "resend": old} and open_cards(world) == [old] and status(world, old) == "open", "nothing was ended and nothing opened: the card is as it was"
+    assert seen[0][0] in ("mail-send", "mail-draft") and {"account", "to", "subject"} <= set(seen[0][1]) and seen[0][2]["to"] == "card-copy", seen
+    assert capsys.readouterr().err == f"gate: provenance refused {seen[0][0]} (to)\n"
+    seen.clear()
+    monkeypatch.setattr(gate, "provenance", lambda op, args, origins: seen.append((op, sorted(args), dict(origins))) or real(op, args, origins))
+    got = revise(world, old, sha, INSTRUCTION)
+    assert isinstance(got["resend"], int) and got["resend"] != old and seen[0][2]["to"] == "card-copy" and seen[0][2]["account"] == "card-copy", "the control: the card's own parts open the new card"
+    assert {key for key in seen[0][2] if key in ("subject", "text", "body")} <= {"subject", "text", "body"} and "composed" in seen[0][2].values()
+
+
 def test_a_new_card_that_cannot_be_opened_leaves_no_open_card_and_says_to_ask_again(world, clock, monkeypatch):
     model, old, sha = live_card(world, monkeypatch)
 
@@ -338,7 +355,7 @@ def test_a_new_card_that_is_not_what_was_asked_is_ended_and_no_card_stays_open(w
     real = ops.natural_write
 
     def other(project, line, **kw):
-        seed = dict(kw["seed"], slots=dict(kw["seed"]["slots"], body=kw["seed"]["slots"]["body"] + "\nUm texto a mais."))      # validate: allow english-only -- a Portuguese text under test
+        seed = st.load("turn_gate").Seed(dict(kw["seed"], slots=dict(kw["seed"]["slots"], body=kw["seed"]["slots"]["body"] + "\nUm texto a mais.")), kw["seed"].origins)      # validate: allow english-only -- a Portuguese text under test
         return real(project, line, **dict(kw, seed=seed))
     monkeypatch.setattr(ops, "natural_write", other)
     got = revise(world, old, sha, INSTRUCTION)
