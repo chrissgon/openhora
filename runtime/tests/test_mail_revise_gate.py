@@ -40,9 +40,9 @@ shell_kit = st.load("shell_kit")
 mail_revise = st.load("mail_revise")
 phrases = st.load("phrases")
 
-NAMED = CLOSED + "\nChristopher Gonçalves"      # validate: allow english-only -- the card's text in Portuguese
-LIVE_LINE = "Escreva ao final do email:\n\nAtenciosamente,\nChristopher Gonçalves"      # validate: allow english-only -- the live line, Portuguese
-BLOCK = "Atenciosamente,\nChristopher Gonçalves"      # validate: allow english-only -- the text block the live line asks for
+NAMED = CLOSED + "\nRenato Bragança"      # validate: allow english-only -- the card's text in Portuguese
+LIVE_LINE = "Escreva ao final do email:\n\nAtenciosamente,\nRenato Bragança"      # validate: allow english-only -- the live line, Portuguese
+BLOCK = "Atenciosamente,\nRenato Bragança"      # validate: allow english-only -- the text block the live line asks for
 PLAIN = "Olá,\n\nGostaria de marcar uma reunião amanhã às 16h. Você teria disponibilidade?"      # validate: allow english-only -- a Portuguese card text
 ALREADY = "O e-mail já está assim."      # validate: allow english-only -- the Portuguese sentence under test
 UNCLEAR = "Não entendi o ajuste."      # validate: allow english-only -- the sentence that no longer exists: it must never be said
@@ -96,7 +96,7 @@ def test_the_words_of_a_thought_or_a_request_are_not_words_that_ask_for_a_change
 def test_a_block_after_a_colon_and_a_line_break_is_a_text_the_instruction_asks_for_only_when_the_line_before_it_asks_for_it():
     assert mail_revise.literals(LIVE_LINE) == [BLOCK]
     assert mail_revise.literals('Ponha no fim do email:\n\n"Oi"\n\nTchau') == ['"Oi"\n\nTchau'], "a quoted text inside the block is part of the block"      # validate: allow english-only -- the Portuguese line under test
-    assert mail_revise.literals("Escreva: Atenciosamente, Christopher") == [], "a colon with the text on the same line is no block"
+    assert mail_revise.literals("Escreva: Atenciosamente, Renato") == [], "a colon with the text on the same line is no block"
     assert mail_revise.literals("Escreva ao final:\n\n") == [] and mail_revise.literals("Escreva ao final:") == []      # validate: allow english-only -- the Portuguese line under test
     assert mail_revise.literals('Troque por "A b" ao final:\n\nC d') == ["A b", "C d"]      # validate: allow english-only -- the Portuguese line under test
     for line in ("Pensando aqui:\nacho que vou viajar sexta", "Lista de compras:\nleite\npão", "Me ajuda com isso:\nqual a capital da França?", "Escreva para a Ana:\nOi Ana", "Termina a tarefa:\n1. a\n2. b"):      # validate: allow english-only -- Portuguese lines under test
@@ -109,7 +109,7 @@ def test_vacuity_the_old_reading_found_no_text_in_the_live_line():
 
 
 def test_a_block_is_present_when_its_words_are_there_whatever_the_white_space():
-    assert mail_revise.accept(json.dumps({"subject": SUBJECT, "body": PLAIN + "\n\nAtenciosamente,\n\nChristopher Gonçalves"}, ensure_ascii=False), ["a@b.example"], SUBJECT, PLAIN,      # validate: allow english-only -- the stand-in model's answer
+    assert mail_revise.accept(json.dumps({"subject": SUBJECT, "body": PLAIN + "\n\nAtenciosamente,\n\nRenato Bragança"}, ensure_ascii=False), ["a@b.example"], SUBJECT, PLAIN,      # validate: allow english-only -- the stand-in model's answer
                               LIVE_LINE) is not None
     assert mail_revise.accept(json.dumps({"subject": SUBJECT, "body": PLAIN + "\n\nAtenciosamente,"}, ensure_ascii=False), ["a@b.example"], SUBJECT, PLAIN, LIVE_LINE) == {"same": True, "holds": False}, "the block is not in the card and the answer did not write it: nothing changed and it is not already so"      # validate: allow english-only -- the stand-in model's answer
 
@@ -143,9 +143,9 @@ def test_the_same_line_on_a_card_that_does_not_end_so_opens_a_new_card_whose_tex
     got = revise(world, old, sha, LIVE_LINE)
     new = got["resend"]
     assert isinstance(new, int) and new != old and got["say"].startswith("Pronto: aqui está o e-mail")      # validate: allow english-only -- the Portuguese sentence under test
-    assert text_of(card_lines(world, got))[-2:] == ["Atenciosamente,", "Christopher Gonçalves"]      # validate: allow english-only -- the card's text
+    assert text_of(card_lines(world, got))[-2:] == ["Atenciosamente,", "Renato Bragança"]      # validate: allow english-only -- the card's text
     assert status(world, old) != "open" and open_cards(world) == [new]
-    assert "instruction: Escreva ao final do email:\n\nAtenciosamente,\nChristopher Gonçalves\nbody:\n" in model.of("revise")[0]["user"], "the model is shown the line with its line breaks"      # validate: allow english-only -- the live line
+    assert "instruction: Escreva ao final do email:\n\nAtenciosamente,\nRenato Bragança\nbody:\n" in model.of("revise")[0]["user"], "the model is shown the line with its line breaks"      # validate: allow english-only -- the live line
 
 
 def test_a_block_the_answer_does_not_hold_is_refused_and_the_card_is_sent_again(world, clock, monkeypatch):
@@ -229,7 +229,7 @@ def gmail_sends(world):
 def test_the_live_line_through_the_bridge_says_it_is_already_so_shows_the_card_again_and_a_word_still_approves_it(day, clock, monkeypatch):
     day.say(exact_line(NAMED))
     first = len(day.sent())
-    assert first >= 1 and "Christopher Gonçalves" in day.texts()[-1]      # validate: allow english-only -- the card
+    assert first >= 1 and "Renato Bragança" in day.texts()[-1]      # validate: allow english-only -- the card
     day.say(LIVE_LINE)
     assert day.texts()[first] == ALREADY and day.texts()[first + 1] == day.texts()[first - 1], "the sentence, then the card again"
     assert len(day.sent()) == first + 2 and len(day.model.of("revise")) == 1
@@ -246,7 +246,7 @@ def test_the_live_line_through_the_bridge_on_a_card_that_does_not_end_so_gives_a
     first = len(day.sent())
     day.say(LIVE_LINE)
     assert wait_for(lambda: len(day.sent()) == first + 2)
-    assert day.texts()[first].startswith("Pronto: aqui está o e-mail") and "Christopher Gonçalves" in day.texts()[-1]      # validate: allow english-only -- the Portuguese sentence under test
+    assert day.texts()[first].startswith("Pronto: aqui está o e-mail") and "Renato Bragança" in day.texts()[-1]      # validate: allow english-only -- the Portuguese sentence under test
     assert wait_for(lambda: day.bridge.last_sent.get(OWNER) is not None)
     day.say("sim")
     sends = gmail_sends(day.world)
@@ -278,7 +278,7 @@ def test_an_ordinary_request_never_reaches_the_revise_model_and_goes_on_to_its_o
     assert check(world, old, sha, LIVE_LINE) == "mail", "vacuity: the live line, with its verb and its locator, is one"
 
 
-@pytest.mark.parametrize("line, kept", [("Escreva ao final do email:\n\nAtenciosamente,\nChristopher Gonçalves", True), ("assine o email no fim", True), ("termina o email com Abraços", True),      # validate: allow english-only -- lines under test
+@pytest.mark.parametrize("line, kept", [("Escreva ao final do email:\n\nAtenciosamente,\nRenato Bragança", True), ("assine o email no fim", True), ("termina o email com Abraços", True),      # validate: allow english-only -- lines under test
                                         ("escreva isso ao final", True), ("write this at the end of the e-mail", True)])      # validate: allow english-only -- Portuguese lines under test
 def test_the_same_verbs_beside_a_locator_or_an_object_open_the_gate(world, clock, monkeypatch, line, kept):
     _, old, sha = card_with(world, monkeypatch, NAMED)
@@ -288,7 +288,7 @@ def test_the_same_verbs_beside_a_locator_or_an_object_open_the_gate(world, clock
 def test_rv_already_only_when_the_text_is_at_the_place_asked(world, clock, monkeypatch):
     _, old, sha = card_with(world, monkeypatch, NAMED, revise_answer=hostile(NAMED))
     assert revise(world, old, sha, LIVE_LINE) == {"say": ALREADY, "resend": old}, "the card ends with the block and the line says the end"
-    at_start = "Escreva no início do email:\n\nAtenciosamente,\nChristopher Gonçalves"      # validate: allow english-only -- the Portuguese line under test
+    at_start = "Escreva no início do email:\n\nAtenciosamente,\nRenato Bragança"      # validate: allow english-only -- the Portuguese line under test
     got = revise(world, old, sha, at_start)
     assert got["say"] != ALREADY and got["resend"] == old, "the card holds the block, but at the end, and the line asks for the start"
     _, old2, sha2 = card_with(world, monkeypatch, BLOCK + "\n\n" + PLAIN, revise_answer=hostile(BLOCK + "\n\n" + PLAIN))
@@ -297,10 +297,10 @@ def test_rv_already_only_when_the_text_is_at_the_place_asked(world, clock, monke
 
 
 def test_a_quoted_text_is_looked_for_as_written_and_only_a_block_is_compared_with_its_white_space_flattened():
-    answer_flat = json.dumps({"subject": SUBJECT, "body": PLAIN + "\nAtenciosamente, Christopher"}, ensure_ascii=False)      # validate: allow english-only -- the stand-in model's answer
-    answer_lines = json.dumps({"subject": SUBJECT, "body": PLAIN + "\nAtenciosamente,\nChristopher"}, ensure_ascii=False)      # validate: allow english-only -- the stand-in model's answer
-    quoted = 'Coloque "Atenciosamente, Christopher" ao final'      # validate: allow english-only -- the Portuguese line under test
+    answer_flat = json.dumps({"subject": SUBJECT, "body": PLAIN + "\nAtenciosamente, Renato"}, ensure_ascii=False)      # validate: allow english-only -- the stand-in model's answer
+    answer_lines = json.dumps({"subject": SUBJECT, "body": PLAIN + "\nAtenciosamente,\nRenato"}, ensure_ascii=False)      # validate: allow english-only -- the stand-in model's answer
+    quoted = 'Coloque "Atenciosamente, Renato" ao final'      # validate: allow english-only -- the Portuguese line under test
     assert mail_revise.accept(answer_flat, ["a@b.example"], SUBJECT, PLAIN, quoted) is not None
     assert mail_revise.accept(answer_lines, ["a@b.example"], SUBJECT, PLAIN, quoted) is None, "a quoted text is S13's exact substring"
-    block = "Escreva ao final do email:\n\nAtenciosamente,\nChristopher"      # validate: allow english-only -- the Portuguese line under test
+    block = "Escreva ao final do email:\n\nAtenciosamente,\nRenato"      # validate: allow english-only -- the Portuguese line under test
     assert mail_revise.accept(answer_flat, ["a@b.example"], SUBJECT, PLAIN, block) is not None, "a block ignores the white space"
