@@ -21,6 +21,7 @@ import sys
 import item_refs
 import sources
 import sources_mail
+import turn_gate
 
 CAL_ACCOUNT = {"google": "google", "outlook": "microsoft"}      # the implementation named in a calendar source's origin -> the account it belongs to
 
@@ -80,11 +81,14 @@ def _create(ctx: dict, slots: dict):
     if "start" not in slots:
         return w.ask_spec("day", "NW_ASK_DAY_INVALID" if slots.get("_clock") else "NW_ASK_DAY")          # a kept clock: the date written does not exist
     args = {"account": account, "title": slots["title"], "start": slots["start"]}
+    origins = {"account": turn_gate.account_origin(slots, slots.get("account")), "title": turn_gate.origin_of(slots, "title", "line-span"), "start": turn_gate.origin_of(slots, "start", "time-engine")}
     if slots.get("end"):
         args["end"] = slots["end"]
+        origins["end"] = turn_gate.origin_of(slots, "end", "time-engine")
     if calendar:
         args["calendar"] = calendar
-    return {"args": args}
+        origins["calendar"] = turn_gate.origin_of(slots, "calendar", "line-span")
+    return {"args": args, "origins": origins}
 
 
 def _change(ctx: dict, op: str, slots: dict, channel, sender):
@@ -92,10 +96,12 @@ def _change(ctx: dict, op: str, slots: dict, channel, sender):
     state, ref, source_account = _reference(ctx, slots, channel, sender)
     if state == "spec":
         return ref
+    ref_origin = "grounded" if slots.get("created") is not None else turn_gate.origin_of(slots, "event", "line-number")          # S41-7: an event this platform created was found by words; a number is the line's unless a list or a search made it
     state, account = w.pick_account(ctx, slots.get("account"), "calendars", source_account=source_account)
     if state == "spec":
         return account
     args = {"account": account, "event": ref}
+    origins = {"account": turn_gate.account_origin(slots, slots.get("account")), "event": ref_origin}
     if op == "event-change":
         pending = w.engine_spec(ctx, slots)
         if pending:
@@ -103,7 +109,8 @@ def _change(ctx: dict, op: str, slots: dict, channel, sender):
         for key in ("start", "end", "title"):
             if slots.get(key):
                 args[key] = slots[key]
-    return {"args": args}
+                origins[key] = turn_gate.origin_of(slots, key, "line-span" if key == "title" else "time-engine")
+    return {"args": args, "origins": origins}
 
 
 def resolve(ctx: dict, op: str, slots: dict, channel, sender, said):

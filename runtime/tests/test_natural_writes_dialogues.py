@@ -41,6 +41,7 @@ ops_natural_writes = st.load("ops_natural_writes")
 drafts = st.load("drafts")
 natural = st.load("natural")
 natural_writes = st.load("natural_writes")
+turn_gate = st.load("turn_gate")
 
 HERE = Path(__file__).resolve().parent
 NOW = clock("2026-10-19 09:00")
@@ -104,6 +105,16 @@ class Env:
     def __init__(self, world, monkeypatch, config, state):
         self.project, self.accounts, self.calls, self.bad = world["path"], config, [], []
         self.opened = self.asked = 0
+        self.gate_calls, self.gate_refusals = 0, []          # S41-7: every card the walk opens passes through the gate's provenance check first; a refusal here would be a false one (the oracle accepts them all)
+        real_provenance = turn_gate.provenance
+
+        def provenance(op, args, origins):
+            found = real_provenance(op, args, origins)
+            self.gate_calls += 1
+            if found:
+                self.gate_refusals.append((op, sorted(args), found))
+            return found
+        monkeypatch.setattr(turn_gate, "provenance", provenance)
         base = ops_core.context(self.project)
         self.ctx = dict(base, cfg=dict(base["cfg"], accounts=config))
         sources_n, files_n = STATES[state]
@@ -210,6 +221,7 @@ def test_no_write_is_opened_with_a_guessed_slot(world, moment, monkeypatch, conf
         env.explore([text], 0, 2 if index % 9 == 0 else 1)
     assert env.bad == [], "\n".join(map(str, env.bad[:12]))
     assert env.opened > 100 and env.asked > 100, (env.opened, env.asked)          # the walk reaches both ends: calls made and questions asked
+    assert env.gate_refusals == [] and env.gate_calls >= env.opened > 100, (env.gate_calls, env.opened, env.gate_refusals[:6])          # S41-7: the gate refused none of the calls the oracle accepts, and every call went through it
 
 
 def test_the_shards_of_a_case_are_disjoint_and_together_the_whole_walk():
@@ -249,6 +261,7 @@ def test_both_reminder_corpora_never_open_a_write_and_the_calendar_lines_among_t
         if index % 40 == 0:
             env.explore([text], 0, 1)
     assert env.bad == [], "\n".join(map(str, env.bad[:12]))
+    assert env.gate_refusals == [], env.gate_refusals[:6]          # S41-7
 
 
 def test_the_corpus_holds_what_the_spec_asks_of_it():
@@ -288,3 +301,4 @@ def test_a_router_that_names_random_write_operations_with_random_spans_opens_a_w
                 assert reply is None and env.calls == [], (row["line"], hint)
             env.check([row["line"]])
     assert env.bad == [], "\n".join(map(str, env.bad[:12]))
+    assert env.gate_refusals == [], env.gate_refusals[:6]          # S41-7

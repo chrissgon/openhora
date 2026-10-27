@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_interpret_limits.
 """
 from __future__ import annotations
 
+import ast
+
 import json
 import sys
 from pathlib import Path
@@ -169,9 +171,39 @@ def test_a_routes_file_whose_only_match_is_an_account_row_is_not_called_by_the_o
     assert gate_call(entry) == {"ok": False, "code": "E_ROUTE"}
 
 
+ORACLE_NAMES = {"TEXT_ARGS", "SECTION_OF", "ADDRESS", "_words", "_subsequence", "_contiguous", "value_problems", "_Frame", "_address_problems", "_written_numbers", "_entry_words", "_words_of_the_line",
+                "_message_problems", "_state_said", "_of_service", "_mailbox_account", "_named", "_account_problems", "_hour_written", "_range_texts", "_norm", "_variants", "_time_problems"}
+
+
+def gate_code_scanned(text: str) -> str:
+    """The gate's CODE as the scan reads it (S41-7): parsed and written back, so that no comment and no docstring is in it (documentation names the arguments of a card), without the 23 definitions of
+    the value oracle moved from natural_writes (they read lines with `find(`), and with the argument key `'account'` and the name `account_origin` taken out (the table of section 4 names the
+    arguments). Anything else, an account route first of all, wherever it is in the module, is still there to be found."""
+    tree = ast.parse(text)
+    tree.body = [node for node in tree.body
+                 if not ({node.name} if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else {t.id for t in getattr(node, "targets", []) if isinstance(t, ast.Name)}) & ORACLE_NAMES]
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree).replace("'account'", "").replace("account_origin", "")
+
+
+def test_the_scan_of_the_gate_sees_code_appended_after_the_oracle_and_leaves_out_only_what_it_names():
+    text = (RUNTIME / "turn_gate.py").read_text(encoding="utf-8")
+    scanned = gate_code_scanned(text)
+    assert "find(" not in scanned and "account" not in scanned and "lab" not in scanned and "def value_problems" not in scanned and "def provenance" in scanned
+    planted = text + "\n\ndef later(route):\n    return interpreter_route.account_route(route)\n"
+    assert "account" in gate_code_scanned(planted), "an account route appended after the oracle is found"
+    assert "find(" in gate_code_scanned(text + "\n\ndef lookup(route):\n    return interpreter_route.find(route)\n"), "a lookup of a route appended is found"
+
+
 def test_the_source_of_the_module_and_of_the_gate_name_no_account_route_no_lab_and_no_route_lookup_of_their_own():
     for name in ("ops_interpret.py", "turn_gate.py"):      # the route check moved from the first to the second (S41-4): both stay clean of an account route, the lab and a lookup of a route by id
         text = (RUNTIME / name).read_text(encoding="utf-8")
+        if name == "turn_gate.py":      # S41-7: what is left out is named (comments and docstrings, the moved value oracle by its names, the argument key `'account'` and the helper `account_origin`); code appended to the gate later is scanned
+            text = gate_code_scanned(text)
         assert [word for word in ("account", "lab", "load(", "find(") if word in text] == [], name
     gate = (RUNTIME / "turn_gate.py").read_text(encoding="utf-8")
     assert "daily_routes()" in gate and 'get("kind") != "http"' in gate

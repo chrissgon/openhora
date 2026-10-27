@@ -287,7 +287,8 @@ def seed(op: str, decision: dict, line: str):
     slots["_compose"] = True
     if not subject:
         slots["_ai_subject"] = True
-    return {"op": op, "slots": slots}
+    # S41-7: the address was typed whole in the line (`_typed_address`), the subject and the body are spans of the line the interpreter's check verified: the person's words
+    return importlib.import_module("turn_gate").Seed({"op": op, "slots": slots}, {key: "line-span" for key in ("to", "subject", "body") if key in slots})
 
 
 # --- the call ------------------------------------------------------------------------------------------------------------------------------------

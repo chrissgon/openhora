@@ -60,7 +60,7 @@ def stand_in(monkeypatch):
         if "source" not in slots:
             return {"ask": {"need": "message", "slot": "source", "sentence_key": "NW_ASK_SOURCE", "fields": {}, "multi": False, "engine": None,
                             "options": [{"value": "inbox", "label": "Bia · Appointment"}, {"value": "bills", "label": "Bank · Statement"}]}}
-        return {"args": {"account": "google", "messages": ",".join(f"{slots['source']}#{n}" for n in slots["numbers"])}}
+        return {"args": {"account": "google", "messages": ",".join(f"{slots['source']}#{n}" for n in slots["numbers"])}, "origins": {"account": "config", "messages": "picked"}}      # S41-7: the gate refuses an argument with no origin
     resolver.resolve = resolve
     monkeypatch.setitem(sys.modules, "natural_writes_stubmail", pure)
     monkeypatch.setitem(sys.modules, "ops_natural_mail", resolver)
