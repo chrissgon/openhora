@@ -189,10 +189,18 @@ jobs:
   # The scheduler starts the runtime, and the runtime starts these scripts, with the system interpreter
   # (Python 3.9 on macOS): providers/CONTRACT.md, "Python version". Only their tests run here; the rest of
   # the suite needs a newer Python. pytest 9 needs Python 3.10, so this job pins the last release for 3.9.
-  # shared/scripts/tests holds the tests of the scripts those skills carry as generated copies (the contrast
-  # check among them, whose test moved there from skills/brand-identity/scripts/tests).
+  # The list is scripts/python39_tests.txt, written once: this job and the nightly's nightly-python39 read it.
+  # TWO MODES (docs/decisions.md, T4). SELECTED: on a pull request into a branch other than main without the label `full-suite`,
+  # `scripts/select_tests.py --within scripts/python39_tests.txt` keeps the tests the change can reach that are inside the list, and
+  # the guard scripts/tests/test_runtime_python39.py is always among them (rule 6), so every pull request still parses and imports
+  # every runtime module on Python 3.9. WHOLE: a push to main, a pull request into main (the release), a manual run, the label
+  # `full-suite`, and a selected-mode pull request that touches what decides the selection (.github/workflows/**, the list,
+  # select_tests.py, a conftest.py, pytest.ini, pyproject.toml): the whole list, as the nightly runs it. The accepted cost, decided
+  # by the maintainer 2026-10-24: a 3.9-only break that shows only when unselected code RUNS (a call-time API such as
+  # `zip(strict=...)`) is found by the nightly within 24 hours, and before any release; a break at definition time (syntax, an
+  # evaluated `X | None`, a missing import) is still caught on every pull request by the guard.
   # The tests are split across the runner's processes (pytest-xdist 3.8.0 supports Python 3.9; `-n auto`: one worker per
-  # vCPU). Run in one process they took 12 to 15 minutes and ran into the old 15-minute limit. The entry replay
+  # vCPU). Run in one process the whole list took 12 to 15 minutes and ran into the old 15-minute limit. The entry replay
   # (about 985 end-to-end scenarios) then took the job to 17 to 23 minutes and a 25-minute limit cancelled it; the limit is
   # 40 minutes (docs/decisions.md, CI39). WB_SKIP_JS_ONLY_TESTS=1 leaves out the test_interface_*.py files that only drive Node
   # over JavaScript and CSS (runtime/tests/conftest.py says which): Python's version changes nothing for them, and the
@@ -205,32 +213,41 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0 # the selector reads the merge base with the pull request's base
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.19"
           python-version: "3.9"
+      - name: Choose the python39 tests this pull request can reach
+        if: >-
+          github.event_name == 'pull_request' && github.base_ref != 'main'
+          && !contains(github.event.pull_request.labels.*.name, 'full-suite')
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash # bash -e -o pipefail: a failing selector fails the step, not only `tee`
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+          # PY39_WHOLE_PATHS: what decides the selection or the run; a pull request that touches one runs the whole list
+          if printf '%s\n' "$changed" | grep -Eq '^[.]github/workflows/|(^|/)python39_tests[.]txt$|(^|/)select_tests[.]py$|(^|/)(conftest[.]py|pytest[.]ini|pyproject[.]toml)$'; then
+            echo "python39: this pull request changes what decides the selection; the whole list runs"
+            grep -v -e '^#' -e '^[[:space:]]*$' scripts/python39_tests.txt | tee "$RUNNER_TEMP/py39.txt"
+          else
+            python3 scripts/select_tests.py --base "$BASE_SHA" --explain --within scripts/python39_tests.txt | tee "$RUNNER_TEMP/py39.txt"
+          fi
+          echo "python39: $(wc -l < "$RUNNER_TEMP/py39.txt") target(s)"
+      - name: The whole python39 list
+        if: >-
+          github.event_name != 'pull_request' || github.base_ref == 'main'
+          || contains(github.event.pull_request.labels.*.name, 'full-suite')
+        shell: bash
+        run: grep -v -e '^#' -e '^[[:space:]]*$' scripts/python39_tests.txt | tee "$RUNNER_TEMP/py39.txt"
       - name: The scripts the scheduler starts, on Python 3.9
         env:
           WB_SKIP_JS_ONLY_TESTS: "1"
         run: >-
           uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 pytest -q -n auto -o faulthandler_timeout=120 --durations=20
-          scripts/tests/test_runtime_python39.py scripts/tests/test_provider_resolve.py
-          scripts/tests/test_runtime.py scripts/tests/test_runtime_vote.py scripts/tests/test_stage_skills.py
-          skills/mkt-engage/scripts/tests skills/mkt-publish/scripts/tests
-          skills/mkt-vote-round/scripts/tests skills/brand-identity/scripts/tests
-          shared/scripts/tests
-          runtime/tests
-          providers/store/tests providers/scheduler/tests providers/mailer/tests providers/mailbox/tests providers/messenger/tests/test_whatsapp.py
-          providers/messenger/tests/test_messenger_email.py
-          providers/messenger/tests/test_forward_telegram.py providers/messenger/tests/test_forward_discord.py
-          providers/messenger/tests/test_forward_whatsapp_cloud.py providers/messenger/tests/test_forward_twilio.py
-          providers/messenger/tests/test_forward_email.py
-          providers/messenger/tests/test_whatsapp_cloud.py providers/messenger/tests/test_whatsapp_cloud_webhook.py
-          providers/messenger/tests/test_whatsapp_cloud_send.py providers/messenger/tests/test_whatsapp_cloud_render.py
-          providers/messenger/tests/test_whatsapp_twilio.py providers/messenger/tests/test_whatsapp_twilio_webhook.py
-          providers/messenger/tests/test_whatsapp_twilio_send.py providers/messenger/tests/test_whatsapp_twilio_render.py
-          providers/model/tests
+          $(cat "$RUNNER_TEMP/py39.txt")
 
   container:
     name: container

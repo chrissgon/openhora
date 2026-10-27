@@ -30,6 +30,7 @@ drafts = st.load("drafts")
 ops_reminders = st.load("ops_reminders")
 ops_say = st.load("ops_say")
 natural = st.load("natural")
+registry = st.load("registry")
 operations = st.load("operations")
 phrases = st.load("phrases")
 plan = st.load("plan")
@@ -330,7 +331,7 @@ def test_limit_54_a_decision_a_gated_act_a_write_and_an_effect_on_an_account_nam
         cls = natural.CLASSES[name]
         if cls not in ("D", "G", "W", "E"):
             continue
-        params = {param for _slot, (_kind, param) in natural.NATURAL[name]["slots"].items()}
+        params = {spec["param"] for spec in registry.row(name)["slots"].values()}      # CB-0: the whole record, so that a row of a later catalog version (a class, not yet a line row) is walked too
         real = {a["name"] for a in operations.by_name(name)["args"]}
         assert params - real <= {"target", "day"}, name      # B''-lite: the words of an item and its day are slots read by code from the spans; no operation has them as an argument
         args = {param: 1 for param in params & real}

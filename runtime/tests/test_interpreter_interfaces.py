@@ -245,7 +245,7 @@ def test_generate_follows_the_classification_it_is_given():
     for r in rows:
         if r["op"] == "deps":
             r["kind"] = "operational"          # a planted reclassification moves the op from refused to ops
-    moved = catalog.generate(rows)
+    moved = catalog.generate(gated=rows)
     assert "deps" in [r["op"] for r in moved["ops"]] and "deps" not in [r["op"] for r in moved["refused"]]
     assert len(moved["ops"]) == 66 and len(moved["refused"]) == 20
     assert catalog.sha256(moved) != catalog.sha256(catalog.generate())

@@ -21,7 +21,11 @@
     "interface_favicon_svg": "75f49e4b62fcb62729826d25023066036536f97365cf644d387fbbcc521b2da4",
     "interface_mark_svg": "d00da3f5cbde96e252154f321d6c5b94d322518f014afc15b64874aca5bab242",
     "scheduler_legacy_one_shot_digest": "00c3c13de6c9aa168a5ab098078ec9d03691e7461183c08f2b676e60ec23656e",
-    "scheduler_legacy_recurring_digest": "43223010e49d0e71239f533a0e7087da4561e20116d26b6eb3a64b3581bb48cb"
+    "scheduler_legacy_recurring_digest": "43223010e49d0e71239f533a0e7087da4561e20116d26b6eb3a64b3581bb48cb",
+    "natural_classes_ed6ea6b": "1d026c61c9f457df147363fb83301359a213bfbc256dfb6e3edf80b2f6070dc8",
+    "natural_table_ed6ea6b": "9a78be1ed12d476ed9ed9915111e886ddc21ee18eedb1e755a8dbb6089cc0806",
+    "natural_order_ed6ea6b": "2c0fc95d3d9501bb28029806bfd992054b2083706746a2636fc43429e20317cd",
+    "natural_slot_order_ed6ea6b": "78e118e448050750127cef81a6690c7bf464764293eeffb92db96fc42aea4e73"
   },
   "notes": {
     "route_or_deepseek_v4_1_flash": "sha256 of the canonical JSON of the committed DeepSeek route row without retention and reference; guards a security table or policy (the interpreter calls only an accepted route hash)",
@@ -45,6 +49,10 @@
     "interface_favicon_svg": "sha256 of interface/favicon.svg as the page ships it; a review tripwire (a new drawing changes it on purpose)",
     "interface_mark_svg": "sha256 of interface/brand/openhora-mark.svg as the page ships it; a review tripwire (a new drawing changes it on purpose)",
     "scheduler_legacy_one_shot_digest": "sha256 digest the pre-change scheduler code gave a legacy one-shot job record; guards a security table or policy (a scheduled job runs only under the digest it was approved by)",
-    "scheduler_legacy_recurring_digest": "sha256 digest the pre-change scheduler code gave a legacy recurring job record; guards a security table or policy (a scheduled job runs only under the digest it was approved by)"
+    "scheduler_legacy_recurring_digest": "sha256 digest the pre-change scheduler code gave a legacy recurring job record; guards a security table or policy (a scheduled job runs only under the digest it was approved by)",
+    "natural_classes_ed6ea6b": "sha256 of the canonical JSON of the literal natural.CLASSES (operation to class, 99 keys) as committed at ed6ea6b, before package CB-0 made it a view of the rows of operations.OPERATIONS; guards a security table or policy (the class of an operation is what a line may do with it)",
+    "natural_table_ed6ea6b": "sha256 of the canonical JSON of the literal natural.NATURAL (each operation, its slots as [kind, parameter] and its text, 99 keys) as committed at ed6ea6b, before package CB-0 made it a view; guards a security table or policy (the slots and texts a line may reach)",
+    "natural_order_ed6ea6b": "sha256 of the canonical JSON of the list of the keys of natural.NATURAL in their committed order at ed6ea6b; guards a security table or policy (the served catalog is read by the model in this order, and the order is part of the hash an enabling entry pins)",
+    "natural_slot_order_ed6ea6b": "sha256 of the canonical JSON of [[operation, [its slots in order]], ...] of natural.NATURAL at ed6ea6b; guards a security table or policy (the slots are listed to the model in this order, part of the catalog hash an enabling entry pins)"
   }
 }
