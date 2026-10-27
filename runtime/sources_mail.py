@@ -44,7 +44,8 @@ secret (the names in SECRETS), and this module never reads or stores a token.
 THE INDEX (package SNAP-IDX, SPEC-SECRETARY-WRITES 3.4). Beside the text, each version's manifest keeps `index`: one entry for each item the
 text lists, in the order the text lists it, numbered from 1, so that `<source id>#<n>` names one message or one event by code and never by the
 words of the text (runtime/item_refs.py reads it). A mail entry is {n, id, thread_id, message_id, from_address, reply_to_address, subject,
-change_key, received} (`received`: the moment the message came in UTC, `YYYY-MM-DDTHH:MM:SSZ`, or null; S16C-REPLY-DATE);
+change_key, received, unread} (`received`: the moment the message came in UTC, `YYYY-MM-DDTHH:MM:SSZ`, or null; S16C-REPLY-DATE; `unread`: true,
+false or null, the provider's own flag, null when it printed none or the index was written before the key; CB-2);
 a calendar entry is {n, id, etag, calendar, organizer_self, attendees_other, recurring}. It holds no body, no sender's name, no
 token; a subject is cleaned and cut at INDEX_SUBJECT_CHARS characters; an id, key or address that is not shaped as the service prints it
 is null, and the entry stays so that the numbers do not move. A message left out of the text for a credential has no entry and no number. A mail
@@ -201,6 +202,14 @@ def calendar_window(now, past: int, ahead: int, zone=None) -> tuple:
     return _midnight(first, zone), _midnight(last + datetime.timedelta(days=1), zone), first, last
 
 
+def _unread_mark(source_type: str, item) -> str:
+    """The part of a mail item's change word that the provider's unread flag adds: a tab and the word `unread` or `read` when the provider printed a boolean, nothing when it printed none or a calendar
+    item is read. A message read on the phone changes no id and, in Gmail, no change key, so without it a refresh would find the listing unchanged and keep a snapshot whose index says
+    unread (CB-2); a provider that prints no flag adds nothing, so its signature is the one it always had."""
+    flag = item.get("unread") if source_type == "mail" and isinstance(item, dict) else None
+    return "" if not isinstance(flag, bool) else "\tunread" if flag else "\tread"
+
+
 def _signature(pairs, label: str, local_date: str) -> str:
     listed = "\n".join(sorted(f"{i}\t{k}" for i, k in pairs))
     return hashlib.sha256(f"{listed}\n{label}\n{local_date}{SIGNATURE_MARK}".encode("utf-8")).hexdigest()
@@ -239,7 +248,7 @@ def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=
             continue
         change = item.get(key) if isinstance(item.get(key), str) else ""
         items.append(item)
-        pairs.append((item_id, change[:200]))
+        pairs.append((item_id, change[:200] + _unread_mark(source_type, item)))
     skipped += max(0, len(listed) - limit)
     return {"type": source_type, "parts": parts, "now": now, "zone": zone, "label": label, "window": (start, end), "items": items,
             "truncated": bool(got.get("truncated")), "skipped": skipped, "signature": _signature(pairs, label, local_date),
@@ -259,7 +268,8 @@ def _shaped(pattern, value):
 
 
 def mail_index_entry(n: int, message: dict, scan=None, moment=None) -> dict:
-    """The index entry of the message the text numbers `n`: {n, id, thread_id, message_id, from_address, reply_to_address, subject, change_key, received}.
+    """The index entry of the message the text numbers `n`: {n, id, thread_id, message_id, from_address, reply_to_address, subject, change_key, received, unread}.
+    `unread` is the provider's flag as a closed boolean: true (not read), false (read), null (the provider printed none, or something that is not a boolean: unknown, never read); it holds no text, so a credential hit leaves it as it is.
     Every value is a closed shape or null (INDEX_*); the subject is cleaned, its links replaced and cut at INDEX_SUBJECT_CHARS; no body, no name.
     `received` is the moment the message came (`moment`, the aware datetime of the message's view, which comes from the provider's received time: Outlook's `receivedDateTime`, Gmail's `internalDate`, else the sender's own `Date` header, a well-shaped time the sender chose; it injects no text and chooses no recipient) in UTC, `YYYY-MM-DDTHH:MM:SSZ`, null when the
     message has none: a reply card shows it beside the message answered, and it chooses nothing (S16C-REPLY-DATE). The entry is scanned for
@@ -272,7 +282,8 @@ def mail_index_entry(n: int, message: dict, scan=None, moment=None) -> dict:
     entry = {"n": n, "id": _shaped(INDEX_ID, message.get("id")), "thread_id": _shaped(INDEX_ID, message.get("thread_id")),
              "message_id": _shaped(INDEX_MESSAGE_ID, headers.get("Message-ID")), "from_address": from_address, "reply_to_address": reply,
              "subject": text.one_line(message.get("subject") or "", INDEX_SUBJECT_CHARS), "change_key": _shaped(INDEX_KEY, message.get("change_key")),
-             "received": text.utc_stamp(moment) if moment else None}
+             "received": text.utc_stamp(moment) if moment else None,
+             "unread": message.get("unread") if isinstance(message.get("unread"), bool) else None}
     if scan is not None and scan(json.dumps(entry).encode("utf-8")):
         entry.update(message_id=None, from_address=None, reply_to_address=None, subject="", received=None)
     return entry

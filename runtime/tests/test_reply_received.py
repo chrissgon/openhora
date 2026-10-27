@@ -219,7 +219,7 @@ def test_the_index_entry_of_a_message_has_the_time_it_came_in_utc_and_none_when_
     assert sources_mail.mail_index_entry(4, message, moment=moment.replace(second=0, microsecond=0))["received"] == RECEIVED
     assert sources_mail.mail_index_entry(4, message)["received"] is None
     assert sources_mail.mail_index_entry(4, message, None, None)["received"] is None
-    assert set(sources_mail.mail_index_entry(4, message)) == {"n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received"}
+    assert set(sources_mail.mail_index_entry(4, message)) == {"n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received", "unread"}
 
 
 def test_an_entry_the_credential_scan_hits_loses_the_time_with_its_words_and_keeps_its_number():
@@ -254,7 +254,7 @@ def raw_entry(**change):
 
 
 def test_the_read_back_keeps_a_well_formed_time_and_drops_any_other_shape():
-    assert item_refs.INDEX_KEYS["mail"][-1] == "received"
+    assert item_refs.INDEX_KEYS["mail"][-2:] == ("received", "unread"), "`received` is the key of this test; `unread` (CB-2) follows it"
     assert item_refs._entry("mail", 1, raw_entry())["received"] == RECEIVED
     for value in ("yesterday", RECEIVED + "\n", "2026-10-22T17:05:00+00:00", "2026-10-22 17:05:00", "", None, 5, ["x"], "\x1b[2J2026-10-22T17:05:00Z", RECEIVED + "Z", "2026-02-30T10:00:00Z", "9999-99-99T99:99:99Z", "2026-13-01T00:00:00Z"):
         assert item_refs._entry("mail", 1, raw_entry(received=value))["received"] is None, repr(value)

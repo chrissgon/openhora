@@ -108,7 +108,7 @@ def test_a_reference_to_a_message_gives_its_entry_from_the_index_of_the_newest_v
     assert got["read_at"] == "2026-10-17T10:12:00Z" and got["age"] == 0
     assert got["entry"] == {"n": 1, "id": "m1", "thread_id": "t1", "message_id": "<a1@clinic.example>", "from_address": "ana@clinic.example",
                             "reply_to_address": "desk@clinic.example", "subject": "Appointment confirmed", "change_key": None,
-                            "received": "2026-10-17T09:00:00Z"}
+                            "received": "2026-10-17T09:00:00Z", "unread": None}      # `unread` (CB-2): the stand-in readers print no flag
     second = resolve(desk, "inbox#2")["entry"]
     assert (second["id"], second["from_address"], second["subject"], second["reply_to_address"]) == ("m2", "bob@shop.example", "Your order", None)
     assert resolve(desk, "inbox#3")["entry"]["id"] == "m3"
@@ -307,7 +307,7 @@ def test_an_entry_is_read_back_through_the_closed_shapes_whatever_it_holds(desk)
     hostile = {"n": 1, "id": "../../etc/passwd", "thread_id": "a b", "message_id": "<a b>", "from_address": "x y@z", "reply_to_address": "evil@evil.example\nBcc: boss@x.example",
                "subject": "line one\nline two \u202e https://track.example/o?t=abc123 ok", "change_key": "with space", "received": "2026-10-22T17:05:00Z\x1b[2J", "extra": "not a key"}
     assert item_refs._entry("mail", 1, hostile) == {"n": 1, "id": None, "thread_id": None, "message_id": None, "from_address": None, "reply_to_address": None,
-                                                    "subject": "line one line two https://track.example/o?t=abc123 ok", "change_key": None, "received": None}   # read back as written: links are replaced on the write side only
+                                                    "subject": "line one line two https://track.example/o?t=abc123 ok", "change_key": None, "received": None, "unread": None}   # read back as written: links are replaced on the write side only
     assert len(item_refs._entry("mail", 2, {**hostile, "n": 2, "subject": "x" * 500})["subject"]) == 120
     assert item_refs._entry("mail", 1, {**hostile, "subject": 7})["subject"] == ""
     for bad_address in ("a..b@x.example", "a@x.example.", "a@-x.example", "a b@x.example", "x" * 65 + "@y.example", "@y.example", "a@" + "b" * 64 + ".example"):

@@ -26,6 +26,8 @@ the provider (`items: refresh of <source> failed (<word>)`), and the phone gets 
 address without the random token of its local part, plus the domain), the subject as it is, and when it came ("today 14:02", "yesterday 09:39", "Mon 20/10 18:10"). A line that asks for the
 last e-mail ("o último email", "the last email") lists that one message with the start of its text (about 300 characters of the snapshot's own cleaned body); "os 3 últimos emails" lists three,
 newest first; the words of the count are a closed list in code (runtime/items_mail.py). The terminal and the page keep today's form.
+CB-2. A row of a mail source carries `unread` (true or false) when the index has the provider's flag for the message, and no key when it is null (an index written before the key, or a provider that
+printed none); a phone's list puts the closed mark `NW_ITEMS_UNREAD_MARK` before a message whose flag is true and nothing before one whose flag is false or not known.
 
 S15c. A source that is registered and has nothing in its window is empty, never missing: `missing` is only for a kind (and account) with no source in the catalog, and a phone is told in one
 sentence what was looked at ("No e-mail in the Outlook inbox in the last 7 days (checked at 16:59)."). A calendar list asked for a day or a range ("de amanha", "de hoje", "de sexta", "desta
@@ -253,6 +255,9 @@ def items(project: str, kind: str | None = None, source: str | None = None, chan
                 continue
             if row["type"] == "mail":
                 rows = [{"n": e["n"], "line": snapshot_text.one_line(f"{e.get('from_address') or '?'} · {e.get('subject') or ''}", LINE_MAX)} for e in snapshot["entries"][:ITEMS_MAX]]
+                for r, e in zip(rows, snapshot["entries"]):
+                    if isinstance(e.get("unread"), bool):      # CB-2: the provider's flag, only when it printed one (null: not known, so no key); a phone marks the true ones
+                        r["unread"] = e["unread"]
                 if phone or count:      # S15b: when it came and, for a phone, who and what, from the text the index was read with
                     text = _text_of(ctx, row["id"], snapshot["version"])
                     parsed = mailtext.blocks(text) if text is not None else {}
@@ -431,7 +436,8 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, na
         else:
             lines.append(t("NW_ITEMS_HEAD", source=entry["source"], read_at=entry["read_at"][:16].replace("T", " ")))
         for i in entry["items"][:limit]:
-            lines.append(f"{i['n']}. " + (_phone_event(i, cfg) if phone and entry["type"] == "calendar" else _phone_mail(i, cfg) if phone and "mail" in i else i["line"]))
+            mark = (t("NW_ITEMS_UNREAD_MARK") + " ") if phone and entry["type"] == "mail" and i.get("unread") is True else ""      # CB-2: a closed mark before an unread message
+            lines.append(f"{i['n']}. " + mark + (_phone_event(i, cfg) if phone and entry["type"] == "calendar" else _phone_mail(i, cfg) if phone and "mail" in i else i["line"]))
             if i.get("preview"):
                 lines.append(t("NW_ITEMS_PREVIEW", text=i["preview"]))
         if len(entry["items"]) > limit:

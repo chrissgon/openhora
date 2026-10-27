@@ -15,7 +15,8 @@ person's own mailbox or calendar says WHICH message or event by a reference, nev
                        calendar of the event the runtime itself created, and nothing of any snapshot or of another person's words
 
 Code resolves a reference through the INDEX that runtime/sources_mail.py writes into the manifest of each snapshot version: {n, id, thread_id,
-message_id, from_address, reply_to_address, subject, change_key, received} for a message (`received`: the moment it came, UTC, or null: an index written before the key has none), {n, id, etag, calendar, organizer_self, attendees_other,
+message_id, from_address, reply_to_address, subject, change_key, received, unread} for a message (`received`: the moment it came, UTC, or null: an index written before the key has none; `unread`: true,
+false or null, the provider's flag, null for an index written before the key, CB-2), {n, id, etag, calendar, organizer_self, attendees_other,
 recurring} for an event. The index is code's own record of what the provider printed; the text is another person's words and is never parsed
 for an id. A reference to a snapshot older than REF_MAX_AGE (the age limit L53 allows an unattended task, 26 hours) is refused with "refresh
 <id> first": a number from an old reading may name another item today. A version made before the index existed has none, and is refused the
@@ -61,7 +62,7 @@ import sources_mail  # noqa: E402
 
 REF_MAX_AGE = sources.SNAPSHOT_MAX_AGE            # seconds: 26 hours, the number of limit L53
 MANIFEST_CAP = 4 * 1024 * 1024                    # the most a manifest file may hold (a hundred messages are a few hundred KiB)
-INDEX_KEYS = {"mail": ("n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received"),
+INDEX_KEYS = {"mail": ("n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received", "unread"),
               "calendar": ("n", "id", "etag", "calendar", "organizer_self", "attendees_other", "recurring")}
 COUNT_KEY = {"mail": "messages", "calendar": "events"}
 SUBJECT_MAX = 120
@@ -172,7 +173,8 @@ def _entry(kind: str, n: int, raw) -> dict:
                 "message_id": _shaped(MESSAGE_ID, raw.get("message_id")), "from_address": text.plain_address(raw.get("from_address")),
                 "reply_to_address": text.plain_address(raw.get("reply_to_address")),
                 "subject": _subject(raw.get("subject")),
-                "change_key": _shaped(KEY, raw.get("change_key")), "received": _received(raw.get("received"))}
+                "change_key": _shaped(KEY, raw.get("change_key")), "received": _received(raw.get("received")),
+                "unread": raw.get("unread") if isinstance(raw.get("unread"), bool) else None}
     others = raw.get("attendees_other")
     return {"n": n, "id": _shaped(ID, raw.get("id")), "etag": _shaped(KEY, raw.get("etag")), "calendar": _shaped(CALENDAR, raw.get("calendar")),
             "organizer_self": raw.get("organizer_self") is True, "attendees_other": others if type(others) is int and others >= 0 else None,

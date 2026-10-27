@@ -17,6 +17,9 @@ Sources (Microsoft's own documentation, read on 2026-10-17 by the author of the 
 there is listed under "To verify" in providers/mailbox/README.md):
 - List messages (GET /me/mailFolders/inbox/messages; $filter, $orderby, $top, $select; a property in $orderby must also be in $filter; paging
   by the whole @odata.nextLink): https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0
+- Message resource (accessed 2026-10-27; isRead, Boolean: "Indicates whether the message has been read."; `$select` picks the properties returned, as the
+  list-messages page says):
+  https://learn.microsoft.com/en-us/graph/api/resources/message?view=graph-rest-1.0
 - Permissions reference (Mail.Read, Mail.ReadBasic): https://learn.microsoft.com/en-us/graph/permissions-reference
 - Refresh tokens (bound to a user and a client, replaced on every use, 90 days):
   https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens
@@ -46,7 +49,8 @@ Usage:
   read-eml is not a verb of this provider (it is a local parser: use `gmail.py read-eml`); it answers exit 2.
 
 Every verb prints normalized messages (the Gmail provider's shape):
-  {"id", "thread_id", "source": "outlook", "received_at" (UTC, Z), "change_key", "from", "to", "subject", "text" (at most 100,000 bytes,
+  {"id", "thread_id", "source": "outlook", "received_at" (UTC, Z), "unread" (true when Graph's `isRead` is false, false when it is true, null when the
+   answer has no `isRead`), "change_key", "from", "to", "subject", "text" (at most 100,000 bytes,
    "truncated" says so), "truncated", "links": [{"href", "text"}], "headers", "attachments": [{"name", "type", "size"}] (or null when the
    list could not be read), "from_address" (the sender's `emailAddress.address` field when it is a plain address), "reply_to" (only when `replyTo` names one
    address other than the sender's: the address alone, the display name dropped),
@@ -148,7 +152,7 @@ ENV_BASE, ENV_TOKEN_URL = PROFILE.env_base, PROFILE.env_token_url
 INBOX_MESSAGES = "/me/mailFolders/inbox/messages"
 # The two boxes a search can name (the same words the Gmail provider's source origins use); a free query is not supported in this version.
 QUERIES = {"in:inbox": None, "in:inbox is:unread": "isRead eq false"}
-MESSAGE_FIELDS = "id,conversationId,changeKey,receivedDateTime,sentDateTime,from,toRecipients,replyTo,subject,body,hasAttachments,internetMessageId"
+MESSAGE_FIELDS = "id,conversationId,changeKey,receivedDateTime,sentDateTime,from,toRecipients,replyTo,subject,body,hasAttachments,internetMessageId,isRead"
 ATTACHMENT_FIELDS = "name,contentType,size"
 TEXT_LIMIT_BYTES = 100_000
 DEFAULT_LIMIT, MAX_LIMIT = 20, 100
@@ -413,6 +417,7 @@ def normalize(item, *, client: Graph | None = None, prefixes: tuple = (), own_wo
         "thread_id": thread if isinstance(thread, str) and MESSAGE_ID_RE.fullmatch(thread) else None,
         "source": "outlook",
         "received_at": graph_time(item.get("receivedDateTime")),
+        "unread": (not item["isRead"]) if isinstance(item.get("isRead"), bool) else None,   # Graph's `isRead` (a boolean), null when the answer had none
         "change_key": change_key if isinstance(change_key, str) and CHANGE_KEY_RE.fullmatch(change_key) else None,
         "from": address_text(item.get("from")),
         "to": ", ".join(a for a in map(address_text, as_list(item.get("toRecipients"))) if a),
