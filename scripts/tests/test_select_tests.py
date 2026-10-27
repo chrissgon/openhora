@@ -361,6 +361,113 @@ def test_files_may_be_given_absolute_or_with_a_dot_slash(tree):
     assert out == expect(*REACH_OF_GAMMA)
 
 
+# ---- --within: the selection kept inside a list of targets (the python39 job) -----------------------------------------------------------
+
+# The list the fixture's tests use, written out here: a folder, a file under a folder that is not listed as a folder, and two guards' homes.
+WITHIN_LIST = ("# the targets of a fictional python39 check\n"
+               "\n"
+               "runtime/tests\n"
+               "scripts/tests/test_runs_tool.py\n"
+               "scripts/tests/test_runtime_python39.py\n"
+               "shared/scripts/tests\n")
+# The guards that fall inside that list: the guard of the runtime rules is under runtime/tests, the 3.9 guard is listed by name.
+KEPT_GUARDS = ["runtime/tests/test_runtime_rules.py", "scripts/tests/test_runtime_python39.py"]
+
+
+def write_within(root, text=WITHIN_LIST, name="within.txt"):
+    path = Path(root) / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def pick_within(root, within, *files, explain=False):
+    cmd = [sys.executable, str(REPO / "scripts" / "select_tests.py"), "--root", str(root), "--within", str(within), "--files", *files]
+    if explain:
+        cmd.append("--explain")
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+
+def within_in_process(root, within, *files, capsys):
+    assert sel.main(["--root", str(root), "--within", str(within), "--files", *files]) == 0
+    return capsys.readouterr().out.splitlines()
+
+
+def check_within(run):
+    """`run(files)` gives the printed lines. Four changes, with the expected lines written out by hand: a module whose tests are under a
+    listed folder (kept, with the two guards that fall inside the list); a module whose only test is outside the list (dropped); the
+    wiring (a folder that holds listed files is replaced by those files, and the listed folder's guard stays)."""
+    assert run(["runtime/gamma.py"]) == sorted(REACH_OF_GAMMA + KEPT_GUARDS)
+    assert run(["skills/demo/scripts/run.py"]) == sorted(KEPT_GUARDS)  # skills/demo/scripts/tests/test_run.py is not listed
+    assert run([".github/workflows/checks.yml"]) == sorted(KEPT_GUARDS + ["scripts/tests/test_runs_tool.py"])  # scripts/tests -> the listed files in it
+    assert run(["README.md"]) == sorted(KEPT_GUARDS)
+
+
+def test_within_keeps_what_is_inside_the_list_drops_the_rest_and_replaces_a_folder_by_the_listed_targets_in_it(tree):
+    within = write_within(tree)
+
+    def run(files):
+        done = pick_within(tree, within, *files)
+        assert done.returncode == 0, done.stderr
+        assert done.stderr == ""  # nothing extra on either stream
+        return done.stdout.splitlines()
+
+    check_within(run)
+
+
+def test_within_in_process_gives_the_same_lines(tree, capsys):
+    within = write_within(tree)
+    check_within(lambda files: within_in_process(tree, within, *files, capsys=capsys))
+
+
+def test_vacuity_a_within_that_keeps_everything_or_drops_everything_is_caught_by_the_oracle(tree, capsys, monkeypatch):
+    within = write_within(tree)
+    monkeypatch.setattr(sel, "restrict", lambda result, listed, reasons=None: result)  # keeps every selected target
+    with pytest.raises(AssertionError):
+        check_within(lambda files: within_in_process(tree, within, *files, capsys=capsys))
+    monkeypatch.setattr(sel, "restrict", lambda result, listed, reasons=None: [])  # keeps none
+    with pytest.raises(AssertionError):
+        check_within(lambda files: within_in_process(tree, within, *files, capsys=capsys))
+
+
+def test_within_never_adds_a_target_the_selector_did_not_select_except_the_listed_ones_inside_a_selected_folder(tree):
+    within = write_within(tree)
+    listed = ["runtime/tests", "scripts/tests/test_runs_tool.py", "scripts/tests/test_runtime_python39.py", "shared/scripts/tests"]
+    for changed in (["runtime/gamma.py"], ["scripts/tool.py"], [".githooks/pre-commit"], ["pytest.ini"], ["shared/scripts/rank.py"], ["README.md"]):
+        plain = pick(tree, *changed)[0]
+        kept = pick_within(tree, within, *changed).stdout.splitlines()
+        assert kept == sorted(kept) and len(kept) == len(set(kept)), changed
+        for target in kept:
+            inside_list = any(target == item or target.startswith(item + "/") for item in listed)
+            selected = target in plain or any(target.startswith(folder + "/") for folder in plain if folder in ("runtime/tests", "scripts/tests", "shared/scripts/tests"))
+            assert inside_list and selected, (changed, target)
+
+
+def test_within_explain_says_how_many_were_kept_on_standard_error_only(tree):
+    within = write_within(tree)
+    quiet = pick_within(tree, within, "runtime/gamma.py")
+    loud = pick_within(tree, within, "runtime/gamma.py", explain=True)
+    assert loud.stdout == quiet.stdout
+    assert quiet.stderr == ""
+    assert "within" in loud.stderr and "7 of" in loud.stderr  # the five tests of gamma and the two kept guards
+
+
+def test_an_empty_or_missing_within_file_is_a_usage_error_and_prints_nothing(tree):
+    empty = write_within(tree, "", "empty.txt")
+    comments = write_within(tree, "# only a comment\n\n   \n", "comments.txt")
+    for path in (empty, comments, Path(tree) / "no-such-list.txt"):
+        done = pick_within(tree, path, "runtime/gamma.py")
+        assert done.returncode == 2 and done.stdout == "", path
+        assert "--within" in done.stderr, path
+
+
+def test_a_relative_within_file_is_read_from_the_root(tree):
+    (Path(tree) / "scripts" / "list.txt").write_text("runtime/tests\n", encoding="utf-8")
+    done = subprocess.run([sys.executable, str(REPO / "scripts/select_tests.py"), "--root", str(tree), "--within", "scripts/list.txt",
+                           "--files", "runtime/gamma.py"], capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines() == sorted(REACH_OF_GAMMA + ["runtime/tests/test_runtime_rules.py"])
+
+
 def git(path, *args):
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.test", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.test"})
