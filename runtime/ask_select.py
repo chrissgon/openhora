@@ -164,3 +164,6 @@ def select(question: str, rows: list, named=None, snapshots: bool = False) -> di
 if __name__ == "__main__":
     print(__doc__.strip(), file=sys.stdout if sys.argv[1:] in (["--help"], ["-h"]) else sys.stderr)
     sys.exit(0 if sys.argv[1:] in (["--help"], ["-h"]) else 2)
+
+
+_PROBE_39 = int | None  # probe: evaluated at import, a TypeError on Python 3.9; not for merge
