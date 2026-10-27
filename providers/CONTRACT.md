@@ -100,7 +100,7 @@ Rules for a script in that set:
 
 - Its header says `requires-python = ">=3.9"` and `dependencies = []`. A header never claims a newer version than the script needs: the header is what `uv run` obeys, and what a reader trusts.
 - It starts with `from __future__ import annotations` when it annotates with `X | None`, and uses no syntax or standard-library call newer than 3.9.
-- It is listed in `ON_SYSTEM_PYTHON` in `scripts/tests/test_runtime_python39.py`, which checks the syntax, the header and that the file imports. CI runs that file and the tests of those scripts on Python 3.9 (`.github/workflows/checks.yml`, job `python39`).
+- It is listed in `ON_SYSTEM_PYTHON` in `scripts/tests/test_runtime_python39.py`, which checks the syntax, the header and that the file imports. CI runs that file and the tests of those scripts on Python 3.9 (`.github/workflows/checks.yml`, job `python39`; the list is `scripts/python39_tests.txt`): on a pull request into an integration branch the job runs the selected tests inside that list, and the file above always among them, so every script still parses and imports on 3.9; at the nightly run (`nightly-python39`), on a pull request into `main` and on a push to `main` it runs the whole list. A 3.9-only break that shows only when unselected code runs is found by the nightly within 24 hours, before any release (`docs/decisions.md`, T4).
 
 Every other provider (one that reaches the network or needs a dependency) declares the version it needs and is started through its declared runner, `uv run <script>`, never with the caller's interpreter. A provider that needs newer syntax stays out of the set above and is started that way.
 
