@@ -5,6 +5,7 @@ Implementations of the `writer:*` classes (a role of `providers/resolve.py`, in 
 | Class | Implementation | Service | Package | Verbs |
 |---|---|---|---|---|
 | `writer:calendar` | `google-calendar.py`, `outlook-calendar.py` | Google Calendar, Outlook calendar | W1 | `--check`, `event-get`, `event-insert`/`event-create`, `event-patch`, `event-delete` (Google) |
+| `writer:tasks` | `google-tasks.py`, `microsoft-todo.py` | Google Tasks, Microsoft To Do | CB-4 | `--check`, `task-get`, `task-insert`, `task-complete` |
 | `writer:files` | `gdrive.py` | Google Drive | W4a | `--check`, `file-meta`, `create`, `update` |
 | `writer:files` | `onedrive.py` | OneDrive | W4a | `--check`, `file-meta`, `create`, `replace` |
 
@@ -162,3 +163,30 @@ The writers read the account record through `providers/secrets/resolver.py` (the
 - Gmail: that `messages.list` with `q=rfc822msgid:<id>` and `labelIds=DRAFT` finds a draft made through `drafts.create` from a MIME that carries that `Message-ID` (Gmail may replace the header; the writer then finds nothing and sends the draft again, which leaves a second draft and no loss); that `batchModify` is all-or-nothing for a list of ids (the writer treats a lost answer as all unknown and settles each message by its labels); that `messages.trash` removes `INBOX` and adds `TRASH` and nothing else (the writer proves a lost trash by the `TRASH` label).
 - Outlook: that `createReply` honours the `message` it is given (recipients, subject, body, `singleValueExtendedProperties`). If it does not, the writer's `PATCH` sets them, and a `PATCH` that is refused moves the draft Graph made to Deleted Items so that no draft addressed as Graph would is left in Drafts; if `createReply` itself loses its answer, a draft Graph addressed may exist without the key and a retry makes a second one (the one case this code cannot close); that a `PATCH` of a draft can carry `singleValueExtendedProperties`; that `$filter=singleValueExtendedProperties/any(...)` on `/me/mailFolders/drafts/messages` finds a draft by its key; that `internetMessageId` is kept across a `move` and `$filter=internetMessageId eq '...'` works on a folder's messages; that the id of a moved message changes (the writer's lookup assumes it does, and treats an old id that still exists in the base folder as "not moved").
 - The Google console classification of `gmail.modify` as a restricted scope for an unverified personal app (the spec lists it).
+
+## Tasks writers (package CB-4): `google-tasks.py`, `microsoft-todo.py`
+
+The class `writer:tasks`. One task of one list at a time: a task is added with a title, or marked completed; nothing else. **There is no removal, no move of a task, no clearing of completed tasks, no change of a list, no due date and no note** (the maintainer decided on 2026-10-27 that v1 has no due dates, OPEN-CB-11); the `ALLOWED` of each holds GET, POST and PATCH on the list and task paths and nothing else (limits L57 and L58). Shared by both: `providers/_writer_tasks.py` (the ledger and the exit codes are the calendar writers' own, the spec reader, the id patterns, the lookup after a lost answer). Every verb but `--check` takes `--account <address>` and compares it with the account of the token record.
+
+| Verb | Google (`google-tasks.py`) | Microsoft (`microsoft-todo.py`) |
+|---|---|---|
+| `--check` | refresh the token, check the five scopes, read one list entry | the same with the six permissions |
+| `task-get --list --task` | `GET /tasks/v1/lists/{list}/tasks/{task}` (`deleted` counts as gone) | `GET /me/todo/lists/{id}/tasks/{task}` |
+| `task-insert` | `POST /tasks/v1/lists/{list}/tasks` with `{"title"}` (no `parent`, no `previous`) | `POST /me/todo/lists/{id}/tasks` with `{"title"}` |
+| `task-complete` | a fresh `GET`, the etag compared with `--base-etag`, then `PATCH` `{"status": "completed"}` | the same, with `@odata.etag` |
+| `--list` | an id, or `default` (the literal `@default`, which Google's Ads Scripts example uses and no reference page documents) | an id the reader printed; `default` is refused (it needs a read, and a dry run reads no credential) |
+
+**No conditional write.** The pages read (tasks.patch; Update todoTask) mention no `If-Match`, so none is sent. `task-complete` reads the task again right before the PATCH and compares its etag with the one the person approved; the dry run prints that precondition as `requires: {"etag"}` inside what its hash covers. A change in the milliseconds between that read and the PATCH is not caught (to verify live whether either service takes `If-Match`; if one does, the writer should send it and the fake should answer 412).
+
+**A lost answer (OPEN-CB-12).** There is no hidden property on a task to find a request by, so a key left `pending` by an answer that was lost is settled before anything is sent: for an insert, by the open tasks of the list with exactly the spec's title updated since the key went pending (the ledger's time, less 5 seconds for the clocks): one means it landed (`replayed`), none means it is sent again, more than one (or a Microsoft list with more than 10 pages to look through) is exit 1 `ambiguous:` and nothing is sent, the key stays pending and the person is asked; for a completion, by reading the task. A task the person completed in the meantime is not an open task: an insert whose task was completed before the lookup is sent again (a known gap, one more task, never a loss).
+
+**Calling a write verb**, **credentials and the test overrides** as the calendar writers: `--dry-run` reads no credential and prints the exact request and its hash; `--confirmed` sends exactly that request; the overrides are `WRITER_TASKS_GOOGLE_API_BASE` / `_TOKEN_URL` and `WRITER_TASKS_MICROSOFT_API_BASE` / `_TOKEN_URL` (loopback only, both set together). The token must be the five Google scopes or the six Microsoft permissions: the previous sets are refused (exit 3) with the authorize command named. No title is written to stderr.
+
+**Tests.** Against stand-ins on 127.0.0.1 (`providers/tasks/tests/fake_gtasks.py`, `fake_graph_tasks.py`), no vendor host: `providers/writer/tests/test_writer_google_tasks.py`, `test_writer_microsoft_todo.py`, and the scope rule in `providers/accounts/tests/test_account_tasks_scope.py`.
+
+### To verify live (not checked against the services or not stated by the vendors; accessed 2026-10-27)
+
+- That tasks.patch and Update todoTask take `If-Match` (no page read says so).
+- That a PATCH of `{"status": "completed"}` alone completes a task on both services (it is what the pages' examples and the resource descriptions imply; Google sets `completed` itself, Graph `completedDateTime`).
+- Google's `@default` as a task list id, and that a task list id of either service never contains a character outside letters, digits, `=`, `_` and `-` (the writers refuse any other).
+- That Microsoft To Do's list-tasks endpoint answers pages Graph names with `@odata.nextLink` and no query parameter, for the lookup after a lost answer.

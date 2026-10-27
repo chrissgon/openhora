@@ -417,7 +417,7 @@ def cmd_check(args) -> int:
     status, body, retry = request(LIST_CALENDARS, base, token, "/calendar/v3/users/me/calendarList", {"maxResults": 1, "fields": "items(id)"}, {})
     if status != 200:
         raise failure(status, body, retry, "GET calendarList")
-    return emit({"ok": True, "scope": sorted(_google.PLATFORM_SCOPES), "account": record.get("account"), "obtained_at": record.get("obtained_at")})
+    return emit({"ok": True, "scope": sorted(_google.PREVIOUS_SCOPES), "account": record.get("account"), "obtained_at": record.get("obtained_at")})
 
 
 def cmd_event_get(args) -> int:
