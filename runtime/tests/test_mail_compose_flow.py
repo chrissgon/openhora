@@ -244,11 +244,12 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
     every = enable.load()["entries"]
-    entries = every[:-3]      # without the three newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9), which carry every pin of the one before them but the prompt of BL5B
+    entries = every[:-4]      # without the four newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11), which carry every pin of the one before them but the interpreter prompt of BL5B and BL7-3
     pins = ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")
-    for carried in every[-3:-1]:
+    for carried in every[-4:-2]:
         assert {k: carried[k] for k in pins} == {k: entries[-1][k] for k in pins}
-    assert {k: every[-1][k] for k in pins if k != "prompt_sha256"} == {k: entries[-1][k] for k in pins if k != "prompt_sha256"} and every[-1]["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != entries[-1]["prompt_sha256"]
+    for later, prompt in ((every[-2], PINNED_HASHES["interpreter_prompt_1423"]), (every[-1], PINNED_HASHES["interpreter_prompt"])):      # BL5B and BL7-3: every pin but the interpreter prompt stands
+        assert {k: later[k] for k in pins if k != "prompt_sha256"} == {k: entries[-1][k] for k in pins if k != "prompt_sha256"} and later["prompt_sha256"] == prompt != entries[-1]["prompt_sha256"]
     newest, s12, s7, first = entries[-1], entries[-4], entries[-5], entries[-6]      # entries[-3] and [-2] are the first pin of the revise prompt (S13) and the entry of R2-F1
     assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256() == s12["compose_prompt_sha256"] == entries[-2]["compose_prompt_sha256"] == entries[-3]["compose_prompt_sha256"]      # the decisions after S12 carry its compose pin
     assert s12["date"] == "2026-10-22" and s12["basis"] == "maintainer-decision" and "a IA deve verificar a ortografia do assunto do email" in s12["reason"]
