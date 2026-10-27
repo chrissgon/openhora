@@ -1,4 +1,4 @@
-"""An approve or a reject WORD decides a decision card on a messaging app (package S2, limit L64; runtime/card_words.py, runtime/messaging_bridge.py `word_line`), over the
+"""An approve or a reject WORD decides a decision card on a messaging app (package S2, limit L64; runtime/card_words.py, runtime/messaging_turn.py the kind `decision-card-word`, runtime/messaging_bridge.py `word_last`), over the
 stand-in operations object and the stand-in messenger of test_messaging.py. Offline, no model, no network; every name is invented.
 
 THE GUARD OF L64. A word decides a card exactly as the card's own button would (the same `Bridge.act`: the policy for the sender, the card's hash, the operation), and ONLY
