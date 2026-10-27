@@ -115,7 +115,8 @@ def test_the_table_is_a_pure_literal_and_its_rows_are_well_formed():
     names = [r["name"] for r in operations.OPERATIONS]
     assert len(names) == len(set(names))
     for row in operations.OPERATIONS:
-        assert set(row) <= {"name", "call", "args", "channels", "model", "help", "channel_arg", "chat_reply", "exit_unless", "job", "queues", "exclusive"}, row["name"]
+        assert set(row) <= {"name", "call", "args", "channels", "model", "help", "channel_arg", "chat_reply", "exit_unless", "job", "queues", "exclusive", "natural"}, row["name"]
+        assert isinstance(row.get("natural"), dict), row["name"]      # CB-0: every row carries its registry record (runtime/tests/test_registry_rows.py checks it closed)
         assert row["help"].strip() and set(row["channels"]) <= set(CHANNELS) and row["channels"], row["name"]
         assert row["model"] in (True, False) or isinstance(row["model"], str), row["name"]
         for arg in row["args"]:
