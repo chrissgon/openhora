@@ -31,7 +31,9 @@ QUESTION = "Q1: Which market do you mean?\n"
 
 
 def settled(rig):
-    return wait_for(lambda: not rig.bridge.exclusive)
+    """Every job the bridge started has ended, and the project's model slot is free (a deadline, never an unbounded wait). Waiting on the slot
+    alone left a job that takes no model slot (a card line, an approval) still running, so the next line could meet its state half written."""
+    return wait_for(lambda: not rig.bridge.exclusive and not any(t.is_alive() for t in list(rig.bridge.threads)))
 
 
 # --- B1 -------------------------------------------------------------------------------------------------------------------------------------
@@ -154,24 +156,43 @@ def test_a_profile_with_ask_and_without_talk_can_answer_the_list_of_files_to_cho
 
 
 def test_the_card_goes_out_again_at_most_once_a_minute_and_the_sentence_says_so_only_when_a_card_is_there(rig, monkeypatch):
+    """A decision named in words has its card sent again every time it is named (S20: the sentence says so, so the card is sent whatever was sent before); any other
+    sending again is held to once a minute (RESEND_EVERY); and the sentence that says a card is there is said only when a card was sent. Each step waits until every
+    job the bridge started has ended: the second line was once started while the first line's job was still sending, and the count it was checked by was read in between."""
     router_says(rig.world, "Route: flow-demo (flow, pending)\nWhy: x\nNext: y.\n")
     rig.bridge.handle(rig.update(OWNER, "Which market first?"))
     assert wait_for(lambda: len(rig.sent()) == 1) and settled(rig)
     clock = {"t": 100.0}
     rig.bridge.monotonic = lambda: clock["t"]
     cards = lambda: len([s for s in rig.sent() if s["message"].get("actions")])
+    assert cards() == 0
     rig.bridge.handle(rig.update(OWNER, "aprova a entrega 1"))
     assert wait_for(lambda: cards() == 1) and settled(rig)
     rig.bridge.handle(rig.update(OWNER, "aprova o pedido 1"))
-    assert wait_for(lambda: len(rig.sent()) == 3) and settled(rig)
-    assert cards() == 1, "the second line within a minute sent no second card"
+    assert wait_for(lambda: cards() == 2) and settled(rig)      # named again within a minute: the card goes again (S20), after the one sentence each time
+    assert len(rig.sent()) == 5
+    assert rig.bridge.resend(rig.project, OWNER, 1) is True and cards() == 2, "a sending again that nobody asked for twice is held within the minute"
     clock["t"] += 61
-    rig.bridge.handle(rig.update(OWNER, "aprova a decisao 1"))
-    assert wait_for(lambda: cards() == 2) and settled(rig)
+    assert rig.bridge.resend(rig.project, OWNER, 1) is True and cards() == 3, "and goes out when the minute has passed"
     clock["t"] += 61
     monkeypatch.setattr(rig.bridge, "send_card", lambda *a, **k: False)      # a card that cannot be sent
     rig.bridge.handle(rig.update(OWNER, "aprova a pendencia 1"))
     assert wait_for(lambda: rig.sent()[-1]["message"]["text"] == phrases.text("NAT_DECISION_NO_CARD", None)) and settled(rig)
+    assert cards() == 3
+
+
+def test_vacuity_without_the_minute_a_card_sent_again_goes_out_every_time(rig, monkeypatch):
+    """The sensitivity of the test above: with the hold at zero seconds the sending again that nobody asked for twice is sent, and the count it checks moves."""
+    import sys
+    monkeypatch.setattr(sys.modules[type(rig.bridge).__module__], "RESEND_EVERY", 0.0)
+    router_says(rig.world, "Route: flow-demo (flow, pending)\nWhy: x\nNext: y.\n")
+    rig.bridge.handle(rig.update(OWNER, "Which market first?"))
+    assert wait_for(lambda: len(rig.sent()) == 1) and settled(rig)
+    rig.bridge.monotonic = lambda: 100.0
+    cards = lambda: len([s for s in rig.sent() if s["message"].get("actions")])
+    rig.bridge.handle(rig.update(OWNER, "aprova a entrega 1"))
+    assert wait_for(lambda: cards() == 1) and settled(rig)
+    assert rig.bridge.resend(rig.project, OWNER, 1) is True and cards() == 2      # the test above asserts 1 here, within the minute
 
 
 def test_the_answer_to_a_file_list_waits_in_the_queue_when_the_router_is_busy_and_is_not_lost(world):

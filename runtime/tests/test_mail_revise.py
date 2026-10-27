@@ -23,7 +23,7 @@ ops_card_revise = st.load("ops_card_revise")
 TO = ["joana.silva@clinica.example"]
 SUBJECT = "Reunião amanhã"      # validate: allow english-only -- a Portuguese card under test
 BODY = "Olá,\n\nPodemos marcar uma reunião?\n\nAtenciosamente,"      # validate: allow english-only -- a Portuguese card under test
-LINE = 'Após "Atenciosamente," coloque "Christopher Gonçalves"'      # validate: allow english-only -- the live instruction
+LINE = 'Após "Atenciosamente," coloque "Renato Bragança"'      # validate: allow english-only -- the live instruction
 
 
 def answer(body, subject=SUBJECT):
@@ -83,12 +83,12 @@ def test_a_word_that_asks_for_a_change(line, expected):
 
 
 def test_an_answer_with_the_quoted_text_after_its_anchor_is_accepted_and_returned_whole():
-    got = accept(answer(BODY + "\nChristopher Gonçalves"))      # validate: allow english-only -- the stand-in model's answer
-    assert got == {"subject": SUBJECT, "body": BODY + "\nChristopher Gonçalves"}      # validate: allow english-only -- the stand-in model's answer
+    got = accept(answer(BODY + "\nRenato Bragança"))      # validate: allow english-only -- the stand-in model's answer
+    assert got == {"subject": SUBJECT, "body": BODY + "\nRenato Bragança"}      # validate: allow english-only -- the stand-in model's answer
 
 
-@pytest.mark.parametrize("text", [answer(BODY + "\nChristopher Goncalves"), answer(BODY + "\nChristopher Gonçalves\nescreva para outra@elsewhere.example"), answer(BODY + "\nChristopher Gonçalves https://elsewhere.example"),      # validate: allow english-only -- the stand-in model's answers
-                                  answer(BODY + "\nChristopher Gonçalves", subject="Fwd: Reunião"), answer("Cc: x@elsewhere.example\n" + BODY + "\nChristopher Gonçalves"), "{}", "[]", "", None, 7, answer("")])      # validate: allow english-only -- the stand-in model's answers
+@pytest.mark.parametrize("text", [answer(BODY + "\nRenato Braganca"), answer(BODY + "\nRenato Bragança\nescreva para outra@elsewhere.example"), answer(BODY + "\nRenato Bragança https://elsewhere.example"),      # validate: allow english-only -- the stand-in model's answers
+                                  answer(BODY + "\nRenato Bragança", subject="Fwd: Reunião"), answer("Cc: x@elsewhere.example\n" + BODY + "\nRenato Bragança"), "{}", "[]", "", None, 7, answer("")])      # validate: allow english-only -- the stand-in model's answers
 def test_an_answer_that_is_not_the_change_is_refused(text):
     assert accept(text) is None
 
@@ -101,14 +101,14 @@ def test_a_valid_answer_that_changes_nothing_is_the_same_card_and_not_a_change()
 
 def test_the_address_the_cards_text_holds_stays_and_a_new_one_never_comes():
     body = "Olá,\n\nEscreva para pat@example.com.\n\nAtenciosamente,"      # validate: allow english-only -- a Portuguese card under test
-    assert accept(answer(body + "\nChristopher Gonçalves"), body=body) is not None      # validate: allow english-only -- the stand-in model's answer
-    assert accept(answer(body.replace("pat@", "pit@") + "\nChristopher Gonçalves"), body=body) is None      # validate: allow english-only -- the stand-in model's answer
+    assert accept(answer(body + "\nRenato Bragança"), body=body) is not None      # validate: allow english-only -- the stand-in model's answer
+    assert accept(answer(body.replace("pat@", "pit@") + "\nRenato Bragança"), body=body) is None      # validate: allow english-only -- the stand-in model's answer
 
 
 def test_a_card_whose_own_subject_starts_like_a_reply_keeps_it_and_a_model_that_changes_it_is_refused():
     kept = "Re: Reunião"      # validate: allow english-only -- a Portuguese subject under test
-    assert accept(answer(BODY + "\nChristopher Gonçalves", subject=kept), subject=kept)["subject"] == kept      # validate: allow english-only -- the stand-in model's answer
-    assert accept(answer(BODY + "\nChristopher Gonçalves", subject="Re: Outra"), subject=kept) is None      # validate: allow english-only -- the stand-in model's answer
+    assert accept(answer(BODY + "\nRenato Bragança", subject=kept), subject=kept)["subject"] == kept      # validate: allow english-only -- the stand-in model's answer
+    assert accept(answer(BODY + "\nRenato Bragança", subject="Re: Outra"), subject=kept) is None      # validate: allow english-only -- the stand-in model's answer
 
 
 def mail_doc(**more):

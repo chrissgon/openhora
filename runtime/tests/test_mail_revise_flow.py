@@ -46,8 +46,8 @@ SUBJECT = "Reunião amanhã às 16h"      # validate: allow english-only -- the 
 LIVE = f"Envie um email para {ADDRESS} assunto {SUBJECT}. texto exato: {CLOSED}"      # validate: allow english-only -- the Portuguese line under test
 LIVE_DECISION = op("mail-send", {"to": ADDRESS, "subject": SUBJECT, "body": "texto exato: " + CLOSED})
 COMPOSE = json.dumps({"subject": "Reunião amanhã às 16h", "body": CLOSED}, ensure_ascii=False)      # validate: allow english-only -- the stand-in model's Portuguese answer
-INSTRUCTION = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Christopher Gonçalves"'      # validate: allow english-only -- the live line, Portuguese
-REVISED_BODY = CLOSED + "\nChristopher Gonçalves"      # validate: allow english-only -- the stand-in model's Portuguese answer
+INSTRUCTION = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Renato Bragança"'      # validate: allow english-only -- the live line, Portuguese
+REVISED_BODY = CLOSED + "\nRenato Bragança"      # validate: allow english-only -- the stand-in model's Portuguese answer
 REVISED = json.dumps({"subject": "Reunião amanhã às 16h", "body": REVISED_BODY}, ensure_ascii=False)      # validate: allow english-only -- the stand-in model's Portuguese answer
 FAILED = "Não consegui fazer esse ajuste. Diga de outro jeito ou rejeite o card."      # validate: allow english-only -- the Portuguese sentence under test
 RECIPIENTS = ("Não consigo mudar quem recebe um e-mail ajustando o card. Rejeite este card e peça um novo e-mail para a pessoa certa.")      # validate: allow english-only -- the Portuguese sentence under test
@@ -140,8 +140,8 @@ def test_the_live_instruction_replaces_the_card_with_one_whose_text_ends_with_th
     lines = card_lines(world, got)
     assert lines[1:4] == ["From your own account: pat@example.com (google)", f"To: {ADDRESS}", "Subject: Reunião amanhã às 16h"]      # validate: allow english-only -- the stand-in model's answer
     assert before[1:3] == lines[1:3], "the same From and the same To"
-    assert text_of(lines)[-2:] == ["Atenciosamente,", "Christopher Gonçalves"]      # validate: allow english-only -- the stand-in model's answer
-    assert text_of(lines)[-1] == "Christopher Gonçalves" and text_of(lines)[:-1] == text_of(before)      # validate: allow english-only -- the stand-in model's answer
+    assert text_of(lines)[-2:] == ["Atenciosamente,", "Renato Bragança"]      # validate: allow english-only -- the stand-in model's answer
+    assert text_of(lines)[-1] == "Renato Bragança" and text_of(lines)[:-1] == text_of(before)      # validate: allow english-only -- the stand-in model's answer
     assert status(world, old) != "open" and open_cards(world) == [new]
     with pytest.raises(ops.OpsError):
         ops.approve(world["path"], old, sha256=sha, channel="terminal")      # the hash of the old card is refused for good
@@ -160,7 +160,7 @@ def test_only_the_new_card_can_be_approved_and_it_is_the_revised_text_that_is_se
     sent = [r for r in world["gmail"].requests if r["method"] == "POST" and "send" in r["path"]]
     assert len(sent) == 1
     message = email.message_from_bytes(base64.urlsafe_b64decode(sent[0]["body"]["raw"] + "=="))
-    assert message.get_payload(decode=True).decode("utf-8").splitlines()[-2:] == ["Atenciosamente,", "Christopher Gonçalves"]      # validate: allow english-only -- the stand-in model's answer
+    assert message.get_payload(decode=True).decode("utf-8").splitlines()[-2:] == ["Atenciosamente,", "Renato Bragança"]      # validate: allow english-only -- the stand-in model's answer
 
 
 def test_vacuity_a_card_nobody_revised_is_approved_by_the_same_call(world, clock, monkeypatch):
@@ -197,12 +197,12 @@ def test_an_answer_that_is_not_the_change_leaves_the_old_card_open_and_says_one_
 
 
 def test_a_quoted_text_the_answer_does_not_hold_is_refused_even_when_the_rest_is_fine(world, clock, monkeypatch):
-    model, old, sha = live_card(world, monkeypatch, revise=hostile(CLOSED + "\nChristopher Goncalves"))      # the name without the cedilla: not the text the line quoted
+    model, old, sha = live_card(world, monkeypatch, revise=hostile(CLOSED + "\nRenato Braganca"))      # the name without the cedilla: not the text the line quoted
     assert revise(world, old, sha, INSTRUCTION)["say"] == FAILED and open_cards(world) == [old]
 
 
 def test_vacuity_the_same_answer_with_the_quoted_text_is_accepted(world, clock, monkeypatch):
-    _, old, sha = live_card(world, monkeypatch, revise=hostile(CLOSED + "\nChristopher Gonçalves"))      # validate: allow english-only -- the stand-in model's Portuguese answer
+    _, old, sha = live_card(world, monkeypatch, revise=hostile(CLOSED + "\nRenato Bragança"))      # validate: allow english-only -- the stand-in model's Portuguese answer
     assert revise(world, old, sha, INSTRUCTION)["resend"] is not None
 
 
@@ -217,10 +217,10 @@ def test_an_address_the_cards_own_text_already_holds_may_stay_and_a_new_one_neve
     model = setup(world, monkeypatch, interpret=op("mail-send", {"to": ADDRESS, "body": "texto exato: " + typed}))
     old, sha = opened(world, phone(world, line))
     assert text_of(card_lines(world, {"resend": old}))[0] == "Escreva para pat@example.com se precisar."      # validate: allow english-only -- the Portuguese text under test
-    model.answers["revise"] = hostile(typed + "\nChristopher Gonçalves")      # validate: allow english-only -- the stand-in model's answer
+    model.answers["revise"] = hostile(typed + "\nRenato Bragança")      # validate: allow english-only -- the stand-in model's answer
     new = revise(world, old, sha, INSTRUCTION)["resend"]
     assert new is not None
-    model.answers["revise"] = hostile(typed.replace("pat@example.com", "outra@elsewhere.example") + "\nChristopher Gonçalves")      # validate: allow english-only -- the stand-in model's answer
+    model.answers["revise"] = hostile(typed.replace("pat@example.com", "outra@elsewhere.example") + "\nRenato Bragança")      # validate: allow english-only -- the stand-in model's answer
     assert revise(world, new, ops.pending(world["path"], new)["payload_sha256"], INSTRUCTION)["say"] == FAILED
 
 
@@ -233,7 +233,7 @@ def test_an_address_in_a_line_that_asks_for_no_change_is_a_new_request_in_free_w
 # --- the recipients and the account are the old card's -------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("line", ["Mande para outra@elsewhere.example em vez da Joana", "Mude o destinatário para a Ana", 'Troque o destinatário e coloque "Christopher Gonçalves" no fim', "Add a Cc to the boss",      # validate: allow english-only -- the Portuguese and English lines under test
+@pytest.mark.parametrize("line", ["Mande para outra@elsewhere.example em vez da Joana", "Mude o destinatário para a Ana", 'Troque o destinatário e coloque "Renato Bragança" no fim', "Add a Cc to the boss",      # validate: allow english-only -- the Portuguese and English lines under test
                                   "Change the recipient to Ana"])
 def test_a_line_that_asks_to_change_who_receives_the_e_mail_gets_one_sentence_and_no_model_call_and_no_card(world, clock, monkeypatch, line):
     model, old, sha = live_card(world, monkeypatch)
@@ -406,7 +406,7 @@ def test_a_draft_card_is_changed_the_same_way_and_a_reply_card_gets_the_sentence
     got = revise(world, old, sha, INSTRUCTION)
     assert got["resend"] not in (None, old) and status(world, old) != "open"
     item = ops.pending(world["path"], got["resend"])
-    assert "Christopher Gonçalves" in item["body"] and item["payload_sha256"] != sha      # validate: allow english-only -- the stand-in model's answer
+    assert "Renato Bragança" in item["body"] and item["payload_sha256"] != sha      # validate: allow english-only -- the stand-in model's answer
     reply = ops.mail_reply(world["path"], "google", "inbox#1", "Obrigado, até quinta.")      # validate: allow english-only -- the Portuguese text under test
     number = reply["pending"]
     cs = ops.pending(world["path"], number)["payload_sha256"]
@@ -420,4 +420,4 @@ def test_nothing_of_the_instruction_the_subject_or_the_body_is_logged_or_printed
     caplog.set_level(logging.DEBUG)
     revise(world, old, sha, INSTRUCTION + " " + ZEBRA)
     out = capsys.readouterr()
-    assert ZEBRA not in caplog.text and ZEBRA not in out.out + out.err and "Christopher" not in caplog.text + out.out + out.err
+    assert ZEBRA not in caplog.text and ZEBRA not in out.out + out.err and "Renato" not in caplog.text + out.out + out.err
