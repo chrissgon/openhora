@@ -166,7 +166,6 @@ TIME_ASK_GUARD = "TIME-GUARD (#505, decisions.md 2026-10-21): an hour-only readi
 CODE_WINS = "the code reads the time itself and its reading wins over the echo's time_iso (time_disagree), and it is not the gold's"
 CONFIRM_RULE = "the confirm rule: the echo says yes or no, and code does not read the line as that yes or no, so it asks again (clarify)"
 FORWARD_OFF_MESSAGING = "the gold is `forwarded` but the channel is not messaging: a forward is read on the messaging channel only (as the current arm reads it), so the item reaches the model, and the echo's `forwarded` object is not a protocol kind (invalid, so clarify)"
-MAIL_NOT_PREPARED = "BL7-4: the product does not open this mail card: the closed forms read none of the numbers the echo names (gap G1, package BL7-5), so it says it could not prepare the write (clarify)"
 MAIL_WRITE_LANGUAGE = "BL7-4: a mail write named by words in a de, es, fr or it project is answered IX_WRITE_LANGUAGE by design (gap G4): the write forms of the tables are read in pt-BR and en only, so the product does not open this card (clarify)"
 ALLOWED = {
     "dev-es-00036": TIME_ASK, "dev-es-00043": TIME_ASK, "dev-fr-00018": TIME_ASK, "dev-it-00020": TIME_ASK,
@@ -174,7 +173,6 @@ ALLOWED = {
     "dev-es-00005": CODE_WINS, "dev-es-00012": CODE_WINS, "dev-es-00033": CODE_WINS,
     "dev-en-00040": FORWARD_OFF_MESSAGING,
     "dev-es-00025": CONFIRM_RULE, "dev-fr-00019": CONFIRM_RULE, "dev-pt-br-00058": CONFIRM_RULE,
-    "dev-pt-br-00080": MAIL_NOT_PREPARED, "dev-pt-br-00029": MAIL_NOT_PREPARED, "dev-pt-br-00035": MAIL_NOT_PREPARED, "dev-en-00072": MAIL_NOT_PREPARED,
     "dev-de-00013": MAIL_WRITE_LANGUAGE, "dev-es-00009": MAIL_WRITE_LANGUAGE,
 }
 FULL = bool(os.environ.get("WB_FULL_FUZZ"))

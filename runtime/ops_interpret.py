@@ -37,6 +37,11 @@ A decision the model names (slice S20). The catalog lists `approve`, `reject`, `
 from the line (`turn_gate.the_number`: the one whole number written in it, none in a line that says a date or a time). `reject` and `release` are then the typed commands (`ops_natural.run` hands
 the bridge the typed line), `approve` sends the decision's card again and approves nothing, and `answer` and `go-ahead` have words of their own. No operation was added to the catalog.
 
+A message number the model gave (BL7-5, gap G1; limits L54 and L61). When the closed forms read nothing in the line of a mail operation that names messages (`MAIL_TARGET_OPS`) and the model
+gave `message` or `messages`, `ops_natural_mail.mail_number_seed` opens the family with the numbers, only when they are exactly the numbers the line writes as message numbers (`#n`, right after a mail noun, or chained to such a number by a joiner and an optional article; never a room, a year, a count, a time or a range)
+(`natural_writes_mail.free_numbers`) and the decision holds no `target`, `day`, `to` or `subject`: the numbers name `<source>#<n>` of the newest snapshot, never a refresh, origin
+`line-number`. A line the closed forms read opens the card it opened before; a project language other than pt-BR and en is still `IX_WRITE_LANGUAGE`.
+
 The call. It is the gate's (`turn_gate.call`, runtime/turn_gate.py): the route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again
 there, so a route of any other kind cannot be called from here; the entry that enables the interpreter names the route and the hashes it was decided on (runtime/interpreter_enable.py).
 
@@ -352,6 +357,9 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed) if seed is not None else None
         else:
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
+            if (opened is None and op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and ("message" in decision["args"] or "messages" in decision["args"])
+                    and (numbers := importlib.import_module("ops_natural_mail").mail_number_seed(op, decision, said)) is not None):          # BL7-5 (G1): the closed forms read nothing and the model gave the message number(s): they are used only as the line's free numbers (code checks), as `<source>#<n>` of the newest snapshot, never a refresh
+                opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=numbers)
         return _said(opened if opened is not None else _cannot(ctx, op), extras)
     when = time_["local"].replace("T", " ") if time_ else None
     reply = ops_natural.run(project, ctx, op, decision["args"], said, CHANNEL, sender, extras, when=when, routed=True)

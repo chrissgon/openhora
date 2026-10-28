@@ -28,9 +28,17 @@ reply to several messages is not taken either.
   answer(need, line, slots, tables, now=None, options=None)   {"slots": the update} that a line makes when it answers the question `need`, or None when it is not an answer
   match_words(entries, words, newest)            the entries of a snapshot's index whose from-address words and subject words hold EVERY one of `words`, as whole words
   plural_mentioned(text, tables)                 whether `text` holds a noun of the tables' `plural` list ("e-mails", "mensagens"), the words the closed form reads as several messages
-  target_words(span, tables)                     the content words of a `target` span the interpreter verified (B''-lite): the span's words without the tables' articles, polite
-                                                 words, joiners, mail nouns, plural words, "of" words and "newest" words, in order, none twice; [] when more than TARGET_WORDS_MAX
-                                                 are left (a sentence, not a name). They are compared with the index (`match_words`) only to choose a message, never an address
+  target_words(span, tables, cap=TARGET_WORDS_MAX)  the content words of a `target` span the interpreter verified (B''-lite): the span's words without the tables' articles, polite
+                                                 words, joiners, mail nouns, plural words, "of" words and "newest" words, in order, none twice; [] when more than `cap`
+                                                 (default TARGET_WORDS_MAX) are left (a sentence, not a name). They are compared with the index (`match_words`) only to choose
+                                                 a message, never an address
+  ground_words(span, tables)                     `target_words` with the cap GROUND_WORDS_MAX (BL7-5): the words of a sender and a subject the interpreter grounded (`target_ground`);
+                                                 every one of them is still required by `match_words`, so a longer set only reaches fewer messages, never more
+  free_numbers(line, spans=(), tables=None)      the numbers a line writes as MESSAGE numbers, in order, none twice (BL7-5): `#7`, a number right after a mail noun ("email 4", "mensagem 3"),
+                                                 or one chained to such a number (written right after it, or after a joiner and an optional article: "emails 2 4 and the 7"); never a number inside one of `spans`
+                                                 (texts of the line), inside a time phrase of `natural_time.find`, followed by a unit, a currency mark or "o'clock", or preceded by a
+                                                 currency, and [] in a line with a range ("1-3", "1 a 3", "do 1 ao 3", "between 1 and 3") or when a time hit cannot be mapped to the line.
+                                                 It is what a message number the model gave must equal (`ops_natural_mail.mail_number_seed`)
   check_mail(mail, where)                        ValueError when the `mail` part of `requests.writes` of a language table is not of the shape below
   NEEDS                                          the needs this family asks (the draft of the ask-back dispatches an answer to `answer` for these)
 
@@ -70,6 +78,7 @@ NUMBER_DIGITS_MAX = 9
 TEXT_WORDS_MAX = 12        # a subject is short: a longer line is a new line (natural.TEXT_MAX_WORDS, the limit of every text answer)
 FOLDER_MAX = 64          # characters of a folder name written in a line
 TARGET_WORDS_MAX = 6     # content words of a `target` span the interpreter verified: a message is named by a sender and a subject; a longer span is a sentence, not a name
+GROUND_WORDS_MAX = 10    # BL7-5: content words of a sender and a subject the interpreter grounded (a sender of up to four words and a subject of up to six, interpreter.SUBJECT_WORDS_MAX): every one is still required
 WORDS_CAP = 3            # content words of a message named by words ("o e-mail do banco itau"): a longer tail is a sentence, not a name
 MAIL_KEYS = ("send_verbs", "reply_verbs", "draft_verbs", "archive_verbs", "move_verbs", "mark_verbs", "trash_verbs", "nouns", "plural", "to", "subject", "body", "of",
              "folder", "read", "unread", "newest", "date_words")
@@ -789,10 +798,10 @@ def entry_words(entry: dict) -> set:
     return words | set(_words_of(entry.get("subject")))
 
 
-def target_words(span, tables) -> list:
+def target_words(span, tables, *, cap: int = TARGET_WORDS_MAX) -> list:
     """The words that name a message in a `target` span (B''-lite): the span's words folded as `_words_of` folds them, without the words of the tables' `articles`, `polite` and
-    `joiners`, and of the mail `nouns`, `plural`, `of` and `newest` lists, in order, none twice; [] when more than TARGET_WORDS_MAX are left (a sentence, not a name). Pure: they
-    only choose a message among the index's own (`match_words`); nothing here reads a message or returns an address."""
+    `joiners`, and of the mail `nouns`, `plural`, `of` and `newest` lists, in order, none twice; [] when more than `cap` are left (TARGET_WORDS_MAX unless a caller passes another cap: a
+    sentence, not a name). Pure: they only choose a message among the index's own (`match_words`); nothing here reads a message or returns an address."""
     drop = set()
     for table in _tables_with_mail(tables):
         d = _data(table)
@@ -800,7 +809,101 @@ def target_words(span, tables) -> list:
             for phrase in lists:
                 drop.update(w for part in phrase for w in _words_of(part))
     found = [w for w in dict.fromkeys(_words_of(span)) if w not in drop]
-    return found if len(found) <= TARGET_WORDS_MAX else []
+    return found if len(found) <= cap else []
+
+
+def ground_words(span, tables) -> list:
+    """BL7-5. `target_words` of a sender and a subject the interpreter grounded, with the cap GROUND_WORDS_MAX instead of TARGET_WORDS_MAX. `match_words` still needs EVERY word, so a
+    longer set can only reach a subset of what a shorter set of the same words reaches: the cap decides between a search and a refusal, never how wide the search is."""
+    return target_words(span, tables, cap=GROUND_WORDS_MAX)
+
+
+_NUMBER_WORD = re.compile(r"#?[0-9]{1,9}")
+_NUMBER_RANGE = re.compile(r"#?[0-9]+\s*[-\u2010-\u2015]\s*#?[0-9]+")
+_RANGE_MARKS = frozenset(("-", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"))
+_RANGE_MID_EXTRA = frozenset(("ao", "aos"))          # BL7-5: "do 1 ao 3" (the tables' `range` list holds `a` and `ate`): the person meant 1, 2 and 3
+_RANGE_LEAD = frozenset(("between", "entre"))          # BL7-5: "between 1 and 3"
+_JOINERS_EXTRA = frozenset(("or", "ou"))          # BL7-5: a number chained to another by "or" counts as the same list
+_CLOCK_AFTER = ("o clock", "oclock")          # "the 2 o'clock meeting": a time, never a message number
+_WORD_EDGE = ".,;:!?()[]\"'"
+
+
+def free_numbers(line, spans=(), tables=None) -> list:
+    """BL7-5. The whole numbers `line` writes as message numbers, in order, none twice. A word of digits (`#7`, `4,`), as `natural.decision_numbers` reads a number per word, counts only
+    when ALL hold: it is written `#n`, or the word before it is a mail noun of the tables (`email 4`, `e-mails 2`, `mensagem 3`), or it is chained to such a number: written right after it (`emails 2 4 e 7`), or after a joiner
+    (`and`, `e`, `or`, `ou`, a comma) with an optional article between (`emails 2, 4 e o 7`); it does not overlap an occurrence in the line of one of the texts of `spans` (a body, a
+    folder, a state) nor a time phrase of `natural_time.find` (a clock, a date, a relative time); it is not followed by a unit (`natural.MEASURES`), by `o'clock` or by a currency mark and
+    not preceded by a currency. So a count noun ("the 2 budgets"), a year, a room ("room 4", "sala 4") and a phone number are no message number, by construction (principle 13: the stricter
+    rule stays). A line with a range between numbers (`1-3`, `1 a 3`, `1 to 3`, `do 1 ao 3`, `between 1 and 3`) gives [], and so does a time phrase that cannot be mapped to the line: it
+    fails closed. Pure."""
+    if not isinstance(line, str) or not line:
+        return []
+    found = nt.find(line)
+    norm, origin = found["norm"], found["origin"]
+    if len(norm) != len(origin):
+        return []
+    blocked = []
+    for hit in found["hits"]:
+        start, end = hit["s"], hit["e"]
+        if not 0 <= start < end <= len(origin):
+            return []
+        blocked.append((origin[start], origin[end - 1] + 1))
+    for text in spans or ():
+        at = line.find(text) if isinstance(text, str) and text else -1
+        while at >= 0:
+            blocked.append((at, at + len(text)))
+            at = line.find(text, at + 1)
+    range_words, nouns, articles, joiners = set(_RANGE_MID_EXTRA), set(), set(), set(_JOINERS_EXTRA)
+    for table in _tables_with_mail(natural._tables(tables)):
+        d = _data(table)
+        range_words |= {p[0] for p in d["shared"]["range"] if len(p) == 1}
+        nouns |= set(d["mail"]["nouns"]) | set(d["plural"])
+        articles |= {p[0] for p in d["shared"]["articles"] if len(p) == 1}
+        joiners |= {p[0] for p in d["shared"]["joiners"] if len(p) == 1}
+    toks = [(m.start(), m.end(), unicodedata.normalize("NFKC", m.group()).strip(_WORD_EDGE), unicodedata.normalize("NFKC", m.group())) for m in re.finditer(r"\S+", line)]
+    folded = [_words_of(tok[2]) for tok in toks]
+    free = lambda tok: not any(tok[0] < e and s < tok[1] for s, e in blocked)      # noqa: E731  (the word touches no span and no time phrase)
+    shape = [bool(_NUMBER_WORD.fullmatch(tok[2])) for tok in toks]
+    for at, tok in enumerate(toks):
+        if free(tok) and _NUMBER_RANGE.fullmatch(tok[2]):
+            return []
+        if shape[at] and free(tok):
+            if at + 2 < len(toks) and shape[at + 2] and (toks[at + 1][2] in _RANGE_MARKS or natural.ascii_normal(toks[at + 1][2]) in range_words):
+                return []
+            if at and natural.ascii_normal(toks[at - 1][2]) in _RANGE_LEAD:
+                return []
+    found_numbers, counted = [], set()
+    for at, tok in enumerate(toks):
+        if not shape[at] or not free(tok):
+            continue
+        after = natural.ascii_normal(toks[at + 1][2]) if at + 1 < len(toks) else ""
+        before = toks[at - 1][2].lower() if at else ""
+        if after.split(" ")[0] in natural.MEASURES or after in _CLOCK_AFTER or (at + 1 < len(toks) and toks[at + 1][2].lstrip().startswith(natural.CURRENCY_OR_MARK_AFTER)) or before.endswith(natural.CURRENCY_BEFORE):
+            continue
+        preceding = [w for k in range(max(0, at - 3), at) for w in folded[k]]
+        if not (tok[2].startswith("#") or any(len(n) <= len(preceding) and tuple(preceding[len(preceding) - len(n):]) == n for n in nouns) or _chained(toks, folded, at, counted, articles, joiners)):
+            continue
+        counted.add(at)
+        found_numbers.append(int(tok[2].lstrip("#")))
+    return list(dict.fromkeys(found_numbers))
+
+
+def _chained(toks, folded, at, counted, articles, joiners) -> bool:
+    """Whether the number word at `at` is chained to a number already counted: written right after it ("emails 2 4 e 7": still anchored to the mail noun), or after an optional article, then
+    a joiner word (or a comma stuck to the earlier number, or a comma word), then that number."""
+    j = at - 1
+    if j in counted:
+        return True
+    if j >= 0 and len(folded[j]) == 1 and folded[j][0] in articles:
+        j -= 1
+    if j < 0:
+        return False
+    if j in counted:
+        return toks[j][3].rstrip(")]\"'").endswith((",", ";"))          # "2, 4": the comma is stuck to the number before
+    word = folded[j]
+    if (len(word) == 1 and word[0] in joiners) or toks[j][3] in (",", ";"):
+        return j - 1 in counted
+    return False
 
 
 def plural_mentioned(text, tables) -> bool:

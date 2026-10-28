@@ -59,8 +59,8 @@ PUBLISHED = {
 REPLAY = {
     (DEEPSEEK, "M1"): {"correct": 38, "clarify": 7, "wrong_card": 1},      # equal to the published counts until BL7-4 (the scorer follows the product for a mail write: a card the product does not open is a clarify): 41/4/1 -> 38/7/1
     (SONNET, "M1"): {"correct": 41, "clarify": 5},      # BL7-1 (the line's subject stays in a message's target): dev-pt-br-50007 run 2, wrong_card -> correct, 44/2; BL7-4: 41/5; the PUBLISHED counts above stay as they were
-    (DEEPSEEK, "M2"): {"correct": 43, "clarify": 7},      # BL7-4: 46/4 -> 43/7
-    (SONNET, "M2"): {"correct": 43, "clarify": 6, "wrong_read": 1},      # BL7-4: 46/3/1 -> 43/6/1
+    (DEEPSEEK, "M2"): {"correct": 44, "clarify": 6},      # BL7-5 (a believed message number opens the family when the closed forms read none; a long sender-and-subject target is grounded): 43/7 -> 44/6 (dev-pt-br-00035); BL7-4: 46/4 -> 43/7
+    (SONNET, "M2"): {"correct": 44, "clarify": 5, "wrong_read": 1},      # BL7-5 (a believed message number opens the family when the closed forms read none; a long sender-and-subject target is grounded): 43/6 -> 44/5 (dev-pt-br-00035); BL7-4: 46/3/1 -> 43/6/1
 }
 
 

@@ -28,6 +28,10 @@ What is decided here, and from where:
     must all be whole words of the from-address or the subject, and the day (`day_read`: read by the caller with the time engine, this module reads no calendar and no clock) keeps the
     messages the index says came in on that local day (`received`, a UTC time) or, for a weekday, in the last 7 days; an index with no `received` for a candidate, or a day the engine
     cannot read, is `NW_MAIL_BY_DATE`: a date is never guessed. The words only choose a message, they are never an address: a reply goes to the index's From (L60);
+  * BL7-5: a message the model named by NUMBER, when the closed forms read none (`mail_number_seed`), is `<source>#<n>` of the newest snapshot like a number the closed forms read: the numbers
+    must be exactly the line's free numbers (`natural_writes_mail.free_numbers`) and no `target`, `day`, `to` or `subject` stands beside them; the origin is `line-number` and a numbered line
+    never refreshes a snapshot. A target that holds its own subject after the sender (the interpreter's `target_ground`) is found by up to GROUND_WORDS_MAX content words, every one required
+    (`natural_writes_mail.ground_words`);
   * the snapshot is read, and a message is listed, only after `item_refs.read_index` accepted the caller (a messaging sender needs the group `ask-mail`): a caller who may not
     read it gets the sentence of `item_refs` and nothing of the mailbox, not even the names of its sources;
   * BL5E: a stale snapshot is read again once. When the index of the source the line needs is refused as older than 26 hours (or of a time that cannot be trusted), as missing
@@ -436,7 +440,8 @@ def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
     the index's From (L60)."""
     spans, args = decision.get("spans") or {}, decision.get("args") or {}
     tables = natural._tables(None)
-    words = nwm.target_words(decision.get("target_ground") or spans.get("target") or "", tables)          # BL7-1: a target widened with the line's subject is grounded by the person and the subject, never the marker word
+    words = (nwm.ground_words(decision["target_ground"], tables) if decision.get("target_ground")          # BL7-1, BL7-5: a target widened with the line's subject, or one that holds its own, is grounded by the person and the subject, never the marker word (up to GROUND_WORDS_MAX words, every one required)
+             else nwm.target_words(spans.get("target") or "", tables))
     if not words and not spans.get("day"):
         return None
     slots = {"words": words}
@@ -455,6 +460,40 @@ def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
     if spans.get("day"):
         slots["day_read"] = day or {"kind": "unread", "value": None, "today": None, "zone": None}
     return turn_gate.Seed({"op": op, "by": "target", "slots": slots}, {key: "line-span" for key in ("body", "folder_name", "state") if key in slots})      # S41-7: spans of the line that the interpreter's check verified (the message itself is found by code in the index: `grounded`)
+
+
+def mail_number_seed(op: str, decision: dict, said: str):
+    """BL7-5 (gap G1). The seed of a mail operation on messages the model named by NUMBER when the closed forms read nothing in the line, or None: `{"op", "by": "numbers", "slots"}` with the
+    slot `numbers` the closed forms' own shape would hold (`_messages` turns it into `<source>#<n>` of the newest snapshot, never a refresh, origin `line-number`). A seed only when all hold:
+    the decision's spans hold no `target`, `day`, `to` or `subject` (a number is never joined with words, and no address or subject is dropped in silence); the numbers the model gave
+    (`message` or `messages`) are not empty and are EXACTLY the numbers the line writes as message numbers (`#n`, right after a mail noun, or chained to such a number by a joiner and an optional article; never a room, a year, a count, a time or a range) (`natural_writes_mail.free_numbers`, with the decision's text spans
+    and word spans as the places that are not numbers), so a model that drops one, adds one or reads one from a time, a date, a quantity or a body gets none. A reply or a reply draft adds
+    its `body` (worded when it DESCRIBES the text, as `mail_target_seed` does), a move its `folder_name`, a mark its `state` when the span reads one. Nothing here is an address, a
+    recipient or a message: the reference is resolved when the operation runs (`item_refs`: past the end, older than 26 hours, no right to read), and a reply goes to the index's From (L60)."""
+    spans, args = decision.get("spans") or {}, decision.get("args") or {}
+    if op not in REF_OPS + ("mail-draft",) or any(spans.get(slot) for slot in ("target", "day", "to", "subject")):
+        return None
+    given = args.get("message") if "message" in args else args.get("messages")
+    numbers = [given] if isinstance(given, int) and not isinstance(given, bool) else list(given) if isinstance(given, (list, tuple)) else []
+    if not numbers or not all(isinstance(n, int) and not isinstance(n, bool) for n in numbers):
+        return None
+    row = natural.NATURAL[op]["slots"]
+    texts = [str(spans[slot]) for slot, spec in row.items() if spec[0] in ("span", "word") and spans.get(slot)]
+    if sorted(set(numbers)) != sorted(nwm.free_numbers(said, texts)):
+        return None
+    tables = natural._tables(None)
+    slots = {"numbers": numbers}
+    if op in ("mail-reply", "mail-draft") and spans.get("body"):
+        slots["body"] = spans["body"]
+        if mail_reply_compose.described(spans["body"], said):
+            slots["_compose_reply"] = True          # BL7-2: a body that describes the text is worded by the model when composing is on (`_reference_args`); a dictated one is the text
+    if op == "mail-move" and args.get("folder"):
+        slots["folder_name"] = args["folder"]
+    if op == "mail-mark" and spans.get("state"):
+        got = nwm.answer("state", spans["state"], {}, tables)
+        if got:
+            slots["state"] = got["slots"]["state"]
+    return turn_gate.Seed({"op": op, "by": "numbers", "slots": slots}, {"numbers": "line-number", **{key: "line-span" for key in ("body", "folder_name", "state") if key in slots}})
 
 
 def _body_key(ctx: dict, channel, sender) -> str:

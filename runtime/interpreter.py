@@ -25,7 +25,9 @@ code acts on. Nothing the model writes is ever shown to a person, and nothing it
 
 The decision, always {"kind", "error"} plus, by kind:
   op        op, args {parameter: value}, spans {slot: span}, time {local "YYYY-MM-DDTHH:MM", source "code"|"model"} | None, inherited [slots], time_disagree; and `target_ground` (a mail target widened
-            with the line's subject: the person and the subject without the marker word, the text a message is found by), `corrects` (the plan item a correction answers)
+            with the line's subject, or a target of more than six content words that holds its own subject after the sender (BL7-5): the person and the subject without the marker
+            word, the text a message is found by), `target_sender` (for the second kind: the person's part of the target, a piece of the line, which a later rule may require to be in the
+            From), `corrects` (the plan item a correction answers)
   answer    item (the id), need, and what the item's need asks: slot / span / args, confirm, option, time, time_disagree
   clarify   slot | ops (code writes the question), why: model | time-ask | time-past | time-far | time-gap | time-fold | weekday | private-route | invalid | long-line
   route     none
@@ -917,6 +919,11 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
             args, error = _check_slots(name, plain, line)          # whatever the helper returned is checked as any span of the line, here too: a value that is not in the line is E_SPAN
             if error:
                 return _invalid(error)
+    sender = None
+    if ground is None and name in MAIL_TARGET_OPS and "target" in plain:          # BL7-5 (G3): a target of more than six content words that holds its own subject after the sender is grounded the same way
+        own = _own_subject_split(plain["target"])
+        if own is not None:
+            sender, ground = own
     spans = dict(plain)
     inherited = []
     if inherit:
@@ -946,7 +953,9 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         spans[time_slots[0]] = span
     decision = {"kind": "op", "error": None, "op": name, "args": args, "spans": spans, "time": time, "inherited": inherited, "time_disagree": disagree}
     if ground:
-        decision["target_ground"] = ground          # only for a widened target: `ops_natural_mail.mail_target_seed` finds the message by the words of this text (the line's own words, no marker word)
+        decision["target_ground"] = ground          # only for a widened target or a target that holds its own subject: `ops_natural_mail.mail_target_seed` finds the message by the words of this text (the line's own words, no marker word)
+        if sender:
+            decision["target_sender"] = sender          # BL7-5: the person's part of such a target (a piece of the line); nothing reads it yet
     return decision
 
 
@@ -1040,6 +1049,42 @@ def _subject_ground(target, wider):
     folded = [natural.normal(word) for word in rest]
     marker = next((m for m in sorted(SUBJECT_MARKERS, key=len, reverse=True) if tuple(folded[:len(m)]) == m), None)
     return target if marker is None else " ".join([target] + rest[len(marker):])
+
+
+def _own_subject_split(target):
+    """BL7-5 (gap G3). (the person's part, the ground) of a mail `target` that has more than TARGET_WORDS_MAX content words and holds its own subject after the person ("Nadia Ferreira about the
+    volunteer schedule for the book fair"), else None. None when `natural_writes_mail.target_words` reads the target (a target that is grounded today is untouched), when no subject marker
+    (SUBJECT_MARKERS, folded, whole words, the longest first) starts at its second word or later with a word after it that is not itself the start of a marker ("Mei Su about": the name "Su" is a marker of another language), when the part before the marker holds no letter or digit, or when the
+    ground (`_subject_ground`: the person, then the subject without the marker word) has no content words within GROUND_WORDS_MAX. Made of the target's own words only (a span the check
+    verified): nothing is added, so every word of the ground is a word of the target, and `match_words` still requires every one."""
+    import importlib
+    mail = importlib.import_module("natural_writes_mail")
+    tables = natural._tables(None)
+    if not target or mail.target_words(target, tables):
+        return None
+    toks = [(m.start(), natural.normal(m.group())) for m in _WORD.finditer(target)]
+    markers = sorted(SUBJECT_MARKERS, key=len, reverse=True)
+    folded = [word for _at, word in toks]
+    for index in range(1, len(toks)):
+        marker = next((m for m in markers if tuple(folded[index:index + len(m)]) == m), None)
+        if marker is None:
+            continue
+        if index + len(marker) >= len(toks):
+            return None          # the marker is the end of the target: no subject follows it
+        if any(tuple(folded[index + len(marker):index + len(marker) + len(m)]) == m for m in markers):
+            continue          # a marker of another language that is a name ("Mei Su about ...", "Lia Sur regarding ..."): the marker that follows it is the subject's
+        person = target[:toks[index][0]].rstrip()
+        if not any(ch.isalnum() for ch in person):
+            return None
+        own = _subject_ground(person, target)
+        return (person, own) if mail.ground_words(own, tables) else None
+    return None
+
+
+def _own_subject_ground(target):
+    """BL7-5. The ground of `_own_subject_split` alone, or None."""
+    split = _own_subject_split(target)
+    return None if split is None else split[1]
 
 
 def _asks_an_act(line):
