@@ -964,3 +964,33 @@ def test_vacuity_without_workers_no_command_still_fails():
     done = workers_run()
     assert done.returncode == 2 and "no command" in done.stderr and done.stdout == ""
     assert workers_run("--slots", "3").returncode == 2
+
+
+GOLDEN_NAMING_FIXTURE = {
+    "runtime/zz_mod.py": "def z():\n    return 1\n",
+    "runtime/tests/test_entry_replay.py": "import zz_mod\n",
+    "runtime/tests/test_entry_observed.py": "import zz_mod\n",
+    # a package golden whose trace quotes the module's stem, and a ledger file that does the same
+    "runtime/tests/entry_ext/zz-pack.golden.jsonl": '{"id": "zz-pack.a", "outcome": {"trace": ["zz_mod", "other"]}}\n',
+    "runtime/tests/expected/zz-pack.json": '{"calls": ["zz_mod"]}\n',
+}
+GOLDEN_NAMING_WANTED = expect("runtime/tests/test_entry_replay.py", "runtime/tests/test_entry_observed.py")
+
+
+def test_a_module_stem_inside_a_package_golden_or_the_ledger_is_not_a_data_file_that_names_the_module(tmp_path):
+    """A trace in runtime/tests/entry_ext/ or runtime/tests/expected/ quotes module stems; those folders select their own tests through
+    DATA_FOLDERS, so the module's change stays narrow: the two replays that import it, never the whole runtime/tests."""
+    root = build(tmp_path, GOLDEN_NAMING_FIXTURE)
+    assert sel.Repo(str(root)).data_files_naming("zz_mod") == []
+    assert in_process(root, "runtime/zz_mod.py") == GOLDEN_NAMING_WANTED
+    # a data file outside those folders that names the stem is still a link (the rule is not switched off)
+    root = build(tmp_path, {"runtime/links.json": '{"modules": ["zz_mod"]}\n'})
+    assert sel.Repo(str(root)).data_files_naming("zz_mod") == ["runtime/links.json"]
+
+
+def test_vacuity_without_the_skip_a_stem_in_a_package_golden_selects_the_whole_test_folder(tmp_path, monkeypatch):
+    root = build(tmp_path, GOLDEN_NAMING_FIXTURE)
+    monkeypatch.setattr(sel, "DATA_NAMING_SKIP", ())
+    assert sel.Repo(str(root)).data_files_naming("zz_mod") == ["runtime/tests/entry_ext/zz-pack.golden.jsonl", "runtime/tests/expected/zz-pack.json"]
+    assert in_process(root, "runtime/zz_mod.py") == expect("runtime/tests")
+    assert in_process(root, "runtime/zz_mod.py") != GOLDEN_NAMING_WANTED

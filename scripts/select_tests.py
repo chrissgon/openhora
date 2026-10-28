@@ -126,6 +126,10 @@ DATA_FOLDERS = (
     (_RUNTIME + "/phrases_parts/", _PHRASE_TESTS),      # HOT-2: the phrase parts, read by runtime/phrases.py through a folder
 )
 
+# A data file under one of these folders does not link a module (rule 4's `data_files_naming`): a package golden quotes module stems inside its traces, and
+# those folders already select their tests through DATA_FOLDERS, so reading them as "named by a data file that no test names" would select the whole test folder.
+DATA_NAMING_SKIP = (_RUNTIME + "/tests/entry_ext/", _RUNTIME + "/tests/expected/")
+
 # The two tests that read the manifest of generated copies (shared/scripts/copies.json).
 COPY_IDENTITY_TESTS = ("scripts/tests/test_script_copies.py", "scripts/tests/test_sync_copies.py")
 # The tests of the wiring that a change to the hook, the workflows or this selector can break (rule 5).
@@ -363,6 +367,8 @@ class Repo:
         pattern = re.compile(r"[\"']" + re.escape(stem) + r"(?:\.py)?[\"']")
         out = []
         for rel in self.data_files:
+            if rel.startswith(DATA_NAMING_SKIP):  # DATA_FOLDERS maps these to their tests; their traces quote module stems
+                continue
             try:
                 with open(os.path.join(self.root, rel), encoding="utf-8") as handle:
                     if pattern.search(handle.read(400000)):
