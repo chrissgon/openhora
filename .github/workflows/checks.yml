@@ -80,6 +80,12 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # The generated blocks of docs/architecture/platform/ (HOT-1; docs/decisions.md): a package never regenerates them, the BATCH does (`python3 scripts/architecture_tables.py --write`,
+    # one commit). So the test that compares them with their sources is STRICT on a batch (a pull request whose branch is `batch/...`), on a pull request into main, on a push to main and on
+    # a manual run (and in nightly.yml), and LENIENT on a package's pull request into the integration branch: a block that only differs from its source is not a failure there, an unknown
+    # table or an unreadable source still is (scripts/tests/test_architecture_tables.py). Read by that test as the environment variable WB_GENERATED_BLOCKS.
+    env:
+      WB_GENERATED_BLOCKS: ${{ (github.event_name != 'pull_request' || github.base_ref == 'main' || startsWith(github.head_ref, 'batch/')) && 'strict' || 'lenient' }}
     strategy:
       fail-fast: false
       matrix:
@@ -226,6 +232,9 @@ jobs:
       && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    # Strict or lenient generated blocks, as in tests-shard above (HOT-1).
+    env:
+      WB_GENERATED_BLOCKS: ${{ (github.event_name != 'pull_request' || github.base_ref == 'main' || startsWith(github.head_ref, 'batch/')) && 'strict' || 'lenient' }}
     strategy:
       fail-fast: false
       matrix:

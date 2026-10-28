@@ -35,6 +35,9 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.label.name == 'nightly'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # The generated blocks must be current in the nightly run (HOT-1): the test that compares them with their sources is strict here, as on a batch and on main (checks.yml).
+    env:
+      WB_GENERATED_BLOCKS: strict
     strategy:
       fail-fast: false
       matrix:
@@ -75,6 +78,9 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.label.name == 'nightly'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    # The generated blocks must be current in the nightly run (HOT-1): the test that compares them with their sources is strict here, as on a batch and on main (checks.yml).
+    env:
+      WB_GENERATED_BLOCKS: strict
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

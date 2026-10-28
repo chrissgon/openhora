@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 import standin_tree as st
+from expected_kit import extend
 
 REPO = Path(__file__).resolve().parents[2]
 RUNTIME = REPO / "runtime"
@@ -33,20 +34,20 @@ MIN_TEST = 2
 # Served operations that wait for their corpus items. Slice S8 added `file-read` after the dev corpus was drawn and the test split closed: items added to `dev.jsonl` would change the
 # sample the replay gate draws from it, and the held-out split cannot be opened or extended here. The operation is exempt from the two minimums ONLY while it has fewer items than
 # they ask (an exemption that is no longer needed is itself a problem), and its items are written with the next revision of the corpus (after the release).
-PENDING_CORPUS = {"file-read": "added by slice S8 after the corpus was drawn; its dev and test items wait for the next revision of the corpus",
+PENDING_CORPUS = extend("interpreter_coverage.PENDING_CORPUS", {"file-read": "added by slice S8 after the corpus was drawn; its dev and test items wait for the next revision of the corpus",
                   "research": "added by slice R2-F1 after the corpus was drawn; its dev and test items wait for the next revision of the corpus",
-                  "file-trash": "added by slice R2-A after the corpus was drawn; its dev and test items wait for the next revision of the corpus"}
+                  "file-trash": "added by slice R2-A after the corpus was drawn; its dev and test items wait for the next revision of the corpus"})
 
 # The operations a policy group grants and the catalog does not serve as a line to turn into an operation, by the test's own literals.
 DECISIONS = ["approve", "reject", "release", "answer", "go-ahead"]
-WIDENING = ["give-consent", "set-mode", "set-model", "config", "accept-config", "routine-approve", "source-add", "source-import", "source-drive",
-            "source-onedrive", "source-mail", "source-calendar", "approve-policy", "standing", "execute-under-policy", "deps"]
-INTERNAL = ["contained-run", "poll", "handler", "pin", "service-check", "route-queued", "attachment-hold", "conversation", "version", "artifact-raw"]
-NOT_SERVED = ["say", "request", "route"]
+WIDENING = extend("interpreter_coverage.WIDENING", ["give-consent", "set-mode", "set-model", "config", "accept-config", "routine-approve", "source-add", "source-import", "source-drive",
+            "source-onedrive", "source-mail", "source-calendar", "approve-policy", "standing", "execute-under-policy", "deps"])
+INTERNAL = extend("interpreter_coverage.INTERNAL", ["contained-run", "poll", "handler", "pin", "service-check", "route-queued", "attachment-hold", "conversation", "version", "artifact-raw"])
+NOT_SERVED = extend("interpreter_coverage.NOT_SERVED", ["say", "request", "route"])
 REFUSED = DECISIONS + WIDENING
 EXEMPT = INTERNAL + NOT_SERVED
 # A few operations a reading of `operations.GROUPS` must hold, so that a reader that returned nothing could not pass.
-KNOWN_GRANTED = ["status", "mail-send", "cancel", "approve", "say", "remind", "version", "stop-task", "source-refresh"]
+KNOWN_GRANTED = extend("interpreter_coverage.KNOWN_GRANTED", ["status", "mail-send", "cancel", "approve", "say", "remind", "version", "stop-task", "source-refresh"])
 
 
 def load(path: Path):

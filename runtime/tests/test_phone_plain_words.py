@@ -16,6 +16,7 @@ import re
 import pytest
 
 import standin_tree as st
+from expected_kit import extend
 from test_messaging import SENDER, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 
 ops = st.load("ops")
@@ -204,10 +205,10 @@ def test_a_failure_the_bridge_reports_is_said_in_the_language(world):
 # Keys whose Portuguese is the English word (a name, a frame) and keys that only a page or a terminal is told (the phone has its own key since S14: PHONE_ROUTER_FAILED,
 # PHONE_NOT_PLANNED, PHONE_NOT_UNDERSTOOD and the plain title/body of a card), each with the reason it is allowed.
 SAME_AS_ENGLISH = {"HEADER": "a frame of three fields", "OUT_ACCT_GOOGLE": "a product name", "OUT_ACCT_MICROSOFT": "a product name"}
-PAGE_ONLY = {"NOT_NAMED_NEXT": "the page's and the terminal's tail", "PLAN_NOT_PLANNED": "the page's plan reply (PHONE_NOT_PLANNED on a phone)",
+PAGE_ONLY = extend("phone_plain_words.PAGE_ONLY", {"NOT_NAMED_NEXT": "the page's and the terminal's tail", "PLAN_NOT_PLANNED": "the page's plan reply (PHONE_NOT_PLANNED on a phone)",
              "ROUTER_FAILED": "the page's failure line (PHONE_ROUTER_FAILED on a phone)", "TITLE_ROUTE_UNRECOGNISED": "only recognised, never said (messaging_pending)",
-             "TITLE_ROUTER_ASKS": "only recognised, said as PEND_CARD_TITLE (ops_say._title)"}
-MESSAGING_FILES = ["messaging*.py", "phone_*.py", "ops_natural*.py", "natural*.py", "ops_say.py", "ops_interpret.py", "ops_reminders.py", "ops_attachments.py", "greeting.py", "card_words.py"]
+             "TITLE_ROUTER_ASKS": "only recognised, said as PEND_CARD_TITLE (ops_say._title)"})
+MESSAGING_FILES = extend("phone_plain_words.MESSAGING_FILES", ["messaging*.py", "phone_*.py", "ops_natural*.py", "natural*.py", "ops_say.py", "ops_interpret.py", "ops_reminders.py", "ops_attachments.py", "greeting.py", "card_words.py"])
 
 
 def keys_used() -> set:
@@ -304,9 +305,9 @@ import string  # noqa: E402
 
 messaging_failure = st.load("messaging_failure")
 
-SWEEP_FILES = ["ops_calendar", "calendar_document", "step_calendar_event", "effect_calendar", "ops_mail_send", "ops_mailbox", "mailbox_document", "step_mailbox", "effect_mailbox",
+SWEEP_FILES = extend("phone_plain_words.SWEEP_FILES", ["ops_calendar", "calendar_document", "step_calendar_event", "effect_calendar", "ops_mail_send", "ops_mailbox", "mailbox_document", "step_mailbox", "effect_mailbox",
                "step_send_email", "effect_send", "mail_compose", "ops_files", "files_document", "step_files", "effect_files", "ops_sources", "sources", "sources_mail",
-               "sources_onedrive", "source_resolve", "ops_natural_calendar", "ops_natural_files", "ops_natural_mail", "account_start", "event_lookup", "ops_file_read"]
+               "sources_onedrive", "source_resolve", "ops_natural_calendar", "ops_natural_files", "ops_natural_mail", "account_start", "event_lookup", "ops_file_read"])
 PT = {"language": "pt-BR"}
 
 

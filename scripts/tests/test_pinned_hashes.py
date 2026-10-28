@@ -70,3 +70,21 @@ def test_every_reader_loads_this_file():
         text = path.read_text(encoding="utf-8")
         if LOOKUP in text:
             assert '"pinned_hashes.json"' in text, f"{path.relative_to(REPO)} reads a pin without loading pinned_hashes.json"
+
+
+def canonical(data):
+    """The one form of the file (HOT-1): keys sorted at every level, two spaces, non-ASCII kept, one newline at the end. A new pin lands at its own sorted place."""
+    return json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+
+
+def test_the_file_is_in_its_canonical_form():
+    assert PINNED_FILE.read_text(encoding="utf-8") == canonical(doc())
+
+
+def test_vacuity_an_unsorted_copy_or_one_without_the_final_newline_is_not_canonical():
+    data = doc()
+    unsorted_pins = {"pins": dict(reversed(list(data["pins"].items()))), "notes": data["notes"]}
+    assert json.loads(canonical(unsorted_pins)) == json.loads(json.dumps(unsorted_pins)), "the same content"
+    assert json.dumps(unsorted_pins, indent=2, ensure_ascii=False) + "\n" != canonical(data), "an unsorted copy fails the text test"
+    assert canonical(data).rstrip("\n") != canonical(data)
+    assert canonical({"b": 1, "a": 2}) == '{\n  "a": 2,\n  "b": 1\n}\n'

@@ -52,11 +52,13 @@ BUILT_ELSEWHERE = {"runtime/effects.py": "def provider_call", "runtime/handlers/
 
 
 def system_list() -> list:
-    tree = ast.parse((REPO / "scripts" / "tests" / "test_runtime_python39.py").read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "ON_SYSTEM_PYTHON" for t in node.targets):
-            return list(ast.literal_eval(node.value))
-    raise AssertionError("ON_SYSTEM_PYTHON is gone from scripts/tests/test_runtime_python39.py")
+    """ON_SYSTEM_PYTHON of scripts/tests/test_runtime_python39.py: since HOT-1 it is derived (the runtime folders plus the literal OTHERS), so the module is loaded, not read as a literal."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("system_python_list_under_test", REPO / "scripts" / "tests" / "test_runtime_python39.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert hasattr(module, "ON_SYSTEM_PYTHON"), "ON_SYSTEM_PYTHON is gone from scripts/tests/test_runtime_python39.py"
+    return list(module.ON_SYSTEM_PYTHON)
 
 
 def modules() -> list:

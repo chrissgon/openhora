@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import standin_tree as st
+from expected_kit import extend
 
 # Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
 PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
@@ -43,16 +44,16 @@ CLASS_WORDS = {"R", "N", "W", "D", "E", "G", "work"}
 KIND_WORDS = {"int", "ints", "word", "span", "when"}
 PRIVACY_WORDS = {"own", "account", "off-host"}
 COST_WORDS = {"none", "provider", "model"}
-OFF_HOST = {"research", "ask"}
-EFFECTS = {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
-           "file-create", "file-replace", "file-save", "file-trash"}
-MODEL_ROWS = {"route", "route-queued", "run-next", "run-task", "contained-run", "dispatch", "say", "ask", "research"}      # the rows whose `model` column is not False
+OFF_HOST = extend("registry_rows.OFF_HOST", {"research", "ask"})
+EFFECTS = extend("registry_rows.EFFECTS", {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
+           "file-create", "file-replace", "file-save", "file-trash"})
+MODEL_ROWS = extend("registry_rows.MODEL_ROWS", {"route", "route-queued", "run-next", "run-task", "contained-run", "dispatch", "say", "ask", "research"})      # the rows whose `model` column is not False
 ALWAYS_NOW = ("research", "ask")
 SERVED_NOW, REFUSED_NOW = 65, 21
 FINDER = ("target", "day")
 # The words a text of a confusable row holds to separate it from what it is not (the groups the spec of CB-0 names).
-SEPARATES = {"status": "to-do list", "progress": "to-do list", "pending": "to-do list", "task": "to-do list", "items": "another operation", "remind": "calendar event",
-             "research": "own mail", "file-read": "mail message", "reminder-forget": "cancel", "ask": "web search", "event-create": "reminder", "cancel": "reminder-forget"}
+SEPARATES = extend("registry_rows.SEPARATES", {"status": "to-do list", "progress": "to-do list", "pending": "to-do list", "task": "to-do list", "items": "another operation", "remind": "calendar event",
+             "research": "own mail", "file-read": "mail message", "reminder-forget": "cancel", "ask": "web search", "event-create": "reminder", "cancel": "reminder-forget"})
 
 
 def canonical(obj) -> bytes:
