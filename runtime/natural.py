@@ -1207,3 +1207,4 @@ def check_operation(name, slots: dict, when, line) -> dict:
 if __name__ == "__main__":
     print(__doc__.strip(), file=sys.stdout if sys.argv[1:] in (["--help"], ["-h"]) else sys.stderr)
     sys.exit(0 if sys.argv[1:] in (["--help"], ["-h"]) else 2)
+# TEST-SPEED probe: a one-line comment, not for merge
