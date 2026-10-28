@@ -20,6 +20,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_mail_compose_flow import setup, phone, op, clock, forget  # noqa: F401  (the mail desk world, the stand-in model, the clock)
@@ -250,7 +251,7 @@ def test_a_reply_draft_by_number_is_a_reply_draft_with_no_recipient_and_no_subje
 
 def test_a_number_past_the_snapshots_end_is_refused_by_the_reference_and_opens_no_card(world, clock, monkeypatch):
     out, _, _ = run(world, monkeypatch, "en", "reply to email 9 with can we move it to next week", op("mail-reply", {"message": "9", "body": "can we move it to next week"}))
-    assert not out.get("resend") and "inbox#9 names a message past the end of its snapshot" in out["reply"], out["reply"]
+    assert not out.get("resend") and pk.said(out["reply"].partition("error: ")[2], "ACCT_MAIL_REF_PAST_END", {"language": "en"}, ref="inbox#9"), out["reply"]
 
 
 def test_a_move_by_number_with_no_folder_named_does_not_resolve(world, clock, monkeypatch):
