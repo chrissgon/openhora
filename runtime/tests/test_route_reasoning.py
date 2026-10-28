@@ -90,7 +90,9 @@ def test_the_first_fallback_rows_hash_is_the_new_pinned_one_and_depends_on_the_k
     assert ir.route_sha256(ir.find(GEMINI)) == GEMINI_HASH
     shown = ir.stdin_route(ir.find(GEMINI))
     assert canon_sha(shown) == GEMINI_HASH
+    # the earlier row had no key and the pin_reply written before the probe (`google-vertex`; the row now holds the name the router gives, `google`)
     without = {k: v for k, v in shown.items() if k != "reasoning_off"}
+    without["pin_reply"] = "google-vertex"
     assert canon_sha(without) == "d6c0cc655c62ac9a02706f109022aed4520a57f221f0bdc96beed79406f2d706", "the earlier hash is the row without the key"
     assert canon_sha(dict(shown, reasoning_off="disable")) != GEMINI_HASH
 

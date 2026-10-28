@@ -32,6 +32,7 @@ ops_natural = st.load("ops_natural")
 interpreter = st.load("interpreter")
 interpreter_catalog = st.load("interpreter_catalog")
 natural = st.load("natural")
+operations = st.load("operations")
 recurrence = st.load("recurrence")
 registry_data = st.load("registry_data")
 calendar_document = st.load("calendar_document")
@@ -188,7 +189,7 @@ def test_the_registry_file_is_well_formed_and_a_planted_defect_is_reported(tmp_p
 
 @pytest.fixture
 def v2(monkeypatch):
-    """The catalog of version 2 and the views over it: what a line reaches after the flip, which CB-9 alone makes (`LINE_CATALOG` is 1)."""
+    """The catalog of version 2 and the views over it: what a line reaches since the flip of CB-9 (`LINE_CATALOG` is 2)."""
     classes, table = natural.views(2)
     monkeypatch.setattr(natural, "CLASSES", classes)
     monkeypatch.setattr(natural, "NATURAL", table)
@@ -288,7 +289,12 @@ def test_at_version_2_the_span_makes_a_weekly_card_with_the_repetition_in_words_
 def test_the_model_cannot_give_the_slot_at_version_1(world, monkeypatch):
     configure(world)
     clock_and_snapshots(world, monkeypatch)
-    decision = create_decision(LINE, {"title": "academia teste", "time": "toda segunda às 7h", "repeat": "toda segunda"})      # validate: allow english-only -- the Portuguese words under test
+    version1 = interpreter_catalog.generate(1)
+    classes1, table1 = natural.views(1)
+    monkeypatch.setattr(natural, "CLASSES", classes1)
+    monkeypatch.setattr(natural, "NATURAL", table1)
+    monkeypatch.setattr(interpreter, "SERVED_SHA256", interpreter.catalog_sha256(version1))      # CB-9: the served catalog is version 2; the check accepts only the catalog it is served, so the one of version 1 is the served one here
+    decision = create_decision(LINE, {"title": "academia teste", "time": "toda segunda às 7h", "repeat": "toda segunda"}, catalog=version1)      # validate: allow english-only -- the Portuguese words under test
     assert decision["kind"] == "clarify" and decision["error"] == "E_SLOT_UNKNOWN", "L54: a line reaches the slot only after the flip"
 
 
@@ -487,8 +493,16 @@ CLOSED = ["marca academia semanal amanhã às 7h no google", "marca academia qui
           "marca academia 3x por semana amanhã às 7h no google", "marca academia toda segunda às 7h no google"]      # validate: allow english-only -- the Portuguese lines under test
 
 
+def interpreter_state(monkeypatch, on):
+    """The owner holds the group `interpret` (test_series_cancel.PROFILES); `on` says whether an enabling entry is in force for the project's language, which is what turns the interpreter on."""
+    monkeypatch.setattr(st.load("ops_interpret").interpreter_enable, "active", lambda tag: {"status_line": "on"} if on else None)
+
+
+@pytest.mark.parametrize("version", [1, 2])
 @pytest.mark.parametrize("line", CLOSED)
-def test_a_repetition_the_closed_forms_would_make_one_event_of_gets_the_sentence_and_no_card(world, monkeypatch, line):
+def test_a_repetition_the_closed_forms_would_make_one_event_of_gets_the_sentence_and_no_card(world, monkeypatch, line, version):
+    monkeypatch.setattr(operations, "LINE_CATALOG", version)      # CB-9: at version 2 with the interpreter off for the language the closed forms keep the line, as at version 1 (the test below is the interpreter on)
+    interpreter_state(monkeypatch, False)
     configure(world)
     clock_and_snapshots(world, monkeypatch)
     got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)
@@ -496,6 +510,16 @@ def test_a_repetition_the_closed_forms_would_make_one_event_of_gets_the_sentence
     assert got["reply"] in (text_of("RECUR_NOT_READ"), text_of("NW_RECURRING_EVENT")), (line, got["reply"])
     assert nothing_started(world) and "resend" not in got, line
     assert expected  # the tier-1 reading of "toda segunda" has its own sentence, older than this package: either is an honest one
+
+
+@pytest.mark.parametrize("line", CLOSED)
+def test_at_catalog_version_2_with_the_interpreter_on_the_closed_forms_do_not_claim_a_repeating_line(world, monkeypatch, line):
+    monkeypatch.setattr(operations, "LINE_CATALOG", 2)
+    interpreter_state(monkeypatch, True)
+    configure(world)
+    clock_and_snapshots(world, monkeypatch)
+    got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)
+    assert got["reply"] is None and nothing_started(world) and "resend" not in got, (line, got)
 
 
 def test_vacuity_with_the_guard_out_of_the_closed_path_a_weekly_line_opens_one_event(world, monkeypatch):
@@ -515,6 +539,8 @@ def test_a_plain_event_on_the_closed_path_is_untouched(world, monkeypatch):
 
 @pytest.mark.parametrize("line", ["add to my calendar gym every other day tomorrow at 7am on google", "add to my calendar gym weekly tomorrow at 7am on google", "add to my calendar gym biweekly tomorrow at 7am on google"])
 def test_an_english_project_gets_the_sentence_too(world, monkeypatch, line):
+    monkeypatch.setattr(operations, "LINE_CATALOG", 2)      # CB-9: at version 2 with the interpreter off for the language (the default, whatever the version) the closed form answers
+    interpreter_state(monkeypatch, False)
     configure(world, language="en")
     clock_and_snapshots(world, monkeypatch)
     got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)

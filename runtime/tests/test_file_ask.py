@@ -428,18 +428,23 @@ def test_the_posso_is_asked_before_any_search_and_the_ok_runs_the_question(desk,
     assert found(say_run(desk, confirmed=False)[0]), "so the derived set is what asks, and it takes the row in with the catalog version of the row"
 
 
-def test_the_row_is_a_version_2_row_so_the_served_catalog_is_unchanged_and_a_line_does_not_reach_it_yet():
-    assert operations.LINE_CATALOG == 1
+def test_the_row_is_a_version_2_row_that_a_line_reaches_since_the_flip_and_version_1_does_not_serve_it(monkeypatch):
+    assert operations.LINE_CATALOG == 2
     rec = registry.row("file-ask")
     assert (rec["class"], rec["since"], rec["order"], rec["privacy"], rec["cost"]) == ("R", 2, 150, "off-host", "model")
     assert set(rec["slots"]) == {"file", "service"} and all(spec["since"] == 2 for spec in rec["slots"].values())
     assert len(rec["about"]) <= 300 and all(word in rec["about"] for word in ("(file-read)", "(ask)", "(research)"))
-    assert "file-ask" not in registry.always(1) and "file-ask" in registry.always(2) and "file-ask" not in [r["op"] for r in registry.rows()]
-    assert "file-ask" in [r["op"] for r in interpreter_catalog.generate(version=2)["ops"]]
-    assert "file-ask" not in [r["op"] for r in interpreter.SERVED["ops"]]
-    assert interpreter_catalog.sha256(interpreter_catalog.served()) == interpreter_catalog.sha256(interpreter_catalog.generate()), "the served file is the version-1 catalog, byte for byte"
-    decision = interpreter.check({"v": 1, "kind": "op", "op": "file-ask", "slots": {"file": "orcamento-teste"}}, LINE, None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"file-ask"})
-    assert decision["kind"] != "op", "the interpreter refuses an operation its catalog does not serve"
+    assert "file-ask" not in registry.always(1) and "file-ask" in registry.always(2) and "file-ask" in registry.always() and "file-ask" in [r["op"] for r in registry.rows()]
+    assert "file-ask" not in [r["op"] for r in interpreter_catalog.generate(version=1)["ops"]]
+    assert "file-ask" in [r["op"] for r in interpreter_catalog.generate(version=2)["ops"]] and "file-ask" in [r["op"] for r in interpreter.SERVED["ops"]]
+    assert interpreter_catalog.sha256(interpreter_catalog.served()) == interpreter_catalog.sha256(interpreter_catalog.generate()), "the served file is the version-2 catalog, byte for byte"
+    obj = {"v": 1, "kind": "op", "op": "file-ask", "slots": {"file": "orcamento-teste"}}
+    decision = interpreter.check(obj, LINE, None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"file-ask"})
+    assert decision["kind"] == "op" and decision["op"] == "file-ask" and decision["spans"] == {"file": "orcamento-teste"}, "the interpreter believes the operation its catalog serves"
+    version1 = interpreter_catalog.generate(version=1)
+    monkeypatch.setattr(interpreter, "SERVED_SHA256", interpreter.catalog_sha256(version1))      # the one catalog the check accepts, so that the refusal below is the catalog's and no other
+    refused = interpreter.check(obj, LINE, None, version1, NOW, "America/Sao_Paulo", {"file-ask"})
+    assert refused["kind"] != "op", "the interpreter refuses an operation its catalog does not serve"
 
 
 # --- the file -----------------------------------------------------------------------------------------------------------------------------------

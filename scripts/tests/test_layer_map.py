@@ -246,8 +246,7 @@ ALLOWED = (
     # runtime/ reaches skills/ as code (runtime/tests/test_isolated.py holds that)
     ("runtime/isolated.py", ("runtime/", "skills/*/scripts/*") + RUNTIME_OUTSIDE),
     ("runtime/*.py", ("runtime/",) + RUNTIME_OUTSIDE),
-    # scripts/: anything but the runtime (the first runtime, scripts/runtime.py, reaches providers/ and adapters/;
-    # it leaves with stage 7)
+    # scripts/: anything but the runtime
     # scripts/validate.py alone may also read the runtime's flow-file checker by path: tooling may read a layer's
     # own checker (the validator reuses the runtime's flow-file rules instead of holding a copy); a layer never
     # reads tooling except the scripts the runtime rows list.
@@ -524,7 +523,7 @@ def test_the_allowed_rules_say_what_the_diagram_says():
     assert not allowed("runtime/mcp.py", "providers/store/sqlite.py") and not allowed("runtime/mcp.py", "runtime/lab.py")
     assert allowed("runtime/handlers/h.py", "runtime/cli.py") and not allowed("runtime/handlers/h.py", "runtime/ops.py")
     assert not allowed("scripts/doctor.py", "runtime/ops.py")
-    assert allowed("scripts/runtime.py", "adapters/api/run-agent.sh")
+    assert allowed("scripts/doctor.py", "adapters/api/run-agent.sh")  # T6: scripts/ may reach adapters/ (was asserted of scripts/runtime.py)
 
 
 if __name__ == "__main__":

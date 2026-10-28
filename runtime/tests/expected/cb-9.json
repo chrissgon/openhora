@@ -1,0 +1,16 @@
+{
+ "package": "cb-9",
+ "add": {
+  "interpreter_coverage.PENDING_CORPUS": {
+   "mail-read": "added by package CB-9 (the flip to catalog version 2) after the corpus was drawn; its dev lines are in evals/interpreter/dev-catalog-v1.jsonl, which this test does not count, and its test items wait for the next revision of the corpus",
+   "todo-list": "added by package CB-9 (the flip to catalog version 2) after the corpus was drawn; its dev lines are in evals/interpreter/dev-catalog-v1.jsonl, which this test does not count, and its test items wait for the next revision of the corpus",
+   "todo-add": "added by package CB-9 (the flip to catalog version 2) after the corpus was drawn; its dev lines are in evals/interpreter/dev-catalog-v1.jsonl, which this test does not count, and its test items wait for the next revision of the corpus",
+   "todo-done": "added by package CB-9 (the flip to catalog version 2) after the corpus was drawn; its dev lines are in evals/interpreter/dev-catalog-v1.jsonl, which this test does not count, and its test items wait for the next revision of the corpus",
+   "file-ask": "added by package CB-9 (the flip to catalog version 2) after the corpus was drawn; its dev lines are in evals/interpreter/dev-catalog-v1.jsonl, which this test does not count, and its test items wait for the next revision of the corpus"
+  },
+  "operations_table.NOT_OPERATIONS": [
+   "interpreter_on",
+   "mailbox_target"
+  ]
+ }
+}

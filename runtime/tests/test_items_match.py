@@ -327,6 +327,9 @@ def decide(catalog, line, slots):
 
 def test_a_line_of_version_2_reaches_the_slots_and_a_line_of_version_1_does_not(monkeypatch):
     line = "tem algum email do banco essa semana?"
+    classes1, table1 = natural.views(1)
+    monkeypatch.setattr(natural, "CLASSES", classes1)
+    monkeypatch.setattr(natural, "NATURAL", table1)
     assert natural.check_operation("items", {"target": "do banco"}, None, line)["ok"] is False, "L54: at version 1 the slot is not reachable"
     classes, table = natural.views(2)
     monkeypatch.setattr(natural, "CLASSES", classes)
@@ -346,8 +349,13 @@ def test_the_model_names_the_bank_and_this_week_and_only_the_bank_is_listed(worl
     assert "Fatura" not in reply and "Consulta" not in reply
 
 
-def test_vacuity_without_the_slots_in_the_view_the_model_cannot_name_the_bank(world, snaps, clock):
-    decision = decide(interpreter_catalog.generate(1), "tem algum email do banco essa semana?", {"target": "do banco"})
+def test_vacuity_without_the_slots_in_the_view_the_model_cannot_name_the_bank(world, snaps, clock, monkeypatch):
+    version1 = interpreter_catalog.generate(1)
+    monkeypatch.setattr(interpreter, "SERVED_SHA256", interpreter.catalog_sha256(version1))      # CB-9: the served catalog is version 2; the catalog of version 1 must be the one the check accepts for the control to be a refusal of the slot
+    classes1, table1 = natural.views(1)
+    monkeypatch.setattr(natural, "CLASSES", classes1)
+    monkeypatch.setattr(natural, "NATURAL", table1)
+    decision = decide(version1, "tem algum email do banco essa semana?", {"target": "do banco"})
     assert decision["kind"] != "op", decision
 
 
@@ -356,4 +364,91 @@ def test_the_row_of_the_registry_carries_the_three_slots_of_version_2():
     assert {slot: (spec["kind"], spec["param"], spec["since"]) for slot, spec in rec["slots"].items()} == {
         "target": ("span", "match", 2), "day": ("span", "day_span", 2), "state": ("span", "state_span", 2)}
     assert {r["op"]: r for r in st.load("registry").rows(1)}["items"]["slots"] == {}
-    assert operations.LINE_CATALOG == 1, "CB-9 alone raises it"
+    assert operations.LINE_CATALOG == 2, "CB-9 raised it"
+
+
+# --- a target that names a mailbox is a source or a question, never a word filter (CB-9, round 2) --------------------------------------------------------------------------------------
+# DeepSeek answered "liste os e-mails que chegaram hoje na caixa do trabalho" with the target "caixa do trabalho": as a word filter it keeps the messages that hold both words and shows a list that
+# looks filtered while it is not. A span with a mailbox noun is the one source it names, or a question that lists the mail sources; a span of one source's words alone is that source.
+
+
+def mailbox_reply(world, target, source_id="inbox"):
+    return run_items(world, "liste os e-mails que chegaram hoje na caixa do trabalho", {"match": target})      # validate: allow english-only -- the Portuguese line under test
+
+
+def test_a_target_with_a_mailbox_noun_that_names_no_source_is_a_question_and_no_list(world, snaps, clock):
+    inbox(world, snaps, mails())
+    names = ", ".join(e["name"] for e in st.load("source_names").catalog(ops_core.context(world["path"])).values() if e["type"] == "mail")
+    reply = mailbox_reply(world, "caixa do trabalho")      # validate: allow english-only -- the Portuguese words under test
+    assert names and reply == phrases.text("NW_ITEMS_MAILBOX", cfg_of(world), names=names), reply
+    assert "Extrato de outubro" not in reply and "Consulta confirmada" not in reply
+
+
+def test_a_target_that_names_a_source_is_that_source_and_filters_no_word(world, snaps, clock):
+    inbox(world, snaps, mails(), source="trabalho")
+    for target in ("caixa do trabalho", "trabalho"):      # validate: allow english-only -- the Portuguese words under test
+        reply = mailbox_reply(world, target)
+        assert "Extrato de outubro" in reply and "Consulta confirmada" in reply and "with “" not in reply and "No e-mail" not in reply, (target, reply)
+
+
+def test_a_span_of_a_sender_or_a_subject_is_still_a_word_filter(world, snaps, clock):
+    inbox(world, snaps, mails(), source="trabalho")
+    reply = run_items(world, "tem algum email do banco essa semana?", {"match": "do banco"})      # validate: allow english-only -- the Portuguese line under test
+    assert "with “banco”" in reply and "Extrato de outubro" in reply and "Consulta confirmada" not in reply, reply
+
+
+def test_vacuity_without_the_mailbox_rule_the_box_becomes_a_word_filter(world, snaps, clock, monkeypatch):
+    inbox(world, snaps, mails())
+    monkeypatch.setattr(ops_items, "mailbox_target", lambda ctx, spans: None)
+    reply = mailbox_reply(world, "caixa do trabalho")      # validate: allow english-only -- the Portuguese words under test
+    assert "with “caixa trabalho”" in reply and "No e-mail with “caixa trabalho”" in reply, "a filter on `caixa` and `trabalho`, which no message holds: an empty list that looks filtered"
+
+
+
+# --- the inbox phrases, a sender called "Caixa" and a lone service word (CB-9, round 2 review) -----------------------------------------------------------------------------------------
+
+
+def two_mail_sources(monkeypatch):
+    real = st.load("source_names").catalog
+    monkeypatch.setattr(ops_items.source_names, "catalog", lambda ctx, cfg=None: {**real(ctx), "work": {"name": "Work", "type": "mail", "account": None}})
+
+
+def test_with_one_mail_source_an_inbox_phrase_is_that_source_and_filters_no_word(world, snaps, clock):
+    inbox(world, snaps, mails())
+    ctx = ops_core.context(world["path"])
+    for target in ("inbox", "my inbox", "caixa de entrada", "Caixa de Entrada", "a caixa", "na caixa"):      # validate: allow english-only -- the Portuguese words under test
+        assert ops_items.mailbox_target(ctx, {"target": target}) == ("source", "inbox"), target
+        reply = mailbox_reply(world, target)
+        assert "Extrato de outubro" in reply and "Consulta confirmada" in reply and "with “" not in reply and reply != phrases.text("NW_ITEMS_MAILBOX", cfg_of(world), names="Gmail"), (target, reply)
+
+
+def test_with_several_mail_sources_an_inbox_phrase_is_a_question(world, snaps, clock, monkeypatch):
+    inbox(world, snaps, mails())
+    two_mail_sources(monkeypatch)
+    ctx = ops_core.context(world["path"])
+    for target in ("inbox", "my inbox", "caixa de entrada"):      # validate: allow english-only -- the Portuguese words under test
+        assert ops_items.mailbox_target(ctx, {"target": target}) == ("ask", "Gmail, Work"), target
+
+
+def test_a_lone_caixa_and_a_caixa_after_of_are_a_sender_and_stay_a_word_filter(world, snaps, clock):
+    inbox(world, snaps, mails())
+    ctx = ops_core.context(world["path"])
+    for target in ("Caixa", "caixa", "da Caixa", "Caixa Econômica"):      # validate: allow english-only -- the Portuguese words under test: a bank
+        assert ops_items.mailbox_target(ctx, {"target": target}) is None, target
+    reply = mailbox_reply(world, "Caixa")
+    assert "with “caixa”" in reply and "No e-mail with “caixa”" in reply, reply
+
+
+def test_a_lone_service_word_stays_a_word_filter_and_is_not_the_whole_source(world, snaps, clock):
+    inbox(world, snaps, mails())
+    ctx = ops_core.context(world["path"])
+    for target in ("Google", "do google", "Gmail"):
+        assert ops_items.mailbox_target(ctx, {"target": target}) is None, target
+    assert "with “google”" in mailbox_reply(world, "Google")
+    assert ops_items.mailbox_target(ctx, {"target": "caixa do gmail"}) == ("source", "inbox"), "with a mailbox named, the service word names the source"      # validate: allow english-only -- the Portuguese words under test
+
+
+def test_vacuity_if_every_mailbox_noun_counted_a_lone_caixa_would_become_the_source(world, snaps, clock, monkeypatch):
+    inbox(world, snaps, mails())
+    monkeypatch.setattr(ops_items, "MAILBOX_STRONG", ops_items.MAILBOX_NOUNS)      # the planted fault: an ambiguous noun alone names a mailbox
+    assert ops_items.mailbox_target(ops_core.context(world["path"]), {"target": "Caixa"}) == ("source", "inbox"), "the oracle above (a word filter) fails on the planted fault"

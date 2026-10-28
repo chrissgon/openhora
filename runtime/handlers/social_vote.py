@@ -2,14 +2,13 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The runtime's weekly vote step (docs/architecture/weekly-vote.md), imported by runtime/handlers/social.py (ported from
-scripts/runtime_vote.py, which scripts/runtime.py still imports).
+"""The runtime's weekly vote step (docs/architecture/weekly-vote.md), imported by runtime/handlers/social.py.
 
 Configuration: a "vote" section in runtime.json (no secrets):
   "vote": {"repo": "<owner>/<name>", "branch": "<branch>", "pillars": ["<p1>", "<p2>", "<p3>"],
            "pillar_aliases": {"<pillar in the vote data>": "<pillar in the calendar>"},
            "image": true, "card_html": "<project-relative HTML piece; default: brand-identity's post card>"}
-Providers come from cfg["providers"] (scripts/runtime.py, through providers/resolve.py): the vcs provider is the
+Providers come from cfg["providers"] (runtime/handlers/social.py, through providers/resolve.py): the vcs provider is the
 class `integration:vcs` and the scheduler the class `scheduler:job` (launchd on macOS, systemd on Linux, or what
 SCHEDULER_PROVIDER names). The optional key "vcs" here and the optional key "scheduler" at the top of runtime.json
 name an implementation explicitly and win, so a "vote" section that says "vcs": "github" keeps working.
@@ -22,7 +21,7 @@ tick     vote_tick: reads the vote files (read only), runs vote_state.py, and, o
 approve  vote_approve: without --confirmed prints the bundle; with --confirmed --sha256 <hash> checks every file
          hash and that the queue file in the repository did not move, schedules the publish job at the slot
          (scheduler dry run, then the confirmed call with its digest), and commits the queue file (commit-files).
-         At the slot, scripts/vote_job.py publishes and records the post in the vote files.
+         At the slot, social_vote_job.py publishes and records the post in the vote files.
 """
 from __future__ import annotations
 
@@ -45,9 +44,9 @@ ROUND = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$")  # a round id, as it go
 QUEUE_ALLOW = ["data/pick-queue.json"]
 SYSTEM_PYTHON = "/usr/bin/python3"
 CONTAINED_MARGIN = 300    # seconds a contained run may take beyond its own time limit (starting the container, the copy)
-JOB_TIMEOUT_MINUTES = 30  # vote_job.py's own limits add up to 27 minutes (scripts/vote_job.py)
+JOB_TIMEOUT_MINUTES = 30  # social_vote_job.py's own limits add up to 27 minutes
 # The platform's limits (a post's characters, its first comment's, the post image's size) are read from its data
-# file by scripts/runtime.py (cfg["limits"]): the runtime holds none of its own.
+# file by runtime/handlers/social.py (cfg["limits"]): the runtime holds none of its own.
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -85,7 +84,7 @@ def vote_config(cfg: dict, Fail) -> dict | None:
     if "vcs" in v and (not isinstance(v["vcs"], str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", v["vcs"])):
         raise Fail("runtime.json vote.vcs must be a provider name", 2)
     wb = Path(cfg["workbench"])
-    providers = cfg["providers"]  # scripts/runtime.py: provider scripts by requirement class
+    providers = cfg["providers"]  # runtime/handlers/social.py: provider scripts by requirement class
     paths = {
         "vcs": providers.path("integration:vcs", v.get("vcs")),
         "vote_state": wb / "skills" / "mkt-vote-round" / "scripts" / "vote_state.py",
@@ -251,7 +250,7 @@ def vote_reject(store, item: dict) -> dict:
 
 
 def vote_tick(cfg: dict, project: Path, store, h) -> dict:
-    """One vote step. h holds runtime.py's helpers: run, run_json, write_private, Fail, nz."""
+    """One vote step. h holds social.py's helpers: run, run_json, write_private, Fail, nz."""
     v, run, run_json, write_private, Fail = cfg["vote"], h["run"], h["run_json"], h["write_private"], h["Fail"]
     today = date.today().isoformat()
     if os.environ.get("RUNTIME_TEST") == "1" and os.environ.get("RUNTIME_TODAY"):
@@ -436,7 +435,7 @@ def publisher_ledger(cfg: dict, run, post_file: str, key: str):
 
 def write_job(cfg: dict, v: dict, work: Path, key: str, rid: str, slot: dict, d: dict, entry: dict, image,
               ledger=None) -> Path:
-    """The scheduler command file for vote_job.py. Every file it reads is in the snapshot."""
+    """The scheduler command file for social_vote_job.py. Every file it reads is in the snapshot."""
     p = v["paths"]
     publisher = cfg["paths"]["publisher"]
     # The system interpreter, by its fixed path: the scheduler hashes argv[0], and that file does not change

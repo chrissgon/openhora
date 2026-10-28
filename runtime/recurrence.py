@@ -198,6 +198,30 @@ def without(text, *pieces) -> str:
     return " ".join(text[s:e] for word, s, e in _spans(text) if word not in gone)
 
 
+def markers(text, *titles) -> str:
+    """CB-9: the words of `text` (the target a model named) that say the cancel is of a series or of one occurrence ("toda semana", "weekly", "todo dia", "this week's", "todas"), folded and
+    single-spaced, except those that stand in the event's own name (`titles`: the title of the event found), which never count ("cancela a daily" for a series called "Daily"). A model often
+    writes such words inside the target ("aula de violao que se repete toda semana"); they are the person's, since the line holds them, and they are not the event's name when the title lacks them.
+    A phrase counts whole or not at all: one of its words in a title keeps it out."""
+    tokens = _tokens(text)
+    if not tokens:
+        return ""
+    data = _data()
+    named = {word for piece in titles if isinstance(piece, str) for word in _tokens(piece)}
+    spans = []
+    for key in ("series", "occurrence", "daily", "weekly_plain", "week_range", "unsupported"):
+        spans += _found(tokens, data[key])
+    for begin, end, _code, plural in _weekdays(tokens):
+        led = [(s, e) for s, e in _found(tokens, data["weekly_lead"]) if e == begin]
+        if plural or led:
+            spans.append((min([s for s, _e in led], default=begin), end))
+    keep = set()
+    for start, end in spans:
+        if not named & set(tokens[start:end]):
+            keep |= set(range(start, end))
+    return " ".join(tokens[i] for i in sorted(keep))
+
+
 def which(text, specific_day) -> str:
     """"series", "occurrence" or "ask" (see the module's text)."""
     said = words(text)

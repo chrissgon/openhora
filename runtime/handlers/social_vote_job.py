@@ -5,7 +5,7 @@
 # ///
 """Publish the weekly vote post at its slot time, then record it in the profile repository's vote files.
 
-Usage (built by scripts/runtime.py after the person's approval, run by the scheduler, never by hand):
+Usage (built by runtime/handlers/social.py after the person's approval, run by the scheduler, never by hand):
   python3 social_vote_job.py --key <key> --round YYYY-MM-DD --date YYYY-MM-DD --lang EN --title "<topic>" \
       --repo <owner>/<name> --branch <branch> --platform <platform> --platform-file <platform>.json \
       --post-file post.txt [--comment-file comment.txt] [--image post.png --image-path assets/posts/<key>.png] \
@@ -31,7 +31,7 @@ Steps, each only when the one before it succeeded:
 
 Every file argument is a verified copy in the scheduler's job folder (the scheduler swaps the paths), so
 vote_update.py and vote_state.py sit in one folder and the import between them works. The person approved
-all of it at once (scripts/runtime.py approve); a failure after the post went out leaves the post published
+all of it at once (runtime/handlers/social.py approve); a failure after the post went out leaves the post published
 and prints what to record by hand.
 
 Prints JSON on stdout, diagnostics on stderr. Exit 0 all done, 1 a step failed (the first comment included),

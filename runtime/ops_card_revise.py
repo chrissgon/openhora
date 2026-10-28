@@ -102,7 +102,7 @@ def _recognised(ctx: dict, line: str, sender) -> bool:
     natural_writes = importlib.import_module("natural_writes")
     ops_natural = importlib.import_module("ops_natural")
     ops_say = importlib.import_module("ops_say")
-    return (card_words.card_word(line) is not None or natural_writes.candidate(line) is not None or ops_natural.recognises(ctx, line, CHANNEL, sender)
+    return (card_words.card_word(line) is not None or natural_writes.candidate(line, claim=False) is not None or ops_natural.recognises(ctx, line, CHANNEL, sender)
             or ops_say.state_question(line) or greeting.is_greeting(line, helps=True))
 
 

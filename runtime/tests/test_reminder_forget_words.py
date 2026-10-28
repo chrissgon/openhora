@@ -2,7 +2,7 @@
 
 The tier-1 form "cancela o lembrete da florista" finds the reminder by words (runtime/messaging_remind.py `forget_words`); when S41-11 deletes the forms, scenario 23 must still work, so the row
 `reminder-forget` gains a v2 slot `target` (param `matching`) and the operations layer finds the reminder with the SAME rule (`reminders.matching`): one match is shown and cancelled only on the
-person's yes (the question a reminder named by its number gets), several are a numbered list that asks which, none is one sentence. A line reaches the slot only after the flip (`LINE_CATALOG` is 1).
+person's yes (the question a reminder named by its number gets), several are a numbered list that asks which, none is one sentence. A line reaches the slot since the flip of CB-9 (`LINE_CATALOG` is 2; at 1 it does not, and a test holds that).
 Here the real operations and store (test_reminders.py's world: four listed senders, a clock), the real dispatcher, and the interpreter's own `check` over the catalog of version 2. Every expectation
 is a literal of this file or the question the same reminder gets by its number (the control); sentences are asserted by phrase key (T8). Each oracle that matches has a vacuity case. Offline; invented names.
 
@@ -171,6 +171,9 @@ def decide(catalog, line, slots):
 
 def test_a_line_reaches_the_slot_only_at_version_2(monkeypatch):
     line = "cancela o lembrete da florista"
+    classes1, table1 = natural.views(1)
+    monkeypatch.setattr(natural, "CLASSES", classes1)
+    monkeypatch.setattr(natural, "NATURAL", table1)
     assert natural.check_operation("reminder-forget", {"target": "da florista"}, None, line)["ok"] is False, "L54: at version 1 the slot is not reachable"
     classes, table = natural.views(2)
     monkeypatch.setattr(natural, "CLASSES", classes)

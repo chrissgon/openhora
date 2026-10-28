@@ -74,12 +74,15 @@ def test_the_orders_are_the_next_free_ones_and_unique():
     assert all(110 <= order <= 129 for order in (r["natural"]["order"] for r in operations.OPERATIONS if r["name"] in NEW)), "the range the coordinator gave this package"
 
 
-def test_the_served_catalog_is_unchanged_and_a_line_reaches_none_of_them_at_version_1():
-    assert operations.LINE_CATALOG == 1
-    assert all(op not in natural.NATURAL and op in natural.CLASSES for op in NEW)
+def test_the_served_catalog_holds_the_three_rows_since_the_flip_and_version_1_holds_none_of_them():
+    assert operations.LINE_CATALOG == 2
+    assert all(op in natural.NATURAL and op in natural.CLASSES for op in NEW)
+    assert all(op not in natural.views(1)[1] and op in natural.views(1)[0] for op in NEW), "at version 1 the rows exist for a typed command and a line does not reach them"
     served = {r["op"] for r in interpreter.SERVED["ops"]} | {r["op"] for r in interpreter.SERVED["refused"]}
-    assert not served & set(NEW)
-    generated = interpreter_catalog.generate(version=1)
+    assert set(NEW) <= served
+    one = interpreter_catalog.generate(version=1)
+    assert not {r["op"] for r in one["ops"] + one["refused"]} & set(NEW)
+    generated = interpreter_catalog.generate(version=2)
     assert generated == interpreter.SERVED and interpreter_catalog.sha256(generated) == interpreter.SERVED_SHA256
     two = interpreter_catalog.generate(version=2)
     assert [r["op"] for r in two["ops"]][-3:] != [] and set(NEW) <= {r["op"] for r in two["ops"]}
@@ -303,8 +306,11 @@ def test_the_read_asks_posso_first_and_says_what_it_understood_in_both_languages
     assert plan_confirm.needed({"cfg": {"channels": {}}}, "todo-list", "terminal", None, False) is False
 
 
-def test_a_line_that_reaches_a_card_operation_while_the_catalog_is_at_1_is_asked_again_and_opens_nothing():
-    """Tier-1 forms and the natural writes' own parse do not consult the table of what a line may reach: the operation checks it (L54)."""
+def test_a_line_that_reaches_a_card_operation_while_the_catalog_is_at_1_is_asked_again_and_opens_nothing(monkeypatch):
+    """Tier-1 forms and the natural writes' own parse do not consult the table of what a line may reach: the operation checks it (L54). The catalog is at 2 since CB-9, so the views of version 1 are put back."""
+    classes1, table1 = natural.views(1)
+    monkeypatch.setattr(natural, "CLASSES", classes1)
+    monkeypatch.setattr(natural, "NATURAL", table1)
     cfg = {"language": "pt-BR", "channels": {}}
     for op, args in (("todo-add", {"title": "comprar café"}), ("todo-done", {"target": "café"})):
         extras = {}

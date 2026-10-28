@@ -107,6 +107,7 @@ SUBJECT_WORDS_MAX = 6
 _LINE_BREAK = re.compile(r"[\r\n\u0085\u2028\u2029]")          # a break of line ends a subject: what follows it is another request
 # BL7-1 (gap 4): a correction of a read plan stays that read only for a card the read's words can be mistaken for, and never when the card holds the content of a new act.
 READ_LOOKALIKE_CARDS = ("mail-mark",)          # "my unread emails" read as a mark by state; every other card (archive, trash, move, send, cancel, file-trash ...) is an act the person asked for
+LIST_READS = ("items",)          # CB-9: the reads that list rows, every slot of which is optional (catalog version 2 gave `items` target, day and state): a correction of a plan that names no slot leaves the list to code, as before they had slots (BL5B, shape b)
 ACT_CONTENT_SLOTS = frozenset(("to", "subject", "body", "title", "content", "name", "time"))          # a slot that holds what a new act would carry: a correction of a read never has one
 
 OP_RE = re.compile(r"[a-z][a-z0-9-]{0,39}")
@@ -1102,7 +1103,7 @@ def _asks_an_act(line):
 def _read_plan_kept(obj, line, frame, ops):
     """BL7-1 (gap 4): (the revised op object, the plan item's id) when a line that opens with a no corrects a live plan of a READ (class R) and the model named a card (class E) of another
     operation that the read's words can be mistaken for (READ_LOOKALIKE_CARDS), with no slot that holds the content of a new act (ACT_CONTENT_SLOTS), for a line that holds no head of an
-    act; else None (today's path). The revised object is the plan's own read with the slots the model gave, kept only when the read has them all (a list has none, so it keeps none). It
+    act; else None (today's path). The revised object is the plan's own read with the slots the model gave, kept only when the read has them all (at catalog version 1 a list had none, so it kept none; at version 2 `items` has `target`, `day` and `state`, a list drops the slots it lacks and keeps the read plan, and any other read with slots gives today's path when the card has a slot it lacks). It
     only ever turns a card into the read the person already had a plan for: never into an act (L65)."""
     last = (frame or {}).get("last")
     item = next((i for i in (frame or {}).get("items") or [] if i.get("kind") == "plan-confirm"), None)
@@ -1115,8 +1116,10 @@ def _read_plan_kept(obj, line, frame, ops):
         return None          # a card of an act the person may have asked for, or one that carries a new act's content: today's path stands
     row = ops[last["op"]]["slots"]
     slots = {slot: value for slot, value in obj["slots"].items() if slot in row}
-    if row and set(slots) != set(obj["slots"]):
-        return None          # the read has slots and the model gave one it lacks: it meant another act, today's path stands (a list has none: the day is read from the line by code)
+    if row and set(slots) != set(obj["slots"]) and last["op"] not in LIST_READS:
+        return None          # the read has slots and the model gave one it lacks: it meant another act, today's path stands
+    # a list (LIST_READS): at catalog version 1 it had no slot and kept none; at version 2 `items` has `target`, `day` and `state`, and the slots of the card that it lacks (`messages`) are dropped, the read plan stays:
+    # a card that the read's words can be mistaken for is never kept as a card the person did not ask for (BL7-1 gap 4)
     return {"v": 1, "kind": "op", "op": last["op"], "slots": slots}, item["id"]
 
 
@@ -1193,25 +1196,30 @@ def _plan_correction(obj, item, line, frame, ops, now_local, zone, allowed):
     NEW "Shall I go ahead?" and runs nothing. Two shapes (the ones the protocol already carries):
       (a) the no names a slot of the plan's operation with a span: that slot is the span; the other slots of `frame.last.words` are inherited, except a number slot (a number is never
           carried from the old line: it is written in the correcting line or asked) and a time slot;
-      (b) the no names no slot of the operation, the operation has none in the catalog (a list), and the line holds a day the time engine reads: the operation with no slots (the day is
-          read from the line by code, as it is for any list)."""
+      (b) the no names no slot of the operation, the operation is a list (it has no slot in the catalog, or it is one of `LIST_READS`, whose slots are all optional), and the line holds a day the
+          time engine reads: the operation with no slots (the day is read from the line by code, as it is for any list). The fallback of shape (a): when the slot and the span the model gave do not
+          make a valid op (a span that is not in the line) and the operation is a list, shape (b) is tried, as it was before a list had slots."""
     last = (frame or {}).get("last")
     if item.get("kind") != "plan-confirm" or obj.get("confirm") != "no" or last is None or item.get("op") != last.get("op") or item["op"] not in ops:
         return None
     if natural.confirm_kind(line) == "no" or polite_no(line):          # a bare no, or a no with a courtesy ("no thanks"), is a no
         return None
     op, slots = item["op"], ops[item["op"]]["slots"]
+    day_read = any(hit["kind"] in ("date", "slash") for hit in nt.find(collapse(line))["hits"])
+    listed = {"v": 1, "kind": "op", "op": op, "slots": {}} if (not slots or op in LIST_READS) and day_read else None
     if obj.get("slot") in slots and isinstance(obj.get("span"), str):
         slot = obj["slot"]
         inherit = {name: words for name, words in last.get("words", {}).items()
                    if name != slot and name in slots and slots[name] not in ("int", "ints") and (op, name) not in TIME_SLOTS}
         revised = {"v": 1, "kind": "op", "op": op, "slots": {slot: obj["span"]}, **({"inherit": inherit} if inherit else {}),
                    **{key: obj[key] for key in ("time_iso", "weekday") if key in obj}}
-    elif not slots and any(hit["kind"] in ("date", "slash") for hit in nt.find(collapse(line))["hits"]):
-        revised = {"v": 1, "kind": "op", "op": op, "slots": {}}
+        decision = _check_op(revised, line, frame, ops, {}, now_local, zone, allowed)
+        if decision.get("kind") != "op" and listed is not None:
+            decision = _check_op(listed, line, frame, ops, {}, now_local, zone, allowed)          # a list: the model's span is not in the line, the day is read by code (shape b)
+    elif listed is not None:
+        decision = _check_op(listed, line, frame, ops, {}, now_local, zone, allowed)
     else:
         return None
-    decision = _check_op(revised, line, frame, ops, {}, now_local, zone, allowed)
     return dict(decision, corrects=item["id"]) if decision.get("kind") == "op" else decision
 
 

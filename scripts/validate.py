@@ -253,7 +253,7 @@ CASE_KEYS = {"id", "prompt", "expected_output", "files", "assertions", "grader_f
 ASSERTION_KEYS = {"text", "tags"}
 ASSERTION_TAG_RE = re.compile(r"^(?:guard|format|guard:[a-z][a-z0-9-]*)$")
 CONDITIONAL_RE = re.compile(r"^\s*if\b", re.I)
-# The first line of a task the agent runtime writes (scripts/runtime.py, scripts/runtime_vote.py): it names the skill
+# The first line of a task the agent runtime writes (runtime/handlers/social.py, runtime/handlers/social_vote.py): it names the skill
 # whose "Runtime mode" the agent follows, by contract (contracts/runtime.md), so a case that copies a runtime task
 # names its skill in both variants, as the real task does, and eval-prompt-names-skill does not list it.
 RUNTIME_TASK_RE = re.compile(r"This task comes from the agent runtime \(contracts/runtime\.md\)\.")

@@ -158,15 +158,16 @@ def _live(slot: tuple):
     return draft
 
 
-def peek(ctx: dict, said: str, channel, sender) -> bool:
-    """Whether a plain line is handled here: a tier-1 form, or the answer to this sender's live draft. Reads, changes nothing."""
+def peek(ctx: dict, said: str, channel, sender, claim: bool = True) -> bool:
+    """Whether a plain line is handled here: a tier-1 form, or the answer to this sender's live draft. Reads, changes nothing. `claim=False` (a recogniser) reads a write form without the
+    repeat scope (CB-9): a repeating line that the interpreter will read is still a request of its own."""
     if natural.match(said) is not None:
         return True
     slot = _slot(channel, sender)
     draft = _live(slot)
     if draft is not None and _owner(draft) == "write":
         return channel != "mcp" and _writes().answers(ctx, draft, said)
-    if channel != "mcp" and natural_writes().candidate(said) is not None:      # a write form (package NR-5): code, no model, no route lock
+    if channel != "mcp" and natural_writes().candidate(said, claim=claim) is not None:      # a write form (package NR-5): code, no model, no route lock
         return True
     if draft is None:
         return False
@@ -178,7 +179,7 @@ def recognises(ctx: dict, said: str, channel, sender) -> bool:
     """Whether a plain line is a request of its own that code recognises: any tier-1 form (a list or any other read included, S4b), a reminder, a write to the person's accounts (a
     save of a file included), or the answer to this sender's live draft. Such a line is NEW, never the answer to a question the router left open (package LIVE-2, slice S4b);
     only a question about the state ("progress"), a plain sentence and a reply to the question's own message may be the answer. Reads, changes nothing."""
-    return peek(ctx, said, channel, sender) or natural.candidate(said) is not None
+    return peek(ctx, said, channel, sender, claim=False) or natural.candidate(said) is not None
 
 
 def peek_model(ctx: dict, said: str, channel, sender) -> bool:
@@ -215,7 +216,7 @@ def stored_line(ctx: dict, said: str, channel=None, sender=None) -> str:
         draft = drafts.get(*_slot(channel, sender), "write")
         if draft is not None:
             return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
-    if natural_writes().candidate(said) is not None:
+    if natural_writes().candidate(said, claim=False) is not None:      # a private line is private whatever reads it (CB-9)
         return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
     kind = turn_gate.private_kind(said)
     if kind == "write":      # a line the gate reads as a write to the person's accounts that no family read whole: stored as a request to the accounts, never as "a reminder"
@@ -287,7 +288,12 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         said_no = ops_items.unreadable_filter(spans, _clock())      # a day or a state the person stated and code cannot read is a sentence: never a list that looks filtered
         if said_no:
             return phrases.text(said_no, cfg)
-        args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans))
+        box = ops_items.mailbox_target(ctx, spans)      # CB-9: a target that names a mailbox is that source, or a question: never a word filter that looks like one
+        if box and box[0] == "ask":
+            return phrases.text("NW_ITEMS_MAILBOX", cfg, names=box[1])
+        if box:
+            spans = {key: value for key, value in spans.items() if key != "target"}
+        args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans), **({"source": box[1]} if box else {}))
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
         return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"))
     if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here
