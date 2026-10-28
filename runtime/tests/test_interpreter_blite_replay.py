@@ -62,8 +62,8 @@ PUBLISHED = {
 REPLAY = {      # M1 moved by BL5C (the old day of a change, the trigger word of a time span: SPEC-BLITE-5C) and by BL5B (a no with a new detail after "Posso?" is a revised op: four items, dev-pt-br-50016, dev-en-50008, dev-pt-br-50017, dev-pt-br-50023), not by a gold; M2 did not move
     (DEEPSEEK, "M1"): {"correct": 34, "clarify": 8, "wrong_card": 4},      # BL5C: 31/9/6 before BL5B; BL7-1 (the line's subject stays in a message's target) 35/5/6; BL7-4 (the scorer follows the product for a mail write): 34/8/4
     (SONNET, "M1"): {"correct": 38, "clarify": 5, "wrong_card": 3},      # BL5C: 34/6/6 before BL5B; BL7-4: 38/2/6 -> 38/5/3 (three cards the product does not open are clarify)
-    (DEEPSEEK, "M2"): {"correct": 43, "clarify": 6, "missed": 1},      # BL7-5 (a believed message number opens the family when the closed forms read none; a long sender-and-subject target is grounded): 42/7 -> 43/6 (dev-pt-br-00035); BL7-4: 45/4/1 -> 42/7/1, three correct items the product asks about
-    (SONNET, "M2"): {"correct": 44, "clarify": 5, "wrong_read": 1},      # BL7-5 (a believed message number opens the family when the closed forms read none; a long sender-and-subject target is grounded): 43/6 -> 44/5 (dev-pt-br-00035); BL7-4: 46/3/1 -> 43/6/1
+    (DEEPSEEK, "M2"): {"correct": 42, "clarify": 7, "missed": 1},      # BL7-4: 45/4/1 -> 42/7/1, three correct items the product asks about
+    (SONNET, "M2"): {"correct": 43, "clarify": 6, "wrong_read": 1},      # BL7-4: 46/3/1 -> 43/6/1
 }
 # REPLAY, re-score under the golds of dev-long-v2.jsonl (rule W1): labelled "not blind" wherever it is published.
 REPLAY_V2 = {

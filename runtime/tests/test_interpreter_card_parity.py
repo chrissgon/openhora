@@ -60,6 +60,8 @@ ROWS = (
     ("the blind item of a send to a bare name (pt-BR)", "pt-BR", "Escreve um e-mail pro Jonas agradecendo pela ajuda com a mudan\u00e7a no fim de semana, ele foi incr\u00edvel.",
      op("mail-send", {"to": "Jonas", "body": "agradecendo pela ajuda com a mudan\u00e7a no fim de semana, ele foi incr\u00edvel"}), "clarify", "Qual o e-mail de Jonas?"),
     ("a numbered mark the closed forms do not read (BL7-5, G1)", "pt-BR", "marca o 1 e o 2 como lido",
+     op("mail-mark", {"messages": "1,2", "state": "lido"}), "clarify", "n\u00e3o consegui montar o cart\u00e3o"),          # BL7-5: bare numbers (no mail noun, no "#") are not message numbers: still asked
+    ("a numbered mark with a mail noun (BL7-5, G1)", "pt-BR", "marca o email 1 e o 2 como lido",
      op("mail-mark", {"messages": "1,2", "state": "lido"}), "card", None),          # BL7-5: the numbers the model gave open the family when the closed forms read none
     ("a target of seven content words (BL7-5, G3)", "en", "Reply to Nadia Ferreira about the volunteer schedule for the book fair, thank her for the help",
      op("mail-reply", {"target": "Nadia Ferreira about the volunteer schedule for the book fair", "body": "thank her for the help"}), "card", None),          # BL7-5: the ground of a sender and a subject of seven content words ("Nadia Ferreira the volunteer schedule for the book fair")
@@ -69,6 +71,10 @@ ROWS = (
      op("mail-trash", {"messages": "1"}), "clarify", "I could not prepare it"),
     ("numbers with a target beside them (BL7-5, G1)", "en", "trash emails 1 and 2 from Marta pls",
      op("mail-trash", {"messages": "1,2", "target": "Marta"}), "clarify", "I could not prepare it"),
+    ("numbers of a room and a clock (BL7-5, G1)", "en", "trash the email about room 1 from the 2 o'clock meeting",
+     op("mail-trash", {"messages": "1,2"}), "clarify", "I could not prepare it"),
+    ("a count noun (BL7-5, G1)", "en", "trash the 2 budgets pls",
+     op("mail-trash", {"messages": "2"}), "clarify", "I could not prepare it"),
     ("a numbered reply with a body (BL7-5, G1)", "en", "reply to email 1 with can we move it to next week",
      op("mail-reply", {"message": "1", "body": "can we move it to next week"}), "card", None),
     ("a numbered reply with no body (BL7-5, G1)", "en", "answer email 1 please",
@@ -139,7 +145,7 @@ def test_a_clarify_of_the_mail_step_has_the_slot_the_product_asks_first(world, c
     for name, slot in (("bare-name send with a body", "to"), ("typed-address send with no body", "body"), ("target reply with no body", "body"), ("a move with no folder named", "folder")):
         _, language, line, answer, _, _ = by_name[name]
         assert measured(language, line, answer)["detail"] == {"slot": slot}, name
-    for name in ("a mail operation with empty slots",):
+    for name in ("a mail operation with empty slots", "a numbered mark the closed forms do not read (BL7-5, G1)"):
         _, language, line, answer, _, _ = by_name[name]
         assert measured(language, line, answer)["detail"] == {}, name          # "I could not prepare it": no slot
 

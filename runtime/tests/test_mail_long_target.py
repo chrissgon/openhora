@@ -42,6 +42,8 @@ BLIND = (
     ("Priya's note about the thing with the broken projector in room B", "Priya's note", "Priya's note the thing with the broken projector in room B"),
     ("Teodoro, da Vela Azul Contabilidade, sobre a papelada do imposto de renda", "Teodoro, da Vela Azul Contabilidade,", "Teodoro, da Vela Azul Contabilidade, a papelada do imposto de renda"),
     ("Caio Fontana sobre o convite pra palestrar no congresso de logística", "Caio Fontana", "Caio Fontana o convite pra palestrar no congresso de logística"),      # validate: allow english-only -- a Portuguese line or word is the input under test
+    ("Mei Su about the volunteer schedule for the book fair", "Mei Su", "Mei Su the volunteer schedule for the book fair"),          # "su" is a marker of another language and a name: the marker that follows it is the subject's
+    ("Lia Sur regarding the quarterly budget review with the board", "Lia Sur", "Lia Sur the quarterly budget review with the board"),          # so is "sur"
 )
 NO_GROUND = (
     "Marta Siqueira sobre o reembolso da viagem a Curitiba",          # five content words today: seeded as it was, no ground
@@ -140,6 +142,13 @@ def test_the_check_grounds_the_recorded_long_targets(item, line, target, body, g
     got = check(line, {"target": target, "body": body})
     assert got["kind"] == "op" and got["spans"]["target"] == target, got
     assert got["target_ground"] == ground and got["target_sender"] == person, got
+
+
+def test_a_name_that_is_a_marker_of_another_language_does_not_split_the_target_early():
+    for name, target, line in (("Mei Su", "Mei Su about the volunteer schedule for the book fair", "Reply to Mei Su about the volunteer schedule for the book fair, saying yes."),
+                               ("Lia Sur", "Lia Sur regarding the quarterly budget review with the board", "Reply to Lia Sur regarding the quarterly budget review with the board, saying yes.")):
+        got = check(line, {"target": target, "body": "saying yes"})
+        assert got["kind"] == "op" and got["target_sender"] == name and got["target_ground"].startswith(name + " the "), got
 
 
 def test_a_target_with_a_marker_and_five_words_has_no_ground_and_a_widened_target_keeps_its_own():

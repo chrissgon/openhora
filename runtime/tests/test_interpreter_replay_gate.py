@@ -54,10 +54,9 @@ PUBLISHED = {   # answers file -> the counts of the categories of its 50 items, 
 REPLAY_COUNTS = {   # answers file -> what the current code gives the recorded answers
     # BL7-4 (the scorer follows the product for a mail write: a card the product does not open, a recipient, a body, a folder or a state it asks, is a clarify): 4 -> 7 and 2 -> 5 and 15 -> 18 clarify, the
     # same correct items less; the dev re-score of the recorded answers, never a published number
-    # BL7-5 (a believed message number opens the family when the closed forms read none; a long sender-and-subject target is grounded): dev-pt-br-00035 moves clarify -> correct in each of the three files: 7 -> 6 (DeepSeek iter-2), 5 -> 4 (Sonnet iter-1), 18 -> 17 (Haiku iter-1)
-    "or-deepseek-v4.1-flash/iter-2-20261021T125017/20261021T155019Z-f148397b.answers.jsonl": {"clarify": 6, "correct": 44},
-    "acct-claude-sonnet-5.5/iter-1-20261021T154157/20261021T184159Z-cda87ebe.answers.jsonl": {"clarify": 4, "correct": 46},
-    "acct-claude-haiku-4.5/iter-1-20261021T154157/20261021T184159Z-7ceca7ad.answers.jsonl": {"clarify": 17, "correct": 30, "wrong_card": 2, "wrong_item_binding": 1},
+    "or-deepseek-v4.1-flash/iter-2-20261021T125017/20261021T155019Z-f148397b.answers.jsonl": {"clarify": 7, "correct": 43},
+    "acct-claude-sonnet-5.5/iter-1-20261021T154157/20261021T184159Z-cda87ebe.answers.jsonl": {"clarify": 5, "correct": 45},
+    "acct-claude-haiku-4.5/iter-1-20261021T154157/20261021T184159Z-7ceca7ad.answers.jsonl": {"clarify": 18, "correct": 29, "wrong_card": 2, "wrong_item_binding": 1},
 }
 EARLIER = ("or-deepseek-v4.1-flash/iter-1-20261021T094443/20261021T124445Z-ea9f0c2f.answers.jsonl", "or-deepseek-v4.1-flash/iter-1-20261021T094736/20261021T124738Z-d0fc5d83.answers.jsonl")
 PROMPT_IN_USE = PINNED_HASHES["interpreter_prompt"]      # the prompt of this checkout (BL5B added rule 9 to it)

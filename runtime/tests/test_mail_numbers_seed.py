@@ -46,12 +46,25 @@ SECOND = tsm.message(2, "2026-10-20T10:00:00Z", sender="Nadia Ferreira <nadia.fe
 FREE = (
     ("joga no lixo os emails 2, 4 e 7", (), [2, 4, 7]),
     ("trash emails 4 and 9 pls", (), [4, 9]),
-    ("marca o 1 e o 2 como lido", ("lido",), [1, 2]),
+    ("marca o email 1 e o 2 como lido", ("lido",), [1, 2]),
+    ("marca o 1 e o 2 como lido", ("lido",), []),          # no mail noun, no "#": not a message number (principle 13, the stricter rule stays)
     ("reply to email 8 with can we move it to next week", ("can we move it to next week",), [8]),
     ("reply to email 8 saying the meeting is at 10", ("the meeting is at 10",), [8]),
-    ("trash the email about room 4 from the 2 o'clock meeting", (), [4, 2]),
+    ("trash the email about room 4 from the 2 o'clock meeting", (), []),          # a room and a clock: neither follows a mail noun
+    ("trash the email about the 2 o'clock meeting", (), []),
+    ("trash email 2 o'clock", (), []),          # "o'clock" after a number that does follow a mail noun: a time
     ("apaga o e-mail 3 de 12:30", (), [3]),
-    ("arquiva o 5, recebi 3 dias atrás", (), [5]),
+    ("arquiva o 5, recebi 3 dias atrás", (), []),
+    ("arquiva o email 5, recebi 3 dias atrás", (), [5]),
+    ("trash the 2 budgets pls", (), []),          # a count noun
+    ("trash the email about the 2026 budget", (), []),          # a year
+    ("call 555 1234 and trash email 3", (), [3]),          # a phone number is no message number
+    ("trash the email from room 4", (), []),
+    ("arquiva o email da sala 4", (), []),
+    ("move 4 and 9 to the Receipts folder", (), []),
+    ("trash email 2 and the room 4", (), [2]),
+    ("trash emails 2, the 5 or 7", (), [2, 5, 7]),          # chained by a comma, an article and "or"
+    ("trash email 2 , 4", (), [2, 4]),
     ("reply to #7 ok", (), [7]),
     ("trash email 4 of 25 euros", (), [4]),
     ("trash email 6 and 6 again", (), [6]),
@@ -66,7 +79,8 @@ def test_free_numbers_are_the_whole_numbers_the_line_writes_as_words_of_their_ow
     assert nwm.free_numbers(line, spans) == expected
 
 
-@pytest.mark.parametrize("line", ["archive 1-3", "arquiva os e-mails 1 a 3", "trash emails 1 to 3", "trash emails 1 - 3", "apaga os emails 2 até 5"])
+@pytest.mark.parametrize("line", ["archive 1-3", "arquiva os e-mails 1 a 3", "trash emails 1 to 3", "trash emails 1 - 3", "apaga os emails 2 até 5", "trash emails 1-3 and 5",
+                                  "trash email 5 and emails 1-3", "arquiva os emails do 1 ao 3", "trash emails between 1 and 3"])
 def test_a_range_gives_no_free_number_at_all(line):
     assert nwm.free_numbers(line, ()) == []
 
@@ -103,9 +117,9 @@ def test_a_seed_of_each_operation_has_the_numbers_and_what_the_family_reads_besi
     assert got == {"op": "mail-trash", "by": "numbers", "slots": {"numbers": [4, 9]}} and got.origins == {"numbers": "line-number"}
     got = ops_natural_mail.mail_number_seed("mail-archive", decision("mail-archive", {"messages": [3]}, {"messages": "3"}), "stash email 3 away")
     assert got["slots"] == {"numbers": [3]}
-    got = ops_natural_mail.mail_number_seed("mail-mark", decision("mail-mark", {"messages": [1, 2]}, {"messages": "1,2", "state": "lido"}), "marca o 1 e o 2 como lido")
+    got = ops_natural_mail.mail_number_seed("mail-mark", decision("mail-mark", {"messages": [1, 2]}, {"messages": "1,2", "state": "lido"}), "marca o email 1 e o 2 como lido")
     assert got["slots"] == {"numbers": [1, 2], "state": "read"} and got.origins == {"numbers": "line-number", "state": "line-span"}
-    got = ops_natural_mail.mail_number_seed("mail-move", decision("mail-move", {"messages": [3], "folder": "Trabalho"}, {"messages": "3", "folder": "Trabalho"}), "move o 3 pra pasta Trabalho")      # validate: allow english-only -- a Portuguese line or word is the input under test
+    got = ops_natural_mail.mail_number_seed("mail-move", decision("mail-move", {"messages": [3], "folder": "Trabalho"}, {"messages": "3", "folder": "Trabalho"}), "move o email 3 pra pasta Trabalho")      # validate: allow english-only -- a Portuguese line or word is the input under test
     assert got["slots"] == {"numbers": [3], "folder_name": "Trabalho"} and got.origins == {"numbers": "line-number", "folder_name": "line-span"}
     line = "reply to email 8 with can we move it to next week"
     got = ops_natural_mail.mail_number_seed("mail-reply", decision("mail-reply", {"message": 8}, {"message": "8", "body": "can we move it to next week"}), line)
@@ -129,6 +143,10 @@ def test_a_body_that_describes_the_reply_is_marked_for_wording_and_a_dictated_on
     ("a subset", "mail-trash", {"messages": [1]}, {"messages": "1"}, "trash emails 1 and 2 pls"),
     ("an extra number", "mail-trash", {"messages": [1, 2, 5]}, {"messages": "1,2,5"}, "trash emails 1 and 2 pls"),
     ("a number of a time phrase", "mail-trash", {"messages": [3, 12]}, {"messages": "3,12"}, "trash email 3 at 12:30"),
+    ("a count noun", "mail-trash", {"messages": [2]}, {"messages": "2"}, "trash the 2 budgets pls"),
+    ("a clock with a mail noun in the line", "mail-trash", {"messages": [2]}, {"messages": "2"}, "trash the email about the 2 o'clock meeting"),
+    ("a room beside a number that counts", "mail-trash", {"messages": [2, 4]}, {"messages": "2,4"}, "trash email 2 and the room 4"),
+    ("bare numbers with no mail noun", "mail-mark", {"messages": [1, 2]}, {"messages": "1,2", "state": "lido"}, "marca o 1 e o 2 como lido"),
     ("a number of a quantity", "mail-trash", {"messages": [4, 25]}, {"messages": "4,25"}, "trash email 4 of 25 euros"),
     ("a range read by the model", "mail-archive", {"messages": [1, 3]}, {"messages": "1,3"}, "archive emails 1 to 3"),
     ("a target beside the numbers", "mail-trash", {"messages": [1, 2]}, {"messages": "1,2", "target": "Marta"}, "trash emails 1 and 2 from Marta pls"),
@@ -176,7 +194,7 @@ def card_body(world, out):
 
 
 def test_a_numbered_mark_the_closed_forms_do_not_read_resolves_the_messages_and_the_state(world, clock, monkeypatch):
-    out, resolved, model = run(world, monkeypatch, "pt-BR", "marca o 1 e o 2 como lido", op("mail-mark", {"messages": "1,2", "state": "lido"}))
+    out, resolved, model = run(world, monkeypatch, "pt-BR", "marca o email 1 e o 2 como lido", op("mail-mark", {"messages": "1,2", "state": "lido"}))
     assert model.of("interpret"), "the line did not reach the interpreter"
     got = args_of(resolved)
     assert len(got) == 1 and got[0]["messages"] == "inbox#1,inbox#2" and got[0]["state"] == "read", (got, out["reply"])
@@ -197,9 +215,16 @@ def test_numbers_with_words_beside_them_are_cannot_write(world, clock, monkeypat
     assert not resolved and out["reply"] == sentence(world, "IX_CANNOT_WRITE")
 
 
-def test_numbers_that_also_name_a_room_and_a_clock_are_not_guessed(world, clock, monkeypatch):
-    out, resolved, _ = run(world, monkeypatch, "en", "trash the email about room 1 from the 2 o'clock meeting", op("mail-trash", {"messages": "1"}))
-    assert not resolved and out["reply"] == sentence(world, "IX_CANNOT_WRITE")
+@pytest.mark.parametrize("line, numbers", [
+    ("trash the email about room 1 from the 2 o'clock meeting", "1"),
+    ("trash the email about room 1 from the 2 o'clock meeting", "1,2"),
+    ("trash the email about the 2 o'clock meeting", "2"),
+    ("trash the 2 budgets pls", "2"),
+    ("marca o 1 e o 2 como lido", "1,2"),
+])
+def test_numbers_that_are_a_room_a_clock_a_count_or_bare_are_not_message_numbers(world, clock, monkeypatch, line, numbers):
+    out, resolved, _ = run(world, monkeypatch, "en", line, op("mail-trash", {"messages": numbers}))
+    assert not resolved and out["reply"] == sentence(world, "IX_CANNOT_WRITE"), out["reply"]
 
 
 def test_a_reply_by_number_with_a_body_opens_the_card_with_that_text(world, clock, monkeypatch):
@@ -276,6 +301,23 @@ def test_vacuity_a_free_numbers_that_echoes_the_decision_opens_the_rows_it_must_
     monkeypatch.setattr(nwm, "free_numbers", lambda line, spans=(), tables=None: [1])
     out, resolved, _ = run(world, monkeypatch, "en", "trash emails 1 and 2 pls", op("mail-trash", {"messages": "1"}))
     assert args_of(resolved), "the planted free_numbers must open the subset row (the real one refuses it)"
+
+
+def test_vacuity_a_free_numbers_that_counts_every_digit_word_opens_the_count_noun_row(world, clock, monkeypatch):
+    monkeypatch.setattr(nwm, "free_numbers", lambda line, spans=(), tables=None: [int(w) for w in line.replace(",", " ").split() if w.isdigit()])
+    out, resolved, _ = run(world, monkeypatch, "en", "trash the 2 budgets pls", op("mail-trash", {"messages": "2"}))
+    assert args_of(resolved), "the planted free_numbers must open the count-noun row (the real one refuses it)"
+
+
+def test_vacuity_a_chain_rule_that_always_chains_counts_the_room_and_a_range_rule_that_never_fires_misses_the_range(monkeypatch):
+    assert nwm.free_numbers("trash email 2 and the room 4", ()) == [2]
+    with monkeypatch.context() as patch:
+        patch.setattr(nwm, "_chained", lambda *a, **k: True)
+        assert nwm.free_numbers("trash email 2 and the room 4", ()) == [2, 4]
+    assert nwm.free_numbers("trash email 5 and emails 1-3", ()) == []
+    with monkeypatch.context() as patch:
+        patch.setattr(nwm, "_NUMBER_RANGE", nwm.re.compile(r"(?!x)x"))
+        assert nwm.free_numbers("trash email 5 and emails 1-3", ()) == [5]
 
 
 def test_vacuity_without_the_branch_of_carry_out_the_card_rows_fail(world, clock, monkeypatch):

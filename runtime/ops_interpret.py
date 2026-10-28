@@ -38,7 +38,7 @@ from the line (`turn_gate.the_number`: the one whole number written in it, none 
 the bridge the typed line), `approve` sends the decision's card again and approves nothing, and `answer` and `go-ahead` have words of their own. No operation was added to the catalog.
 
 A message number the model gave (BL7-5, gap G1; limits L54 and L61). When the closed forms read nothing in the line of a mail operation that names messages (`MAIL_TARGET_OPS`) and the model
-gave `message` or `messages`, `ops_natural_mail.mail_number_seed` opens the family with the numbers, only when they are exactly the numbers the line writes as words of their own
+gave `message` or `messages`, `ops_natural_mail.mail_number_seed` opens the family with the numbers, only when they are exactly the numbers the line writes as message numbers (`#n`, right after a mail noun, or chained to such a number by a joiner and an optional article; never a room, a year, a count, a time or a range)
 (`natural_writes_mail.free_numbers`) and the decision holds no `target`, `day`, `to` or `subject`: the numbers name `<source>#<n>` of the newest snapshot, never a refresh, origin
 `line-number`. A line the closed forms read opens the card it opened before; a project language other than pt-BR and en is still `IX_WRITE_LANGUAGE`.
 

@@ -1054,7 +1054,7 @@ def _subject_ground(target, wider):
 def _own_subject_split(target):
     """BL7-5 (gap G3). (the person's part, the ground) of a mail `target` that has more than TARGET_WORDS_MAX content words and holds its own subject after the person ("Nadia Ferreira about the
     volunteer schedule for the book fair"), else None. None when `natural_writes_mail.target_words` reads the target (a target that is grounded today is untouched), when no subject marker
-    (SUBJECT_MARKERS, folded, whole words, the longest first) starts at its second word or later with a word after it, when the part before the marker holds no letter or digit, or when the
+    (SUBJECT_MARKERS, folded, whole words, the longest first) starts at its second word or later with a word after it that is not itself the start of a marker ("Mei Su about": the name "Su" is a marker of another language), when the part before the marker holds no letter or digit, or when the
     ground (`_subject_ground`: the person, then the subject without the marker word) has no content words within GROUND_WORDS_MAX. Made of the target's own words only (a span the check
     verified): nothing is added, so every word of the ground is a word of the target, and `match_words` still requires every one."""
     import importlib
@@ -1071,6 +1071,8 @@ def _own_subject_split(target):
             continue
         if index + len(marker) >= len(toks):
             return None          # the marker is the end of the target: no subject follows it
+        if any(tuple(folded[index + len(marker):index + len(marker) + len(m)]) == m for m in markers):
+            continue          # a marker of another language that is a name ("Mei Su about ...", "Lia Sur regarding ..."): the marker that follows it is the subject's
         person = target[:toks[index][0]].rstrip()
         if not any(ch.isalnum() for ch in person):
             return None

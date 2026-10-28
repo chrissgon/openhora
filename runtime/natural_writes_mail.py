@@ -34,10 +34,11 @@ reply to several messages is not taken either.
                                                  a message, never an address
   ground_words(span, tables)                     `target_words` with the cap GROUND_WORDS_MAX (BL7-5): the words of a sender and a subject the interpreter grounded (`target_ground`);
                                                  every one of them is still required by `match_words`, so a longer set only reaches fewer messages, never more
-  free_numbers(line, spans=(), tables=None)      the whole numbers a line writes as words of their own, in order, none twice (BL7-5): a word of digits ("4", "#7") that is not inside one of
-                                                 `spans` (texts of the line), not inside a time phrase of `natural_time.find`, not followed by a unit or a currency mark nor preceded by
-                                                 a currency, and in a line with no range ("1-3", "1 a 3"); [] when a time hit cannot be mapped to the line. It is what a message number the
-                                                 model gave must equal (`ops_natural_mail.mail_number_seed`)
+  free_numbers(line, spans=(), tables=None)      the numbers a line writes as MESSAGE numbers, in order, none twice (BL7-5): `#7`, a number right after a mail noun ("email 4", "mensagem 3"),
+                                                 or one chained to such a number by a joiner and an optional article ("emails 2, 4 and the 7"); never a number inside one of `spans`
+                                                 (texts of the line), inside a time phrase of `natural_time.find`, followed by a unit, a currency mark or "o'clock", or preceded by a
+                                                 currency, and [] in a line with a range ("1-3", "1 a 3", "do 1 ao 3", "between 1 and 3") or when a time hit cannot be mapped to the line.
+                                                 It is what a message number the model gave must equal (`ops_natural_mail.mail_number_seed`)
   check_mail(mail, where)                        ValueError when the `mail` part of `requests.writes` of a language table is not of the shape below
   NEEDS                                          the needs this family asks (the draft of the ask-back dispatches an answer to `answer` for these)
 
@@ -820,15 +821,21 @@ def ground_words(span, tables) -> list:
 _NUMBER_WORD = re.compile(r"#?[0-9]{1,9}")
 _NUMBER_RANGE = re.compile(r"#?[0-9]+\s*[-\u2010-\u2015]\s*#?[0-9]+")
 _RANGE_MARKS = frozenset(("-", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"))
+_RANGE_MID_EXTRA = frozenset(("ao", "aos"))          # BL7-5: "do 1 ao 3" (the tables' `range` list holds `a` and `ate`): the person meant 1, 2 and 3
+_RANGE_LEAD = frozenset(("between", "entre"))          # BL7-5: "between 1 and 3"
+_JOINERS_EXTRA = frozenset(("or", "ou"))          # BL7-5: a number chained to another by "or" counts as the same list
+_CLOCK_AFTER = ("o clock", "oclock")          # "the 2 o'clock meeting": a time, never a message number
 _WORD_EDGE = ".,;:!?()[]\"'"
 
 
 def free_numbers(line, spans=(), tables=None) -> list:
-    """BL7-5. The whole numbers `line` writes as words of their own, in order, none twice: a word that is digits with the edge marks off (`#7`, `4,`), as `natural.decision_numbers` reads a
-    number per word, except that here a number that is only part of the line's words is left out instead of refusing the whole line. A number does not count when its word overlaps an
-    occurrence in the line of one of the texts of `spans` (a body, a folder, a state), overlaps a time phrase of `natural_time.find` (a clock, a date, a relative time), is followed by a
-    word of `natural.MEASURES` or a mark of `natural.CURRENCY_OR_MARK_AFTER`, or is preceded by a currency. A line with a range between numbers (`1-3`, or two numbers around a word of the
-    tables' `range` list: `1 a 3`, `1 to 3`) gives [], and so does a time phrase that cannot be mapped to the line: it fails closed. Pure."""
+    """BL7-5. The whole numbers `line` writes as message numbers, in order, none twice. A word of digits (`#7`, `4,`), as `natural.decision_numbers` reads a number per word, counts only
+    when ALL hold: it is written `#n`, or the word before it is a mail noun of the tables (`email 4`, `e-mails 2`, `mensagem 3`), or it is chained to such a number by a joiner
+    (`and`, `e`, `or`, `ou`, a comma), with an optional article between (`emails 2, 4 e o 7`); it does not overlap an occurrence in the line of one of the texts of `spans` (a body, a
+    folder, a state) nor a time phrase of `natural_time.find` (a clock, a date, a relative time); it is not followed by a unit (`natural.MEASURES`), by `o'clock` or by a currency mark and
+    not preceded by a currency. So a count noun ("the 2 budgets"), a year, a room ("room 4", "sala 4") and a phone number are no message number, by construction (principle 13: the stricter
+    rule stays). A line with a range between numbers (`1-3`, `1 a 3`, `1 to 3`, `do 1 ao 3`, `between 1 and 3`) gives [], and so does a time phrase that cannot be mapped to the line: it
+    fails closed. Pure."""
     if not isinstance(line, str) or not line:
         return []
     found = nt.find(line)
@@ -846,27 +853,55 @@ def free_numbers(line, spans=(), tables=None) -> list:
         while at >= 0:
             blocked.append((at, at + len(text)))
             at = line.find(text, at + 1)
-    range_words = set()
+    range_words, nouns, articles, joiners = set(_RANGE_MID_EXTRA), set(), set(), set(_JOINERS_EXTRA)
     for table in _tables_with_mail(natural._tables(tables)):
-        range_words |= {p[0] for p in _data(table)["shared"]["range"] if len(p) == 1}
-    toks = [(m.start(), m.end(), unicodedata.normalize("NFKC", m.group()).strip(_WORD_EDGE)) for m in re.finditer(r"\S+", line)]
+        d = _data(table)
+        range_words |= {p[0] for p in d["shared"]["range"] if len(p) == 1}
+        nouns |= set(d["mail"]["nouns"]) | set(d["plural"])
+        articles |= {p[0] for p in d["shared"]["articles"] if len(p) == 1}
+        joiners |= {p[0] for p in d["shared"]["joiners"] if len(p) == 1}
+    toks = [(m.start(), m.end(), unicodedata.normalize("NFKC", m.group()).strip(_WORD_EDGE), unicodedata.normalize("NFKC", m.group())) for m in re.finditer(r"\S+", line)]
+    folded = [_words_of(tok[2]) for tok in toks]
     free = lambda tok: not any(tok[0] < e and s < tok[1] for s, e in blocked)      # noqa: E731  (the word touches no span and no time phrase)
     shape = [bool(_NUMBER_WORD.fullmatch(tok[2])) for tok in toks]
     for at, tok in enumerate(toks):
         if free(tok) and _NUMBER_RANGE.fullmatch(tok[2]):
             return []
-        if shape[at] and at + 2 < len(toks) and shape[at + 2] and free(tok) and (toks[at + 1][2] in _RANGE_MARKS or natural.ascii_normal(toks[at + 1][2]) in range_words):
-            return []
-    found_numbers = []
+        if shape[at] and free(tok):
+            if at + 2 < len(toks) and shape[at + 2] and (toks[at + 1][2] in _RANGE_MARKS or natural.ascii_normal(toks[at + 1][2]) in range_words):
+                return []
+            if at and natural.ascii_normal(toks[at - 1][2]) in _RANGE_LEAD:
+                return []
+    found_numbers, counted = [], set()
     for at, tok in enumerate(toks):
         if not shape[at] or not free(tok):
             continue
         after = natural.ascii_normal(toks[at + 1][2]) if at + 1 < len(toks) else ""
         before = toks[at - 1][2].lower() if at else ""
-        if after.split(" ")[0] in natural.MEASURES or (at + 1 < len(toks) and toks[at + 1][2].lstrip().startswith(natural.CURRENCY_OR_MARK_AFTER)) or before.endswith(natural.CURRENCY_BEFORE):
+        if after.split(" ")[0] in natural.MEASURES or after in _CLOCK_AFTER or (at + 1 < len(toks) and toks[at + 1][2].lstrip().startswith(natural.CURRENCY_OR_MARK_AFTER)) or before.endswith(natural.CURRENCY_BEFORE):
             continue
+        preceding = [w for k in range(max(0, at - 3), at) for w in folded[k]]
+        if not (tok[2].startswith("#") or any(len(n) <= len(preceding) and tuple(preceding[len(preceding) - len(n):]) == n for n in nouns) or _chained(toks, folded, at, counted, articles, joiners)):
+            continue
+        counted.add(at)
         found_numbers.append(int(tok[2].lstrip("#")))
     return list(dict.fromkeys(found_numbers))
+
+
+def _chained(toks, folded, at, counted, articles, joiners) -> bool:
+    """Whether the number word at `at` is chained to a number already counted: an optional article, then a joiner word (or a comma stuck to the earlier number, or a comma word), then that
+    number."""
+    j = at - 1
+    if j >= 0 and len(folded[j]) == 1 and folded[j][0] in articles:
+        j -= 1
+    if j < 0:
+        return False
+    if j in counted:
+        return toks[j][3].rstrip(")]\"'").endswith((",", ";"))          # "2, 4": the comma is stuck to the number before
+    word = folded[j]
+    if (len(word) == 1 and word[0] in joiners) or toks[j][3] in (",", ";"):
+        return j - 1 in counted
+    return False
 
 
 def plural_mentioned(text, tables) -> bool:
