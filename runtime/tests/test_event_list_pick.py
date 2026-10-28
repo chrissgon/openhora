@@ -14,11 +14,12 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import Snapshots, fgw, rows, world  # noqa: F401  (the calendar world and its real snapshots)
-from test_event_lookup import CANCEL, OWNER, TALKER, build, card_problems, carry, op_text
-from test_event_lookup_number_account import AGAIN, CARD_SENT, HAIR_2, HAIR_4, Model, listed, reads_at_once, say
+from test_event_lookup import CANCEL, CFG, OWNER, PT, TALKER, alone, build, card_problems, carry, op_text, says
+from test_event_lookup_number_account import AGAIN, CARD_1, HAIR_2, HAIR_4, Model, listed, reads_at_once, say
 from test_event_lookup_own_events import build as build_created, made, pending
 from test_event_lookup_own_events import cards as card_ids
 from test_ops_natural_writes import forget  # noqa: F401
@@ -86,9 +87,9 @@ class Seeds:
 def test_scenario_38_a_das_15h_after_the_list_opens_the_removal_card_of_the_15h_meeting_and_never_the_10h_one(world, monkeypatch):
     meetings_listed(world, monkeypatch)
     model, seeds = Model(monkeypatch), Seeds(monkeypatch)
-    assert say(world, "a das 15h") == CARD_SENT and model.calls == 0
+    assert says(say(world, "a das 15h"), CARD_1) and model.calls == 0
     item = ops.pending(world["path"], 1)
-    assert card_problems(item, *M_5) == [] and "Event: evm15" in item["body"].splitlines()
+    assert card_problems(item, *M_5) == [] and pk.said(item["body"], "CARD_CAL_EVENT", CFG, event_id="evm15")
     assert card_problems(item, *M_3) != [], "vacuity: the card of the 10h meeting reads differently"
     assert seeds.seen == [({"op": "event-cancel", "slots": {"event": 5, "source": "agenda"}}, {"event": "listed"})], "the number the pick yields is the printed one, and its origin is `listed`"
     assert len(rows(world)[1]) == 1 and item["status"] == "open"
@@ -105,7 +106,7 @@ def test_every_pick_of_the_list_opens_the_card_of_the_row_it_names_and_asks_no_m
     if reference is None:          # both rows are tomorrow: the day names two rows
         assert reply == T("LP_SEVERAL", value=T("LP_VALUE_DAY", weekday="qui", date="22/10"), rows="3 " + T("LP_AND") + " 5") and rows(world) == ([], [])
         return
-    assert reply == CARD_SENT and model.calls == 0, line
+    assert says(reply, CARD_1) and model.calls == 0, line
     assert card_problems(ops.pending(world["path"], 1), *reference) == [], line
 
 
@@ -114,7 +115,7 @@ def test_a_value_no_row_has_says_so_and_keeps_the_list_so_the_number_still_works
     model = Model(monkeypatch)
     assert say(world, "a das 12h") == T("LP_NONE", value=T("LP_VALUE_CLOCK", time="12:00")) and rows(world) == ([], [])
     assert say(world, "a das 14h") == T("LP_NONE", value=T("LP_VALUE_CLOCK", time="14:00")), "the list is still the last thing said after a pick that opened nothing"
-    assert say(world, "o 3") == CARD_SENT and model.calls == 0
+    assert says(say(world, "o 3"), CARD_1) and model.calls == 0
     assert card_problems(ops.pending(world["path"], 1), *M_3) == []
 
 
@@ -138,11 +139,11 @@ def corpus_listed(world, monkeypatch):
 def test_the_list_whose_numbers_are_two_and_four_is_picked_by_position_and_by_day(world, monkeypatch):
     corpus_listed(world, monkeypatch)
     Model(monkeypatch)
-    assert say(world, "a última") == CARD_SENT
+    assert says(say(world, "a última"), CARD_1)
     assert card_problems(ops.pending(world["path"], 1), *HAIR_4) == []
     event_lookup.forget_lists()
     listed(world)
-    assert say(world, "o primeiro") == "O card #2 espera a sua aprovação."      # validate: allow english-only -- the Portuguese sentence under test
+    assert alone(say(world, "o primeiro"), "ACCT_CARD_SENT", PT, pending=2)
     assert card_problems(ops.pending(world["path"], 2), *HAIR_2) == []
 
 
@@ -150,7 +151,7 @@ def test_the_list_whose_numbers_are_two_and_four_is_picked_by_position_and_by_da
 def test_a_day_the_list_shows_picks_the_row_on_that_day(world, monkeypatch, line, reference):
     corpus_listed(world, monkeypatch)
     model = Model(monkeypatch)
-    assert say(world, line) == CARD_SENT and model.calls == 0, line
+    assert says(say(world, line), CARD_1) and model.calls == 0, line
     assert card_problems(ops.pending(world["path"], 1), *reference) == [], line
 
 
@@ -158,14 +159,14 @@ def test_the_second_of_a_list_numbered_two_and_four_is_asked_and_never_opens_row
     corpus_listed(world, monkeypatch)
     model = Model(monkeypatch)
     assert say(world, "o segundo") == T("LP_ORDINAL_CLASH", n=2, position=T("LP_VALUE_ORDINAL", p=2), m=4) and rows(world) == ([], []) and model.calls == 0
-    assert say(world, "o 4") == CARD_SENT and card_problems(ops.pending(world["path"], 1), *HAIR_4) == [], "the number the question asks for is the number path"
+    assert says(say(world, "o 4"), CARD_1) and card_problems(ops.pending(world["path"], 1), *HAIR_4) == [], "the number the question asks for is the number path"
 
 
 def test_two_rows_at_one_hour_are_asked_and_the_list_is_kept(world, monkeypatch):
     corpus_listed(world, monkeypatch)
     Model(monkeypatch)
     assert say(world, "a das 13h") == T("LP_SEVERAL", value=T("LP_VALUE_CLOCK", time="13:00"), rows="2 " + T("LP_AND") + " 4") and rows(world) == ([], [])
-    assert say(world, "o 2") == CARD_SENT
+    assert says(say(world, "o 2"), CARD_1)
 
 
 def test_a_day_with_no_row_and_a_weekday_with_no_row_are_asked_with_the_list_kept(world, monkeypatch):
@@ -185,11 +186,11 @@ def test_a_weekday_word_is_read_as_the_day_and_as_the_position_and_asked_when_th
     corpus_listed(world, monkeypatch)
     Model(monkeypatch)
     # the list holds Thursday (row 2) and Friday (row 4): "a sexta" is Friday, and the sixth does not exist -> the Friday row
-    assert say(world, "a sexta") == CARD_SENT and card_problems(ops.pending(world["path"], 1), *HAIR_4) == []
+    assert says(say(world, "a sexta"), CARD_1) and card_problems(ops.pending(world["path"], 1), *HAIR_4) == []
     event_lookup.forget_lists()
     listed(world)
     # "a quinta": Thursday is row 2; the fifth does not exist -> the Thursday row
-    assert say(world, "a quinta") == "O card #2 espera a sua aprovação."      # validate: allow english-only -- the Portuguese sentence under test
+    assert alone(say(world, "a quinta"), "ACCT_CARD_SENT", PT, pending=2)
     assert card_problems(ops.pending(world["path"], 2), *HAIR_2) == []
 
 
@@ -208,14 +209,14 @@ def test_a_sexta_when_the_friday_row_is_not_the_sixth_is_asked_and_neither_row_i
     """Probe 3: seven rows, Friday is the fifth and the sixth is a Sunday: "a sexta" is the day (5) or the position (6): asked, no card."""
     sessions_listed(world, monkeypatch, [("23", "08:00", "09:00", "Sessao omega", "evs4"), ("25", "08:00", "09:00", "Sessao sigma", "evs5"), ("25", "09:00", "10:00", "Sessao zeta", "evs6")])
     assert say(world, "a sexta") == T("LP_DAY_OR_POSITION", a="5", position=T("LP_VALUE_ORDINAL", p=6), b="6") and rows(world) == ([], [])
-    assert say(world, "o 5") == CARD_SENT, "the number the question asks for is the number path"
-    assert "Event: evs4" in ops.pending(world["path"], 1)["body"].splitlines()
+    assert says(say(world, "o 5"), CARD_1), "the number the question asks for is the number path"
+    assert pk.said(ops.pending(world["path"], 1)["body"], "CARD_CAL_EVENT", CFG, event_id="evs4")
 
 
 def test_a_sexta_when_the_friday_row_is_the_sixth_opens_it_because_both_readings_name_it(world, monkeypatch):
     sessions_listed(world, monkeypatch, [("22", "12:00", "13:00", "Sessao omega", "evs4"), ("23", "08:00", "09:00", "Sessao sigma", "evs5")])
-    assert say(world, "a sexta") == CARD_SENT
-    assert "Event: evs5" in ops.pending(world["path"], 1)["body"].splitlines(), "the sixth row is the Friday row"
+    assert says(say(world, "a sexta"), CARD_1)
+    assert pk.said(ops.pending(world["path"], 1)["body"], "CARD_CAL_EVENT", CFG, event_id="evs5"), "the sixth row is the Friday row"
 
 
 # --- the change list --------------------------------------------------------------------------------------------------------------------------------
@@ -226,10 +227,10 @@ def test_after_a_change_list_a_das_15h_carries_the_new_time_recorded_with_the_li
     model = Model(monkeypatch)
     reply, _ = carry(world, "Muda a reunião teste para as 17h", op_text("event-change", {"time": "as 17h"}, time_iso="2026-10-21T17:00", weekday="wed"))      # validate: allow english-only -- the Portuguese line under test
     assert "3. " in reply and "5. " in reply, reply
-    assert say(world, "a das 15h") == CARD_SENT and model.calls == 0
-    lines = ops.pending(world["path"], 1)["body"].splitlines()
-    assert "Named as agenda#5, from the snapshot read at 2026-10-21T17:00:00Z." in lines, lines
-    assert "Before: When: Thu 22/10/2026 15:00-16:00 (America/Sao_Paulo)" in lines and "After: When: Thu 22/10/2026 17:00-18:00 (America/Sao_Paulo)" in lines, "17h is the time the person asked for"
+    assert says(say(world, "a das 15h"), CARD_1) and model.calls == 0
+    body = ops.pending(world["path"], 1)["body"]
+    assert pk.said(body, "CARD_CAL_SNAPSHOT", CFG, reference="agenda#5", read_at="2026-10-21T17:00:00Z"), body
+    assert pk.said(body, "CARD_CAL_BEFORE_WHEN", CFG, when="Thu 22/10/2026 15:00-16:00 (America/Sao_Paulo)") and pk.said(body, "CARD_CAL_AFTER_WHEN", CFG, when="Thu 22/10/2026 17:00-18:00 (America/Sao_Paulo)"), "17h is the time the person asked for"
 
 
 @pytest.mark.parametrize("line", ["às 15h", "15h", "para as 15h", "as 17h"])
@@ -251,7 +252,7 @@ def test_the_items_list_of_a_calendar_is_picked_by_position_and_a_bare_pick_asks
     shown = say(world, "lista os eventos")
     assert "3. " in shown and "5. " in shown, shown
     assert say(world, "a última") == T("EV_LIST_WHAT", n=5), "a bare pick on an items list asks what to do with the row, as a bare number does"
-    assert say(world, "cancela a das 15h") == CARD_SENT and model.calls == 0
+    assert says(say(world, "cancela a das 15h"), CARD_1) and model.calls == 0
     assert card_problems(ops.pending(world["path"], 1), *M_5) == []
 
 
@@ -280,7 +281,7 @@ def test_a_pick_after_a_refreshed_snapshot_is_asked_again_and_opens_no_card(worl
     world["snaps"].providers.events[("google", fgw.CALENDAR)].insert(0, tsm.event(9, "2026-10-21T08:00:00-03:00", "2026-10-21T08:30:00-03:00", "Breakfast", id="evnew"))
     world["snaps"].later(minutes=5)
     world["snaps"].refresh("agenda")
-    assert say(world, "a das 15h") == AGAIN and model.calls == 0 and rows(world) == ([], [])
+    assert says(say(world, "a das 15h"), AGAIN) and model.calls == 0 and rows(world) == ([], [])
 
 
 def test_a_pick_after_a_new_decision_card_opens_no_event_card(world, monkeypatch):
@@ -288,7 +289,8 @@ def test_a_pick_after_a_new_decision_card_opens_no_event_card(world, monkeypatch
     model = Model(monkeypatch, '{"v":1,"kind":"none"}')
     ops.event_create(world["path"], "google", "Haircut with Joe", "2026-10-23T13:00")
     say(world, "a das 15h")
-    assert model.calls == 1 and [i["title"] for i in rows(world)[1]] == ["Calendar: new event"], "the list ended when a card was made: no removal card"
+    titles = [i["title"] for i in rows(world)[1]]
+    assert model.calls == 1 and len(titles) == 1 and pk.said(titles[0], "TITLE_CAL_CREATE", CFG), "the list ended when a card was made: no removal card"
 
 
 def test_a_sender_who_may_not_read_the_calendar_gets_no_pick_even_from_a_record_of_their_own(world, monkeypatch):
@@ -308,7 +310,7 @@ def test_a_pick_is_valid_for_ten_minutes_and_a_new_line_after_them(world, monkey
     model = Model(monkeypatch, '{"v":1,"kind":"none"}')
     world["clock"].set(f"2026-10-21 {minute}")
     reply = say(world, "a última")
-    assert (reply == CARD_SENT and model.calls == 0) if opens else (model.calls == 1 and rows(world) == ([], [])), minute
+    assert (says(reply, CARD_1) and model.calls == 0) if opens else (model.calls == 1 and rows(world) == ([], [])), minute
 
 
 @pytest.mark.parametrize("line", ["os dois últimos", "as duas", "ambas", "a das 15h e muda para as 17h", "a reunião das 15h", "aprovo a segunda", "o do banco"])      # validate: allow english-only -- the Portuguese lines under test
@@ -328,7 +330,7 @@ def test_a_weekday_with_no_row_is_asked_in_words_of_the_day_and_never_guessed(wo
 def test_the_number_form_is_unchanged_and_wins_over_a_pick(world, monkeypatch):
     meetings_listed(world, monkeypatch)
     model = Model(monkeypatch)
-    assert say(world, "cancela o 3") == CARD_SENT and model.calls == 0
+    assert says(say(world, "cancela o 3"), CARD_1) and model.calls == 0
     assert card_problems(ops.pending(world["path"], 1), *M_3) == []
 
 
@@ -344,9 +346,9 @@ def test_the_list_of_two_created_events_is_picked_by_the_last_and_opens_the_card
     assert "1. " in reply and "2. " in reply, reply
     record = next(iter(event_lookup._LISTS.values()))
     assert [s["account"] for s in record["shown"]] == ["google", "google"] and [s["start"] for s in record["shown"]] == ["13:00", "13:00"]
-    assert say(world, "a última") == "O card #3 espera a sua aprovação." and model.calls == 0      # validate: allow english-only -- the Portuguese sentence under test
-    body = pending(world, 3)["body"].splitlines()
-    assert "Event: ev0002" in body and "When: Fri 23/10/2026 13:00-14:00 (America/Sao_Paulo)" in body, body
+    assert alone(say(world, "a última"), "ACCT_CARD_SENT", PT, pending=3) and model.calls == 0      # validate: allow english-only -- the Portuguese sentence under test
+    body = pending(world, 3)["body"]
+    assert pk.said(body, "CARD_CAL_EVENT", CFG, event_id="ev0002") and pk.said(body, "CARD_CAL_WHEN", CFG, when="Fri 23/10/2026 13:00-14:00 (America/Sao_Paulo)"), body
     assert card_ids(world) == [1, 2, 3]
 
 

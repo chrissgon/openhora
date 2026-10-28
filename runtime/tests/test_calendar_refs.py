@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import (GRAPH_SEEDED, SEEDED, approve, create, effect_doc, fgc, fgw, install_item_refs, item_of, item_refs, made_event, ops, ops_core,  # noqa: F401
@@ -17,6 +18,7 @@ from test_calendar_write import (GRAPH_SEEDED, SEEDED, approve, create, effect_d
 from test_channel_grants import accept
 
 SENDER = "telegram:830461975213"
+CFG = {"language": "en"}
 
 
 def test_a_change_by_a_reference_into_a_refreshed_calendar_snapshot_is_made_to_the_event_the_snapshot_numbered(world, monkeypatch):
@@ -28,8 +30,9 @@ def test_a_change_by_a_reference_into_a_refreshed_calendar_snapshot_is_made_to_t
     doc = effect_doc(world, started)
     assert doc["event_id"] == "evother0002" and doc["reference"] == {"source": "agenda", "n": 2, "read_at": "2026-10-17T10:12:00Z"} and doc["before"]["title"] == "Lunch"
     lines = item_of(world, started)["body"].splitlines()
-    assert "The event now: Lunch" in lines and "The event now is at: Tue 20/10/2026 12:00-13:00 (America/Sao_Paulo)" in lines
-    assert "Named as agenda#2, from the snapshot read at 2026-10-17T10:12:00Z." in lines
+    body = "\n".join(lines)
+    assert pk.said(body, "CARD_CAL_NOW_TITLE", CFG, title="Lunch") and pk.said(body, "CARD_CAL_NOW_WHEN", CFG, when="Tue 20/10/2026 12:00-13:00 (America/Sao_Paulo)")
+    pk.assert_said(body, "CARD_CAL_SNAPSHOT", CFG, reference="agenda#2", read_at="2026-10-17T10:12:00Z")
     world["google"].requests.clear()
     assert approve(world, started)["task_state"] == "done"
     assert world["google"].events["evother0002"]["summary"] == "Lunch with Pat" and world["google"].events[SEEDED]["summary"] == "Dentist"
@@ -46,7 +49,8 @@ def test_a_renumbered_snapshot_cannot_make_the_person_approve_another_event_beca
     snaps.refresh("agenda")
     again = ops.event_cancel(world["path"], "google", "agenda#1")      # the same words, another event: the card says which, and when the snapshot was read
     lines = item_of(world, again)["body"].splitlines()
-    assert "The event now: Lunch" in lines and "Named as agenda#1, from the snapshot read at 2026-10-17T12:12:00Z." in lines
+    body = "\n".join(lines)
+    assert pk.said(body, "CARD_CAL_NOW_TITLE", CFG, title="Lunch") and pk.said(body, "CARD_CAL_SNAPSHOT", CFG, reference="agenda#1", read_at="2026-10-17T12:12:00Z")
     assert effect_doc(world, again)["event_id"] == "evother0002"
 
 
@@ -91,7 +95,7 @@ def test_a_messaging_sender_reads_a_snapshot_reference_only_with_ask_mail_and_a_
     own = ops.event_create(world["path"], "google", "Lunch with Sam", "2026-10-21T12:00", channel="messaging", sender=SENDER)
     approve(world, own)
     started = ops.event_change(world["path"], "google", f"created:{own['pending']}", title="Haircut with Pat", channel="messaging", sender=SENDER)
-    assert effect_doc(world, started)["reference"] is None and "The event now: Lunch with Sam" in item_of(world, started)["body"], "the sender asked for it themselves"
+    assert effect_doc(world, started)["reference"] is None and pk.said(item_of(world, started)["body"], "CARD_CAL_NOW_TITLE", CFG, title="Lunch with Sam")  # the sender asked for it themselves
     with pytest.raises(ops.OpsError):
         ops.event_change(world["path"], "google", f"created:{own['pending']}", title="Haircut with Pat", channel="messaging", sender="telegram:9999")
     for channel in ("page", None, "terminal"):
