@@ -1,0 +1,157 @@
+{
+ "v": 1,
+ "made_from": "73c7594",
+ "rule": "the folded words of a reply that names one row of a list the platform just showed, by an ordinal word, the word for last, a clock, a day, an account brand or sender words: each is read only whole, after an article or a lead for it, and with nothing after it but a polite word",
+ "languages": {
+  "en": {
+   "after_ordinal": [
+    "in the list",
+    "one"
+   ],
+   "articles": [
+    "that",
+    "the",
+    "this"
+   ],
+   "clock_leads": [
+    "one at",
+    "the one at"
+   ],
+   "last": [
+    "last",
+    "last one"
+   ],
+   "ordinals": [
+    [
+     "first"
+    ],
+    [
+     "second"
+    ],
+    [
+     "third"
+    ],
+    [
+     "fourth"
+    ],
+    [
+     "fifth"
+    ],
+    [
+     "sixth"
+    ],
+    [
+     "seventh"
+    ],
+    [
+     "eighth"
+    ],
+    [
+     "ninth"
+    ],
+    [
+     "tenth"
+    ]
+   ],
+   "polite": [
+    "please"
+   ],
+   "value_leads": [
+    "one from",
+    "one in",
+    "one on",
+    "the one from",
+    "the one in",
+    "the one on"
+   ],
+   "weekday_ordinals": []
+  },
+  "pt-BR": {
+   "after_ordinal": [
+    "da lista"
+   ],
+   "articles": [
+    "a",
+    "aquela",
+    "aquele",
+    "essa",
+    "esse",
+    "o"
+   ],
+   "clock_leads": [
+    "a das",
+    "o das"
+   ],
+   "last": [
+    "ultima",
+    "ultimo"
+   ],
+   "ordinals": [
+    [
+     "primeiro",
+     "primeira"
+    ],
+    [
+     "segundo",
+     "segunda"
+    ],
+    [
+     "terceiro",
+     "terceira"
+    ],
+    [
+     "quarto",
+     "quarta"
+    ],
+    [
+     "quinto",
+     "quinta"
+    ],
+    [
+     "sexto",
+     "sexta"
+    ],
+    [
+     "setimo",
+     "setima"
+    ],
+    [
+     "oitavo",
+     "oitava"
+    ],
+    [
+     "nono",
+     "nona"
+    ],
+    [
+     "decimo",
+     "decima"
+    ]
+   ],
+   "polite": [
+    "pf",
+    "por favor"
+   ],
+   "value_leads": [
+    "a da",
+    "a de",
+    "a do",
+    "a dos",
+    "a na",
+    "a no",
+    "o da",
+    "o de",
+    "o do",
+    "o dos",
+    "o na",
+    "o no"
+   ],
+   "weekday_ordinals": [
+    "quarta",
+    "quinta",
+    "segunda",
+    "sexta"
+   ]
+  }
+ }
+}
