@@ -228,7 +228,7 @@ The names fixed for this work. Use each exactly.
 
 | Term | What it is |
 |---|---|
-| Task runtime | The code under `runtime/`; the older `scripts/runtime.py`, with `scripts/runtime_vote.py` and `scripts/vote_job.py`, is "the first runtime", which stays until stage 7 ends; its social agent already runs as handlers of the task runtime, as a contained run |
+| Task runtime | The code under `runtime/`; "the first runtime", three scripts under `scripts/`, was deleted by T6 (2026-10-27); its social agent runs as handlers of the task runtime, as a contained run |
 | Request | What the person asked for, in the person's words; in the store, a task with no parent and no skill |
 | Task | One unit of work: one skill, run on the project until it is done; nine states |
 | Task run | One run of a task's skill in the container (table `task_runs`); a run made again inside it is an attempt |

@@ -2,7 +2,7 @@
 
 A vote held in a public repository picks the topic of one post a week. The runtime turns the closed round into a post the person approves once, publishes it at the calendar's time and records it in the repository. This document is the contract between the three parts: the repository that runs the vote, the runtime's vote step, and the skill `mkt-vote-round`.
 
-- Status: built (`scripts/runtime_vote.py`, `scripts/vote_job.py`, tests in `scripts/tests/test_runtime_vote.py`); not yet run for one real week from end to end.
+- Status: built (`runtime/handlers/social_vote.py`, `runtime/handlers/social_vote_job.py`, tests in `runtime/tests/test_social_vote.py`; first built as scripts under `scripts/`, deleted by T6 on 2026-10-27); not yet run for one real week from end to end.
 - Target: any repository that holds the files below, named in the project's `runtime.json` (`vote` section: `repo`, `branch`, `pillars`; `contracts/runtime.md`).
 - What belongs to a project and is not described here: which repository it is, how it shows the vote and the winner to visitors, how visitors pick, the day and time of the round, the wording of its pages. Those live in that project.
 
@@ -45,7 +45,7 @@ next tick      runtime tick: vote step
                4. code: content file from the proposal, check_post.py, the post image (HTML piece rendered to PNG,
                   contrast.py), payload.py build (post, first comment, image), the change set for the queue (new round
                   appended), one payload file with everything and its sha256; inbox item + notification
-then           the person approves once (runtime.py approve --id N --confirmed --sha256 H)
+then           the person approves once (social.py approve --id N --confirmed --sha256 H)
                5. code: schedules the publish job at the slot time (the scheduler provider, with the digest), and
                   commits the queue change to the repository (vcs commit-files, confirmed under the same approval)
 slot time      6. the job publishes the post and its first comment, then records it: post_url into history[R], the
@@ -60,8 +60,8 @@ slot time      6. the job publishes the post and its first comment, then records
 | Reading and committing files in a repository | `providers/vcs/github.py`: `read-file` (read only) and `commit-files` (a private clone, the given files, a signed commit with the user's git configuration, a push to the named branch; idempotency key; `--dry-run` prints the diff) | the requirement class is `integration:vcs`; the skill never names the host |
 | Vote state and updates | skill `mkt-vote-round`: `scripts/vote_state.py` (what is pending, the slot, the next pillar, used topics), `scripts/vote_update.py` (the new JSON files, computed, never written by a model) | capability; runtime mode returns the `vote-proposal` block |
 | The post image | `brand-identity/scripts/render.py`: an HTML piece rendered to PNG at an exact size with a headless browser; `contrast.py` for the colours | degrade: no browser, no image, the post goes text-only and the approval says so |
-| The weekly step | `scripts/runtime_vote.py`, imported by `scripts/runtime.py`: a `vote` section in `runtime.json`, run once per closed round (cursor `vote:<round>`) | the model proposes; code builds, checks, queues and commits |
-| Publish and record | `scripts/vote_job.py`, which the scheduled job calls: publish, then `vote_update.py` with the post URL, then `commit-files` | its files are in the job's snapshot like any job |
+| The weekly step | `runtime/handlers/social_vote.py`, imported by `runtime/handlers/social.py`: a `vote` section in `runtime.json`, run once per closed round (cursor `vote:<round>`) | the model proposes; code builds, checks, queues and commits |
+| Publish and record | `runtime/handlers/social_vote_job.py`, which the scheduled job calls: publish, then `vote_update.py` with the post URL, then `commit-files` | its files are in the job's snapshot like any job |
 
 ## Safety
 

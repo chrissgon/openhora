@@ -6,8 +6,6 @@
 # system interpreter. shared/scripts/tests holds the tests of the scripts the skills carry as generated copies.
 scripts/tests/test_runtime_python39.py
 scripts/tests/test_provider_resolve.py
-scripts/tests/test_runtime.py
-scripts/tests/test_runtime_vote.py
 scripts/tests/test_stage_skills.py
 skills/mkt-engage/scripts/tests
 skills/mkt-publish/scripts/tests

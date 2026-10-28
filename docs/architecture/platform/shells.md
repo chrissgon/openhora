@@ -6,7 +6,7 @@ Part of [the platform map](README.md). Every layer page has the same eight secti
 
 A shell is a surface a person (or a scheduler) uses to reach the task runtime: it parses what was typed, calls one function of the operations layer (`runtime/ops.py`) and prints what that function returned. A shell holds no rule of its own: which actions a pending decision allows, what a state leads to, what a hash must equal are decided by the operations layer and the store. Five shells reach that layer: the terminal command (`runtime/cli.py`), the conversation (`runtime/chat.py`), the local service (`runtime/service.py`, which serves the pages of `interface/` and the routes listed under "Entry points"), the MCP mode (`runtime/mcp.py`, a process that an MCP client starts and speaks to on standard input and output: it is not a mode of the service and it opens no socket) and the messaging bridge (`runtime/messaging.py`, which takes the operations to a messaging app the person already uses, as the channel `messaging`; the local service can start it as a child process with `--messaging`, and [messaging.md](messaging.md) follows the feature across the layers). The service and the MCP mode share `runtime/shell_kit.py`, which is not a shell, and the bridge also imports it (its job registry and project list); the scheduler's entry (`runtime/dispatcher.py`) is a shell of another kind, started by a machine.
 
-The first runtime (`scripts/runtime.py`) has its own command and is not a shell of the operations layer; it stays as it is until stage 7 of the platform plan (removed on 2026-10-15; `git show bc830832:docs/architecture/platform-plan-2026-10-05.md`).
+The social agent's handler (`runtime/handlers/social.py`) has its own command and is not a shell of the operations layer (the first runtime, the script it was ported from, was deleted by T6 on 2026-10-27).
 
 The operations are described on [the runtime's page](runtime.md); the contract is [contracts/runtime.md](../../../contracts/runtime.md). This page maps the surfaces and does not repeat them.
 
@@ -29,7 +29,7 @@ flowchart TB
     LAB["runtime/lab.py, the lab, the container"]
     PR["Providers by class"]
     PJ["Target project"]
-    OLD["scripts/runtime.py<br/>the first runtime, until stage 7"]
+    OLD["runtime/handlers/social.py<br/>the social agent's tick"]
 
     P --> CLI
     P --> CHAT
@@ -72,8 +72,8 @@ Where: **repo** is this repository, **project** the target project, **data** the
 | The scheduler's command files of the two jobs | data (the scheduler's job folder) | JSON: `argv` (starts with `/usr/bin/python3`), `cwd`, `snapshot` (the entry and the pin), `timeout_minutes` | `dispatcher.py command-file`, then the scheduler provider | the scheduler | replaced when the jobs are scheduled again | no | yes |
 | `<data_dir>/dispatch-pin.json` | data | the path and sha256 of the accepted `runtime.json`, mode 0600 | `cli.py pin` (`ops.pin`) | `dispatcher.py poll`, `work` | written again after each accepted change | no | yes |
 | The conversation (`conversation_messages`, migration 6) | data (`store_db`) | one row per turn side: `role`, `text`, `task_id`, `run_id`; one conversation per project, named `project` | `ops.say` only | `ops.say` (the memory, the last request) | grows | no | no |
-| `scripts/runtime.py`, `scripts/runtime_vote.py`, `scripts/vote_job.py` | repo | Python 3.9, standard library only | maintainers | the scheduler (the tick, a vote job), the person (`approve`, `reject`, `status`, `inbox`) | until stage 7 | yes | no |
-| `<data_dir>/tick-pin.json`, `tick.lock`, `events/`, `runs/` | data | the first runtime's pin (runtime.json and the gate script by sha256), lock, inbox files and run folders | `scripts/runtime.py` | `scripts/runtime.py` | until stage 7 | no | yes |
+| `runtime/handlers/social.py`, `social_vote.py`, `social_vote_job.py` | repo | Python 3.9, standard library only | maintainers | the scheduler (the tick, a vote job), the person (`approve`, `reject`, `status`, `inbox`) | while the social agent runs outside the dispatcher | yes | no |
+| `<data_dir>/tick-pin.json`, `tick.lock`, `events/`, `runs/` | data | the social agent's pin (runtime.json and the gate script by sha256), lock, inbox files and run folders | `runtime/handlers/social.py` | `runtime/handlers/social.py` | while the social agent runs outside the dispatcher | no | yes |
 | `runtime/service.py` | repo | Python 3.9, standard library only; its docstring is the `--help` text; it imports `ops.py`, `shell_kit.py` and nothing else of the runtime | maintainers | the person (`uv run --with keyring==25.7.0 python3 runtime/service.py --project <dir>`) | changed by pull request | yes | no |
 | `runtime/mcp.py` | repo | Python 3.9, standard library only; its docstring is the `--help` text; it imports `ops.py`, `shell_kit.py` and nothing else of the runtime | maintainers | an MCP client, which starts it as a child process (`python3 runtime/mcp.py --project <dir>`) | changed by pull request | yes | no |
 | `runtime/shell_kit.py` | repo | Python 3.9, standard library only; what the service and the MCP mode share: the project id and list, the status words of the operations layer's codes, the argument kinds, the job registry; it imports nothing of the runtime | maintainers | `runtime/service.py`, `runtime/mcp.py` | changed by pull request | yes | no |
@@ -230,7 +230,7 @@ Each invariant with its guard. A test is in `runtime/tests/` unless its path is 
 
 **The shell kit** (`runtime/tests/test_shell_kit.py`). Each name the two shells share is defined in the kit and in no other module of the runtime, and the shells hold the kit's own objects, not copies: `test_each_shared_name_is_defined_in_the_kit_and_in_no_other_module_of_the_runtime`, `test_the_two_shells_hold_the_kits_own_objects_not_copies`.
 
-**The first runtime** (until stage 7; tests in `scripts/tests/test_runtime.py` and `scripts/tests/test_runtime_vote.py`).
+**The social agent's handler** (tests in `runtime/tests/test_social_handler.py` and `runtime/tests/test_social_vote.py`; they carry the guards of the first runtime's tests, deleted by T6 with the same names).
 
 - A pinned tick refuses when `runtime.json` or the gate script changed: `test_a_pinned_tick_refuses_when_the_configuration_or_the_gate_changed`.
 - `approve` sends only the exact reply shown, once, and never one that holds a credential: `test_approve_sends_only_the_exact_reply_shown`; `test_approving_the_same_item_twice_sends_once`; `test_approve_refuses_a_reply_that_holds_a_credential`.
@@ -411,7 +411,7 @@ Each command calls its operation of the same name once (`/progress` shows its `t
 
 `poll` is `ops.poll` (mirrors, expired approvals, the state file's generated lines, the releases a mode makes; no model, no task); `work` is `ops.dispatch(wait=True)` (the handlers' ticks, the releases, then every run the modes, the caps, the slots and the files in use allow, each as a process of its own, waiting for them); `check` looks for every module, the lab, the secret store, the credential, docker, uv and git; `command-file` prints a job's command file for the scheduler provider.
 
-**The first runtime** (until stage 7), `python3 scripts/runtime.py <verb> --project <dir>`: `tick [--dry-run] [--pin]`, `pin`, `add-comment --link --commenter --text-file`, `status`, `inbox`, `approve --id [--confirmed --sha256]`, `reject --id [--note]`; exit 0 ok, 1 a step failed, 2 usage, 3 not configured. `scripts/vote_job.py` is started by the scheduler at a vote post's slot, never by hand (exit 0, 1, 2).
+**The social agent's handler**, `python3 runtime/handlers/social.py <verb> --project <dir>`: `tick [--dry-run] [--pin]`, `pin`, `add-comment --link --commenter --text-file`, `status`, `inbox`, `approve --id [--confirmed --sha256]`, `reject --id [--note]`; exit 0 ok, 1 a step failed, 2 usage, 3 not configured. `runtime/handlers/social_vote_job.py` is started by the scheduler at a vote post's slot, never by hand (exit 0, 1, 2).
 
 **The local service**, `uv run --with keyring==25.7.0 python3 runtime/service.py --project <dir> [--project <dir>]... [--port 8765] [--poll-every 60] [--dispatch-every 30 | --no-dispatch] [--token-file <path>] [--messaging <platform>[,<platform>]... [--notice-every 60]]`; the `uv` form lets it read the secret store, and without it the pages and the reads work but no run starts. It binds `127.0.0.1` only (no option for another address), writes a token to a file for its owner, checks `Host` and `Origin` and sends no cross-origin header. A route exists for a row of the table that lists the `page` channel (`config` excepted), under `/api/v1/`, and the service has three routes of its own: `GET /projects`, `GET /versions` and `GET /jobs/{id}`; all are in the block below. A route whose operation's row has `job` answers 202 with a job to ask for again, 409 `busy` while another job that calls a model runs for the project, and 503 `stopping` once the service is shutting down.
 

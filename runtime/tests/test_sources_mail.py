@@ -688,11 +688,11 @@ def test_limit_52_the_providers_of_mail_and_calendar_are_named_only_by_the_one_m
         if paths.search(source) and not rel.startswith("providers/"):   # the providers' own helpers describe themselves
             pathed[rel] = True
     assert found["integration:calendar"] == {"runtime/sources_mail.py"}, found
-    # reader:email is also named by the two older ticks that poll a platform's notification e-mails with the project's own fixed query (the
-    # handler's configuration, never a task's argument): runtime/handlers/social.py and scripts/runtime.py. scripts/validate.py holds the table of the
+    # reader:email is also named by the tick that polls a platform's notification e-mails with the project's own fixed query (the
+    # handler's configuration, never a task's argument): runtime/handlers/social.py. scripts/validate.py holds the table of the
     # classes' old names and providers/resolve.py defines the classes; neither calls a provider of mail. No other module of the runtime, of the
     # scripts or of the providers' own folder names one.
-    assert found["reader:email"] == {"runtime/sources_mail.py", "runtime/handlers/social.py", "scripts/runtime.py", "scripts/validate.py",
+    assert found["reader:email"] == {"runtime/sources_mail.py", "runtime/handlers/social.py", "scripts/validate.py",
                                      "providers/resolve.py"}, found
     # nor does any module build the path of one of those providers: the documentation of the authorization commands (cli.py, the help of the two
     # operations) and the module itself are the only places a path of providers/mailbox or providers/calendar is written outside the providers

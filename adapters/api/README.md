@@ -14,7 +14,7 @@ It implements only the runtime's entry point, `run-agent.sh`. It installs nothin
 | Cost per run | one call: input + output tokens | several tool turns, each resending context |
 | Best for | a small server (VPS), a scheduled runtime | a local machine, while files the task cannot name are needed |
 
-Choose it in the project's `docs/workbench/runtime.json`: `"harness": "api"` and a model id with the endpoint prefix, for example `"model": "anthropic/claude-sonnet-5-5"` or `"model": "openrouter/deepseek/deepseek-v3.2"`. `scripts/runtime.py` then calls `bash adapters/api/run-agent.sh` with the same flags it gives any adapter.
+Choose it in the project's `docs/workbench/runtime.json`: `"harness": "api"` and a model id with the endpoint prefix, for example `"model": "anthropic/claude-sonnet-5-5"` or `"model": "openrouter/deepseek/deepseek-v3.2"`. No runtime of the core calls `bash adapters/api/run-agent.sh` until one does (its only caller, the first runtime, was deleted by T6; the task runtime and the social agent's handlers start agents through `runtime/cli.py contained-run`), so the choice above takes effect only in a runtime that reads those keys and gives the script the same flags it gives any adapter.
 
 ## Usage
 
@@ -55,7 +55,7 @@ Keys are read only through `providers/secrets/resolver.py` (`contracts/secrets.m
 
 - **Before the call:** input tokens are estimated as characters / 3.5. It is an estimate, not a tokenizer count; newer Claude tokenizers produce about 30% more tokens for the same text (https://platform.claude.com/docs/en/about-claude/pricing). When the estimate times the model's input price already exceeds `--max-cost-usd`, nothing is sent (`exit_code` 3).
 - **After the call:** `cost_usd` is OpenRouter's `usage.cost` when present; for the Anthropic endpoint, the reported tokens times the price in `runtime/prices.json`, the workbench's one price table that the runtime reads too (cache tokens at their own prices, though this adapter never asks for caching).
-- **Unknown price:** a model missing from `runtime/prices.json` (by its id or an alias) runs with a warning in `stderr.log`, no pre-call check, and `cost_usd` null for the Anthropic endpoint. The first runtime's `today_spend` (`scripts/runtime.py`) counts that run as `max_cost_usd_per_run`, so add the price before using a new model (`python3 scripts/update_prices.py` writes OpenRouter's): each entry has its source URL and access date.
+- **Unknown price:** a model missing from `runtime/prices.json` (by its id or an alias) runs with a warning in `stderr.log`, no pre-call check, and `cost_usd` null for the Anthropic endpoint. A runtime that sums a day's spend counts that run as `max_cost_usd_per_run` (the first runtime's `today_spend` did, before T6), so add the price before using a new model (`python3 scripts/update_prices.py` writes OpenRouter's): each entry has its source URL and access date.
 
 `runtime/prices.json` holds, with the dates they were read: Claude Sonnet 5.5 $2 / $10 and Claude Haiku 4.5 $1 / $5 per million input / output tokens (https://platform.claude.com/docs/en/about-claude/pricing, 2026-09-30); DeepSeek V3.2 on OpenRouter $0.28 / $0.42 and DeepSeek V4.1 Flash on OpenRouter (https://openrouter.ai/api/v1/models, 2026-09-30 and 2026-10-15).
 

@@ -691,8 +691,8 @@ def test_the_tick_command_the_scheduler_readme_documents_is_one_the_runtime_acce
     ticks = [b for b in blocks if "tick" in b["argv"]]
     assert len(ticks) == 1
     argv = ticks[0]["argv"]
-    # 2026-10-07: the README documents the old script until WP-7.2 (the maintainer's) schedules the handler; this assertion flips with it.
-    assert argv[0] == "/usr/bin/python3" and argv[1].endswith("scripts/runtime.py")
+    # T6: the README's example job starts the handler, the one agent runtime that ships.
+    assert argv[0] == "/usr/bin/python3" and argv[1].endswith("runtime/handlers/social.py")
     (tmp_path / "docs/workbench").mkdir(parents=True)
     args = [str(tmp_path) if a == "/abs/project" else a for a in argv[2:]]
     r = subprocess.run([sys.executable, str(RUNTIME), *args], capture_output=True, text=True, timeout=60)
@@ -1325,3 +1325,30 @@ def test_replay_takes_a_start_time_and_names_the_folders_it_cannot_replay(env, t
     assert code == 2 and "--runs" in err
     code, _, err = rt(env, "replay")
     assert code == 2 and "--runs" in err
+
+
+def _the_verbs_the_command_takes():
+    # a literal list of words, read from our own file
+    import ast
+    source = (REPO / "runtime" / "handlers" / "social.py").read_text(encoding="utf-8")
+    choices = re.search(r'p\.add_argument\("verb", choices=(\[.*?\])\)', source).group(1)
+    return ast.literal_eval(choices)
+
+
+def test_the_handler_lists_the_verbs_its_command_takes(monkeypatch):
+    # Moved from test_social_port_parity.py (T6): it was never about parity, it checks that the verbs the handler
+    # lists are the ones its parser takes.
+    monkeypatch.syspath_prepend(str(REPO / "runtime" / "handlers"))
+    import social
+    assert list(social.VERBS) == _the_verbs_the_command_takes()
+    assert list(social.VERBS) == ["tick", "pin", "add-comment", "status", "inbox", "approve", "reject", "replay"]
+
+
+def test_a_verb_the_handler_forgets_or_invents_fails_the_verbs_check(monkeypatch):
+    # Vacuity of the test above: planted wrong lists must differ from what the parser takes.
+    monkeypatch.syspath_prepend(str(REPO / "runtime" / "handlers"))
+    import social
+    taken = _the_verbs_the_command_takes()
+    assert taken == ["tick", "pin", "add-comment", "status", "inbox", "approve", "reject", "replay"]
+    assert [v for v in social.VERBS if v != "replay"] != taken      # a verb removed from VERBS
+    assert [*social.VERBS, "invented"] != taken                     # a verb the parser does not take

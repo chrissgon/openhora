@@ -55,8 +55,7 @@ scripts/            repository tooling: validate.py, security_scan.py, sync_copi
                     install-hooks.sh, select_skills.py, stage_skills.py, test_dirs.py, doctor.py (with doctor_ops.py: `--unattended`), evidence.py,
                     verify_community.py and community_pack.py (community evidence), image_lock.py (the eval image's lock file),
                     update_prices.py (the price table), skill_import.py (a skill from outside: fetch, check, vet, test), redact.py,
-                    build_demo.py and demo_fixtures.py (the interface's demo mode),
-                    and the agent runtime (runtime.py, runtime_vote.py, vote_job.py)
+                    build_demo.py and demo_fixtures.py (the interface's demo mode)
 runtime/            the task runtime: a request becomes tasks, each task runs one skill in the eval container (or, for a step task, code
                     with no model), a person decides through pending decisions; lab.py is the one file that imports the eval runner,
                     ops.py the operations, cli.py the shell (runtime/README.md lists the modules)

@@ -1,4 +1,4 @@
-"""The scheduled tick runs scripts/runtime.py with /usr/bin/python3 (Python 3.9 on macOS), and the runtime starts
+"""The scheduled tick runs runtime/handlers/social.py with /usr/bin/python3 (Python 3.9 on macOS), and the runtime starts
 the scripts below with that same interpreter (providers/CONTRACT.md, "Python version"). Three guards:
 
 1. Syntax: each file parses as Python 3.9, and a `X | None` annotation, which 3.9 evaluates at definition time and
@@ -25,7 +25,7 @@ EXCLUDED = {}      # {repository-relative path: the reason}: a runtime module th
 RUNTIME_FILES = sorted(p for p in ["runtime/" + x.name for x in (REPO / "runtime").glob("*.py")] + ["runtime/handlers/" + x.name for x in (REPO / "runtime" / "handlers").glob("*.py")]
                        if p not in EXCLUDED)      # HOT-1: derived, so a new module is covered without anyone listing it
 OTHERS = [      # the entries outside runtime/ and runtime/handlers/, literal
-    "scripts/runtime.py", "scripts/runtime_vote.py", "scripts/vote_job.py", "scripts/redact.py",
+    "scripts/redact.py",
     "providers/resolve.py", "providers/store/sqlite.py",
     "providers/scheduler/launchd.py", "providers/scheduler/systemd.py",
     "skills/mkt-engage/scripts/policy_gate.py", "skills/mkt-engage/scripts/parse_notification.py",
@@ -69,8 +69,7 @@ OTHERS = [      # the entries outside runtime/ and runtime/handlers/, literal
     "providers/model/chat-http.py",
 ]
 ON_SYSTEM_PYTHON = RUNTIME_FILES + OTHERS
-RUNTIME = ("scripts/runtime.py", "scripts/runtime_vote.py", "scripts/vote_job.py",
-           "runtime/handlers/social.py", "runtime/handlers/social_vote_job.py")  # the scheduler starts these
+RUNTIME = ("runtime/handlers/social.py", "runtime/handlers/social_vote_job.py")  # the scheduler starts these
 SYSTEM_PYTHON = (3, 9)
 REQUIRES = re.compile(r'^# requires-python = "([^"]+)"$', re.M)
 IMPORT = ("import importlib.util, sys; sys.path.insert(0, sys.argv[2]); "
