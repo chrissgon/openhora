@@ -185,7 +185,7 @@ def test_an_id_is_percent_encoded_in_the_path_and_a_bad_one_is_a_usage_error_bef
     out(run(fake, tmp_path, "open", "--list", "MTIz=="))
     assert fake.calls()[-1][1] == "/tasks/v1/lists/MTIz%3D%3D/tasks"
     before = len(fake.requests)
-    for bad in ("../x", "a/b", "a b", "-x", "", "x" * 201, "@default"):
+    for bad in ("../x", "a/b", "a b", "-x", "", "x" * 301, "@default"):
         assert run(fake, tmp_path, "open", "--list", bad).returncode == 2, bad
     assert len(fake.requests) == before
 
@@ -213,3 +213,10 @@ def test_vacuity_a_reader_that_kept_completed_tasks_would_fail_the_open_test(fak
     monkeypatch.setattr(reader, "task_of", lambda item: {"id": item["id"], "title": item.get("title"), "updated": None, "etag": None})
     printed = [reader.task_of(t)["id"] for t in fake.tasks[fg.DEFAULT_LIST].values()]
     assert printed == ["t1", "t2", "t3"] and printed != ["t1", "t2"]
+
+
+def test_an_id_of_300_characters_is_accepted_and_one_of_301_is_not(fake, tmp_path):
+    longest = "a" * 300
+    fake.lists[longest], fake.tasks[longest] = "Long", {}
+    assert out(run(fake, tmp_path, "open", "--list", longest))["tasks"] == []
+    assert run(fake, tmp_path, "open", "--list", "a" * 301).returncode == 2

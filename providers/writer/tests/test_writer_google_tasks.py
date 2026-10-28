@@ -199,7 +199,7 @@ def test_a_task_that_is_gone_or_already_completed_is_changed(fake, tmp_path, sta
 
 def test_task_get_prints_the_task_in_closed_words_and_a_gone_task_is_found_false(fake, tmp_path, state):
     shown = out(run(fake, tmp_path, state, "task-get", "--account", ACCOUNT, "--list", LIST, "--task", "t1"))
-    assert shown == {"found": True, "task": {"id": "t1", "title": "buy coffee", "status": "open", "etag": '"LTE1001"', "updated": fake.tasks[LIST]["t1"]["updated"]}}
+    assert shown == {"found": True, "task": {"id": "t1", "title": "buy coffee", "status": "open", "etag": '"LTE1001"', "updated": fake.tasks[LIST]["t1"]["updated"], "external_content": True}}
     fake.tasks[LIST]["t1"]["status"] = "completed"
     assert out(run(fake, tmp_path, state, "task-get", "--account", ACCOUNT, "--list", LIST, "--task", "t1"))["task"]["status"] == "completed"
     assert out(run(fake, tmp_path, state, "task-get", "--account", ACCOUNT, "--list", LIST, "--task", "zz")) == {"found": False, "reason": "gone"}
@@ -412,3 +412,34 @@ def test_every_request_a_run_makes_is_in_the_allow_list_and_no_title_is_on_stder
     out(run(fake, tmp_path, state, *insert_args(tmp_path, title="private plan")))
     proc = run(fake, tmp_path, state, *complete_args(task="nope", key="task-x"))
     assert "private plan" not in proc.stderr and "buy coffee" not in proc.stderr and fake.unexpected() == []
+
+
+def test_task_get_says_its_content_is_external_in_every_answer_that_has_a_task(fake, tmp_path, state):
+    shown = out(run(fake, tmp_path, state, "task-get", "--account", ACCOUNT, "--list", LIST, "--task", "t1"))
+    assert shown["task"]["external_content"] is True and out(run(fake, tmp_path, state, "task-get", "--account", ACCOUNT, "--list", LIST, "--task", "zz")) == {"found": False, "reason": "gone"}
+    assert "external_content" not in writer.read_task(dict(fake.tasks[LIST]["t1"])), "the flag is the verb's, added where the task is printed: a lookup after a lost answer reads the same function"
+
+
+def test_the_ids_have_one_cap_of_300_characters_in_the_writer_and_the_reader(fake, tmp_path, state):
+    longest = "a" * 300
+    fake.lists[longest], fake.tasks[longest] = "Long", {}
+    assert out(run(fake, tmp_path, state, *insert_args(tmp_path, lst=longest)))["done"] is True
+    for tool in (["task-insert", "--account", ACCOUNT, "--list", "b" * 301, "--spec-file", spec_file(tmp_path, {"title": "x"}), "--idempotency-key", "k2", "--dry-run"],
+                 ["task-get", "--account", ACCOUNT, "--list", LIST, "--task", "b" * 301]):
+        assert run(fake, tmp_path, state, *tool).returncode == 2
+    reader = importlib.util.spec_from_file_location("tasks_google_cap", REPO / "providers" / "tasks" / "google.py")
+    module = importlib.util.module_from_spec(reader)
+    reader.loader.exec_module(module)
+    assert module.LIST_ID.fullmatch(longest) and module.TASK_ID.fullmatch(longest) and not module.LIST_ID.fullmatch("a" * 301) and not module.TASK_ID.fullmatch("a" * 301)
+    assert writer._tasks.LIST_ID.fullmatch(longest) and writer._tasks.TASK_ID.fullmatch(longest) and not writer._tasks.LIST_ID.fullmatch("a" * 301)
+
+
+def test_the_patch_body_is_the_one_code_literal():
+    """Google documents `deleted` as writable, so the PATCH body must be the literal and nothing built from an argument or a spec."""
+    class Args:
+        account, list, task, base_etag, idempotency_key = ACCOUNT, LIST, "t1", '"E1"', KEY
+    built = writer.build("task-complete", Args())
+    assert built["body"] == {"status": "completed"} and built["method"] == "PATCH"
+    import re
+    code = re.sub(r'"""[\s\S]*?"""', "", WRITER.read_text(encoding="utf-8"))
+    assert code.count('"body": {"status": "completed"}') == 1 and "body\": {" not in code.split("def build(")[1].replace('"body": {"status": "completed"}', "").replace('"body": {"title": spec["title"]}', "")

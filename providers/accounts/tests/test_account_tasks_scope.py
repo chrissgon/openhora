@@ -297,3 +297,26 @@ def test_vacuity_a_check_that_accepted_any_subset_of_the_five_would_fail_the_exa
         return set(FOUR) <= google.scope_words(granted_words)
     assert planted(" ".join(FOUR) + " https://mail.google.com/", False) is True and accepted(" ".join(FOUR) + " https://mail.google.com/", tasks=False) is not None
     assert planted(" ".join(FOUR), True) is True and accepted(" ".join(FOUR), tasks=True) is not None
+
+
+# --- what the registry tells the person (providers/secrets/resolver.py, `--list`; contracts/secrets.md) --------------------------------------------
+
+
+def test_the_registry_text_of_the_two_account_tokens_names_the_tasks_scope_and_says_plainly_that_it_can_change_and_delete_tasks():
+    resolver = load(REPO / "providers" / "secrets" / "resolver.py", "resolver_for_the_registry_text_tests")      # reads the text; no secret is looked up
+    google_entry, microsoft_entry = resolver.REGISTRY["GOOGLE_ACCOUNT_TOKEN"], resolver.REGISTRY["MICROSOFT_ACCOUNT_TOKEN"]
+    assert TASKS in google_entry.permission and "exactly those five" in google_entry.permission and "exactly those four" not in google_entry.permission
+    assert "delete tasks at the service" in google_entry.permission and "never delete" in google_entry.permission and "Tasks readers" in google_entry.purpose
+    assert "Tasks.ReadWrite" in microsoft_entry.permission and "delete the person's tasks in Microsoft To Do" in microsoft_entry.permission and "never delete" in microsoft_entry.permission
+    assert "Microsoft To Do" in microsoft_entry.purpose
+    for entry, scripts in ((google_entry, ("providers/tasks/google.py", "providers/writer/google-tasks.py")), (microsoft_entry, ("providers/tasks/microsoft.py", "providers/writer/microsoft-todo.py"))):
+        for script in scripts:
+            assert script in entry.readers and (REPO / script).is_file(), script
+    table = (REPO / "contracts" / "secrets.md").read_text(encoding="utf-8")
+    assert "exactly those five" in table and "delete the person's tasks in Microsoft To Do" in table and "exactly those four" not in table
+
+
+def test_vacuity_the_old_registry_wording_would_fail_the_text_test():
+    """The oracle: the wording before CB-4 says four scopes and lists no tasks script, which the assertions above refuse."""
+    old = "OAuth scopes ... exactly those four (providers/accounts/google_auth.py)"
+    assert "exactly those five" not in old and "exactly those four" in old

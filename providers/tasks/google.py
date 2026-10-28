@@ -87,8 +87,8 @@ LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 ALLOWED = (("GET", r"/tasks/v1/users/@me/lists"),
            ("GET", r"/tasks/v1/lists/(?:@default|(?:[A-Za-z0-9_-]|%3D)+)/tasks"))
 LIST_LISTS, LIST_TASKS = ALLOWED
-LIST_ID = re.compile(r"(?!-)[A-Za-z0-9_=-]{1,200}")
-TASK_ID = re.compile(r"(?!-)[A-Za-z0-9_=-]{1,200}")
+LIST_ID = re.compile(r"(?!-)[A-Za-z0-9_=-]{1,300}")      # the same cap as the writers and the Microsoft reader: one value for an id
+TASK_ID = re.compile(r"(?!-)[A-Za-z0-9_=-]{1,300}")
 ETAG = re.compile(r"(?!-)[A-Za-z0-9_=+/.\"-]{1,200}")
 STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")
 MAX_LISTS, DEFAULT_MAX, MAX_TASKS = 100, 100, 100
@@ -209,7 +209,7 @@ def tasks_path(list_id: str) -> str:
 def list_arg(value) -> str:
     if value == "default" or (isinstance(value, str) and LIST_ID.fullmatch(value)):
         return value
-    raise ProviderError("--list is `default` or a task list id from `lists` (letters, digits, = _ and -)", EXIT_USAGE)
+    raise ProviderError("--list is `default` or a task list id from `lists` (letters, digits, = _ and -, at most 300 characters)", EXIT_USAGE)
 
 
 def cmd_check(args) -> int:

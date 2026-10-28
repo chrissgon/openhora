@@ -188,7 +188,7 @@ def cmd_lists(args) -> int:
 def list_arg(value) -> str:
     if value == "default" or (isinstance(value, str) and LIST_ID.fullmatch(value)):
         return value
-    raise ProviderError("--list is `default` or a task list id from `lists` (letters, digits, = _ and -)", EXIT_USAGE)
+    raise ProviderError("--list is `default` or a task list id from `lists` (letters, digits, = _ and -, at most 300 characters)", EXIT_USAGE)
 
 
 def task_of(item) -> dict | None:
