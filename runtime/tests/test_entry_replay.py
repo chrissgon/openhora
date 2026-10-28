@@ -8,13 +8,16 @@ changes who takes a line first (S41-2 and S41-3: one table of order, S41-8: one 
 called, the messages sent, the ledger records added, the drafts and plans left, the conversation rows stored, the jobs started, and the counts of model and provider calls. A difference
 fails with the scenario, the field and both values (the corpus is fictional data); it is never recorded again by the package that meets it. A change of the golden is a reviewed decision.
 
+OBSERVERS. This file replays the corpus with no observer attached, so that the golden is proved on code nothing wraps. The five properties that only observe (the claims, the two traces, the reads, the envelope) are
+checked in one more replay with all five installed, by test_entry_observed.py.
+
 NO CALLS. The model is the stand-in of entry_kit.StandInModel, the messenger and the calendar writer run in this process, and a provider process or a connection raises (see entry_kit.py).
 The replay asserts it: the number of model calls of every scenario is the golden's, and no provider was started.
 
 SENSITIVITY. A comparator that cannot see a change proves nothing, so the last tests change the order on purpose, in the test and nowhere else: a claimer that is disabled (it never takes
 a line) or two that swap places must change at least one scenario's outcome. They also say where the corpus does NOT see a change (a claimer no scenario depends on is reported).
 
-Run (the whole replay, the default: about 1,000 scenarios, in SHARDS tests that may run in parallel):
+Run (the whole replay, the default: about 1,000 scenarios, in SHARDS (8) tests that may run in parallel):
   uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n 4 runtime/tests/test_entry_replay.py
   WB_FULL_FUZZ=1 ...        every line of the sampled corpora is also replayed, with the invariants (no call, a trace) and not against a golden: runtime/README.md, "The entry replay"
 Record (once, on the unchanged tree): python3 runtime/tests/entry_corpus_build.py --record
@@ -51,7 +54,7 @@ ops_turn = st.load("ops_turn")
 turn_order = st.load("turn_order")
 KINDS = messaging_turn.KINDS      # S41-8: the claimers that answered what is open are the kinds of the row `frame`; a hook disables one by its `applies`
 
-SHARDS = 4
+SHARDS = 8
 RECORDING = os.environ.get("WB_ENTRY_RECORD") == "1"
 FULL = os.environ.get("WB_FULL_FUZZ") == "1"
 MAX_SHOWN = 12

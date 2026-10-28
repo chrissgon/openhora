@@ -11,6 +11,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_research_br
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -29,6 +30,7 @@ natural = st.load("natural")
 phrases = st.load("phrases")
 plan_confirm = st.load("plan_confirm")
 
+HELD = 120.0      # how long a held search waits to be released, and how long a test waits for it to begin: bounds against a hung test, never a timing of the scenario (the stop releases it)
 SENDER_KEY = "telegram:" + SENDER
 OTHER = "55119000000033"
 OTHER_KEY = f"telegram:{OTHER}"
@@ -54,6 +56,12 @@ class Search:
             return found
         monkeypatch.setattr(ops, "research_stop", stop)
 
+    def ack_soon(self):
+        """From here a line that runs longer than 0.2 s sends the research acknowledgement (the word that stops the search). The fixture sets it off (3600 s) while the question is asked: on a loaded
+        machine the line that asks the question outlasted 0.2 s, its acknowledgement send began, and it reached the chat AFTER the question, which was then not the last message, so the yes was
+        answered "to confirm, reply yes" and no search began (FLAKY-RESEARCH-PRESTATE-2 found the same in the entry kit). The yes is the line the acknowledgement is for."""
+        self.monkeypatch.setattr(ack, "ACK_DELAY", 0.2)
+
     def arm(self):
         """From here the stand-in run blocks until it is stopped (a router's run made before this is made by the stand-in of the world)."""
         started, release = self.started, self.release
@@ -61,7 +69,7 @@ class Search:
         class Run(FakeRun):
             def __call__(self, *args, **kwargs):
                 started.set()
-                release.wait(WAIT)      # a deadline: no wait of a test is unbounded
+                release.wait(HELD)      # a deadline: no wait of a test is unbounded; the bound of WAIT was reached on a loaded machine and the search answered before the stop
                 return super().__call__(*args, **kwargs)
 
         self.monkeypatch.setattr(lab, "run_skill", Run())
@@ -73,7 +81,7 @@ def brig(research, tmp_path, monkeypatch):
     """The research world with three listed senders (the asker, one with no search, one with a search of their own) and the bridge for it."""
     accept(research["path"], policies=PROFILES, messaging={"senders": SENDERS}, language="pt-BR")
     ops_interpret.forget_all()
-    monkeypatch.setattr(ack, "ACK_DELAY", 0.2)      # the acknowledgement of a slow line, soon
+    monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)      # no line is acknowledged until the test says so (`Search.ack_soon`, before the yes that starts the search)
     b = build(research, tmp_path, monkeypatch)
     b.search = Search(monkeypatch)
     yield b
@@ -85,8 +93,9 @@ def start_search(b):
     """The asker asks for a search in words, says "sim" to the question, and the stand-in search begins; the acknowledgement that names the stop word is sent after ACK_DELAY."""
     b.search.arm()
     b.ask(LINE_1, sender=ASKER)
+    b.search.ack_soon()
     b.say("sim", sender=ASKER)
-    assert b.search.started.wait(WAIT), "the search began after the OK"
+    assert b.search.started.wait(HELD), "the search began after the OK"
     assert wait_for(lambda: t("ACK_RESEARCH") in b.texts(ASKER)), "the acknowledgement was sent"
 
 
@@ -122,7 +131,7 @@ def test_a_yes_that_follows_the_kit_ask_starts_the_search_even_when_the_job_that
     brig.search.arm()
     brig.ask(LINE_1, sender=ASKER)
     brig.say("sim", sender=ASKER)
-    assert brig.search.started.wait(WAIT), "the search began after the OK"
+    assert brig.search.started.wait(HELD), "the search began after the OK"
     assert t("STILL_WORKING") not in brig.texts(ASKER)
 
 
@@ -135,6 +144,43 @@ def test_vacuity_a_yes_sent_the_moment_the_question_is_bound_is_refused_as_still
     brig.say("sim", sender=ASKER)
     assert wait_for(lambda: t("STILL_WORKING") in brig.texts(ASKER)), "the yes met the job that had not ended"
     assert not brig.search.started.wait(1)
+
+
+def slow_acknowledgement(monkeypatch):
+    """A loaded machine, made deterministic: the call that answers the first line (the question's) takes 0.3 s, longer than a 0.2 s acknowledgement delay, and an acknowledgement takes 0.5 s to send."""
+    real_run, real_ack, said = bridge.Bridge.run_op, bridge.Bridge.acknowledge, []
+
+    def run_op(self, project, op, *args, **kwargs):
+        if op == "say" and not said:
+            said.append(True)
+            time.sleep(0.3)
+        return real_run(self, project, op, *args, **kwargs)
+
+    def acknowledge(self, project, chat, stage):
+        time.sleep(0.5)
+        return real_ack(self, project, chat, stage)
+    monkeypatch.setattr(bridge.Bridge, "run_op", run_op)
+    monkeypatch.setattr(bridge.Bridge, "acknowledge", acknowledge)
+
+
+def test_an_acknowledgement_that_is_slow_to_send_does_not_keep_the_yes_from_starting_the_search(brig, monkeypatch):
+    """The line that asks the question is never acknowledged, so a slow line and a slow send cannot put an acknowledgement after the question: the yes is the question's answer, the search begins and
+    names the stop word."""
+    slow_acknowledgement(monkeypatch)
+    start_search(brig)
+    assert t("ACK_GENERIC") not in brig.texts(ASKER) and brig.texts(ASKER).count(t("ACK_RESEARCH")) == 1
+
+
+def test_vacuity_an_acknowledgement_asked_for_before_the_question_lands_after_it_and_the_yes_starts_no_search(brig, monkeypatch):
+    """The sensitivity of the test above: the same slowness with the acknowledgement delay of 0.2 s from the first line (what the fixture did) puts an acknowledgement in the chat after the question; the
+    yes that comes after it (on a loaded machine, the person's reply always does) is not the answer to the last message, and no search begins."""
+    slow_acknowledgement(monkeypatch)
+    brig.search.arm()
+    brig.search.ack_soon()
+    brig.ask(LINE_1, sender=ASKER)
+    assert wait_for(lambda: t("ACK_GENERIC") in brig.texts(ASKER)), "the acknowledgement of the slow line reached the chat after the question"
+    brig.say("sim", sender=ASKER)
+    assert not brig.search.started.wait(2), "the yes met an acknowledgement as the last message"
 
 
 # --- the stop word -------------------------------------------------------------------------------------------------------------------------------
@@ -176,8 +222,9 @@ def test_a_stop_word_replying_to_nothing_the_bridge_sent_does_not_stop_a_search_
     brig.search.arm()
     brig.ask(LINE_1, sender=ASKER)
     question = brig.question_id(ASKER)
+    brig.search.ack_soon()
     brig.say("sim", sender=ASKER, reply_to=question)
-    assert brig.search.started.wait(WAIT) and wait_for(lambda: t("ACK_RESEARCH") in brig.texts(ASKER))
+    assert brig.search.started.wait(HELD) and wait_for(lambda: t("ACK_RESEARCH") in brig.texts(ASKER))
     brig.say("pare", sender=ASKER)      # not a reply
     brig.say("pare", sender=ASKER, reply_to="999999")      # a reply to a message this bridge never sent
     assert brig.search.stops == [] and not brig.search.release.is_set()
