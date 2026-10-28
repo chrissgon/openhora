@@ -27,6 +27,10 @@ Checks every skill under skills/ and every agent under agents/:
   - copies: every adopted copy listed in shared/scripts/copies.json is byte-identical to its source, and the
     manifest itself is valid (scripts/sync_copies.py --check; fix: change the source, then run
     python3 scripts/sync_copies.py). A generated copy is never edited by hand
+  - decision-files: every file of docs/decisions/ other than README.md is named
+    YYYY-MM-DD-<package-id>-<slug>.md (lower case, digits and hyphens) and its first line is `## <the same
+    date>: <title>`. An error, one line per file. The folder holds one decision entry per file from
+    2026-10-27 on; docs/decisions.md is closed
   - adapter-billing: every entry of the "secrets" list of adapters/<harness>/adapter.json has "billing", one of
     subscription, metered or free (how the credential is billed: the daily caps of the runtime count runs for the
     first and the last and dollars for metered); the optional "login_billing" of a manifest is one of the three; one
@@ -1458,6 +1462,32 @@ def check_harness_names(report, root=None):
                 report.error(f"{rel}:{ln}", f"[{HARNESS_RULE}] core file references a harness: {m.group(0)!r}")
 
 
+DECISION_FILE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
+
+
+def check_decision_files(report, root=ROOT):
+    """[decision-files]: each file of docs/decisions/ other than README.md is named YYYY-MM-DD-<slug>.md and its first line
+    is `## <that date>: `. Each failure is an error. A tree without the folder has nothing to check."""
+    folder = os.path.join(root, "docs", "decisions")
+    if not os.path.isdir(folder):
+        return
+    for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name)
+        if name == "README.md" or not os.path.isfile(path):
+            continue
+        where = f"docs/decisions/{name}"
+        m = DECISION_FILE_RE.match(name)
+        if not m:
+            report.error(where, "[decision-files] the name is not YYYY-MM-DD-<package-id>-<slug>.md "
+                         "(lower case letters, digits and hyphens): see docs/decisions/README.md")
+            continue
+        with open(path, encoding="utf-8", errors="replace") as f:
+            first = f.readline().rstrip("\r\n")
+        if not first.startswith(f"## {m.group(1)}: "):
+            report.error(f"{where}:1", f"[decision-files] the first line must start with '## {m.group(1)}: ' "
+                         "(the date of the file name, then the title)")
+
+
 def load_scanner():
     # Beside this file, whatever tree is being validated.
     spec = importlib.util.spec_from_file_location(
@@ -1905,6 +1935,7 @@ def main(argv):
     check_copies(report)
     check_test_names(report)
     check_harness_names(report)
+    check_decision_files(report)
     check_english(report)
     check_private_terms(report)
     check_eval_status(report)
