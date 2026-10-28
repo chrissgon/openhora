@@ -234,7 +234,8 @@ def test_an_instance_whose_master_is_gone_reads_as_other(fake, tmp_path, state):
 def test_the_dry_run_of_a_series_cancel_prints_exactly_one_delete_of_the_master_and_sends_nothing(fake, tmp_path, state):
     master, _ = a_series(fake)
     shown = out(run(fake, tmp_path, state, *delete_args(master["etag"], mode="--dry-run")))
-    assert shown["would"] == {"method": "DELETE", "path": f"{EVENTS}/ser0001", "query": {"sendUpdates": "none"}, "headers": {"If-Match": master["etag"]}, "body": None}
+    assert shown["would"] == {"method": "DELETE", "path": f"{EVENTS}/ser0001", "query": {"sendUpdates": "none"}, "headers": {"If-Match": master["etag"]}, "body": None,
+                              "verb": "event-delete", "guard": {"series": True}}
     assert fake.requests == [] and "ser0001" in fake.events
 
 
@@ -519,3 +520,73 @@ def test_vacuity_the_rrule_oracle_catches_an_end_an_interval_and_a_month_day():
     assert forbidden_in_rrule({"recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20991231T000000Z", "RRULE:FREQ=DAILY;INTERVAL=2;BYMONTHDAY=3"]}) == \
         ["UNTIL=20991231T000000Z", "INTERVAL=2", "BYMONTHDAY=3"]
     assert forbidden_in_rrule({"recurrence": [WEEKLY_RULE]}) == [] and re.fullmatch(r"RRULE:FREQ=(DAILY|WEEKLY;BYDAY=(MO|TU|WE|TH|FR|SA|SU))", WEEKLY_RULE)
+
+
+# --- review round: a plain removal is of no series, the guard flags are in the hash, build() has no fallthrough -------------------------------------------------------
+
+
+def test_a_plain_removal_of_a_master_or_an_instance_is_refused_with_nothing_sent_but_the_read(fake, tmp_path, state):
+    master, instances = a_series(fake)
+    for event, etag, key in (("ser0001", master["etag"], KEY), ("ser0001_1", instances[1]["etag"], KEY + "b")):
+        refused(fake, tmp_path, state, delete_args(etag, event=event, key=key, series=False), "not eligible:")
+        assert [m for m, _ in sent(fake)] == ["GET"] * len(sent(fake)) and sent(fake)
+        fake.requests.clear()
+    assert set(fake.events) >= {"ser0001", "ser0001_0", "ser0001_1", "ser0001_2"}
+
+
+def test_vacuity_a_plain_removal_of_a_plain_event_still_sends_its_one_delete_after_one_read(fake, tmp_path, state):      # the refusals above are not a guard that refuses everything
+    plain = fake.add_event("plain0001", "Dentist", {"dateTime": START}, {"dateTime": END})
+    out(run(fake, tmp_path, state, *delete_args(plain["etag"], event="plain0001", series=False)))
+    assert sent(fake) == [("GET", f"{EVENTS}/plain0001"), ("DELETE", f"{EVENTS}/plain0001")] and "plain0001" in fake.removed
+
+
+def test_a_plain_removal_of_a_gone_event_is_refused_as_changed(fake, tmp_path, state):
+    refused(fake, tmp_path, state, delete_args('"1"', event="plain9999", series=False), "changed:")
+
+
+def dry_hash(fake, tmp_path, state, args):
+    return out(run(fake, tmp_path, state, *args))["would_sha256"]
+
+
+def test_the_hash_covers_the_verb_and_the_guard_flags_not_only_the_request(fake, tmp_path, state):
+    etag = '"1"'
+    plain = dry_hash(fake, tmp_path, state, delete_args(etag, mode="--dry-run", series=False))
+    series = dry_hash(fake, tmp_path, state, delete_args(etag, mode="--dry-run", series=True))
+    assert plain != series      # the same DELETE of the same id: one is a plain removal, the other cancels a series
+    base = cancel_args(etag, mode="--dry-run")
+    same = dry_hash(fake, tmp_path, state, base)
+    assert dry_hash(fake, tmp_path, state, base) == same      # vacuity: the same flags, the same hash
+    other_series = base[:base.index("--series") + 1] + ["ser0002"] + base[base.index("--series") + 2:]
+    other_start = base[:base.index("--expect-start") + 1] + ["2099-03-16T07:00:00-03:00"] + base[base.index("--expect-start") + 2:]
+    assert len({same, dry_hash(fake, tmp_path, state, other_series), dry_hash(fake, tmp_path, state, other_start)}) == 3
+    would = out(run(fake, tmp_path, state, *base))["would"]
+    assert would["verb"] == "event-cancel-occurrence" and would["guard"] == {"series": "ser0001", "expect_start": "2099-03-09T07:00:00-03:00"}
+
+
+def test_a_confirmed_run_with_other_guard_flags_than_the_preview_is_another_request_for_the_ledger(fake, tmp_path, state):
+    _, instances = a_series(fake)
+    etag = instances[1]["etag"]
+    preview = dry_hash(fake, tmp_path, state, cancel_args(etag, mode="--dry-run"))
+    swapped = cancel_args(etag, series="ser0002")
+    proc = run(fake, tmp_path, state, *swapped[:-1], "--dry-run")
+    assert out(proc)["would_sha256"] != preview
+    out(run(fake, tmp_path, state, *cancel_args(etag)))      # the key is now done for the preview's request ...
+    again = run(fake, tmp_path, state, *swapped)              # ... and the same key with other guard flags is another request, exit 2, nothing sent
+    assert again.returncode == 2 and "used for another request" in again.stderr
+
+
+def test_build_sends_no_request_for_a_verb_it_does_not_build_and_never_falls_back_to_the_delete(fake, tmp_path):
+    import argparse
+    writer = load_writer()
+    args = argparse.Namespace(calendar=fgw.CALENDAR, idempotency_key=KEY, event="ser0001", base_etag='"1"', series=None, expect_start=None, spec_file=None)
+    for verb in ("event-instances", "event-get", "event-drop", "", None):
+        with pytest.raises(writer.ProviderError) as why:
+            writer.build(verb, args)
+        assert why.value.code == 2, verb
+    assert writer.build("event-delete", args)["method"] == "DELETE"      # vacuity: the one verb that builds the DELETE does
+
+
+def test_the_master_clause_of_the_occurrence_guard_a_master_is_never_an_occurrence_even_if_it_names_itself_as_its_series(fake, tmp_path, state):
+    master = fake.add_event("ser0001", "Gym", {"dateTime": START}, {"dateTime": END}, recurrence=[WEEKLY_RULE], recurringEventId="ser0001")
+    refused(fake, tmp_path, state, cancel_args(master["etag"], event="ser0001", series="ser0001", start=START), "not an occurrence of that series")
+    assert fake.events["ser0001"]["status"] == "confirmed"

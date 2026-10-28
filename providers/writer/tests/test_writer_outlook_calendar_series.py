@@ -262,7 +262,8 @@ def test_an_occurrence_whose_master_is_gone_reads_as_other(fake, tmp_path, state
 def test_the_dry_run_of_a_series_cancel_prints_exactly_one_post_of_cancel_on_the_masters_id_with_an_empty_body(fake, tmp_path, state):
     master, _ = a_series(fake)
     shown = out(run(fake, tmp_path, state, *series_args(master["changeKey"], mode="--dry-run")))
-    assert shown["would"] == {"method": "POST", "path": f"/me/calendar/events/{MASTER.replace('=', '%3D')}/cancel", "query": {}, "headers": {}, "body": {}}
+    assert shown["would"] == {"method": "POST", "path": f"/me/calendar/events/{MASTER.replace('=', '%3D')}/cancel", "query": {}, "headers": {}, "body": {},
+                              "verb": "event-cancel-series", "guard": {}}
     assert fake.requests == [] and MASTER in fake.events
 
 
@@ -400,7 +401,8 @@ def test_event_instances_needs_its_flags_and_is_a_read(fake, tmp_path, state):
 def test_the_dry_run_of_an_occurrence_cancel_prints_one_cancel_post_on_the_occurrences_id_and_never_the_masters(fake, tmp_path, state):
     _, occurrences = a_series(fake)
     would = out(run(fake, tmp_path, state, *occurrence_args(occurrences[1]["changeKey"], mode="--dry-run")))["would"]
-    assert would == {"method": "POST", "path": f"/me/calendar/events/{OCC[1].replace('=', '%3D')}/cancel", "query": {}, "headers": {}, "body": {}}
+    assert would == {"method": "POST", "path": f"/me/calendar/events/{OCC[1].replace('=', '%3D')}/cancel", "query": {}, "headers": {}, "body": {},
+                     "verb": "event-cancel-occurrence", "guard": {"series": MASTER, "expect_start": FUTURE_START}}
     assert fake.requests == [] and "Occ1" in would["path"]
 
 
@@ -576,3 +578,50 @@ def test_vacuity_a_planted_delete_or_a_comment_would_be_caught_by_the_oracles_ab
     planted = [("DEL" + "ETE", f"{EVENTS}/{MASTER}")]
     assert [m for m, _ in planted if m == "DEL" + "ETE"] == ["DEL" + "ETE"]      # the oracle `no DELETE in sent(fake)` is not blind to one
     assert {"comment": "x"} != {} and not {}      # and `body == {}` fails on a body that holds a comment
+
+
+# --- review round: the guard flags are in the hash, build() has no fallthrough, the type clause of the occurrence guard ------------------------------------------------
+
+
+def dry_hash(fake, tmp_path, state, args):
+    return out(run(fake, tmp_path, state, *args))["would_sha256"]
+
+
+def test_the_hash_covers_the_verb_and_the_guard_flags_not_only_the_request(fake, tmp_path, state):
+    key = "CQAAAB"
+    series = dry_hash(fake, tmp_path, state, series_args(key, event=OCC[1], mode="--dry-run"))
+    occurrence = dry_hash(fake, tmp_path, state, occurrence_args(key, mode="--dry-run"))
+    assert series != occurrence      # the same cancel POST on the same id: one is a series cancel, the other an occurrence's
+    base = occurrence_args(key, mode="--dry-run")
+    assert dry_hash(fake, tmp_path, state, base) == occurrence      # vacuity: the same flags, the same hash
+    other_series = base[:base.index("--series") + 1] + ["AAMkSeries0002="] + base[base.index("--series") + 2:]
+    other_start = base[:base.index("--expect-start") + 1] + ["2099-03-16T10:00:00Z"] + base[base.index("--expect-start") + 2:]
+    assert len({occurrence, dry_hash(fake, tmp_path, state, other_series), dry_hash(fake, tmp_path, state, other_start)}) == 3
+
+
+def test_a_confirmed_run_with_other_guard_flags_than_the_preview_is_another_request_for_the_ledger(fake, tmp_path, state):
+    _, occurrences = a_series(fake)
+    key = occurrences[1]["changeKey"]
+    swapped = occurrence_args(key, start="2099-03-16T10:00:00Z")
+    assert dry_hash(fake, tmp_path, state, swapped[:-1] + ["--dry-run"]) != dry_hash(fake, tmp_path, state, occurrence_args(key, mode="--dry-run"))
+    out(run(fake, tmp_path, state, *occurrence_args(key)))
+    again = run(fake, tmp_path, state, *swapped)
+    assert again.returncode == 2 and "used for another request" in again.stderr
+
+
+def test_build_sends_no_request_for_a_verb_it_does_not_build_and_never_falls_back_to_the_delete(fake, tmp_path):
+    import argparse
+    writer = load_writer()
+    args = argparse.Namespace(calendar="default", idempotency_key=KEY, event=MASTER, base_etag="CQAAAB", series=None, expect_start=None, spec_file=None, time_zone=None)
+    for verb in ("event-instances", "event-get", "event-drop", "", None):
+        with pytest.raises(writer.WriterError) as why:
+            writer.build(verb, args)
+        assert why.value.code == 2, verb
+    assert writer.build("event-delete", args)["method"] == "DEL" + "ETE"      # vacuity: the one verb that builds the DELETE does
+
+
+def test_the_type_clause_of_the_occurrence_guard_a_master_is_never_an_occurrence_even_if_it_names_itself_as_its_series(fake, tmp_path, state):
+    master, _ = a_series(fake)
+    master["seriesMasterId"] = MASTER
+    refused(fake, tmp_path, state, occurrence_args(master["changeKey"], event=MASTER, series=MASTER, start="2099-03-02T10:00:00Z"), "not an occurrence of that series")
+    assert MASTER in fake.events and fake.cancelled == []

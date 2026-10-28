@@ -50,7 +50,7 @@ Usage:
   event-delete   removes the event, only if it is still at `--base-etag`: it is expected to go to the calendar's trash (to verify live). {"done": true, "replayed", "event_id"}.
                  With `--series` the event is a series master and the whole series is cancelled with that one DELETE (the master's id; the request is the same): the writer reads the
                  master right before and refuses (exit 1, nothing sent) a base that moved (`changed:`), an event that is no series master, a series whose rule is `other`, a series the
-                 person does not organise and a series with another attendee (`not eligible:`). A series is never partly cancelled. Without `--series` the verb is as it always was.
+                 person does not organise and a series with another attendee (`not eligible:`). A series is never partly cancelled. Without `--series` the verb reads the event right before and refuses (exit 1, `not eligible:`, nothing sent) one that is part of a series (a master or an instance), and one that is gone (`changed:`); the one DELETE is otherwise as it always was.
   event-instances  reads the instances of a series in a window of at most two days (`--from`, `--to`: an instant with its offset): GET .../events/{master}/instances with `timeMin`,
                  `timeMax`, `showDeleted=false`, `maxResults=10`. {"instances": [{"id", "etag", "start", "end", "status", "original_start"}]}: no title, no attendee. A read: it takes neither
                  --dry-run nor --confirmed.
@@ -403,14 +403,23 @@ def build(verb: str, args) -> dict:
         series_id(args.series), expect_start(args.expect_start)
         entry, path, headers = PATCH, events_path(calendar, event_id(args.event)), {"If-Match": base_etag(args.base_etag)}
         body = {"status": "cancelled", "extendedProperties": {"private": {KEY_PROPERTY: key}}}      # nothing else can be in the body: no title, no time, no attendee
-    else:
+    elif verb == "event-delete":      # the one DELETE: a verb of its own, never the fallthrough of another
         entry, path, headers, body = REMOVE, events_path(calendar, event_id(args.event)), {"If-Match": base_etag(args.base_etag)}, None
+    else:
+        raise ProviderError(f"this writer has no request for the verb {verb}", EXIT_USAGE)
+    guard = {}      # the flags that decide which checks run before the request: part of what the person approves, so part of the hash
+    if verb == "event-delete" and args.series:
+        guard = {"series": True}
+    elif verb == "event-cancel-occurrence":
+        guard = {"series": args.series, "expect_start": args.expect_start}
     return {"entry": entry, "method": entry[0], "path": path, "query": {"sendUpdates": "none", "fields": RESULT_FIELDS} if verb != "event-delete"
-            else {"sendUpdates": "none"}, "headers": headers, "body": body}
+            else {"sendUpdates": "none"}, "headers": headers, "body": body, "verb": verb, "guard": guard}
 
 
 def would_of(built: dict) -> dict:
-    return {k: built[k] for k in ("method", "path", "query", "headers", "body")}
+    """What a dry run prints and hashes: the request, and the verb and the guard flags that decide which checks run before it (a different verb on the same id, or other
+    flags, is another preview)."""
+    return {k: built[k] for k in ("method", "path", "query", "headers", "body", "verb", "guard")}
 
 
 # --- the event as a service printed it -----------------------------------------------------------------------------------------
@@ -573,6 +582,16 @@ def not_eligible(shown: dict, rule: str | None, what: str):
     return None
 
 
+def guard_plain_delete(base: str, token: str, args) -> None:
+    """Right before the DELETE of a plain `event-delete`: the event is still there and is no part of a series (a master or an instance has its own verbs, which read
+    the series first); the DELETE of a series' id is never reached from here."""
+    item = fetch_event(base, token, calendar_id(args.calendar), event_id(args.event))
+    if item is None:
+        raise ProviderError("changed: the event is not as it was read (it is gone)", EXIT_REFUSED)
+    if item.get("recurrence") or item.get("recurringEventId"):
+        raise ProviderError("not eligible: the event is part of a series; a series is cancelled with event-delete --series and an occurrence with event-cancel-occurrence; nothing was removed", EXIT_REFUSED)
+
+
 def guard_series(base: str, token: str, args) -> None:
     """Right before the DELETE of `event-delete --series`: the master is still at the base, is a master and is a plain series of the person's alone."""
     calendar = calendar_id(args.calendar)
@@ -654,6 +673,8 @@ def write(verb: str, args) -> int:
     try:
         if verb == "event-delete" and args.series:      # a series is cancelled only after the master is read again and found a plain series of the person's alone
             guard_series(base, token, args)
+        elif verb == "event-delete":      # a plain removal is of an event that is no part of a series
+            guard_plain_delete(base, token, args)
         elif verb == "event-cancel-occurrence":
             guard_occurrence(base, token, args)
         status, body, retry = request(built["entry"], base, token, built["path"], built["query"], built["headers"], built["body"], sent_on_error=True)

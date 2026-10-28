@@ -413,14 +413,19 @@ def build(verb: str, args) -> dict:
             series_id(args.series), expect_start(args.expect_start)
         # the body is an empty object: the action takes an optional `comment` for the attendees, and none is ever sent (no attendee is ever told)
         entry, path, body = CANCEL_DEFAULT if calendar == "default" else CANCEL_IN, cancel_path(calendar, event_id(args.event)), {}
-    else:
+    elif verb == "event-delete":      # the DELETE of an event of the person's alone: a verb of its own, never the fallthrough of another
         base_etag(args.base_etag)
         entry, path, body = REMOVE_DEFAULT if calendar == "default" else REMOVE_IN, events_path(calendar, event_id(args.event)), None
-    return {"entry": entry, "method": entry[0], "path": path, "query": {}, "headers": {}, "body": body}
+    else:
+        raise WriterError(f"this writer has no request for the verb {verb}", EXIT_USAGE)
+    guard = {"series": args.series, "expect_start": args.expect_start} if verb == "event-cancel-occurrence" else {}      # the flags that decide which checks run before the request: part of the hash
+    return {"entry": entry, "method": entry[0], "path": path, "query": {}, "headers": {}, "body": body, "verb": verb, "guard": guard}
 
 
 def would_of(built: dict) -> dict:
-    return {k: built[k] for k in ("method", "path", "query", "headers", "body")}
+    """What a dry run prints and hashes: the request, and the verb and the guard flags that decide which checks run before it (a different verb on the same id, or other
+    flags, is another preview)."""
+    return {k: built[k] for k in ("method", "path", "query", "headers", "body", "verb", "guard")}
 
 
 # --- the event as Graph printed it ---------------------------------------------------------------------------------------------

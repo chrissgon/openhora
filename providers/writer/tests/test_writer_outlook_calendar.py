@@ -126,7 +126,9 @@ def test_the_dry_run_reads_no_credential_opens_no_connection_and_prints_the_requ
     assert fake.requests == [] and fake.token_forms == [] and shown["dry_run"] is True and shown["ledger"] == "absent"
     out(run(fake, tmp_path, state, *create_args(tmp_path)))
     [(method, path, query, body)] = calls(fake)
-    assert {"method": method, "path": path[len("/v1.0"):], "query": query, "headers": {}, "body": body} == shown["would"]
+    would = shown["would"]
+    assert {"method": method, "path": path[len("/v1.0"):], "query": query, "headers": {}, "body": body} == {k: would[k] for k in ("method", "path", "query", "headers", "body")}
+    assert would["verb"] == "event-create" and would["guard"] == {}      # CB-6: the verb and the guard flags are part of what is hashed
 
 
 def test_a_done_key_is_not_sent_again(fake, tmp_path, state):
@@ -275,10 +277,11 @@ def test_the_dry_run_of_a_removal_reads_no_credential_opens_no_connection_and_pr
     base = an_event(fake)["changeKey"]
     shown = out(run(fake, tmp_path, state, *delete_args(base, mode="--dry-run"), env=bare))
     assert fake.requests == [] and fake.token_forms == [] and shown["dry_run"] is True and shown["ledger"] == "absent"
-    assert shown["would"] == {"method": REMOVAL, "path": "/me/calendar/events/AAMkEvent9999%3D", "query": {}, "headers": {}, "body": None}
+    assert shown["would"] == {"method": REMOVAL, "path": "/me/calendar/events/AAMkEvent9999%3D", "query": {}, "headers": {}, "body": None, "verb": "event-delete", "guard": {}}
     out(run(fake, tmp_path, state, *delete_args(base)))
     [(method, path, query, body)] = [c for c in calls(fake) if c[0] == REMOVAL]
-    assert {"method": method, "path": path[len("/v1.0"):], "query": query, "headers": {}, "body": body} == {**shown["would"], "path": urllib.parse.unquote(shown["would"]["path"])}
+    assert {"method": method, "path": path[len("/v1.0"):], "query": query, "headers": {}, "body": body} == {**{k: shown["would"][k] for k in ("method", "query", "headers", "body")},
+                                                                                                         "path": urllib.parse.unquote(shown["would"]["path"])}
     assert fake.graph_requests()[-1]["raw_path"] == "/v1.0" + shown["would"]["path"]      # on the wire it is the percent-encoded path the dry run printed
 
 
