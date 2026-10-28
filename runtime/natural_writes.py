@@ -307,7 +307,7 @@ def _negated_before(norm: str, at: int, negators: list, articles: list) -> bool:
     return False
 
 
-def _named(shaped: "Line", phrases: list, tables: list) -> tuple:
+def _nouns_named(shaped: "Line", phrases: list, tables: list) -> tuple:
     """(plain, negated): the places, in the folded line, where a phrase of `phrases` stands as whole words, split by whether a negator (`requests.writes.negators`: "not", "nao", "sem", "em vez de") reaches
     it. A hit is negated when the text right before it is a negator phrase followed only by single spaces and articles ("not the calendar", "nao a agenda"); a mark in between ("nao, a agenda") or a
     word that is no article leaves it plain. Both lists are in line order."""
@@ -320,8 +320,8 @@ def _named(shaped: "Line", phrases: list, tables: list) -> tuple:
 
 def _items_nouns(shaped: "Line", tables: list) -> tuple:
     """((calendar plain, calendar negated), (mail plain, mail negated)): the hits of the calendar nouns (singular and plural) and of the mail nouns in one line."""
-    calendar = _named(shaped, listed(tables, "calendar", "nouns") + listed(tables, "calendar", "nouns_plural"), tables)
-    return calendar, _named(shaped, listed(tables, "mail", "nouns"), tables)
+    calendar = _nouns_named(shaped, listed(tables, "calendar", "nouns") + listed(tables, "calendar", "nouns_plural"), tables)
+    return calendar, _nouns_named(shaped, listed(tables, "mail", "nouns"), tables)
 
 
 def items_kind(line, languages=None) -> str:

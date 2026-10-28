@@ -1,4 +1,4 @@
-"""A negated noun does not choose the kind of a list (package ITEMS-NEGATION; runtime/natural_writes.py `items_kind`, `items_noun`, `_named`, `requests.writes.negators`).
+"""A negated noun does not choose the kind of a list (package ITEMS-NEGATION; runtime/natural_writes.py `items_kind`, `items_noun`, `_nouns_named`, `requests.writes.negators`).
 
 The live case (2026-10-26): "mostra minha agenda" -> "Posso?" -> "I meant my unread emails, not the calendar". Both readings of the kind of a list took any calendar noun for the calendar, so the
 corrected plan equalled the old one and was dropped (`PLAN_DROPPED`): safe, nothing ran, but the person got no new "Posso?". Now a calendar or mail noun that a negator reaches ("not the calendar",
@@ -65,7 +65,7 @@ def test_the_two_exclusions_are_pinned_no_is_no_negator_in_any_table_and_menos_i
 def test_named_splits_the_hits_of_a_phrase_by_the_negator_that_reaches_them():
     tables = natural_writes._tables(None)
     line = natural_writes.Line("emails, not the calendar, and my calendar, sem agenda, nao, agenda")
-    plain, negated = natural_writes._named(line, ["calendar", "agenda"], tables)
+    plain, negated = natural_writes._nouns_named(line, ["calendar", "agenda"], tables)
     folded = line.norm
     assert [folded[s:e] for s, e in negated] == ["calendar", "agenda"]
     assert [folded[s:e] for s, e in plain] == ["calendar", "agenda"]
